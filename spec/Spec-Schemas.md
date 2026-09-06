@@ -378,23 +378,22 @@ The interceptor chain is the reserved `:interceptors` key — the superset middl
 > **Owner:** [006-ReactiveSubstrate §Layer-1, layer-2, layer-3 sub semantics](006-ReactiveSubstrate.md#layer-1-layer-2-layer-3-sub-semantics)
 > **Status:** v1-required
 
-The metadata map accepted by `reg-sub`. The `:<-` chain is **not** a metadata-map key — it is the alternating-keyword/query-vector positional arg between the metadata-map and the body fn (per [006 §Layer-1, layer-2, layer-3 sub semantics](006-ReactiveSubstrate.md#layer-1-layer-2-layer-3-sub-semantics)). Tools recover the input topology from the runtime-stamped `:rf/inputs` slot below.
+The metadata map accepted by `reg-sub`. `:inputs` is where a subscription DECLARES its dependencies — the same slot `reg-flow` uses — as either a literal vector of query vectors or a producer fn of the outer `query-v` (per [006 §Subscription input producers](006-ReactiveSubstrate.md#subscription-input-producers--app-db-reader-static-parametric-input-fn)). Omitting it is a layer-1 `app-db` reader.
 
 ```clojure
 (def SubMeta
   [:merge
    RegistrationMetadata
    [:map
-    [:rf/inputs    {:optional true} [:vector [:vector :any]]]                ;; runtime-stamped: the resolved :<- chain as a vector of query-vectors
-    [:rf/layer     {:optional true} [:enum :layer-1 :layer-2+]]              ;; runtime-stamped: derived from :rf/inputs at registration time
+    [:inputs       {:optional true} [:or [:vector [:vector :any]] fn?]]      ;; the DEPENDENCY DECLARATION: a literal vector of query-vectors, or a producer fn of the outer query-v
     [:sensitive    {:optional true} [:vector [:vector :any]]]                ;; registration-owned sub-OUTPUT sensitive sub-paths ([[]] = whole); EP-0025 transient classification
     [:large        {:optional true} [:vector [:vector :any]]]                ;; registration-owned sub-OUTPUT large sub-paths ([[]] = whole)
     ]])
 ```
 
-`:rf/inputs` and `:rf/layer` are stamped by the runtime at registration time from the `:<-` positional args — user code MUST NOT set them.
+`:inputs` is the ONE user-written key. The registrar LIFTS it into the runtime-owned slots `:input-kind` (`:db` / `:static` / `:parametric`), `:input-signals` (the literal query vectors) and `:input-fn` (the producer) — which is where every tool reads it — and does not store `:inputs` a second time on the registration. Those three slots are runtime-owned: user code MUST NOT set them, and a metadata map that does is overridden. A literal `:inputs` is shape-checked at registration (`:rf.error/reg-sub-bad-args`); an explicit `nil` is refused, since `nil` is not "absent".
 
-`:sensitive` / `:large` are the registration-owned classification of the sub's **own output** sub-paths ([015 §Registration-owned transient classification](015-Data-Classification.md#registration-owned-transient-classification)) — each a vector of `:rf/path` vectors into the output shape (`[[]]` marks the whole output); a malformed value is rejected at registration with `:rf.error/bad-classification`. **Derived-output sensitivity does not propagate**: a sub does not inherit its inputs' classification, and there is no `:rf.egress/output-sensitivity` declassification claim (a sensitive derived value is just a classified output path — classify it). Static topology queries (`sub-topology`, per [006](006-ReactiveSubstrate.md)) read `:rf/inputs` back to project the `:<-` graph.
+`:sensitive` / `:large` are the registration-owned classification of the sub's **own output** sub-paths ([015 §Registration-owned transient classification](015-Data-Classification.md#registration-owned-transient-classification)) — each a vector of `:rf/path` vectors into the output shape (`[[]]` marks the whole output); a malformed value is rejected at registration with `:rf.error/bad-classification`. **Derived-output sensitivity does not propagate**: a sub does not inherit its inputs' classification, and there is no `:rf.egress/output-sensitivity` declassification claim (a sensitive derived value is just a classified output path — classify it). Static topology queries (`sub-topology`, per [006](006-ReactiveSubstrate.md)) read `:input-kind` and `:input-signals` back to project the dependency graph.
 
 #### `:rf/fx-meta`
 

@@ -1024,42 +1024,56 @@ Layers ≥ 3 are conventionally just "layer-2+" — the algorithm treats them al
 
 ### Subscription input producers — app-db reader, static, parametric input-fn
 
-Every subscription has one **input query-vector producer** — the thing that, at cache-miss time, names the upstream subscriptions this node depends on. The three producer kinds are a single unifying model:
+Every subscription has one **input query-vector producer** — the thing that, at cache-miss time, names the upstream subscriptions this node depends on. It is DECLARED, once, under `:inputs` in the `reg-sub` metadata map — the same slot `reg-flow` uses. The three producer kinds are a single unifying model:
 
-> A subscription has an input query-vector producer. Layer-1 has **no** producer (it reads `app-db` directly); `:<-` is the **literal** producer (a fixed list of input query vectors known at registration); and an `input-fn` is the **query-parametric** producer (it computes the input query vectors from the outer `query-v`).
+> A subscription has an input query-vector producer. Omitting `:inputs` means **no** producer (the sub reads its container directly); a **literal** `:inputs` vector is a fixed list of input query vectors known at registration; and an `:inputs` **fn** is the query-parametric producer (it computes the input query vectors from the outer `query-v`).
 
-This is what `reg-sub`'s optional first function is. It is a v2 **`input-fn`**: a **pure** function from the outer subscription `query-v` to a vector of input query vectors — **not** a v1 reaction-returning signal function. The runtime resolves each returned query vector through the ordinary [§Lookup algorithm](#lookup-algorithm) in the same frame as the outer subscription, then calls the computation function with the resolved input *values* (in order) and the outer `query-v`. Input-production equivalence does not erase handler delivery shape: static `:<-` preserves the v1 convention (one input -> bare value, multiple inputs -> vector), while parametric `input-fn` subscriptions always deliver a vector of resolved input values, including the single-input case.
+The runtime resolves each produced query vector through the ordinary [§Lookup algorithm](#lookup-algorithm) in the same frame as the outer subscription, then calls the computation function with the resolved input *values* and the outer `query-v`.
+
+**Delivery is by producer kind, and it has exactly two arms.**
+
+| The sub | The body's first argument |
+|---|---|
+| A **single-source reader** — `:db` (layer-1 `app-db`), `:runtime-db`, or `:frame-state` | that CONTAINER's value, bare |
+| **Declared dependencies** — a literal `:inputs` vector or an `:inputs` producer fn | a **vector** of the resolved input values, in declaration order, at every count |
+
+The second arm is the whole of the rule: zero, one or many, a declared dependency list arrives as a vector. Moving a dependency between the literal and the producer form never reshapes the body, and adding a second input never flips a scalar argument into a vector. An explicit `{:inputs []}` declares no dependencies and delivers `[]`; omitting `:inputs` is a single-source reader and delivers the container value. The two are distinct by design, and the discriminator is the single-source KIND — not "`:db` versus everything else", which would wrongly hand a vector to a `:runtime-db` or `:frame-state` body.
 
 ```clojure
+(rf/reg-sub :cart/by-price {:inputs [[:cart/items]]}
+  (fn [[items] _] (sort-by :price items)))
+
 (rf/reg-sub
   :article/page
-  (fn input-fn [[_ article-id]]                ;; query-v → vector of query vectors
-    [[:article/by-id article-id]
-     [:comments/for-article article-id]
-     [:viewer/current]])
+  {:inputs (fn [[_ article-id]]                ;; query-v → vector of query vectors
+             [[:article/by-id article-id]
+              [:comments/for-article article-id]
+              [:viewer/current]])}
   (fn computation-fn [[article comments viewer] [_ article-id]]
     {:id article-id :article article :comments comments
      :can-edit? (:edit? viewer)}))
 ```
 
-**Input grammar.** An `input-fn` MUST return a vector, and every element MUST be a query vector (a vector whose head is a keyword):
+**Input grammar.** A literal `:inputs` MUST be a vector, and every element MUST be a query vector (a vector whose head is a keyword); a producer fn MUST **return** that same shape:
 
 ```clojure
 query-vector := vector whose first element is a keyword
-input-return := [query-vector*]
+inputs       := [query-vector*]
 ```
 
-Accepted: `[[:a id] [:b]]` (multiple), `[[:a id]]` (single — still a vector OF query vectors), `[]` (no inputs). **Rejected** (each signals `:rf.error/sub-input-fn-bad-return` per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)): a bare keyword (`:a`), a scalar query vector (`[:a id]` — ambiguous between "one query with arg `id`" and "two inputs"), a mixed `[[:a id] :b]`, a map (`{:a [:a id]}`), or a reaction / derefable. The only accepted single-query spelling is `[[:x :y]]`. The grammar is owned by [Conventions §`reg-sub` input grammar](Conventions.md#reg-sub-input-grammar--input-fn-returns-a-vector-of-query-vectors) and mirrored in [API §`reg-sub` input-production modes](API.md#reg-sub-input-production-modes).
+Accepted: `[[:a id] [:b]]` (multiple), `[[:a id]]` (single — still a vector OF query vectors), `[]` (no inputs). **Rejected**: a bare keyword (`:a`), a scalar query vector (`[:a id]` — ambiguous between "one query with arg `id`" and "two inputs"), a mixed `[[:a id] :b]`, a map (`{:a [:a id]}`), or a reaction / derefable. The only accepted single-query spelling is `[[:x :y]]`. **One grammar, checked at two moments**: a LITERAL `:inputs` is checked at REGISTRATION and signals `:rf.error/reg-sub-bad-args`; a PRODUCER's RETURN is checked at materialization and signals `:rf.error/sub-input-fn-bad-return` (both per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)). An explicit `{:inputs nil}` is refused — `nil` is not "absent". The registration-time check is SHAPE-only and never a registry lookup, so a sub may declare `{:inputs [[:a]]}` before `:a` is registered; registration order stays free. The grammar is owned by [Conventions §`reg-sub` input grammar](Conventions.md#reg-sub-input-grammar--input-fn-returns-a-vector-of-query-vectors) and mirrored in [API §`reg-sub` input-production modes](API.md#reg-sub-input-production-modes).
 
-The `input-fn`:
+An `:inputs` producer fn:
 
 - receives the full outer `query-v`;
-- runs when the concrete subscription node is materialized (a cache miss), **not** on the hot recompute path;
+- runs when the concrete subscription node is materialized (a cache miss), **not** on the hot recompute path, and **never** at registration;
 - returns a vector of query vectors;
 - MUST be pure and deterministic over `query-v`;
 - MUST NOT call `subscribe`, deref `app-db`, dispatch, mutate, or perform IO.
 
-Static `:<-` is exactly a **constant** `input-fn`. `(reg-sub :vis :<- [:items] :<- [:filter] f)` is equivalent to `(reg-sub :vis (fn [_] [[:items] [:filter]]) f)`. Use `:<-` for static inputs; reach for `input-fn` only when the upstream query vectors need values carried by the outer `query-v`.
+A literal `:inputs` vector is exactly a **constant** producer: `{:inputs [[:items] [:filter]]}` is equivalent in value to `{:inputs (fn [_] [[:items] [:filter]])}`. Write the literal whenever the edges do not depend on the outer `query-v` — it is checked earlier, and a tool can read it as a **static** edge, where a producer can only ever report the `:parametric` sentinel.
+
+`:inputs` is a **vector**. Whether the family should instead take a **named map** is an open question shared with `reg-flow` — see [013 §Map-keyed `:inputs` instead of vector](013-Flows.md#map-keyed-inputs-instead-of-vector) — and it will be ruled ONCE, for `reg-flow` and `reg-sub` together; until then both ship the vector.
 
 **Fixed-topology-per-cache-entry invariant.** A subscription's cache entry (keyed by its concrete outer query vector) has a **fixed** set of upstream edges for the entry's whole lifetime. The `input-fn` runs once at materialization to compute those edges; once materialized the node follows ordinary layer-2+ semantics (upstream value changes trigger recompute; `=`-equal upstream values suppress recompute; disposal releases the realized upstream subscriptions synchronously; hot reload invalidates the affected cache entries and the `input-fn` re-runs on recreation). The realized input query vectors are stored on the cache entry (alongside `:inputs`) so disposal, trace, and Xray can read them — see [§Lookup algorithm](#lookup-algorithm) and [§Sub-cache wiring](#sub-cache-wiring-reagent-realisation).
 

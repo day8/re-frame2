@@ -455,7 +455,7 @@ The recommended pattern is to drive `db` state via dispatches against a fixture 
     (is (= 2 (count (rf/compute-sub [:pending-todos] (rf/app-db-value f)))))))
 ```
 
-Composed subs are computed transitively — the inputs are computed first, then the output. All without spinning up the reactive cache. This holds for both static `:<-` inputs and parametric `input-fn` inputs: `compute-sub` produces the input query vectors from the sub's input producer (per [006 §Subscription input producers](006-ReactiveSubstrate.md#subscription-input-producers--app-db-reader-static-parametric-input-fn)), then resolves each recursively. Because an `input-fn` is **pure** over the outer `query-v` (it must not call `subscribe`, deref `app-db`, dispatch, mutate, or perform IO — and must return a vector of query vectors, never a live reaction), the parametric path stays as pure and JVM-runnable as the static path. `compute-sub` and `subscribe-once` agree for parametric subscriptions.
+Composed subs are computed transitively — the inputs are computed first, then the output. All without spinning up the reactive cache. This holds for a literal `:inputs` declaration and for an `:inputs` producer fn alike: `compute-sub` produces the input query vectors from the sub's input producer (per [006 §Subscription input producers](006-ReactiveSubstrate.md#subscription-input-producers--app-db-reader-static-parametric-input-fn)), then resolves each recursively. Because a producer is **pure** over the outer `query-v` (it must not call `subscribe`, deref `app-db`, dispatch, mutate, or perform IO — and must return a vector of query vectors, never a live reaction), the parametric path stays as pure and JVM-runnable as the static path. `compute-sub`, `subscribe-once` and the reactive path all agree.
 
 #### `compute-sub` algorithm
 
@@ -472,24 +472,28 @@ compute-sub(query-v, db):
 
   ; Produce this sub's input query-vectors from its input producer, then
   ; resolve each recursively (the chained-sub case). The input producer is the
-  ; same three-mode model as the reactive cache path (per [006 §Subscription
-  ; input producers]): no producer (layer-1), the literal :<- list, or a
-  ; parametric input-fn over the outer query-v.
+  ; same model as the reactive cache path (per [006 §Subscription input
+  ; producers]): a single-source reader has no producer; a literal :inputs
+  ; vector is the static producer; an :inputs fn is the parametric producer.
   let input-qs = match reg.input-kind:
-                   :db          -> []                          ; root sub: body reads db directly
-                   :static      -> reg.input-signals           ; literal :<- query-vectors
+                   :db | :runtime-db | :frame-state -> []      ; single-source reader
+                   :static      -> reg.input-signals           ; the declared query-vectors
                    :parametric  -> normalize-sub-inputs((reg.input-fn query-v))
-                                   ; (input-fn query-v) MUST return a vector of query
+                                   ; the producer MUST return a vector of query
                                    ; vectors; a bad shape signals
                                    ; :rf.error/sub-input-fn-bad-return; a throw signals
                                    ; :rf.error/sub-input-fn-exception (per 009)
   let values   = map (q -> compute-sub(q, db)) input-qs
+
+  ; TWO arms, discriminated by the SINGLE-SOURCE kind — never by ":db versus
+  ; everything else", which would wrongly hand a vector to a :runtime-db or
+  ; :frame-state body.
   let body-arg = match reg.input-kind:
-                   :db          -> db                          ; root sub: body reads db directly
-                   :parametric  -> vector(values)              ; always vector, even at one input
-                   :static      -> if count(values) == 0 then nil
-                                   else if count(values) == 1 then first(values)
-                                   else vector(values)          ; v1 :<- delivery convention
+                   :db | :runtime-db | :frame-state -> container-value(db, reg.input-kind)
+                                   ; the partition this kind reads: app-db,
+                                   ; runtime-db, or the whole frame-state value
+                   otherwise    -> vector(values)              ; DECLARED dependencies:
+                                   ; always a vector, at 0, 1 or N
 
   ; Run the body with resolved input VALUES (or with db, for root subs).
   return reg.computation-fn(body-arg, query-v)
@@ -497,10 +501,10 @@ compute-sub(query-v, db):
 
 Notes on the contract:
 
-- **Recursive resolution.** `compute-sub` recursively calls itself on each input `query-v`. Layered subs (`A` ← `B` ← `C`) resolve depth-first: `C` is computed first against `db`, then `B` receives `C`'s value, then `A` receives `B`'s value. The argument shape handed to each `computation-fn` mirrors the runtime: app-db readers receive `db`; static `:<-` keeps the v1 convention (single input as a bare value, multiple inputs as a vector); parametric `input-fn` subscriptions receive a vector of resolved input values even when the vector has one element.
+- **Recursive resolution.** `compute-sub` recursively calls itself on each input `query-v`. Layered subs (`A` ← `B` ← `C`) resolve depth-first: `C` is computed first against `db`, then `B` receives `C`'s value, then `A` receives `B`'s value. The argument shape handed to each `computation-fn` mirrors the runtime, and has two arms: a single-source reader receives its container value (`:db` the app-db partition, `:runtime-db` the runtime-db partition, `:frame-state` the whole frame-state value); a sub with DECLARED dependencies receives a vector of the resolved input values in declaration order, at every count — `[]` for `{:inputs []}`, `[v]` for one, `[a b]` for two.
 - **No memoisation across calls.** `compute-sub` is a pure function over `(query-v, db)`. Implementations may memoise *within* a single call (the same input sub appearing twice in one tree is computed once and reused) but **must not** carry a cache between calls — it is not a substitute for the reactive runtime, and an `app-db` value that has changed must produce a fresh result. Per-call memoisation is an optimisation; tests must not depend on it.
-- **No cycles.** A cycle in the static `:<-` topology is a registration-time error (per [001](001-Registration.md)); `compute-sub` does not need to detect cycles at call time. If a host bypasses the registration-time check, `compute-sub` may stack-overflow — surface a structured error trace if cheap; otherwise let the host's stack overflow propagate.
-- **Errors.** If a sub's `computation-fn` throws, emit `:rf.error/sub-exception` per [009 §Error contract](009-Instrumentation.md#error-contract); default recovery `:replaced-with-default` returns `nil`. An unresolved input sub (`:rf.error/no-such-sub`) substitutes `nil` and the body still runs (default `:replaced-with-default`). For a parametric sub, an `input-fn` that throws emits `:rf.error/sub-input-fn-exception`, and an `input-fn` that returns a non-vector-of-query-vectors (a scalar, map, bare keyword, reaction, derefable, or malformed query vector) emits `:rf.error/sub-input-fn-bad-return` — both follow the same fail-loud posture (a bad input return is never silently treated as no inputs). Per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue).
+- **No cycles.** A cycle in the static topology is a registration-time error (per [001](001-Registration.md)); `compute-sub` does not need to detect cycles at call time. If a host bypasses the registration-time check, `compute-sub` may stack-overflow — surface a structured error trace if cheap; otherwise let the host's stack overflow propagate.
+- **Errors.** If a sub's `computation-fn` throws, emit `:rf.error/sub-exception` per [009 §Error contract](009-Instrumentation.md#error-contract); default recovery `:replaced-with-default` returns `nil`. An unresolved input sub (`:rf.error/no-such-sub`) substitutes `nil` and the body still runs (default `:replaced-with-default`). For a parametric sub, a producer that throws emits `:rf.error/sub-input-fn-exception`, and a producer that returns a non-vector-of-query-vectors (a scalar, map, bare keyword, reaction, derefable, or malformed query vector) emits `:rf.error/sub-input-fn-bad-return`; the identically malformed shape written as a LITERAL `:inputs` is refused earlier, at registration, as `:rf.error/reg-sub-bad-args` — both follow the same fail-loud posture (a bad input return is never silently treated as no inputs). Per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue).
 - **Determinism.** `compute-sub` is JVM-runnable, deterministic, and free of side effects. It is the function the conformance corpus invokes for `:sub-values` assertions per [conformance/README.md](conformance/README.md).
 
 For both static `:<-` and parametric `input-fn` inputs, the body receives resolved input *values*, not input `query-v`s. Producer order is preserved. The outer `query-v` (the one being computed) remains the second argument to `computation-fn`, identical to in-runtime behaviour.

@@ -810,9 +810,9 @@
   ["re-frame.core" "reg-event"]           {:tier :front-porch :owner "002" :status "EP-0018"
                                           :action :keep
                                           :justification "Front-porch: THE event registrar since EP-0018 collapsed the -db/-fx/-ctx family into one form. The first thing anyone writes."}
-  ["re-frame.core" "reg-sub"]             {:tier :front-porch :owner "002" :status "v1 (preserved + extended)"
+  ["re-frame.core" "reg-sub"]             {:tier :front-porch :owner "002" :status "v1 name; grammar changed to :inputs (rf2-kuky.45)"
                                           :action :keep
-                                          :justification "Front-porch: the subscription registrar -- day-one vocabulary, and half of what the Guide's first chapter teaches."}
+                                          :justification "Front-porch: the subscription registrar -- day-one vocabulary, and half of what the Guide's first chapter teaches. The NAME is v1; the GRAMMAR is not preserved. Dependencies moved out of arg position into the metadata map as :inputs -- the slot reg-flow already uses -- and declared inputs always reach the body as a vector, so the signature is the family's (reg-sub id ?metadata computation-fn). The v1 :<- chain and two-fn tail are deleted."}
   ["re-frame.core" "reg-fx"]              {:tier :front-porch :owner "002" :status "v1 (preserved + extended)"
                                           :action :keep
                                           :justification "Front-porch: the effect registrar, the other half of what a reg-event returns. An app that registers events registers effects in the same file."}
