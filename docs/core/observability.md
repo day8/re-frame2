@@ -129,13 +129,14 @@ devtools panel you opened three clicks too late, or the AI you summoned precisel
 because the app is already broken.
 
 So each [frame](glossary.md#frame) also keeps a ring buffer of recent history beside
-its own [app-db](glossary.md#app-db). The read surface is tool-facing, so it lives in
-its own namespace — `[re-frame.trace.tooling :as tooling]` — rather than on the app
-facade (on the JVM, `rf/trace-buffer` exists as a test-convenience alias). One read
+its own [app-db](glossary.md#app-db). `rf/trace-buffer` is the read surface, on every
+platform — the machinery itself lives in a tool-facing namespace,
+`[re-frame.trace.tooling :as tooling]`, and a tool that wants to reach it without
+pulling in the facade still can, but the facade name is the one to write. One read
 gets you the recent past:
 
 ```clojure
-(tooling/trace-buffer :app)
+(rf/trace-buffer :app)
 ;; => vector of event bundles, oldest first — each one already grouped:
 ;;    {:dispatch-id 4711  :parent-dispatch-id nil  :frame :app
 ;;     :event [:cart/add-item {:sku "BK-1"}]  :dispatched {,,,}
@@ -162,7 +163,7 @@ One knob sets the depth:
 That sets the process default. A frame that wants its own retention sets
 `:rf.trace/events-retained` in its frame config. And when you want to start a session
 from a clean slate — between two recordings, say —
-`(tooling/clear-trace-buffer! :app)` empties the named frame's ring without touching
+`(rf/clear-trace-buffer! :app)` empties the named frame's ring without touching
 anyone else's.
 
 ??? info "Coming from Redux DevTools?"
@@ -181,7 +182,7 @@ get plain trace events back instead. The storage is genuinely event-keyed either
 
 ### Reading a slice, not the whole ring
 
-`(tooling/trace-buffer frame-id opts)` takes a filter map, so a tool doesn't have to
+`(rf/trace-buffer frame-id opts)` takes a filter map, so a tool doesn't have to
 pull the whole ring and sift it in JavaScript. The keys compose AND-wise — an absent
 key means "no constraint on that axis," and an unrecognised key is ignored (so a tool
 can probe a newer axis and degrade gracefully on an older runtime). The ones you'll
@@ -189,17 +190,17 @@ reach for:
 
 ```clojure
 ;; Just the runs dispatched from a :user/login event:
-(tooling/trace-buffer :app {:event-id :user/login})
+(rf/trace-buffer :app {:event-id :user/login})
 
 ;; Cursor-based polling — read once, remember the last :id, ask for what's new
 ;; (requires :flat, since :id lives on individual events):
-(tooling/trace-buffer :app {:flat true :since last-seen-id})
+(rf/trace-buffer :app {:flat true :since last-seen-id})
 
 ;; Only error events, flat:
-(tooling/trace-buffer :app {:flat true :op-type :error})
+(rf/trace-buffer :app {:flat true :op-type :error})
 
 ;; Anything that matches your own predicate (the escape hatch):
-(tooling/trace-buffer :app {:pred (fn [run] (< 100 (count (:effects run))))})
+(rf/trace-buffer :app {:pred (fn [run] (< 100 (count (:effects run))))})
 ```
 
 The full vocabulary is small: `:event-id`, `:origin`, `:dispatch-id`,

@@ -166,7 +166,7 @@ Six `:rf.egress/profile` values (closed enum): `:rf.egress/off-box-observability
 | Surface | Shape |
 |---|---|
 | `rf/register-listener!` / `rf/unregister-listener!` / `rf/emit-trace-event!` | trace plumbing |
-| `rf/trace-buffer` / `rf/clear-trace-buffer!` | retain-N ring — **JVM-only aliases**; CLJS callers use `re-frame.trace.tooling/trace-buffer` / `clear-trace-buffer!` directly (core trace tooling, not the epoch artefact) |
+| `rf/trace-buffer` / `rf/clear-trace-buffer!` | retain-N ring — `(rf/trace-buffer frame-id)` / `(rf/trace-buffer frame-id opts)`, both platforms; the home is `re-frame.trace.tooling` (core trace tooling, not the epoch artefact) |
 | `rf/epoch-history` | `(frame-id)` → `[epoch-records]` |
 | `rf/restore-epoch!` | `(frame-id epoch-id)` → bool |
 | `rf/register-listener! :epoch` / `rf/unregister-listener! :epoch` | epoch-record **publication** listener — one `:rf/epoch-record` per event's run-to-completion (not per drain-settle), also re-published on post-settle backfill and for `:rf.epoch/db-replaced` / halt records; reconcile by `[(:frame record) (:epoch-id record)]` and replace, don't count. `:halted-destroy` is listener-only, never retained. (the `:epoch` stream; the dedicated `rf/register-epoch-listener!` facade pair was retired) |

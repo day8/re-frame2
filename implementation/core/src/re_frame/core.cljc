@@ -2156,10 +2156,13 @@
 ;; Unknown stream throws `:rf.error/unknown-listener-stream` (closed
 ;; vocabulary; pre-alpha — no bare 2-arity `:trace` default, no compat
 ;; aliases). Per Spec 009 §Observation listeners + Spec 015 §Frame-owned
-;; observability sink policy. The heavier trace-buffer machinery is reached
-;; via `re-frame.trace.tooling/<name>` directly for the production-DCE
-;; story; the trace-buffer reader is re-exported below for the JVM-side
-;; tools / story / xray / re-frame-10x consumers.
+;; observability sink policy. The heavier trace-buffer machinery lives in
+;; `re-frame.trace.tooling`; the reader + clear pair is re-exported below on
+;; BOTH platforms (rf2-kuky.51) so `rf/trace-buffer` is the one documented
+;; ring reader for tools / story / xray / re-frame-10x. Production CLJS
+;; bundles still DCE the machinery — the alias is unused there, exactly as
+;; the identical unconditional alias `re-frame.trace/trace-buffer` already
+;; is (the `bundle-isolation` gate is the proof, not the require graph).
 
 (def ^:private listener-streams
   "Closed vocabulary for `register-listener!` / `unregister-listener!`."
@@ -2249,34 +2252,30 @@
 ;; `:epoch/clear-epoch-listeners!` reset hook). Those lower-level clears are
 ;; KEPT; only the stream-parameterized public verb was removed.
 
-#?(:clj
-   (do
-     (def ^{:doc "Return the named frame's event-keyed trace ring,
-       oldest-first. Two arities:
+(def ^{:doc "Return the named frame's event-keyed trace ring,
+  oldest-first. Two arities:
 
-         (rf/trace-buffer frame-id)
-           Returns event bundles by default — one entry per retained
-           event bundle with the run's `:dispatch-id`, raw `:trace-events`,
-           and the projected six-domino slots (`:event`, `:dispatched`,
-           `:handler`, `:fx`, `:effects`, `:subs`, `:renders`, `:other`).
+    (rf/trace-buffer frame-id)
+      Returns event bundles by default — one entry per retained
+      event bundle with the run's `:dispatch-id`, raw `:trace-events`,
+      and the projected six-domino slots (`:event`, `:dispatched`,
+      `:handler`, `:fx`, `:effects`, `:subs`, `:renders`, `:other`).
 
-         (rf/trace-buffer frame-id opts)
-           `opts` is a filter map. `{:flat true}` returns raw trace
-           events instead of event bundles. The full filter
-           vocabulary lives in Spec 009 §Filter vocabulary.
+    (rf/trace-buffer frame-id opts)
+      `opts` is a filter map. `{:flat true}` returns raw trace
+      events instead of event bundles. The full filter
+      vocabulary lives in Spec 009 §Filter vocabulary.
 
-       Returns `[]` for a destroyed or never-registered frame, and `[]`
-       in production (the ring is never allocated under
-       `goog.DEBUG=false`). JVM-only alias — CLJS callers use
-       `re-frame.trace.tooling/trace-buffer` directly. Per Spec 009
-       §Per-frame trace rings (event-keyed, dev-only)."}
-       trace-buffer           rf.trace/trace-buffer)
-     (def ^{:doc "Empty the named frame's event-keyed trace ring.
-       Tooling uses this between sessions. No-op for an unknown frame,
-       no-op in production. JVM-only alias — CLJS callers use
-       `re-frame.trace.tooling/clear-trace-buffer!` directly. Per Spec
-       009 §`trace-buffer` API."}
-       clear-trace-buffer!    rf.trace/clear-trace-buffer!)))
+  Returns `[]` for a destroyed or never-registered frame, and `[]`
+  in production (the ring is never allocated under
+  `goog.DEBUG=false`). Per Spec 009 §Per-frame trace rings
+  (event-keyed, dev-only)."}
+  trace-buffer           rf.trace/trace-buffer)
+
+(def ^{:doc "Empty the named frame's event-keyed trace ring.
+  Tooling uses this between sessions. No-op for an unknown frame,
+  no-op in production. Per Spec 009 §`trace-buffer` API."}
+  clear-trace-buffer!    rf.trace/clear-trace-buffer!)
 
 ;; The always-on event-emit / error-emit listener registries are NO LONGER
 ;; facade exports. They are reached through the stream-parameterized

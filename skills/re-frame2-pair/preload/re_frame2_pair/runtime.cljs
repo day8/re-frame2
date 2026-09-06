@@ -582,7 +582,7 @@
        {:ok?    false
         :frame  frame-id
         :reason :reset-rejected
-        :hint   "rf/replace-frame-state! returned false. Inspect (re-frame.trace.tooling/trace-buffer frame-id {:flat true :op-type :error}) (and :op-type :rf.epoch) for the structured reason — :rf.error/no-such-handler, :rf.epoch/replace-during-drain, or :rf.epoch/replace-schema-mismatch. Frame-id is the first positional arg; :op-type is a :flat-only filter. (rf/trace-buffer is JVM-only; CLJS callers use the re-frame.trace.tooling ns.)"})
+        :hint   "rf/replace-frame-state! returned false. Inspect (re-frame.trace.tooling/trace-buffer frame-id {:flat true :op-type :error}) (and :op-type :rf.epoch) for the structured reason — :rf.error/no-such-handler, :rf.epoch/replace-during-drain, or :rf.epoch/replace-schema-mismatch. Frame-id is the first positional arg; :op-type is a :flat-only filter. (rf/trace-buffer names the same fn on both platforms; an eval form spells whichever home fully qualified.)"})
      (catch :default e
        (let [{:keys [reason] :as data} (ex-data e)]
          {:ok?     false
@@ -1415,8 +1415,9 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The framework already maintains a retain-N ring buffer accessible via
-;; `(re-frame.trace.tooling/trace-buffer frame-id)` (the `rf/` alias is
-;; JVM-only; frame-id is the first positional arg). We register one listener here for callers
+;; `(rf/trace-buffer frame-id)` (`re-frame.trace.tooling` is the home; the
+;; `rf/` re-export exists on both platforms; frame-id is the first positional
+;; arg). We register one listener here for callers
 ;; that want a programmatic side-channel (e.g. a watch loop's idle
 ;; detector); the buffer remains the canonical query surface.
 
@@ -1495,7 +1496,7 @@
         ;; so the tree walk reads them off the bundle slot rather
         ;; than re-deriving from raw trace events.
         bundles    (into []
-                         (mapcat #(rf.trace.tooling/trace-buffer %))
+                         (mapcat #(rf/trace-buffer %))
                          (rf/frame-ids))
         by-parent  (group-by :parent-dispatch-id bundles)
         node       (fn node [did]
@@ -3738,7 +3739,7 @@
     ;; read shape (Tool-Pair
     ;; §Reading the per-frame trace ring + Tool-Pair §`watch-epochs` /
     ;; `trace-window` consumer shape).
-    :traces     (vec (rf.trace.tooling/trace-buffer frame-id))
+    :traces     (vec (rf/trace-buffer frame-id))
     nil))
 
 (defn- snapshot-frame
