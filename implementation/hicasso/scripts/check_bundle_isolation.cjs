@@ -298,7 +298,7 @@ const SENTINELS = [
     surface: 'forms module — the view the chapter documents (rf2-sh56)',
     sentinel: 're-frame.hicasso.forms/buffered-field',
     source: 'src/re_frame/hicasso/forms.cljs',
-    premise: '(h/defview buffered-field',
+    premise: '(rf.hicasso/defview buffered-field',
     why:
       'The view NAME `h/defview` computes and `mint-view!` stamps as the ' +
       'boundary\'s `displayName`, unconditionally — the same idiom the ' +
@@ -415,7 +415,7 @@ const CONTROLS = [
   {
     control: 're-frame.hicasso.consumer-app/app',
     source: 'test/re_frame/hicasso/consumer_app.cljs',
-    premise: '(h/defview app',
+    premise: '(rf.hicasso/defview app',
     proves:
       'the release entry\'s `h/defview` really compiled — `mint-view!` stamps ' +
       'this name as the boundary\'s `displayName`, unconditionally. Without ' +
