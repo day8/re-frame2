@@ -10,7 +10,6 @@
 
    Minimal by design. Don't grow it."
   (:require [uix.core :refer [$ defui]]
-            [uix.dom  :as uix-dom]
             [re-frame.core    :as rf]
             [re-frame.adapter.uix :as rf.adapter.uix]))
 
@@ -40,8 +39,10 @@
 
 ;; -- Mount ------------------------------------------------------------------
 
-(defonce app-root
-  (uix-dom/create-root (js/document.getElementById "app")))
+;; rf2-kuky.56: the adapter's own client-root handle — inert at namespace
+;; load (no DOM work, no `js/document` read), so `defonce` is safe here and
+;; the Root is minted by the first `render!` below.
+(defonce app-root (rf.adapter.uix/client-root))
 
 (defn ^:export init []
   ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
@@ -53,8 +54,8 @@
   ;; documented boot idiom (the template scaffold's exact shape) — the
   ;; real-DOM path the smoke must cover.
   (rf/init! rf.adapter.uix/adapter)
-  (uix-dom/render-root
+  (rf.adapter.uix/render! app-root
     ($ rf.adapter.uix/frame-root {:id             :rf/default
-                               :initial-events [[:counter/init]]}
+                                  :initial-events [[:counter/init]]}
        ($ root))
-    app-root))
+    (js/document.getElementById "app")))

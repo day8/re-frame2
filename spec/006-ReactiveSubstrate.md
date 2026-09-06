@@ -1230,7 +1230,7 @@ On destroy-frame! F:
 Three contract guarantees this enforces:
 
 1. **No leaks.** Every cached substrate-specific resource (Reagent reaction; JS-cross-compile-port atom-shape's listener entry / derived-value memo) is released. Long-lived processes that create and destroy frames (test runs, SSR request handling) reach steady-state memory.
-2. **No stale reads.** After `destroy-frame!`, attempts to subscribe to `F` raise `:rf.error/frame-destroyed`. There is no path that returns a value from a destroyed frame's cache.
+2. **No stale reads.** After `destroy-frame!`, a `subscribe` against `F` returns `nil` and emits the always-on, production-survivable `:rf.error/frame-destroyed` error (recovery `:replaced-with-default`, per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) and [002 §Destroy](002-Frames.md#destroy)); it does **not** throw — the same answer [`subscribe-once`](#subscribe-once-query-v--value--subscribe-once-query-v-frame-f--value) documents above. There is no path that returns a value from a destroyed frame's cache.
 3. **Adapter symmetry.** The adapter's `dispose-adapter!` ([§Adapter disposal lifecycle](#adapter-disposal-lifecycle)) is the per-process counterpart; it disposes every frame's sub-cache as part of process teardown.
 
 ### Cross-spec interactions
