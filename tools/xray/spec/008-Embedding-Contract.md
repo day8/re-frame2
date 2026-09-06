@@ -370,6 +370,23 @@ becomes selected only by one of the three sources above:
   resolution); it is **unique resolution, not synthesis** — when no
   focusable cascade exists the target stays UNSELECTED.
 
+**Discovery is the FALLBACK, and only runs while the target is still
+UNSELECTED (rf2-88f1).** The three sources above are not peers: an
+explicit target — from host config or the picker — outranks the
+mount-time policy, because discovery *guesses* which frame the operator
+is looking at while an explicit target is what the host or the operator
+*said*. So first open re-derives a seed frame only when nothing has
+chosen one; where a choice is already in the slot, first open preserves
+it and re-seeds `:epoch-history` from that frame.
+
+The collision is new, and that is why the ordering had not needed
+stating: until `set-target-frame!` seated `:rf/xray` itself (below), no
+target could be selected *before* first open, so discovery never met one.
+Unordered, the loss was silent both ways — a cold ring resolves to `nil`,
+which `:rf.xray/set-target-frame` writes as a full RESET (clearing
+`:target-frame`, `[:focus :frame]` and `:epoch-history`), and a warm ring
+substitutes whichever frame happens to head the pre-open trace.
+
 `set-target-frame!` **seats `:rf/xray` before it dispatches** (rf2-88f1).
 The own-frame singleton is normally seated the moment the host runtime is
 ready, from the preload's readiness loop (rf2-avi7) — but that loop polls

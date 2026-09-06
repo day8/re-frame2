@@ -1271,7 +1271,15 @@
             guard so a subsequent `ensure-xray-frame!` call performs a
             fresh first-mount seed again (the fixture-reset contract
             every Xray test fixture relies on via
-            `test-support/reset-sentinels!`)"
+            `test-support/reset-sentinels!`).
+
+            The witness is POSITIVE — a target that only the seed hook could
+            have written — rather than the target going back to nil.
+            rf2-88f1 makes discovery defer to an explicit target, so a
+            re-fired hook no longer clears one and the old
+            disappearing-value witness would report a guarded no-op and a
+            re-fire identically. The subject of this deftest is unchanged;
+            only the evidence for it had to stop being an absence."
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn]} (mk-render-stub)]
@@ -1280,16 +1288,26 @@
             (mount/open!)
             (rf/with-frame :rf/xray
               (rf/dispatch-sync [:rf.xray/set-target-frame :other-frame]))
+            ;; Hand the next pass something to DISCOVER, and leave the slot
+            ;; unselected so discovery is the only thing that could fill it.
+            (trace-collector/seed-trace-for-test!
+              (pre-mount-dispatch-event 1 100 :cart-frame :cart/add-item))
+            (rf/with-frame :rf/xray
+              (rf/dispatch-sync [:rf.xray/set-target-frame nil])
+              (is (nil? @(rf/subscribe [:rf.xray/target-frame]))
+                  "precondition: the slot is UNSELECTED, so the assertion
+                   below cannot pass on a leftover value"))
             ;; Without a reset, a second call is a guarded no-op (proven
             ;; by the sibling test above).
             (mount/reset-for-test!)
             (mount/ensure-xray-frame!)
             (rf/with-frame :rf/xray
-              (is (nil? @(rf/subscribe [:rf.xray/target-frame]))
-                  "post-reset, ensure-xray-frame! re-ran the seed hook —
-                   cold start (no pre-mount cascades) seeds :target-frame
-                   back to UNSELECTED (nil), proving the hook actually
-                   re-fired rather than staying guarded"))))))))
+              (is (= :cart-frame @(rf/subscribe [:rf.xray/target-frame]))
+                  "post-reset, ensure-xray-frame! re-ran the seed hook — it
+                   projected the ring and seeded :target-frame from the head
+                   focusable event-bundle's frame, which nothing but the hook
+                   writes; a still-guarded call would have left the slot
+                   UNSELECTED"))))))))
 
 ;; -------------------------------------------------------------------------
 ;; (9) Teardown covers both mount singletons (rf2-yudol, rf2-sbfb7)

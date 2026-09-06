@@ -651,7 +651,17 @@
     `:rf.xray/set-target-frame` event writes `:target-frame` and
     re-seeds `:epoch-history` from `(rf/epoch-history seed-frame)`
     in lockstep — symmetric with the picker path and the public
-    `core/set-target-frame!` API."
+    `core/set-target-frame!` API.
+
+    Discovery runs only where the slot is still UNSELECTED (rf2-88f1).
+    `core/set-target-frame!` seats `:rf/xray` itself, so a host can target a
+    frame before anything opens Xray and this hook can now find an explicit
+    choice already in the slot — an ordering that did not exist when the seed
+    was written. An explicit target wins: discovery is the operator-present
+    guess at what the user is looking at, and it does not overrule what the
+    host said. The preserved target is still re-dispatched through the same
+    event, so `:epoch-history` picks up whatever the host recorded between
+    its call and first open and the two axes stay in lockstep."
   ([] (ensure-xray-frame! shell/default-frame-id))
   ([frame-id]
    ;; `:rf.trace/frame-no-emit? true` marks the shell frame a tool /
@@ -724,6 +734,21 @@
   ;; Xray-internal hard-filter) to derive the seed-frame. Without the
   ;; internal filter a tool-frame event-bundle could be chosen as the head,
   ;; which the user never sees in the L2 list.
+  ;;
+  ;; DISCOVERY IS THE FALLBACK, NOT THE OVERRIDE (rf2-88f1). Since
+  ;; `core/set-target-frame!` seats `:rf/xray` itself, a host can target a
+  ;; frame BEFORE anything opens Xray — so by the time this hook runs the
+  ;; slot may already carry an explicit choice, which it never could when
+  ;; the seed was written. Discovery is the operator-present tier that
+  ;; guesses what the user is looking at; an explicit target is what the
+  ;; host SAID. The guess must not overwrite the statement, and on a cold
+  ;; ring it does not even guess: `focusable-head-frame-id` returns nil,
+  ;; and `:rf.xray/set-target-frame` writes nil as a RESET (dissoc
+  ;; `:target-frame`, clear `[:focus :frame]`, empty `:epoch-history`), so
+  ;; the host's boot intent vanished at first open with nothing to read.
+  ;; Reading the slot first makes this the ordering the two tiers already
+  ;; imply — host config, then picker, then discovery (see
+  ;; `defaults/default-target-frame`).
   (fn [frame-id]
     ;; `snapshot-from-rings` reads the rings synchronously (the
     ;; production coalescer instead refreshes them via an async
@@ -732,10 +757,13 @@
     ;; dispatch-sync the snapshot through `:rf.xray/sync-trace-buffer`
     ;; so the first-mount render reads against pre-mount events
     ;; deterministically.
-    (let [buffer     (trace-collector/snapshot-from-rings)
+    (let [buffer          (trace-collector/snapshot-from-rings)
           event-bundles   (self-noise/filtered-event-bundles buffer)
-          seed-frame (or (spine/focusable-head-frame-id event-bundles)
-                         defaults/default-target-frame)]
+          explicit-target (rf/with-frame frame-id
+                            (rf/subscribe-once [:rf.xray/target-frame]))
+          seed-frame      (or explicit-target
+                              (spine/focusable-head-frame-id event-bundles)
+                              defaults/default-target-frame)]
       (rf/with-frame frame-id
         (rf/dispatch-sync [:rf.xray/sync-trace-buffer buffer])
         ;; rf2-boyc2 — seed via `:rf.xray/set-target-frame` so
@@ -744,6 +772,15 @@
         ;; (the head focusable event-bundle's frame). Mirrors the picker-
         ;; driven `set-frame-reducer` path and `core/set-target-
         ;; frame!`.
+        ;;
+        ;; Re-dispatching a PRESERVED target is deliberate rather than a
+        ;; skippable no-op: `:epoch-history` re-seeds from
+        ;; `(rf/epoch-history seed-frame)` on every write, so routing the
+        ;; preserved target through the same event harvests the epochs the
+        ;; host recorded between its call and first open. Skipping the
+        ;; dispatch would keep the target and strand the history at the
+        ;; value it had at boot — which is the lockstep rf2-boyc2 exists
+        ;; to hold.
         (rf/dispatch-sync [:rf.xray/set-target-frame seed-frame])))))
 
 (register-first-mount-hook!
