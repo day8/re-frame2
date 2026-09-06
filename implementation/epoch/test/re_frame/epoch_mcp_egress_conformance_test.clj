@@ -66,17 +66,17 @@
   `test/end-to-end-*.cjs` paths if and when MCP-server epoch tools ship."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.epoch :as epoch]
-            [re-frame.frame :as frame]
+            [re-frame.elision :as rf.elision]
+            [re-frame.epoch :as rf.epoch]
+            [re-frame.frame :as rf.frame]
             ;; rf2-isp3i — `fx/reg-fx`, the plain fn, NOT the `rf/reg-fx` macro:
             ;; see `install-resource-family!` for why the difference decides
             ;; whether the frame's default image can still be reprojected.
-            [re-frame.fx :as fx]
-            [re-frame.schemas :as schemas]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace.tooling :as trace-tooling]
+            [re-frame.fx :as rf.fx]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace.tooling :as rf.trace.tooling]
             ;; Side-effect requires (mirror epoch_test.clj fixture).
             [re-frame.machines]
             ;; rf2-isp3i — load-bearing: registers the `:rf.resource/*` events
@@ -103,8 +103,8 @@
 ;; public `configure!` boundary — no test ns reaches into the private
 ;; `state/config` var.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
      :init-fn (fn [] (rf/configure! {:epoch-history {:trace-events-keep 5}}))}))
 
 ;; ---- helpers ---------------------------------------------------------------
@@ -164,8 +164,8 @@
   some steps, and a classified path is a harmless no-op over an absent
   value.)"
   [frame-id]
-  (frame/swap-runtime-db! frame-id
-    (fn [rt] (elision/apply-classification-effects rt
+  (rf.frame/swap-runtime-db! frame-id
+    (fn [rt] (rf.elision/apply-classification-effects rt
                {:sensitive [[:auth :password]
                             ;; rf2-0t7o8 — the SESSION IDENTITY the named scope
                             ;; resolver reads (`install-resource-family!`).
@@ -529,8 +529,8 @@
     catches the pin itself rotting."
   [frame-id]
   (rf/configure! {:epoch-history {:trace-events-keep 50}})
-  (frame/swap-frame-db! frame-id assoc-in [:auth :user :username] secret-password)
-  (fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
+  (rf.frame/swap-frame-db! frame-id assoc-in [:auth :user :username] secret-password)
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
   (rf/reg-resource-scope session-scope-id
     {:inputs {:username [:db [:auth :user :username]]}}
     (fn [{:keys [username]} _ctx]
@@ -661,7 +661,7 @@
   [frame-id]
   (let [rows (atom [])
         k    ::resource-family-recorder]
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       k (fn [ev] (when (resource-family-row? ev) (swap! rows conj ev))))
     (try
       (rf/dispatch-sync [:rf.resource/ensure
@@ -699,7 +699,7 @@
                           :params   {:slug session-slug}
                           :owner    session-owner}]
                         {:frame frame-id})
-      (finally (trace-tooling/unregister-listener! k)))
+      (finally (rf.trace.tooling/unregister-listener! k)))
     @rows))
 
 (defn- invalidated-row
@@ -880,7 +880,7 @@
     (let [shipped (atom [])
           ship!   (fn [record]
                     ;; Tool-side forwarder body — project at egress.
-                    (swap! shipped conj (epoch/projected-record record)))]
+                    (swap! shipped conj (rf.epoch/projected-record record)))]
       (rf/register-listener! :epoch ::forwarder ship!)
       (drive-mixed-ring! :test/mcp)
       (is (pos? (count @shipped))
@@ -919,7 +919,7 @@
     (let [shipped (atom [])]
       (rf/register-listener! :epoch ::forwarder
                              (fn [record]
-                               (swap! shipped conj (epoch/projected-record record))))
+                               (swap! shipped conj (rf.epoch/projected-record record))))
       (drive-mixed-ring! :test/mcp)
       (let [raw-leaf-count       (count-leaf-strings-at-least payload-size
                                                               (rf/epoch-history :test/mcp))
@@ -963,14 +963,14 @@
              classification this fixture installs cannot reach it, and the flag
              is the entire contract egress has to honour")
         ;; Both callers of the shared rule, both slots of each, at egress.
-        (is (elision/marker? (:value proj-row))
+        (is (rf.elision/marker? (:value proj-row))
             "`elide-sub-run-row` substituted the marker in the structured row")
-        (is (elision/marker? (:prev-value proj-row))
+        (is (rf.elision/marker? (:prev-value proj-row))
             "…and in that row's PREVIOUS-value slot")
-        (is (elision/marker? (:rf.sub/value proj-tags))
+        (is (rf.elision/marker? (:rf.sub/value proj-tags))
             "`elide-large-sub-trace-values` substituted the marker in the trace
              tag — the slot whose omission was rf2-irwsq's leak")
-        (is (elision/marker? (:rf.sub/prev-value proj-tags))
+        (is (rf.elision/marker? (:rf.sub/prev-value proj-tags))
             "…and in that tag's PREVIOUS-value slot, the fourth and last of the
              pair-of-pairs the one shared rule owns")
         (is (zero? (count-leaf-strings-at-least payload-size proj))
@@ -1015,7 +1015,7 @@
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
     (let [raw       (rf/epoch-history :test/mcp)
-          projected (mapv epoch/projected-record raw)
+          projected (mapv rf.epoch/projected-record raw)
           bookkeeping-keys [:epoch-id :frame :committed-at :event-id
                             :outcome :halt-reason :schema-digest
                             :rf.epoch/sensitive?]]
@@ -1034,13 +1034,13 @@
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
     (let [ring-before        (rf/epoch-history :test/mcp)
-          schemas-before     (schemas/snapshot-schemas-by-frame)
+          schemas-before     (rf.schemas/snapshot-schemas-by-frame)
           ;; Hit projected-record many times — a real forwarder might
           ;; project the same record multiple times (re-trigger, replay).
           _                  (dotimes [_ 25]
-                               (mapv epoch/projected-record ring-before))
+                               (mapv rf.epoch/projected-record ring-before))
           ring-after         (rf/epoch-history :test/mcp)
-          schemas-after      (schemas/snapshot-schemas-by-frame)]
+          schemas-after      (rf.schemas/snapshot-schemas-by-frame)]
       (is (= ring-before ring-after)
           "the epoch ring is unchanged — projected-record does not mutate")
       (is (= schemas-before schemas-after)
@@ -1075,9 +1075,9 @@
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
     (let [raw    (rf/epoch-history :test/mcp)
-          once   (mapv epoch/projected-record raw)
-          twice  (mapv epoch/projected-record once)
-          thrice (mapv epoch/projected-record twice)]
+          once   (mapv rf.epoch/projected-record raw)
+          twice  (mapv rf.epoch/projected-record once)
+          thrice (mapv rf.epoch/projected-record twice)]
       ;; Sensitive substitution holds across all three passes.
       (is (every? (fn [r] (= :rf/redacted (get-in r [:db-after :auth :password])))
                   (rest once))
@@ -1125,14 +1125,14 @@
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
     (let [raw    (rf/epoch-history :test/mcp)
-          once   (mapv epoch/projected-record raw)
-          twice  (mapv epoch/projected-record once)
-          thrice (mapv epoch/projected-record twice)
+          once   (mapv rf.epoch/projected-record raw)
+          twice  (mapv rf.epoch/projected-record once)
+          thrice (mapv rf.epoch/projected-record twice)
           ;; The :upload cascade is the third one driven (index 2):
           ;; that record is the one whose :db-after carries the large
           ;; payload at the frame-declared `[:blob :payload]` slot.
           large-slot (fn [r] (get-in r [:db-after :blob :payload]))]
-      (is (elision/marker? (large-slot (nth once 2)))
+      (is (rf.elision/marker? (large-slot (nth once 2)))
           "first projection pass substitutes a marker at the large slot")
       (is (= (large-slot (nth once 2))
              (large-slot (nth twice 2)))
@@ -1161,7 +1161,7 @@
     (drive-mixed-ring! :test/mcp)
     (let [raw    (rf/epoch-history :test/mcp)
           mixed  (concat [nil] raw [nil] raw [nil])
-          shaped (mapv epoch/projected-record mixed)]
+          shaped (mapv rf.epoch/projected-record mixed)]
       (is (= (count mixed) (count shaped))
           "every input slot produced an output slot")
       (is (= 3 (count (filter nil? shaped)))
@@ -1185,7 +1185,7 @@
     (rf/make-frame {:id :test/mcp})
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
-    (let [snapshot (epoch/projected-history :test/mcp)]
+    (let [snapshot (rf.epoch/projected-history :test/mcp)]
       (is (pos? (count snapshot))
           "sanity: the snapshot is non-empty")
       (is (not-any? contains-secret? snapshot)
@@ -1204,8 +1204,8 @@
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
     (let [raw            (rf/epoch-history :test/mcp)
-          bulk-projection (epoch/projected-history :test/mcp)
-          per-record      (mapv epoch/projected-record raw)]
+          bulk-projection (rf.epoch/projected-history :test/mcp)
+          per-record      (mapv rf.epoch/projected-record raw)]
       (is (= per-record bulk-projection)
           "projected-history is the bulk-shape equivalent of
            (mapv projected-record (epoch-history fid))"))))
@@ -1220,7 +1220,7 @@
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
     (let [raw      (rf/epoch-history :test/mcp)
-          snapshot (epoch/projected-history :test/mcp)]
+          snapshot (rf.epoch/projected-history :test/mcp)]
       (is (= (mapv :epoch-id raw)
              (mapv :epoch-id snapshot))
           "ordering matches the raw ring epoch-id-by-epoch-id"))))
@@ -1233,9 +1233,9 @@
             shape-stable across the empty case."
     (rf/make-frame {:id :test/mcp})
     (install-mcp-style-schemas! :test/mcp)
-    (is (= [] (epoch/projected-history :test/mcp))
+    (is (= [] (rf.epoch/projected-history :test/mcp))
         "empty-ring snapshot is the empty vector")
-    (is (= [] (epoch/projected-history :rf/no-such-frame))
+    (is (= [] (rf.epoch/projected-history :rf/no-such-frame))
         "missing-frame snapshot is also the empty vector — uniform shape")))
 
 (deftest watch-epochs-projected-history-is-pure-no-side-effects
@@ -1247,10 +1247,10 @@
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
     (let [ring-before    (rf/epoch-history :test/mcp)
-          schemas-before (schemas/snapshot-schemas-by-frame)
-          _              (dotimes [_ 25] (epoch/projected-history :test/mcp))
+          schemas-before (rf.schemas/snapshot-schemas-by-frame)
+          _              (dotimes [_ 25] (rf.epoch/projected-history :test/mcp))
           ring-after     (rf/epoch-history :test/mcp)
-          schemas-after  (schemas/snapshot-schemas-by-frame)]
+          schemas-after  (rf.schemas/snapshot-schemas-by-frame)]
       (is (= ring-before ring-after)
           "the ring is unchanged after 25 bulk-projection calls")
       (is (= schemas-before schemas-after)
@@ -1301,7 +1301,7 @@
                           :fx [[:fxp/login c]]}))
       (rf/dispatch-sync [:do-login creds] {:frame :test/mcp})
       (let [raw      (last (rf/epoch-history :test/mcp))
-            proj     (epoch/projected-record raw {:include-sensitive? true})
+            proj     (rf.epoch/projected-record raw {:include-sensitive? true})
             fx-row   (some #(when (= :fxp/login (:fx-id %)) %) (:effects proj))]
         ;; App-db sensitive axis: REVEALED by include-sensitive.
         (is (= secret-password (get-in proj [:db-after :auth :password]))
@@ -1331,7 +1331,7 @@
                                                  {:state :live})}))
     (rf/dispatch-sync [:seed-both] {:frame :test/mcp})
     (let [raw  (last (rf/epoch-history :test/mcp))
-          proj (epoch/projected-record raw {:include-sensitive? true})]
+          proj (rf.epoch/projected-record raw {:include-sensitive? true})]
       ;; Sanity: the raw record DOES carry a populated runtime-db partition
       ;; (the machine snapshot we wrote, alongside the frame's elision
       ;; registry which also lives in the runtime-db partition).
@@ -1349,7 +1349,7 @@
            include-sensitive alone — runtime-db is orthogonal to the app-db
            sensitive axis")
       ;; And the explicit runtime-db opt DOES lift it (negative control).
-      (let [proj+rt (epoch/projected-record raw {:include-sensitive?  true
+      (let [proj+rt (rf.epoch/projected-record raw {:include-sensitive?  true
                                                  :include-runtime-db? true})]
         (is (not= :rf/redacted (get-in proj+rt [:frame-state-after :rf.db/runtime]))
             "the explicit `:include-runtime-db? true` opt lifts the partition —
@@ -1367,19 +1367,19 @@
                                 :blob {:payload (big-string payload-size)}}}))
     (rf/dispatch-sync [:seed-large] {:frame :test/mcp})
     (let [raw  (last (rf/epoch-history :test/mcp))
-          proj (epoch/projected-record raw {:include-sensitive? true})]
+          proj (rf.epoch/projected-record raw {:include-sensitive? true})]
       ;; Sensitive REVEALED; large STILL elided.
       (is (= secret-password (get-in proj [:db-after :auth :password]))
           "`:include-sensitive? true` reveals the app-db sensitive leaf")
-      (is (elision/marker? (get-in proj [:db-after :blob :payload]))
+      (is (rf.elision/marker? (get-in proj [:db-after :blob :payload]))
           "the app-db large slot STAYS a `:rf.size/large-elided` marker —
            large elision is orthogonal to the sensitive axis")
       (is (zero? (count-leaf-strings-at-least payload-size proj))
           "no raw large-payload bytes egress under include-sensitive alone")
       ;; Negative control: :include-large? true lifts it.
-      (let [proj+lg (epoch/projected-record raw {:include-sensitive? true
+      (let [proj+lg (rf.epoch/projected-record raw {:include-sensitive? true
                                                  :include-large?     true})]
-        (is (not (elision/marker? (get-in proj+lg [:db-after :blob :payload])))
+        (is (not (rf.elision/marker? (get-in proj+lg [:db-after :blob :payload])))
             "the explicit `:include-large? true` opt lifts the large slot —
              proving the axis is independently governed")))))
 
@@ -1398,7 +1398,7 @@
                      (fn [{:keys [db]} _] {:db {:auth {:password secret-password}}}))
     (rf/dispatch-sync [:seed-sensitive] {:frame :test/mcp})
     (let [raw  (last (rf/epoch-history :test/mcp))
-          proj (epoch/projected-record raw {:include-sensitive? true})]
+          proj (rf.epoch/projected-record raw {:include-sensitive? true})]
       (is (= secret-password (get-in proj [:db-after :auth :password]))
           "`:include-sensitive? true` reveals the app-db sensitive leaf")
       (is (true? (:rf.test/redact-fn-ran proj))
@@ -1424,8 +1424,8 @@
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
     (let [raw        (rf/epoch-history :test/mcp)
-          bulk       (epoch/projected-history :test/mcp)
-          per-record (mapv epoch/projected-record raw)]
+          bulk       (rf.epoch/projected-history :test/mcp)
+          per-record (mapv rf.epoch/projected-record raw)]
       ;; The :login cascade is the second one driven; pull both shapes'
       ;; corresponding record and compare leaf-by-leaf.
       (let [login-bulk (nth bulk       1)
@@ -1446,9 +1446,9 @@
             per-slot    (get-in upload-per  [:db-after :blob :payload])]
         (is (= bulk-slot per-slot)
             "the large-payload slot substitution matches between bulk and per-record")
-        (is (elision/marker? bulk-slot)
+        (is (rf.elision/marker? bulk-slot)
             "the bulk-shape large slot is an elision marker (`:rf.size/large-elided`)")
-        (is (elision/marker? per-slot)
+        (is (rf.elision/marker? per-slot)
             "the per-record-shape large slot is an elision marker")))))
 
 ;; ============================================================================
@@ -1475,7 +1475,7 @@
                            {:db (assoc-in db [:auth :password] pw)}))
     (let [shipped (atom [])]
       (rf/register-listener! :epoch ::forwarder
-                                   (fn [r] (swap! shipped conj (epoch/projected-record r))))
+                                   (fn [r] (swap! shipped conj (rf.epoch/projected-record r))))
       (rf/dispatch-sync [:login secret-password] {:frame :test/mcp})
       (is (pos? (count @shipped)) "the forwarder saw the cascade")
       (is (not-any? contains-secret? @shipped)
@@ -1495,7 +1495,7 @@
     (rf/reg-event :auth/login (fn [{:keys [db]} [_ {:keys [password]}]]
                                 {:db (assoc-in db [:auth :password] password)}))
     (rf/dispatch-sync [:auth/login {:password secret-password}] {:frame :test/mcp})
-    (let [proj (epoch/projected-record (last (rf/epoch-history :test/mcp)))]
+    (let [proj (rf.epoch/projected-record (last (rf/epoch-history :test/mcp)))]
       (is (= [:auth/login :rf/redacted] (:trigger-event proj)))
       (is (not (contains-secret? (:trigger-event proj)))
           "the map-arg secret is absent from the projected trigger-event"))))
@@ -1513,13 +1513,13 @@
     (rf/dispatch-sync [:login secret-password] {:frame :test/mcp})
     (let [raw (last (rf/epoch-history :test/mcp))]
       ;; include-event-args reveals the args but keeps app-db sensitive redacted.
-      (let [proj (epoch/projected-record raw {:include-event-args? true})]
+      (let [proj (rf.epoch/projected-record raw {:include-event-args? true})]
         (is (= [:login secret-password] (:trigger-event proj))
             "`:include-event-args? true` reveals the raw trigger-event args")
         (is (= :rf/redacted (get-in proj [:db-after :auth :password]))
             "the app-db sensitive leaf STAYS redacted — orthogonal axis"))
       ;; include-sensitive reveals the app-db leaf but keeps event args redacted.
-      (let [proj (epoch/projected-record raw {:include-sensitive? true})]
+      (let [proj (rf.epoch/projected-record raw {:include-sensitive? true})]
         (is (= secret-password (get-in proj [:db-after :auth :password]))
             "`:include-sensitive? true` reveals the app-db sensitive leaf")
         (is (= [:login :rf/redacted] (:trigger-event proj))
@@ -1552,9 +1552,9 @@
     (let [rows      (drive-resource-family! :test/mcp)
           raw-hist  (rf/epoch-history :test/mcp)
           record    (record-carrying-resource-rows :test/mcp rows)
-          projected (epoch/projected-record record)
+          projected (rf.epoch/projected-record record)
           proj-rows (filter resource-family-row? (:trace-events projected))
-          proj-hist (mapv epoch/projected-record raw-hist)]
+          proj-hist (mapv rf.epoch/projected-record raw-hist)]
 
       ;; ---- fixture controls: the shape the scans below must be able to see --
       (testing "FIXTURE — the cascade produced real family rows carrying the
@@ -1846,7 +1846,7 @@
       (testing "idempotent under repeated projection — a forwarder that
                 accidentally projects twice (middleware composition,
                 tool-then-watcher fan-out) MUST NOT re-hash the tokens"
-        (is (= projected (epoch/projected-record projected))
+        (is (= projected (rf.epoch/projected-record projected))
             "re-projecting an already-projected record is a fixed point")))))
 
 (deftest forwarder-projected-record-keeps-plain-resource-owner-verbatim
@@ -1862,8 +1862,8 @@
     (install-mcp-style-schemas! :test/mcp)
     (install-resource-family! :test/mcp)
     (let [rows      (drive-resource-family! :test/mcp)
-          proj-hist (mapv epoch/projected-record (rf/epoch-history :test/mcp))
-          projected (epoch/projected-record
+          proj-hist (mapv rf.epoch/projected-record (rf/epoch-history :test/mcp))
+          projected (rf.epoch/projected-record
                       (record-carrying-resource-rows :test/mcp rows))
           proj-rows (filter resource-family-row? (:trace-events projected))
           plain-key [:rf.scope/global plain-resource-id {:slug plain-slug}]

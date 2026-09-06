@@ -60,13 +60,13 @@
   hold. The cell table, the reader memberships and the deferred repair are
   the real ones."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.hicasso.checkpoint-support :as support]
-            [re-frame.test-support :as test-support]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.hicasso.checkpoint-support :as rf.hicasso.checkpoint-support]
+            [re-frame.test-support :as rf.test-support]))
 
 (def ^:private frame-id ::reincarnation-cells)
 
@@ -77,11 +77,11 @@
 ;; containing an `(async done …)` test, and the deferred repair under witness
 ;; here is only observable across a promise turn.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -93,19 +93,19 @@
   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
   (rf/make-frame {:id frame-id})
   (rf/with-frame frame-id (rf/dispatch-sync [:reinc-cell/seed who]))
-  (frame/frame-incarnation-token frame-id))
+  (rf.frame/frame-incarnation-token frame-id))
 
-(defn- body [_props] (collector/sub [:reinc-cell/who]))
+(defn- body [_props] (rf.hicasso.impl.collector/sub [:reinc-cell/who]))
 
 (defn- render+commit!
   "Run the body under the generation fence and take React's place at the
   commit seam. Answers the entry, the notification counter and the
   release fn."
   []
-  (let [value    (collector/render-body frame-id body {})
-        entry    (collector/last-reads)
+  (let [value    (rf.hicasso.impl.collector/render-body frame-id body {})
+        entry    (rf.hicasso.impl.collector/last-reads)
         notified (volatile! 0)
-        release  (collector/commit-boundary! entry (fn [] (vswap! notified inc)))]
+        release  (rf.hicasso.impl.collector/commit-boundary! entry (fn [] (vswap! notified inc)))]
     {:value value :entry entry :notified notified :release release}))
 
 (def ^:private at-the-checkpoint
@@ -113,7 +113,7 @@
   [[re-frame.hicasso.checkpoint-support/at-the-checkpoint]] — it is the
   30 ms timer's replacement, and the reason for the replacement is that a
   duration was green for both schedulings."
-  support/at-the-checkpoint)
+  rf.hicasso.checkpoint-support/at-the-checkpoint)
 
 ;; ---------------------------------------------------------------------------
 ;; 1. React's own change-detection number ties across the transition
@@ -123,21 +123,21 @@
   (async done
     (incarnate! "A")
     (let [{:keys [value entry notified release]} (render+commit!)
-          snapshot-a (runtime/snapshot-of entry)]
+          snapshot-a (rf.hicasso.test.runtime/snapshot-of entry)]
       (is (= "A" value) "the committed boundary read the predecessor's value")
-      (is (some? (runtime/cell-reaction sub-key))
+      (is (some? (rf.hicasso.test.runtime/cell-reaction sub-key))
           "and it holds a live cell for the key")
 
       ;; NEGATIVE CONTROL, taken FIRST so the instrument is proven live before
       ;; it is asked to report a tie. An ordinary write inside the incarnation
       ;; must move the number and notify the boundary.
       (rf/with-frame frame-id (rf/dispatch-sync [:reinc-cell/seed "A2"]))
-      (is (> (runtime/snapshot-of entry) snapshot-a)
+      (is (> (rf.hicasso.test.runtime/snapshot-of entry) snapshot-a)
           "an ordinary in-incarnation write MOVES the snapshot — so a tie
            below is the transition's property, not a dead instrument")
       (is (= 1 @notified) "and notifies the committed boundary exactly once")
 
-      (let [snapshot-before (runtime/snapshot-of entry)
+      (let [snapshot-before (rf.hicasso.test.runtime/snapshot-of entry)
             notified-before @notified]
         (rf/destroy-frame! frame-id)
         (rf/make-frame {:id frame-id})
@@ -147,23 +147,23 @@
                   nothing — the number it re-reads is unchanged and no
                   notification has fired, so a committed boundary goes on
                   showing the predecessor's value"
-          (is (= snapshot-before (runtime/snapshot-of entry))
+          (is (= snapshot-before (rf.hicasso.test.runtime/snapshot-of entry))
               "the snapshot TIES across the reincarnation")
           (is (= notified-before @notified) "and no re-render was scheduled"))
 
         (testing "the cell's reaction reference was dropped synchronously by
                   the teardown, which is what makes the read fall back to the
                   cold probe rather than deref a retired computation"
-          (is (nil? (runtime/cell-reaction sub-key))))
+          (is (nil? (rf.hicasso.test.runtime/cell-reaction sub-key))))
 
         (testing "a body re-run right now already reads the SUCCESSOR — the
                   read path is address-directed on the public id, which is
                   precisely why rendered markup is a green instrument
                   throughout this window"
-          (is (= "B" (collector/render-body frame-id body {}))))
+          (is (= "B" (rf.hicasso.impl.collector/render-body frame-id body {}))))
 
         (at-the-checkpoint
-          #(some? (runtime/cell-reaction sub-key))
+          #(some? (rf.hicasso.test.runtime/cell-reaction sub-key))
           "the reincarnation repair"
           done
           (fn [_turns]
@@ -172,9 +172,9 @@
                       deferred repair has routed to the LIVE incarnation: the
                       attachment is rebuilt, the number moves, and the
                       boundary is notified so it can correct what it painted"
-              (is (some? (runtime/cell-reaction sub-key))
+              (is (some? (rf.hicasso.test.runtime/cell-reaction sub-key))
                   "the cell is re-wired rather than left deaf")
-              (is (> (runtime/snapshot-of entry) snapshot-before)
+              (is (> (rf.hicasso.test.runtime/snapshot-of entry) snapshot-before)
                   "and the number React re-reads has finally moved")
               (is (> @notified notified-before)
                   "the committed boundary is notified — the repair is
@@ -190,18 +190,18 @@
     (incarnate! "A")
     (let [{:keys [entry release]} (render+commit!)]
       (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1}
-             (dissoc (runtime/residue) :entries))
+             (dissoc (rf.hicasso.test.runtime/residue) :entries))
           "the commit acquired exactly one cell and one reader membership")
 
       (rf/destroy-frame! frame-id)
 
       (testing "synchronously the cell is still in the table, holding no
                 reaction — the repair's two phases, mid-flight"
-        (is (nil? (runtime/cell-reaction sub-key)))
-        (is (= 1 (:cells (runtime/residue)))))
+        (is (nil? (rf.hicasso.test.runtime/cell-reaction sub-key)))
+        (is (= 1 (:cells (rf.hicasso.test.runtime/residue)))))
 
       (at-the-checkpoint
-        #(zero? (:cells (runtime/residue)))
+        #(zero? (:cells (rf.hicasso.test.runtime/residue)))
         "the no-successor disposal"
         done
         (fn [_turns]
@@ -211,10 +211,10 @@
                     residue after quiescence, and the rescheduling in rf2-2l17
                     moved when that happens without changing what happens"
             (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0}
-                   (dissoc (runtime/residue) :entries))
+                   (dissoc (rf.hicasso.test.runtime/residue) :entries))
                 "no cell, no reader membership, no dependency edge survives a
                  frame that did not come back")
-            (is (nil? (runtime/cell-reaction sub-key))))
+            (is (nil? (rf.hicasso.test.runtime/cell-reaction sub-key))))
           (release))))))
 
 ;; ---------------------------------------------------------------------------
@@ -240,21 +240,21 @@
     (incarnate! "A")
     (let [{:keys [entry release]} (render+commit!)]
       (rf/destroy-frame! frame-id)
-      (is (nil? (runtime/cell-reaction sub-key))
+      (is (nil? (rf.hicasso.test.runtime/cell-reaction sub-key))
           "synchronous phase: reference dropped")
       ;; Seat the successor while the deferred phase is still pending.
       (rf/make-frame {:id frame-id})
       (rf/with-frame frame-id (rf/dispatch-sync [:reinc-cell/seed "B"]))
       (at-the-checkpoint
-        #(some? (runtime/cell-reaction sub-key))
+        #(some? (rf.hicasso.test.runtime/cell-reaction sub-key))
         "the liveness branch"
         done
         (fn [_turns]
           (testing "a successor seated INSIDE the deferral window flips the
                     branch from dispose to re-wire — so the two outcomes are
                     the frame's liveness, read when the deferred phase fires"
-            (is (some? (runtime/cell-reaction sub-key)))
-            (is (= 1 (:cells (runtime/residue)))))
+            (is (some? (rf.hicasso.test.runtime/cell-reaction sub-key)))
+            (is (= 1 (:cells (rf.hicasso.test.runtime/residue)))))
           (testing "and the re-wired cell answers for the SUCCESSOR"
-            (is (= "B" (collector/render-body frame-id body {}))))
+            (is (= "B" (rf.hicasso.impl.collector/render-body frame-id body {}))))
           (release))))))

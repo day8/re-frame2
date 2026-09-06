@@ -17,12 +17,12 @@
   ns ends in -cljs-test so shadow-cljs ':node-test' picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]))
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
 ;; EP-0022 reference-only flip (rf2-0adhqs.9): an INLINE interceptor value in a
 ;; chain now throws `:rf.error/inline-interceptor-removed` at registration.

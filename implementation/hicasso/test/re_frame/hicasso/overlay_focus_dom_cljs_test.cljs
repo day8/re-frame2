@@ -121,13 +121,13 @@
   is the MAP shape (an async row under a POSITIONAL fixture aborts the
   whole run)."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.overlay :as overlay]
-            [re-frame.hicasso.test.mounted :as hm]
-            [re-frame.hicasso.trusted-input-support :as trusted]
-            [re-frame.test-support :as test-support]))
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.overlay :as rf.hicasso.overlay]
+            [re-frame.hicasso.test.mounted :as rf.hicasso.test.mounted]
+            [re-frame.hicasso.trusted-input-support :as rf.hicasso.trusted-input-support]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; ---------------------------------------------------------------------------
 ;; The application — one flag, and the two overlays over the same panel
@@ -149,11 +149,11 @@
 ;; The two pages differ in the OVERLAY and in nothing else: the same
 ;; three panel controls, the same three page controls, the same flag.
 
-(h/defview a-page-with-a-modal [_]
+(rf.hicasso/defview a-page-with-a-modal [_]
   [:div
    [:button#before {:type "button"} "Before"]
    [:button#trigger {:type "button" :on-click [::opened]} "Open"]
-   [overlay/modal {:open?      (h/sub [::open?])
+   [rf.hicasso.overlay/modal {:open?      (rf.hicasso/sub [::open?])
                    :on-dismiss [::dismissed]
                    :label      "Confirm deletion"}
     [:button#confirm {:type "button"} "Delete"]
@@ -161,11 +161,11 @@
     [:button#cancel {:type "button" :on-click [::closed]} "Cancel"]]
    [:button#after {:type "button"} "After"]])
 
-(h/defview a-page-with-a-popover [_]
+(rf.hicasso/defview a-page-with-a-popover [_]
   [:div
    [:button#before {:type "button"} "Before"]
    [:button#trigger {:type "button" :on-click [::opened]} "Open"]
-   [overlay/popover {:open?      (h/sub [::open?])
+   [rf.hicasso.overlay/popover {:open?      (rf.hicasso/sub [::open?])
                      :on-dismiss [::dismissed]
                      :anchor     "trigger"
                      :placement  :bottom-start}
@@ -183,7 +183,7 @@
 ;; would change what every one of them reads without making any of them
 ;; measure a wrap.
 
-(h/defview a-page-with-a-modal-holding-a-radio-group [_]
+(rf.hicasso/defview a-page-with-a-modal-holding-a-radio-group [_]
   ;; A RADIO GROUP IS THREE ELEMENTS AND ONE TAB STOP. Document order in
   ;; this panel is [small large ok reason]; sequential order is
   ;; [large ok reason], because `small` is an unchecked member of a group
@@ -193,7 +193,7 @@
   [:div
    [:button#before {:type "button"} "Before"]
    [:button#trigger {:type "button" :on-click [::opened]} "Open"]
-   [overlay/modal {:open?      (h/sub [::open?])
+   [rf.hicasso.overlay/modal {:open?      (rf.hicasso/sub [::open?])
                    :on-dismiss [::dismissed]
                    :label      "Pick a size"}
     [:input#small {:type "radio" :name "size" :aria-label "Small"}]
@@ -203,14 +203,14 @@
     [:input#reason {:type "text" :aria-label "Reason"}]]
    [:button#after {:type "button"} "After"]])
 
-(h/defview a-page-with-a-modal-ordered-by-tabindex [_]
+(rf.hicasso/defview a-page-with-a-modal-ordered-by-tabindex [_]
   ;; A POSITIVE `tabindex` SORTS AHEAD OF EVERY ZERO. Document order is
   ;; [second first third]; sequential order is [first second third],
   ;; because 1 precedes 2 and both precede the implicit 0.
   [:div
    [:button#before {:type "button"} "Before"]
    [:button#trigger {:type "button" :on-click [::opened]} "Open"]
-   [overlay/modal {:open?      (h/sub [::open?])
+   [rf.hicasso.overlay/modal {:open?      (rf.hicasso/sub [::open?])
                    :on-dismiss [::dismissed]
                    :label      "Ordered by tabindex"}
     [:button#second {:type "button" :tab-index 2} "Second"]
@@ -218,7 +218,7 @@
     [:button#third {:type "button"} "Third"]]
    [:button#after {:type "button"} "After"]])
 
-(h/defview a-page-with-a-modal-whose-last-control-is-hidden [_]
+(rf.hicasso/defview a-page-with-a-modal-whose-last-control-is-hidden [_]
   ;; A TRAILING `visibility:hidden` CONTROL, which is ordinary modal
   ;; markup — a final button hidden by a condition rather than removed.
   ;; Document order is [reason ok cancel ghost]; sequential order is
@@ -232,7 +232,7 @@
   [:div
    [:button#before {:type "button"} "Before"]
    [:button#trigger {:type "button" :on-click [::opened]} "Open"]
-   [overlay/modal {:open?      (h/sub [::open?])
+   [rf.hicasso.overlay/modal {:open?      (rf.hicasso/sub [::open?])
                    :on-dismiss [::dismissed]
                    :label      "Confirm"}
     [:input#reason {:type "text" :aria-label "Reason"}]
@@ -248,7 +248,7 @@
 ;; `checkVisibility` cannot reach them and the exclusion has to be asked
 ;; for another way.
 
-(h/defview a-page-with-a-modal-whose-last-control-is-inert [_]
+(rf.hicasso/defview a-page-with-a-modal-whose-last-control-is-inert [_]
   ;; A TRAILING `inert` REGION, which is ordinary modal markup: the step
   ;; of a wizard the user has not arrived at yet, painted but switched
   ;; off. Document order is [reason ok cancel ghost]; sequential order is
@@ -261,7 +261,7 @@
   [:div
    [:button#before {:type "button"} "Before"]
    [:button#trigger {:type "button" :on-click [::opened]} "Open"]
-   [overlay/modal {:open?      (h/sub [::open?])
+   [rf.hicasso.overlay/modal {:open?      (rf.hicasso/sub [::open?])
                    :on-dismiss [::dismissed]
                    :label      "Confirm"}
     [:input#reason {:type "text" :aria-label "Reason"}]
@@ -271,7 +271,7 @@
      [:button#ghost {:type "button"} "Ghost"]]]
    [:button#after {:type "button"} "After"]])
 
-(h/defview a-page-with-a-modal-whose-last-control-is-in-a-disabled-fieldset [_]
+(rf.hicasso/defview a-page-with-a-modal-whose-last-control-is-in-a-disabled-fieldset [_]
   ;; A TRAILING `disabled` `<fieldset>`, equally ordinary: a form section
   ;; switched off until an earlier choice enables it. Document order is
   ;; [reason ok cancel ghost]; sequential order is [reason ok cancel].
@@ -286,7 +286,7 @@
   [:div
    [:button#before {:type "button"} "Before"]
    [:button#trigger {:type "button" :on-click [::opened]} "Open"]
-   [overlay/modal {:open?      (h/sub [::open?])
+   [rf.hicasso.overlay/modal {:open?      (rf.hicasso/sub [::open?])
                    :on-dismiss [::dismissed]
                    :label      "Confirm"}
     [:input#reason {:type "text" :aria-label "Reason"}]
@@ -305,7 +305,7 @@
      [:button#ghost {:type "button"} "Ghost"]]]
    [:button#after {:type "button"} "After"]])
 
-(h/defview a-page-with-a-modal-whose-last-control-claims-tab [_]
+(rf.hicasso/defview a-page-with-a-modal-whose-last-control-claims-tab [_]
   ;; A LAST CONTROL THAT HANDLES Tab ITSELF, which is ordinary panel
   ;; markup: a grid, a combobox or an embedded editor claims the key for
   ;; its own internal focus movement and says so with `preventDefault`.
@@ -321,13 +321,13 @@
   [:div
    [:button#before {:type "button"} "Before"]
    [:button#trigger {:type "button" :on-click [::opened]} "Open"]
-   [overlay/modal {:open?      (h/sub [::open?])
+   [rf.hicasso.overlay/modal {:open?      (rf.hicasso/sub [::open?])
                    :on-dismiss [::dismissed]
                    :label      "Claimed Tab"}
     [:button#confirm {:type "button"} "Delete"]
     [:input#reason {:type "text" :aria-label "Reason"}]
     [:button#cancel {:type "button"
-                     :on-key-down {"Tab" [::h/prevent [::tab-claimed]]}}
+                     :on-key-down {"Tab" [::rf.hicasso/prevent [::tab-claimed]]}}
      "Cancel"]]
    [:button#after {:type "button"} "After"]])
 
@@ -336,8 +336,8 @@
 ;; POSITIONAL fn by default, and cljs.test throws a bare string that
 ;; unwinds the entire lane the moment an async body appears under one.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true}))
 
@@ -391,8 +391,8 @@
     (some-> (active) (.blur))
     order))
 
-(defn- open! [m] (hm/dispatch-and-settle! m [::opened]) m)
-(defn- close! [m] (hm/dispatch-and-settle! m [::closed]) m)
+(defn- open! [m] (rf.hicasso.test.mounted/dispatch-and-settle! m [::opened]) m)
+(defn- close! [m] (rf.hicasso.test.mounted/dispatch-and-settle! m [::closed]) m)
 
 (defn- $ [m sel] (.querySelector (:container m) sel))
 
@@ -427,7 +427,7 @@
   ;; behind must be measured STILL REACHABLE.
   (if-not (browser?)
     (skip! ":node-test has no <dialog>")
-    (let [m      (hm/mount! [a-page-with-a-modal {}])
+    (let [m      (rf.hicasso.test.mounted/mount! [a-page-with-a-modal {}])
           ^js d  (raw-dialog!)]
       (try
         (testing "premise: with nothing open, the page's own controls are
@@ -466,7 +466,7 @@
         (finally
           (when (.-open d) (.close d))
           (.remove d)
-          (hm/unmount! m))))))
+          (rf.hicasso.test.mounted/unmount! m))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The module's modal — the trap, complete
@@ -475,7 +475,7 @@
 (deftest an-open-modal-is-the-whole-of-what-a-keyboard-can-reach
   (if-not (browser?)
     (skip! ":node-test has no modality")
-    (let [m (hm/mount! [a-page-with-a-modal {}])]
+    (let [m (rf.hicasso.test.mounted/mount! [a-page-with-a-modal {}])]
       (try
         (testing "premise: closed, the page is its own three controls and
                   the panel is not in the document at all"
@@ -509,7 +509,7 @@
           (is (nil? ($ m "dialog")))
           (is (= ["before" "trigger" "after"] (reachable (:container m)))))
 
-        (finally (hm/unmount! m))))))
+        (finally (rf.hicasso.test.mounted/unmount! m))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The trap under a real keyboard
@@ -530,11 +530,11 @@
   ;; rather than a feature, and the exit is the platform's alone.
   (if-not (browser?)
     (skip! ":node-test has no modality, and no engine to press a key at")
-    (if-not (trusted/bridge?)
-      (trusted/unwitnessed! "the trap under real sequential navigation")
+    (if-not (rf.hicasso.trusted-input-support/bridge?)
+      (rf.hicasso.trusted-input-support/unwitnessed! "the trap under real sequential navigation")
       (async done
-        (let [m      (hm/mount! [a-page-with-a-modal {}])
-              finish (fn [] (hm/unmount! m) (done))]
+        (let [m      (rf.hicasso.test.mounted/mount! [a-page-with-a-modal {}])
+              finish (fn [] (rf.hicasso.test.mounted/unmount! m) (done))]
           (try
             (open! m)
             (is (.contains ($ m "dialog") (active))
@@ -546,7 +546,7 @@
             ;; FIVE, so the sequence closes: three presses is a wrap, five
             ;; is a CYCLE with its start repeated, and only the second
             ;; rules out a one-off excursion that happened to come back.
-            (trusted/walk!
+            (rf.hicasso.trusted-input-support/walk!
               "Tab" 5
               (fn [] (some-> (active) label-of))
               (fn [forward]
@@ -580,7 +580,7 @@
                   (is (= "confirm" (label-of (active)))
                       "premise: back on the panel's first control")
 
-                  (trusted/walk!
+                  (rf.hicasso.trusted-input-support/walk!
                     "Shift+Tab" 5
                     (fn [] (some-> (active) label-of))
                     (fn [backward]
@@ -597,11 +597,11 @@
                                  "more than the forward one does. Pressed: "
                                  (pr-str backward)))
 
-                        (trusted/press-once!
+                        (rf.hicasso.trusted-input-support/press-once!
                           "Escape"
                           (fn []
                             (try
-                              (hm/settle! m)
+                              (rf.hicasso.test.mounted/settle! m)
                               (testing "AND OUT: the platform's own dismissal,
                                         which is the only exit a trap has — and
                                         it still is, because the wrap answers
@@ -652,12 +652,12 @@
   Shift+Tab has to wrap at."
   [m start n k]
   (.focus ($ m start))
-  (trusted/walk!
+  (rf.hicasso.trusted-input-support/walk!
     "Tab" n
     (fn [] (some-> (active) label-of))
     (fn [forward]
       (.focus ($ m start))
-      (trusted/walk!
+      (rf.hicasso.trusted-input-support/walk!
         "Shift+Tab" n
         (fn [] (some-> (active) label-of))
         (fn [backward] (k forward backward))))))
@@ -665,11 +665,11 @@
 (deftest a-real-tab-wraps-at-the-radio-groups-edge-and-not-at-the-dom-s
   (if-not (browser?)
     (skip! ":node-test has no modality, and no engine to press a key at")
-    (if-not (trusted/bridge?)
-      (trusted/unwitnessed! "the trap over a panel holding a radio group")
+    (if-not (rf.hicasso.trusted-input-support/bridge?)
+      (rf.hicasso.trusted-input-support/unwitnessed! "the trap over a panel holding a radio group")
       (async done
-        (let [m      (hm/mount! [a-page-with-a-modal-holding-a-radio-group {}])
-              finish (fn [] (hm/unmount! m) (done))]
+        (let [m      (rf.hicasso.test.mounted/mount! [a-page-with-a-modal-holding-a-radio-group {}])
+              finish (fn [] (rf.hicasso.test.mounted/unmount! m) (done))]
           (try
             (open! m)
             (is (.contains ($ m "dialog") (active))
@@ -717,11 +717,11 @@
 (deftest a-real-tab-wraps-at-the-tabindex-ordered-edge
   (if-not (browser?)
     (skip! ":node-test has no modality, and no engine to press a key at")
-    (if-not (trusted/bridge?)
-      (trusted/unwitnessed! "the trap over a panel ordered by positive tabindex")
+    (if-not (rf.hicasso.trusted-input-support/bridge?)
+      (rf.hicasso.trusted-input-support/unwitnessed! "the trap over a panel ordered by positive tabindex")
       (async done
-        (let [m      (hm/mount! [a-page-with-a-modal-ordered-by-tabindex {}])
-              finish (fn [] (hm/unmount! m) (done))]
+        (let [m      (rf.hicasso.test.mounted/mount! [a-page-with-a-modal-ordered-by-tabindex {}])
+              finish (fn [] (rf.hicasso.test.mounted/unmount! m) (done))]
           (try
             (open! m)
             (is (.contains ($ m "dialog") (active))
@@ -782,11 +782,11 @@
 (deftest a-real-tab-wraps-past-a-trailing-hidden-control
   (if-not (browser?)
     (skip! ":node-test has no modality, and no engine to press a key at")
-    (if-not (trusted/bridge?)
-      (trusted/unwitnessed! "the trap over a panel whose last element is hidden")
+    (if-not (rf.hicasso.trusted-input-support/bridge?)
+      (rf.hicasso.trusted-input-support/unwitnessed! "the trap over a panel whose last element is hidden")
       (async done
-        (let [m      (hm/mount! [a-page-with-a-modal-whose-last-control-is-hidden {}])
-              finish (fn [] (hm/unmount! m) (done))]
+        (let [m      (rf.hicasso.test.mounted/mount! [a-page-with-a-modal-whose-last-control-is-hidden {}])
+              finish (fn [] (rf.hicasso.test.mounted/unmount! m) (done))]
           (try
             (open! m)
             (is (.contains ($ m "dialog") (active))
@@ -863,11 +863,11 @@
 (deftest a-real-tab-wraps-past-a-trailing-inert-region
   (if-not (browser?)
     (skip! ":node-test has no modality, and no engine to press a key at")
-    (if-not (trusted/bridge?)
-      (trusted/unwitnessed! "the trap over a panel ending in an inert region")
+    (if-not (rf.hicasso.trusted-input-support/bridge?)
+      (rf.hicasso.trusted-input-support/unwitnessed! "the trap over a panel ending in an inert region")
       (async done
-        (let [m      (hm/mount! [a-page-with-a-modal-whose-last-control-is-inert {}])
-              finish (fn [] (hm/unmount! m) (done))]
+        (let [m      (rf.hicasso.test.mounted/mount! [a-page-with-a-modal-whose-last-control-is-inert {}])
+              finish (fn [] (rf.hicasso.test.mounted/unmount! m) (done))]
           (try
             (open! m)
             (is (.contains ($ m "dialog") (active))
@@ -922,12 +922,12 @@
 (deftest a-real-tab-wraps-past-a-trailing-disabled-fieldset
   (if-not (browser?)
     (skip! ":node-test has no modality, and no engine to press a key at")
-    (if-not (trusted/bridge?)
-      (trusted/unwitnessed! "the trap over a panel ending in a disabled fieldset")
+    (if-not (rf.hicasso.trusted-input-support/bridge?)
+      (rf.hicasso.trusted-input-support/unwitnessed! "the trap over a panel ending in a disabled fieldset")
       (async done
-        (let [m      (hm/mount!
+        (let [m      (rf.hicasso.test.mounted/mount!
                        [a-page-with-a-modal-whose-last-control-is-in-a-disabled-fieldset {}])
-              finish (fn [] (hm/unmount! m) (done))]
+              finish (fn [] (rf.hicasso.test.mounted/unmount! m) (done))]
           (try
             (open! m)
             (is (.contains ($ m "dialog") (active))
@@ -1008,11 +1008,11 @@
   ;; popover rows have no wrap at all.
   (if-not (browser?)
     (skip! ":node-test has no modality, and no engine to press a key at")
-    (if-not (trusted/bridge?)
-      (trusted/unwitnessed! "the wrap's yield to a claimed press")
+    (if-not (rf.hicasso.trusted-input-support/bridge?)
+      (rf.hicasso.trusted-input-support/unwitnessed! "the wrap's yield to a claimed press")
       (async done
-        (let [m      (hm/mount! [a-page-with-a-modal-whose-last-control-claims-tab {}])
-              finish (fn [] (hm/unmount! m) (done))]
+        (let [m      (rf.hicasso.test.mounted/mount! [a-page-with-a-modal-whose-last-control-claims-tab {}])
+              finish (fn [] (rf.hicasso.test.mounted/unmount! m) (done))]
           (try
             (open! m)
             (.focus ($ m "#cancel"))
@@ -1020,11 +1020,11 @@
                 (str "premise: on the edge the wrap fires at. Active: "
                      (label-of (active))))
 
-            (trusted/press-once!
+            (rf.hicasso.trusted-input-support/press-once!
               "Tab"
               (fn []
                 (try
-                  (hm/settle! m)
+                  (rf.hicasso.test.mounted/settle! m)
                   (is (= 1 (:tab-claims (rf/app-db-value (:frame m))))
                       "premise: the press reached the control and its claim
                        dispatched, exactly once — so the reading below is of
@@ -1056,7 +1056,7 @@
   ;; claims and not what it does.
   (if-not (browser?)
     (skip! ":node-test has no popover")
-    (let [m (hm/mount! [a-page-with-a-popover {}])]
+    (let [m (rf.hicasso.test.mounted/mount! [a-page-with-a-popover {}])]
       (try
         (is (= ["before" "trigger" "after"] (reachable (:container m)))
             "premise: closed, the page is its own three controls")
@@ -1078,7 +1078,7 @@
         (close! m)
         (is (= ["before" "trigger" "after"] (reachable (:container m))))
 
-        (finally (hm/unmount! m))))))
+        (finally (rf.hicasso.test.mounted/unmount! m))))))
 
 (deftest a-real-tab-leaves-an-open-popover
   ;; THE FENCE ON THE MODAL'S WRAP, and the row above cannot stand in for
@@ -1094,11 +1094,11 @@
   ;; from the popover for exactly that reason.
   (if-not (browser?)
     (skip! ":node-test has no popover, and no engine to press a key at")
-    (if-not (trusted/bridge?)
-      (trusted/unwitnessed! "a popover's deliberate lack of a trap")
+    (if-not (rf.hicasso.trusted-input-support/bridge?)
+      (rf.hicasso.trusted-input-support/unwitnessed! "a popover's deliberate lack of a trap")
       (async done
-        (let [m      (hm/mount! [a-page-with-a-popover {}])
-              finish (fn [] (hm/unmount! m) (done))]
+        (let [m      (rf.hicasso.test.mounted/mount! [a-page-with-a-popover {}])
+              finish (fn [] (rf.hicasso.test.mounted/unmount! m) (done))]
           (try
             (open! m)
             (.focus ($ m "#cancel"))
@@ -1106,7 +1106,7 @@
                 (str "premise: on the panel's last control. Active: "
                      (label-of (active))))
 
-            (trusted/press-once!
+            (rf.hicasso.trusted-input-support/press-once!
               "Tab"
               (fn []
                 (try

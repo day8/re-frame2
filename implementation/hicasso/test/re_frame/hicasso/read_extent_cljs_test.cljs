@@ -92,12 +92,12 @@
   element the render emitted; what a browser would add there is the DOM's
   own dispatch, not the law."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.test-support :as test-support]))
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.test-support :as rf.test-support]))
 
 (def ^:private frame-id ::read-extent)
 
@@ -121,7 +121,7 @@
 ;; is what lets the namespace finish loading; the refusal itself is real.
 
 (defonce ^:private module-load-read
-  (try {:returned (h/sub [:re/left])}
+  (try {:returned (rf.hicasso/sub [:re/left])}
        (catch :default e {:refused (ex-data e) :message (ex-message e)})))
 
 ;; The UIx adapter rather than plain-atom, for the reason the package smoke
@@ -131,11 +131,11 @@
 ;; which the `(async done …)` rows require; `:ambient-frame nil` because
 ;; this suite seats its own.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -165,15 +165,15 @@
   [[re-frame.hicasso.impl.collector/shell]] makes between its two hooks —
   and return the read-set entry the render resolved. Commits nothing."
   [body-fn]
-  (collector/render-body frame-id body-fn {})
-  (collector/last-reads))
+  (rf.hicasso.impl.collector/render-body frame-id body-fn {})
+  (rf.hicasso.impl.collector/last-reads))
 
 (defn- element-of
   "The React element a body emitted, which is where the codec left every
   lowered callback. Reading a wrapper off here is how a Node witness gets
   hold of *the function React would call* rather than a stand-in for it."
   [body-fn]
-  (collector/render-body frame-id body-fn {}))
+  (rf.hicasso.impl.collector/render-body frame-id body-fn {}))
 
 (defn- outcome
   "**The suite's one discriminator.** Run `thunk` and report which of the
@@ -228,10 +228,10 @@
   any way — which is the point: the extent is the body's dynamic extent
   and a helper called from it is inside that extent."
   []
-  (h/sub [:re/right]))
+  (rf.hicasso/sub [:re/right]))
 
 (defn- helper-reads-through-another-helper []
-  (+ (helper-reads-right) (h/sub [:re/left])))
+  (+ (helper-reads-right) (rf.hicasso/sub [:re/left])))
 
 (deftest a-nested-helper-donates-its-reads-to-the-enclosing-boundary
   (seeded!)
@@ -240,13 +240,13 @@
     (testing "two helper frames deep, and both keys are the BOUNDARY's —
               there is no helper-level read set for them to belong to"
       (is (= #{(sub-key [:re/left]) (sub-key [:re/right])}
-             (runtime/reads-of entry))))
+             (rf.hicasso.test.runtime/reads-of entry))))
 
-    (let [cleanup (collector/commit-boundary! entry (fn []))]
+    (let [cleanup (rf.hicasso.impl.collector/commit-boundary! entry (fn []))]
       (testing "and the commit acquires both on the boundary's behalf: one
                 registration in each key's reader list, the same one"
-        (let [[a] (runtime/cell-readers (sub-key [:re/left]))
-              [b] (runtime/cell-readers (sub-key [:re/right]))]
+        (let [[a] (rf.hicasso.test.runtime/cell-readers (sub-key [:re/left]))
+              [b] (rf.hicasso.test.runtime/cell-readers (sub-key [:re/right]))]
           (is (some? a))
           (is (identical? a b))))
       (cleanup))))
@@ -257,15 +257,15 @@
   ;; The row here is the other direction and the one the matrix needs: BOTH arms
   ;; are legal, and which keys are recorded is a function of the control
   ;; flow the render actually took rather than of the text of the body.
-  (let [body (fn [_] [:p (if (h/sub [:re/flag])
-                           (h/sub [:re/right])
-                           (h/sub [:re/left]))])
+  (let [body (fn [_] [:p (if (rf.hicasso/sub [:re/flag])
+                           (rf.hicasso/sub [:re/right])
+                           (rf.hicasso/sub [:re/left]))])
         low  (probe! body)]
 
     (testing "flag false: the else arm ran, so the else arm's key is the
               one recorded and the then arm's is absent"
       (is (= #{(sub-key [:re/flag]) (sub-key [:re/left])}
-             (runtime/reads-of low))))
+             (rf.hicasso.test.runtime/reads-of low))))
 
     (rf/with-frame frame-id (rf/dispatch-sync [:re/raise]))
 
@@ -275,8 +275,8 @@
                 which is what a two-key assertion can see and a one-key
                 assertion cannot"
         (is (= #{(sub-key [:re/flag]) (sub-key [:re/right])}
-               (runtime/reads-of high)))
-        (is (not (contains? (runtime/reads-of high) (sub-key [:re/left]))))))))
+               (rf.hicasso.test.runtime/reads-of high)))
+        (is (not (contains? (rf.hicasso.test.runtime/reads-of high) (sub-key [:re/left]))))))))
 
 (deftest a-variable-length-loop-records-every-row-it-ran
   (seeded!)
@@ -285,25 +285,25 @@
   ;; return: a window that closed at the return would register no edge for
   ;; any row here, and would look perfectly correct on the first render.
   (let [body-of (fn [n] (fn [_] [:ul (for [i (range n)]
-                                       [:li {:key i} (h/sub [:re/row i])])]))
+                                       [:li {:key i} (rf.hicasso/sub [:re/row i])])]))
         two     (probe! (body-of 2))]
 
     (testing "every row of a two-row loop is in the set — the seq was forced
               inside the window by the same pass that made the elements"
       (is (= #{(sub-key [:re/row 0]) (sub-key [:re/row 1])}
-             (runtime/reads-of two))))
+             (rf.hicasso.test.runtime/reads-of two))))
 
     (let [four (probe! (body-of 4))]
       (testing "and the length is a render-time fact: four rows, four keys,
                 no ledger of what the previous render read"
         (is (= #{(sub-key [:re/row 0]) (sub-key [:re/row 1])
                  (sub-key [:re/row 2]) (sub-key [:re/row 3])}
-               (runtime/reads-of four)))))
+               (rf.hicasso.test.runtime/reads-of four)))))
 
     (let [one (probe! (body-of 1))]
       (testing "shrinking is symmetric: the read set is what THIS render
                 read, so three keys left it without anything being diffed"
-        (is (= #{(sub-key [:re/row 0])} (runtime/reads-of one)))))))
+        (is (= #{(sub-key [:re/row 0])} (rf.hicasso.test.runtime/reads-of one)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The reconciliation clause — appearing and disappearing reads land at the
@@ -319,54 +319,54 @@
     ;; the replacement IS the cleanup plus the new subscribe. What has to be
     ;; true is the OUTCOME: the key that stayed keeps exactly one reader, the
     ;; key that went keeps none, the key that arrived gains one.
-    (let [first-entry (probe! (fn [_] [:p (h/sub [:re/left]) (h/sub [:re/right])]))
-          release-1   (collector/commit-boundary! first-entry (fn []))]
+    (let [first-entry (probe! (fn [_] [:p (rf.hicasso/sub [:re/left]) (rf.hicasso/sub [:re/right])]))
+          release-1   (rf.hicasso.impl.collector/commit-boundary! first-entry (fn []))]
 
       (testing "the first commit owns exactly the first read set"
         (is (= #{(sub-key [:re/left]) (sub-key [:re/right])}
-               (runtime/reads-of first-entry)))
-        (is (= 1 (count (runtime/cell-readers (sub-key [:re/left])))))
-        (is (= 1 (count (runtime/cell-readers (sub-key [:re/right])))))
-        (is (= [] (runtime/cell-readers (sub-key [:re/flag])))))
+               (rf.hicasso.test.runtime/reads-of first-entry)))
+        (is (= 1 (count (rf.hicasso.test.runtime/cell-readers (sub-key [:re/left])))))
+        (is (= 1 (count (rf.hicasso.test.runtime/cell-readers (sub-key [:re/right])))))
+        (is (= [] (rf.hicasso.test.runtime/cell-readers (sub-key [:re/flag])))))
 
       ;; The re-render: `:re/right` disappears, `:re/flag` appears,
       ;; `:re/left` stays.
-      (let [second-entry (probe! (fn [_] [:p (h/sub [:re/left]) (h/sub [:re/flag])]))]
+      (let [second-entry (probe! (fn [_] [:p (rf.hicasso/sub [:re/left]) (rf.hicasso/sub [:re/flag])]))]
 
         (testing "the render alone changes no membership — render probes"
-          (is (= 1 (count (runtime/cell-readers (sub-key [:re/right])))))
-          (is (= [] (runtime/cell-readers (sub-key [:re/flag])))))
+          (is (= 1 (count (rf.hicasso.test.runtime/cell-readers (sub-key [:re/right])))))
+          (is (= [] (rf.hicasso.test.runtime/cell-readers (sub-key [:re/flag])))))
 
-        (let [release-2 (collector/commit-boundary! second-entry (fn []))]
+        (let [release-2 (rf.hicasso.impl.collector/commit-boundary! second-entry (fn []))]
           ;; React's order at a changed subscription: subscribe the new,
           ;; then release the old. Doing it the other way round is the
           ;; variant `hmr_remount` pinned, and the outcome is the same.
           (release-1)
 
           (testing "the arrived key gained a reader"
-            (is (= 1 (count (runtime/cell-readers (sub-key [:re/flag]))))))
+            (is (= 1 (count (rf.hicasso.test.runtime/cell-readers (sub-key [:re/flag]))))))
 
           (testing "the departed key lost its only one"
-            (is (= [] (runtime/cell-readers (sub-key [:re/right])))))
+            (is (= [] (rf.hicasso.test.runtime/cell-readers (sub-key [:re/right])))))
 
           (testing "and the key that stayed has exactly ONE reader, not two
                     — a runtime that acquired for the successor without
                     releasing the predecessor also paints correctly, and
                     this is the number that tells them apart"
-            (is (= 1 (count (runtime/cell-readers (sub-key [:re/left]))))))
+            (is (= 1 (count (rf.hicasso.test.runtime/cell-readers (sub-key [:re/left]))))))
 
           (testing "the surviving reader is the SUCCESSOR by identity, which
                     a count alone cannot say"
-            (let [[reader] (runtime/cell-readers (sub-key [:re/left]))]
+            (let [[reader] (rf.hicasso.test.runtime/cell-readers (sub-key [:re/left]))]
               (is (= #{(sub-key [:re/left]) (sub-key [:re/flag])}
-                     (runtime/boundary-reads reader)))))
+                     (rf.hicasso.test.runtime/boundary-reads reader)))))
 
           (release-2)
-          (.then (runtime/quiesced!)
+          (.then (rf.hicasso.test.runtime/quiesced!)
                  (fn [_]
                    (testing "and the pair leaves nothing behind"
                      (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                            (runtime/residue))))
+                            (rf.hicasso.test.runtime/residue))))
                    (done))))))))
 
 ;; ---------------------------------------------------------------------------
@@ -381,9 +381,9 @@
   ;; and call it with a real event; the extent law does not depend on which.
   (let [!ran     (atom 0)
         element  (element-of
-                   (fn [_] [:button {:on-click (h/event [_]
+                   (fn [_] [:button {:on-click (rf.hicasso/event [_]
                                                  (swap! !ran inc)
-                                                 (h/sub [:re/right]))}
+                                                 (rf.hicasso/sub [:re/right]))}
                             "go"]))
         on-click (.. element -props -onClick)
         o        (outcome (fn [] (on-click #js {})))]
@@ -403,7 +403,7 @@
     ;; ambient dispatch is captured at lowering time on purpose.
     (let [before   (rf/with-frame frame-id @(rf/subscribe [:re/left]))
           element2 (element-of
-                     (fn [_] [:button {:on-click (h/event [_] [:re/bump])} "go"]))]
+                     (fn [_] [:button {:on-click (rf.hicasso/event [_] [:re/bump])} "go"]))]
       ((.. element2 -props -onClick) #js {})
       (testing "a callback may DISPATCH after the render — the extent law
                 fences reads, and the machinery is demonstrably alive at the
@@ -424,9 +424,9 @@
   ;; not guess which render owns the read.
   (let [!ran    (atom 0)
         element (element-of
-                  (fn [_] [:div {:render-row (h/event [_]
+                  (fn [_] [:div {:render-row (rf.hicasso/event [_]
                                                (swap! !ran inc)
-                                               (h/sub [:re/right]))}]))
+                                               (rf.hicasso/sub [:re/right]))}]))
         render-row (.. element -props -renderRow)
         o          (outcome (fn [] (render-row 7)))]
 
@@ -443,7 +443,7 @@
     (seeded!)
     (let [!ran (atom 0)
           !out (atom nil)]
-      (collector/render-body
+      (rf.hicasso.impl.collector/render-body
         frame-id
         (fn [_]
           ;; Scheduled from inside the body. The microtask runs after the
@@ -451,8 +451,8 @@
           (-> (js/Promise.resolve)
               (.then (fn []
                        (swap! !ran inc)
-                       (reset! !out (outcome (fn [] (h/sub [:re/right])))))))
-          [:p (h/sub [:re/left])])
+                       (reset! !out (outcome (fn [] (rf.hicasso/sub [:re/right])))))))
+          [:p (rf.hicasso/sub [:re/left])])
         {})
 
       (-> (js/Promise.resolve)
@@ -468,20 +468,20 @@
                    (testing "the body's OWN read is unaffected — the refusal
                              is the crossing's, not the query's"
                      (is (= #{(sub-key [:re/left])}
-                            (runtime/reads-of (collector/last-reads)))))
+                            (rf.hicasso.test.runtime/reads-of (rf.hicasso.impl.collector/last-reads)))))
                    (done)))))))
 
 (deftest a-timer-callback-refuses
   (async done
     (seeded!)
     (let [!ran (atom 0)]
-      (collector/render-body
+      (rf.hicasso.impl.collector/render-body
         frame-id
         (fn [_]
           (js/setTimeout
             (fn []
               (swap! !ran inc)
-              (let [o (outcome (fn [] (h/sub [:re/right])))]
+              (let [o (outcome (fn [] (rf.hicasso/sub [:re/right])))]
                 (testing "the premise: the timer fired"
                   (is (= 1 @!ran)))
                 (testing "and its read refused, with the stable shape"
@@ -501,13 +501,13 @@
                 (testing "and nothing was recorded: the next body's read set
                           is its own, with no trace of the refused key and
                           none of the render that deferred it"
-                  (let [entry (probe! (fn [_] [:p (h/sub [:re/flag])
-                                               (h/sub [:re/row 0])]))]
+                  (let [entry (probe! (fn [_] [:p (rf.hicasso/sub [:re/flag])
+                                               (rf.hicasso/sub [:re/row 0])]))]
                     (is (= #{(sub-key [:re/flag]) (sub-key [:re/row 0])}
-                           (runtime/reads-of entry)))))
+                           (rf.hicasso.test.runtime/reads-of entry)))))
                 (done)))
             0)
-          [:p (h/sub [:re/left])])
+          [:p (rf.hicasso/sub [:re/left])])
         {}))))
 
 (deftest an-escaped-lazy-sequence-refuses-where-an-in-window-one-is-legal
@@ -524,14 +524,14 @@
   (let [!escaped (atom nil)
         entry    (probe! (fn [_]
                            (reset! !escaped
-                                   (map (fn [i] (h/sub [:re/row i])) (range 3)))
+                                   (map (fn [i] (rf.hicasso/sub [:re/row i])) (range 3)))
                            ;; the LEGAL half, in the same body
                            [:ul (for [i (range 2)]
-                                  [:li {:key i} (h/sub [:re/row i])])]))]
+                                  [:li {:key i} (rf.hicasso/sub [:re/row i])])]))]
 
     (testing "the in-window loop's rows are edges of this boundary"
       (is (= #{(sub-key [:re/row 0]) (sub-key [:re/row 1])}
-             (runtime/reads-of entry))))
+             (rf.hicasso.test.runtime/reads-of entry))))
 
     (testing "the escaped seq really is unrealised — otherwise the row below
               would be measuring a value the body already computed"
@@ -559,7 +559,7 @@
 ;; The SECOND discriminator — the crossing walk, and the residue it declares
 ;; ---------------------------------------------------------------------------
 
-(h/defview crossing-child
+(rf.hicasso/defview crossing-child
   [{:keys [v]}]
   [:p (str v)])
 
@@ -573,9 +573,9 @@
   ;; rather than forcing it, because forcing an author's explicit deferral
   ;; would change what their program means.
   (let [o (outcome (fn []
-                     (collector/render-body
+                     (rf.hicasso.impl.collector/render-body
                        frame-id
-                       (fn [_] [:div [crossing-child {:v (delay (h/sub [:re/right]))}]])
+                       (fn [_] [:div [crossing-child {:v (delay (rf.hicasso/sub [:re/right]))}]])
                        {})))]
 
     (testing "refused at the crossing, with its own stable id and recovery —
@@ -600,12 +600,12 @@
   ;; freely, and its read belongs to the body that wrote it. Without this
   ;; row the one above could be "the walk refuses every delay".
   (let [entry (probe! (fn [_]
-                        (let [d (delay (h/sub [:re/right]))]
+                        (let [d (delay (rf.hicasso/sub [:re/right]))]
                           @d
                           [:div [crossing-child {:v @d}]])))]
     (testing "a delay forced in the writing body crosses, and its read is
               that body's own edge"
-      (is (= #{(sub-key [:re/right])} (runtime/reads-of entry))))))
+      (is (= #{(sub-key [:re/right])} (rf.hicasso.test.runtime/reads-of entry))))))
 
 (deftest an-escaped-deferral-forced-in-another-body-is-the-declared-limit
   (seeded!)
@@ -625,8 +625,8 @@
   ;; that goes red, and that is what it is for.
   (let [!parked (atom nil)]
     (probe! (fn [_]
-              (reset! !parked (fn [] (h/sub [:re/right])))
-              [:p (h/sub [:re/left])]))
+              (reset! !parked (fn [] (rf.hicasso/sub [:re/right])))
+              [:p (rf.hicasso/sub [:re/left])]))
 
     (testing "forced with no body on the stack it refuses, like every other
               escape"
@@ -635,12 +635,12 @@
 
     (let [victim (probe! (fn [_]
                            (@!parked)
-                           [:p (h/sub [:re/flag])]))]
+                           [:p (rf.hicasso/sub [:re/flag])]))]
       (testing "but forced inside a DIFFERENT body's render it does not
                 refuse — and the read is filed under that body, which never
                 wrote it. The page paints correctly and the edge is wrong"
         (is (= #{(sub-key [:re/flag]) (sub-key [:re/right])}
-               (runtime/reads-of victim)))))))
+               (rf.hicasso.test.runtime/reads-of victim)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The controls that make the matrix worth its greens
@@ -655,7 +655,7 @@
   ;; census guards against, in this file's own currency.
   (let [!seen (atom nil)]
     (probe! (fn [_]
-              (reset! !seen (outcome (fn [] (h/sub [:re/right]))))
+              (reset! !seen (outcome (fn [] (rf.hicasso/sub [:re/right]))))
               [:p "x"]))
 
     (testing "the IDENTICAL read, inside the window, is reported as allowed
@@ -690,22 +690,22 @@
     ;; a second copy of it.
     (let [!parked (atom nil)]
       (probe! (fn [_]
-                (reset! !parked (fn [] (h/sub [:re/right])))
-                [:p (h/sub [:re/left])]))
+                (reset! !parked (fn [] (rf.hicasso/sub [:re/right])))
+                [:p (rf.hicasso/sub [:re/left])]))
 
       (dotimes [_ 3] (outcome (fn [] (@!parked))))
 
       (testing "three refusals later the runtime owns exactly what the
                 probing render owned: nothing"
         (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0}
-               (dissoc (runtime/residue) :entries)))
-        (is (= [] (runtime/cell-readers (sub-key [:re/right]))))
-        (is (nil? (runtime/cell-reaction (sub-key [:re/right])))))
+               (dissoc (rf.hicasso.test.runtime/residue) :entries)))
+        (is (= [] (rf.hicasso.test.runtime/cell-readers (sub-key [:re/right]))))
+        (is (nil? (rf.hicasso.test.runtime/cell-reaction (sub-key [:re/right])))))
 
-      (.then (runtime/quiesced!)
+      (.then (rf.hicasso.test.runtime/quiesced!)
              (fn [_]
                (testing "and the render-phase entry cache evaporates at the
                          runtime's own horizon, refusals included"
                  (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                        (runtime/residue))))
+                        (rf.hicasso.test.runtime/residue))))
                (done))))))

@@ -32,11 +32,11 @@
    any subsequent test ns."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.fx :as rf.fx]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             [re-frame.views]
             ;; production HTTP + resources surfaces (so the resource runtime,
             ;; managed-HTTP lowering, and the late-bound routing integration
@@ -44,17 +44,17 @@
             [re-frame.http.managed]
             [re-frame.http.test-support]
             [re-frame.resources]
-            [re-frame.resources.route :as resources-route]
-            [re-frame.resources.state :as state]
+            [re-frame.resources.route :as rf.resources.route]
+            [re-frame.resources.state :as rf.resources.state]
             [re-frame.resources.test-support]
-            [re-frame.routing :as routing]
+            [re-frame.routing :as rf.routing]
             ;; the framework trace-ring buffer (Spec 009). The shared
             ;; `make-reset-runtime-fixture` resets `frame/frames` but NOT the
             ;; process-global trace rings, so a dispatching test's trace residue
             ;; survives into later cross-cutting tooling tests that read the
             ;; rings. We clear the rings around each test body (below) so this
             ;; suite leaves no trace residue.
-            [re-frame.trace.tooling :as trace-tooling]
+            [re-frame.trace.tooling :as rf.trace.tooling]
             ;; the example's production source — registers its resources, routes,
             ;; events, subs, and the reader machine at ns-load.
             [resources.core])
@@ -77,7 +77,7 @@
 ;; (Routes / the reader machine live under kinds the reset does NOT clear, so
 ;; they survive via the fixture's ns-load baseline.)
 (def ^:private resource-kind-snapshot
-  (get @registrar/kind->id->metadata :resource))
+  (get @rf.registrar/kind->id->metadata :resource))
 
 ;; AT NS LOAD, immediately remove THIS example's `:resource` registrations (by id)
 ;; from the SHARED live registrar — after snapshotting them above. They are
@@ -89,7 +89,7 @@
 ;; mirror the resulting frameless `:rf.registry/handler-cleared` burst into its
 ;; cascade seed (a false-positive `:rf.xray/cascades`). We remove only OUR ids
 ;; (not the whole kind) so a sibling suite's ns-load resources are untouched.
-(swap! registrar/kind->id->metadata update :resource
+(swap! rf.registrar/kind->id->metadata update :resource
        (fn [m] (apply dissoc m (keys resource-kind-snapshot))))
 
 (defn- init!
@@ -128,13 +128,13 @@
   ;; store in lockstep and marks the live-frame projection dirty, so the
   ;; frame's next resolution sees the reinstated registrations.
   (doseq [[id meta] resource-kind-snapshot]
-    (registrar/register! :resource id meta))
-  (routing/reset-counters!)
-  (resources-route/install-routing-integration!)
+    (rf.registrar/register! :resource id meta))
+  (rf.routing/reset-counters!)
+  (rf.resources.route/install-routing-integration!)
   ;; Capturing no-op: the reply is replayed explicitly by the test so the
   ;; 3-element internal reply event matches what the live transport produces.
-  (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
-  (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
   ;; LAST — see the ordering note in the docstring. Everything the frame's
   ;; construction-time URL sync needs (the reinstated `:resource` rows, the
   ;; routing integration, the stubbed fx) is registered above.
@@ -169,15 +169,15 @@
    calls `reset-sentinels!` + `register-trace-collector!`), so clearing here is
    safe."
   [f]
-  (trace-tooling/clear-listeners!)
-  (trace-tooling/clear-trace-rings!)
+  (rf.trace.tooling/clear-listeners!)
+  (rf.trace.tooling/clear-trace-rings!)
   (f)
-  (trace-tooling/clear-listeners!)
-  (trace-tooling/clear-trace-rings!))
+  (rf.trace.tooling/clear-listeners!)
+  (rf.trace.tooling/clear-trace-rings!))
 
 (use-fixtures :each
   isolate-trace-bus-fixture
-  (test-support/make-reset-runtime-fixture
+  (rf.test-support/make-reset-runtime-fixture
     ;; BUNDLE CO-LOAD HYGIENE: this app registers the reserved per-app
     ;; `:rf.route/not-found` route at ns load, and every co-loaded example app
     ;; does the same — two provenance rows for one id fail default-image
@@ -185,7 +185,7 @@
     ;; app loads. `:app-ns` names OUR OWN app (never a sibling's): the fixture
     ;; keeps its rows out of every suite's baseline and reinstates them for
     ;; this suite's own tests (rf2-kuky.27).
-    {:adapter reagent-adapter/adapter
+    {:adapter rf.adapter.reagent/adapter
      :app-ns  "resources."
      :init-fn init!}))
 
@@ -196,20 +196,20 @@
 (defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
 
 (defn- entry [scoped-key]
-  (get-in (runtime-db) (state/entry-path scoped-key)))
+  (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
 
 (defn- entry-in
   "Read a resource entry from an EXPLICIT frame's runtime-db. The preview
    tests drive their own anon frame (via `with-new-frame`), not `:rf/default`,
    so they resolve entries against that frame rather than the shared helper."
   [f scoped-key]
-  (get-in (:rf.db/runtime (rf/frame-state-value f)) (state/entry-path scoped-key)))
+  (get-in (:rf.db/runtime (rf/frame-state-value f)) (rf.resources.state/entry-path scoped-key)))
 
 (defn- list-key []
-  (state/scoped-resource-key :rf.scope/global :articles/list {}))
+  (rf.resources.state/scoped-resource-key :rf.scope/global :articles/list {}))
 
 (defn- detail-key [slug]
-  (state/scoped-resource-key :rf.scope/global :article/by-slug {:slug slug}))
+  (rf.resources.state/scoped-resource-key :rf.scope/global :article/by-slug {:slug slug}))
 
 (defn- reply-success!
   "Replay the captured `:on-success` with the transport's success result
@@ -280,7 +280,7 @@
             :resources.app/preview-closed releases the owner so the entry can GC
             (the mandatory release path for an app-minted owner, Spec 016 §Active
             owners)"
-    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (let [preview-owner [:resources.app/preview-opened "fresh-skip"]
             dkey          (detail-key "fresh-skip")]
@@ -289,7 +289,7 @@
         (is (= "fresh-skip"
                (rf/compute-sub [:resources.app/preview-slug] (rf/frame-state-value f)))
             "the open preview slug is in app-db")
-        (let [e (get-in (:rf.db/runtime (rf/frame-state-value f)) (state/entry-path dkey))]
+        (let [e (get-in (:rf.db/runtime (rf/frame-state-value f)) (rf.resources.state/entry-path dkey))]
           (is (= :loading (:status e)) "the owner ensured a first load")
           (is (contains? (:active-owners e) preview-owner)
               "owned by the app-event owner [:resources.app/preview-opened slug]"))
@@ -297,7 +297,7 @@
         (rf/dispatch-sync [:resources.app/preview-closed "fresh-skip"] {:frame f})
         (is (nil? (rf/compute-sub [:resources.app/preview-slug] (rf/frame-state-value f)))
             "closing clears the open slug")
-        (let [e (get-in (:rf.db/runtime (rf/frame-state-value f)) (state/entry-path dkey))]
+        (let [e (get-in (:rf.db/runtime (rf/frame-state-value f)) (rf.resources.state/entry-path dkey))]
           (is (not (contains? (:active-owners e) preview-owner))
               "the owner was released — no dangling owner pins the entry"))))))
 
@@ -317,7 +317,7 @@
             proves NEITHER owner remains (the single Close control only ever
             reaches the current slug, so a replaced owner left attached would
             leak forever — rf2-5jtsh)."
-    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (let [owner-a [:resources.app/preview-opened "resources-101"]
             owner-b [:resources.app/preview-opened "owners-vs-causes"]
@@ -356,7 +356,7 @@
             churning it. A release+reacquire would bump the entry's :revision
             (detach of a present owner bumps it, Spec 016 rf2-cxwuhl); a clean
             re-ensure leaves it untouched."
-    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (let [owner-a [:resources.app/preview-opened "fresh-skip"]
             dkey-a  (detail-key "fresh-skip")]

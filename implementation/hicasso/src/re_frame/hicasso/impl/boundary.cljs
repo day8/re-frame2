@@ -187,11 +187,11 @@
   browser calls outside React's own work loop — an intent handler that
   throws lands in the browser's error channel, not here. That is React's
   boundary, not this runtime's, and the runtime inherits it exactly."
-  (:require [re-frame.adapter.context :as adapter-context]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.collector :as collector]
+  (:require [re-frame.adapter.context :as rf.adapter.context]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
             [re-frame.hicasso.impl.error :refer [fail!]]
-            [re-frame.hicasso.impl.intent :as intent]
+            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]
             ["react" :as react]))
 
 (defn- props-of
@@ -281,7 +281,7 @@
 (defn- frame-of
   "The frame this boundary is mounted under, read through `contextType`."
   [^js this]
-  (adapter-context/context-value->current-frame (.-context this)))
+  (rf.adapter.context/context-value->current-frame (.-context this)))
 
 (defn- report!
   "Fire `:on-error` for the failure React just caught. A vector is an
@@ -307,7 +307,7 @@
   [^js this error]
   (let [on-error (:on-error (props-of this))]
     (cond
-      (vector? on-error) (collector/dispatch! (frame-of this) (conj on-error error))
+      (vector? on-error) (rf.hicasso.impl.collector/dispatch! (frame-of this) (conj on-error error))
       (fn? on-error)     (on-error error)
       :else              nil))
   nil)
@@ -336,7 +336,7 @@
     (set! (.-prototype ^js ctor) proto)
     (set! (.-constructor proto) ctor)
     (set! (.-displayName ^js ctor) "hicasso/boundary")
-    (set! (.-contextType ^js ctor) adapter-context/frame-context)
+    (set! (.-contextType ^js ctor) rf.adapter.context/frame-context)
     ;; React 19 requires the static marker for the boundary to catch at
     ;; all. It cannot reach the instance, so it only flips the render
     ;; marker; everything with a side effect is the commit's.
@@ -379,9 +379,9 @@
                 ;; binding is unconditional so the branch does not exist, and
                 ;; an intent written under a frameless boundary still lands on
                 ;; the existing loud error naming the intent.
-                (intent/with-frame frame-kw (when frame-kw (collector/frame-dispatch frame-kw))
+                (rf.hicasso.impl.intent/with-frame frame-kw (when frame-kw (rf.hicasso.impl.collector/frame-dispatch frame-kw))
                   (fn []
                     (if (some? error)
-                      (codec/as-element (if (fn? fallback) (fallback error) fallback))
-                      (codec/as-element (into [:<>] children)))))))))
-    (codec/mark-boundary! ctor)))
+                      (rf.hicasso.impl.codec/as-element (if (fn? fallback) (fallback error) fallback))
+                      (rf.hicasso.impl.codec/as-element (into [:<>] children)))))))))
+    (rf.hicasso.impl.codec/mark-boundary! ctor)))

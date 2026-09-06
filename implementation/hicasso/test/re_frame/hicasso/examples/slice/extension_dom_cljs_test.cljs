@@ -35,15 +35,15 @@
   and each row degrades there to a STATED skip rather than to a false
   green."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso.examples.slice.db :as db]
-            [re-frame.hicasso.examples.slice.events :as events]
-            [re-frame.hicasso.examples.slice.routes :as routes]
-            [re-frame.hicasso.examples.slice.subs :as subs]
-            [re-frame.hicasso.examples.slice.views :as views]
-            [re-frame.hicasso.test.mounted :as hm]
-            [re-frame.test-support :as test-support]))
+            [re-frame.hicasso.examples.slice.db :as rf.hicasso.examples.slice.db]
+            [re-frame.hicasso.examples.slice.events :as rf.hicasso.examples.slice.events]
+            [re-frame.hicasso.examples.slice.routes :as rf.hicasso.examples.slice.routes]
+            [re-frame.hicasso.examples.slice.subs :as rf.hicasso.examples.slice.subs]
+            [re-frame.hicasso.examples.slice.views :as rf.hicasso.examples.slice.views]
+            [re-frame.hicasso.test.mounted :as rf.hicasso.test.mounted]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; ---------------------------------------------------------------------------
 ;; The lane
@@ -55,8 +55,8 @@
   (is true (str "a mounted page needs a real React DOM — " why)))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      ;; The MAP shape, because rows here are `async`: `cljs.test` refuses
      ;; an async test under a fn-form fixture and aborts the NAMESPACE —
@@ -67,7 +67,7 @@
                       ;; The reset restores the registrar to a baseline
                       ;; captured before `routes` finished loading. See
                       ;; that namespace on why `register!` is exposed.
-                      (routes/register!))}))
+                      (rf.hicasso.examples.slice.routes/register!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Reading and driving the page
@@ -84,7 +84,7 @@
   dispatch is synchronous, so the settle is all that is owed."
   [m sel]
   (.click (node m sel))
-  (hm/settle! m))
+  (rf.hicasso.test.mounted/settle! m))
 
 (defn- read-sub [m query-v] (rf/subscribe-once query-v {:frame (:frame m)}))
 
@@ -93,10 +93,10 @@
   URL carries; `nil` is a bare `/slice`, which is what a first visit is."
   ([] (at-page! nil))
   ([n]
-   (hm/mount! [views/app {}]
-              {:initial-events [[::events/seed]
+   (rf.hicasso.test.mounted/mount! [rf.hicasso.examples.slice.views/app {}]
+              {:initial-events [[::rf.hicasso.examples.slice.events/seed]
                                 [:rf.route/navigate
-                                 (cond-> {:to routes/feed}
+                                 (cond-> {:to rf.hicasso.examples.slice.routes/feed}
                                    (some? n) (assoc :query {:page n}))]]})))
 
 (defn- go-to-page!
@@ -104,12 +104,12 @@
   SYNCHRONOUS door, which is what Back and Forward ultimately reach
   through the history listener a real application installs."
   [m n]
-  (hm/dispatch-and-settle! m [:rf.route/navigate {:to routes/feed :query {:page n}}]))
+  (rf.hicasso.test.mounted/dispatch-and-settle! m [:rf.route/navigate {:to rf.hicasso.examples.slice.routes/feed :query {:page n}}]))
 
 (defn- finish
   "Tear down, assert this mount left nothing behind, and end the row."
   [m done]
-  (-> (hm/unmount! m) (hm/assert-clean!) (.then done)))
+  (-> (rf.hicasso.test.mounted/unmount! m) (rf.hicasso.test.mounted/assert-clean!) (.then done)))
 
 (defn- finish-after
   "End the row when `p` settles, reporting a rejected `p` as a failure
@@ -167,7 +167,7 @@
         ;; own `activate-link!` deciding. Nothing here calls preventDefault
         ;; — if the click were not claimed, this page would navigate away.
         (.click (node m ".pager-next"))
-        (-> (hm/settle-until! m
+        (-> (rf.hicasso.test.mounted/settle-until! m
                               #(= 2 (:page (read-sub m [:rf.route/query])))
                               {:label "the page link's navigate to drain"})
             (.then (fn [_]
@@ -298,8 +298,8 @@
         ;; A payload that arrived cut short — the list block without its
         ;; items — installed through the application's OWN arrival event,
         ;; because that is the door a real truncated response comes in by.
-        (hm/dispatch-and-settle! m [::events/digest-arrived
-                                    {:blocks db/digest-truncated}])
+        (rf.hicasso.test.mounted/dispatch-and-settle! m [::rf.hicasso.examples.slice.events/digest-arrived
+                                    {:blocks rf.hicasso.examples.slice.db/digest-truncated}])
 
         (testing "the region's own boundary caught it"
           (is (some? (node m ".digest-error")))
@@ -342,8 +342,8 @@
     (skip! ":node-test has no React DOM")
     (async done
       (let [m (at-page!)]
-        (hm/dispatch-and-settle! m [::events/digest-arrived
-                                    {:blocks db/digest-truncated}])
+        (rf.hicasso.test.mounted/dispatch-and-settle! m [::rf.hicasso.examples.slice.events/digest-arrived
+                                    {:blocks rf.hicasso.examples.slice.db/digest-truncated}])
         (is (some? (node m ".digest-retry")) "the fallback carries the retry")
 
         (click! m ".digest-retry")
@@ -354,8 +354,8 @@
           (is (true? (.-disabled (node m ".digest-retry")))
               "so a second click cannot queue a second request"))
 
-        (-> (hm/settle-until! m
-                              #(= db/digest (read-sub m [::subs/digest-blocks]))
+        (-> (rf.hicasso.test.mounted/settle-until! m
+                              #(= rf.hicasso.examples.slice.db/digest (read-sub m [::rf.hicasso.examples.slice.subs/digest-blocks]))
                               {:label "the stand-in content server's reply"})
             (.then
               (fn [_]

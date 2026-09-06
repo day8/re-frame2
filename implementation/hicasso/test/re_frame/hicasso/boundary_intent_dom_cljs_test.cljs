@@ -95,18 +95,18 @@
   React DOM; under `:node-test` every DOM claim degrades to a stated
   skip."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.context :as adapter-context]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.context :as rf.adapter.context]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.hicasso.impl.boundary :refer [boundary]]
-            [re-frame.hicasso.hook-probe :as probe]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.hicasso.checkpoint-support :as support]
+            [re-frame.hicasso.hook-probe :as rf.hicasso.hook-probe]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.hicasso.checkpoint-support :as rf.hicasso.checkpoint-support]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.test-support :as test-support]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.test-support :as rf.test-support]
             ["react" :as react]
             ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]))
@@ -149,21 +149,21 @@
                 {:db (update db :attempt inc)}))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      ;; `:ambient-frame nil` is load-bearing. The fixture's default leaves a
      ;; dynamic-var frame stamp in scope, and a boundary that resolved its
      ;; frame through that tier instead of through React context would look
      ;; correct here for the wrong reason. With no ambient stamp, the only
      ;; thing that can name a frame is the provider above the tree.
      :ambient-frame nil
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 (defn- skip! [why]
   (is true (str "an intent-on-a-boundary claim needs a real React DOM — " why)))
 
 (defn- fresh! [frame-kw]
-  (support/leave-act-environment!)
+  (rf.hicasso.checkpoint-support/leave-act-environment!)
   (rf/make-frame {:id frame-kw})
   (rf/with-frame frame-kw (rf/dispatch-sync [:hicasso.bdy/seed]))
   frame-kw)
@@ -179,8 +179,8 @@
   ;; which clears the caught error with a `setState` of its own — a second
   ;; commit, from a lifecycle rather than from the event. Row 1 reads the DOM
   ;; after both.
-  (mount/settle!)
-  (mount/settle!))
+  (rf.hicasso.impl.mount/settle!)
+  (rf.hicasso.impl.mount/settle!))
 
 ;; ---------------------------------------------------------------------------
 ;; The instrument — a boundary that records what escaped the subject
@@ -195,7 +195,7 @@
   fails the way the subject fails measures nothing."
   [frame-kw hiccup]
   (reset! !caught nil)
-  (mount/root! (mount/fresh-container!) frame-kw
+  (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-kw
                [boundary {:fallback [:p.escaped "the subject refused to render"]
                           :on-error (fn [e] (reset! !caught e))}
                 hiccup]))
@@ -215,15 +215,15 @@
 ;; The screens
 ;; ---------------------------------------------------------------------------
 
-(h/defview risky
+(rf.hicasso/defview risky
   "Throws from the render phase while the model says so — which is where a
   React error boundary is the only thing that can catch."
   [_]
-  (when (collector/sub [:hicasso.bdy/boom?])
+  (when (rf.hicasso.impl.collector/sub [:hicasso.bdy/boom?])
     (throw (ex-info "the child threw" {:planted true})))
   [:p.ok "recovered"])
 
-(h/defview retry-screen
+(rf.hicasso/defview retry-screen
   "HD-020(c)'s ADVERTISED CASE, and the reason this bead is P2: a fallback
   whose whole point is a retry control, beside the `:reset-key` that makes
   the retry the caller's to schedule rather than the boundary's to guess."
@@ -231,10 +231,10 @@
   [boundary {:fallback  [:div.fb
                          [:p "that did not work"]
                          [:button.retry {:on-click [:hicasso.bdy/retry]} "try again"]]
-             :reset-key (collector/sub [:hicasso.bdy/attempt])}
+             :reset-key (rf.hicasso.impl.collector/sub [:hicasso.bdy/attempt])}
    [risky {}]])
 
-(h/defview note-fallback-screen
+(rf.hicasso/defview note-fallback-screen
   "The FUNCTION fallback, carrying **only** the one callback form. Two
   things at once: `h/event` is the second row of the position table, and the
   closure reads the error the fallback was handed — so this is also the
@@ -245,7 +245,7 @@
                          [:div.fb
                           [:button.note
                            {:data-role "note"
-                            :on-click  (h/event [e]
+                            :on-click  (rf.hicasso/event [e]
                                          ;; A live event read, and ONE
                                          ;; intent returned — the event
                                          ;; contract the position imposes.
@@ -254,7 +254,7 @@
                            "note"]])}
    [risky {}]])
 
-(h/defview child-intent-screen
+(rf.hicasso/defview child-intent-screen
   "The CHILDREN half. Nothing throws here: these are ordinary native
   children of `h/error-boundary`, written in this body and lowered one
   render later inside the class's."
@@ -263,14 +263,14 @@
    [:div.body
     [:button.dismiss {:on-click [:hicasso.bdy/dismissed 1]} "dismiss"]]])
 
-(h/defview child-callback-screen
+(rf.hicasso/defview child-callback-screen
   "The children half, carrying **only** the callback form — the same
   separation rows 1 and 2 keep, for the same reason."
   [_]
   [boundary {:fallback [:p.fb "unused — nothing throws on this screen"]}
    [:button.note
     {:data-role "note"
-     :on-click  (h/event [e]
+     :on-click  (rf.hicasso/event [e]
                   (when (= "note" (.. e -target -dataset -role))
                     [:hicasso.bdy/noted "child"]))}
     "note"]])
@@ -280,7 +280,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-fallbacks-retry-button-dispatches-and-the-reset-key-retries
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh! frame-id)
@@ -306,14 +306,14 @@
                  failure and the child rendered")
             (is (nil? (query handle ".fb"))
                 "with the fallback gone"))
-          (finally (mount/release! handle)))))))
+          (finally (rf.hicasso.impl.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — the one callback form on a function fallback
 ;; ---------------------------------------------------------------------------
 
 (deftest a-callback-on-the-fallback-dispatches-what-it-returned
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh! frame-id)
@@ -331,14 +331,14 @@
               "at invocation the h/event read the real event, closed over the error
                the fallback was handed, and the vector it RETURNED drained
                through the arm's synchronous door")
-          (finally (mount/release! handle)))))))
+          (finally (rf.hicasso.impl.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3 — a bare intent vector on a native child of h/error-boundary
 ;; ---------------------------------------------------------------------------
 
 (deftest a-native-child-of-a-boundary-dispatches-its-inline-intent
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh! frame-id)
@@ -357,14 +357,14 @@
           (click! (query handle ".dismiss"))
           (is (= [1 1] (:dismissed (db frame-id)))
               "and again, so this is a live handler and not a one-shot")
-          (finally (mount/release! handle)))))))
+          (finally (rf.hicasso.impl.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 4 — the one callback form on a native child
 ;; ---------------------------------------------------------------------------
 
 (deftest a-callback-on-a-native-child-dispatches-what-it-returned
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh! frame-id)
@@ -374,20 +374,20 @@
           (click! (query handle ".note"))
           (is (= ["child"] (:noted (db frame-id)))
               "the callback path, at a child position, on its own subject")
-          (finally (mount/release! handle)))))))
+          (finally (rf.hicasso.impl.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 5 — the frame is the BOUNDARY's, proved against a second live frame
 ;; ---------------------------------------------------------------------------
 
 (deftest a-fallbacks-intent-lands-in-the-frame-the-boundary-was-mounted-under
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh! frame-id)
       (fresh! other-frame-id)
       (let [a (watched-root! frame-id [retry-screen {}])
-            b (mount/root! (mount/fresh-container!) other-frame-id
+            b (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) other-frame-id
                            [retry-screen {}])]
         (try
           (click! (query a ".retry"))
@@ -400,7 +400,7 @@
           (is (= 1 (:attempt (db other-frame-id))))
           (is (= 1 (:attempt (db frame-id)))
               "and symmetrically the other way")
-          (finally (mount/release! a) (mount/release! b)))))))
+          (finally (rf.hicasso.impl.mount/release! a) (rf.hicasso.impl.mount/release! b)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 6 — a frameless boundary is legal; an intent under one is still the loud error
@@ -415,16 +415,16 @@
   different question."
   [hiccup]
   (reset! !caught nil)
-  (mount/root! (mount/fresh-container!) adapter-context/no-provider-sentinel
+  (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) rf.adapter.context/no-provider-sentinel
                [boundary {:fallback [:p.escaped "the subject refused to render"]
                           :on-error (fn [e] (reset! !caught e))}
                 hiccup]))
 
 (deftest a-frameless-boundary-is-legal-until-something-below-writes-an-intent
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
-      (support/leave-act-environment!)
+      (rf.hicasso.checkpoint-support/leave-act-environment!)
       (testing "a boundary with no frame above it and no intent below it
                 renders. The class reads no subscription, so requiring a frame
                 it does not need would refuse a legal page — the binding is
@@ -435,7 +435,7 @@
           (try
             (is (some? (query handle ".body")))
             (is (nil? @!caught) (str "nothing was raised. Escaped: " (pr-str (escaped))))
-            (finally (mount/release! handle)))))
+            (finally (rf.hicasso.impl.mount/release! handle)))))
       (testing "and an intent under one is the loud error, NAMED — the
                 diagnostic points at the intent rather than at the boundary"
         (let [handle (frameless-root!
@@ -448,17 +448,17 @@
                    (:rf.error/id (ex-data @!caught)))
                 (str "and it named the intent: " (pr-str (ex-data @!caught))))
             (is (= [:hicasso.bdy/dismissed 1] (:intent (ex-data @!caught))))
-            (finally (mount/release! handle))))))))
+            (finally (rf.hicasso.impl.mount/release! handle))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 6b — and the boundary's OWN `:on-error` vector is one of those intents
 ;; ---------------------------------------------------------------------------
 
 (deftest a-frameless-boundarys-own-on-error-vector-is-refused-at-first-render
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
-      (support/leave-act-environment!)
+      (rf.hicasso.checkpoint-support/leave-act-environment!)
       (testing "a vector `:on-error` is an INTENT, and a boundary with no frame
                 above it has nothing that could dispatch it. Accepting the
                 declaration and finding that out in `componentDidCatch` costs
@@ -488,7 +488,7 @@
                       boundary already raises, named at the position and
                       carrying the intent, so the recovery is readable off the
                       refusal itself. Escaped: " (pr-str (ex-data @!caught))))
-            (finally (mount/release! handle)))))
+            (finally (rf.hicasso.impl.mount/release! handle)))))
       (testing "THE NEAR MISS, on the axis this guard was one step from
                 over-reaching: a FUNCTION `:on-error` needs no frame, so the
                 same frameless boundary takes one, catches a deliberate
@@ -508,7 +508,7 @@
             (is (= ["the foreign child threw"] @!fired)
                 (str "and the function fired ONCE, with the error. Got: "
                      (pr-str @!fired)))
-            (finally (mount/release! handle))))))))
+            (finally (rf.hicasso.impl.mount/release! handle))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 7 — the fence: the class still spends no hook, in its error state too
@@ -522,9 +522,9 @@
            is invisible at React's dispatcher. Counted on the page where the
            new binding actually runs — a boundary in its ERROR state,
            rendering the fallback"
-    (if-not (mount/browser?)
+    (if-not (rf.hicasso.impl.mount/browser?)
       (skip! ":node-test has no DOM")
-      (if-not (probe/install!)
+      (if-not (rf.hicasso.hook-probe/install!)
         (is false (str "React's internals slot was not found, so this claim is "
                        "UNWITNESSED on this build. A gate nobody has watched "
                        "fire is not evidence — fix "
@@ -533,7 +533,7 @@
         (do
           (fresh! frame-id)
           (let [handle (volatile! nil)
-                names  (probe/record!
+                names  (rf.hicasso.hook-probe/record!
                          (fn [] (vreset! handle
                                          (watched-root! frame-id
                                                         [retry-screen {}]))))]
@@ -547,21 +547,21 @@
                        "declares. Two `h/error-boundary` classes are in this "
                        "tree (the watcher and the subject) and between them they "
                        "contributed none. Raw: " (pr-str names)))
-              (is (= 2 (count runtime/shell-hook-ledger) (count (distinct names)))
+              (is (= 2 (count rf.hicasso.test.runtime/shell-hook-ledger) (count (distinct names)))
                   "and the declared shell ledger is the measured roster")
               (is (empty? (filter #{"useRef" "useMemo" "useCallback" "useState"
                                     "useEffect"}
                                   names))
                   "no useRef, no memo, no state and no effect — the class is
                    still a class")
-              (finally (mount/release! @handle)))))))))
+              (finally (rf.hicasso.impl.mount/release! @handle)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 8 — the roster is closed: a misspelled prop is refused, not dropped
 ;; ---------------------------------------------------------------------------
 
 (deftest a-prop-outside-the-roster-is-refused-and-the-right-spelling-still-reports
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh! frame-id)
@@ -586,7 +586,7 @@
             (is (nil? (query handle ".body"))
                 "and the subject did not render — a refusal that let the page up
                  anyway would be a warning wearing a throw's clothes")
-            (finally (mount/release! handle)))))
+            (finally (rf.hicasso.impl.mount/release! handle)))))
       (testing "THE NEAR MISS. One character away, `:on-error` is the real key
                 and still reports — beside `:fallback`, `:reset-key` and the
                 trailing children, so the whole legal roster is exercised by the
@@ -601,18 +601,18 @@
                 (str "nothing escaped the subject. Escaped: " (pr-str (escaped))))
             (is (some? (query handle ".fb"))
                 "the child threw and the fallback is on screen")
-            (mount/settle!)
+            (rf.hicasso.impl.mount/settle!)
             (is (= ["spelled right"] (:noted (db frame-id)))
                 "and the report reached the frame — the guard refuses the
                  misspelling without touching the spelling it exists to protect")
-            (finally (mount/release! handle))))))))
+            (finally (rf.hicasso.impl.mount/release! handle))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 9 — the shape is closed too: an `:on-error` nothing can fire is refused
 ;; ---------------------------------------------------------------------------
 
 (deftest an-on-error-nothing-can-fire-is-refused-and-a-wrapped-intent-still-is-not
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh! frame-id)
@@ -637,7 +637,7 @@
                 "and — the point of raising in `render` rather than in `report!`
                  — the refusal arrived with no error caught at all, so it cost
                  no application error path to find")
-            (finally (mount/release! handle)))))
+            (finally (rf.hicasso.impl.mount/release! handle)))))
       (testing "THE NEAR MISS. The same keyword inside brackets is the real
                 thing, and reports"
         (let [handle (watched-root! frame-id
@@ -647,10 +647,10 @@
           (try
             (is (nil? @!caught)
                 (str "nothing escaped. Escaped: " (pr-str (escaped))))
-            (mount/settle!)
+            (rf.hicasso.impl.mount/settle!)
             (is (= ["wrapped"] (:noted (db frame-id)))
                 "one bracket apart from the refused form, and it fires")
-            (finally (mount/release! handle)))))
+            (finally (rf.hicasso.impl.mount/release! handle)))))
       (testing "THE OTHER NEAR MISS. An explicit `nil` says no reporting was
                 asked for, which is the one value `report!`'s last arm still
                 means. A guard that refused it would refuse a legal page"
@@ -666,7 +666,7 @@
                 "the boundary caught, rendered its fallback, and reported
                  nowhere — quietly, because that is what was declared")
             (is (nil? (:noted (db frame-id))))
-            (finally (mount/release! handle))))))))
+            (finally (rf.hicasso.impl.mount/release! handle))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 10 — once per FAILURE, measured where React re-runs renders: StrictMode
@@ -684,13 +684,13 @@
 ;; in: a reset the caller schedules with the cause still in place is a NEW
 ;; failure, so it reports exactly once more.
 
-(h/defview strict-guarded
+(rf.hicasso/defview strict-guarded
   "The retry shape under test, with `:on-error` wired: reads `:attempt` as
   its `:reset-key` so a `:rearm` dispatch retries the child, and records
   every report so ONCE is a count rather than a flag."
   [_]
   [boundary {:fallback  [:p.fb "caught"]
-             :reset-key (collector/sub [:hicasso.bdy/attempt])
+             :reset-key (rf.hicasso.impl.collector/sub [:hicasso.bdy/attempt])
              :on-error  [:hicasso.bdy/record-error]}
    [risky {}]])
 
@@ -704,7 +704,7 @@
     (react-dom/flushSync
       (fn [] (.render root (react/createElement
                              react/StrictMode nil
-                             (mount/provider frame-kw (codec/as-element hiccup))))))
+                             (rf.hicasso.impl.mount/provider frame-kw (rf.hicasso.impl.codec/as-element hiccup))))))
     {:root root :frame frame-kw :container container}))
 
 (deftest the-boundary-reports-once-per-failure-under-strictmode
@@ -712,13 +712,13 @@
   ;; once per failure — the render, in StrictMode, is the visible case.
   ;; The instance-flag alternative is argued away in `impl.boundary`'s
   ;; docstring; this row is the measurement that argument leans on.
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh! frame-id)
-      (let [handle (strict-root! (mount/fresh-container!) frame-id [strict-guarded {}])]
+      (let [handle (strict-root! (rf.hicasso.impl.mount/fresh-container!) frame-id [strict-guarded {}])]
         (try
-          (mount/settle!)
+          (rf.hicasso.impl.mount/settle!)
           (is (some? (query handle ".fb")) "the throw was caught")
           (is (= ["the child threw"] (:errors (db frame-id)))
               (str "ONE report, however many times StrictMode invoked the "
@@ -734,9 +734,9 @@
             ;; first settle; the moved `:reset-key` is then read by
             ;; `componentDidUpdate`, whose own `setState` is a second
             ;; commit, and the re-thrown child's report follows it.
-            (mount/settle!)
-            (mount/settle!)
+            (rf.hicasso.impl.mount/settle!)
+            (rf.hicasso.impl.mount/settle!)
             (is (some? (query handle ".fb")) "it threw again; the fallback stands")
             (is (= ["the child threw" "the child threw"] (:errors (db frame-id)))
                 (str "Got: " (pr-str (:errors (db frame-id))))))
-          (finally (mount/release! handle)))))))
+          (finally (rf.hicasso.impl.mount/release! handle)))))))

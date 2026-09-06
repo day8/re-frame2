@@ -26,9 +26,9 @@
   `defview`'s authoring-time alias rides the same
   `debug-enabled?` gate as the coordinate, so the registrar entry is one
   more thing this build is asserted not to have."
-  (:require [re-frame.hicasso :as h]))
+  (:require [re-frame.hicasso :as rf.hicasso]))
 
-(h/defview sentinel-row
+(rf.hicasso/defview sentinel-row
   "Declared for its coordinate. Under a dev build the macro registers this
   file's absolute path, line and column against [[view-name]]; under
   `:advanced` + `goog.DEBUG=false` it registers nothing and the path
@@ -36,7 +36,7 @@
   [_]
   [:li "sentinel"])
 
-(h/defhost sentinel-host
+(rf.hicasso/defhost sentinel-host
   "The declaration channel's half of the same proof — `defhost` opens the
   same extent under the same gate."
   (fn CoordSentinel [_props] nil)

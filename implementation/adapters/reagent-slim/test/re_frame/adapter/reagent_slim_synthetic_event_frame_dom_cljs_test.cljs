@@ -41,8 +41,8 @@
             [reagent2.dom.client :as rdc]
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
+            [re-frame.test-support :as rf.test-support]
             [re-frame.views])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
@@ -55,8 +55,8 @@
 ;; never runs under an ambient binding. `:async? true` because the working
 ;; half awaits the async dispatch drain.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-slim-adapter/adapter :async? true :ambient-frame nil}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent-slim/adapter :async? true :ambient-frame nil}))
 
 ;; ---- browser gate ----------------------------------------------------------
 
@@ -164,7 +164,7 @@
                 ;; Causal settle: poll the frame's app-db until the async
                 ;; router drain lands the increment — no fixed sleep.
                 (.click captured)
-                (-> (test-support/poll-until
+                (-> (rf.test-support/poll-until
                       #(= 1 (:n (rf/app-db-value target)))
                       {:label      "reagent-slim injected dispatch advances the render frame to {:n 1}"
                        :timeout-ms 1000})

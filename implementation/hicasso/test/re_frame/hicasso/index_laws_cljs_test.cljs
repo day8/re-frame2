@@ -67,12 +67,12 @@
   copy of any of them would double the maintenance and the two would
   drift."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.generation :as generation]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.test-support :as test-support]))
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.generation :as rf.hicasso.impl.generation]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.test-support :as rf.test-support]))
 
 (def ^:private frame-id ::index-laws)
 
@@ -93,10 +93,10 @@
 ;; is `async`, because every law is a statement about one synchronous
 ;; commit and the one reaper window law 6 needs is entered, not waited on.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -123,7 +123,7 @@
   is the surface the laws are about: the edge is recorded WHERE THE READ
   HAPPENS."
   [query-vs]
-  (fn [_props] [:p (str (mapv collector/sub query-vs))]))
+  (fn [_props] [:p (str (mapv rf.hicasso.impl.collector/sub query-vs))]))
 
 (defn- mount!
   "Render a body and commit it, exactly as React does — `render-body`,
@@ -132,10 +132,10 @@
   and the cleanup React would hold."
   ([body] (mount! body {}))
   ([body props]
-   (collector/render-body frame-id body props)
-   (let [entry   (collector/last-reads)
+   (rf.hicasso.impl.collector/render-body frame-id body props)
+   (let [entry   (rf.hicasso.impl.collector/last-reads)
          !n      (volatile! 0)
-         release (collector/commit-boundary! entry (fn [] (vswap! !n inc)))]
+         release (rf.hicasso.impl.collector/commit-boundary! entry (fn [] (vswap! !n inc)))]
      {:entry entry :notified !n :release release})))
 
 (defn- woken
@@ -145,7 +145,7 @@
 
 (defn- release! [b] ((:release b)))
 
-(defn- readers-of [query-v] (count (runtime/cell-readers (sub-key query-v))))
+(defn- readers-of [query-v] (count (rf.hicasso.test.runtime/cell-readers (sub-key query-v))))
 
 ;; ---------------------------------------------------------------------------
 ;; Law 1 — a commit of that sub dirties that boundary ONLY
@@ -160,7 +160,7 @@
       (is (= 1 (readers-of [:idxlaw/a])))
       (is (= 1 (readers-of [:idxlaw/b]))))
 
-    (collector/dispatch! frame-id [:idxlaw/bump :a])
+    (rf.hicasso.impl.collector/dispatch! frame-id [:idxlaw/bump :a])
 
     (testing "the reader of the moved sub is woken exactly once"
       (is (= 1 (woken reads-a))))
@@ -173,7 +173,7 @@
     ;; The mirror, on the same two counters, in the same test. Without it
     ;; the zero above is equally the zero of a runtime that notifies
     ;; nobody, and this file would be asserting silence.
-    (collector/dispatch! frame-id [:idxlaw/bump :b])
+    (rf.hicasso.impl.collector/dispatch! frame-id [:idxlaw/bump :b])
 
     (testing "moving the OTHER sub wakes the other boundary and leaves the
               first where it was: both counters are live, and each moved
@@ -199,7 +199,7 @@
               edge — so a law about fan-out is a law about this list"
       (is (= 2 (readers-of [:idxlaw/a]))))
 
-    (collector/dispatch! frame-id [:idxlaw/bump :a])
+    (rf.hicasso.impl.collector/dispatch! frame-id [:idxlaw/bump :a])
 
     (testing "both sharers are woken — the dirty set is the cell's readers,
               plural, and not the reader that got there first"
@@ -233,7 +233,7 @@
               untouched"
       (is (= 1 (readers-of [:idxlaw/a]))))
 
-    (collector/dispatch! frame-id [:idxlaw/bump :a])
+    (rf.hicasso.impl.collector/dispatch! frame-id [:idxlaw/bump :a])
 
     (testing "so a later commit of that very sub reaches the survivor and
               not the departed. The PAIR is the law: a runtime that had
@@ -252,8 +252,8 @@
   performs the second read at all — which is what makes the dropped edge
   a consequence of control flow rather than of a declaration."
   [{:keys [wide?]}]
-  (let [a (collector/sub [:idxlaw/a])
-        b (when wide? (collector/sub [:idxlaw/b]))]
+  (let [a (rf.hicasso.impl.collector/sub [:idxlaw/a])
+        b (when wide? (rf.hicasso.impl.collector/sub [:idxlaw/b]))]
     [:p (str a "/" b)]))
 
 (deftest law-4-a-re-run-with-fewer-reads-drops-the-edge-it-stopped-holding
@@ -270,7 +270,7 @@
     (testing "the premise: the wide render read both keys, so `b` carries
               two memberships"
       (is (= #{(sub-key [:idxlaw/a]) (sub-key [:idxlaw/b])}
-             (runtime/reads-of (:entry wide))))
+             (rf.hicasso.test.runtime/reads-of (:entry wide))))
       (is (= 2 (readers-of [:idxlaw/b]))))
 
     ;; The re-run, with one read fewer. At the seam a read-set change is
@@ -281,13 +281,13 @@
       (release! wide)
 
       (testing "the narrow read set is the branch the body actually took"
-        (is (= #{(sub-key [:idxlaw/a])} (runtime/reads-of (:entry narrow)))))
+        (is (= #{(sub-key [:idxlaw/a])} (rf.hicasso.test.runtime/reads-of (:entry narrow)))))
 
       (testing "and `b` has lost the boundary that stopped reading it while
                 keeping the one that did not"
         (is (= 1 (readers-of [:idxlaw/b]))))
 
-      (collector/dispatch! frame-id [:idxlaw/bump :b])
+      (rf.hicasso.impl.collector/dispatch! frame-id [:idxlaw/bump :b])
 
       (testing "so the sub the re-run dropped passes it by"
         (is (= 0 (woken narrow))))
@@ -297,7 +297,7 @@
                 nothing holds"
         (is (= 1 (woken keeper))))
 
-      (collector/dispatch! frame-id [:idxlaw/bump :a])
+      (rf.hicasso.impl.collector/dispatch! frame-id [:idxlaw/bump :a])
 
       (testing "and the read the re-run kept still reaches it, so the
                 replacement dropped one edge rather than all of them"
@@ -316,19 +316,19 @@
   (let [only-a    (mount! (reading [[:idxlaw/a]]))
         reads-ab  (mount! (reading [[:idxlaw/a] [:idxlaw/b]]))
         only-c    (mount! (reading [[:idxlaw/c]]))
-        gen-before (generation/generation)]
+        gen-before (rf.hicasso.impl.generation/generation)]
 
     ;; ONE commit window moving TWO subs. `collector/dispatch!` is the
     ;; arm's own door and is `with-commit` applied, so the writes inside
     ;; it are collected and flushed once.
-    (collector/dispatch! frame-id [:idxlaw/bump-two :a :b])
+    (rf.hicasso.impl.collector/dispatch! frame-id [:idxlaw/bump-two :a :b])
 
     (testing "the premise, and it is not decoration: `flush!` bumps the
               generation once per flush that found a dirty cell, so ONE
               here is the whole claim that this was one commit window. Two
               flushes would make `woken once` an accident of a second
               flush finding nothing rather than a union"
-      (is (= (inc gen-before) (generation/generation))))
+      (is (= (inc gen-before) (rf.hicasso.impl.generation/generation))))
 
     (testing "every reader of every dirty sub is in the set"
       (is (= 1 (woken only-a)))
@@ -343,7 +343,7 @@
       (is (= 0 (woken only-c))))
 
     ;; The mirror for `only-c`, so its zero is a live counter's zero.
-    (collector/dispatch! frame-id [:idxlaw/bump :c])
+    (rf.hicasso.impl.collector/dispatch! frame-id [:idxlaw/bump :c])
     (testing "moving `c` wakes it and nobody else"
       (is (= 1 (woken only-c)))
       (is (= 1 (woken only-a)))
@@ -360,30 +360,30 @@
 (deftest law-6-a-sub-no-boundary-reads-becomes-no-commit-work-at-all
   (seeded!)
   (let [reader     (mount! (reading [[:idxlaw/a]]))
-        gen-before (generation/generation)]
+        gen-before (rf.hicasso.impl.generation/generation)]
 
-    (collector/dispatch! frame-id [:idxlaw/bump :unread])
+    (rf.hicasso.impl.collector/dispatch! frame-id [:idxlaw/bump :unread])
 
     (testing "the write really happened — a body run reads the moved value
               back, so the silence below is the index's answer and not a
               dispatch that did nothing"
       (let [!seen (volatile! nil)]
-        (collector/render-body frame-id
-                               (fn [_] (vreset! !seen (collector/sub [:idxlaw/unread])) [:p])
+        (rf.hicasso.impl.collector/render-body frame-id
+                               (fn [_] (vreset! !seen (rf.hicasso.impl.collector/sub [:idxlaw/unread])) [:p])
                                {})
         (is (= 1 @!seen))))
 
     (testing "no cell holds the key, so it never enters the dirty set and
               the flush finds nothing to do"
-      (is (nil? (get @collector/!cells (sub-key [:idxlaw/unread]))))
-      (is (= gen-before (generation/generation))))
+      (is (nil? (get @rf.hicasso.impl.collector/!cells (sub-key [:idxlaw/unread]))))
+      (is (= gen-before (rf.hicasso.impl.generation/generation))))
 
     (testing "and no phantom boundary is conjured for it: the one committed
               boundary in the runtime is not woken"
       (is (= 0 (woken reader))))
 
     ;; The mirror, on that very counter.
-    (collector/dispatch! frame-id [:idxlaw/bump :a])
+    (rf.hicasso.impl.collector/dispatch! frame-id [:idxlaw/bump :a])
     (testing "which it is, the moment a sub it actually reads moves"
       (is (= 1 (woken reader))))
 
@@ -407,16 +407,16 @@
 
     (testing "the premise: the cell survives its last reader, holding no
               readers at all"
-      (is (some? (get @collector/!cells (sub-key [:idxlaw/a]))))
+      (is (some? (get @rf.hicasso.impl.collector/!cells (sub-key [:idxlaw/a]))))
       (is (= 0 (readers-of [:idxlaw/a]))))
 
-    (let [gen-before (generation/generation)]
-      (collector/dispatch! frame-id [:idxlaw/bump :a])
+    (let [gen-before (rf.hicasso.impl.generation/generation)]
+      (rf.hicasso.impl.collector/dispatch! frame-id [:idxlaw/bump :a])
 
       (testing "the cell really was dirtied — the generation moved, so a
                 flush found it. Without this the zeros below would be the
                 zeros of a commit that never reached the index"
-        (is (= (inc gen-before) (generation/generation))))
+        (is (= (inc gen-before) (rf.hicasso.impl.generation/generation))))
 
       (testing "and the union over that dirty cell is empty: the departed
                 boundary is not resurrected, and the live boundary reading
@@ -425,7 +425,7 @@
         (is (= 0 (woken elsewhere)))))
 
     ;; The mirror for `elsewhere`, so its zero is a live counter's zero.
-    (collector/dispatch! frame-id [:idxlaw/bump :c])
+    (rf.hicasso.impl.collector/dispatch! frame-id [:idxlaw/bump :c])
     (testing "the surviving boundary is woken by its own key"
       (is (= 1 (woken elsewhere))))
 

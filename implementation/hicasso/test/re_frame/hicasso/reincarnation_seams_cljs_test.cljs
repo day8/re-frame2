@@ -62,17 +62,17 @@
   argued, because \"it did not reproduce\" and \"it cannot happen\" are
   different claims and only the second closes the audit."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.frame :as frame]
-            [re-frame.hicasso.impl.boundary :as boundary]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.intent :as intent]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.routing.link :as routing-link]
-            [re-frame.test-support :as test-support]))
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.frame :as rf.frame]
+            [re-frame.hicasso.impl.boundary :as rf.hicasso.impl.boundary]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.routing.link :as rf.routing.link]
+            [re-frame.test-support :as rf.test-support]))
 
 (def ^:private frame-id ::seams)
 
@@ -91,13 +91,13 @@
 ;; containing an `(async done …)` test, and section 4's end-to-end row is only
 ;; observable across the router's queue drain.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
      :init-fn       (fn []
-                      (collector/reset-runtime!)
-                      (error-emit/clear-error-listeners!))}))
+                      (rf.hicasso.impl.collector/reset-runtime!)
+                      (rf.error-emit/clear-error-listeners!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Harness — deliberately the sibling suite's, so the two files are comparable
@@ -112,11 +112,11 @@
   is the state the arm is genuinely in when a page first mounts."
   [who]
   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
-  (when (frame/frame-incarnation-token frame-id) (rf/destroy-frame! frame-id))
-  (collector/reset-runtime!)
+  (when (rf.frame/frame-incarnation-token frame-id) (rf/destroy-frame! frame-id))
+  (rf.hicasso.impl.collector/reset-runtime!)
   (rf/make-frame {:id frame-id})
   (rf/with-frame frame-id (rf/dispatch-sync [:seams/seed who]))
-  (frame/frame-incarnation-token frame-id))
+  (rf.frame/frame-incarnation-token frame-id))
 
 (defn- reincarnate!
   "Destroy the live incarnation and seat a fresh one under the same public id,
@@ -125,7 +125,7 @@
   (rf/destroy-frame! frame-id)
   (rf/make-frame {:id frame-id})
   (rf/with-frame frame-id (rf/dispatch-sync [:seams/seed who]))
-  (frame/frame-incarnation-token frame-id))
+  (rf.frame/frame-incarnation-token frame-id))
 
 (defn- render!
   "Leave the arm's memo row describing the incarnation live NOW — what a
@@ -143,7 +143,7 @@
   late-binding mechanism passes, which is the same mistake in its detectable
   form."
   []
-  (collector/frame-dispatch frame-id))
+  (rf.hicasso.impl.collector/frame-dispatch frame-id))
 
 (defn- marked [] (:marked (rf/app-db-value frame-id)))
 
@@ -157,10 +157,10 @@
   [thunk]
   (let [seen (atom [])
         k    (keyword "rf2-q9cf" (name (gensym "refusal")))]
-    (error-emit/register-error-listener!
+    (rf.error-emit/register-error-listener!
       k (fn [r] (when (= :rf.error/frame-destroyed (:error r)) (swap! seen conj r))))
     (try {:result (thunk) :refusals @seen}
-         (finally (error-emit/unregister-error-listener! k)))))
+         (finally (rf.error-emit/unregister-error-listener! k)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 1. THE AXIS — the two doors in `impl.collector`, twenty lines apart, and the
@@ -179,7 +179,7 @@
   (testing "a RETAINED closure is a capability — minted under A, it is still
             A's after A dies, and core refuses it"
     (incarnate! "A")
-    (let [on-click (collector/frame-dispatch frame-id)]
+    (let [on-click (rf.hicasso.impl.collector/frame-dispatch frame-id)]
       (reincarnate! "B")
       (let [{:keys [refusals]} (with-refusals #(on-click [:seams/mark :capability]))]
         (is (nil? (marked))
@@ -197,7 +197,7 @@
     (render!)                                         ; leave a WARM row for A
     (reincarnate! "B")
     (let [{:keys [refusals]} (with-refusals
-                               #(collector/dispatch! frame-id [:seams/mark :address]))]
+                               #(rf.hicasso.impl.collector/dispatch! frame-id [:seams/mark :address]))]
       (is (= :address (marked))
           "the write lands in the LIVE incarnation, even from a warm row that
            described the predecessor a line ago — the row is replaced by the
@@ -208,12 +208,12 @@
             same state, which is what makes `capability or address?` a real
             question to ask of a seam rather than a form of words"
     (incarnate! "A")
-    (let [retained (collector/frame-dispatch frame-id)]
+    (let [retained (rf.hicasso.impl.collector/frame-dispatch frame-id)]
       (reincarnate! "B")
       (let [{:keys [refusals]} (with-refusals #(retained [:seams/mark :retained]))]
         (is (nil? (marked)))
         (is (= 1 (count refusals))))
-      (collector/dispatch! frame-id [:seams/mark :fresh])
+      (rf.hicasso.impl.collector/dispatch! frame-id [:seams/mark :fresh])
       (is (= :fresh (marked))))))
 
 ;; ---------------------------------------------------------------------------
@@ -247,7 +247,7 @@
 (defn- catch!
   "Hand `this` a caught error the way React's commit phase does."
   [this]
-  (.call (.-componentDidCatch (.-prototype boundary/boundary))
+  (.call (.-componentDidCatch (.-prototype rf.hicasso.impl.boundary/boundary))
          this
          (js/Error. "rf2-q9cf")
          #js {"componentStack" ""}))
@@ -367,7 +367,7 @@
     (render!)
     (let [handle {:frame frame-id}]                  ; the slot `dispatch!` reads
       (reincarnate! "B")
-      (let [{:keys [refusals]} (with-refusals #(mount/dispatch! handle [:seams/mark :handle]))]
+      (let [{:keys [refusals]} (with-refusals #(rf.hicasso.impl.mount/dispatch! handle [:seams/mark :handle]))]
         (is (= :handle (marked))
             "the retained handle reaches the LIVE incarnation")
         (is (empty? refusals)))))
@@ -380,9 +380,9 @@
             and the root would WRITE a frame it cannot READ: perfect markup
             above dead controls, which is the exact symptom rf2-x874 deleted"
     (incarnate! "A")
-    (is (= "A" (collector/render-body frame-id (fn [_] (collector/sub [:seams/who])) {})))
+    (is (= "A" (rf.hicasso.impl.collector/render-body frame-id (fn [_] (rf.hicasso.impl.collector/sub [:seams/who])) {})))
     (reincarnate! "B")
-    (is (= "B" (collector/render-body frame-id (fn [_] (collector/sub [:seams/who])) {}))
+    (is (= "B" (rf.hicasso.impl.collector/render-body frame-id (fn [_] (rf.hicasso.impl.collector/sub [:seams/who])) {}))
         "the root's reads moved to the successor with nothing asked of them"))
 
   (testing "the handle carries a KEYWORD and not a capability — there is no
@@ -419,20 +419,20 @@
   "Run `thunk` with `f` published at `:routing/activate-link!`, restoring
   whatever was there before — nil included."
   [f thunk]
-  (let [previous (late-bind/get-fn :routing/activate-link!)]
-    (late-bind/set-fn! :routing/activate-link! f)
+  (let [previous (rf.late-bind/get-fn :routing/activate-link!)]
+    (rf.late-bind/set-fn! :routing/activate-link! f)
     (try (thunk)
-         (finally (late-bind/set-fn! :routing/activate-link! previous)))))
+         (finally (rf.late-bind/set-fn! :routing/activate-link! previous)))))
 
 (defn- lower-navigate
   "Lower one `[intent/navigate-head {…}]` under the ambient binding a boundary body
   runs — `impl.collector/run-once`'s, spelled out — and answer the closure the
   browser would call. The map is exactly what `route-link` mints."
   [tag]
-  (intent/with-frame frame-id (collector/frame-dispatch frame-id)
+  (rf.hicasso.impl.intent/with-frame frame-id (rf.hicasso.impl.collector/frame-dispatch frame-id)
     (fn []
-      (intent/lower-prop :on-click
-                         [intent/navigate-head {:frame   frame-id
+      (rf.hicasso.impl.intent/lower-prop :on-click
+                         [rf.hicasso.impl.intent/navigate-head {:frame   frame-id
                                                 :payload [:seams/mark tag]
                                                 :native? false
                                                 :veto    nil}]))))
@@ -476,7 +476,7 @@
   ;; paraphrase of it — the caller-veto / modifier / native-anchor law and the
   ;; `router/dispatch!` opts are the shipped ones.
   (async done
-    (with-activate-link routing-link/activate-link!
+    (with-activate-link rf.routing.link/activate-link!
       (fn []
         (incarnate! "A")
         (let [on-click (lower-navigate :navigated)]

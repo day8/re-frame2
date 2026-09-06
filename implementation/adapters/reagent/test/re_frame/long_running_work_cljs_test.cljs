@@ -27,20 +27,20 @@
    subsequent test ns."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.frame :as rf.frame]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             [re-frame.views]
             [long-running-work.worker])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
+  (rf.test-support/make-reset-runtime-fixture
     ;; EP-0002 (rf2-9o48ih): each test spins its OWN top-level frame via
     ;; `make-frame`; opt out of the ambient `:rf/default` scope so the new
     ;; frame's `:initial-events` drain synchronously (top-level boot) rather than
     ;; being treated as a mid-cascade child-frame creation.
-    {:adapter       reagent-adapter/adapter
+    {:adapter       rf.adapter.reagent/adapter
      :ambient-frame nil}))
 
 ;; ============================================================================
@@ -67,7 +67,7 @@
    Both reach the same end-state: parent machine at :idle with cleared
    :data."
   []
-  (frame/make-anon-frame-record! {:initial-events [[:work/flow [:reset]]]}))
+  (rf.frame/make-anon-frame-record! {:initial-events [[:work/flow [:reset]]]}))
 
 (defn- dispatch-synthetic-child-completion!
   "Synthesise one child's :on-child-done arrival, carrying the SAME

@@ -25,7 +25,7 @@
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             ;; Loading `re-frame.ssr` here is the canonical wiring path
             ;; — its ns-load resolves the `:reagent/set-hiccup-emitter!`
             ;; hook and installs the emitter (Spec 011 + rf2-uo7v).
@@ -47,12 +47,12 @@
         ;; re-frame.ssr/render-to-string (re-exported from
         ;; re-frame.ssr.emit/render-to-string).
         ssr-emitter (resolve 're-frame.ssr/render-to-string)]
-    (reagent-adapter/set-hiccup-emitter! nil)
+    (rf.adapter.reagent/set-hiccup-emitter! nil)
     (try
       (f)
       (finally
         (when ssr-emitter
-          (reagent-adapter/set-hiccup-emitter! @ssr-emitter))))))
+          (rf.adapter.reagent/set-hiccup-emitter! @ssr-emitter))))))
 
 ;; ---- test (1) — pre-wire failure: ex-info shape ----------------------------
 
@@ -64,7 +64,7 @@
             tree)"
     (with-cleared-emitter
       (fn []
-        (let [render-fn (:render-to-string reagent-adapter/adapter)
+        (let [render-fn (:render-to-string rf.adapter.reagent/adapter)
               ;; The body carries a recognisable token; the EP-0015 fix
               ;; means it MUST NOT survive into the thrown diagnostic.
               tree      [:div "smoke-secret-xyzzy"]
@@ -101,7 +101,7 @@
   (testing "rf2-8k0g3: with re-frame.ssr loaded (the canonical wiring path
             via the :reagent/set-hiccup-emitter! late-bind hook), calling
             render-to-string returns a non-throwing HTML string"
-    (let [render-fn (:render-to-string reagent-adapter/adapter)
+    (let [render-fn (:render-to-string rf.adapter.reagent/adapter)
           html      (render-fn [:div "ok"] {})]
       (is (string? html)
           "render-to-string returns a string")

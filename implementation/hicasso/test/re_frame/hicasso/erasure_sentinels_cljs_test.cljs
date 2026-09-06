@@ -41,11 +41,11 @@
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.evidence :as evidence]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.test :as ht]))
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.evidence :as rf.hicasso.evidence]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.test :as rf.hicasso.test]))
 
 (def sentinels
   "The eight strings the release-bundle scan requires to be ABSENT, spelled
@@ -64,7 +64,7 @@
   {:boundary-marker "hicassoBoundary"
    :shipped-refusal "rf.error/hicasso-empty-vector"})
 
-(h/defview probe
+(rf.hicasso/defview probe
   "A declared boundary, minted at namespace load, for its head alone."
   [_]
   [:p "the erasure roster's probe"])
@@ -83,7 +83,7 @@
     (is (some? (unchecked-get probe (:body-slot sentinels)))
         "the mint writes the body under this exact property name")
     (is (= (unchecked-get probe (:body-slot sentinels))
-           (codec/retained-body probe))
+           (rf.hicasso.impl.codec/retained-body probe))
         "and `retained-body` reads that same slot — the kit's only route
          from a minted head back to the body its author wrote")))
 
@@ -91,21 +91,21 @@
   (testing "`hicassoViews` is the own property a dev build keeps on the read-set entry"
     (rf/make-frame {:id ::erasure-views})
     (try
-      (collector/render-body ::erasure-views (codec/retained-body probe) {})
-      (let [^js entry (collector/last-reads)]
+      (rf.hicasso.impl.collector/render-body ::erasure-views (rf.hicasso.impl.codec/retained-body probe) {})
+      (let [^js entry (rf.hicasso.impl.collector/last-reads)]
         (is (some? (unchecked-get entry (:views-slot sentinels)))
             "the render minted the slot under this exact property name — the
              named `subscribe` React is about to be handed lives there")
-        (is (nil? (collector/entry-views entry))
+        (is (nil? (rf.hicasso.impl.collector/entry-views entry))
             "but a render alone names nothing: the name is counted at the commit")
-        (let [release (collector/commit-boundary! entry (fn []))]
+        (let [release (rf.hicasso.impl.collector/commit-boundary! entry (fn []))]
           (is (= #{"re-frame.hicasso.erasure-sentinels-cljs-test/probe"}
-                 (collector/entry-views entry))
+                 (rf.hicasso.impl.collector/entry-views entry))
               "the commit counts the declared view's name, and `entry-views`
                reads it off that same slot — the tool tier's only route from
                an edge set back to a view name")
           (release)
-          (is (nil? (collector/entry-views entry))
+          (is (nil? (rf.hicasso.impl.collector/entry-views entry))
               "and the cleanup uncounts it")))
       (finally
         (rf/destroy-frame! ::erasure-views)))))
@@ -113,7 +113,7 @@
 (deftest the-spec-006-annotations-write-the-slot-and-the-keys-the-scan-names
   (testing "`hicassoViewAttrs` is the own property a dev-built body carries,
             and the two attribute names are the keys inside it"
-    (let [body  (codec/retained-body probe)
+    (let [body  (rf.hicasso.impl.codec/retained-body probe)
           attrs (unchecked-get body (:view-attrs-slot sentinels))]
       (is (some? attrs)
           "the mint writes Spec 006's attrs map under this exact property name")
@@ -137,14 +137,14 @@
 
 (deftest the-test-kits-refusal-ids-carry-the-family-the-scan-names
   (testing "`rf.error/hicasso-test-` prefixes the ids the kit mints"
-    (let [id (:rf.error/id (refusal #(ht/tree [42 {}])))]
+    (let [id (:rf.error/id (refusal #(rf.hicasso.test/tree [42 {}])))]
       (is (= :rf.error/hicasso-test-not-a-body id))
       (is (str/includes? (str id) (:test-kit-refusal sentinels))))))
 
 (deftest the-evidence-schema-pin-is-the-slug-the-scan-names
   (testing "`re-frame.hicasso.evidence` is the projection's identity slug"
-    (is (= :re-frame.hicasso.evidence/v3 evidence/schema))
-    (is (= (:evidence-schema sentinels) (namespace evidence/schema))
+    (is (= :re-frame.hicasso.evidence/v3 rf.hicasso.evidence/schema))
+    (is (= (:evidence-schema sentinels) (namespace rf.hicasso.evidence/schema))
         "every envelope carries it, so a projection in a consumer bundle
          cannot hide")))
 
@@ -154,10 +154,10 @@
           original (.-warn js/console)
           row      (fn [_js-props] nil)]
       (unchecked-set row "displayName" "erasure/row")
-      (codec/mark-boundary! row)
+      (rf.hicasso.impl.codec/mark-boundary! row)
       (try
         (set! (.-warn js/console) (fn [& args] (swap! said conj (str/join " " args))))
-        (codec/as-element [:ul (list [row {:key {:id 1}}])])
+        (rf.hicasso.impl.codec/as-element [:ul (list [row {:key {:id 1}}])])
         (finally
           (set! (.-warn js/console) original)))
       (is (some #(str/starts-with? % (:console-prefix sentinels)) @said)
@@ -180,6 +180,6 @@
 
 (deftest a-shipped-refusal-id-is-minted-on-the-path-every-build-keeps
   (testing "`rf.error/hicasso-empty-vector` comes out of `fail!` ungated"
-    (let [data (refusal #(codec/vector-kind []))]
+    (let [data (refusal #(rf.hicasso.impl.codec/vector-kind []))]
       (is (= :rf.error/hicasso-empty-vector (:rf.error/id data)))
       (is (str/includes? (str (:rf.error/id data)) (:shipped-refusal controls))))))

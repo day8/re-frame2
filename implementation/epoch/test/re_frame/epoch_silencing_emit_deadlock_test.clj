@@ -68,17 +68,17 @@
   keep the interleave tight."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
+            [re-frame.frame :as rf.frame]
             ;; Side-effect: publishes the `:epoch/*` late-bind hooks.
             [re-frame.epoch]
-            [re-frame.epoch.listeners :as epoch.listeners]
-            [re-frame.epoch.state :as epoch-state]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support])
+            [re-frame.epoch.listeners :as rf.epoch.listeners]
+            [re-frame.epoch.state :as rf.epoch.state]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support])
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- owe-silence!
   "Register `cb`, observe `frame` under its current generation, then drop the
@@ -87,12 +87,12 @@
   `claim-and-publish-delayed-silence!` for `(frame, cb)` then reaches `publish!`."
   [frame token cb]
   (rf/register-listener! :epoch cb (fn [_] nil))
-  (epoch-state/claim-frame-owner! frame token)
-  (epoch.listeners/notify-listeners! {:frame frame :epoch-id 1})
-  (epoch-state/drop-frame-observation! frame))
+  (rf.epoch.state/claim-frame-owner! frame token)
+  (rf.epoch.listeners/notify-listeners! {:frame frame :epoch-id 1})
+  (rf.epoch.state/drop-frame-observation! frame))
 
 (defn- cb-generation [cb]
-  (:generation (get (epoch-state/listeners-snapshot) cb)))
+  (:generation (get (rf.epoch.state/listeners-snapshot) cb)))
 
 (deftest claim-and-publish-emit-into-a-dispatch-syncing-listener-does-not-deadlock-a-drain-lock-holder
   ;; The regression: pre-fix HANGS (bounded-timeout -> RED), post-fix COMPLETES.
@@ -119,11 +119,11 @@
               ;; Order B. `other` has not observed `drainee`, so this is a real
               ;; transition that enters `with-silence-lock` (not the no-op).
               t2 (future
-                   (frame/call-serialized-with-drain! drainee
+                   (rf.frame/call-serialized-with-drain! drainee
                      (fn []
                        (.countDown t2-holds-drain)
                        (await-s t2-go)
-                       (epoch-state/record-observation! other other-gen drainee))))]
+                       (rf.epoch.state/record-observation! other other-gen drainee))))]
           (is (await-s t2-holds-drain)
               "T2 holds the frame's :drain-lock (cold serialized section)")
           (let [publish! (fn []
@@ -131,7 +131,7 @@
                            ;; frame whose :drain-lock T2 holds, so it needs it.
                            (.countDown t1-in-publish)
                            (rf/dispatch-sync [:edl/probe] {:frame drainee}))
-                t1       (future (epoch-state/claim-and-publish-delayed-silence!
+                t1       (future (rf.epoch.state/claim-and-publish-delayed-silence!
                                    destroyed cb g 0 publish!))]
             (is (await-s t1-in-publish)
                 "T1 reached the emit (pre-fix: still holding both ledger locks)")

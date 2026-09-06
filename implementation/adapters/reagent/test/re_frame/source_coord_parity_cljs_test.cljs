@@ -24,10 +24,10 @@
   the SAME literals. If either host's formatter drifts, its test fails.
   The literals ARE the byte-comparison point — both sides pin independently."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.adapter.context :as adapter-context]
-            [re-frame.source-coords :as source-coords]
+            [re-frame.adapter.context :as rf.adapter.context]
+            [re-frame.source-coords :as rf.source-coords]
             [re-frame.views]
-            [re-frame.views.source-coord-annotation :as source-coord]))
+            [re-frame.views.source-coord-annotation :as rf.views.source-coord-annotation]))
 
 ;; ---- the canonical attribute-value shape (shared spec) -------------------
 ;;
@@ -80,10 +80,10 @@
   (testing "rf2-8vi4q — CLJS `format-view-id` produces `(str id)`, the same
             `data-rf-view` value the JVM host now stamps. Both hosts emit
             this attribute; before rf2-8vi4q only the client did."
-    (is (= expected-view-id (source-coord/format-view-id fixture-id))
+    (is (= expected-view-id (rf.views.source-coord-annotation/format-view-id fixture-id))
         (str "CLJS `format-view-id` MUST produce `(str id)`. Expected: "
              (pr-str expected-view-id) " — got: "
-             (pr-str (source-coord/format-view-id fixture-id))))))
+             (pr-str (rf.views.source-coord-annotation/format-view-id fixture-id))))))
 
 ;; ---- CLJS side: degraded shape (no line / col) pins the canonical -------
 
@@ -120,14 +120,14 @@
             the canonical literals and the adapter.context var is the identical
             fn object."
     (is (= expected-attr
-           (source-coords/format-source-coord fixture-id fixture-meta))
+           (rf.source-coords/format-source-coord fixture-id fixture-meta))
         "neutral owner must emit the canonical data-rf2-source-coord literal")
     (is (= expected-view-id
-           (source-coords/format-view-id fixture-id))
+           (rf.source-coords/format-view-id fixture-id))
         "neutral owner must emit the canonical data-rf-view literal")
-    (is (identical? source-coords/format-source-coord
-                    adapter-context/format-source-coord)
+    (is (identical? rf.source-coords/format-source-coord
+                    rf.adapter.context/format-source-coord)
         "CLJS format-source-coord must be an alias of the neutral owner")
-    (is (identical? source-coords/format-view-id
-                    adapter-context/format-view-id)
+    (is (identical? rf.source-coords/format-view-id
+                    rf.adapter.context/format-view-id)
         "CLJS format-view-id must be an alias of the neutral owner")))

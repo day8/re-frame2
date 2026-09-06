@@ -89,10 +89,10 @@
   JVM-only by design."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.flows :as flows]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support])
+            [re-frame.flows :as rf.flows]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support])
   (:import [java.util.concurrent CountDownLatch]
            [java.util.concurrent.atomic AtomicLong]))
 
@@ -105,7 +105,7 @@
 ;; `:rf/default` as the ambient scope (EP-0002) for the bodies below.
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; Per-thread iteration count. The standard 5000 keeps CI under ~60s
 ;; wall-clock with the default thread count. Operators dial up via the
@@ -232,10 +232,10 @@
                           ;; the leak invariant can pass. (`:cyc-b`
                           ;; never registered because the cycle
                           ;; throw rolled it back.)
-                          (flows/clear-flow cyc-a {:frame frame-id})
+                          (rf.flows/clear-flow cyc-a {:frame frame-id})
                           ;; Clear the main flow so the leak
                           ;; invariant can pass.
-                          (flows/clear-flow flow-id {:frame frame-id})
+                          (rf.flows/clear-flow flow-id {:frame frame-id})
                           ;; Surface the thread idx for diagnostics
                           ;; if a future hangs.
                           idx)))]
@@ -303,8 +303,8 @@
         ;; Each per-thread frame had ALL its flows cleared, so clearing the
         ;; last one prunes the frame-id key entirely — the slot is strictly
         ;; `nil`, never a `{frame-id {}}` empty husk.
-        (let [flows-snapshot       (flows/flows-snapshot)
-              last-inputs-snapshot (flows/last-inputs-snapshot)]
+        (let [flows-snapshot       (rf.flows/flows-snapshot)
+              last-inputs-snapshot (rf.flows/last-inputs-snapshot)]
           (doseq [{:keys [frame-id flow-id cyc-a cyc-b]} per-thread]
             (let [per-frame-slot (get flows-snapshot frame-id)]
               (is (nil? per-frame-slot)
@@ -331,9 +331,9 @@
             ;; RESERVED-but-empty — never written — so it is `nil` throughout,
             ;; not "vacated on last release". The per-frame store check above is
             ;; the real cleanup assertion.
-            (is (nil? (registrar/lookup :flow flow-id))
+            (is (nil? (rf.registrar/lookup :flow flow-id))
                 (str ":flow registrar slot for " flow-id
                      " is RESERVED-but-empty (rf2-en00bk)"))
-            (is (nil? (registrar/lookup :flow cyc-a))
+            (is (nil? (rf.registrar/lookup :flow cyc-a))
                 (str ":flow registrar slot for cycle-probe " cyc-a
                      " is RESERVED-but-empty (rf2-en00bk)"))))))))

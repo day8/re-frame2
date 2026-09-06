@@ -16,19 +16,19 @@
   SHOWS for the component, read off the committed fiber's `type` rather
   than off the fn property the framework stamped."
   (:require [cljs.test :refer-macros [deftest use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.adapter.react-shared-suite :as suite]
-            [re-frame.test-support :as test-support]))
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.adapter.react-shared-suite :as rf.adapter.react-shared-suite]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter uix-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.uix/adapter}))
 
 (def ^:private cfg
-  {:adapter      uix-adapter/adapter
+  {:adapter      rf.adapter.uix/adapter
    :substrate-kw :uix
    :name         "UIx"
-   :wrap-view    uix-adapter/wrap-view})
+   :wrap-view    rf.adapter.uix/wrap-view})
 
 (deftest mounted-display-name-is-devtools-visible-uix
-  (suite/assert-mounted-display-name-is-devtools-visible cfg))
+  (rf.adapter.react-shared-suite/assert-mounted-display-name-is-devtools-visible cfg))

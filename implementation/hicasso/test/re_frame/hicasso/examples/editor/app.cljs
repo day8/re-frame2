@@ -34,11 +34,11 @@
   matters. Serving it needs a `:dev-http` entry in
   `implementation/shadow-cljs.edn`, which is a hot-zone file; the
   measurement lane that wants one adds it with the build it needs."
-  (:require [re-frame.adapter.uix :as uix-adapter]
+  (:require [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.examples.editor.events :as events]
-            [re-frame.hicasso.examples.editor.views :as views]))
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.examples.editor.events :as rf.hicasso.examples.editor.events]
+            [re-frame.hicasso.examples.editor.views :as rf.hicasso.examples.editor.views]))
 
 (def frame-id
   "This application's frame. Namespaced, so two applications in one
@@ -49,7 +49,7 @@
   "What seeds a fresh frame. Public because every test that mounts this
   application seeds it the same way, and a witness that seeded itself
   differently from the application would be evidence about the witness."
-  [[::events/seed]])
+  [[::rf.hicasso.examples.editor.events/seed]])
 
 (defonce ^:private !root
   ;; `defonce`, because a reload re-evaluates this namespace and a plain
@@ -62,7 +62,7 @@
   caret survive."
   []
   (when-some [root @!root]
-    (h/render! root [views/editor {}])))
+    (rf.hicasso/render! root [rf.hicasso.examples.editor.views/editor {}])))
 
 (defn ^:export -main
   "Mount the editor on `#app`.
@@ -73,8 +73,8 @@
   adapter will not do — its derived value is not `IWatchable` and a
   moving subscription under it would notify nothing."
   []
-  (rf/init! uix-adapter/adapter)
+  (rf/init! rf.adapter.uix/adapter)
   (rf/make-frame {:id frame-id :initial-events initial-events})
-  (reset! !root (h/mount! (js/document.getElementById "app") {:frame frame-id}
-                          [views/editor {}]))
+  (reset! !root (rf.hicasso/mount! (js/document.getElementById "app") {:frame frame-id}
+                          [rf.hicasso.examples.editor.views/editor {}]))
   nil)

@@ -34,16 +34,16 @@
             ;; validator; without this require they'd soft-pass.
             [re-frame.schemas.malli]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
-            [re-frame.frame :as frame]
-            [re-frame.http.managed :as http-managed]
+            [re-frame.fx :as rf.fx]
+            [re-frame.frame :as rf.frame]
+            [re-frame.http.managed :as rf.http.managed]
             ;; rf2-cdmle — canned-stub fxs (`:rf.http/managed-canned-success`,
             ;; `:rf.http/managed-canned-failure`) gate on explicit
             ;; test-support require. This file uses :fx-overrides into
             ;; both fx ids throughout, so we opt in here.
             [re-frame.http.test-support]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]))
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; Snapshot/restore the registrar around each test (rf2-am9d). The
 ;; framework-shipped :rf.http/managed family registers at ns-load and
@@ -52,11 +52,11 @@
 (use-fixtures :each
   (fn [test-fn]
     ;; Drop any in-flight registry leaks between tests.
-    (http-managed/clear-all-in-flight!)
-    ((test-support/make-reset-runtime-fixture
-       {:adapter reagent-adapter/adapter})
+    (rf.http.managed/clear-all-in-flight!)
+    ((rf.test-support/make-reset-runtime-fixture
+       {:adapter rf.adapter.reagent/adapter})
       test-fn)
-    (http-managed/clear-all-in-flight!)))
+    (rf.http.managed/clear-all-in-flight!)))
 
 ;; ---- 1. canned-success: unified :reply-to addressing ----------------------
 
@@ -178,7 +178,7 @@
             (NO per-call :fx-overrides) is intercepted by the stub and the real
             :rf.http/managed fx slot is NEVER invoked"
     (let [real-fx-invoked? (atom false)]
-      (fx/reg-fx :rf.http/managed
+      (rf.fx/reg-fx :rf.http/managed
                  (fn [_frame-ctx _args] (reset! real-fx-invoked? true) nil))
       (rf/reg-event :rzqan/load
         (fn [_ [_ msg reply]]
@@ -220,7 +220,7 @@
             a PRE-CREATED sealed make-frame {} frame routes through the stub and
             NEVER invokes the real :rf.http/managed transport"
     (let [real-fx-invoked? (atom false)]
-      (fx/reg-fx :rf.http/managed
+      (rf.fx/reg-fx :rf.http/managed
                  (fn [_frame-ctx _args] (reset! real-fx-invoked? true) nil))
       (rf/reg-event :bxc8kf/load
         (fn [{:keys [db]} [_ msg reply]]
@@ -323,10 +323,10 @@
           {:fx [[:rf.http/managed
                  {:reply-to [:article/load msg] :request {:method :get :url "/articles/hello"}
                   :decode  :json}]]})))
-    (let [left  (frame/make-anon-frame-record! {:doc "left"
+    (let [left  (rf.frame/make-anon-frame-record! {:doc "left"
                                 :fx-overrides
                                 {:rf.http/managed :rf.http/managed-canned-success}})
-          right (frame/make-anon-frame-record! {:doc "right"
+          right (rf.frame/make-anon-frame-record! {:doc "right"
                                 :fx-overrides
                                 {:rf.http/managed :rf.http/managed-canned-success}})]
       (rf/dispatch-sync [:article/load] {:frame left})

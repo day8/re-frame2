@@ -26,7 +26,7 @@
   (`cljs-test$` matches `-dom-cljs-test`), and every DOM claim degrades
   there to a STATED skip rather than to a false green."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.hicasso.test :as ht]))
+            [re-frame.hicasso.test :as rf.hicasso.test]))
 
 (defn- browser? []
   (and (exists? js/document) (some? (.-createElement js/document))))
@@ -54,7 +54,7 @@
 
       (testing "two pages written in different attribute orders are the same
                 page, which `innerHTML` alone cannot say"
-        (is (= (ht/canonical-dom a) (ht/canonical-dom b)))
+        (is (= (rf.hicasso.test/canonical-dom a) (rf.hicasso.test/canonical-dom b)))
         (is (not= (.-innerHTML a) (.-innerHTML b))
             "and the control: the raw serialisation genuinely differs, so the
              equality above is the comparator's answer and not the DOM's"))
@@ -62,24 +62,24 @@
       (testing "the names are sorted, so the canonical form is stated rather
                 than merely self-consistent"
         (is (= "<p class=\"row\" data-i=\"3\" id=\"one\">milk</p>"
-               (ht/canonical-dom a))))
+               (rf.hicasso.test/canonical-dom a))))
 
       (testing "a page that differs in an attribute VALUE is a different page"
-        (is (not= (ht/canonical-dom a) (ht/canonical-dom c))))
+        (is (not= (rf.hicasso.test/canonical-dom a) (rf.hicasso.test/canonical-dom c))))
 
       (testing "and so is one that differs in its text — without this the
                 comparator could be a constant and every parity claim made
                 through it would be vacuous"
-        (is (not= (ht/canonical-dom a) (ht/canonical-dom d))))
+        (is (not= (rf.hicasso.test/canonical-dom a) (rf.hicasso.test/canonical-dom d))))
 
       (testing "comments contribute nothing, because a comment is not the page"
-        (is (= (ht/canonical-dom a)
-               (ht/canonical-dom
+        (is (= (rf.hicasso.test/canonical-dom a)
+               (rf.hicasso.test/canonical-dom
                  (node! "<!-- note --><p id=\"one\" class=\"row\" data-i=\"3\">milk</p>")))))
 
       (testing "and a value that is not a DOM node refuses rather than
                 serialising to something plausible"
-        (let [refused (try (ht/canonical-dom {:tag :p}) nil
+        (let [refused (try (rf.hicasso.test/canonical-dom {:tag :p}) nil
                            (catch :default e (ex-data e)))]
           (is (= {:rf.error/id :rf.error/hicasso-test-not-a-dom-node
                   :where       're-frame.hicasso.test}

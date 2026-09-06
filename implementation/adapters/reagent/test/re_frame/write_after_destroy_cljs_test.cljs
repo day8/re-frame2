@@ -34,15 +34,15 @@
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.substrate.adapter :as adapter]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support])
+            [re-frame.frame :as rf.frame]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support])
   (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
 (def ^:private write-after-destroy-pred
   (fn [ev]
@@ -56,7 +56,7 @@
             container is a documented no-op + :rf.error/write-after-destroy
             (rf2-ft2b, rf2-9od6t, rf2-500ech)"
     (with-trace-recorder! [errs {:pred write-after-destroy-pred}]
-      (is (nil? (adapter/replace-container! nil {:any :value}))
+      (is (nil? (rf.substrate.adapter/replace-container! nil {:any :value}))
           "nil container must NOT throw (background-thread NPE was the original bug)")
       (is (= 1 (count @errs))
           "exactly one :rf.error/write-after-destroy fires per nil-write")
@@ -74,10 +74,10 @@
       (with-trace-recorder! [errs {:pred write-after-destroy-pred}]
         (rf/make-frame {:id frame-id :doc "rf2-9od6t race reproducer"})
         (rf/destroy-frame! frame-id)
-        (let [container (frame/app-db-container frame-id)]
+        (let [container (rf.frame/app-db-container frame-id)]
           (is (nil? container)
               "app-db-container on a destroyed frame returns nil — the rf2-ft2b precondition")
-          (is (nil? (adapter/replace-container! container {:would :have :npe'd true}))
+          (is (nil? (rf.substrate.adapter/replace-container! container {:would :have :npe'd true}))
               "writing through the nil container is a documented no-op"))
         (is (pos? (count @errs))
             ":rf.error/write-after-destroy fired for the post-destroy write")

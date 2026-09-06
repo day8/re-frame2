@@ -47,9 +47,9 @@
             [reagent.dom.client :as rdc]
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace.tooling :as trace-tooling])
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace.tooling :as rf.trace.tooling])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; `:ambient-frame nil` OPTS OUT of the fixture's default ambient
@@ -61,8 +61,8 @@
 ;; never runs under an ambient binding. `:async? true` because the working
 ;; half awaits the async dispatch drain.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter :async? true :ambient-frame nil}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter :async? true :ambient-frame nil}))
 
 ;; ---- browser gate ----------------------------------------------------------
 
@@ -176,7 +176,7 @@
                                (.then (fn [_]
                                         (when-let [n @node-atom] (try (.remove n) (catch :default _ nil)))
                                         (try (rf/destroy-frame! target) (catch :default _ nil))
-                                        (trace-tooling/unregister-listener! ::proof-view-unmounts)
+                                        (rf.trace.tooling/unregister-listener! ::proof-view-unmounts)
                                         (is (= 1 (count @unmounts))
                                             (str "rf2-7r78l: exactly one :rf.view/unmounted fired for "
                                                  "proof-view WITHIN the awaited window — teardown awaited, "
@@ -184,7 +184,7 @@
                                         (done))))))]
         (try
           (reset! raised nil)
-          (trace-tooling/register-listener! ::proof-view-unmounts
+          (rf.trace.tooling/register-listener! ::proof-view-unmounts
             (fn [ev]
               (when (and (= :rf.view/unmounted (:operation ev))
                          (= proof-view-id (-> ev :tags :rf.view/id)))
@@ -223,7 +223,7 @@
                 ;; Causal settle: poll the frame's app-db until the async
                 ;; router drain lands the increment — no fixed sleep.
                 (.click captured)
-                (-> (test-support/poll-until
+                (-> (rf.test-support/poll-until
                       #(= 1 (:n (rf/app-db-value target)))
                       {:label      "injected dispatch advances the render frame to {:n 1}"
                        :timeout-ms 1000})

@@ -48,14 +48,14 @@
             [re-frame.core :as rf]
             ;; Side-effect: publishes the `:epoch/*` late-bind hooks.
             [re-frame.epoch]
-            [re-frame.epoch.listeners :as epoch.listeners]
-            [re-frame.epoch.state :as epoch-state]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support])
+            [re-frame.epoch.listeners :as rf.epoch.listeners]
+            [re-frame.epoch.state :as rf.epoch.state]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support])
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- silence-current?
   "The SUPPORTED receiver decision, expressed exactly as the spec states it and
@@ -69,14 +69,14 @@
   it — the generation alone can only recompose the torn two-read decision);
   artefact-internal tests read the registry snapshot directly."
   [cb]
-  (get-in (epoch-state/listeners-snapshot) [cb :generation]))
+  (get-in (rf.epoch.state/listeners-snapshot) [cb :generation]))
 
 (defn- observing?
   "Whether `cb`'s CURRENT registration observes `frame` — the observation-
   continuum fact the decision weighs, read here from the state ns for assertions
   that need to name it separately."
   [cb frame]
-  (let [token (get-in (epoch-state/observations-snapshot) [cb frame] ::absent)]
+  (let [token (get-in (rf.epoch.state/observations-snapshot) [cb frame] ::absent)]
     (and (not= token ::absent)
          (= token (cb-generation cb)))))
 
@@ -98,8 +98,8 @@
   so the frame's destroy snapshot owes it a silence under its live generation."
   [frame token cb]
   (rf/register-listener! :epoch cb (fn [_] nil))
-  (epoch-state/claim-frame-owner! frame token)
-  (epoch.listeners/notify-listeners! {:frame frame :epoch-id 1}))
+  (rf.epoch.state/claim-frame-owner! frame token)
+  (rf.epoch.listeners/notify-listeners! {:frame frame :epoch-id 1}))
 
 ;; ---- THE BEAD CASE: same-generation re-arm inside the emit window -----------
 
@@ -125,13 +125,13 @@
     (park-silence-emit! silence-key cb captured reached-emit rearmed)
     (try
       (let [g    (cb-generation cb)
-            a-ev (epoch.listeners/snapshot-terminal-destroy-evidence! frame nil nil nil)
+            a-ev (rf.epoch.listeners/snapshot-terminal-destroy-evidence! frame nil nil nil)
             ;; The successor's delivery, landing strictly INSIDE the lock-free
             ;; emit window, under the UNCHANGED generation G.
             rearmer   (future (.await reached-emit 5 TimeUnit/SECONDS)
-                              (epoch-state/record-observation! cb g frame)
+                              (rf.epoch.state/record-observation! cb g frame)
                               (.countDown rearmed))
-            destroyer (future (epoch.listeners/on-frame-destroyed! frame token a-ev))]
+            destroyer (future (rf.epoch.listeners/on-frame-destroyed! frame token a-ev))]
         (is (not= ::timeout (deref rearmer 5000 ::timeout))
             "the re-arm completed — it was NOT blocked by the emit (no ledger lock is held)")
         (is (not= ::timeout (deref destroyer 5000 ::timeout)) "the destroy/emit completed")
@@ -179,10 +179,10 @@
     (park-silence-emit! silence-key cb captured reached-emit resume)
     (try
       (let [g    (cb-generation cb)
-            a-ev (epoch.listeners/snapshot-terminal-destroy-evidence! frame nil nil nil)
+            a-ev (rf.epoch.listeners/snapshot-terminal-destroy-evidence! frame nil nil nil)
             idle (future (.await reached-emit 5 TimeUnit/SECONDS)
                          (.countDown resume))
-            destroyer (future (epoch.listeners/on-frame-destroyed! frame token a-ev))]
+            destroyer (future (rf.epoch.listeners/on-frame-destroyed! frame token a-ev))]
         (is (not= ::timeout (deref idle 5000 ::timeout)) "the emit window opened and closed")
         (is (not= ::timeout (deref destroyer 5000 ::timeout)) "the destroy/emit completed")
         (is (= 1 (count @captured)) "exactly one silence fired for cb")
@@ -213,16 +213,16 @@
         captured     (atom [])
         silence-key  ::qg98y-scoped-silencing]
     (observe! frame token cb)
-    (epoch-state/claim-frame-owner! other-frame other-token)
+    (rf.epoch.state/claim-frame-owner! other-frame other-token)
     (park-silence-emit! silence-key cb captured reached-emit rearmed)
     (try
       (let [g    (cb-generation cb)
-            a-ev (epoch.listeners/snapshot-terminal-destroy-evidence! frame nil nil nil)
+            a-ev (rf.epoch.listeners/snapshot-terminal-destroy-evidence! frame nil nil nil)
             rearmer   (future (.await reached-emit 5 TimeUnit/SECONDS)
                               ;; A delivery from the OTHER frame, same generation.
-                              (epoch-state/record-observation! cb g other-frame)
+                              (rf.epoch.state/record-observation! cb g other-frame)
                               (.countDown rearmed))
-            destroyer (future (epoch.listeners/on-frame-destroyed! frame token a-ev))]
+            destroyer (future (rf.epoch.listeners/on-frame-destroyed! frame token a-ev))]
         (is (not= ::timeout (deref rearmer 5000 ::timeout)) "the other-frame re-arm completed")
         (is (not= ::timeout (deref destroyer 5000 ::timeout)) "the destroy/emit completed")
         (is (= 1 (count @captured)) "exactly one silence fired for cb")
@@ -256,12 +256,12 @@
     (park-silence-emit! silence-key cb captured reached-emit mutated)
     (try
       (let [g    (cb-generation cb)
-            a-ev (epoch.listeners/snapshot-terminal-destroy-evidence! frame nil nil nil)
+            a-ev (rf.epoch.listeners/snapshot-terminal-destroy-evidence! frame nil nil nil)
             mutator   (future (.await reached-emit 5 TimeUnit/SECONDS)
-                              (epoch-state/record-observation! cb g frame)
+                              (rf.epoch.state/record-observation! cb g frame)
                               (rf/register-listener! :epoch cb (fn [_] nil)) ; G → H
                               (.countDown mutated))
-            destroyer (future (epoch.listeners/on-frame-destroyed! frame token a-ev))]
+            destroyer (future (rf.epoch.listeners/on-frame-destroyed! frame token a-ev))]
         (is (not= ::timeout (deref mutator 5000 ::timeout)) "re-arm + replacement completed")
         (is (not= ::timeout (deref destroyer 5000 ::timeout)) "the destroy/emit completed")
         (is (= 1 (count @captured)) "exactly one silence fired for cb")
@@ -290,8 +290,8 @@
     (try
       (is (false? (observing? cb frame))
           "a registered listener that has consumed no record observes nothing")
-      (epoch-state/claim-frame-owner! frame token)
-      (epoch.listeners/notify-listeners! {:frame frame :epoch-id 1})
+      (rf.epoch.state/claim-frame-owner! frame token)
+      (rf.epoch.listeners/notify-listeners! {:frame frame :epoch-id 1})
       (is (true? (observing? cb frame))
           "after consuming a record it observes the frame")
       (is (false? (observing? cb :qg98y/boundary-unseen))

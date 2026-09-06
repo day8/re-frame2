@@ -23,12 +23,12 @@
   Per bead rf2-8wrzz.3."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent2.ratom :as ratom]
-            [re-frame.adapter.reagent-slim :as reagent-slim]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.substrate.adapter :as adapter]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace]
+            [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace]
             ;; Load the tooling sibling so the listener API's late-bind
             ;; hooks resolve (mirrors the plain-atom suite + trace-listener-test).
             [re-frame.trace.tooling]))
@@ -48,7 +48,7 @@
 ;; recompute into a later React-adapter test.
 
 (def ^:private reset-runtime
-  (test-support/make-reset-runtime-fixture {:adapter reagent-slim/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.adapter.reagent-slim/adapter}))
 
 (defn with-reagent-slim [test-fn]
   ;; Drain reagent2's process-global Reaction flush queue around the reset
@@ -65,11 +65,11 @@
 (defn- capture-errors [body-fn]
   (let [seen (atom [])
         k    ::reagent-slim-derived-replaced-capture]
-    (trace/register-listener! k (fn [ev]
+    (rf.trace/register-listener! k (fn [ev]
                                   (when (= :error (:op-type ev))
                                     (swap! seen conj ev))))
     (try (body-fn)
-         (finally (trace/unregister-listener! k)))
+         (finally (rf.trace/unregister-listener! k)))
     @seen))
 
 (defn- with-derived
@@ -79,21 +79,21 @@
   test. Disposal routes through `interop/dispose!` → the slim adapter's
   `:adapter/dispose!` hook, the same path the sub-cache uses."
   [src body]
-  (let [derived (adapter/make-derived-value [src] (fn [v] (:n v)))]
+  (let [derived (rf.substrate.adapter/make-derived-value [src] (fn [v] (:n v)))]
     (try (body derived)
-         (finally (interop/dispose! derived)))))
+         (finally (rf.interop/dispose! derived)))))
 
 ;; ---- tests ----------------------------------------------------------------
 
 (deftest derived-container-hook-separates-reaction-from-base-ratom
   (testing "the routed :adapter/derived-container? hook flags a Reaction (derived) but not an r/atom (base)"
-    (let [hook (late-bind/get-fn :adapter/derived-container?)]
+    (let [hook (rf.late-bind/get-fn :adapter/derived-container?)]
       (is (some? hook) "the :adapter/derived-container? hook is published")
-      (let [src (adapter/make-state-container {:n 1})]
+      (let [src (rf.substrate.adapter/make-state-container {:n 1})]
         (with-derived src
           (fn [derived]
             ;; Read the derived value once so the reaction baseline is seeded.
-            (is (= 1 (adapter/read-container derived)) "precondition: derived reads its computed value")
+            (is (= 1 (rf.substrate.adapter/read-container derived)) "precondition: derived reads its computed value")
             (is (false? (boolean (hook src)))
                 "a base r/atom is NOT a derived container (even though it reifies IAtom)")
             (is (true? (boolean (hook derived)))
@@ -101,21 +101,21 @@
 
 (deftest replace-on-base-ratom-succeeds
   (testing "the happy path is untouched: writing to a base r/atom still works under reagent-slim"
-    (let [c (adapter/make-state-container {:n 0})]
-      (is (= {:n 0} (adapter/read-container c)) "precondition")
-      (is (nil? (adapter/replace-container! c {:n 1}))
+    (let [c (rf.substrate.adapter/make-state-container {:n 0})]
+      (is (= {:n 0} (rf.substrate.adapter/read-container c)) "precondition")
+      (is (nil? (rf.substrate.adapter/replace-container! c {:n 1}))
           "replace-container! on a base container returns nil")
-      (is (= {:n 1} (adapter/read-container c))
+      (is (= {:n 1} (rf.substrate.adapter/read-container c))
           "the base container holds the new value"))))
 
 (deftest replace-on-reaction-throws
   (testing "replace-container! on a reagent-slim Reaction throws the canonical ex-info"
-    (let [src (adapter/make-state-container {:n 7})]
+    (let [src (rf.substrate.adapter/make-state-container {:n 7})]
       (with-derived src
         (fn [derived]
-          (is (= 7 (adapter/read-container derived))
+          (is (= 7 (rf.substrate.adapter/read-container derived))
               "precondition: the derived container reads its computed value")
-          (let [thrown (is (thrown? js/Error (adapter/replace-container! derived 42))
+          (let [thrown (is (thrown? js/Error (rf.substrate.adapter/replace-container! derived 42))
                            "writing to a Reaction throws")]
             (is (= :rf.error/derived-container-replaced
                    (:rf.error/id (ex-data thrown)))
@@ -131,12 +131,12 @@
 
 (deftest replace-on-reaction-emits-error-trace
   (testing "replace-container! on a Reaction emits the :rf.error/derived-container-replaced trace"
-    (let [src (adapter/make-state-container {:n 1})]
+    (let [src (rf.substrate.adapter/make-state-container {:n 1})]
       (with-derived src
         (fn [derived]
           (let [errs (capture-errors
                        (fn []
-                         (try (adapter/replace-container! derived 99)
+                         (try (rf.substrate.adapter/replace-container! derived 99)
                               (catch :default _ nil))))
                 ev   (first (filter #(= :rf.error/derived-container-replaced (:operation %)) errs))]
             (is (some? ev) "a :rf.error/derived-container-replaced error trace was emitted")
@@ -148,19 +148,19 @@
 
 (deftest reaction-value-unchanged-after-rejected-write
   (testing "the rejected write does NOT mutate the derived value — the adapter replace-container! is never invoked"
-    (let [src (adapter/make-state-container {:n 5})]
+    (let [src (rf.substrate.adapter/make-state-container {:n 5})]
       (with-derived src
         (fn [derived]
-          (is (= 5 (adapter/read-container derived)) "seed the reaction baseline")
-          (try (adapter/replace-container! derived 1000)
+          (is (= 5 (rf.substrate.adapter/read-container derived)) "seed the reaction baseline")
+          (try (rf.substrate.adapter/replace-container! derived 1000)
                (catch :default _ nil))
-          (is (= 5 (adapter/read-container derived))
+          (is (= 5 (rf.substrate.adapter/read-container derived))
               "the derived value still reflects its source — the write was rejected")
           ;; Writing to the SOURCE flows through to the derived value, proving the
           ;; source remains a normal writable container and the guard fires only
           ;; on the Reaction shape.
-          (adapter/replace-container! src {:n 6})
-          (is (= 6 (adapter/read-container derived))
+          (rf.substrate.adapter/replace-container! src {:n 6})
+          (is (= 6 (rf.substrate.adapter/read-container derived))
               "writing to the source recomputes the derived value normally"))))))
 
 ;; ---- copied / wrapped adapter map routes to the live hook (rf2-dkl5z1) -----
@@ -175,21 +175,21 @@
 
 (deftest copied-adapter-map-routes-to-live-derived-container-hook
   (testing "a copied reagent-slim adapter map still drives the live :adapter/derived-container? hook (rf2-dkl5z1)"
-    (let [original (adapter/current-adapter-spec)
-          copied   (assoc reagent-slim/adapter :rf.test/instrumentation-wrapper true)]
+    (let [original (rf.substrate.adapter/current-adapter-spec)
+          copied   (assoc rf.adapter.reagent-slim/adapter :rf.test/instrumentation-wrapper true)]
       (try
-        (adapter/dispose-adapter!)
-        (adapter/install-adapter! copied)
-        (is (false? (identical? reagent-slim/adapter (adapter/current-adapter-spec)))
+        (rf.substrate.adapter/dispose-adapter!)
+        (rf.substrate.adapter/install-adapter! copied)
+        (is (false? (identical? rf.adapter.reagent-slim/adapter (rf.substrate.adapter/current-adapter-spec)))
             "precondition: the installed copy is NOT identical to the routed canonical map")
-        (is (= :rf.adapter/reagent-slim (adapter/current-adapter))
+        (is (= :rf.adapter/reagent-slim (rf.substrate.adapter/current-adapter))
             "precondition: the copy preserves the canonical :kind token")
-        (let [hook (late-bind/get-fn :adapter/derived-container?)
-              src  (adapter/make-state-container {:n 1})]
+        (let [hook (rf.late-bind/get-fn :adapter/derived-container?)
+              src  (rf.substrate.adapter/make-state-container {:n 1})]
           (is (some? hook) "the :adapter/derived-container? hook is published")
           (with-derived src
             (fn [derived]
-              (is (= 1 (adapter/read-container derived)) "precondition: derived reads its computed value")
+              (is (= 1 (rf.substrate.adapter/read-container derived)) "precondition: derived reads its computed value")
               (is (false? (boolean (hook src)))
                   "under the copied map, a base r/atom is STILL not a derived container")
               (is (true? (boolean (hook derived)))
@@ -197,8 +197,8 @@
                        " as a derived container — the routed hook fired its live impl"
                        " despite the copy's distinct identity (rf2-dkl5z1)"))
               ;; End-to-end: the choke point STILL rejects a write to the Reaction.
-              (is (thrown? js/Error (adapter/replace-container! derived 42))
+              (is (thrown? js/Error (rf.substrate.adapter/replace-container! derived 42))
                   "replace-container! on the Reaction STILL throws under the copied map"))))
         (finally
-          (adapter/dispose-adapter!)
-          (adapter/install-adapter! original))))))
+          (rf.substrate.adapter/dispose-adapter!)
+          (rf.substrate.adapter/install-adapter! original))))))

@@ -50,10 +50,10 @@
   the only thing that can put its file name in an artefact is the
   coordinate this bead erases."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.hicasso.coord-sentinel-source :as sentinel]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.error :as error]
-            [re-frame.registrar :as registrar]))
+            [re-frame.hicasso.coord-sentinel-source :as rf.hicasso.coord-sentinel-source]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.error :as rf.hicasso.impl.error]
+            [re-frame.registrar :as rf.registrar]))
 
 ;; ---------------------------------------------------------------------------
 ;; The ledger was never written
@@ -63,11 +63,11 @@
   (testing "the `(when debug-enabled? (declaring! …))` the `defview`
             expansion emits DCEs whole, so the ledger has no entry and the
             absolute file path the macro read never reached the bundle"
-    (is (nil? (error/source-of sentinel/view-name)))))
+    (is (nil? (rf.hicasso.impl.error/source-of rf.hicasso.coord-sentinel-source/view-name)))))
 
 (deftest no-coordinate-is-registered-for-a-host-declared-under-prod
   (testing "`defhost` opens the same extent under the same gate"
-    (is (nil? (error/source-of sentinel/host-name)))))
+    (is (nil? (rf.hicasso.impl.error/source-of rf.hicasso.coord-sentinel-source/host-name)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Nor was the authoring-time alias
@@ -79,12 +79,12 @@
             bundle publishes no entry and Hicasso's *no registry at runtime*
             stance holds where it is claimed. The entry serves tools; there
             are none here"
-    (is (nil? (registrar/lookup :view sentinel/view-id))))
+    (is (nil? (rf.registrar/lookup :view rf.hicasso.coord-sentinel-source/view-id))))
 
   (testing "and NO entry anywhere in the `:view` kind carries the alias's
             slot — a build-wide absence rather than one id's"
     (is (empty? (filter :hicasso/component
-                        (vals (registrar/registrations :view)))))))
+                        (vals (rf.registrar/registrations :view)))))))
 
 (deftest the-view-kind-is-populated-under-prod-so-the-absence-above-is-real
   ;; The positive control the row above needs. This build compiles every
@@ -93,7 +93,7 @@
   ;; answering non-empty is what proves the nil above is the DECLARATION's
   ;; absence and not a registrar that answers nothing for anyone.
   (testing "other substrates' views are registered here"
-    (is (seq (registrar/registrations :view)))))
+    (is (seq (rf.registrar/registrations :view)))))
 
 ;; ---------------------------------------------------------------------------
 ;; A refusal carries neither ambient field
@@ -101,7 +101,7 @@
 
 (deftest a-refusal-under-prod-carries-no-view-and-no-source
   (let [data (try
-               (error/fail! :rf.error/hicasso-empty-vector
+               (rf.hicasso.impl.error/fail! :rf.error/hicasso-empty-vector
                             're-frame.hicasso.impl.codec/vec->element
                             "A hiccup vector must have a head."
                             {})
@@ -135,7 +135,7 @@
   ;; `goog.DEBUG=false`, so there was no ambient value to overwrite it with
   ;; and the forgery merged through untouched.
   (let [data (try
-               (error/fail! :rf.error/hicasso-empty-vector
+               (rf.hicasso.impl.error/fail! :rf.error/hicasso-empty-vector
                             're-frame.hicasso.impl.codec/vec->element
                             "A hiccup vector must have a head."
                             {:view   "app.impostor/not-a-view"
@@ -165,8 +165,8 @@
 (deftest the-boundary-and-the-host-are-still-minted-under-prod
   (testing "a positive control, and the reason this file cannot pass by the
             macros having compiled to nothing at all"
-    (is (true? (codec/boundary-head? sentinel/sentinel-row)))
-    (is (true? (codec/host-head? sentinel/sentinel-host)))
-    (is (= sentinel/view-name (.-displayName sentinel/sentinel-row))
+    (is (true? (rf.hicasso.impl.codec/boundary-head? rf.hicasso.coord-sentinel-source/sentinel-row)))
+    (is (true? (rf.hicasso.impl.codec/host-head? rf.hicasso.coord-sentinel-source/sentinel-host)))
+    (is (= rf.hicasso.coord-sentinel-source/view-name (.-displayName rf.hicasso.coord-sentinel-source/sentinel-row))
         "the view name is NOT elided — it is the measure id and the
          React DevTools label, and it is a name rather than a coordinate")))

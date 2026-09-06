@@ -38,13 +38,13 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             [re-frame.views]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
 ;; ---- helper: capture console.warn calls (mirrors source-coord-warn-once) -
 
@@ -71,8 +71,8 @@
   warn-once cache clear) so the assertion below tests the production
   surface — not a private fn."
   [thunk]
-  (let [fixture (test-support/make-reset-runtime-fixture
-                  {:adapter reagent-adapter/adapter})]
+  (let [fixture (rf.test-support/make-reset-runtime-fixture
+                  {:adapter rf.adapter.reagent/adapter})]
     (fixture thunk)))
 
 ;; ---- regression: warn-once cache survives the same render twice ----------

@@ -60,7 +60,7 @@
             ;; Side-effecting: registers the `:rf.mutation/*` events and the
             ;; passive `:rf/mutation` subscription this form reads.
             [re-frame.resources]
-            [re-frame.hicasso.examples.forms.db :as db]))
+            [re-frame.hicasso.examples.forms.db :as rf.hicasso.examples.forms.db]))
 
 ;; ---------------------------------------------------------------------------
 ;; Boot
@@ -68,7 +68,7 @@
 
 (rf/reg-event ::seed
   {:doc "Install the starting app-db. The frame's `:initial-events` step."}
-  (fn [_ _] {:db (db/seed)}))
+  (fn [_ _] {:db (rf.hicasso.examples.forms.db/seed)}))
 
 ;; ---------------------------------------------------------------------------
 ;; Recipe 1 — the buffered subject field
@@ -86,7 +86,7 @@
   that debt comes due."
   [db ikey]
   (-> db
-      (update-in (pop (db/draft-path ikey)) dissoc ikey)
+      (update-in (pop (rf.hicasso.examples.forms.db/draft-path ikey)) dissoc ikey)
       (update-in [:subject-revision ikey] (fnil inc 0))))
 
 (rf/reg-event ::commit-subject
@@ -101,7 +101,7 @@
          or a blur arriving after Escape all find no session the second
          time and do nothing."}
   (fn [{:keys [db]} [_ ikey]]
-    (if-some [typed (get-in db (db/draft-path ikey))]
+    (if-some [typed (get-in db (rf.hicasso.examples.forms.db/draft-path ikey))]
       (let [candidate (str/trim typed)]
         (if (str/blank? candidate)
           ;; REFUSE. The subject does not move, so nothing the field reads
@@ -122,7 +122,7 @@
          *cancel must beat the late blur*, answered by the model rather
          than by ordering."}
   (fn [{:keys [db]} [_ ikey]]
-    (if (contains? (get-in db (pop (db/draft-path ikey))) ikey)
+    (if (contains? (get-in db (pop (rf.hicasso.examples.forms.db/draft-path ikey))) ikey)
       {:db (end-session db ikey)}
       {})))
 
@@ -191,7 +191,7 @@
          accepted branch executes the write."}
   (fn [{:keys [db]} _]
     (let [attempted (assoc-in db [:form :attempted?] true)]
-      (if-not (db/can-submit? db)
+      (if-not (rf.hicasso.examples.forms.db/can-submit? db)
         {:db attempted}
         {:db attempted
          :fx [[:dispatch [:rf.mutation/execute
@@ -212,5 +212,5 @@
     (if (= :ok status)
       {:db (-> db
                (update :ticket merge (get-in db [:form :draft]))
-               (assoc :form db/blank-form))}
+               (assoc :form rf.hicasso.examples.forms.db/blank-form))}
       {})))

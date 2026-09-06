@@ -57,14 +57,14 @@
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support])
+            [re-frame.frame :as rf.frame]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support])
   (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
 ;; ===========================================================================
 ;; The standard-epochs Views/subs section, replicated verbatim
@@ -115,7 +115,7 @@
   "The frame's live sub-cache map (cache-key → entry). Keys are the
   query-vectors themselves (cache-key = identity)."
   []
-  @(:sub-cache (frame/frame :rf/default)))
+  @(:sub-cache (rf.frame/frame :rf/default)))
 
 (defn- cached?
   "Is `query-v` present in the live sub-cache?"
@@ -212,7 +212,7 @@
       ;; recomputes through to the leaf the view derefs.
       (rf/dispatch-sync [:standard-epochs/perturb-chain])
 
-      (is (= 2 (get-in (frame/frame-app-db-value :rf/default)
+      (is (= 2 (get-in (rf.frame/frame-app-db-value :rf/default)
                        [:views :chain-input]))
           "L1 source advanced 1 → 2")
       (is (= "2×input = 4" @(:chain held))

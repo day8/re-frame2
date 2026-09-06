@@ -44,14 +44,14 @@
   records, populate history, and accept time-travel restores."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
-            [re-frame.epoch :as epoch]
-            [re-frame.epoch.listeners :as epoch.listeners]))
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.epoch :as rf.epoch]
+            [re-frame.epoch.listeners :as rf.epoch.listeners]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
 ;; ---- settle! commits no record under prod --------------------------------
 
@@ -160,9 +160,9 @@
         "unregister-listener! :epoch returns nil under prod")
     (is (vector? (rf/epoch-history :rf/default))
         "epoch-history returns a vector (empty) under prod")
-    (is (nil? (epoch/clear-history!))
+    (is (nil? (rf.epoch/clear-history!))
         "clear-history! returns nil under prod")
-    (is (nil? (epoch/clear-epoch-listeners!))
+    (is (nil? (rf.epoch/clear-epoch-listeners!))
         "clear-epoch-listeners! returns nil under prod")))
 
 ;; ---- on-frame-destroyed! is silent under prod ----------------------------
@@ -175,5 +175,5 @@
             observed-frames-by-cb bookkeeping side-effect is dead too.
             Frame-destroy paths that route through this hook do not
             crash."
-    (is (nil? (epoch.listeners/on-frame-destroyed! :rf/default nil nil nil nil))
+    (is (nil? (rf.epoch.listeners/on-frame-destroyed! :rf/default nil nil nil nil))
         "on-frame-destroyed! returns nil under prod even for unknown frames")))

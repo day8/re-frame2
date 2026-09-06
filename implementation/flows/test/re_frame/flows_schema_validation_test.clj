@@ -27,15 +27,15 @@
       silent (the whole surface DCEs in prod CLJS)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.schemas :as schemas]
+            [re-frame.interop :as rf.interop]
+            [re-frame.schemas :as rf.schemas]
             ;; Loading `re-frame.flows` wires the flow late-bind hooks the
             ;; `rf/reg-flow` bodies below drive (the flow-output validation
             ;; path this suite pins).
             [re-frame.flows]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace]))
 
 ;; ---- per-test reset / schema-violation recorder --------------------------
 ;;
@@ -54,10 +54,10 @@
   the recorder and reset the validator again afterwards so no validator
   leaks into a sibling suite."
   [test-fn]
-  (schemas/reset-schema-validator!)
+  (rf.schemas/reset-schema-validator!)
   (let [captured (atom [])]
     (binding [*captured* captured]
-      (trace/register-listener!
+      (rf.trace/register-listener!
         ::schema-violation-recorder
         (fn [ev]
           (when (= :rf.error/schema-validation-failure (:operation ev))
@@ -65,18 +65,18 @@
       (try
         (test-fn)
         (finally
-          (trace/unregister-listener! ::schema-violation-recorder)
-          (schemas/reset-schema-validator!))))))
+          (rf.trace/unregister-listener! ::schema-violation-recorder)
+          (rf.schemas/reset-schema-validator!))))))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
   with-schema-violation-recorder)
 
 ;; A trivial pluggable validator: a schema here is a 1-arg predicate fn.
 ;; This exercises the `:schemas/validate-with-registered-fn` seam without
 ;; pulling Malli onto the test classpath (Spec 010 §Non-Malli validators).
 (defn- install-predicate-validator! []
-  (schemas/set-schema-fns!
+  (rf.schemas/set-schema-fns!
     {:validate (fn [schema value] (boolean (schema value)))
      :explain  (fn [schema value]
                  (when-not (schema value)
@@ -158,7 +158,7 @@
 (deftest absent-schema-skips-validation
   (testing "a flow without :schema never consults the validator (no violation even on a 'bad' value)"
     (let [validator-calls (atom 0)]
-      (schemas/set-schema-fns!
+      (rf.schemas/set-schema-fns!
         {:validate (fn [_ _] (swap! validator-calls inc) false)})
       (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
       (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* w h)))
@@ -176,7 +176,7 @@
   (testing "with the validator set to nil, a :schema flow soft-passes (no violation)"
     ;; nil validator => the `:schemas/validate-with-registered-fn` seam
     ;; treats 'no validator' as 'no validation' (Spec 010 soft-pass).
-    (schemas/set-schema-validator! nil)
+    (rf.schemas/set-schema-validator! nil)
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
     (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area] :schema (fn [_] false)} (fn [w h] (* w h))) ;; would reject everything IF consulted
     (rf/dispatch-sync [:seed])
@@ -194,7 +194,7 @@
     (install-predicate-validator!)
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
     (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area] :schema (fn [_] false)} (fn [w h] (* w h))) ;; would reject IF the gate let it run
-    (with-redefs [interop/debug-enabled? false]
+    (with-redefs [rf.interop/debug-enabled? false]
       (rf/dispatch-sync [:seed]))
     (is (= 12 (get-in (rf/app-db-value :rf/default) [:rect :area]))
         "value written even with validation elided")
@@ -242,7 +242,7 @@
   (testing "an explicit {:schema nil} flow declaration reaches the validator
             verbatim; the false verdict emits :where :flow-output"
     (let [seen (atom [])]
-      (schemas/set-schema-fns!
+      (rf.schemas/set-schema-fns!
         {:validate (fn [schema _value] (swap! seen conj schema) false)})
       (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
       (rf/reg-flow :area

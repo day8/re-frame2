@@ -27,11 +27,11 @@
   are plain strings in a process-global registrar and the shared node
   bundle loads every application in the tree into one process. Nothing
   about a resource witness needs a URL."
-  (:require [re-frame.adapter.uix :as uix-adapter]
+  (:require [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.examples.typeahead.events :as events]
-            [re-frame.hicasso.examples.typeahead.views :as views]))
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.examples.typeahead.events :as rf.hicasso.examples.typeahead.events]
+            [re-frame.hicasso.examples.typeahead.views :as rf.hicasso.examples.typeahead.views]))
 
 (def frame-id
   "This application's frame. One root, one frame."
@@ -47,7 +47,7 @@
   and takes `:initial-events`, so the vector below is the value a witness
   hands it."
   []
-  (rf/make-frame {:id frame-id :initial-events [[::events/seed]]}))
+  (rf/make-frame {:id frame-id :initial-events [[::rf.hicasso.examples.typeahead.events/seed]]}))
 
 (defn ^:dev/after-load reload!
   "Re-render the mounted root after a hot reload. React reconciles the new
@@ -55,12 +55,12 @@
   every scrap of component state survive it."
   []
   (when-some [root @!root]
-    (h/render! root [views/screen {}])))
+    (rf.hicasso/render! root [rf.hicasso.examples.typeahead.views/screen {}])))
 
 (defn ^:export -main
   "Start the application."
   []
-  (rf/init! uix-adapter/adapter)
+  (rf/init! rf.adapter.uix/adapter)
   (make-frame!)
-  (reset! !root (h/mount! (js/document.getElementById "app") {:frame frame-id} [views/screen {}]))
+  (reset! !root (rf.hicasso/mount! (js/document.getElementById "app") {:frame frame-id} [rf.hicasso.examples.typeahead.views/screen {}]))
   nil)

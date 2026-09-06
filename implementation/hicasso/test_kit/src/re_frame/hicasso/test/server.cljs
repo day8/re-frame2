@@ -16,7 +16,7 @@
   `server/render-twice` (naming-ledger row 50); it moved here under
   rf2-6c12m.15 because nothing a running host does calls it.
   Design record: docs/design/hicasso/product/naming-ledger.md row 50."
-  (:require [re-frame.hicasso.server :as server]))
+  (:require [re-frame.hicasso.server :as rf.hicasso.server]))
 
 (defn render-twice
   "`server/render` the same `opts` twice and compare the two documents
@@ -27,8 +27,8 @@
   frame ids, which is what makes this the standing proof that the
   per-request id is invisible on the wire."
   [opts]
-  (let [a (server/render opts)
-        b (server/render opts)
+  (let [a (rf.hicasso.server/render opts)
+        b (rf.hicasso.server/render opts)
         x (:document a)
         y (:document b)]
     {:first      a

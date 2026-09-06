@@ -97,19 +97,19 @@
   5-7 minutes."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.epoch :as epoch]
+            [re-frame.epoch :as rf.epoch]
             ;; `state` is used in test BODIES for the private back-fill
             ;; path (`state/back-fill-sub-run!`) + the private listeners
             ;; var (`@#'state/listeners`) the concurrency invariants
             ;; exercise directly — NOT for fixture config reset (that now
             ;; flows through `configure!`).
-            [re-frame.epoch.state :as state]
+            [re-frame.epoch.state :as rf.epoch.state]
             ;; `tool-pair` is `with-redefs`'d in Scenario 6 to open the
             ;; validate-then-write TOCTOU window deterministically (the
             ;; barriered precondition check).
-            [re-frame.epoch.tool-pair :as tool-pair]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
+            [re-frame.epoch.tool-pair :as rf.epoch.tool-pair]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
             ;; rf2-v6z0: machines is a separate artefact whose late-bind
             ;; hook publishes `rf/reg-machine` only when loaded. Pulled in
             ;; for symmetry across the suite so the captured ns-load
@@ -127,8 +127,8 @@
 ;; public `configure!` boundary — no test ns reaches into the private
 ;; `state/config` var for fixture reset.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
      :init-fn (fn [] (rf/configure! {:epoch-history {:trace-events-keep 5}}))}))
 
 ;; ---- stress dials ---------------------------------------------------------
@@ -347,7 +347,7 @@
         (dotimes [i n-churners]
           (rf/unregister-listener! :epoch (keyword "rd7a7.fanout"
                                         (str "churner-" i))))
-        (let [live (deref @#'state/listeners)
+        (let [live (deref @#'rf.epoch.state/listeners)
               churner-keys (filter (fn [k]
                                      (and (keyword? k)
                                           (= "rd7a7.fanout"
@@ -588,7 +588,7 @@
                                 ;; stores the RAW delta — no redact arg
                                 ;; (redaction is projection-side, in
                                 ;; `projected-record`).
-                                (state/back-fill-sub-run!
+                                (rf.epoch.state/back-fill-sub-run!
                                   frame-id epoch-id
                                   (sub-run-event frame-id sid i)
                                   {:sub-id sid :value i})))
@@ -698,7 +698,7 @@
                                   ;; embed the target-id as the row's :value so a
                                   ;; mis-splice is detectable; back-fill returns
                                   ;; nil when the target evicted before the splice.
-                                  result (state/back-fill-sub-run!
+                                  result (rf.epoch.state/back-fill-sub-run!
                                            :qh13yf.race/main target-id
                                            (bf-event target-id)
                                            {:sub-id :race-sub :value target-id})]
@@ -782,7 +782,7 @@
           barrier        (atom nil) ;; {:passed promise :release latch :armed? atom}
           cur-hread      (atom nil) ;; per-iter promise: handler published db
           cur-hrelease   (atom nil) ;; per-iter latch: release the blocked handler
-          orig-check     tool-pair/check-restore-preconditions!]
+          orig-check     rf.epoch.tool-pair/check-restore-preconditions!]
       (rf/make-frame {:id frame-id :doc "restore linearizability stress frame"})
       (rf/reg-event :set (fn [{:keys [db]} [_ v]] {:db {:n v}}))
       ;; The racing event: read db, publish it, block mid-transition holding
@@ -794,7 +794,7 @@
           {:db {:n (inc (:n db))}}))
 
       (with-redefs
-        [tool-pair/check-restore-preconditions!
+        [rf.epoch.tool-pair/check-restore-preconditions!
          (fn [f e]
            (let [result (orig-check f e)
                  b      @barrier]
@@ -950,8 +950,8 @@
         ;;     with the live generation, and its destroy silences EXACTLY once.
         (rf/register-listener! :epoch cb-id (fn [_] nil))
         (rf/dispatch-sync [:bump -1] {:frame :j538.gen/main})
-        (let [obs  (get (state/observations-snapshot) cb-id)
-              live (:generation (get (state/listeners-snapshot) cb-id))]
+        (let [obs  (get (rf.epoch.state/observations-snapshot) cb-id)
+              live (:generation (get (rf.epoch.state/listeners-snapshot) cb-id))]
           (is (= live (get obs :j538.gen/main))
               "the surviving observation is stamped with the LIVE generation")
           (let [before @silence-cnt]

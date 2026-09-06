@@ -30,42 +30,42 @@
   browser path runs, and the finding is CONFIRMED by measurement from a
   second application rather than repeated."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.examples.editor.events :as events]
-            [re-frame.hicasso.examples.editor.subs :as subs]
-            [re-frame.hicasso.examples.editor.views :as views]
-            [re-frame.hicasso.test :as ht]
-            [re-frame.test-support :as test-support]))
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.examples.editor.events :as rf.hicasso.examples.editor.events]
+            [re-frame.hicasso.examples.editor.subs :as rf.hicasso.examples.editor.subs]
+            [re-frame.hicasso.examples.editor.views :as rf.hicasso.examples.editor.views]
+            [re-frame.hicasso.test :as rf.hicasso.test]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil}))
 
-(defn- tagged [tree tag] (ht/find tree #(= tag (:tag %))))
+(defn- tagged [tree tag] (rf.hicasso.test/find tree #(= tag (:tag %))))
 
 (defn- field-tree
   "The title or slug field's tree, under the two reads it makes and no
   others."
   [field {:keys [value revision]}]
-  (ht/tree [views/text-field {:field field :label "L"}]
-           {:subs {[::subs/field field] value
-                   [::subs/revision]    revision}}))
+  (rf.hicasso.test/tree [rf.hicasso.examples.editor.views/text-field {:field field :label "L"}]
+           {:subs {[::rf.hicasso.examples.editor.subs/field field] value
+                   [::rf.hicasso.examples.editor.subs/revision]    revision}}))
 
 ;; ---------------------------------------------------------------------------
 ;; THE MARKER LAW — the slice report's finding 1, confirmed from a second app
 ;; ---------------------------------------------------------------------------
 
 (deftest the-positional-intent-substitutes-what-was-typed
-  (is (= [::events/edit :title "typed"]
-         (ht/materialize [::events/edit :title ::h/value] {:value "typed"}))
+  (is (= [::rf.hicasso.examples.editor.events/edit :title "typed"]
+         (rf.hicasso.test/materialize [::rf.hicasso.examples.editor.events/edit :title ::rf.hicasso/value] {:value "typed"}))
       "the spelling every controlled field in this application uses")
-  (is (= [::events/set-published true]
-         (ht/materialize [::events/set-published ::h/checked] {:checked true}))
+  (is (= [::rf.hicasso.examples.editor.events/set-published true]
+         (rf.hicasso.test/materialize [::rf.hicasso.examples.editor.events/set-published ::rf.hicasso/checked] {:checked true}))
       "and the checkbox's")
-  (is (= [::events/edit 3 4 "7"]
-         (ht/materialize [::events/edit 3 4 ::h/value] {:value "7"}))
+  (is (= [::rf.hicasso.examples.editor.events/edit 3 4 "7"]
+         (rf.hicasso.test/materialize [::rf.hicasso.examples.editor.events/edit 3 4 ::rf.hicasso/value] {:value "7"}))
       "the grid's three-argument shape substitutes the same way — the
        marker's position in the vector is immaterial, only its DEPTH is"))
 
@@ -75,9 +75,9 @@
   ;; new code toward it. `materialize` maps over the intent's TOP LEVEL,
   ;; deliberately and for a stated cost reason, so the shape the
   ;; convention asks for cannot carry a marker.
-  (let [written    [::events/edit {:field :title :value ::h/value}]
-        dispatched (ht/materialize written {:value "typed"})]
-    (is (= [::events/edit {:field :title :value :re-frame.hicasso/value}]
+  (let [written    [::rf.hicasso.examples.editor.events/edit {:field :title :value ::rf.hicasso/value}]
+        dispatched (rf.hicasso.test/materialize written {:value "typed"})]
+    (is (= [::rf.hicasso.examples.editor.events/edit {:field :title :value :re-frame.hicasso/value}]
            dispatched)
         "NOT substituted, NOT refused, and not linted: the marker KEYWORD
          is what reaches the handler, lands in app-db and renders as text.
@@ -108,12 +108,12 @@
     ;; not an error, so the build completes and the page throws at
     ;; render. The naming gap itself is acknowledged in `h/defview`'s
     ;; docstring.
-    (let [cb (h/event [e] [::events/edit {:field :title
+    (let [cb (rf.hicasso/event [e] [::rf.hicasso.examples.editor.events/edit {:field :title
                                         :value (.. e -target -value)}])]
-      (is (ht/callback? cb)
+      (is (rf.hicasso.test/callback? cb)
           "it is the one callback form, so a position expecting an intent
            vector will not silently take it as data")
-      (is (= [::events/edit {:field :title :value "typed"}]
+      (is (= [::rf.hicasso.examples.editor.events/edit {:field :title :value "typed"}]
              (cb #js {"target" #js {"value" "typed"}}))
           "and it does produce the canonical shape — the choice is real,
            and it is between a linted shape with a closure and an
@@ -126,15 +126,15 @@
 (deftest every-text-control-is-controlled-and-carries-a-revision
   (doseq [[label form] {"input"    [:input {:type "text"
                                             :value "v"
-                                            ::h/revision 3
-                                            :on-input [::events/edit :title ::h/value]}]
+                                            ::rf.hicasso/revision 3
+                                            :on-input [::rf.hicasso.examples.editor.events/edit :title ::rf.hicasso/value]}]
                         "textarea" [:textarea {:value "v"
-                                               ::h/revision 3
-                                               :on-input [::events/edit :body ::h/value]}]}]
-    (is (true? (ht/controlled? form))
+                                               ::rf.hicasso/revision 3
+                                               :on-input [::rf.hicasso.examples.editor.events/edit :body ::rf.hicasso/value]}]}]
+    (is (true? (rf.hicasso.test/controlled? form))
         (str "the " label " does not install the controlled shadow — the
               runtime's own decision, not a re-derivation of it"))
-    (is (= 3 (ht/revision form))
+    (is (= 3 (rf.hicasso.test/revision form))
         (str "the " label " does not carry the reset trigger")))
 
   (testing "the checkbox carries no revision, and could not"
@@ -148,13 +148,13 @@
     ;; controls it, and there is no draft between the click and the
     ;; dispatch for a shadow to hold.
     (let [box [:input {:type "checkbox" :checked false
-                       :on-change [::events/set-published ::h/checked]}]]
-      (is (false? (ht/controlled? box))
+                       :on-change [::rf.hicasso.examples.editor.events/set-published ::rf.hicasso/checked]}]]
+      (is (false? (rf.hicasso.test/controlled? box))
           "a value-less checkbox is not a CONVERGING control, and this row
            says so rather than leaving `examples.editor.views` asserting
            it from taste")
-      (is (nil? (ht/revision box)))
-      (is (true? (contains? (ht/element-props box) "checked"))
+      (is (nil? (rf.hicasso.test/revision box)))
+      (is (true? (contains? (rf.hicasso.test/element-props box) "checked"))
           "`false` reaches the element as a slot — an owned `:checked`
            wins by PRESENCE, not truthiness, and a truthiness test in the
            codec would leave an unchecked box uncontrolled")))
@@ -173,19 +173,19 @@
     ;; EMITS, and no L1 door reports what the runtime would say about the
     ;; pair. The refusal is asserted in `flow-dom-cljs-test`, where an
     ;; element is really created.
-    (is (false? (ht/controlled? [:input {:type "checkbox" :checked false
-                                         ::h/revision 1
-                                         :on-change [::events/set-published
-                                                     ::h/checked]}]))
+    (is (false? (rf.hicasso.test/controlled? [:input {:type "checkbox" :checked false
+                                         ::rf.hicasso/revision 1
+                                         :on-change [::rf.hicasso.examples.editor.events/set-published
+                                                     ::rf.hicasso/checked]}]))
         "recorded as measured conduct and not as approval — a tier that
          answered `true` here would be worse, but a tier that answers at
          all is stating something the runtime does not agree with")))
 
 (deftest the-revision-is-a-trigger-and-not-an-emitted-slot
-  (let [form  [:input {:type "text" :value "v" ::h/revision 7}]
-        slots (ht/element-props form)]
+  (let [form  [:input {:type "text" :value "v" ::rf.hicasso/revision 7}]
+        slots (rf.hicasso.test/element-props form)]
     (is (contains? slots "value"))
-    (is (= 7 (ht/revision form))
+    (is (= 7 (rf.hicasso.test/revision form))
         "the author's own attribute map carries it — `ht/revision` reads
          it pre-merge, which is where the codec reads it")
     (is (= #{"type" "value"} (set (keys slots)))
@@ -205,14 +205,14 @@
 
 (deftest a-text-field-reads-its-own-address-and-the-counter
   (let [input (tagged (field-tree :title {:value "Title" :revision 0}) :input)
-        attrs (ht/attrs input)]
+        attrs (rf.hicasso.test/attrs input)]
     (is (= "Title" (:value attrs)))
-    (is (= [::events/edit :title ::h/value] (:on-input attrs))
+    (is (= [::rf.hicasso.examples.editor.events/edit :title ::rf.hicasso/value] (:on-input attrs))
         "the intent is DATA — a vector `=` can compare, which is what
          makes two renders of one field's handler equal and what keeps a
          closure off the props map")
     (is (= "title" (:id attrs)))
-    (is (= "title" (:for (ht/attrs (tagged (field-tree :title {:value "T" :revision 0})
+    (is (= "title" (:for (rf.hicasso.test/attrs (tagged (field-tree :title {:value "T" :revision 0})
                                            :label))))
         "and the label points at it, so the control has an accessible
          name")))
@@ -222,34 +222,34 @@
   ;; else. A parametric subscription is keyed by its whole query vector,
   ;; so title and slug are separate cells with separate equality gates —
   ;; which is the property the per-keystroke budget rests on.
-  (let [attrs (ht/attrs (tagged (field-tree :slug {:value "a-slug" :revision 0}) :input))]
+  (let [attrs (rf.hicasso.test/attrs (tagged (field-tree :slug {:value "a-slug" :revision 0}) :input))]
     (is (= "a-slug" (:value attrs)))
-    (is (= [::events/edit :slug ::h/value] (:on-input attrs)))))
+    (is (= [::rf.hicasso.examples.editor.events/edit :slug ::rf.hicasso/value] (:on-input attrs)))))
 
 (deftest the-checkbox-body-reads-one-address-and-writes-one-marker
-  (let [tree  (ht/tree [views/published-box {:label "Published"}]
-                       {:subs {[::subs/field :published?] true}})
-        attrs (ht/attrs (tagged tree :input))]
+  (let [tree  (rf.hicasso.test/tree [rf.hicasso.examples.editor.views/published-box {:label "Published"}]
+                       {:subs {[::rf.hicasso.examples.editor.subs/field :published?] true}})
+        attrs (rf.hicasso.test/attrs (tagged tree :input))]
     (is (true? (:checked attrs)))
-    (is (= [::events/set-published ::h/checked] (:on-change attrs)))
+    (is (= [::rf.hicasso.examples.editor.events/set-published ::rf.hicasso/checked] (:on-change attrs)))
     (is (= "checkbox" (:type attrs)))))
 
 (deftest the-buttons-read-one-value-between-them
   (testing "clean: both disabled"
-    (let [tree (ht/tree [views/buttons {}] {:subs {[::subs/dirty?] false}})
-          btns (ht/find-all tree #(= :button (:tag %)))]
+    (let [tree (rf.hicasso.test/tree [rf.hicasso.examples.editor.views/buttons {}] {:subs {[::rf.hicasso.examples.editor.subs/dirty?] false}})
+          btns (rf.hicasso.test/find-all tree #(= :button (:tag %)))]
       (is (= 2 (count btns)))
-      (is (= [true true] (mapv (comp :disabled ht/attrs) btns)))))
+      (is (= [true true] (mapv (comp :disabled rf.hicasso.test/attrs) btns)))))
 
   (testing "dirty: both live, and the discard says nothing about which field"
-    (let [tree (ht/tree [views/buttons {}] {:subs {[::subs/dirty?] true}})
-          btns (ht/find-all tree #(= :button (:tag %)))]
-      (is (= [false false] (mapv (comp :disabled ht/attrs) btns))
+    (let [tree (rf.hicasso.test/tree [rf.hicasso.examples.editor.views/buttons {}] {:subs {[::rf.hicasso.examples.editor.subs/dirty?] true}})
+          btns (rf.hicasso.test/find-all tree #(= :button (:tag %)))]
+      (is (= [false false] (mapv (comp :disabled rf.hicasso.test/attrs) btns))
           "`false` and not nil — per 004B a false attribute is RECORDED
            and a nil one is dropped, so `(is (nil? …))` here would be
            green against a button that had no disabled slot at all")
-      (is (= [[::events/save] [::events/discard]]
-             (mapv (comp :on-click ht/attrs) btns))
+      (is (= [[::rf.hicasso.examples.editor.events/save] [::rf.hicasso.examples.editor.events/discard]]
+             (mapv (comp :on-click rf.hicasso.test/attrs) btns))
           "no payload, and no marker either. Both COULD take the canonical
            `[<id> {<k> <v>}]` map — which is the whole shape of the
            collision above: the map is available to every intent that needs
@@ -261,34 +261,34 @@
   ;; not one `::subs/field`. A keystroke moves the draft, so it does not
   ;; notify this body at all — which is what makes "echoes only committed
   ;; state" readable off the page rather than merely true.
-  (let [tree (ht/tree [views/readout {}]
-                      {:subs {[::subs/committed :title]      "T"
-                              [::subs/committed :slug]       "s"
-                              [::subs/committed :body]       "B"
-                              [::subs/committed :published?] false}})]
+  (let [tree (rf.hicasso.test/tree [rf.hicasso.examples.editor.views/readout {}]
+                      {:subs {[::rf.hicasso.examples.editor.subs/committed :title]      "T"
+                              [::rf.hicasso.examples.editor.subs/committed :slug]       "s"
+                              [::rf.hicasso.examples.editor.subs/committed :body]       "B"
+                              [::rf.hicasso.examples.editor.subs/committed :published?] false}})]
     (is (= ["T" "s" "B" "false"]
-           (mapv ht/text (ht/find-all tree #(= :dd (:tag %))))))))
+           (mapv rf.hicasso.test/text (rf.hicasso.test/find-all tree #(= :dd (:tag %))))))))
 
 (deftest the-form-body-reads-nothing
   ;; An EMPTY fixture map, and the kit refuses any read. This is the row
   ;; that keeps the parent off the typing path: every value on the page
   ;; comes from a child's own body, so this body runs at mount and then
   ;; only if its own props change.
-  (let [tree (ht/tree [views/editor {}] {:subs {}})]
+  (let [tree (rf.hicasso.test/tree [rf.hicasso.examples.editor.views/editor {}] {:subs {}})]
     (is (some? tree)
         "the form body made a read. Every value on this page belongs to a
          child's own body; a read here puts the form, and a props compare
          over six children, on every keystroke's path")
 
     (testing "and it calls the four controls with the props they need"
-      (let [calls (ht/find-all tree #(some? (:view-id %)))]
+      (let [calls (rf.hicasso.test/find-all tree #(some? (:view-id %)))]
         (is (= 6 (count calls))
             "four controls, the buttons and the readout — L2 records a
              child boundary as a CALL and does not run its body")
         (is (= [:title :slug nil nil nil nil]
-               (mapv (comp :field ht/attrs) calls)))
+               (mapv (comp :field rf.hicasso.test/attrs) calls)))
         (is (= ["Title" "Slug" "Body" "Published" nil nil]
-               (mapv (comp :label ht/attrs) calls))
+               (mapv (comp :label rf.hicasso.test/attrs) calls))
             "the labels are ordinary data handed down, not a subsystem —
              §7's whole i18n answer at this size")))))
 
@@ -297,8 +297,8 @@
   ;; VECTOR; a site carrying a function contributes nothing. So an empty
   ;; answer here would mean the fields had grown closures.
   (let [tree    (field-tree :title {:value "T" :revision 0})
-        offered (ht/intents tree)]
-    (is (= [[::events/edit :title ::h/value]] offered)
+        offered (rf.hicasso.test/intents tree)]
+    (is (= [[::rf.hicasso.examples.editor.events/edit :title ::rf.hicasso/value]] offered)
         "one site, one vector. This application needed `h/event` nowhere —
          every intent said what it meant as data, which is rf2-hic-025's
          observation about `event` confirmed from a form of four controls")))

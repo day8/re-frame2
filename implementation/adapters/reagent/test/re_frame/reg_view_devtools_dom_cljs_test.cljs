@@ -22,17 +22,17 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.dom.client :as rdc]
             ["react-dom" :as react-dom]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.adapter.react-test-support :as react-test-support]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.adapter.react-test-support :as rf.adapter.react-test-support]
             [re-frame.core :as rf]
-            [re-frame.performance :as performance]
-            [re-frame.test-support :as test-support]
+            [re-frame.performance :as rf.performance]
+            [re-frame.test-support :as rf.test-support]
             [re-frame.views])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
 (defn- browser? []
   (and (exists? js/document)
@@ -52,7 +52,7 @@
         root      (rdc/create-root node)]
     (try
       (react-dom/flushSync (fn [] (rdc/render root [render-fn])))
-      (react-test-support/devtools-names-above
+      (rf.adapter.react-test-support/devtools-names-above
         (.querySelector node "[data-testid='devtools-dom-root']"))
       (finally
         (try (rdc/unmount root) (catch :default _ nil))))))
@@ -64,7 +64,7 @@
             performance/display projection — no leading colon"
     (if-not (browser?)
       (is true ":node-test: no DOM — the :browser-test runner exercises this")
-      (let [expected (performance/entry-id view-id)
+      (let [expected (rf.performance/entry-id view-id)
             names    (mount-and-read-names)]
         (is (some #{expected} names)
             (str "the mounted component is named " (pr-str expected)
@@ -81,10 +81,10 @@
             alone"
     (if-not (browser?)
       (is true ":node-test: no DOM — the :browser-test runner exercises this")
-      (let [visible (first (filter #{(performance/entry-id view-id)}
+      (let [visible (first (filter #{(rf.performance/entry-id view-id)}
                                    (mount-and-read-names)))]
         (is (some? visible) "the mounted component carries a resolvable name")
-        (is (= (performance/build-name :render view-id)
+        (is (= (rf.performance/build-name :render view-id)
                (str "rf:render:" visible))
             "the render measure name is exactly \"rf:render:\" + the
              DevTools-visible component name")))))

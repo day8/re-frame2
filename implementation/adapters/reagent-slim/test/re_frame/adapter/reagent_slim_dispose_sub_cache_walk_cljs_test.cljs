@@ -24,9 +24,9 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent2.ratom :as ratom]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.substrate.adapter :as adapter]
-            [re-frame.adapter.reagent-slim :as reagent-slim-adapter]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]))
 
 ;; ---- fixture --------------------------------------------------------------
 ;;
@@ -40,18 +40,18 @@
   ;; frame registry — so the test starts from a never-installed cold
   ;; state. The `reset-lifecycle-state-for-tests!` seam exists for
   ;; exactly this purpose (rf2-6wxys).
-  (adapter/reset-lifecycle-state-for-tests!)
-  (reset! frame/frames {})
-  (rf/init! reagent-slim-adapter/adapter)
-  (frame/ensure-default-frame!)
+  (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
+  (reset! rf.frame/frames {})
+  (rf/init! rf.adapter.reagent-slim/adapter)
+  (rf.frame/ensure-default-frame!)
   (test-fn)
   ;; Best-effort post-clean: if the test body left the adapter
   ;; installed, dispose it; if already disposed, the breadcrumb
   ;; lookup makes this a no-op.
-  (when (adapter/current-adapter)
-    (adapter/dispose-adapter!))
-  (reset! frame/frames {})
-  (adapter/reset-lifecycle-state-for-tests!))
+  (when (rf.substrate.adapter/current-adapter)
+    (rf.substrate.adapter/dispose-adapter!))
+  (reset! rf.frame/frames {})
+  (rf.substrate.adapter/reset-lifecycle-state-for-tests!))
 
 (use-fixtures :each with-fresh-slim-adapter)
 
@@ -62,7 +62,7 @@
   sub-cache. Walks `@frame/frames` the same way the adapter's
   `dispose-adapter!` walk does."
   []
-  (for [[_ frame-record] @frame/frames
+  (for [[_ frame-record] @rf.frame/frames
         :let  [cache (:sub-cache frame-record)]
         :when cache
         [_k entry] @cache
@@ -74,7 +74,7 @@
   "Return `{frame-id <entry-count>}` for every frame with a sub-cache."
   []
   (into {}
-        (for [[fid frame-record] @frame/frames
+        (for [[fid frame-record] @rf.frame/frames
               :let [cache (:sub-cache frame-record)]
               :when cache]
           [fid (count @cache)])))
@@ -121,7 +121,7 @@
             (ratom/add-on-dispose! r (fn [& _] (swap! disposed conj r))))
 
           ;; Drive the walk.
-          (adapter/dispose-adapter!)
+          (rf.substrate.adapter/dispose-adapter!)
 
           ;; Invariant 1: every previously-cached Reaction is now
           ;; disposed. Assert through reagent2's public disposal callback
@@ -132,7 +132,7 @@
                      " on a frame's sub-cache fired its dispose hook")))))
 
       ;; Invariant 2: every frame's sub-cache atom is empty.
-      (doseq [[fid frame-record] @frame/frames
+      (doseq [[fid frame-record] @rf.frame/frames
               :let [cache (:sub-cache frame-record)]
               :when cache]
         (is (= {} @cache)
@@ -200,7 +200,7 @@
       ;; walk/a's cache AND walk/b's cache, and then surface this exact value.
       (let [sentinel (ex-info "poison entry disposal" {::poison true})
             attempts (atom 0)
-            cache-a  (:sub-cache (frame/frame :walk/a))]
+            cache-a  (:sub-cache (rf.frame/frame :walk/a))]
         (swap! cache-a assoc [:poison]
                {:reaction (throwing-cached-reaction sentinel attempts)})
 
@@ -209,7 +209,7 @@
           (doseq [r reactions-before]
             (ratom/add-on-dispose! r (fn [& _] (swap! disposed conj r))))
 
-          (let [thrown (try (adapter/dispose-adapter!)
+          (let [thrown (try (rf.substrate.adapter/dispose-adapter!)
                             ::returned-normally
                             (catch :default e e))]
             ;; (1) THE POISON ACTUALLY FIRED. Without this the rest of the
@@ -223,9 +223,9 @@
             (doseq [r reactions-before]
               (is (contains? @disposed r)
                   "the walk reached and disposed the real Reaction past the poison entry"))
-            (is (= {} @(:sub-cache (frame/frame :walk/a)))
+            (is (= {} @(:sub-cache (rf.frame/frame :walk/a)))
                 "walk/a's cache was still cleared despite the throw")
-            (is (= {} @(:sub-cache (frame/frame :walk/b)))
+            (is (= {} @(:sub-cache (rf.frame/frame :walk/b)))
                 "walk/b's cache was still cleared after the throwing walk/a entry")
 
             ;; (3) RETHROW, and the IDENTICAL value rather than a wrapper.
@@ -240,8 +240,8 @@
     ;; make-reset-runtime-fixture shape: the fixture resets frames BEFORE
     ;; calling dispose-adapter!, so dispose-adapter! sees an empty
     ;; registry.
-    (reset! frame/frames {})
-    (is (nil? (adapter/dispose-adapter!))
+    (reset! rf.frame/frames {})
+    (is (nil? (rf.substrate.adapter/dispose-adapter!))
         "dispose-adapter! returns nil with an empty frames registry — no throw")
-    (is (true? (adapter/adapter-disposed?))
+    (is (true? (rf.substrate.adapter/adapter-disposed?))
         "the disposed-adapter breadcrumb is set after the no-op walk")))

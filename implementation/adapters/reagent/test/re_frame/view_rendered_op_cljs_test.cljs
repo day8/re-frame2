@@ -20,16 +20,16 @@
                       distinct, first-seen order, capped at 100"
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.elision :as elision]
-            [re-frame.frame :as frame]
-            [re-frame.test-support :as test-support]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.elision :as rf.elision]
+            [re-frame.frame :as rf.frame]
+            [re-frame.test-support :as rf.test-support]
             [re-frame.epoch]) ;; load so :epoch/run-cause hook is bound
   (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
 ;; ---- helpers ---------------------------------------------------------------
 
@@ -189,8 +189,8 @@
       ;; egress projection consults to elide the render arg at emit, and the
       ;; same write a `reg-event` returning `:sensitive` performs. The fixture
       ;; make-frames the ambient :rf/default the render lands in.
-      (frame/swap-runtime-db! :rf/default
-        (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))
+      (rf.frame/swap-runtime-db! :rf/default
+        (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))
       (rf/reg-view ^{:rf/id :rf2-rpgq8/sensitive} sensitive-view [_props]
         [:span "ok"])
       ((rf/view :rf2-rpgq8/sensitive) {:auth {:username "ada" :password "hunter2"}})

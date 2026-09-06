@@ -17,29 +17,29 @@
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.dom.client :as rdc]
-            [re-frame.frame :as frame]
-            [re-frame.substrate.adapter :as adapter]
-            [re-frame.adapter.reagent :as reagent-adapter]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
 ;; Cold-start fixture (mirrors the slim dispose-drain pins): the unit under
 ;; test is the render/unmount/dispose trio, so install the adapter here and
 ;; wipe frames so the drain's sub-cache walk sees an empty registry.
 (defn- fresh-reagent [test-fn]
-  (reset! frame/frames {})
+  (reset! rf.frame/frames {})
   ;; The adapter's active-root set is a namespace-level singleton, and
   ;; earlier suites in the shared bundle strand fake Roots in it (the
   ;; one-shot `:render` pins never unmount theirs). Drain them first, with
   ;; the host unmount stubbed so a stale fake Root goes quietly, so every
   ;; count below is this test's own.
   (with-redefs [rdc/unmount (fn [_] nil)]
-    (adapter/reset-lifecycle-state-for-tests!)
-    (adapter/install-adapter! reagent-adapter/adapter)
-    (adapter/dispose-adapter!))
-  (adapter/reset-lifecycle-state-for-tests!)
-  (adapter/install-adapter! reagent-adapter/adapter)
+    (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
+    (rf.substrate.adapter/install-adapter! rf.adapter.reagent/adapter)
+    (rf.substrate.adapter/dispose-adapter!))
+  (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
+  (rf.substrate.adapter/install-adapter! rf.adapter.reagent/adapter)
   (test-fn)
-  (reset! frame/frames {})
-  (adapter/reset-lifecycle-state-for-tests!))
+  (reset! rf.frame/frames {})
+  (rf.substrate.adapter/reset-lifecycle-state-for-tests!))
 
 (use-fixtures :each fresh-reagent)
 
@@ -55,7 +55,7 @@
                     rdc/render       (fn ([_ _] nil) ([_ _ _] nil) ([_ _ _ _] nil))
                     rdc/hydrate-root (fn ([_ _] root) ([_ _ _] root))
                     rdc/unmount      (fn [r] (swap! unmounts conj r) nil)]
-        (let [unmount ((:render reagent-adapter/adapter) [:div "x"] #js {} nil)]
+        (let [unmount ((:render rf.adapter.reagent/adapter) [:div "x"] #js {} nil)]
           (unmount)
           (is (= [root] @unmounts) "first call unmounts the Root")
           (unmount)
@@ -71,8 +71,8 @@
                     rdc/render       (fn ([_ _] nil) ([_ _ _] nil) ([_ _ _ _] nil))
                     rdc/hydrate-root (fn ([_ _] root) ([_ _ _] root))
                     rdc/unmount      (fn [r] (swap! unmounts conj r) nil)]
-        (let [unmount ((:render reagent-adapter/adapter) [:div "x"] #js {} nil)]
-          (adapter/dispose-adapter!)
+        (let [unmount ((:render rf.adapter.reagent/adapter) [:div "x"] #js {} nil)]
+          (rf.substrate.adapter/dispose-adapter!)
           (is (= [root] @unmounts) "the drain released the live root once")
           (unmount)
           (is (= [root] @unmounts)

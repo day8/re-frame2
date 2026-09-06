@@ -50,13 +50,13 @@
   `render-body` is the render, `commit-boundary!` is React's `subscribe`,
   and `snapshot-of` is the number React compares."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.hicasso.checkpoint-support :as support]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.test-support :as test-support]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.hicasso.checkpoint-support :as rf.hicasso.checkpoint-support]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.test-support :as rf.test-support]))
 
 (def ^:private frame-id ::staged-reincarnation)
 
@@ -66,11 +66,11 @@
 (rf/reg-sub   :staged/n     (fn [db _] (:n db)))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 (def ^:private held-key [frame-id [:staged/n]])
 
@@ -78,12 +78,12 @@
   "Make the frame under its public id, seed it with `who`, and install
   `touches` more times. Answers the frame's install epoch."
   [who touches]
-  (support/leave-act-environment!)
+  (rf.hicasso.checkpoint-support/leave-act-environment!)
   (rf/make-frame {:id frame-id})
   (rf/with-frame frame-id
     (rf/dispatch-sync [:staged/seed who])
     (dotimes [_ touches] (rf/dispatch-sync [:staged/touch])))
-  (frame/frame-commit-epoch frame-id))
+  (rf.frame/frame-commit-epoch frame-id))
 
 (defn- reincarnate-to-epoch!
   "Destroy the frame and remake it under the same id, seeded with `who`,
@@ -94,24 +94,24 @@
   (rf/make-frame {:id frame-id})
   (rf/with-frame frame-id
     (rf/dispatch-sync [:staged/seed who])
-    (while (< (frame/frame-commit-epoch frame-id) epoch)
+    (while (< (rf.frame/frame-commit-epoch frame-id) epoch)
       (rf/dispatch-sync [:staged/touch])))
-  (frame/frame-commit-epoch frame-id))
+  (rf.frame/frame-commit-epoch frame-id))
 
 (defn- commit-held!
   "A committed boundary holding a cell on the frame — the OTHER cell the
   reincarnation's side effect reaches. Answers its release fn."
   []
-  (collector/render-body frame-id (fn [_] (collector/sub [:staged/n])) {})
-  (collector/commit-boundary! (collector/last-reads) (fn [])))
+  (rf.hicasso.impl.collector/render-body frame-id (fn [_] (rf.hicasso.impl.collector/sub [:staged/n])) {})
+  (rf.hicasso.impl.collector/commit-boundary! (rf.hicasso.impl.collector/last-reads) (fn [])))
 
 (defn- render-staged!
   "Render — and only render — a boundary reading the staged key. Answers
   what it painted, its entry, and the number React captured at render."
   []
-  (let [value (collector/render-body frame-id (fn [_] (collector/sub [:staged/who])) {})
-        entry (collector/last-reads)]
-    {:value value :entry entry :at-render (runtime/snapshot-of entry)}))
+  (let [value (rf.hicasso.impl.collector/render-body frame-id (fn [_] (rf.hicasso.impl.collector/sub [:staged/who])) {})
+        entry (rf.hicasso.impl.collector/last-reads)]
+    {:value value :entry entry :at-render (rf.hicasso.test.runtime/snapshot-of entry)}))
 
 (deftest a-staged-key-committed-across-a-same-id-reincarnation-sees-the-store-move
   (async done
@@ -119,7 +119,7 @@
           release-held (commit-held!)
           {:keys [value entry at-render]} (render-staged!)]
       (is (= "A" value) "the render painted the predecessor's value")
-      (is (some? (runtime/cell-reaction held-key))
+      (is (some? (rf.hicasso.test.runtime/cell-reaction held-key))
           "and the frame holds one other cell, whose reaction the teardown will dispose")
 
       ;; THE GAP. The frame dies and comes back under the same id, with a
@@ -128,16 +128,16 @@
       (let [epoch-b (reincarnate-to-epoch! "B" epoch-a)]
         (is (= epoch-a epoch-b)
             "precondition: the successor's install epoch ties the predecessor's at render")
-        (is (nil? (runtime/cell-reaction held-key))
+        (is (nil? (rf.hicasso.test.runtime/cell-reaction held-key))
             "the held cell's reaction was dropped synchronously by the teardown")
 
-        (support/at-the-checkpoint
-          #(some? (runtime/cell-reaction held-key))
+        (rf.hicasso.checkpoint-support/at-the-checkpoint
+          #(some? (rf.hicasso.test.runtime/cell-reaction held-key))
           "the held cell's reincarnation rewire"
           done
           (fn [_turns]
-            (let [release-staged (collector/commit-boundary! entry (fn []))
-                  at-commit      (runtime/snapshot-of entry)]
+            (let [release-staged (rf.hicasso.impl.collector/commit-boundary! entry (fn []))
+                  at-commit      (rf.hicasso.test.runtime/snapshot-of entry)]
               (testing "the commit lands after the rewire, so React's
                         post-subscribe re-read of `getSnapshot` must differ
                         from the number the fiber captured at render — the
@@ -146,8 +146,8 @@
                     (str "basis@render " at-render " vs basis@commit " at-commit
                          ": a tie here is the predecessor's value left on screen")))
               (testing "and the cell the commit acquired answers for the successor"
-                (is (= "B" (collector/render-body frame-id
-                                                  (fn [_] (collector/sub [:staged/who]))
+                (is (= "B" (rf.hicasso.impl.collector/render-body frame-id
+                                                  (fn [_] (rf.hicasso.impl.collector/sub [:staged/who]))
                                                   {}))))
               (release-staged)
               (release-held))))))))
@@ -161,8 +161,8 @@
   (incarnate! "A" 3)
   (let [release-held (commit-held!)
         {:keys [entry at-render]} (render-staged!)
-        release-staged (collector/commit-boundary! entry (fn []))]
-    (is (= at-render (runtime/snapshot-of entry))
+        release-staged (rf.hicasso.impl.collector/commit-boundary! entry (fn []))]
+    (is (= at-render (rf.hicasso.test.runtime/snapshot-of entry))
         "a cell born at the basis the render read contributes the same number")
     (release-staged)
     (release-held)))

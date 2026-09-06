@@ -56,16 +56,16 @@
   `reincarnation_paint_dom_cljs_test` takes it in a real browser, where
   the ordering of that repair against paint is what is at stake."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.frame :as frame]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.frames :as frames]
-            [re-frame.hicasso.impl.generation :as generation]
-            [re-frame.hicasso.impl.intent :as intent]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.test-support :as test-support]))
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.frame :as rf.frame]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.frames :as rf.hicasso.impl.frames]
+            [re-frame.hicasso.impl.generation :as rf.hicasso.impl.generation]
+            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.test-support :as rf.test-support]))
 
 (def ^:private frame-id ::reincarnation)
 
@@ -83,12 +83,12 @@
 (rf/reg-sub   :reinc/who  (fn [db _] (:who db)))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :init-fn       (fn []
-                      (collector/reset-runtime!)
-                      (error-emit/clear-error-listeners!))}))
+                      (rf.hicasso.impl.collector/reset-runtime!)
+                      (rf.error-emit/clear-error-listeners!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -112,11 +112,11 @@
   importing the bench tree's helper."
   [who]
   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
-  (when (frame/frame-incarnation-token frame-id) (rf/destroy-frame! frame-id))
-  (frames/forget-frame-ops! frame-id)
+  (when (rf.frame/frame-incarnation-token frame-id) (rf/destroy-frame! frame-id))
+  (rf.hicasso.impl.frames/forget-frame-ops! frame-id)
   (rf/make-frame {:id frame-id})
   (rf/with-frame frame-id (rf/dispatch-sync [:reinc/seed who]))
-  (frame/frame-incarnation-token frame-id))
+  (rf.frame/frame-incarnation-token frame-id))
 
 (defn- reincarnate!
   "Destroy the live incarnation and seat a fresh one under the same public
@@ -125,7 +125,7 @@
   (rf/destroy-frame! frame-id)
   (rf/make-frame {:id frame-id})
   (rf/with-frame frame-id (rf/dispatch-sync [:reinc/seed who]))
-  (frame/frame-incarnation-token frame-id))
+  (rf.frame/frame-incarnation-token frame-id))
 
 (defn- marked [] (:marked (rf/app-db-value frame-id)))
 
@@ -140,10 +140,10 @@
   [thunk]
   (let [seen (atom [])
         k    (keyword "rf2-hic-013" (name (gensym "refusal")))]
-    (error-emit/register-error-listener!
+    (rf.error-emit/register-error-listener!
       k (fn [r] (when (= :rf.error/frame-destroyed (:error r)) (swap! seen conj r))))
     (try {:result (thunk) :refusals @seen}
-         (finally (error-emit/unregister-error-listener! k)))))
+         (finally (rf.error-emit/unregister-error-listener! k)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 1. The public id is stable; the incarnation is not — and the number the
@@ -158,9 +158,9 @@
       (is (some? token-b))
       (is (not (identical? token-a token-b))
           "destroy + same-id recreate is a NEW incarnation, distinct by identity")
-      (is (false? (frame/frame-incarnation-live? frame-id token-a))
+      (is (false? (rf.frame/frame-incarnation-live? frame-id token-a))
           "and the predecessor's token is no longer live under the id")
-      (is (true? (frame/frame-incarnation-live? frame-id token-b)))))
+      (is (true? (rf.frame/frame-incarnation-live? frame-id token-b)))))
 
   (testing "`commit-basis` TIES across the transition — the fourth axis
             `re-frame.hicasso.impl.generation/commit-basis` documents as not
@@ -169,9 +169,9 @@
             frame fact, so a successor holding a DIFFERENT value reports the
             same number its predecessor did"
     (let [_       (incarnate! "A")
-          basis-a (generation/commit-basis frame-id)
+          basis-a (rf.hicasso.impl.generation/commit-basis frame-id)
           _       (reincarnate! "B")
-          basis-b (generation/commit-basis frame-id)]
+          basis-b (rf.hicasso.impl.generation/commit-basis frame-id)]
       (is (= "B" (:who (rf/app-db-value frame-id)))
           "sanity: the successor really does hold a different value")
       (is (= basis-a basis-b)
@@ -184,9 +184,9 @@
   ;; number that just failed to move.
   (testing "the basis is a live instrument: an ordinary in-incarnation write moves it"
     (incarnate! "A")
-    (let [before (generation/commit-basis frame-id)]
+    (let [before (rf.hicasso.impl.generation/commit-basis frame-id)]
       (rf/with-frame frame-id (rf/dispatch-sync [:reinc/mark :ordinary]))
-      (is (> (generation/commit-basis frame-id) before)
+      (is (> (rf.hicasso.impl.generation/commit-basis frame-id) before)
           "an ordinary write advances the basis, so the tie above is the
            reincarnation's property and not a stuck counter"))))
 
@@ -202,7 +202,7 @@
             ;; Exactly what a render leaves behind: the memoised bundle in the
             ;; arm's one frame row, which every boundary of that incarnation
             ;; shares.
-            handle-a (:ops (collector/frame-row frame-id))
+            handle-a (:ops (rf.hicasso.impl.collector/frame-row frame-id))
             _        (reincarnate! "B")
             _        (is (nil? (marked)) "sanity: the successor starts unmarked")
             {:keys [refusals]} (with-refusals #(invoke handle-a))]
@@ -219,7 +219,7 @@
             successor's app-db nor leave a reaction in the successor's
             sub-cache"
     (let [_        (incarnate! "A")
-          handle-a (:ops (collector/frame-row frame-id))
+          handle-a (:ops (rf.hicasso.impl.collector/frame-row frame-id))
           _        (reincarnate! "B")
           {:keys [result refusals]} (with-refusals #((:subscribe handle-a) [:reinc/who]))]
       (is (nil? result) "the recovery is nil, never the successor's value")
@@ -279,7 +279,7 @@
   `impl.collector/run-once` binds for a body's dynamic extent, and therefore
   exactly what every callback that body lowers retains."
   []
-  (collector/frame-dispatch frame-id))
+  (rf.hicasso.impl.collector/frame-dispatch frame-id))
 
 (def ^:private postures
   "The three states the arm's one frame row can be in when a retained callback
@@ -298,8 +298,8 @@
             is the ordinary case: a boundary that rendered but that nobody
             clicked before the teardown."
   [[:cold  (fn [])]
-   [:warm  (fn [] (collector/frame-dispatch frame-id))]
-   [:reset (fn [] (frames/forget-frame-ops! frame-id))]])
+   [:warm  (fn [] (rf.hicasso.impl.collector/frame-dispatch frame-id))]
+   [:reset (fn [] (rf.hicasso.impl.frames/forget-frame-ops! frame-id))]])
 
 (deftest a-retained-callback-is-pinned-to-the-incarnation-that-lowered-it
   (doseq [[posture establish!] postures]
@@ -349,11 +349,11 @@
   (let [_     (incarnate! "A")
         a1    (render-dispatch)
         a2    (render-dispatch)
-        ops-a (:ops (collector/frame-row frame-id))
+        ops-a (:ops (rf.hicasso.impl.collector/frame-row frame-id))
         _     (reincarnate! "B")
         b1    (render-dispatch)
         b2    (render-dispatch)
-        ops-b (:ops (collector/frame-row frame-id))]
+        ops-b (:ops (rf.hicasso.impl.collector/frame-row frame-id))]
     (is (identical? a1 a2)
         "repeated renders of ONE incarnation share one handler — the memo is
          still a memo, and a boundary re-render allocates nothing")
@@ -365,8 +365,8 @@
     (is (not (identical? ops-a ops-b))
         "the captured bundle underneath moved with it — the row is ONE record,
          so the closure and the bundle cannot describe different incarnations")
-    (is (true? (frame/frame-incarnation-live?
-                 frame-id (:incarnation (collector/frame-row frame-id))))
+    (is (true? (rf.frame/frame-incarnation-live?
+                 frame-id (:incarnation (rf.hicasso.impl.collector/frame-row frame-id))))
         "and the row answering now is pinned to the incarnation live now")))
 
 ;; ---------------------------------------------------------------------------
@@ -380,11 +380,11 @@
 ;; where that shows up.
 (def ^:private lowering-paths
   [[:intent-vector
-    (fn [tag] (intent/lower-prop :on-click [:reinc/mark tag]))]
+    (fn [tag] (rf.hicasso.impl.intent/lower-prop :on-click [:reinc/mark tag]))]
    [:h-fn-returning-an-intent
-    (fn [tag] (intent/lower-prop :on-click (intent/callback (fn [_e] [:reinc/mark tag]))))]
+    (fn [tag] (rf.hicasso.impl.intent/lower-prop :on-click (rf.hicasso.impl.intent/callback (fn [_e] [:reinc/mark tag]))))]
    [:key-map-branch
-    (fn [tag] (intent/lower-prop :on-key-down {"Enter" [:reinc/mark tag]}))]
+    (fn [tag] (rf.hicasso.impl.intent/lower-prop :on-key-down {"Enter" [:reinc/mark tag]}))]
    [:handler-inside-a-render-callback
     ;; The render callback is lowered under the boundary, then INVOKED — which
     ;; is when its inner handler is lowered, against the gate — and the handler
@@ -392,15 +392,15 @@
     ;; boundary's dispatch once the call has returned, so this path inherits
     ;; the pin one level deeper than the other three.
     (fn [tag]
-      ((intent/lower-prop :row-render
-                          (intent/callback
-                            (fn [] (intent/lower-prop :on-click [:reinc/mark tag]))))))]])
+      ((rf.hicasso.impl.intent/lower-prop :row-render
+                          (rf.hicasso.impl.intent/callback
+                            (fn [] (rf.hicasso.impl.intent/lower-prop :on-click [:reinc/mark tag]))))))]])
 
 (defn- lower-under-boundary
   "Lower through `f` inside the render-time ambient binding a boundary body
   runs under — `impl.collector/run-once`'s, spelled out."
   [f]
-  (intent/with-frame frame-id (render-dispatch) f))
+  (rf.hicasso.impl.intent/with-frame frame-id (render-dispatch) f))
 
 (defn- fire!
   "Invoke a lowered handler the way its position's invoker would. One event
@@ -439,14 +439,14 @@
 (deftest reset-empties-the-frame-memo
   (incarnate! "A")
   (render-dispatch)
-  (is (contains? @frames/!frame-ops frame-id)
+  (is (contains? @rf.hicasso.impl.frames/!frame-ops frame-id)
       "a render leaves exactly one row behind — the bundle and the ambient
        dispatch are one record now, so acquiring the dispatch acquires both")
-  (is (= 1 (:frames (runtime/stats)))
+  (is (= 1 (:frames (rf.hicasso.test.runtime/stats)))
       "which is what the residue census counts under its `:frame-ops` token")
-  (collector/reset-runtime!)
-  (is (= {} @frames/!frame-ops) "and the whole-runtime reset empties it")
-  (is (= 0 (:frames (runtime/stats)))))
+  (rf.hicasso.impl.collector/reset-runtime!)
+  (is (= {} @rf.hicasso.impl.frames/!frame-ops) "and the whole-runtime reset empties it")
+  (is (= 0 (:frames (rf.hicasso.test.runtime/stats)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 8. NEGATIVE CONTROL — restore late keyword resolution and BOTH failures
@@ -473,7 +473,7 @@
   [!memo]
   (fn late-frame-dispatch [frame-kw]
     (fn late-dispatch-for-frame [event]
-      (collector/with-commit
+      (rf.hicasso.impl.collector/with-commit
         (fn []
           (let [ops (or (get @!memo frame-kw)
                         (let [captured (rf/capture-frame frame-kw)]

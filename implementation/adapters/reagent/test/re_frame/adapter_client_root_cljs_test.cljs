@@ -24,29 +24,29 @@
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.dom.client :as rdc]
-            [re-frame.frame :as frame]
-            [re-frame.substrate.adapter :as adapter]
-            [re-frame.adapter.reagent :as reagent-adapter]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
 ;; Cold-start fixture (mirrors the slim dispose-drain pins): the unit under
 ;; test spans render, unmount and the adapter drain, so install the adapter
 ;; here and wipe frames so the drain's sub-cache walk sees an empty registry.
 (defn- fresh-reagent [test-fn]
-  (reset! frame/frames {})
+  (reset! rf.frame/frames {})
   ;; The adapter's active-root set is a namespace-level singleton, and
   ;; earlier suites in the shared bundle strand fake Roots in it (the
   ;; one-shot `:render` pins never unmount theirs). Drain them first, with
   ;; the host unmount stubbed so a stale fake Root goes quietly, so every
   ;; count below is this test's own.
   (with-redefs [rdc/unmount (fn [_] nil)]
-    (adapter/reset-lifecycle-state-for-tests!)
-    (adapter/install-adapter! reagent-adapter/adapter)
-    (adapter/dispose-adapter!))
-  (adapter/reset-lifecycle-state-for-tests!)
-  (adapter/install-adapter! reagent-adapter/adapter)
+    (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
+    (rf.substrate.adapter/install-adapter! rf.adapter.reagent/adapter)
+    (rf.substrate.adapter/dispose-adapter!))
+  (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
+  (rf.substrate.adapter/install-adapter! rf.adapter.reagent/adapter)
   (test-fn)
-  (reset! frame/frames {})
-  (adapter/reset-lifecycle-state-for-tests!))
+  (reset! rf.frame/frames {})
+  (rf.substrate.adapter/reset-lifecycle-state-for-tests!))
 
 (use-fixtures :each fresh-reagent)
 
@@ -81,7 +81,7 @@
 
 (deftest client-root-does-no-dom-work
   (testing "allocating a handle touches none of the Root API"
-    (let [calls (spy-rdc! [] (fn [] (reagent-adapter/client-root)))]
+    (let [calls (spy-rdc! [] (fn [] (rf.adapter.reagent/client-root)))]
       (is (empty? calls) "client-root is inert: no create/hydrate/render/unmount"))))
 
 ;; ---- 2. cold first render, later renders update the same Root -------------
@@ -93,10 +93,10 @@
           mount #js {:rf-test-mount :cold}
           calls (spy-rdc! [root (fake-root :never)]
                   (fn []
-                    (let [h (reagent-adapter/client-root)]
-                      (reagent-adapter/render! h [:div "v1"] mount)
-                      (reagent-adapter/render! h [:div "v2"] mount)
-                      (reagent-adapter/render! h [:div "v3"] mount))))]
+                    (let [h (rf.adapter.reagent/client-root)]
+                      (rf.adapter.reagent/render! h [:div "v1"] mount)
+                      (rf.adapter.reagent/render! h [:div "v2"] mount)
+                      (rf.adapter.reagent/render! h [:div "v3"] mount))))]
       (is (= [[:create-root mount]] (of-kind calls :create-root))
           "create-root called exactly once, with the mount point")
       (is (empty? (of-kind calls :hydrate-root))
@@ -120,10 +120,10 @@
           mount #js {:rf-test-mount :hydrated}
           calls (spy-rdc! [root (fake-root :never)]
                   (fn []
-                    (let [h (reagent-adapter/client-root)]
-                      (reagent-adapter/render! h [:div "ssr"] mount {:hydrate? true})
-                      (reagent-adapter/render! h [:div "v2"] mount {:hydrate? true})
-                      (reagent-adapter/render! h [:div "v3"] mount))))]
+                    (let [h (rf.adapter.reagent/client-root)]
+                      (rf.adapter.reagent/render! h [:div "ssr"] mount {:hydrate? true})
+                      (rf.adapter.reagent/render! h [:div "v2"] mount {:hydrate? true})
+                      (rf.adapter.reagent/render! h [:div "v3"] mount))))]
       (is (= [[:hydrate-root mount [:div "ssr"]]] (of-kind calls :hydrate-root))
           "hydrate-root called exactly once, with the mount point and the first tree")
       (is (empty? (of-kind calls :create-root))
@@ -143,11 +143,11 @@
           mount  #js {:rf-test-mount :again}
           calls  (spy-rdc! [root-1 root-2]
                    (fn []
-                     (let [h (reagent-adapter/client-root)]
-                       (reagent-adapter/render! h [:div "v1"] mount)
-                       (reagent-adapter/unmount! h)
-                       (reagent-adapter/unmount! h)
-                       (reagent-adapter/render! h [:div "v2"] mount))))]
+                     (let [h (rf.adapter.reagent/client-root)]
+                       (rf.adapter.reagent/render! h [:div "v1"] mount)
+                       (rf.adapter.reagent/unmount! h)
+                       (rf.adapter.reagent/unmount! h)
+                       (rf.adapter.reagent/render! h [:div "v2"] mount))))]
       (is (= [[:unmount root-1]] (of-kind calls :unmount))
           "the underlying unmount is reached exactly once for the first Root")
       (is (= [[:create-root mount] [:create-root mount]] (of-kind calls :create-root))
@@ -166,15 +166,15 @@
           root-gone (fake-root :gone)
           calls     (spy-rdc! [root-live root-gone]
                       (fn []
-                        (let [live (reagent-adapter/client-root)
-                              gone (reagent-adapter/client-root)]
-                          (reagent-adapter/render! live [:div "live"] #js {})
-                          (reagent-adapter/render! gone [:div "gone"] #js {})
-                          (reagent-adapter/unmount! gone)
-                          (adapter/dispose-adapter!)
+                        (let [live (rf.adapter.reagent/client-root)
+                              gone (rf.adapter.reagent/client-root)]
+                          (rf.adapter.reagent/render! live [:div "live"] #js {})
+                          (rf.adapter.reagent/render! gone [:div "gone"] #js {})
+                          (rf.adapter.reagent/unmount! gone)
+                          (rf.substrate.adapter/dispose-adapter!)
                           ;; Post-drain: both handles are already released.
-                          (reagent-adapter/unmount! live)
-                          (reagent-adapter/unmount! gone))))]
+                          (rf.adapter.reagent/unmount! live)
+                          (rf.adapter.reagent/unmount! gone))))]
       (is (= 1 (count (filter #(identical? root-live (second %)) (of-kind calls :unmount))))
           "the still-live handle's Root was released exactly once (by the drain)")
       (is (= 1 (count (filter #(identical? root-gone (second %)) (of-kind calls :unmount))))

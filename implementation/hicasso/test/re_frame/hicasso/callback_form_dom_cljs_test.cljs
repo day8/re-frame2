@@ -30,20 +30,20 @@
   React DOM; under `:node-test` every DOM claim degrades to a stated
   skip."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.checkpoint-support :as support]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.intent :as intent]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.hicasso.todo-support :as todo]
-            [re-frame.test-support :as test-support]))
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.checkpoint-support :as rf.hicasso.checkpoint-support]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.hicasso.todo-support :as rf.hicasso.todo-support]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 (def ^:private frame-id ::callback-form)
 
@@ -53,25 +53,25 @@
 
 (defn- fresh! []
   (reset! !ran 0)
-  (support/leave-act-environment!)
-  (todo/make-frame! frame-id 3)
-  (todo/reseed! frame-id 3)
+  (rf.hicasso.checkpoint-support/leave-act-environment!)
+  (rf.hicasso.todo-support/make-frame! frame-id 3)
+  (rf.hicasso.todo-support/reseed! frame-id 3)
   frame-id)
 
 ;; ---------------------------------------------------------------------------
 ;; The screen — one form at one position, three times
 ;; ---------------------------------------------------------------------------
 
-(h/defview toggle-row
+(rf.hicasso/defview toggle-row
   "The row a real click lands on. `event` is the ONE form; `:on-click` is
   the position; the returned vector is the contract that position
   imposes. Nothing here names a form: the author wrote a function and
   returned data."
   [{:keys [id]}]
-  (let [done? (collector/sub [:hicasso.todo/done? id])]
+  (let [done? (rf.hicasso.impl.collector/sub [:hicasso.todo/done? id])]
     [:li.row {:data-id id :data-done (str done?)}
      [:button.toggle
-      {:on-click (h/event [e]
+      {:on-click (rf.hicasso/event [e]
                    (swap! !ran inc)
                    ;; A live event: the same form the predecessor would
                    ;; need `v/event` for, reading the DOM event and
@@ -83,7 +83,7 @@
      [:button.silent
       ;; The same form, same position, whose body returns something that
       ;; is not a vector. The predecessor spells this `v/handler`.
-      {:on-click (h/event [_] (swap! !ran inc) :nothing-to-dispatch)}
+      {:on-click (rf.hicasso/event [_] (swap! !ran inc) :nothing-to-dispatch)}
       "silent"]]))
 
 (defn- query [handle sel] (.querySelector (:container handle) sel))
@@ -93,44 +93,44 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-real-click-on-the-one-form-dispatches-what-it-returned
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
-      (let [handle (mount/root! (mount/fresh-container!) frame-id [toggle-row {:id 1}])]
+      (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [toggle-row {:id 1}])]
         (try
           (is (= "false" (.getAttribute (query handle ".row") "data-done")))
           (.click (query handle ".toggle"))
-          (mount/settle!)
+          (rf.hicasso.impl.mount/settle!)
           (is (= 1 @!ran) "React routed the click to the closure the runtime minted")
           (is (= "true" (.getAttribute (query handle ".row") "data-done"))
               "and the intent it RETURNED drained through the synchronous
                door, so the echo is on screen in the same turn")
           (.click (query handle ".toggle"))
-          (mount/settle!)
+          (rf.hicasso.impl.mount/settle!)
           (is (= "false" (.getAttribute (query handle ".row") "data-done"))
               "and again, so this is a working handler and not a one-shot")
-          (finally (mount/release! handle)))))))
+          (finally (rf.hicasso.impl.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — event position: a return that is not a vector dispatches nothing
 ;; ---------------------------------------------------------------------------
 
 (deftest the-same-form-at-the-same-position-can-return-nothing
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
-      (let [handle (mount/root! (mount/fresh-container!) frame-id [toggle-row {:id 1}])]
+      (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [toggle-row {:id 1}])]
         (try
           (.click (query handle ".silent"))
-          (mount/settle!)
+          (rf.hicasso.impl.mount/settle!)
           (is (= 1 @!ran) "the body ran")
           (is (= "false" (.getAttribute (query handle ".row") "data-done"))
               "and nothing was dispatched — in the predecessor this is a
                different FORM with a different contract; here it is the same
                form, and the return value is the whole of the difference")
-          (finally (mount/release! handle)))))))
+          (finally (rf.hicasso.impl.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3 — outside every walked position, it is a function
@@ -144,12 +144,12 @@
             expression it tripped on and naming nothing the author wrote.
             The one form is a function everywhere, so a position Hicasso
             never walks costs the CONTRACT and nothing else."
-    (let [cb       (h/event [x] (swap! !ran inc) [:would-have-dispatched x])
+    (let [cb       (rf.hicasso/event [x] (swap! !ran inc) [:would-have-dispatched x])
           js-props #js {:onPing cb}]
       (reset! !ran 0)
       (is (fn? (.-onPing js-props)))
       (is (= [:would-have-dispatched 3] ((.-onPing js-props) 3)))
       (is (= 1 @!ran))
-      (is (true? (intent/callback? cb))
+      (is (true? (rf.hicasso.impl.intent/callback? cb))
           "and it is still the marked form, so a position that DOES walk it
            would impose that position's contract on the same value"))))

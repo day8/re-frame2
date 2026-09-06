@@ -46,9 +46,9 @@
   (:require [clojure.edn :as edn]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.epoch :as epoch]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
+            [re-frame.epoch :as rf.epoch]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
             ;; Side-effect require — loads the machines late-bind hooks
             ;; (`:machines/reg-machine`, the `:rf.machine/spawn` fx, the join
             ;; lifecycle fx) and the `install-runtime!` hook the reset fixture
@@ -61,11 +61,11 @@
 ;; plain-atom substrate and ensures + binds the ambient `:rf/default` frame, so
 ;; bare `dispatch-sync` lands there. Clear the epoch ring/listeners per test.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
      :init-fn (fn []
-                (epoch/clear-history!)
-                (epoch/clear-epoch-listeners!))}))
+                (rf.epoch/clear-history!)
+                (rf.epoch/clear-epoch-listeners!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; probes over the `:rf/default` frame the fixture seats

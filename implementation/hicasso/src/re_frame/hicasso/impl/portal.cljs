@@ -30,7 +30,7 @@
   in front of it is what keeps the caller's `:fallback` reachable.
   Anchoring, dismissal and focus are `re-frame.hicasso.overlay`'s.
   Design record: docs/design/hicasso/decisions.md, HD-011."
-  (:require [re-frame.hicasso.impl.codec :as codec]
+  (:require [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
             ["react-dom" :as react-dom]))
 
 (defn- portal-body
@@ -41,7 +41,7 @@
   pass with no fallback flash. The target is read only on the adopted
   branch, because a server render legitimately has no container."
   [^js props]
-  (if (codec/adopted?)
+  (if (rf.hicasso.impl.codec/adopted?)
     (react-dom/createPortal (.-children props) (.-target props))
     (.-fallback props)))
 
@@ -57,6 +57,6 @@
   ReactNode position so hiccup there lowers under that same frame, and
   `:target` crosses by identity as ordinary data. A misspelled option is
   an absent one — two options is not a roster."
-  (codec/mint-host! "hicasso/portal" portal-body
+  (rf.hicasso.impl.codec/mint-host! "hicasso/portal" portal-body
                     {:slots  #{:fallback}
                      :server :render}))

@@ -11,11 +11,11 @@
   state cannot mask a non-revertible actor lifecycle."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.registrar :as registrar]
+            [re-frame.registrar :as rf.registrar]
             [re-frame.elision]
-            [re-frame.epoch :as epoch]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
+            [re-frame.epoch :as rf.epoch]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
             ;; Side-effect require — loads the machines late-bind hooks
             ;; (`:machines/reg-machine`, `:machines/resolve-actor-handler-meta`,
             ;; `:machines/actor-resolvable?`) and the `:rf.machine/spawn` /
@@ -29,11 +29,11 @@
 ;; my tests use the `:rf.machine/spawn` fx, which `clear-all!` would drop.
 ;; Clear the epoch ring/listeners before each test via the :init-fn.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
      :init-fn (fn []
-                (epoch/clear-history!)
-                (epoch/clear-epoch-listeners!))}))
+                (rf.epoch/clear-history!)
+                (rf.epoch/clear-epoch-listeners!))}))
 
 (defn- snapshot [machine-id]
   ;; EP-0001 (rf2-vzld77 / rf2-3aizt1): machine snapshots are runtime-db
@@ -89,7 +89,7 @@
       ;; Spawn the actor.
       (rf/dispatch-sync [:rev/parent [:go]] {:frame :test/main})
       (is (some? (snapshot :rev/child#1)) "actor alive after spawn")
-      (is (nil? (registrar/lookup :event :rev/child#1))
+      (is (nil? (rf.registrar/lookup :event :rev/child#1))
           "spawned actor never registered a per-instance handler")
       ;; Rewind PAST the spawn.
       (let [ok? (rf/restore-epoch! :test/main pre-spawn-epoch)]
@@ -97,7 +97,7 @@
         (is (nil? (snapshot :rev/child#1))
             "rewind-past-spawn: the actor's snapshot is gone")
         ;; Restore preserves the original child id.
-        (is (nil? (registrar/lookup :event :rev/child#1))
+        (is (nil? (rf.registrar/lookup :event :rev/child#1))
             "{:handler-survived-restore? false} — NO orphaned handler
              survives the revert")
         ;; Dispatch to the gone actor → clean no-such-handler.
@@ -162,7 +162,7 @@
       (is (some? (snapshot :rev/child#1)))
       ;; Unregister the TYPE so the recorded snapshot's :rf/machine-type
       ;; no longer resolves.
-      (registrar/unregister! :event :rev/child)
+      (rf.registrar/unregister! :event :rev/child)
       (let [errs (record-trace!)
             pre  (rf/app-db-value :test/main)
             ok?  (rf/restore-epoch! :test/main alive-epoch)]
@@ -319,7 +319,7 @@
     (rf/dispatch-sync [:rev/parent [:go]] {:frame :test/main})
     (let [alive-epoch (last-epoch-id)]
       (is (some? (snapshot :rev/child#1)))
-      (registrar/unregister! :event :rev/child)   ;; clear the TYPE
+      (rf.registrar/unregister! :event :rev/child)   ;; clear the TYPE
       (let [errs (record-trace!)
             ok?  (rf/restore-epoch! :test/main alive-epoch)]
         (rf/unregister-listener! :trace ::rec)

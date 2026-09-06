@@ -38,17 +38,17 @@
   installs) or under nothing, and the crossing is measured where it
   costs something: the DOM lane."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.hicasso.native :as n]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.test-support :as test-support]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.hicasso.native :as rf.hicasso.native]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.test-support :as rf.test-support]
             [uix.core :as uix :refer-macros [defui]]
             ["react" :as react]
             ["react-dom/server" :as react-dom-server])
-  (:require-macros [re-frame.hicasso.expansion-probe :as probe]))
+  (:require-macros [re-frame.hicasso.expansion-probe :as rf.hicasso.expansion-probe]))
 
 (def ^:private frame-id ::hooks-island)
 
@@ -60,10 +60,10 @@
 (rf/reg-event ::seed (fn [_ [_ prices]] {:db {:prices prices}}))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The islands
@@ -78,12 +78,12 @@
 (defn- reader
   "Reads one subscription, and nothing else. Raw React."
   [^js props]
-  (react/createElement "span" nil (str (n/use-sub [::price (.-sym props)]))))
+  (react/createElement "span" nil (str (rf.hicasso.native/use-sub [::price (.-sym props)]))))
 
 (defn- framed
   "Takes the frame-locked ops and reports the frame it was locked to."
   [^js _props]
-  (let [ops (n/use-frame)]
+  (let [ops (rf.hicasso.native/use-frame)]
     (reset! !observed-ops ops)
     (react/createElement "span" nil (str (:frame ops)))))
 
@@ -91,7 +91,7 @@
   "The same read in a UIx `defui`: the hook does not know which dialect
   called it."
   [{:keys [sym]}]
-  (uix/$ :span (str (n/use-sub [::price sym]))))
+  (uix/$ :span (str (rf.hicasso.native/use-sub [::price sym]))))
 
 (defn- uix-arm
   "The plain React shim every crossing into UIx needs — UIx's ABI is a
@@ -117,7 +117,7 @@
   through a hand-built context wrapper this suite would then be pinning
   instead of the product."
   [element]
-  (react-dom-server/renderToStaticMarkup (mount/provider frame-id element)))
+  (react-dom-server/renderToStaticMarkup (rf.hicasso.impl.mount/provider frame-id element)))
 
 (defn- render-frameless!
   "Render `element` with NO provider above it. The island in a portal
@@ -141,7 +141,7 @@
   "The census with the entry cache projected out — the four counts a
   cold read must leave at zero."
   []
-  (dissoc (runtime/residue) :entries))
+  (dissoc (rf.hicasso.test.runtime/residue) :entries))
 
 ;; ---------------------------------------------------------------------------
 ;; 1. The cold tier — a read before any commit
@@ -178,7 +178,7 @@
             render React discards leaves exactly the same one, and the
             hook seam mints through the same door precisely so there is
             one story"
-    (is (= 1 (:entries (runtime/residue)))))
+    (is (= 1 (:entries (rf.hicasso.test.runtime/residue)))))
 
   (testing "the UIx arm is the same hook and the same reading: the value
             is right, and nothing was committed"
@@ -244,7 +244,7 @@
               incarnation's bundle out forever. `hooks_island_dom_cljs_test`
               drives the reincarnation itself; this row is where the
               structural reason lives"
-      (is (identical? (:ops (collector/frame-row frame-id)) ops)))))
+      (is (identical? (:ops (rf.hicasso.impl.collector/frame-row frame-id)) ops)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 4. The membership pin
@@ -254,7 +254,7 @@
   "Every public var name in `re-frame.hicasso.native`, read from the
   compiler at expansion — the analyser's public defs for the runtime
   half, the JVM namespace's public vars for the macro half."
-  (set (probe/public-vars re-frame.hicasso.native)))
+  (set (rf.hicasso.expansion-probe/public-vars re-frame.hicasso.native)))
 
 (deftest the-namespace-is-the-two-hooks
   (testing "the census is not vacuous: the probe really read a namespace.
@@ -266,8 +266,8 @@
   (testing "the two hooks are there, and they resolve"
     (is (contains? publics "use-sub"))
     (is (contains? publics "use-frame"))
-    (is (fn? n/use-sub))
-    (is (fn? n/use-frame)))
+    (is (fn? rf.hicasso.native/use-sub))
+    (is (fn? rf.hicasso.native/use-frame)))
 
   (testing "and they are the whole namespace — a third public var reds
             here at the diff that adds it (rf2-6c12m.3)"

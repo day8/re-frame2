@@ -65,18 +65,18 @@
   React DOM; under `:node-test` every DOM claim degrades to a stated
   skip."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.context :as adapter-context]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.context :as rf.adapter.context]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.hicasso.impl.boundary :refer [boundary]]
-            [re-frame.hicasso.hook-probe :as probe]
-            [re-frame.hicasso.impl.mount :as mount]
+            [re-frame.hicasso.hook-probe :as rf.hicasso.hook-probe]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
             [re-frame.hicasso.impl.presence-react :refer [presence]]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.hicasso.checkpoint-support :as support]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.hicasso.checkpoint-support :as rf.hicasso.checkpoint-support]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.test-support :as test-support]))
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.test-support :as rf.test-support]))
 
 (def ^:private frame-id ::presence-intent)
 (def ^:private other-frame-id ::presence-intent-other)
@@ -101,8 +101,8 @@
                 {:db (update db :noted (fnil conj []) id)}))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      ;; `:ambient-frame nil` is load-bearing. The fixture's default leaves a
      ;; dynamic-var frame stamp in scope, and a tray that resolved the frame
      ;; through that tier instead of through React context would look correct
@@ -110,13 +110,13 @@
      ;; can name a frame is the provider above the tray.
      :ambient-frame nil
      :async?        true
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 (defn- skip! [why]
   (is true (str "an intent-on-a-presence-child claim needs a real React DOM — " why)))
 
 (defn- fresh! [frame-kw ts]
-  (support/leave-act-environment!)
+  (rf.hicasso.checkpoint-support/leave-act-environment!)
   (rf/make-frame {:id frame-kw})
   (rf/with-frame frame-kw (rf/dispatch-sync [:hicasso.presence-intent/set ts]))
   frame-kw)
@@ -127,14 +127,14 @@
 ;; The screen — the tray HD-025 sells, with the button it could not carry
 ;; ---------------------------------------------------------------------------
 
-(h/defview toast-tray
+(rf.hicasso/defview toast-tray
   "The inline tray, with **no child view**, and now with controls on the
   toast. `:on-click` carries a bare intent vector on one button and the
   one callback form on the other, so both rows of the position table are
   written at the same position on the same child."
   [_]
   [presence {:timeout-ms timeout-ms}
-   (for [t (collector/sub [:hicasso.presence-intent/visible])]
+   (for [t (rf.hicasso.impl.collector/sub [:hicasso.presence-intent/visible])]
      [:div.toast {:key (:id t)
                   :data-id (:id t)
                   :re-frame.hicasso.motion/unmounting {:class "toast--exit"}}
@@ -143,7 +143,7 @@
                         :on-click [:hicasso.presence-intent/dismissed (:id t)]}
        "dismiss"]
       [:button.note {:data-id  (:id t)
-                     :on-click (h/event [e]
+                     :on-click (rf.hicasso/event [e]
                                  ;; A live event read, and ONE intent
                                  ;; returned — the event contract the
                                  ;; position imposes.
@@ -152,7 +152,7 @@
                      :data-role "note"}
        "note"]])])
 
-(h/defview note-only-tray
+(rf.hicasso/defview note-only-tray
   "The same tray carrying **only** the callback form, and it exists for
   what it proves when the frame binding is taken away. The two intent
   shapes fail at different MOMENTS: a bare vector is refused at LOWERING,
@@ -164,16 +164,16 @@
   own."
   [_]
   [presence {:timeout-ms timeout-ms}
-   (for [t (collector/sub [:hicasso.presence-intent/visible])]
+   (for [t (rf.hicasso.impl.collector/sub [:hicasso.presence-intent/visible])]
      [:div.toast {:key (:id t) :data-id (:id t)}
       [:button.note {:data-id   (:id t)
-                     :on-click  (h/event [e]
+                     :on-click  (rf.hicasso/event [e]
                                   (when (= "note" (.. e -target -dataset -role))
                                     [:hicasso.presence-intent/noted (:id t)]))
                      :data-role "note"}
        "note"]])])
 
-(h/defview toast-card
+(rf.hicasso/defview toast-card
   "A BOUNDARY child of presence. It resolves its own frame in its own
   shell and takes any override as ordinary props, so it is the control:
   presence's new binding must leave this path exactly as it was."
@@ -181,10 +181,10 @@
   [:div.card {:data-id id}
    [:button.card-dismiss {:on-click [:hicasso.presence-intent/dismissed id]} "dismiss"]])
 
-(h/defview card-tray
+(rf.hicasso/defview card-tray
   [_]
   [presence {:timeout-ms timeout-ms}
-   (for [t (collector/sub [:hicasso.presence-intent/visible])]
+   (for [t (rf.hicasso.impl.collector/sub [:hicasso.presence-intent/visible])]
      [toast-card {:key (:id t) :id (:id t)}])])
 
 (def ^:private two [{:id 1 :message "Saved"} {:id 2 :message "Copied"}])
@@ -198,18 +198,18 @@
 
 (defn- click! [node]
   (.click node)
-  (mount/settle!))
+  (rf.hicasso.impl.mount/settle!))
 
 ;; ---------------------------------------------------------------------------
 ;; 1 — a bare intent vector on a native presence child
 ;; ---------------------------------------------------------------------------
 
 (deftest a-native-presence-child-dispatches-its-inline-intent
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh! frame-id two)
-      (let [handle (mount/root! (mount/fresh-container!) frame-id [toast-tray {}])]
+      (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [toast-tray {}])]
         (try
           (is (some? (query handle ".toast"))
               "the tray rendered at all — before this repair the intent on the
@@ -223,21 +223,21 @@
           (click! (button handle ".dismiss" 1))
           (is (= [2 1] (:dismissed (db frame-id)))
               "and again, so this is a live handler and not a one-shot")
-          (finally (mount/release! handle)))))))
+          (finally (rf.hicasso.impl.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — the one callback form at a presence child's event position
 ;; ---------------------------------------------------------------------------
 
 (deftest a-callback-at-a-presence-childs-event-position-dispatches-what-it-returned
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh! frame-id two)
       ;; The callback-ONLY tray, deliberately: see its docstring. A bare
       ;; vector on the same child would fail earlier and louder with the
       ;; binding removed, and would take the credit for this row's red.
-      (let [handle (mount/root! (mount/fresh-container!) frame-id
+      (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id
                                 [note-only-tray {}])]
         (try
           (is (some? (button handle ".note" 1))
@@ -249,20 +249,20 @@
               "and at invocation the h/event read the real event and the vector it
                RETURNED drained through the arm's synchronous door — the second
                row of the position table, at a position presence lowered")
-          (finally (mount/release! handle)))))))
+          (finally (rf.hicasso.impl.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3 — the unmounting window: retained, on screen, and still clickable
 ;; ---------------------------------------------------------------------------
 
 (deftest a-retained-child-dispatches-during-the-unmounting-window
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh! frame-id two)
-      (let [handle (mount/root! (mount/fresh-container!) frame-id [toast-tray {}])]
+      (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [toast-tray {}])]
         (try
-          (mount/dispatch! handle [:hicasso.presence-intent/set one])
+          (rf.hicasso.impl.mount/dispatch! handle [:hicasso.presence-intent/set one])
           (is (= 2 (.-length (.querySelectorAll (:container handle) ".toast")))
               "toast 2 is gone from app-db and RETAINED on screen")
           (is (.contains (.-classList (query handle ".toast[data-id=\"2\"]"))
@@ -278,20 +278,20 @@
             (click! (button handle ".note" 2))
             (is (= [2] (:noted (db frame-id)))
                 "both intent shapes, from the retained phase"))
-          (finally (mount/release! handle)))))))
+          (finally (rf.hicasso.impl.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 4 — the frame is the TRAY's, proved against a second live frame
 ;; ---------------------------------------------------------------------------
 
 (deftest a-presence-child-lands-in-the-frame-the-tray-was-mounted-under
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh! frame-id two)
       (fresh! other-frame-id two)
-      (let [a (mount/root! (mount/fresh-container!) frame-id [toast-tray {}])
-            b (mount/root! (mount/fresh-container!) other-frame-id [toast-tray {}])]
+      (let [a (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [toast-tray {}])
+            b (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) other-frame-id [toast-tray {}])]
         (try
           (click! (button a ".dismiss" 1))
           (is (= [1] (:dismissed (db frame-id))))
@@ -303,21 +303,21 @@
           (is (= [2] (:dismissed (db other-frame-id))))
           (is (= [1] (:dismissed (db frame-id)))
               "and symmetrically the other way")
-          (finally (mount/release! a) (mount/release! b)))))))
+          (finally (rf.hicasso.impl.mount/release! a) (rf.hicasso.impl.mount/release! b)))))))
 
 (deftest a-boundary-child-of-presence-still-lowers-in-its-own-render
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh! frame-id two)
-      (let [handle (mount/root! (mount/fresh-container!) frame-id [card-tray {}])]
+      (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [card-tray {}])]
         (try
           (click! (.querySelector (:container handle)
                                   ".card[data-id=\"2\"] .card-dismiss"))
           (is (= [2] (:dismissed (db frame-id)))
               "a boundary child resolves its own frame in its own shell, and
                presence's binding around the crossing left that path alone")
-          (finally (mount/release! handle)))))))
+          (finally (rf.hicasso.impl.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 5 — a frameless tray is legal; an intent under one is still the loud error
@@ -330,13 +330,13 @@
   the React-context default, so this is exactly a tray with no frame
   boundary above it, reached without a second door in `mount`."
   [hiccup]
-  (mount/root! (mount/fresh-container!) adapter-context/no-provider-sentinel hiccup))
+  (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) rf.adapter.context/no-provider-sentinel hiccup))
 
 (deftest a-frameless-tray-is-legal-until-a-child-writes-an-intent
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
-      (support/leave-act-environment!)
+      (rf.hicasso.checkpoint-support/leave-act-environment!)
       (testing "a tray with no frame above it and no intent below it renders.
                 Presence reads no subscription, so requiring a frame it does not
                 need would refuse a legal page"
@@ -345,7 +345,7 @@
                         [:div.toast {:key 1 :data-id 1} "quiet"]])]
           (try
             (is (some? (query handle ".toast")))
-            (finally (mount/release! handle)))))
+            (finally (rf.hicasso.impl.mount/release! handle)))))
       (testing "and an intent under one is the loud error, NAMED — the
                 diagnostic points at the intent rather than at the tray"
         (reset! !caught nil)
@@ -363,7 +363,7 @@
                    (:rf.error/id (ex-data @!caught)))
                 (str "and it named the intent: " (pr-str (ex-data @!caught))))
             (is (= [:hicasso.presence-intent/dismissed 1] (:intent (ex-data @!caught))))
-            (finally (mount/release! handle))))))))
+            (finally (rf.hicasso.impl.mount/release! handle))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 5b — the mutation sentinel: a framed tray raises NOTHING, by name
@@ -378,12 +378,12 @@
 ;; somebody has to go and read.
 
 (deftest an-intent-under-a-framed-tray-raises-nothing
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh! frame-id two)
       (reset! !caught nil)
-      (let [handle (mount/root! (mount/fresh-container!) frame-id
+      (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id
                                 [boundary {:fallback [:p.oops "the tray refused"]
                                            :on-error (fn [e] (reset! !caught e))}
                                  [toast-tray {}]])]
@@ -397,7 +397,7 @@
               "so the fallback did not take over")
           (is (= 2 (.-length (.querySelectorAll (:container handle) ".toast")))
               "and both toasts, controls and all, are on screen")
-          (finally (mount/release! handle)))))))
+          (finally (rf.hicasso.impl.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 6 — the hook budget, counted at React's own dispatcher
@@ -411,17 +411,17 @@
                  " rather than reading this as a pass.")))
 
 (deftest presence-costs-four-hooks-and-the-shell-still-costs-two
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
-    (if-not (probe/install!)
+    (if-not (rf.hicasso.hook-probe/install!)
       (unwitnessed!)
       (do
         (fresh! frame-id one)
         (let [handle (volatile! nil)
-              names  (probe/record!
+              names  (rf.hicasso.hook-probe/record!
                        (fn []
                          (vreset! handle
-                                  (mount/root! (mount/fresh-container!)
+                                  (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!)
                                                frame-id [toast-tray {}]))))
               tail   (vec (drop 2 names))
               freq   (frequencies tail)]
@@ -432,7 +432,7 @@
                      "whole of it — this repair added a hook to presence and "
                      "to nothing that HD-020(b)'s ≤2 budget governs. Raw: "
                      (pr-str names)))
-            (is (= (count runtime/shell-hook-ledger) (count (take 2 names)))
+            (is (= (count rf.hicasso.test.runtime/shell-hook-ledger) (count (take 2 names)))
                 "and the declared shell ledger is the measured one")
             (is (= ["useContext" "useState" "useEffect"] (vec (distinct tail)))
                 (str "presence's own roster, in call order: the frame hook, "
@@ -475,4 +475,4 @@
                    `distinct` and not by counting, and it is pinned here so a
                    React bump that changes it reds a test with an explanation
                    attached rather than a bare number"))
-            (finally (mount/release! @handle))))))))
+            (finally (rf.hicasso.impl.mount/release! @handle))))))))

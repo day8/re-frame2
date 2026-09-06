@@ -33,7 +33,7 @@
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [reagent.core :as r]
-            [re-frame.late-bind :as late-bind]
+            [re-frame.late-bind :as rf.late-bind]
             ;; ns-load registers the :adapter/current-component hook.
             [re-frame.adapter.reagent]))
 
@@ -43,21 +43,21 @@
   binding even when the slim ns-load registered a different reader after
   the bridge ns loaded."
   [f]
-  (let [original (late-bind/get-fn :adapter/current-component)]
+  (let [original (rf.late-bind/get-fn :adapter/current-component)]
     (try
-      (late-bind/set-fn! :adapter/current-component r/current-component)
+      (rf.late-bind/set-fn! :adapter/current-component r/current-component)
       (f)
       (finally
-        (late-bind/set-fn! :adapter/current-component original)))))
+        (rf.late-bind/set-fn! :adapter/current-component original)))))
 
 (deftest classic-bridge-installs-hook
   (testing "requiring re-frame.adapter.reagent registers :adapter/current-component"
     (with-bridge-hook
       (fn []
-        (is (some? (late-bind/get-fn :adapter/current-component))
+        (is (some? (rf.late-bind/get-fn :adapter/current-component))
             "the hook is installed")
         (is (identical? r/current-component
-                        (late-bind/get-fn :adapter/current-component))
+                        (rf.late-bind/get-fn :adapter/current-component))
             "the hook points at stock reagent.core/current-component")))))
 
 (deftest hook-returns-nil-outside-render
@@ -67,6 +67,6 @@
     ;; skip the React-context tier and fall through to :rf/default.
     (with-bridge-hook
       (fn []
-        (let [hook (late-bind/get-fn :adapter/current-component)]
+        (let [hook (rf.late-bind/get-fn :adapter/current-component)]
           (is (nil? (hook))
               "no in-flight component → nil"))))))

@@ -35,8 +35,8 @@
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.adapter.reagent]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.late-bind.directory :as directory]))
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.late-bind.directory :as rf.late-bind.directory]))
 
 ;; The closed set of hooks `re-frame.adapter.reagent` is documented (in
 ;; the late-bind directory + the adapter ns) to publish at ns-load
@@ -64,7 +64,7 @@
   (testing "every hook re-frame.adapter.reagent is documented to publish is
             present in the in-process late-bind hook table after the
             adapter ns is loaded (rf2-z3q3s)"
-    (let [installed-keys (set (keys @late-bind/hooks))
+    (let [installed-keys (set (keys @rf.late-bind/hooks))
           missing        (clojure.set/difference reagent-adapter-published-hooks
                                                   installed-keys)]
       (is (empty? missing)
@@ -80,7 +80,7 @@
             re-frame.late-bind.directory with re-frame.adapter.reagent
             as a producer (rf2-z3q3s)"
     (doseq [hook reagent-adapter-published-hooks]
-      (let [entry      (directory/entry hook)
+      (let [entry      (rf.late-bind.directory/entry hook)
             producer   (:producer-ns entry)
             producers  (if (sequential? producer) (set producer) #{producer})]
         (is (some? entry)

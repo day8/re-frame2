@@ -37,12 +37,12 @@
   explicitly."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.flows :as flows]
-            [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace]))
+            [re-frame.elision :as rf.elision]
+            [re-frame.flows :as rf.flows]
+            [re-frame.frame :as rf.frame]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace]))
 
 ;; ---- per-test reset / trace recorder -------------------------------------
 ;;
@@ -61,7 +61,7 @@
   [test-fn]
   (let [captured (atom [])]
     (binding [*captured* captured]
-      (trace/register-listener!
+      (rf.trace/register-listener!
         ::flow-trace-recorder
         (fn [ev]
           (when (= :flow (:op-type ev))
@@ -69,10 +69,10 @@
       (try
         (test-fn)
         (finally
-          (trace/unregister-listener! ::flow-trace-recorder))))))
+          (rf.trace/unregister-listener! ::flow-trace-recorder))))))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
   with-flow-trace-recorder)
 
 (defn- by-op
@@ -86,8 +86,8 @@
   The declared paths are stored in the frame's runtime-db elision registry, so
   `elide-wire-value` (frame-scoped) matches a value at the declared path."
   [frame-id & paths]
-  (frame/swap-runtime-db! frame-id
-    (fn [rt] (elision/apply-classification-effects rt {:large (mapv vec paths)}))))
+  (rf.frame/swap-runtime-db! frame-id
+    (fn [rt] (rf.elision/apply-classification-effects rt {:large (mapv vec paths)}))))
 
 ;; ---------------------------------------------------------------------------
 ;; 1. resolve-input's runtime branch — reads the VALUE from runtime-db at the
@@ -115,7 +115,7 @@
                       ;; a resolver that read app-db verbatim would read this
                       :rf.db/runtime      {:rf.runtime/routing {:current {:route-id :APP-DECOY-raw}}}}
           runtime-db {:rf.runtime/routing {:current {:route-id :the-real-runtime-value}}}
-          out        (flows/run-flows-on-db :rf/default app-db runtime-db)]
+          out        (rf.flows/run-flows-on-db :rf/default app-db runtime-db)]
       (is (= :the-real-runtime-value (get-in out [:out]))
           (str "resolve-input must read runtime-db at the STRIPPED path "
                "[:rf.runtime/routing :current :route-id]; got "
@@ -146,12 +146,12 @@
             app-db {:unrelated 1}
             rt-v1  {:rf.runtime/routing {:current {:route-id :home}}}
             rt-v2  {:rf.runtime/routing {:current {:route-id :about}}}
-            db1    (flows/run-flows-on-db :rf/default app-db rt-v1)
+            db1    (rf.flows/run-flows-on-db :rf/default app-db rt-v1)
             _      (reset! *captured* [])
-            db2    (flows/run-flows-on-db :rf/default app-db rt-v2)
+            db2    (rf.flows/run-flows-on-db :rf/default app-db rt-v2)
             computed-2 (by-op :rf.flow/computed)
             _      (reset! *captured* [])
-            db3    (flows/run-flows-on-db :rf/default app-db rt-v2)
+            db3    (rf.flows/run-flows-on-db :rf/default app-db rt-v2)
             skip-3 (by-op :rf.flow/skip)]
         (is (= :home (get-in db1 [:derived :slug]))
             "drain 1 computed the flow onto the runtime-db value V1")
@@ -195,7 +195,7 @@
       (fn [a rt b] [a rt b]))
     (let [app-db     {:app-first :A :app-last :B}
           runtime-db {:rt {:mid :R}}
-          out        (flows/run-flows-on-db :rf/default app-db runtime-db)]
+          out        (rf.flows/run-flows-on-db :rf/default app-db runtime-db)]
       (is (= [:A :R :B] (get-in out [:combined]))
           (str "read-inputs resolves each input against its declared partition "
                "IN DECLARATION ORDER: app-db :app-first (:A), runtime-db :rt/:mid "
@@ -227,17 +227,17 @@
     ;; Drive with a runtime-db that carries BOTH the elision registry (from
     ;; install-large!) and the actual value at the stripped path — the realistic
     ;; single-partition shape a real drain would present.
-    (let [runtime-db (assoc-in (frame/frame-runtime-db-value :rf/default)
+    (let [runtime-db (assoc-in (rf.frame/frame-runtime-db-value :rf/default)
                                [:rt :val] {:big "payload"})]
       (reset! *captured* [])
-      (flows/run-flows-on-db :rf/default {} runtime-db)
+      (rf.flows/run-flows-on-db :rf/default {} runtime-db)
       (let [ev            (last (by-op :rf.flow/computed))
             input-values  (:input-values (:tags ev))
             [first-input] input-values]
         (is (some? ev) ":rf.flow/computed fired")
         (is (vector? input-values)
             ":input-values preserves the per-input slot shape")
-        (is (elision/marker? first-input)
+        (is (rf.elision/marker? first-input)
             (str "the runtime-qualified input value is replaced by the wire "
                  "marker — proving the declaration at the stripped path matched. "
                  "Got " (pr-str first-input) " (a raw {:big \"payload\"} means "

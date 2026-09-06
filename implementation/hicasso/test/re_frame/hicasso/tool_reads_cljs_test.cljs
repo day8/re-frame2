@@ -36,17 +36,17 @@
   Nothing under `src/` is changed by this suite."
   (:require [cljs.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.evidence :as evidence]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.hicasso.tool :as tool]
-            [re-frame.interop :as interop]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace.tooling :as trace-tooling]))
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.evidence :as rf.hicasso.evidence]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.hicasso.tool :as rf.hicasso.tool]
+            [re-frame.interop :as rf.interop]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (def ^:private frame-id ::tool-reads)
 
@@ -68,14 +68,14 @@
 ;; ledger, and `codec/retained-body` is the kit's route from the minted
 ;; head back to that body, so the harness can render it through the same
 ;; seam as an anonymous fn.
-(h/defview named-probe [_] (h/sub [:tr/left]) nil)
-(h/defview twin-probe  [_] (h/sub [:tr/left]) nil)
+(rf.hicasso/defview named-probe [_] (rf.hicasso/sub [:tr/left]) nil)
+(rf.hicasso/defview twin-probe  [_] (rf.hicasso/sub [:tr/left]) nil)
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Harness — a real frame, real boundaries, the real commit seam
@@ -96,8 +96,8 @@
   its reference exactly as React's passive effect would. Answers the
   unsubscribe React would hold."
   [fid body-fn]
-  (collector/render-body fid body-fn {})
-  (collector/commit-boundary! (collector/last-reads) (fn [])))
+  (rf.hicasso.impl.collector/render-body fid body-fn {})
+  (rf.hicasso.impl.collector/commit-boundary! (rf.hicasso.impl.collector/last-reads) (fn [])))
 
 (defn- mount! [body-fn] (mount-in! frame-id body-fn))
 
@@ -116,10 +116,10 @@
 (defn- envelopes
   "All four reads, in one turn."
   []
-  {:mounted-boundaries (tool/read-mounted-boundaries)
-   :read-attribution   (tool/read-read-attribution)
-   :intents            (tool/read-intents)
-   :explain-render     (tool/explain-render)})
+  {:mounted-boundaries (rf.hicasso.tool/read-mounted-boundaries)
+   :read-attribution   (rf.hicasso.tool/read-read-attribution)
+   :intents            (rf.hicasso.tool/read-intents)
+   :explain-render     (rf.hicasso.tool/explain-render)})
 
 (defn- boundary-keys [envelope]
   (into #{} (map (comp :key :boundary)) (:boundaries envelope)))
@@ -130,7 +130,7 @@
 
 (deftest this-build-has-the-reads-enabled
   (testing "every assertion below is about a DEV build; the production arm is separate"
-    (is (true? interop/debug-enabled?))))
+    (is (true? rf.interop/debug-enabled?))))
 
 ;; ---------------------------------------------------------------------------
 ;; Read 1 — mounted boundaries
@@ -139,9 +139,9 @@
 (deftest the-mounted-roster-counts-every-committed-boundary
   (seeded!)
   (testing "nothing mounted is an EMPTY roster on a basis that CAN see — a clean bill"
-    (let [e (tool/read-mounted-boundaries)]
-      (is (= evidence/schema (:schema e)))
-      (is (= evidence/producer (:producer e)))
+    (let [e (rf.hicasso.tool/read-mounted-boundaries)]
+      (is (= rf.hicasso.evidence/schema (:schema e)))
+      (is (= rf.hicasso.evidence/producer (:producer e)))
       (is (= :mounted-boundaries (:read e)))
       (is (true? (:complete? e)))
       (is (nil? (:loss e)))
@@ -152,17 +152,17 @@
             discriminated refs-gating from entries-not-existing. A
             regression to counting unclaimed entries silently inflates
             the roster `:complete? true` is staked on"
-    (collector/render-body frame-id (fn [_] (h/sub [:tr/row 0]) nil) {})
-    (is (pos? (:entries (runtime/residue)))
+    (rf.hicasso.impl.collector/render-body frame-id (fn [_] (rf.hicasso/sub [:tr/row 0]) nil) {})
+    (is (pos? (:entries (rf.hicasso.test.runtime/residue)))
         "the premise: the probe left a REAL entry in the cache")
-    (is (= [] (:boundaries (tool/read-mounted-boundaries)))
+    (is (= [] (:boundaries (rf.hicasso.tool/read-mounted-boundaries)))
         "which the roster does not count, because no reference claims it"))
 
-  (let [a (mount! (fn [_] (h/sub [:tr/left]) nil))
-        b (mount! (fn [_] (h/sub [:tr/left]) nil))
-        c (mount! (fn [_] (h/sub [:tr/left]) (h/sub [:tr/right]) nil))]
+  (let [a (mount! (fn [_] (rf.hicasso/sub [:tr/left]) nil))
+        b (mount! (fn [_] (rf.hicasso/sub [:tr/left]) nil))
+        c (mount! (fn [_] (rf.hicasso/sub [:tr/left]) (rf.hicasso/sub [:tr/right]) nil))]
     (testing "two boundaries with one edge set are ONE row with :instances 2"
-      (let [e    (tool/read-mounted-boundaries)
+      (let [e    (rf.hicasso.tool/read-mounted-boundaries)
             rows (into {} (map (juxt (comp :key :boundary) identity)) (:boundaries e))]
         (is (= 2 (count rows)) "one row per DISTINCT edge set")
         (is (= 2 (:instances (get rows [(boundary-read-key [:tr/left])]))))
@@ -172,18 +172,18 @@
 
     (testing "a boundary that read NOTHING is still counted — the cell table cannot see it"
       (let [d (mount! (fn [_] nil))
-            e (tool/read-mounted-boundaries)
+            e (rf.hicasso.tool/read-mounted-boundaries)
             row (first (filter #(= [] (:key (:boundary %))) (:boundaries e)))]
         (is (some? row) "the read-free boundary must appear")
         (is (= 1 (:instances row)))
         (is (= [] (:reads row)) "its read roster is an honest survey result, not a loss")
-        (is (= evidence/unknown (:frame row))
+        (is (= rf.hicasso.evidence/unknown (:frame row))
             "with no reads there is no frame to name, and the row says so explicitly")
         (d)))
 
     (testing "an unmounted boundary leaves the roster"
       (a) (b) (c)
-      (is (= [] (:boundaries (tool/read-mounted-boundaries)))))))
+      (is (= [] (:boundaries (rf.hicasso.tool/read-mounted-boundaries)))))))
 
 (deftest two-read-orders-of-one-edge-set-collapse-to-one-row-that-says-so
   (seeded!)
@@ -194,10 +194,10 @@
             nowhere above 1, so the collapse arm of `entry-rows` could
             rot into duplicate DOM ids for a panel and an ambiguous join
             for a consumer with every existing row green"
-    (let [a (mount! (fn [_] (h/sub [:tr/left]) (h/sub [:tr/right]) nil))
-          b (mount! (fn [_] (h/sub [:tr/right]) (h/sub [:tr/left]) nil))
-          e (tool/read-mounted-boundaries)]
-      (is (= 2 (:entries (runtime/residue)))
+    (let [a (mount! (fn [_] (rf.hicasso/sub [:tr/left]) (rf.hicasso/sub [:tr/right]) nil))
+          b (mount! (fn [_] (rf.hicasso/sub [:tr/right]) (rf.hicasso/sub [:tr/left]) nil))
+          e (rf.hicasso.tool/read-mounted-boundaries)]
+      (is (= 2 (:entries (rf.hicasso.test.runtime/residue)))
           "the premise: the runtime really holds TWO entries — without
            this, one row could mean the orders were never distinguished")
       (is (= 1 (count (:boundaries e)))
@@ -217,17 +217,17 @@
 
 (deftest a-body-with-no-name-leaves-the-views-unknown
   (seeded!)
-  (let [release (mount! (fn [_] (h/sub [:tr/left]) nil))
-        row     (first (:boundaries (tool/read-mounted-boundaries)))]
+  (let [release (mount! (fn [_] (rf.hicasso/sub [:tr/left]) nil))
+        row     (first (:boundaries (rf.hicasso.tool/read-mounted-boundaries)))]
     (testing "a harness fn carries no displayName, so the row states the explicit unknown — never [] and never an absent key"
       (is (contains? row :views))
-      (is (= evidence/unknown (:views row))))
+      (is (= rf.hicasso.evidence/unknown (:views row))))
     (release)))
 
 (deftest the-mounted-roster-names-the-declared-view-that-rendered-it
   (seeded!)
-  (let [release (mount! (codec/retained-body named-probe))
-        e       (tool/read-mounted-boundaries)
+  (let [release (mount! (rf.hicasso.impl.codec/retained-body named-probe))
+        e       (rf.hicasso.tool/read-mounted-boundaries)
         row     (first (:boundaries e))
         [v]     (:views row)]
     (testing "the row names the view by the `<ns>/<sym>` defview stamped"
@@ -240,11 +240,11 @@
       (is (pos? (:line (:source v))))
       (is (string? (:file (:source v)))))
     (testing "the attribution readers carry the same name, so the way IN is named too"
-      (let [edge (first (filter #(= :tr/left (:sub-id %)) (:edges (tool/read-read-attribution))))]
+      (let [edge (first (filter #(= :tr/left (:sub-id %)) (:edges (rf.hicasso.tool/read-read-attribution))))]
         (is (= [{:view named-probe-name :source (:source v)}]
                (:views (first (:readers edge)))))))
     (testing "and so does the explanation row"
-      (is (= (:views row) (:views (first (:explanations (tool/explain-render)))))))
+      (is (= (:views row) (:views (first (:explanations (rf.hicasso.tool/explain-render)))))))
     (testing "the roster's own claim is untouched by naming — it is still a complete census"
       (is (true? (:complete? e)))
       (is (nil? (:loss e))))
@@ -252,9 +252,9 @@
 
 (deftest two-declared-views-over-one-edge-set-are-one-row-naming-both
   (seeded!)
-  (let [a   (mount! (codec/retained-body named-probe))
-        b   (mount! (codec/retained-body twin-probe))
-        e   (tool/read-mounted-boundaries)
+  (let [a   (mount! (rf.hicasso.impl.codec/retained-body named-probe))
+        b   (mount! (rf.hicasso.impl.codec/retained-body twin-probe))
+        e   (rf.hicasso.tool/read-mounted-boundaries)
         row (first (:boundaries e))]
     (is (= 1 (count (:boundaries e)))
         "the identity is still the edge set — two views reading one set share one entry")
@@ -265,15 +265,15 @@
 
 (deftest a-name-minted-outside-defview-has-no-source
   (seeded!)
-  (let [body (fn [_] (h/sub [:tr/left]) nil)]
+  (let [body (fn [_] (rf.hicasso/sub [:tr/left]) nil)]
     ;; `mint-view!` is what stamps the name; a harness stamping it by hand
     ;; stands in for a boundary minted outside the macro — a tool's, or an
     ;; HMR re-registration — which the error ledger never heard about.
     (unchecked-set body "displayName" "erasure.harness/by-hand")
     (let [release (mount! body)
-          [v]     (:views (first (:boundaries (tool/read-mounted-boundaries))))]
+          [v]     (:views (first (:boundaries (rf.hicasso.tool/read-mounted-boundaries))))]
       (is (= "erasure.harness/by-hand" (:view v)))
-      (is (= evidence/unknown (:source v))
+      (is (= rf.hicasso.evidence/unknown (:source v))
           "no coordinate was declared, and the row says so rather than guessing")
       (release))))
 
@@ -284,10 +284,10 @@
 
 (deftest an-unmounted-view-leaves-the-row-its-twin-still-holds
   (seeded!)
-  (let [a1  (mount! (codec/retained-body named-probe))
-        a2  (mount! (codec/retained-body named-probe))
-        b   (mount! (codec/retained-body twin-probe))
-        row (fn [] (first (:boundaries (tool/read-mounted-boundaries))))]
+  (let [a1  (mount! (rf.hicasso.impl.codec/retained-body named-probe))
+        a2  (mount! (rf.hicasso.impl.codec/retained-body named-probe))
+        b   (mount! (rf.hicasso.impl.codec/retained-body twin-probe))
+        row (fn [] (first (:boundaries (rf.hicasso.tool/read-mounted-boundaries))))]
     (testing "the premise: one row, three holders, both names"
       (is (= 3 (:instances (row))))
       (is (= [named-probe-name twin-probe-name] (mapv :view (:views (row))))))
@@ -303,23 +303,23 @@
       (is (= [twin-probe-name] (mapv :view (:views (row))))
           "a name that outlives its reference misattributes the twin's row")
       (let [edge (first (filter #(= :tr/left (:sub-id %))
-                                (:edges (tool/read-read-attribution))))]
+                                (:edges (rf.hicasso.tool/read-read-attribution))))]
         (is (= [twin-probe-name] (mapv :view (:views (first (:readers edge)))))
             "and the attribution reader, named through the same entry, agrees")))
     (b)))
 
 (deftest a-render-react-never-commits-names-no-live-row
   (seeded!)
-  (let [b (mount! (codec/retained-body twin-probe))]
+  (let [b (mount! (rf.hicasso.impl.codec/retained-body twin-probe))]
     (testing "the premise: the twin's row is live and named"
       (is (= [twin-probe-name]
-             (mapv :view (:views (first (:boundaries (tool/read-mounted-boundaries))))))))
+             (mapv :view (:views (first (:boundaries (rf.hicasso.tool/read-mounted-boundaries))))))))
     ;; A speculative render over the SAME edge set: React runs a body it
     ;; then discards — a suspended attempt, an aborted transition,
     ;; StrictMode's first invoke — so this resolves the live entry and no
     ;; `subscribe` ever follows.
-    (collector/render-body frame-id (codec/retained-body named-probe) {})
-    (let [row (first (:boundaries (tool/read-mounted-boundaries)))]
+    (rf.hicasso.impl.collector/render-body frame-id (rf.hicasso.impl.codec/retained-body named-probe) {})
+    (let [row (first (:boundaries (rf.hicasso.tool/read-mounted-boundaries)))]
       (is (= 1 (:instances row)) "nothing committed, so nothing new holds the row")
       (is (= [twin-probe-name] (mapv :view (:views row)))
           "a body React never committed must not be named on a row it never held"))
@@ -333,24 +333,24 @@
   ;; (entry, view), and a fiber's view never changes — so the identity
   ;; moves exactly when the entry does: zero additional re-subscribes.
   (seeded!)
-  (let [body (codec/retained-body named-probe)
-        _    (collector/render-body frame-id body {})
-        e1   (collector/last-reads)
-        s1   (.-subscribe collector/rstate)
-        _    (collector/render-body frame-id body {})
-        s2   (.-subscribe collector/rstate)]
+  (let [body (rf.hicasso.impl.codec/retained-body named-probe)
+        _    (rf.hicasso.impl.collector/render-body frame-id body {})
+        e1   (rf.hicasso.impl.collector/last-reads)
+        s1   (.-subscribe rf.hicasso.impl.collector/rstate)
+        _    (rf.hicasso.impl.collector/render-body frame-id body {})
+        s2   (.-subscribe rf.hicasso.impl.collector/rstate)]
     (is (fn? s1))
-    (is (identical? e1 (collector/last-reads))
+    (is (identical? e1 (rf.hicasso.impl.collector/last-reads))
         "the premise: an unchanged read set hits the same entry")
     (is (identical? s1 s2)
         "and the same named `subscribe`, so React does not call it again")
     (is (not (identical? s1 (.-subscribe e1)))
         "it is the wrapper that counts the name, not the entry's own closure")
-    (collector/render-body frame-id (fn [_] (h/sub [:tr/left]) nil) {})
-    (is (identical? (.-subscribe e1) (.-subscribe collector/rstate))
+    (rf.hicasso.impl.collector/render-body frame-id (fn [_] (rf.hicasso/sub [:tr/left]) nil) {})
+    (is (identical? (.-subscribe e1) (.-subscribe rf.hicasso.impl.collector/rstate))
         "a body with no name is handed the entry's own closure, as before")
-    (collector/render-body frame-id (codec/retained-body twin-probe) {})
-    (is (not (identical? s1 (.-subscribe collector/rstate)))
+    (rf.hicasso.impl.collector/render-body frame-id (rf.hicasso.impl.codec/retained-body twin-probe) {})
+    (is (not (identical? s1 (.-subscribe rf.hicasso.impl.collector/rstate)))
         "a different view over the same entry has its own wrapper — no fiber
          ever changes view, so no fiber pays a re-subscribe for it")))
 
@@ -360,10 +360,10 @@
 
 (deftest attribution-is-the-reverse-edge-itself
   (seeded!)
-  (let [a (mount! (fn [_] (h/sub [:tr/left]) nil))
-        b (mount! (fn [_] (h/sub [:tr/left]) nil))
-        c (mount! (fn [_] (h/sub [:tr/left]) (h/sub [:tr/right]) nil))
-        e (tool/read-read-attribution)
+  (let [a (mount! (fn [_] (rf.hicasso/sub [:tr/left]) nil))
+        b (mount! (fn [_] (rf.hicasso/sub [:tr/left]) nil))
+        c (mount! (fn [_] (rf.hicasso/sub [:tr/left]) (rf.hicasso/sub [:tr/right]) nil))
+        e (rf.hicasso.tool/read-read-attribution)
         by-sub (into {} (map (juxt :sub-id identity)) (:edges e))]
     (testing "the envelope is exact — this read prints a table"
       (is (= :read-attribution (:read e)))
@@ -372,11 +372,11 @@
     (testing ":fan-out is the cell's own reader-slot count"
       (is (= 3 (:fan-out (:tr/left by-sub))))
       (is (= 1 (:fan-out (:tr/right by-sub))))
-      (is (= (count (runtime/cell-readers (sub-key [:tr/left])))
+      (is (= (count (rf.hicasso.test.runtime/cell-readers (sub-key [:tr/left])))
              (:fan-out (:tr/left by-sub)))
           "the projection must not derive a number the table already holds"))
     (testing ":readers are the SAME keys the mounted roster states — the rosters join"
-      (let [mounted (boundary-keys (tool/read-mounted-boundaries))
+      (let [mounted (boundary-keys (rf.hicasso.tool/read-mounted-boundaries))
             readers (into #{} (map :key) (:readers (:tr/left by-sub)))]
         (is (= #{[(boundary-read-key [:tr/left])]
                  [(boundary-read-key [:tr/left]) (boundary-read-key [:tr/right])]}
@@ -393,13 +393,13 @@
 
 (deftest the-intent-stream-is-spec-009s-window-and-is-always-capped
   (seeded!)
-  (let [release (mount! (fn [_] (h/sub [:tr/left]) nil))]
+  (let [release (mount! (fn [_] (rf.hicasso/sub [:tr/left]) nil))]
     (rf/with-frame frame-id (rf/dispatch-sync [:tr/bump]))
-    (let [e (tool/read-intents)]
+    (let [e (rf.hicasso.tool/read-intents)]
       (testing "a ring is a cap, so this read never claims completeness"
         (is (= :intents (:read e)))
         (is (false? (:complete? e)))
-        (is (= {:reason :cap :dropped evidence/unknown} (:loss e)))
+        (is (= {:reason :cap :dropped rf.hicasso.evidence/unknown} (:loss e)))
         (is (= [frame-id] (:frames e))))
       (testing "the dispatched events are there, oldest first"
         (is (pos? (count (:intents e))))
@@ -414,14 +414,14 @@
 
 (deftest explain-render-separates-the-proven-half-from-the-uncorrelated-half
   (seeded!)
-  (let [release (mount! (fn [_] (h/sub [:tr/left]) (h/sub [:tr/right]) nil))]
+  (let [release (mount! (fn [_] (rf.hicasso/sub [:tr/left]) (rf.hicasso/sub [:tr/right]) nil))]
     (rf/with-frame frame-id (rf/dispatch-sync [:tr/bump]))
-    (let [e  (tool/explain-render)
+    (let [e  (rf.hicasso.tool/explain-render)
           ex (first (:explanations e))]
       (testing "the envelope's own loss is :uncorrelated, structurally and forever"
         (is (= :explain-render (:read e)))
         (is (false? (:complete? e)))
-        (is (= {:reason :uncorrelated :dropped evidence/unknown} (:loss e))))
+        (is (= {:reason :uncorrelated :dropped rf.hicasso.evidence/unknown} (:loss e))))
       (testing "PROVEN: the reads whose values moved most recently, off the epoch stamps"
         (is (= [{:sub-id :tr/left :query [:tr/left] :frame-id frame-id}]
                (:latest-reads ex))
@@ -429,8 +429,8 @@
         (is (number? (:peak-epoch ex)))
         (is (number? (:snapshot ex))))
       (testing "UNCORRELATED: the row's own loss says the join is missing, and candidates are leads"
-        (is (= {:reason :uncorrelated :dropped evidence/unknown} (:loss ex)))
-        (is (= {:frames [frame-id] :retained-runs (count (trace-tooling/trace-buffer frame-id))}
+        (is (= {:reason :uncorrelated :dropped rf.hicasso.evidence/unknown} (:loss ex)))
+        (is (= {:frames [frame-id] :retained-runs (count (rf.trace.tooling/trace-buffer frame-id))}
                (:window ex))
             "the row names the window it searched")
         (is (some #(= :tr/bump (:event-id %)) (:candidates ex))
@@ -440,18 +440,18 @@
 (deftest an-empty-window-is-cap-and-a-live-window-is-uncorrelated
   (testing "the two loss reasons are DIFFERENT and a reader can drive between them"
     (seeded!)
-    (let [release (mount! (fn [_] (h/sub [:tr/left]) nil))]
+    (let [release (mount! (fn [_] (rf.hicasso/sub [:tr/left]) nil))]
       (rf/with-frame frame-id (rf/dispatch-sync [:tr/bump]))
-      (let [looked (first (:explanations (tool/explain-render)))]
+      (let [looked (first (:explanations (rf.hicasso.tool/explain-render)))]
         (is (= :uncorrelated (:reason (:loss looked))))
         (is (vector? (:candidates looked))
             "with runs retained, the search really ran and its result is a vector"))
 
-      (trace-tooling/clear-trace-buffer! frame-id)
-      (let [blind (first (:explanations (tool/explain-render)))]
+      (rf.trace.tooling/clear-trace-buffer! frame-id)
+      (let [blind (first (:explanations (rf.hicasso.tool/explain-render)))]
         (is (= :cap (:reason (:loss blind)))
             "with the window empty, no search happened — a different reason")
-        (is (= evidence/unknown (:candidates blind))
+        (is (= rf.hicasso.evidence/unknown (:candidates blind))
             "and the leads state the explicit unknown, never an [] that reads as none"))
       (release))))
 
@@ -462,8 +462,8 @@
 (deftest the-cells-really-hold-the-secret
   (testing "NON-VACUITY: the state these projections read from is carrying the seed"
     (seeded!)
-    (let [release (mount! (fn [_] (h/sub [:tr/token]) nil))]
-      (is (= the-secret @(runtime/cell-reaction (sub-key [:tr/token])))
+    (let [release (mount! (fn [_] (rf.hicasso/sub [:tr/token]) nil))]
+      (is (= the-secret @(rf.hicasso.test.runtime/cell-reaction (sub-key [:tr/token])))
           (str "the cell's live reaction must deref to the seeded secret — if it "
                "does not, every no-egress assertion below is passing against a "
                "runtime that never saw the value"))
@@ -476,7 +476,7 @@
 
 (deftest no-read-carries-a-value
   (seeded!)
-  (let [release (mount! (fn [_] (h/sub [:tr/token]) (h/sub [:tr/left]) nil))]
+  (let [release (mount! (fn [_] (rf.hicasso/sub [:tr/token]) (rf.hicasso/sub [:tr/left]) nil))]
     (rf/with-frame frame-id (rf/dispatch-sync [:tr/bump]))
     (doseq [[read-name envelope] (envelopes)]
       (is (not (leaked? envelope))
@@ -486,12 +486,12 @@
 (deftest the-query-projector-is-really-invoked-and-fails-closed
   (testing "a read whose frame is gone redacts the WHOLE query rather than shipping it"
     (seeded!)
-    (let [release (mount! (fn [_] (h/sub [:tr/row 0]) nil))
-          live    (tool/read-mounted-boundaries)]
+    (let [release (mount! (fn [_] (rf.hicasso/sub [:tr/row 0]) nil))
+          live    (rf.hicasso.tool/read-mounted-boundaries)]
       (is (= [:tr/row 0] (:query (first (:reads (first (:boundaries live))))))
           "with the frame alive and nothing declared, the query rides as itself")
       (rf/destroy-frame! frame-id)
-      (let [dead (tool/read-mounted-boundaries)
+      (let [dead (rf.hicasso.tool/read-mounted-boundaries)
             row  (first (:boundaries dead))]
         (is (= :rf/redacted (:query (first (:reads row))))
             (str "with the frame destroyed no policy is reachable, so "
@@ -516,18 +516,18 @@
   (testing "with the policy unreachable, the argument is absent from EVERY path out"
     (seeded!)
     ;; No release: the frame is destroyed below, which is the point.
-    (mount-in! frame-id (fn [_] (h/sub [:tr/row the-secret]) nil))
+    (mount-in! frame-id (fn [_] (rf.hicasso/sub [:tr/row the-secret]) nil))
     (rf/with-frame frame-id (rf/dispatch-sync [:tr/bump]))
-    (is (leaked? (tool/read-mounted-boundaries))
+    (is (leaked? (rf.hicasso.tool/read-mounted-boundaries))
         (str "NON-VACUITY: with the frame ALIVE and nothing declared, the "
              "argument really is in the state these projections read — the "
              "classification model is fail-open and the query rides as itself. "
              "If this row ever fails, the assertions below are passing against "
              "a boundary that never carried the argument at all"))
     (rf/destroy-frame! frame-id)
-    (let [mounted     (tool/read-mounted-boundaries)
-          attribution (tool/read-read-attribution)
-          why         (tool/explain-render)]
+    (let [mounted     (rf.hicasso.tool/read-mounted-boundaries)
+          attribution (rf.hicasso.tool/read-read-attribution)
+          why         (rf.hicasso.tool/explain-render)]
       (is (not (leaked? (map (comp :key :boundary) (:boundaries mounted))))
           "the mounted roster's boundary KEY must not carry the argument")
       (is (not (leaked? mounted))
@@ -545,9 +545,9 @@
   ;; one name for two different reads whose projected identity the door
   ;; already held.
   (seeded!)
-  (let [release (mount! (fn [_] (h/sub [:tr/row 1]) (h/sub [:tr/row 2]) nil))]
+  (let [release (mount! (fn [_] (rf.hicasso/sub [:tr/row 1]) (rf.hicasso/sub [:tr/row 2]) nil))]
     (rf/with-frame frame-id (rf/dispatch-sync [:tr/bump]))
-    (let [ex     (first (:explanations (tool/explain-render)))
+    (let [ex     (first (:explanations (rf.hicasso.tool/explain-render)))
           latest (:latest-reads ex)]
       (is (= 2 (count latest))
           "two reads of one registered sub are two entries, never one")
@@ -575,13 +575,13 @@
   ;; :cap into a false :uncorrelated) and offered B's runs as A's leads.
   (seeded!)
   (seed-other!)
-  (let [in-a (mount-in! frame-id       (fn [_] (h/sub [:tr/left]) nil))
-        in-b (mount-in! other-frame-id (fn [_] (h/sub [:tr/left]) nil))]
+  (let [in-a (mount-in! frame-id       (fn [_] (rf.hicasso/sub [:tr/left]) nil))
+        in-b (mount-in! other-frame-id (fn [_] (rf.hicasso/sub [:tr/left]) nil))]
     ;; ASYMMETRIC WINDOWS: B has run, A has not.
     (rf/with-frame other-frame-id (rf/dispatch-sync [:tr/bump]))
-    (trace-tooling/clear-trace-buffer! frame-id)
+    (rf.trace.tooling/clear-trace-buffer! frame-id)
     (let [by-frame (into {} (map (juxt :frame identity))
-                         (:explanations (tool/explain-render)))
+                         (:explanations (rf.hicasso.tool/explain-render)))
           a        (get by-frame frame-id)
           b        (get by-frame other-frame-id)]
       (is (some? a) "frame A's boundary must be explained")
@@ -589,7 +589,7 @@
       (testing "A's window is A's — B's activity cannot claim a search of it"
         (is (= :cap (:reason (:loss a)))
             "A's ring is empty, so nothing was searched for A")
-        (is (= evidence/unknown (:candidates a))
+        (is (= rf.hicasso.evidence/unknown (:candidates a))
             "and its leads state the explicit unknown, never an [] nor B's runs"))
       (testing "B's window really was searched, and B keeps its own leads"
         (is (= :uncorrelated (:reason (:loss b))))
@@ -610,14 +610,14 @@
   (seed-other!)
   ;; A boundary in each frame, so BOTH rings are ones this runtime
   ;; dispatches through and the stream really has two sources to order.
-  (let [in-b    (mount-in! other-frame-id (fn [_] (h/sub [:tr/left]) nil))
-        release (mount! (fn [_] (h/sub [:tr/left]) nil))]
+  (let [in-b    (mount-in! other-frame-id (fn [_] (rf.hicasso/sub [:tr/left]) nil))
+        release (mount! (fn [_] (rf.hicasso/sub [:tr/left]) nil))]
     ;; Interleave the two frames. `other-frame-id` sorts AFTER frame-id by
     ;; pr-str, so a frame-ordered concatenation cannot reproduce this.
     (rf/with-frame other-frame-id (rf/dispatch-sync [:tr/bump]))
     (rf/with-frame frame-id       (rf/dispatch-sync [:tr/bump]))
     (rf/with-frame other-frame-id (rf/dispatch-sync [:tr/bump]))
-    (let [rows (:intents (tool/read-intents))
+    (let [rows (:intents (rf.hicasso.tool/read-intents))
           ids  (mapv :dispatch-id rows)]
       (is (= ids (vec (sort ids)))
           "the stream is ordered by the process-monotonic dispatch id, oldest first")
@@ -637,15 +637,15 @@
 
 (deftest every-read-is-deterministic
   (seeded!)
-  (let [a (mount! (fn [_] (h/sub [:tr/left]) nil))
-        b (mount! (fn [_] (h/sub [:tr/right]) (h/sub [:tr/left]) nil))
-        c (mount! (fn [_] (h/sub [:tr/row 2]) nil))]
+  (let [a (mount! (fn [_] (rf.hicasso/sub [:tr/left]) nil))
+        b (mount! (fn [_] (rf.hicasso/sub [:tr/right]) (rf.hicasso/sub [:tr/left]) nil))
+        c (mount! (fn [_] (rf.hicasso/sub [:tr/row 2]) nil))]
     (rf/with-frame frame-id (rf/dispatch-sync [:tr/bump]))
     (testing "two calls over one runtime state print identically"
-      (doseq [[read-name f] [[:mounted-boundaries tool/read-mounted-boundaries]
-                             [:read-attribution   tool/read-read-attribution]
-                             [:intents            tool/read-intents]
-                             [:explain-render     tool/explain-render]]]
+      (doseq [[read-name f] [[:mounted-boundaries rf.hicasso.tool/read-mounted-boundaries]
+                             [:read-attribution   rf.hicasso.tool/read-read-attribution]
+                             [:intents            rf.hicasso.tool/read-intents]
+                             [:explain-render     rf.hicasso.tool/explain-render]]]
         (is (= (pr-str (f)) (pr-str (f)))
             (str read-name " must be byte-identical across two calls — a roster "
                  "ordered by a hash map's seq is not"))))
@@ -660,21 +660,21 @@
   ;; This row builds the same logical population twice, in OPPOSITE
   ;; mount orders, and requires the projected orders to agree — which
   ;; only a real total order over the rows can deliver.
-  (let [bodies   [(fn [_] (h/sub [:tr/left]) nil)
-                  (fn [_] (h/sub [:tr/right]) nil)
-                  (fn [_] (h/sub [:tr/row 0]) nil)
-                  (fn [_] (h/sub [:tr/row 1]) nil)
-                  (fn [_] (h/sub [:tr/row 2]) nil)]
+  (let [bodies   [(fn [_] (rf.hicasso/sub [:tr/left]) nil)
+                  (fn [_] (rf.hicasso/sub [:tr/right]) nil)
+                  (fn [_] (rf.hicasso/sub [:tr/row 0]) nil)
+                  (fn [_] (rf.hicasso/sub [:tr/row 1]) nil)
+                  (fn [_] (rf.hicasso/sub [:tr/row 2]) nil)]
         orders   (fn []
                    {:roster (mapv (comp :key :boundary)
-                                  (:boundaries (tool/read-mounted-boundaries)))
-                    :edges  (mapv :sub-id (:edges (tool/read-read-attribution)))})
+                                  (:boundaries (rf.hicasso.tool/read-mounted-boundaries)))
+                    :edges  (mapv :sub-id (:edges (rf.hicasso.tool/read-read-attribution)))})
         build!   (fn [bs] (seeded!) (mapv mount! bs))
         forward  (let [stops (build! bodies)
                        o     (orders)]
                    (run! #(%) stops)
                    o)
-        _        (collector/reset-runtime!)
+        _        (rf.hicasso.impl.collector/reset-runtime!)
         backward (let [stops (build! (vec (rseq bodies)))
                        o     (orders)]
                    (run! #(%) stops)
@@ -691,10 +691,10 @@
 
 (deftest no-read-takes-a-consumer-discriminator
   (testing "ONE door: Xray and Pair cannot be handed different shapes"
-    (doseq [[read-name f] [[:mounted-boundaries tool/read-mounted-boundaries]
-                           [:read-attribution   tool/read-read-attribution]
-                           [:intents            tool/read-intents]
-                           [:explain-render     tool/explain-render]]]
+    (doseq [[read-name f] [[:mounted-boundaries rf.hicasso.tool/read-mounted-boundaries]
+                           [:read-attribution   rf.hicasso.tool/read-read-attribution]
+                           [:intents            rf.hicasso.tool/read-intents]
+                           [:explain-render     rf.hicasso.tool/explain-render]]]
       (is (zero? (.-length f))
           (str read-name " must take no argument at all — an audience, a profile "
                "or a verbosity parameter is how two consumers come to hold two "
@@ -706,14 +706,14 @@
 
 (deftest every-read-answers-nil-when-the-debug-define-is-off
   (seeded!)
-  (let [release (mount! (fn [_] (h/sub [:tr/left]) nil))]
-    (with-redefs [interop/debug-enabled? false]
-      (doseq [[read-name f] [[:mounted-boundaries tool/read-mounted-boundaries]
-                             [:read-attribution   tool/read-read-attribution]
-                             [:intents            tool/read-intents]
-                             [:explain-render     tool/explain-render]]]
+  (let [release (mount! (fn [_] (rf.hicasso/sub [:tr/left]) nil))]
+    (with-redefs [rf.interop/debug-enabled? false]
+      (doseq [[read-name f] [[:mounted-boundaries rf.hicasso.tool/read-mounted-boundaries]
+                             [:read-attribution   rf.hicasso.tool/read-read-attribution]
+                             [:intents            rf.hicasso.tool/read-intents]
+                             [:explain-render     rf.hicasso.tool/explain-render]]]
         (is (nil? (f))
             (str read-name " must answer nil with the debug define off"))))
     (testing "and the guard is not one-way — the same read answers again with it on"
-      (is (some? (tool/read-mounted-boundaries))))
+      (is (some? (rf.hicasso.tool/read-mounted-boundaries))))
     (release)))

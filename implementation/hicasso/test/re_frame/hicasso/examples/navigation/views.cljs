@@ -36,20 +36,20 @@
   whether the mechanism works or not. The height is on the SHELL rather
   than on a pane, so both routes are equally tall and a restored offset
   cannot be silently clamped away by arriving at a shorter page."
-  (:require [re-frame.hicasso :as h]
-            [re-frame.hicasso.examples.navigation.events :as events]
-            [re-frame.hicasso.examples.navigation.routes :as routes]
-            [re-frame.hicasso.examples.navigation.subs :as subs]))
+  (:require [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.examples.navigation.events :as rf.hicasso.examples.navigation.events]
+            [re-frame.hicasso.examples.navigation.routes :as rf.hicasso.examples.navigation.routes]
+            [re-frame.hicasso.examples.navigation.subs :as rf.hicasso.examples.navigation.subs]))
 
 ;; ---------------------------------------------------------------------------
 ;; The feed
 ;; ---------------------------------------------------------------------------
 
-(h/defview feed-page
+(rf.hicasso/defview feed-page
   "The list. Keyed by slug, because a keyed list whose key is its index
   reuses the wrong row the moment the order changes."
   [_]
-  (let [rows (h/sub [::subs/feed])]
+  (let [rows (rf.hicasso/sub [::rf.hicasso.examples.navigation.subs/feed])]
     [:section.feed
      [:h2.pane-heading {:tab-index -1 :data-route-heading "true"} "Articles"]
      [:ul.article-list
@@ -59,39 +59,39 @@
          ;; function, because a link is not a unit of re-render. The href
          ;; and the click decision come whole from routing; this body
          ;; never sees a URL.
-         (h/route-link {:to routes/article :params {:slug slug} :class "article-link"}
+         (rf.hicasso/route-link {:to rf.hicasso.examples.navigation.routes/article :params {:slug slug} :class "article-link"}
                        title)])]]))
 
 ;; ---------------------------------------------------------------------------
 ;; The article
 ;; ---------------------------------------------------------------------------
 
-(h/defview article-page
+(rf.hicasso/defview article-page
   "One article and its title editor. The slug comes from the URL through
   routing's own subscription, so the address bar and the page cannot
   disagree."
   [_]
-  (let [slug    (:slug (h/sub [:rf.route/params]))
-        article (h/sub [::subs/article slug])]
+  (let [slug    (:slug (rf.hicasso/sub [:rf.route/params]))
+        article (rf.hicasso/sub [::rf.hicasso.examples.navigation.subs/article slug])]
     [:section.article
      [:h2.pane-heading {:tab-index -1 :data-route-heading "true"}
       (if article (:title article) "No such article")]
-     (h/route-link {:to routes/feed :class "back"} "Back to the list")
+     (rf.hicasso/route-link {:to rf.hicasso.examples.navigation.routes/feed :class "back"} "Back to the list")
      (when article
-       [:form.editor {:on-submit [::events/save {:slug slug}]}
+       [:form.editor {:on-submit [::rf.hicasso.examples.navigation.events/save {:slug slug}]}
         [:label {:for "navigation-title"} "Title"]
         [:input#navigation-title.field-title
          {:type     "text"
-          :value    (h/sub [::subs/title slug])
-          :on-input [::events/edit slug ::h/value]}]
-        [:button.save {:type "submit" :disabled (not (h/sub [::subs/dirty?]))}
+          :value    (rf.hicasso/sub [::rf.hicasso.examples.navigation.subs/title slug])
+          :on-input [::rf.hicasso.examples.navigation.events/edit slug ::rf.hicasso/value]}]
+        [:button.save {:type "submit" :disabled (not (rf.hicasso/sub [::rf.hicasso.examples.navigation.subs/dirty?]))}
          "Save"]])]))
 
 ;; ---------------------------------------------------------------------------
 ;; The blocked-navigation region — the dirty-leave WIRING POINT
 ;; ---------------------------------------------------------------------------
 
-(h/defview leave-prompt
+(rf.hicasso/defview leave-prompt
   "What a refused leave looks like on screen.
 
   A `:can-leave` guard that answers false does not cancel the
@@ -107,7 +107,7 @@
   where
   the pending value is read, and which event resumes it."
   [_]
-  (when-let [pending (h/sub [:rf/pending-navigation])]
+  (when-let [pending (rf.hicasso/sub [:rf/pending-navigation])]
     [:div.leave-prompt {:role "alert"}
      "You have unsaved changes."
      [:button.leave-anyway
@@ -118,7 +118,7 @@
 ;; The shell
 ;; ---------------------------------------------------------------------------
 
-(h/defview app
+(rf.hicasso/defview app
   "The whole application: whichever pane the route selects, plus the
   blocked-leave region. See the namespace docstring on the height and on
   the root id.
@@ -127,11 +127,11 @@
   element the shell names and the element the focus recipe looks for are
   the two halves of one fact — see `events/root-selector`."
   [_]
-  (let [route (h/sub [:rf.route/id])]
-    [:main.navigation {:id    events/root-id
+  (let [route (rf.hicasso/sub [:rf.route/id])]
+    [:main.navigation {:id    rf.hicasso.examples.navigation.events/root-id
                        :style {:min-height "4000px"}}
      [leave-prompt {}]
-     (if (= route routes/article)
+     (if (= route rf.hicasso.examples.navigation.routes/article)
        [article-page {}]
        ;; Before the first navigation resolves there is no route at all,
        ;; and a page that rendered nothing there would be a blank screen

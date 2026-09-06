@@ -51,36 +51,36 @@
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [use-fixtures]]
             [re-frame.adapter.react-shared-suite]
-            [re-frame.hicasso.substrate :as substrate]
-            [re-frame.test-support :as test-support])
+            [re-frame.hicasso.substrate :as rf.hicasso.substrate]
+            [re-frame.test-support :as rf.test-support])
   (:require-macros
    [re-frame.adapter.react-shared-suite-tests
     :refer [define-react-shared-suite-tests!]]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter substrate/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.hicasso.substrate/adapter}))
 
 (def ^:private cfg
-  {:adapter          substrate/adapter
+  {:adapter          rf.hicasso.substrate/adapter
    :substrate-kw     :hicasso
    :name             "Hicasso"
    :producer-ns      're-frame.hicasso.substrate
-   :wrap-view        (:wrap-view substrate/spine-fns)
-   :set-emitter!     (:set-hiccup-emitter! substrate/spine-fns)
-   :render-to-string (:render-to-string substrate/adapter)
+   :wrap-view        (:wrap-view rf.hicasso.substrate/spine-fns)
+   :set-emitter!     (:set-hiccup-emitter! rf.hicasso.substrate/spine-fns)
+   :render-to-string (:render-to-string rf.hicasso.substrate/adapter)
    :public-surface-keys [:set-hiccup-emitter! :use-current-frame :frame-provider
                          :use-subscribe :flush-views! :wrap-view]
-   :public-surface   {:set-hiccup-emitter! (:set-hiccup-emitter! substrate/spine-fns)
-                      :use-current-frame   (:use-current-frame substrate/spine-fns)
+   :public-surface   {:set-hiccup-emitter! (:set-hiccup-emitter! rf.hicasso.substrate/spine-fns)
+                      :use-current-frame   (:use-current-frame rf.hicasso.substrate/spine-fns)
                       ;; The contract slot IS the publication route here: the
                       ;; frame-keyword arg is ignored (the frame lives in the
                       ;; Provider's `:value` at render time), so passing nil
                       ;; asks for the component and nothing else.
-                      :frame-provider      ((:register-context-provider substrate/adapter) nil)
-                      :use-subscribe       (:use-subscribe substrate/spine-fns)
-                      :flush-views!        (:flush-views! substrate/spine-fns)
-                      :wrap-view           (:wrap-view substrate/spine-fns)}})
+                      :frame-provider      ((:register-context-provider rf.hicasso.substrate/adapter) nil)
+                      :use-subscribe       (:use-subscribe rf.hicasso.substrate/spine-fns)
+                      :flush-views!        (:flush-views! rf.hicasso.substrate/spine-fns)
+                      :wrap-view           (:wrap-view rf.hicasso.substrate/spine-fns)}})
 
 ;; Emit one (deftest name (re-frame.adapter.react-shared-suite/assert-name cfg))
 ;; per row in `react-shared-suite-tests/test-specs`.

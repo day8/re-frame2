@@ -18,17 +18,17 @@
   artefact publishes for `frame/destroy-frame!`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.flows :as flows]
+            [re-frame.elision :as rf.elision]
+            [re-frame.flows :as rf.flows]
             ;; Loading `re-frame.flows` registers the late-bind hook
             ;; (`:flows/teardown-on-frame-destroy!`) the tests exercise —
             ;; keep the require even when the test ns doesn't reach
             ;; `flows/...` directly through a public fn.
-            [re-frame.frame :as frame]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; ---- per-test reset ------------------------------------------------------
 ;;
@@ -38,13 +38,13 @@
 ;; ambient `reg-flow` calls in the bodies below carry a frame stamp.
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- hook publication ----------------------------------------------------
 
 (deftest flows-publishes-teardown-hook
   (testing ":flows/teardown-on-frame-destroy! is published when re-frame.flows is loaded"
-    (is (fn? (late-bind/get-fn :flows/teardown-on-frame-destroy!))
+    (is (fn? (rf.late-bind/get-fn :flows/teardown-on-frame-destroy!))
         "the hook is callable after the flows artefact ns-loads")))
 
 ;; ---- per-frame registry slot cleared on destroy --------------------------
@@ -53,10 +53,10 @@
   (testing "destroying a frame drops its slot from re-frame.flows.registry/flows"
     (rf/make-frame {:id :fc/scratch :doc "scratch frame for destroy teardown test"})
     (rf/reg-flow :area {:frame :fc/scratch :inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* (or w 0) (or h 0))))
-    (is (contains? (flows/flows-snapshot) :fc/scratch)
+    (is (contains? (rf.flows/flows-snapshot) :fc/scratch)
         "precondition: the flow registered under the scratch frame's slot")
-    (frame/destroy-frame! :fc/scratch)
-    (is (not (contains? (flows/flows-snapshot) :fc/scratch))
+    (rf.frame/destroy-frame! :fc/scratch)
+    (is (not (contains? (rf.flows/flows-snapshot) :fc/scratch))
         "post-destroy: the destroyed frame's slot is gone")))
 
 ;; ---- last-inputs rows cleared on destroy --------------------------------
@@ -70,12 +70,12 @@
     ;; `last-inputs[:area][:fc/scratch]`.
     (rf/dispatch-sync [:fc/seed] {:frame :fc/scratch})
     (is (= [3 4]
-           (get-in (flows/last-inputs-snapshot) [:area :fc/scratch]))
+           (get-in (rf.flows/last-inputs-snapshot) [:area :fc/scratch]))
         "precondition: last-inputs recorded the scratch frame's inputs")
-    (frame/destroy-frame! :fc/scratch)
-    (is (not (contains? (get (flows/last-inputs-snapshot) :area) :fc/scratch))
+    (rf.frame/destroy-frame! :fc/scratch)
+    (is (not (contains? (get (rf.flows/last-inputs-snapshot) :area) :fc/scratch))
         "post-destroy: the destroyed frame's last-inputs entry is gone")
-    (is (not (contains? (flows/last-inputs-snapshot) :area))
+    (is (not (contains? (rf.flows/last-inputs-snapshot) :area))
         "and the whole flow-id row is dropped (no other frame still held an entry)")))
 
 ;; ---- last-inputs rows from sibling frames are preserved -----------------
@@ -90,12 +90,12 @@
     (rf/reg-flow :area {:frame :fc/b :inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* w h)))
     (rf/dispatch-sync [:fc/seed-a] {:frame :fc/a})
     (rf/dispatch-sync [:fc/seed-b] {:frame :fc/b})
-    (is (= [2 5] (get-in (flows/last-inputs-snapshot) [:area :fc/a])))
-    (is (= [7 9] (get-in (flows/last-inputs-snapshot) [:area :fc/b])))
-    (frame/destroy-frame! :fc/a)
-    (is (not (contains? (get (flows/last-inputs-snapshot) :area) :fc/a))
+    (is (= [2 5] (get-in (rf.flows/last-inputs-snapshot) [:area :fc/a])))
+    (is (= [7 9] (get-in (rf.flows/last-inputs-snapshot) [:area :fc/b])))
+    (rf.frame/destroy-frame! :fc/a)
+    (is (not (contains? (get (rf.flows/last-inputs-snapshot) :area) :fc/a))
         "destroyed-frame A's last-inputs row is gone")
-    (is (= [7 9] (get-in (flows/last-inputs-snapshot) [:area :fc/b]))
+    (is (= [7 9] (get-in (rf.flows/last-inputs-snapshot) [:area :fc/b]))
         "sibling frame B's last-inputs row is preserved")))
 
 ;; ---- per-frame entry dropped when destroyed frame was last owner --------
@@ -104,14 +104,14 @@
   (testing "destroying the only frame that owned a flow id drops its per-frame entry (rf2-en00bk: no registrar slot to prune)"
     (rf/make-frame {:id :fc/scratch :doc "scratch frame"})
     (rf/reg-flow :sole-area {:frame :fc/scratch :inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* (or w 0) (or h 0))))
-    (is (some? (flows/flow-meta-at :sole-area {:frame :fc/scratch}))
+    (is (some? (rf.flows/flow-meta-at :sole-area {:frame :fc/scratch}))
         "precondition: the per-frame store carries the flow")
-    (is (nil? (registrar/lookup :flow :sole-area))
+    (is (nil? (rf.registrar/lookup :flow :sole-area))
         "the :flow registrar slot is RESERVED-but-empty even while the flow is live")
-    (frame/destroy-frame! :fc/scratch)
-    (is (nil? (flows/flow-meta-at :sole-area {:frame :fc/scratch}))
+    (rf.frame/destroy-frame! :fc/scratch)
+    (is (nil? (rf.flows/flow-meta-at :sole-area {:frame :fc/scratch}))
         "post-destroy: the per-frame entry is gone — no leaked entry")
-    (is (nil? (registrar/lookup :flow :sole-area))
+    (is (nil? (rf.registrar/lookup :flow :sole-area))
         "registrar slot stays empty (rf2-en00bk)")))
 
 ;; ---- sibling frame keeps its OWN authoritative entry on destroy ---------
@@ -125,12 +125,12 @@
       (rf/reg-flow :shared {:frame :fc/a :inputs [[:w] [:h]] :output-path [:rect :area]} f-a)
       (rf/reg-flow :shared {:frame :fc/b :inputs [[:w] [:h]] :output-path [:rect :area]} f-b)
       ;; Destroy :fc/a. :fc/b still holds :shared with its OWN divergent body.
-      (frame/destroy-frame! :fc/a)
-      (is (nil? (flows/flow-meta-at :shared {:frame :fc/a}))
+      (rf.frame/destroy-frame! :fc/a)
+      (is (nil? (rf.flows/flow-meta-at :shared {:frame :fc/a}))
           ":fc/a's entry is gone")
-      (is (= f-b (:derive (flows/flow-meta-at :shared {:frame :fc/b})))
+      (is (= f-b (:derive (rf.flows/flow-meta-at :shared {:frame :fc/b})))
           ":fc/b's entry is intact and authoritative IN PLACE — no realignment needed (rf2-en00bk)")
-      (is (nil? (registrar/lookup :flow :shared))
+      (is (nil? (rf.registrar/lookup :flow :shared))
           "registrar :flow slot stays empty throughout (rf2-en00bk)"))))
 
 (deftest destroy-frame-non-owner-leaves-owner-entry-intact
@@ -139,8 +139,8 @@
     (rf/make-frame {:id :fc/b :doc "frame B"})
     (rf/reg-flow :shared {:frame :fc/b :inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] h))
     ;; Destroy :fc/a — it never registered :shared.
-    (frame/destroy-frame! :fc/a)
-    (is (some? (flows/flow-meta-at :shared {:frame :fc/b}))
+    (rf.frame/destroy-frame! :fc/a)
+    (is (some? (rf.flows/flow-meta-at :shared {:frame :fc/b}))
         ":fc/b's entry survives — destroying :fc/a could not touch it")))
 
 ;; ---- SSR-style per-request frame churn stays bounded --------------------
@@ -154,12 +154,12 @@
           (rf/reg-flow :churn {:frame frame-id :inputs [[:n]] :output-path [:result]} (fn [n] (or n 0)))
           (rf/reg-event :fc/seed-churn (fn [{:keys [db]} [_ v]] {:db {:n v}}))
           (rf/dispatch-sync [:fc/seed-churn i] {:frame frame-id})
-          (frame/destroy-frame! frame-id)))
-      (is (empty? (flows/flows-snapshot))
+          (rf.frame/destroy-frame! frame-id)))
+      (is (empty? (rf.flows/flows-snapshot))
           "per-frame flow registry is empty after N destroy cycles")
-      (is (empty? (flows/last-inputs-snapshot))
+      (is (empty? (rf.flows/last-inputs-snapshot))
           "last-inputs is empty after N destroy cycles")
-      (is (nil? (registrar/lookup :flow :churn))
+      (is (nil? (rf.registrar/lookup :flow :churn))
           "registrar :flow slot is RESERVED-but-empty throughout (rf2-en00bk single-store)"))))
 
 ;; ---- frame-id reuse: new make-frame starts clean -------------------------
@@ -170,15 +170,15 @@
     (rf/reg-event :fc/seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
     (rf/reg-flow :area {:frame :fc/scratch :inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* (or w 0) (or h 0))))
     (rf/dispatch-sync [:fc/seed] {:frame :fc/scratch})
-    (frame/destroy-frame! :fc/scratch)
+    (rf.frame/destroy-frame! :fc/scratch)
     (rf/make-frame {:id :fc/scratch :doc "second incarnation"})
-    (is (not (contains? (flows/flows-snapshot) :fc/scratch))
+    (is (not (contains? (rf.flows/flows-snapshot) :fc/scratch))
         "the new frame has no inherited flow-registry slot")
-    (is (not (contains? (get (flows/last-inputs-snapshot) :area) :fc/scratch))
+    (is (not (contains? (get (rf.flows/last-inputs-snapshot) :area) :fc/scratch))
         "the new frame has no inherited last-inputs row")
-    (is (nil? (flows/flow-meta-at :area {:frame :fc/scratch}))
+    (is (nil? (rf.flows/flow-meta-at :area {:frame :fc/scratch}))
         "the new frame has no inherited per-frame flow entry")
-    (is (nil? (registrar/lookup :flow :area))
+    (is (nil? (rf.registrar/lookup :flow :area))
         "registrar :flow slot is RESERVED-but-empty throughout (rf2-en00bk)")))
 
 ;; ---- flow-output elision marks ride the frame-record drop ----------------
@@ -204,19 +204,19 @@
     ;; frame's elision registry (the same surface flows_output_marks_test
     ;; reads). The sensitive subpath roots at :output-path ++ [:secret]; the large
     ;; whole-output mark roots at :output-path.
-    (is (contains? (elision/sensitive-declarations :fc/scratch) [:derived :creds :secret])
+    (is (contains? (rf.elision/sensitive-declarations :fc/scratch) [:derived :creds :secret])
         "precondition: the :sensitive flow declaration is installed")
-    (is (contains? (elision/declarations :fc/scratch) [:derived :blob])
+    (is (contains? (rf.elision/declarations :fc/scratch) [:derived :blob])
         "precondition: the :large flow declaration is installed")
-    (frame/destroy-frame! :fc/scratch)
+    (rf.frame/destroy-frame! :fc/scratch)
     ;; Post-destroy: `registry-of` reads the destroyed frame's container,
     ;; which `dissoc-frame!` removed, so both reader fns return {} — the
     ;; flow-sourced declarations are unobservable, no explicit scrub needed.
-    (is (nil? (frame/frame :fc/scratch))
+    (is (nil? (rf.frame/frame :fc/scratch))
         "the frame record is gone after destroy-frame!")
-    (is (= {} (elision/sensitive-declarations :fc/scratch))
+    (is (= {} (rf.elision/sensitive-declarations :fc/scratch))
         "the destroyed frame exposes no flow-sourced sensitive declarations")
-    (is (= {} (elision/declarations :fc/scratch))
+    (is (= {} (rf.elision/declarations :fc/scratch))
         "the destroyed frame exposes no flow-sourced large declarations")))
 
 (deftest make-frame-after-destroy-observes-no-stale-flow-output-marks
@@ -233,16 +233,16 @@
     ;; propagation claim's replacement.
     (rf/make-frame {:id :fc/scratch :doc "first incarnation"})
     (rf/reg-flow :token {:frame :fc/scratch :inputs [[:n]] :output-path [:auth :token] :sensitive [[]]} (fn [n] {:jwt n}))
-    (is (contains? (elision/sensitive-declarations :fc/scratch) [:auth :token])
+    (is (contains? (rf.elision/sensitive-declarations :fc/scratch) [:auth :token])
         "precondition: the first incarnation installed a whole-output sensitive mark")
-    (frame/destroy-frame! :fc/scratch)
+    (rf.frame/destroy-frame! :fc/scratch)
     ;; Second incarnation under the SAME id — a brand-new frame-state container.
     (rf/make-frame {:id :fc/scratch :doc "second incarnation"})
-    (is (= {} (elision/sensitive-declarations :fc/scratch))
+    (is (= {} (rf.elision/sensitive-declarations :fc/scratch))
         "the reused frame inherited no sensitive flow-sourced declaration")
-    (is (= {} (elision/declarations :fc/scratch))
+    (is (= {} (rf.elision/declarations :fc/scratch))
         "the reused frame inherited no large flow-sourced declaration")
-    (is (not (contains? (elision/sensitive-declarations :fc/scratch) [:auth :token]))
+    (is (not (contains? (rf.elision/sensitive-declarations :fc/scratch) [:auth :token]))
         "specifically: the first incarnation's [:auth :token] mark did not survive")))
 
 ;; ---- reg-flow must not resurrect stale flows on a dead frame -------------
@@ -262,13 +262,13 @@
             structured error and leaves flows / last-inputs / the :flow
             registrar untouched (no dormant state for the dead frame)"
     (rf/make-frame {:id :fc/scratch :doc "scratch frame, then destroyed"})
-    (frame/destroy-frame! :fc/scratch)
-    (is (nil? (frame/frame :fc/scratch))
+    (rf.frame/destroy-frame! :fc/scratch)
+    (is (nil? (rf.frame/frame :fc/scratch))
         "precondition: the frame is non-live after destroy-frame!")
     ;; Snapshot the three mutation surfaces BEFORE the rejected call.
-    (let [flows-before    (flows/flows-snapshot)
-          inputs-before   (flows/last-inputs-snapshot)
-          registrar-before (registrar/lookup :flow :leak/probe)
+    (let [flows-before    (rf.flows/flows-snapshot)
+          inputs-before   (rf.flows/last-inputs-snapshot)
+          registrar-before (rf.registrar/lookup :flow :leak/probe)
           thrown          (atom nil)]
       (try
         (rf/reg-flow :leak/probe {:frame :fc/scratch :inputs [[:n]] :output-path [:out]} (fn [n] (* (or n 0) 10)))
@@ -278,22 +278,22 @@
           "rejected with the stable :rf.error/flow-frame-not-live discriminator")
       (is (= :fc/scratch (:frame @thrown))
           "the error names the offending frame id")
-      (is (= flows-before (flows/flows-snapshot))
+      (is (= flows-before (rf.flows/flows-snapshot))
           "flows registry is unchanged — no resurrected flow row")
-      (is (= inputs-before (flows/last-inputs-snapshot))
+      (is (= inputs-before (rf.flows/last-inputs-snapshot))
           "last-inputs is unchanged")
-      (is (= registrar-before (registrar/lookup :flow :leak/probe))
+      (is (= registrar-before (rf.registrar/lookup :flow :leak/probe))
           "the shared :flow registrar slot is unchanged (no dead-frame stamp)")
-      (is (nil? (registrar/lookup :flow :leak/probe))
+      (is (nil? (rf.registrar/lookup :flow :leak/probe))
           "specifically: no :flow registrar slot was installed"))))
 
 (deftest reg-flow-against-never-registered-frame-rejects
   (testing "Per rf2-zbxvqj: reg-flow against a NEVER-registered (typo'd) frame
             id is rejected the same way as a destroyed one — no dormant state"
-    (is (nil? (frame/frame :fc/never))
+    (is (nil? (rf.frame/frame :fc/never))
         "precondition: the frame id was never registered")
-    (let [flows-before     (flows/flows-snapshot)
-          registrar-before (registrar/lookup :flow :typo/flow)
+    (let [flows-before     (rf.flows/flows-snapshot)
+          registrar-before (rf.registrar/lookup :flow :typo/flow)
           thrown           (atom nil)]
       (try
         (rf/reg-flow :typo/flow {:frame :fc/never :inputs [[:n]] :output-path [:out]} (fn [n] (or n 0)))
@@ -301,11 +301,11 @@
           (reset! thrown (ex-data e))))
       (is (= :rf.error/flow-frame-not-live (:rf.error/id @thrown))
           "rejected with the same stable discriminator as the destroyed-frame case")
-      (is (= flows-before (flows/flows-snapshot))
+      (is (= flows-before (rf.flows/flows-snapshot))
           "flows registry is unchanged")
-      (is (nil? (registrar/lookup :flow :typo/flow))
+      (is (nil? (rf.registrar/lookup :flow :typo/flow))
           "no :flow registrar slot was installed")
-      (is (= registrar-before (registrar/lookup :flow :typo/flow))
+      (is (= registrar-before (rf.registrar/lookup :flow :typo/flow))
           "the :flow registrar slot is unchanged"))))
 
 (deftest reg-flow-after-destroy-then-make-frame-reuse-starts-without-resurrected-flow
@@ -313,7 +313,7 @@
             followed by re-registering that frame id, leaves the fresh frame
             with NO inherited flow — the resurrection path is closed"
     (rf/make-frame {:id :fc/scratch :doc "first incarnation"})
-    (frame/destroy-frame! :fc/scratch)
+    (rf.frame/destroy-frame! :fc/scratch)
     ;; The resurrection attempt — rejected, mutates nothing.
     (is (thrown-with-msg? clojure.lang.ExceptionInfo
                           #"rf.error/flow-frame-not-live"
@@ -323,9 +323,9 @@
     (rf/make-frame {:id :fc/scratch :doc "second incarnation"})
     (rf/reg-event :fc/set-n (fn [{:keys [db]} [_ v]] {:db {:n v}}))
     (rf/dispatch-sync [:fc/set-n 7] {:frame :fc/scratch})
-    (is (not (contains? (flows/flows-snapshot) :fc/scratch))
+    (is (not (contains? (rf.flows/flows-snapshot) :fc/scratch))
         "the re-registered frame inherited no flow-registry slot")
-    (is (nil? (registrar/lookup :flow :leak/probe))
+    (is (nil? (rf.registrar/lookup :flow :leak/probe))
         "no resurrected :flow registrar slot survived into the new frame")
-    (is (nil? (get (frame/frame-app-db-value :fc/scratch) :out))
+    (is (nil? (get (rf.frame/frame-app-db-value :fc/scratch) :out))
         "the stale flow did not run — no [:out] write in the fresh frame's app-db")))

@@ -55,8 +55,8 @@
   `npm run test:cljs`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
+            [re-frame.test-support :as rf.test-support]
             [re-frame.views]
             [reagent2.dom.server :as server])
   (:require-macros [re-frame.core :refer [reg-view]]))
@@ -65,8 +65,8 @@
 ;; rolling back user registrations on the way out (the same fixture the
 ;; other reg-view-driven slim adapter tests use).
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-slim-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent-slim/adapter}))
 
 ;; ---- the counter dataflow, mirroring examples/substrates/reagent_slim ---------------
 ;;

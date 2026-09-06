@@ -64,13 +64,13 @@
   rather than a false green. The refusal rows mount nothing — shadow!
   validates its options before it allocates — so they run in both lanes."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.test :as ht]
-            [re-frame.hicasso.test.mounted :as hm]
-            [re-frame.test-support :as test-support]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.test :as rf.hicasso.test]
+            [re-frame.hicasso.test.mounted :as rf.hicasso.test.mounted]
+            [re-frame.test-support :as rf.test-support]
             ;; The ONE second view library this namespace names, and only so
             ;; that [[foreign-title-row]] is a genuinely foreign element type.
             ;; `hm/shadow!` itself still requires none — that is its design.
@@ -117,8 +117,8 @@
               (fn [{:keys [db]} [_ v]] {:db (assoc db :picked v)}))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      ;; No ambient dynamic-var frame stamp: the only thing that may name a
      ;; frame here is the root each mount sits under, which is the isolation
      ;; the whole door rests on.
@@ -127,25 +127,25 @@
                       ;; React's `act` queue is not the browser's scheduler,
                       ;; and every reading here is taken outside it.
                       (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
-                      (collector/reset-runtime!))}))
+                      (rf.hicasso.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The reference, the candidate, and three twins one form apart
 ;; ---------------------------------------------------------------------------
 
-(h/defview reference-row
+(rf.hicasso/defview reference-row
   "The original: one body, everything read at the top."
   [_]
-  (let [title    (h/sub [:hicasso.shadow/title])
-        editing? (h/sub [:hicasso.shadow/editing?])
-        saved    (h/sub [:hicasso.shadow/saved])]
+  (let [title    (rf.hicasso/sub [:hicasso.shadow/title])
+        editing? (rf.hicasso/sub [:hicasso.shadow/editing?])
+        saved    (rf.hicasso/sub [:hicasso.shadow/saved])]
     [:div.row
      [:h3.title title]
      (if editing?
        [:span.editor
         [:input.title {:value       title
                        :placeholder "Title"
-                       :on-input    [:hicasso.shadow/set-title ::h/value]}]
+                       :on-input    [:hicasso.shadow/set-title ::rf.hicasso/value]}]
         [:button.save {:on-click [:hicasso.shadow/save]} "Save"]]
        [:button.edit {:on-click [:hicasso.shadow/edit]} "Edit"])
      [:p.saved (str "saved: " (or saved "—"))]]))
@@ -158,69 +158,69 @@
   [:span.editor
    [:input.title {:value       title
                   :placeholder "Title"
-                  :on-input    [:hicasso.shadow/set-title ::h/value]}]
+                  :on-input    [:hicasso.shadow/set-title ::rf.hicasso/value]}]
    [:button.save {:on-click [:hicasso.shadow/save]} "Save"]])
 
-(h/defview candidate-row
+(rf.hicasso/defview candidate-row
   "The port: the same screen, written differently — reads pushed down
   into the branches that need them, and the editor lifted into a helper."
   [_]
   [:div.row
-   [:h3.title (h/sub [:hicasso.shadow/title])]
-   (if (h/sub [:hicasso.shadow/editing?])
-     (editor-markup (h/sub [:hicasso.shadow/title]))
+   [:h3.title (rf.hicasso/sub [:hicasso.shadow/title])]
+   (if (rf.hicasso/sub [:hicasso.shadow/editing?])
+     (editor-markup (rf.hicasso/sub [:hicasso.shadow/title]))
      [:button.edit {:on-click [:hicasso.shadow/edit]} "Edit"])
-   [:p.saved (str "saved: " (or (h/sub [:hicasso.shadow/saved]) "—"))]])
+   [:p.saved (str "saved: " (or (rf.hicasso/sub [:hicasso.shadow/saved]) "—"))]])
 
-(h/defview drifted-intent-row
+(rf.hicasso/defview drifted-intent-row
   "[[candidate-row]] with ONE form changed: the save button's intent
   carries an extra argument. The app-db lands in the same place and the
   page is identical, so only the intent stream can see it."
   [_]
   [:div.row
-   [:h3.title (h/sub [:hicasso.shadow/title])]
-   (if (h/sub [:hicasso.shadow/editing?])
+   [:h3.title (rf.hicasso/sub [:hicasso.shadow/title])]
+   (if (rf.hicasso/sub [:hicasso.shadow/editing?])
      [:span.editor
-      [:input.title {:value       (h/sub [:hicasso.shadow/title])
+      [:input.title {:value       (rf.hicasso/sub [:hicasso.shadow/title])
                      :placeholder "Title"
-                     :on-input    [:hicasso.shadow/set-title ::h/value]}]
+                     :on-input    [:hicasso.shadow/set-title ::rf.hicasso/value]}]
       [:button.save {:on-click [:hicasso.shadow/save :force]} "Save"]]
      [:button.edit {:on-click [:hicasso.shadow/edit]} "Edit"])
-   [:p.saved (str "saved: " (or (h/sub [:hicasso.shadow/saved]) "—"))]])
+   [:p.saved (str "saved: " (or (rf.hicasso/sub [:hicasso.shadow/saved]) "—"))]])
 
-(h/defview drifted-dom-row
+(rf.hicasso/defview drifted-dom-row
   "[[candidate-row]] with ONE attribute changed, and inside the branch
   the first script step opens — so the difference cannot be seen at the
   mount and the run must actually drive to reach it."
   [_]
   [:div.row
-   [:h3.title (h/sub [:hicasso.shadow/title])]
-   (if (h/sub [:hicasso.shadow/editing?])
+   [:h3.title (rf.hicasso/sub [:hicasso.shadow/title])]
+   (if (rf.hicasso/sub [:hicasso.shadow/editing?])
      [:span.editor
-      [:input.title {:value       (h/sub [:hicasso.shadow/title])
+      [:input.title {:value       (rf.hicasso/sub [:hicasso.shadow/title])
                      :placeholder "Article title"
-                     :on-input    [:hicasso.shadow/set-title ::h/value]}]
+                     :on-input    [:hicasso.shadow/set-title ::rf.hicasso/value]}]
       [:button.save {:on-click [:hicasso.shadow/save]} "Save"]]
      [:button.edit {:on-click [:hicasso.shadow/edit]} "Edit"])
-   [:p.saved (str "saved: " (or (h/sub [:hicasso.shadow/saved]) "—"))]])
+   [:p.saved (str "saved: " (or (rf.hicasso/sub [:hicasso.shadow/saved]) "—"))]])
 
 ;; ---------------------------------------------------------------------------
 ;; The live-control pair — one prop apart, and not one byte apart
 ;; ---------------------------------------------------------------------------
 
-(h/defview select-row
+(rf.hicasso/defview select-row
   "A native `<select>` bound to a value. Two mounts of it differ by that
   ONE prop and by nothing in the markup: React writes a selection by
   moving `option.selected`, and no content attribute tracks it."
   [{:keys [value]}]
   [:div.pick
    [:select.pick {:value     value
-                  :on-change [:hicasso.shadow/pick ::h/value]}
+                  :on-change [:hicasso.shadow/pick ::rf.hicasso/value]}
     [:option {:value "one"} "One"]
     [:option {:value "two"} "Two"]
     [:option {:value "three"} "Three"]]])
 
-(h/defview uncontrolled-fields
+(rf.hicasso/defview uncontrolled-fields
   "Three UNCONTROLLED controls — no bound value, no handler, nothing
   read. Each can be made dirty by hand without dispatching an intent,
   which is what makes a red here unambiguously the DOM comparison's:
@@ -255,7 +255,7 @@
 
 (defn- run
   [candidate]
-  (hm/shadow! {:reference      [reference-row {}]
+  (rf.hicasso.test.mounted/shadow! {:reference      [reference-row {}]
                :candidate      [candidate {}]
                :initial-events seed
                :script         script}))
@@ -316,7 +316,7 @@
   (if-not (browser?)
     (skip! "a selector is resolved against a real container")
     (let [{:keys [status checkpoint difference]}
-          (hm/shadow! {:reference      [reference-row {}]
+          (rf.hicasso.test.mounted/shadow! {:reference      [reference-row {}]
                        :candidate      [candidate-row {}]
                        :initial-events seed
                        :script         [{:click "button.no-such-control"}]})]
@@ -334,12 +334,12 @@
 ;; The live control state — the false green PR #8007's audit found
 ;; ---------------------------------------------------------------------------
 
-(defn- markup-of [handle] (ht/canonical-dom (:container handle)))
+(defn- markup-of [handle] (rf.hicasso.test/canonical-dom (:container handle)))
 
 (deftest a-select-showing-a-different-option-is-not-a-green
   (if-not (browser?)
     (skip! "a selection lives in a real element's properties")
-    (let [s (hm/shadow! {:reference [select-row {:value "two"}]
+    (let [s (rf.hicasso.test.mounted/shadow! {:reference [select-row {:value "two"}]
                          :candidate [select-row {:value "one"}]})]
       (try
         (testing "the two pages genuinely show a user different options"
@@ -370,7 +370,7 @@
 (deftest two-selects-showing-the-same-option-stay-green
   (if-not (browser?)
     (skip! "a selection lives in a real element's properties")
-    (let [s (hm/shadow! {:reference [select-row {:value "two"}]
+    (let [s (rf.hicasso.test.mounted/shadow! {:reference [select-row {:value "two"}]
                          :candidate [select-row {:value "two"}]})]
       (try
         (is (= {:status :green :checkpoints 1} ((:checkpoint! s)))
@@ -395,7 +395,7 @@
   or both sides' live control state with `mutate!`, and answer the next
   verdict — with `::started-green?` and `::same-markup?` beside it."
   [form mutate!]
-  (let [s (hm/shadow! {:reference form :candidate form})]
+  (let [s (rf.hicasso.test.mounted/shadow! {:reference form :candidate form})]
     (try
       (let [green? (= :green (:status ((:checkpoint! s))))]
         (mutate! (:container (:reference s)) (:container (:candidate s)))
@@ -477,7 +477,7 @@
 (deftest each-mount-owns-its-own-frame
   (if-not (browser?)
     (skip! "two frames need two roots")
-    (let [s (hm/shadow! {:reference      [reference-row {}]
+    (let [s (rf.hicasso.test.mounted/shadow! {:reference      [reference-row {}]
                          :candidate      [candidate-row {}]
                          :initial-events seed})]
       (try
@@ -488,7 +488,7 @@
           (is (= {:status :green :checkpoints 1} ((:checkpoint! s)))
               "checkpoint 0 — the same seed produced the same page twice")
 
-          (hm/dispatch-and-settle! (:reference s) [:hicasso.shadow/edit])
+          (rf.hicasso.test.mounted/dispatch-and-settle! (:reference s) [:hicasso.shadow/edit])
           (testing "a write on one side does not reach the other"
             (is (true? (rf/subscribe-once [:hicasso.shadow/editing?]
                                           {:frame ref-frame})))
@@ -505,23 +505,23 @@
 (deftest a-mounts-own-address-normalises
   (if-not (browser?)
     (skip! "an address is a live frame's keyword")
-    (let [s (hm/shadow! {:reference      [reference-row {}]
+    (let [s (rf.hicasso.test.mounted/shadow! {:reference      [reference-row {}]
                          :candidate      [candidate-row {}]
                          :initial-events seed})]
       (try
         ((:checkpoint! s))                                  ;; drain the seed
         (testing "each side's OWN frame keyword compares equal"
-          (hm/dispatch-and-settle! (:reference s)
+          (rf.hicasso.test.mounted/dispatch-and-settle! (:reference s)
                                    [:hicasso.shadow/noted (:frame (:reference s))])
-          (hm/dispatch-and-settle! (:candidate s)
+          (rf.hicasso.test.mounted/dispatch-and-settle! (:candidate s)
                                    [:hicasso.shadow/noted (:frame (:candidate s))])
           (is (= :green (:status ((:checkpoint! s))))
               (str "two isolated mounts have two frame keywords by construction; "
                    "an intent carrying its own is an ADDRESS, and comparing it "
                    "raw would redden every view holding an h/route-link")))
         (testing "and a FOREIGN address still reddens — the rule is narrow"
-          (hm/dispatch-and-settle! (:reference s) [:hicasso.shadow/noted ::alien-a])
-          (hm/dispatch-and-settle! (:candidate s) [:hicasso.shadow/noted ::alien-b])
+          (rf.hicasso.test.mounted/dispatch-and-settle! (:reference s) [:hicasso.shadow/noted ::alien-a])
+          (rf.hicasso.test.mounted/dispatch-and-settle! (:candidate s) [:hicasso.shadow/noted ::alien-b])
           (let [{:keys [status difference]} ((:checkpoint! s))]
             (is (= :red status))
             (is (= :intent (:kind difference)))
@@ -556,7 +556,7 @@
   remount the subtree under it on every pass."
   (r/reactify-component reagent-title-row))
 
-(h/defview hicasso-title-row
+(rf.hicasso/defview hicasso-title-row
   "The port of [[reagent-title-row]] — same markup, same single-word prop."
   [{:keys [title]}]
   [:div.row [:h3.title title]])
@@ -565,7 +565,7 @@
   (if-not (browser?)
     (skip! "a crossed foreign original needs a real React DOM")
     (is (= {:status :green :checkpoints 1}
-           (hm/shadow! {:reference      [:> foreign-title-row {:title "Original title"}]
+           (rf.hicasso.test.mounted/shadow! {:reference      [:> foreign-title-row {:title "Original title"}]
                         :candidate      [hicasso-title-row {:title "Original title"}]
                         :initial-events seed
                         :script         []}))
@@ -588,7 +588,7 @@
   (try (f) ::no-refusal (catch :default e (ex-data e))))
 
 (deftest the-option-roster-is-closed
-  (let [d (refusal #(hm/shadow! {:reference [reference-row {}]
+  (let [d (refusal #(rf.hicasso.test.mounted/shadow! {:reference [reference-row {}]
                                  :candidate [candidate-row {}]
                                  :seed      seed}))]
     (is (= :rf.error/hicasso-test-bad-option (:rf.error/id d))
@@ -598,11 +598,11 @@
     (is (= [:seed] (:unknown d)))))
 
 (deftest the-options-must-be-a-map
-  (let [d (refusal #(hm/shadow! [:reference [reference-row {}]]))]
+  (let [d (refusal #(rf.hicasso.test.mounted/shadow! [:reference [reference-row {}]]))]
     (is (= :rf.error/hicasso-test-bad-option (:rf.error/id d)))))
 
 (deftest the-script-verb-roster-is-closed
-  (let [d (refusal #(hm/shadow! {:reference [reference-row {}]
+  (let [d (refusal #(rf.hicasso.test.mounted/shadow! {:reference [reference-row {}]
                                  :candidate [candidate-row {}]
                                  :script    [{:clik "button.edit"}]}))]
     (is (= :rf.error/hicasso-test-bad-option (:rf.error/id d))
@@ -611,10 +611,10 @@
     (is (= {:clik "button.edit"} (:step d))))
   (testing "and each verb's own argument shape"
     (is (= :rf.error/hicasso-test-bad-option
-           (:rf.error/id (refusal #(hm/shadow! {:reference [reference-row {}]
+           (:rf.error/id (refusal #(rf.hicasso.test.mounted/shadow! {:reference [reference-row {}]
                                                 :candidate [candidate-row {}]
                                                 :script    [{:click :button}]})))))
     (is (= :rf.error/hicasso-test-bad-option
-           (:rf.error/id (refusal #(hm/shadow! {:reference [reference-row {}]
+           (:rf.error/id (refusal #(rf.hicasso.test.mounted/shadow! {:reference [reference-row {}]
                                                 :candidate [candidate-row {}]
                                                 :script    [{:type "input.title"}]})))))))

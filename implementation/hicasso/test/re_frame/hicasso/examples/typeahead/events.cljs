@@ -68,8 +68,8 @@
   level only. Everything else takes the canonical trailing map. This is
   the slice authoring report's first finding, met again here."
   (:require [re-frame.core :as rf]
-            [re-frame.hicasso.examples.typeahead.db :as db]
-            [re-frame.hicasso.examples.typeahead.service :as service]))
+            [re-frame.hicasso.examples.typeahead.db :as rf.hicasso.examples.typeahead.db]
+            [re-frame.hicasso.examples.typeahead.service :as rf.hicasso.examples.typeahead.service]))
 
 (def debounce-ms
   "How long the field waits for the typing to stop. Small, because the
@@ -96,7 +96,7 @@
 
 (rf/reg-event ::seed
   {:doc "Install the starting app-db. The frame's `:initial-events` step."}
-  (fn [_ _] {:db db/seed}))
+  (fn [_ _] {:db rf.hicasso.examples.typeahead.db/seed}))
 
 ;; ---------------------------------------------------------------------------
 ;; The one factored correlation
@@ -115,8 +115,8 @@
   one definition and three invocations — are counting."
   [db]
   ;; CENSUS O1 | OWNERSHIP | release | the definition: abandon the request the model believes is out
-  (when-some [{:keys [token]} (db/in-flight db)]
-    [[::service/abandon {:token token}]])
+  (when-some [{:keys [token]} (rf.hicasso.examples.typeahead.db/in-flight db)]
+    [[::rf.hicasso.examples.typeahead.service/abandon {:token token}]])
   ;; /CENSUS O1
   )
 
@@ -136,7 +136,7 @@
                      (assoc-in [:search :term] typed)
                      (assoc-in [:search :open?] true)
                      (update-in [:search :generation] inc))
-        term     (db/wanted db')
+        term     (rf.hicasso.examples.typeahead.db/wanted db')
         gen      (get-in db' [:search :generation])
         ;; CENSUS O2 | OWNERSHIP | release | the term moved, so the request out for the old one is work nobody reads
         release  (release-search db)
@@ -184,19 +184,19 @@
          already there."}
   (fn [{:keys [db]} _]
     (let [db'  (assoc-in db [:search :open?] true)
-          term (db/wanted db')
+          term (rf.hicasso.examples.typeahead.db/wanted db')
           gen  (get-in db' [:search :generation])
           ;; CENSUS O4 | OWNERSHIP | acquire | re-opening makes the read live again, so the resource has to be re-checked by hand
           fetch? (and (some? term)
-                      (not (db/satisfied? db' term))
-                      (nil? (db/in-flight db')))
+                      (not (rf.hicasso.examples.typeahead.db/satisfied? db' term))
+                      (nil? (rf.hicasso.examples.typeahead.db/in-flight db')))
           ;; /CENSUS O4
           ]
       (if fetch?
         {:db (-> db'
                  (assoc-in [:search :requested] {:token gen :term term})
                  (assoc-in [:search :status] (if (:shown (:search db')) :refreshing :loading)))
-         :fx [[::service/search {:token   gen
+         :fx [[::rf.hicasso.examples.typeahead.service/search {:token   gen
                                  :term    term
                                  :delay   service-delay-ms
                                  :on-ok   ::suggestions
@@ -218,7 +218,7 @@
         ;; /CENSUS O5
         ]
     {:db (-> db
-             (db/close-panel)
+             (rf.hicasso.examples.typeahead.db/close-panel)
              (assoc-in [:search :requested] nil)
              (assoc-in [:search :status] :idle))
      :fx (into [] cat [release])}))
@@ -238,13 +238,13 @@
          still want a term?"}
   (fn [{:keys [db]} [_ {:keys [token]}]]
     (let [;; CENSUS P2 | POLICY | debounce | a tick a newer keystroke superseded fires and does nothing
-          superseded? (not (db/current-generation? db token))
+          superseded? (not (rf.hicasso.examples.typeahead.db/current-generation? db token))
           ;; /CENSUS P2
-          term        (db/wanted db)
+          term        (rf.hicasso.examples.typeahead.db/wanted db)
           ;; CENSUS O6 | OWNERSHIP | acquire | issue only if a read is live and is not already answered
           acquire?    (and (some? term)
-                           (not (db/satisfied? db term))
-                           (nil? (db/in-flight db)))
+                           (not (rf.hicasso.examples.typeahead.db/satisfied? db term))
+                           (nil? (rf.hicasso.examples.typeahead.db/in-flight db)))
           ;; /CENSUS O6
           ]
       (if (or superseded? (not acquire?))
@@ -256,7 +256,7 @@
                  ;; keeps painting them. POLICY, and explicit under demand
                  ;; too.
                  (assoc-in [:search :status] (if (:shown (:search db)) :refreshing :loading)))
-         :fx [[::service/search {:token   token
+         :fx [[::rf.hicasso.examples.typeahead.service/search {:token   token
                                  :term    term
                                  :delay   service-delay-ms
                                  :on-ok   ::suggestions
@@ -267,8 +267,8 @@
          the model is still waiting for."}
   (fn [{:keys [db]} [_ {:keys [token] :as reply}]]
     ;; CENSUS P3 | POLICY | stale-reply-suppression | a reply for a request the model no longer awaits is dropped
-    (if (= token (:token (db/in-flight db)))
-      {:db (db/take-rows db reply)}
+    (if (= token (:token (rf.hicasso.examples.typeahead.db/in-flight db)))
+      {:db (rf.hicasso.examples.typeahead.db/take-rows db reply)}
       {})
     ;; /CENSUS P3
     ))
@@ -277,7 +277,7 @@
   {:doc "The service refused. Keep whatever is on screen; say why."}
   (fn [{:keys [db]} [_ {:keys [token problem]}]]
     ;; CENSUS P4 | POLICY | stale-reply-suppression | a failure for a request the model no longer awaits is dropped
-    (if (= token (:token (db/in-flight db)))
+    (if (= token (:token (rf.hicasso.examples.typeahead.db/in-flight db)))
       {:db (-> db
                (assoc-in [:search :requested] nil)
                (assoc-in [:search :status] :failed)
@@ -294,7 +294,7 @@
   "Ask the service for `id`'s detail. Used by the two sites that acquire
   one, so the request's shape is written once."
   [id]
-  [[::service/detail {:token (detail-token id)
+  [[::rf.hicasso.examples.typeahead.service/detail {:token (detail-token id)
                       :id    id
                       :delay service-delay-ms
                       :on-ok ::detail-ready}]])
@@ -313,14 +313,14 @@
           ;; /CENSUS O7
           ;; CENSUS O8 | OWNERSHIP | release | the detail pane's parameter moved, so the previous id's request is unread
           drop-detail (when stranded?
-                        [[::service/abandon {:token (detail-token previous)}]])
+                        [[::rf.hicasso.examples.typeahead.service/abandon {:token (detail-token previous)}]])
           ;; /CENSUS O8
           ;; CENSUS O9 | OWNERSHIP | acquire | the detail pane's read becomes live, unless the cache already answers it
           take-detail (when-not known? (detail-fx id))
           ;; /CENSUS O9
           ]
       {:db (cond-> (-> db
-                       (db/close-panel)
+                       (rf.hicasso.examples.typeahead.db/close-panel)
                        (assoc-in [:search :requested] nil)
                        (assoc-in [:search :status] :idle)
                        (assoc :chosen id))

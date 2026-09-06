@@ -41,14 +41,14 @@
             [re-frame.core :as rf]
             ;; Side-effect: publishes the `:epoch/*` late-bind hooks.
             [re-frame.epoch]
-            [re-frame.epoch.listeners :as epoch.listeners]
-            [re-frame.epoch.state :as epoch-state]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support])
+            [re-frame.epoch.listeners :as rf.epoch.listeners]
+            [re-frame.epoch.state :as rf.epoch.state]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support])
   (:import [java.util.concurrent CountDownLatch CyclicBarrier TimeUnit]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- silences-for
   "Count silencing traces in `silencings` whose `:cb-id` is `cb`."
@@ -65,12 +65,12 @@
 (defn- cb-generation
   "The live generation token currently registered under `cb`."
   [cb]
-  (:generation (get (epoch-state/listeners-snapshot) cb)))
+  (:generation (get (rf.epoch.state/listeners-snapshot) cb)))
 
 (defn- total-marks
   "Count of `[frame cb]` terminal-silence marks currently retained."
   []
-  (reduce + 0 (map count (vals (epoch-state/terminal-silence-marks-snapshot)))))
+  (reduce + 0 (map count (vals (rf.epoch.state/terminal-silence-marks-snapshot)))))
 
 ;; ---- EXACTNESS ------------------------------------------------------------
 
@@ -84,22 +84,22 @@
         cb ::vxgfnd285-exact-cb]
     (rf/register-listener! :epoch cb (fn [_] nil))
     (try
-      (epoch-state/claim-frame-owner! id (Object.))
-      (epoch.listeners/notify-listeners! {:frame id :epoch-id 1})
+      (rf.epoch.state/claim-frame-owner! id (Object.))
+      (rf.epoch.listeners/notify-listeners! {:frame id :epoch-id 1})
       (let [g (cb-generation cb)
-            observing-1 (:observing (epoch-state/snapshot-terminal-observers id))]
+            observing-1 (:observing (rf.epoch.state/snapshot-terminal-observers id))]
         (is (= g (get observing-1 cb))
             "the owed generation is the exact generation that observed the frame")
         ;; Replace cb → fresh generation H, WITHOUT re-observing (stamp stays G).
         (rf/register-listener! :epoch cb (fn [_] nil))
         (let [h (cb-generation cb)
-              observing-2 (:observing (epoch-state/snapshot-terminal-observers id))]
+              observing-2 (:observing (rf.epoch.state/snapshot-terminal-observers id))]
           (is (not= g h) "replacement minted a fresh generation")
           (is (not (contains? observing-2 cb))
               "a cb replaced after it observed is omitted — H never observed A")
           ;; Re-observe under H → included again, now attributed H (the new stamp).
-          (epoch.listeners/notify-listeners! {:frame id :epoch-id 2})
-          (let [observing-3 (:observing (epoch-state/snapshot-terminal-observers id))]
+          (rf.epoch.listeners/notify-listeners! {:frame id :epoch-id 2})
+          (let [observing-3 (:observing (rf.epoch.state/snapshot-terminal-observers id))]
             (is (= h (get observing-3 cb))
                 "re-observing re-includes the cb under its current generation stamp"))))
       (finally
@@ -120,12 +120,12 @@
         (when (= :rf.epoch.cb/silenced-on-frame-destroy (:operation ev))
           (swap! silencings conj ev))))
     (try
-      (epoch-state/claim-frame-owner! id token-a)
-      (epoch.listeners/notify-listeners! {:frame id :epoch-id 1})
-      (let [a-ev (epoch.listeners/snapshot-terminal-destroy-evidence! id nil nil nil)]
+      (rf.epoch.state/claim-frame-owner! id token-a)
+      (rf.epoch.listeners/notify-listeners! {:frame id :epoch-id 1})
+      (let [a-ev (rf.epoch.listeners/snapshot-terminal-destroy-evidence! id nil nil nil)]
         ;; cb re-registered to a fresh generation in the deferred window.
         (rf/register-listener! :epoch cb (fn [_] nil))
-        (epoch.listeners/on-frame-destroyed! id token-a a-ev)
+        (rf.epoch.listeners/on-frame-destroyed! id token-a a-ev)
         (is (zero? (silences-for silencings cb))
             "the re-registered generation receives no stale prior-generation silence"))
       (finally
@@ -151,17 +151,17 @@
                      (= id (:frame (:tags ev))))
             (swap! silencings conj ev))))
       (try
-        (epoch.listeners/notify-listeners! {:frame id :epoch-id 1})
-        (let [ev-1    (epoch.listeners/snapshot-terminal-destroy-evidence! id nil nil nil)
-              ev-2    (epoch.listeners/snapshot-terminal-destroy-evidence! id nil nil nil)
+        (rf.epoch.listeners/notify-listeners! {:frame id :epoch-id 1})
+        (let [ev-1    (rf.epoch.listeners/snapshot-terminal-destroy-evidence! id nil nil nil)
+              ev-2    (rf.epoch.listeners/snapshot-terminal-destroy-evidence! id nil nil nil)
               ;; Both bundles owe cb; drop its live observation so the silence is
               ;; genuinely owed (as A's own compare-owned cleanup would).
-              _       (epoch-state/drop-frame-observation! id)
+              _       (rf.epoch.state/drop-frame-observation! id)
               barrier (CyclicBarrier. 2)
               publish (fn [ev token]
                         (future
                           (.await barrier 5 TimeUnit/SECONDS)
-                          (epoch.listeners/on-frame-destroyed! id token ev)))
+                          (rf.epoch.listeners/on-frame-destroyed! id token ev)))
               f1      (publish ev-1 (Object.))
               f2      (publish ev-2 (Object.))]
           (is (not= ::timeout (deref f1 5000 ::timeout)) "publisher 1 completes")
@@ -188,16 +188,16 @@
     (rf/register-listener! :epoch trigger (fn [_] nil))
     (rf/register-listener! :epoch target (fn [_] nil))
     (try
-      (epoch-state/claim-frame-owner! id token-a)
-      (epoch.listeners/notify-listeners! {:frame id :epoch-id 1})
-      (is (= #{trigger target} (set (epoch-state/cbs-observing-frame id)))
+      (rf.epoch.state/claim-frame-owner! id token-a)
+      (rf.epoch.listeners/notify-listeners! {:frame id :epoch-id 1})
+      (is (= #{trigger target} (set (rf.epoch.state/cbs-observing-frame id)))
           "both identities observed A")
       (let [target-gen (cb-generation target)
-            a-ev       (epoch.listeners/snapshot-terminal-destroy-evidence! id nil nil nil)]
+            a-ev       (rf.epoch.listeners/snapshot-terminal-destroy-evidence! id nil nil nil)]
         ;; A live successor B claims (dropping every observation). Neither
         ;; identity is a live observer at fan start.
-        (epoch-state/claim-frame-owner! id token-b)
-        (is (empty? (epoch-state/cbs-observing-frame id))
+        (rf.epoch.state/claim-frame-owner! id token-b)
+        (is (empty? (rf.epoch.state/cbs-observing-frame id))
             "successor B dropped both observations")
         ;; The trace listener re-arms z-target on B the moment a-trigger's silence
         ;; fires — mid-fan, before z-target is reached.
@@ -206,13 +206,13 @@
             (when (= :rf.epoch.cb/silenced-on-frame-destroy (:operation ev))
               (swap! silencings conj ev)
               (when (= trigger (:cb-id (:tags ev)))
-                (epoch-state/record-observation! target target-gen id)))))
-        (epoch.listeners/on-frame-destroyed! id token-a a-ev)
+                (rf.epoch.state/record-observation! target target-gen id)))))
+        (rf.epoch.listeners/on-frame-destroyed! id token-a a-ev)
         (is (= 1 (silences-for silencings trigger))
             "a-trigger — A-only — is silenced first")
         (is (zero? (silences-for silencings target))
             "z-target — re-armed live mid-fan — is rechecked and skipped")
-        (is (= [target] (epoch-state/cbs-observing-frame id))
+        (is (= [target] (rf.epoch.state/cbs-observing-frame id))
             "z-target is a live observer of B after the re-arm"))
       (finally
         (rf/unregister-listener! :epoch trigger)
@@ -237,7 +237,7 @@
       ;; cb is owed (not a live observer of id), so the claim reserves the signal.
       (let [g      (cb-generation cb)
             claim! (fn [publish!]
-                     (epoch-state/claim-and-publish-delayed-silence! id cb g 0 publish!))]
+                     (rf.epoch.state/claim-and-publish-delayed-silence! id cb g 0 publish!))]
         ;; A publish that throws propagates AND releases the reservation.
         (is (thrown? clojure.lang.ExceptionInfo
               (claim! (fn [] (throw (ex-info "delivery failed" {})))))
@@ -266,14 +266,14 @@
       (let [g           (cb-generation cb)
             superseded? (atom nil)]
         (is (thrown? clojure.lang.ExceptionInfo
-              (epoch-state/claim-and-publish-delayed-silence! id cb g 0
+              (rf.epoch.state/claim-and-publish-delayed-silence! id cb g 0
                 (fn []
                   ;; Locks are released here, so a successor publisher — whose
                   ;; baseline sits above our fresh mark — can claim the identity
                   ;; between our reservation and our (failing) delivery.
                   (reset! superseded?
-                          (epoch-state/claim-and-publish-delayed-silence!
-                            id cb g (epoch-state/current-terminal-silence-seq)
+                          (rf.epoch.state/claim-and-publish-delayed-silence!
+                            id cb g (rf.epoch.state/current-terminal-silence-seq)
                             (fn [] nil)))
                   (throw (ex-info "delivery failed" {})))))
             "our publish still throws contained")
@@ -281,7 +281,7 @@
             "the successor reserved and published while we held no lock")
         (is (pos? (total-marks))
             "our failed publish compare-and-pruned only its OWN seq — the fresher mark stands")
-        (is (nil? (epoch-state/claim-and-publish-delayed-silence! id cb g 0 (fn [] nil)))
+        (is (nil? (rf.epoch.state/claim-and-publish-delayed-silence! id cb g 0 (fn [] nil)))
             "and that fresher mark still refuses a claim at the original baseline"))
       (finally
         (rf/unregister-listener! :epoch cb)))))
@@ -306,10 +306,10 @@
       (dotimes [i n]
         (let [id    (keyword "vxgfnd285-bounded" (str i))
               token (Object.)]
-          (epoch-state/claim-frame-owner! id token)
-          (epoch.listeners/notify-listeners! {:frame id :epoch-id 1})
-          (epoch.listeners/on-frame-destroyed! id token
-            (epoch.listeners/snapshot-terminal-destroy-evidence! id nil nil nil))
+          (rf.epoch.state/claim-frame-owner! id token)
+          (rf.epoch.listeners/notify-listeners! {:frame id :epoch-id 1})
+          (rf.epoch.listeners/on-frame-destroyed! id token
+            (rf.epoch.listeners/snapshot-terminal-destroy-evidence! id nil nil nil))
           (is (<= (total-marks) 1)
               "at most one frame's marks are ever retained at once")))
       (is (= n @silencings) "each unique destroy silenced the persistent cb once")
@@ -337,31 +337,31 @@
           (swap! silencings conj ev))))
     (try
       ;; A observes F-a and snapshots (opening F-a's window) but does NOT publish.
-      (epoch-state/claim-frame-owner! f-a token-a)
-      (epoch.listeners/notify-listeners! {:frame f-a :epoch-id 1})
-      (let [a-ev (epoch.listeners/snapshot-terminal-destroy-evidence! f-a nil nil nil)]
+      (rf.epoch.state/claim-frame-owner! f-a token-a)
+      (rf.epoch.listeners/notify-listeners! {:frame f-a :epoch-id 1})
+      (let [a-ev (rf.epoch.listeners/snapshot-terminal-destroy-evidence! f-a nil nil nil)]
         ;; Successor B of F-a re-arms cb, then retires — firing the one silence and
         ;; leaving a (F-a, cb) mark above A's baseline.
-        (epoch-state/claim-frame-owner! f-a token-b)
-        (epoch.listeners/notify-listeners! {:frame f-a :epoch-id 2})
-        (epoch.listeners/on-frame-destroyed! f-a token-b
-          (epoch.listeners/snapshot-terminal-destroy-evidence! f-a nil nil nil))
+        (rf.epoch.state/claim-frame-owner! f-a token-b)
+        (rf.epoch.listeners/notify-listeners! {:frame f-a :epoch-id 2})
+        (rf.epoch.listeners/on-frame-destroyed! f-a token-b
+          (rf.epoch.listeners/snapshot-terminal-destroy-evidence! f-a nil nil nil))
         (is (= 1 (silences-for-frame silencings cb f-a)) "B fired the one truthful F-a silence")
         (is (= 1 (total-marks)) "exactly F-a's mark is retained while A is held")
         ;; Destroy many UNRELATED frames synchronously — they must not accrete.
         (dotimes [i 500]
           (let [id    (keyword "vxgfnd285-held-other" (str i))
                 token (Object.)]
-            (epoch-state/claim-frame-owner! id token)
-            (epoch.listeners/notify-listeners! {:frame id :epoch-id 1})
-            (epoch.listeners/on-frame-destroyed! id token
-              (epoch.listeners/snapshot-terminal-destroy-evidence! id nil nil nil))))
+            (rf.epoch.state/claim-frame-owner! id token)
+            (rf.epoch.listeners/notify-listeners! {:frame id :epoch-id 1})
+            (rf.epoch.listeners/on-frame-destroyed! id token
+              (rf.epoch.listeners/snapshot-terminal-destroy-evidence! id nil nil nil))))
         (is (= 1 (total-marks))
             "held A keeps ONLY F-a's mark — unrelated frames self-clean")
-        (is (= #{cb} (set (keys (get (epoch-state/terminal-silence-marks-snapshot) f-a))))
+        (is (= #{cb} (set (keys (get (rf.epoch.state/terminal-silence-marks-snapshot) f-a))))
             "the retained mark is exactly the one A could still consume")
         ;; A resumes: it must NOT re-emit (B's mark is above A's baseline)…
-        (epoch.listeners/on-frame-destroyed! f-a token-a a-ev)
+        (rf.epoch.listeners/on-frame-destroyed! f-a token-a a-ev)
         (is (= 1 (silences-for-frame silencings cb f-a))
             "late A adds no F-a silence — the retired successor already fired it")
         (is (zero? (total-marks))
@@ -378,11 +378,11 @@
     (rf/register-listener! :epoch cb (fn [_] nil))
     ;; A destroyed predecessor left a terminal-silence mark that `reset-listeners!`
     ;; must clear (cb is owed — not a live observer — so the claim reserves it).
-    (epoch-state/open-silence-lineage! id)
-    (epoch-state/claim-and-publish-delayed-silence! id cb (cb-generation cb) 0
+    (rf.epoch.state/open-silence-lineage! id)
+    (rf.epoch.state/claim-and-publish-delayed-silence! id cb (cb-generation cb) 0
                                                     (fn [] nil))
     (is (pos? (total-marks)) "a terminal-silence mark is present")
-    (epoch-state/reset-listeners!)
+    (rf.epoch.state/reset-listeners!)
     (is (zero? (total-marks))
         "reset-listeners! clears the terminal-silence lineage, not just the registry")))
 
@@ -393,12 +393,12 @@
   ;; successor already fired. The seq only ever climbs.
   (let [;; An outstanding predecessor's baseline, taken after the domain has moved
         ;; well above zero.
-        _        (dotimes [_ 5] (epoch-state/next-terminal-silence-seq))
-        baseline (epoch-state/current-terminal-silence-seq)]
+        _        (dotimes [_ 5] (rf.epoch.state/next-terminal-silence-seq))
+        baseline (rf.epoch.state/current-terminal-silence-seq)]
     (is (pos? baseline) "the comparison domain has advanced above zero")
-    (epoch-state/reset-frame-silences!)
+    (rf.epoch.state/reset-frame-silences!)
     (is (zero? (total-marks)) "reset cleared the marks")
-    (let [after (epoch-state/next-terminal-silence-seq)]
+    (let [after (rf.epoch.state/next-terminal-silence-seq)]
       (is (> after baseline)
           "a post-reset mark is stamped ABOVE an outstanding baseline — the domain never recycles"))))
 
@@ -423,15 +423,15 @@
     (let [churner (future
                     (while (not @stop?)
                       (rf/register-listener! :epoch cb (fn [_] nil))
-                      (epoch-state/record-observation! cb (cb-generation cb) id)))]
+                      (rf.epoch.state/record-observation! cb (cb-generation cb) id)))]
       (try
         (dotimes [_ rounds]
           (reset! silencings [])
           (let [token (Object.)]
-            (epoch-state/claim-frame-owner! id token)
-            (epoch.listeners/notify-listeners! {:frame id :epoch-id 1})
-            (epoch.listeners/on-frame-destroyed! id token
-              (epoch.listeners/snapshot-terminal-destroy-evidence! id nil nil nil)))
+            (rf.epoch.state/claim-frame-owner! id token)
+            (rf.epoch.listeners/notify-listeners! {:frame id :epoch-id 1})
+            (rf.epoch.listeners/on-frame-destroyed! id token
+              (rf.epoch.listeners/snapshot-terminal-destroy-evidence! id nil nil nil)))
           (is (<= (silences-for silencings cb) 1)
               "no destroy double-signals the cb under concurrent generation churn"))
         (finally

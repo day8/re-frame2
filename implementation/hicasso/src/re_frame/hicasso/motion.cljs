@@ -86,7 +86,7 @@
   its props (docs/design/hicasso/decisions.md HD-030). Naming-ledger row
   31 ruled the respelling from the prototype's `::h/…` (operator,
   2026-08-11), and the vocabulary now matches the row (rf2-hg3q)."
-  (:require [re-frame.hicasso.impl.presence-react :as impl-presence-react]))
+  (:require [re-frame.hicasso.impl.presence-react :as rf.hicasso.impl.presence-react]))
 
 (def ^{:doc "`motion/presence` — retain exiting keyed children for
   `:timeout-ms`, merging each child's own `::motion/mounting` /
@@ -98,4 +98,4 @@
   merged. `:timeout-ms` is mandatory — it is the retention length and
   the hard terminal bound at once, so a child leaves on time whether or
   not any CSS ran. `re-frame.hicasso.impl.presence-react/presence`."}
-  presence impl-presence-react/presence)
+  presence rf.hicasso.impl.presence-react/presence)

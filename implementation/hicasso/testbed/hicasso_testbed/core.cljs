@@ -122,9 +122,9 @@
   a claim about both halves. Nothing here mutates anything the app could
   not reach through an ordinary dispatch."
   (:require [clojure.string :as str]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]))
+            [re-frame.hicasso :as rf.hicasso]))
 
 (def ^:private frame-id ::testbed)
 
@@ -458,7 +458,7 @@
 ;; The views — every field written the way authoring.md writes one
 ;; ---------------------------------------------------------------------------
 
-(h/defview text-field
+(rf.hicasso/defview text-field
   "One controlled `<input>`. `:value` off the subscription, an intent
   vector at `:on-input`, and nothing else."
   [{:keys [field]}]
@@ -466,18 +466,18 @@
     [:input {:data-testid id
              :id          id
              :type        "text"
-             :value       (h/sub [:tb/field field])
-             :on-input    [:tb/edit field ::h/value]}]))
+             :value       (rf.hicasso/sub [:tb/field field])
+             :on-input    [:tb/edit field ::rf.hicasso/value]}]))
 
-(h/defview notes-field
+(rf.hicasso/defview notes-field
   "The same law on the other convergeable tag."
   [_]
   [:textarea {:data-testid "notes"
               :id          "notes"
-              :value       (h/sub [:tb/field :notes])
-              :on-input    [:tb/edit :notes ::h/value]}])
+              :value       (rf.hicasso/sub [:tb/field :notes])
+              :on-input    [:tb/edit :notes ::rf.hicasso/value]}])
 
-(h/defview revision-field
+(rf.hicasso/defview revision-field
   "The reset trigger, carried as the author carries it: one `::h/revision`
   on the element's own attribute map. It is never an attribute, and the
   field is otherwise an ordinary controlled field.
@@ -491,21 +491,21 @@
     [:input {:data-testid   id
              :id            id
              :type          "text"
-             ::h/revision   (h/sub [:tb/revision])
-             :value         (h/sub [:tb/field field])
-             :on-input      [:tb/edit field ::h/value]}]))
+             ::rf.hicasso/revision   (rf.hicasso/sub [:tb/revision])
+             :value         (rf.hicasso/sub [:tb/field field])
+             :on-input      [:tb/edit field ::rf.hicasso/value]}]))
 
-(h/defview flag-box
+(rf.hicasso/defview flag-box
   "The owned `::h/checked` pair. `false` is a presence here, not a
   falsehood."
   [_]
   [:input {:data-testid "flag"
            :id          "flag"
            :type        "checkbox"
-           :checked     (h/sub [:tb/flag])
-           :on-change   [:tb/toggle-flag ::h/checked]}])
+           :checked     (rf.hicasso/sub [:tb/flag])
+           :on-change   [:tb/toggle-flag ::rf.hicasso/checked]}])
 
-(h/defview reset-form
+(rf.hicasso/defview reset-form
   "A real form with a real reset button, so `form.reset()` is the
   browser's own and not a simulation of it.
 
@@ -521,14 +521,14 @@
             :id          "form-a"
             :name        "form-a"
             :type        "text"
-            :value       (h/sub [:tb/field :form-a])
-            :on-input    [:tb/edit :form-a ::h/value]}]
+            :value       (rf.hicasso/sub [:tb/field :form-a])
+            :on-input    [:tb/edit :form-a ::rf.hicasso/value]}]
    [:input {:data-testid "form-b"
             :id          "form-b"
             :name        "form-b"
             :type        "text"
-            :value       (h/sub [:tb/field :form-b])
-            :on-input    [:tb/edit :form-b ::h/value]}]
+            :value       (rf.hicasso/sub [:tb/field :form-b])
+            :on-input    [:tb/edit :form-b ::rf.hicasso/value]}]
    ;; A controlled checkbox INSIDE the form, so the extraction row reads a
    ;; control whose owned slot is `::h/checked` rather than a value, and
    ;; the reset row has a `defaultChecked` mirror to act on.
@@ -537,29 +537,29 @@
             :name        "form-flag"
             :type        "checkbox"
             :value       "yes"
-            :checked     (h/sub [:tb/flag])
-            :on-change   [:tb/toggle-flag ::h/checked]}]
+            :checked     (rf.hicasso/sub [:tb/flag])
+            :on-change   [:tb/toggle-flag ::rf.hicasso/checked]}]
    ;; …and a controlled select, whose extraction is `selected` rather than
    ;; an attribute.
    [:select {:data-testid "form-pick"
              :id          "form-pick"
              :name        "form-pick"
-             :value       (h/sub [:tb/field :form-pick])
-             :on-change   [:tb/edit :form-pick ::h/value]}
+             :value       (rf.hicasso/sub [:tb/field :form-pick])
+             :on-change   [:tb/edit :form-pick ::rf.hicasso/value]}
     [:option {:value "one"} "one"]
     [:option {:value "two"} "two"]]
    [:button {:data-testid "form-reset" :type "reset"} "reset"]])
 
-(h/defview mountable-field
+(rf.hicasso/defview mountable-field
   "Rendered behind a flag, so the driver can take the fiber away from
   under a live composition."
   [_]
-  (if (h/sub [:tb/mounted?])
+  (if (rf.hicasso/sub [:tb/mounted?])
     [:input {:data-testid "mountable"
              :id          "mountable"
              :type        "text"
-             :value       (h/sub [:tb/field :mountable])
-             :on-input    [:tb/edit :mountable ::h/value]}]
+             :value       (rf.hicasso/sub [:tb/field :mountable])
+             :on-input    [:tb/edit :mountable ::rf.hicasso/value]}]
     [:p {:data-testid "mountable-gone"} "unmounted"]))
 
 ;; ---------------------------------------------------------------------------
@@ -567,7 +567,7 @@
 ;; authoring.md writes it and NOT the way a harness would find convenient
 ;; ---------------------------------------------------------------------------
 
-(h/defview radio-group
+(rf.hicasso/defview radio-group
   "Three radios on one model slot. `:checked` is owned off the
   subscription and the intent carries the option as a constant, because a
   radio's `::h/checked` is always `true` at the moment it fires — the
@@ -581,7 +581,7 @@
   through the shadow component and its `convergeable?` re-ask — the inert
   path, on a type with no caret."
   [_]
-  (let [choice (h/sub [:tb/radio])]
+  (let [choice (rf.hicasso/sub [:tb/radio])]
     [:fieldset {:data-testid "radios"}
      (for [option ["a" "b" "c"]]
        [:label {:key option}
@@ -593,7 +593,7 @@
                  :on-change   [:tb/pick-radio option]}]
         option])]))
 
-(h/defview select-single
+(rf.hicasso/defview select-single
   "A controlled `<select>`. Nothing in `impl.controlled` applies to it —
   `convergeable-tag?` answers false for `select` and the namespace
   docstring says why (no text cursor, no `defaultValue` mirror) — so what
@@ -602,13 +602,13 @@
   [_]
   [:select {:data-testid "pick"
             :id          "pick"
-            :value       (h/sub [:tb/field :pick])
-            :on-change   [:tb/edit :pick ::h/value]}
+            :value       (rf.hicasso/sub [:tb/field :pick])
+            :on-change   [:tb/edit :pick ::rf.hicasso/value]}
    [:option {:value "one"} "one"]
    [:option {:value "two"} "two"]
    [:option {:value "banned"} "banned"]])
 
-(h/defview select-multiple
+(rf.hicasso/defview select-multiple
   "The same control with `:multiple`, written the SUPPORTED way.
 
   `h/event` rather than `::h/value`, and that is the whole content of this
@@ -620,8 +620,8 @@
   [:select {:data-testid "picks"
             :id          "picks"
             :multiple    true
-            :value       (h/sub [:tb/picks])
-            :on-change   (h/event [e]
+            :value       (rf.hicasso/sub [:tb/picks])
+            :on-change   (rf.hicasso/event [e]
                            [:tb/pick-many
                             (mapv #(.-value %)
                                   (array-seq (.. e -target -selectedOptions)))])}
@@ -630,7 +630,7 @@
    [:option {:value "banned"} "banned"]
    [:option {:value "c"} "c"]])
 
-(h/defview select-multiple-marker
+(rf.hicasso/defview select-multiple-marker
   "The same control again, written the way an author reaches for FIRST —
   the reserved marker at the change position — so that what it costs is
   measured rather than asserted in prose. The handler does the obvious
@@ -639,13 +639,13 @@
   [:select {:data-testid "picks-marker"
             :id          "picks-marker"
             :multiple    true
-            :value       (h/sub [:tb/picks-marker])
-            :on-change   [:tb/pick-many-marker ::h/value]}
+            :value       (rf.hicasso/sub [:tb/picks-marker])
+            :on-change   [:tb/pick-many-marker ::rf.hicasso/value]}
    [:option {:value "a"} "a"]
    [:option {:value "b"} "b"]
    [:option {:value "c"} "c"]])
 
-(h/defview file-field
+(rf.hicasso/defview file-field
   "A file input, UNCONTROLLED, which is the only thing it can be:
   `HTMLInputElement.value` refuses every assignment but `\"\"`, so a
   `:value` off a subscription would be a promise the platform cannot
@@ -656,12 +656,12 @@
            :id          "file"
            :type        "file"
            :multiple    true
-           :on-change   (h/event [e]
+           :on-change   (rf.hicasso/event [e]
                           [:tb/take-files
                            (mapv #(.-name %)
                                  (array-seq (.. e -target -files)))])}])
 
-(h/defview typed-field
+(rf.hicasso/defview typed-field
   "One `<input>` of a type with no text cursor — `number`, `date` or
   `range`. Written identically to the text fields: `:value` off a
   subscription, an intent at `:on-input`.
@@ -676,11 +676,11 @@
     [:input (merge {:data-testid id
                     :id          id
                     :type        kind
-                    :value       (h/sub [:tb/field field])
-                    :on-input    [:tb/edit field ::h/value]}
+                    :value       (rf.hicasso/sub [:tb/field field])
+                    :on-input    [:tb/edit field ::rf.hicasso/value]}
                    extra)]))
 
-(h/defview editable-region
+(rf.hicasso/defview editable-region
   "A `contenteditable` region. It is NOT a controlled field and this
   testbed does not pretend otherwise: there is no owned `:value` slot for
   one, the content is the browser's, and the author's handler reads it
@@ -691,10 +691,10 @@
          :id               "prose"
          :content-editable "plaintext-only"
          :suppress-content-editable-warning true
-         :on-input         (h/event [e] [:tb/set-prose (.. e -target -textContent)])}
-   (h/sub [:tb/prose])])
+         :on-input         (rf.hicasso/event [e] [:tb/set-prose (.. e -target -textContent)])}
+   (rf.hicasso/sub [:tb/prose])])
 
-(h/defview blur-probe
+(rf.hicasso/defview blur-probe
   "A controlled field behind a mount flag, carrying focus and blur
   handlers that write to the model.
 
@@ -708,17 +708,17 @@
   and what it RECORDS is where the focus lands afterwards, which is the
   engines' to differ on."
   [_]
-  (if (h/sub [:tb/probe-mounted?])
+  (if (rf.hicasso/sub [:tb/probe-mounted?])
     [:input {:data-testid "blur-probe"
              :id          "blur-probe"
              :type        "text"
-             :value       (h/sub [:tb/field :async])
-             :on-input    [:tb/edit :async ::h/value]
+             :value       (rf.hicasso/sub [:tb/field :async])
+             :on-input    [:tb/edit :async ::rf.hicasso/value]
              :on-focus    [:tb/focus-edge "focus"]
              :on-blur     [:tb/focus-edge "blur"]}]
     [:p {:data-testid "blur-probe-gone"} "unmounted"]))
 
-(h/defview svg-figure
+(rf.hicasso/defview svg-figure
   "SVG, written in the two spellings an author uses: a camel attribute
   React renames nothing about (`:view-box` → `viewBox`) and kebab
   presentation attributes (`:stroke-width`, `:stroke-linecap`). The
@@ -734,7 +734,7 @@
              :stroke         "black"}]
    [:text {:data-testid "svg-text" :x 2 :y 18 :font-size 4} "hi"]])
 
-(h/defview custom-element-figure
+(rf.hicasso/defview custom-element-figure
   "A custom element. React 19 hands an unknown element's props through as
   ATTRIBUTES under the name it was given, so the slot rule decides what
   the DOM ends up with — and the slot rule camelCases a kebab keyword.
@@ -757,7 +757,7 @@
   [:plain :digits :empty :grouped :upper :notes :revision :revision-strict
    :form-a :form-b :mountable :pick :count :day :level :async])
 
-(h/defview trace-row
+(rf.hicasso/defview trace-row
   "One field's committed value and the number of intents that have reached
   the store for it. `pr-str` rather than the bare string, so `\"\"` and a
   trailing space are visible — a trace that renders an empty model as an
@@ -766,10 +766,10 @@
   (let [id (name field)]
     [:tr
      [:td id]
-     [:td {:data-testid (str "trace-" id "-value")} (pr-str (h/sub [:tb/field field]))]
-     [:td {:data-testid (str "trace-" id "-edits")} (str (h/sub [:tb/edits field]))]]))
+     [:td {:data-testid (str "trace-" id "-value")} (pr-str (rf.hicasso/sub [:tb/field field]))]
+     [:td {:data-testid (str "trace-" id "-edits")} (str (rf.hicasso/sub [:tb/edits field]))]]))
 
-(h/defview trace
+(rf.hicasso/defview trace
   "The store, on screen. The manual native-IME session reads its
   `app-db clean until commit` and `arrives exactly once` checks off this
   table, because a browser shell with no devtools has nowhere else to read
@@ -781,7 +781,7 @@
     (for [field traced-fields]
       [trace-row {:key (name field) :field field}])]])
 
-(h/defview armed-edges
+(rf.hicasso/defview armed-edges
   "The two mid-composition edges, reachable without a pointer-down that
   would close the composition first.
 
@@ -790,7 +790,7 @@
   meant to, and it is the only thing a driver can read about an arm
   without waiting five seconds for it to fire."
   [_]
-  (let [armed (h/sub [:tb/armed])
+  (let [armed (rf.hicasso/sub [:tb/armed])
         what  (:what armed)
         event (:event armed)]
     [:p
@@ -804,7 +804,7 @@
              " fires in " (humanise-ms (:ms armed)))
         "idle")]]))
 
-(h/defview app
+(rf.hicasso/defview app
   [_]
   [:main {:data-testid "hicasso-controlled-testbed"}
    [:h1 "Hicasso controlled-input testbed"]
@@ -883,8 +883,8 @@
 
 (defn ^:export init
   []
-  (rf/init! uix-adapter/adapter)
+  (rf/init! rf.adapter.uix/adapter)
   (rf/make-frame {:id frame-id :initial-events [[:tb/seed]]})
-  (h/mount! (js/document.getElementById "app") {:frame frame-id} [app {}])
+  (rf.hicasso/mount! (js/document.getElementById "app") {:frame frame-id} [app {}])
   (unchecked-set js/window "__RF2_HIC_TB__" #js {:model model-json})
   nil)

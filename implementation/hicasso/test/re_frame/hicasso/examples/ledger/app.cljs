@@ -9,11 +9,11 @@
 
   One root, one frame, no route — `examples.editor.app` says why an
   application in this tree registers none."
-  (:require [re-frame.adapter.uix :as uix-adapter]
+  (:require [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.examples.ledger.events :as events]
-            [re-frame.hicasso.examples.ledger.views :as views]))
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.examples.ledger.events :as rf.hicasso.examples.ledger.events]
+            [re-frame.hicasso.examples.ledger.views :as rf.hicasso.examples.ledger.views]))
 
 (def frame-id
   "This application's frame. Namespaced, so two applications in one
@@ -22,8 +22,8 @@
 
 (defn initial-events
   "What seeds a fresh frame holding `total` records."
-  ([] (initial-events events/default-total))
-  ([total] [[::events/seed {:total total}]]))
+  ([] (initial-events rf.hicasso.examples.ledger.events/default-total))
+  ([total] [[::rf.hicasso.examples.ledger.events/seed {:total total}]]))
 
 (defonce ^:private !root (atom nil))
 
@@ -31,13 +31,13 @@
   "Re-render the mounted root after a hot reload."
   []
   (when-some [root @!root]
-    (h/render! root [views/ledger {}])))
+    (rf.hicasso/render! root [rf.hicasso.examples.ledger.views/ledger {}])))
 
 (defn ^:export -main
   "Mount the ten-thousand-row ledger on `#app`."
   []
-  (rf/init! uix-adapter/adapter)
+  (rf/init! rf.adapter.uix/adapter)
   (rf/make-frame {:id frame-id :initial-events (initial-events)})
-  (reset! !root (h/mount! (js/document.getElementById "app") {:frame frame-id}
-                          [views/ledger {}]))
+  (reset! !root (rf.hicasso/mount! (js/document.getElementById "app") {:frame frame-id}
+                          [rf.hicasso.examples.ledger.views/ledger {}]))
   nil)

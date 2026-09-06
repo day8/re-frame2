@@ -24,16 +24,16 @@
   suite which runs without resources)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.epoch :as epoch]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
+            [re-frame.epoch :as rf.epoch]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
             ;; load-bearing: publishes the :resources/* late-bind hooks,
             ;; including :resources/project-scope-resolved-egress.
             [re-frame.resources]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
      :init-fn (fn []
                 (rf/make-frame {:id :test/rs})
                 ;; a db-reading resolver (the :inherit default — fail-closed
@@ -93,7 +93,7 @@
                        [(scope-resolved-event :rs/session
                                               {:username secret}
                                               [:rf.scope/session {:username secret}])])
-          projected (epoch/projected-record record)
+          projected (rf.epoch/projected-record record)
           row       (first (:trace-events projected))]
       (is (= :rf/redacted (get-in row [:tags :input-values]))
           "the raw db reads are redacted off-box")
@@ -115,7 +115,7 @@
                        [(scope-resolved-event :rs/public-locale
                                               {:locale "en"}
                                               [:rf.scope/locale {:locale "en"}])])
-          projected (epoch/projected-record record)
+          projected (rf.epoch/projected-record record)
           row       (first (:trace-events projected))]
       (is (= :rf/redacted (get-in row [:tags :input-values]))
           "the resolved input-values are redacted (no declassify hatch)")

@@ -26,11 +26,11 @@
   This namespace is JVM-only (`.clj`)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.flows :as flows]
-            [re-frame.flows.registry :as registry]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace])
+            [re-frame.flows :as rf.flows]
+            [re-frame.flows.registry :as rf.flows.registry]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace])
   (:import [java.util.concurrent CountDownLatch]
            [java.util.concurrent.atomic AtomicLong]))
 
@@ -44,7 +44,7 @@
 ;; listeners (the reset clears every listener first).
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---------------------------------------------------------------------------
 ;; 1. Deterministic unit-level repro — the rollback must touch ONLY the
@@ -68,20 +68,20 @@
     (rf/reg-flow :flow-x {:frame :b :inputs [[:n]] :output-path [:out]} (fn [n] (* 2 (or n 0))))
 
     ;; Simulate B having drained to completion: its dirty-check row is V2.
-    (registry/set-frame-flow-last-inputs! :b :flow-x [42])
-    (is (= [42] (registry/get-frame-flow-last-inputs :b :flow-x))
+    (rf.flows.registry/set-frame-flow-last-inputs! :b :flow-x [42])
+    (is (= [42] (rf.flows.registry/get-frame-flow-last-inputs :b :flow-x))
         "precondition: B's row is seeded to V2 = [42]")
 
     ;; Drive frame A's drain directly. A's flow throws, so run-flows-on-db
     ;; rolls back A's OWN container. The throw propagates — catch it.
     (is (thrown? Throwable
-                 (flows/run-flows-on-db :a {:n 7} nil))
+                 (rf.flows/run-flows-on-db :a {:n 7} nil))
         "A's flow throw propagates out of run-flows-on-db")
 
     ;; THE ASSERTION: B's row is untouched by A's rollback.
-    (is (= [42] (registry/get-frame-flow-last-inputs :b :flow-x))
+    (is (= [42] (rf.flows.registry/get-frame-flow-last-inputs :b :flow-x))
         "B's last-inputs row survives A's throwing-flow rollback (rf2-94ol5)")
-    (is (= [42] (get-in (flows/last-inputs-snapshot) [:flow-x :b]))
+    (is (= [42] (get-in (rf.flows/last-inputs-snapshot) [:flow-x :b]))
         "the aggregated snapshot still shows B's row")))
 
 ;; ---------------------------------------------------------------------------
@@ -104,11 +104,11 @@
       ;; throws — so :A's advance must be rolled back.
       (rf/reg-flow :A {:frame :solo :inputs [[:n]] :output-path [:a-out]} (fn [n] (* 10 (or n 0))))
       (rf/reg-flow :B {:frame :solo :inputs [[:a-out]] :output-path [:b-out]} (fn [_] (throw (ex-info "boom-B" {}))))
-      (is (thrown? Throwable (flows/run-flows-on-db :solo {:n 5} nil)))
-      (reset! a-row-before (registry/get-frame-flow-last-inputs :solo :A))
+      (is (thrown? Throwable (rf.flows/run-flows-on-db :solo {:n 5} nil)))
+      (reset! a-row-before (rf.flows.registry/get-frame-flow-last-inputs :solo :A))
       (is (nil? @a-row-before)
           ":A's last-inputs advance was rolled back (single-frame atomicity intact)")
-      (is (nil? (registry/get-frame-flow-last-inputs :solo :B))
+      (is (nil? (rf.flows.registry/get-frame-flow-last-inputs :solo :B))
           ":B never advanced (it threw)"))))
 
 ;; ---------------------------------------------------------------------------
@@ -158,7 +158,7 @@
 
       ;; Count B's :rf.flow/computed traces (the spurious-recompute symptom).
       (let [b-computed (AtomicLong. 0)]
-        (trace/register-listener!
+        (rf.trace/register-listener!
           ::b-computed-watch
           (fn [ev]
             (when (and (= :rf.flow/computed (:operation ev))
@@ -196,7 +196,7 @@
           (is (not= ::timeout (deref fut-b 120000 ::timeout))
               "thread B completed within 120s")
 
-          (trace/unregister-listener! ::b-computed-watch)
+          (rf.trace/unregister-listener! ::b-computed-watch)
 
           ;; THE INVARIANT: B's :derive fired exactly once. A concurrent
           ;; rollback clobbering B's row would push this above 1.
@@ -219,6 +219,6 @@
               "B's flow output is correct (2 × 7)")
 
           ;; B's last-inputs row survives intact at [7].
-          (is (= [7] (registry/get-frame-flow-last-inputs :rf2-94ol5/b
+          (is (= [7] (rf.flows.registry/get-frame-flow-last-inputs :rf2-94ol5/b
                                                           :rf2-94ol5/doubles))
               "B's last-inputs row is intact at [7] after the stress"))))))

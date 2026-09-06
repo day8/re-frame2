@@ -38,16 +38,16 @@
   `deftest`, and its `sentinel-row` is minted by the same `h/defview` door
   every application view is."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.hicasso.coord-sentinel-source :as sentinel]
-            [re-frame.hicasso.impl.codec :as codec]))
+            [re-frame.hicasso.coord-sentinel-source :as rf.hicasso.coord-sentinel-source]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]))
 
 (deftest the-sentinel-head-is-a-real-minted-boundary-in-this-bundle
   (testing "the POSITIVE CONTROL, and the reason the absences below are not
             green for the wrong reason: an unminted, missing or
             wholly-DCE'd head would satisfy every one of them trivially"
-    (is (fn? sentinel/sentinel-row))
-    (is (true? (codec/boundary-head? sentinel/sentinel-row)))
-    (is (= sentinel/view-name (.-displayName sentinel/sentinel-row))
+    (is (fn? rf.hicasso.coord-sentinel-source/sentinel-row))
+    (is (true? (rf.hicasso.impl.codec/boundary-head? rf.hicasso.coord-sentinel-source/sentinel-row)))
+    (is (= rf.hicasso.coord-sentinel-source/view-name (.-displayName rf.hicasso.coord-sentinel-source/sentinel-row))
         "the view name is NOT elided — it is the measure id and the React
          DevTools label")))
 
@@ -55,7 +55,7 @@
   (testing "`(when ^boolean js/goog.DEBUG (codec/retain-body! head body-fn))`
             in `mint-view!` folds away whole, so the slot the test kit reads
             was never written and the body is unreachable from the head"
-    (is (nil? (codec/retained-body sentinel/sentinel-row)))))
+    (is (nil? (rf.hicasso.impl.codec/retained-body rf.hicasso.coord-sentinel-source/sentinel-row)))))
 
 (deftest no-own-property-of-a-production-head-holds-a-function
   (testing "the slot-name-independent form of the same claim: the body is a
@@ -64,9 +64,9 @@
             accidentally-duplicated retention is caught here even though the
             row above reads one slot"
     (let [held (into {}
-                     (comp (map (fn [k] [k (unchecked-get sentinel/sentinel-row k)]))
+                     (comp (map (fn [k] [k (unchecked-get rf.hicasso.coord-sentinel-source/sentinel-row k)]))
                            (filter (fn [[_ v]] (fn? v))))
-                     (js->clj (js/Object.keys sentinel/sentinel-row)))]
+                     (js->clj (js/Object.keys rf.hicasso.coord-sentinel-source/sentinel-row)))]
       (is (= {} held)
           "a production head's own properties are the display name and the
            boundary markers — never a body"))))

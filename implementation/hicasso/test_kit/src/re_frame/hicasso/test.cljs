@@ -224,12 +224,12 @@
   (:refer-clojure :exclude [find])
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.error :as error]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.controlled :as controlled]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.hicasso.impl.intent :as intent]))
+            [re-frame.error :as rf.error]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.controlled :as rf.hicasso.impl.controlled]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]))
 
 ;; ---------------------------------------------------------------------------
 ;; Refusals — one constructor, so every refusal has the same identity shape
@@ -251,7 +251,7 @@
   cannot hand a catch site a different `:rf.error/id` from the one in the
   message beside it — this kit's refusal is the runtime's refusal."
   [id reason extra]
-  (throw (error/ex-info-from-data
+  (throw (rf.error/ex-info-from-data
            (merge extra
                   {:rf.error/id id :where where
                    :reason reason :recovery :no-recovery}))))
@@ -320,21 +320,21 @@
   discrimination that makes this an assertion rather than a restatement
   of `fn?`."
   [v]
-  (codec/boundary-head? v))
+  (rf.hicasso.impl.codec/boundary-head? v))
 
 (defn host?
   "Is `v` a minted host crossing — the value `h/defhost` defines? False
   for the foreign component the declaration named, which is the point:
   the crossing is a distinct value with a policy of its own."
   [v]
-  (codec/host-head? v))
+  (rf.hicasso.impl.codec/host-head? v))
 
 (defn callback?
   "Is `v` the one callback form — the value `h/event` expands to? False for
   an identically-written plain `fn`, so a position that imposes a
   contract can tell them apart and so can a test."
   [v]
-  (intent/callback? v))
+  (rf.hicasso.impl.intent/callback? v))
 
 (defn view-name
   "The `\"<ns>/<sym>\"` name a minted boundary or host carries — the same
@@ -358,7 +358,7 @@
              (str "host-policy reads the `:server` policy off a minted `h/defhost` "
                   "crossing; it was given " (pr-str (type v)) ".")
              {:value v}))
-  (codec/host-server v))
+  (rf.hicasso.impl.codec/host-server v))
 
 ;; ---------------------------------------------------------------------------
 ;; L1 — the codec, projected
@@ -428,10 +428,10 @@
              (str "element-props projects ONE native hiccup form — a vector "
                   "whose head is a tag keyword. It was given " (pr-str form) ".")
              {:value form}))
-  (let [parsed (codec/cached-parse (nth form 0))
+  (let [parsed (rf.hicasso.impl.codec/cached-parse (nth form 0))
         props  (form-props form)
-        js-props (intent/with-frame l1-frame probe-dispatch
-                   (fn [] (codec/convert-props props parsed)))]
+        js-props (rf.hicasso.impl.intent/with-frame l1-frame probe-dispatch
+                   (fn [] (rf.hicasso.impl.codec/convert-props props parsed)))]
     (persistent!
       (reduce (fn [m k] (assoc! m k (opaque-value (unchecked-get js-props k))))
               (transient {})
@@ -457,7 +457,7 @@
              (str "materialize takes an intent VECTOR; it was given "
                   (pr-str intent-v) ".")
              {:value intent-v}))
-  (intent/materialize intent-v #js {"target" #js {"value" value "checked" checked}}))
+  (rf.hicasso.impl.intent/materialize intent-v #js {"target" #js {"value" value "checked" checked}}))
 
 (defn controlled?
   "Does the codec install the **controlled shadow** for this native form —
@@ -474,12 +474,12 @@
              (str "controlled? asks about ONE native hiccup form — a vector "
                   "whose head is a tag keyword. It was given " (pr-str form) ".")
              {:value form}))
-  (let [parsed   (codec/cached-parse (nth form 0))
+  (let [parsed   (rf.hicasso.impl.codec/cached-parse (nth form 0))
         props    (form-props form)
-        js-props (intent/with-frame l1-frame probe-dispatch
-                   (fn [] (codec/convert-props props parsed)))
+        js-props (rf.hicasso.impl.intent/with-frame l1-frame probe-dispatch
+                   (fn [] (rf.hicasso.impl.codec/convert-props props parsed)))
         tag      (.-tag parsed)]
-    (not (identical? tag (controlled/install! tag js-props)))))
+    (not (identical? tag (rf.hicasso.impl.controlled/install! tag js-props)))))
 
 (defn revision
   "The `::h/revision` value a native form carries, or nil.
@@ -489,7 +489,7 @@
   law). It is read **pre-conversion**, off the author's own attribute
   map, which is where the codec reads it — here as there."
   [form]
-  (get (form-props form) codec/revision-key))
+  (get (form-props form) rf.hicasso.impl.codec/revision-key))
 
 ;; ---------------------------------------------------------------------------
 ;; L1 — the canonical DOM comparator
@@ -543,7 +543,7 @@
               (case (.-nodeType n)
                 1 (let [tag   (str/lower-case (.-tagName n))
                         attrs (->> (array-seq (.-attributes n))
-                                   (remove (fn [a] (contains? runtime/annotation-attributes
+                                   (remove (fn [a] (contains? rf.hicasso.test.runtime/annotation-attributes
                                                               (.-name a))))
                                    (map (fn [a] [(.-name a) (.-value a)]))
                                    (sort-by first))]
@@ -668,8 +668,8 @@
                     "the fault this door exists to make loud; the positions "
                     "written are " (pr-str (vec (keys props))) ".")
                {:position prop :written (vec (keys props))}))
-    (let [handler (intent/with-frame frame-kw (collector/frame-dispatch frame-kw)
-                    (fn [] (intent/lower-prop prop (get props prop))))]
+    (let [handler (rf.hicasso.impl.intent/with-frame frame-kw (rf.hicasso.impl.collector/frame-dispatch frame-kw)
+                    (fn [] (rf.hicasso.impl.intent/lower-prop prop (get props prop))))]
       (when-not (fn? handler)
         (refuse! :rf.error/hicasso-test-position-is-not-a-handler
                  (str (pr-str prop) " lowered to " (pr-str handler)
@@ -966,7 +966,7 @@
   (into []
         (remove #(= "" %))
         (reduce (fn add [out x]
-                  (let [kind (codec/child-kind x)]
+                  (let [kind (rf.hicasso.impl.codec/child-kind x)]
                     (case kind
                       :nothing out
                       :splice  (reduce add out x)
@@ -976,18 +976,18 @@
 
 (defn- element-node
   [form ns-ctx]
-  (let [parsed  (codec/cached-parse (nth form 0))
+  (let [parsed  (rf.hicasso.impl.codec/cached-parse (nth form 0))
         tag     (keyword (.-tag parsed))
         props   (form-props form)
         ;; The codec's own two shorthand rules, taken from it rather than
         ;; restated: an explicit id WINS over `#id`, and the shorthand
         ;; class is PREPENDED to a declared one
         ;; (`codec/fold-shorthand!`).
-        classes (codec/class-names (.-className parsed) (:class props))
+        classes (rf.hicasso.impl.codec/class-names (.-className parsed) (:class props))
         id      (or (:id props) (.-id parsed))
         events  (persistent!
                   (reduce-kv (fn [m k v]
-                               (if (intent/event-prop? k)
+                               (if (rf.hicasso.impl.intent/event-prop? k)
                                  (assoc! m k (opaque-prop :attr k v))
                                  m))
                              (transient {})
@@ -995,7 +995,7 @@
         attrs   (persistent!
                   (reduce-kv (fn [m k v]
                                (cond
-                                 (intent/event-prop? k) m
+                                 (rf.hicasso.impl.intent/event-prop? k) m
                                  (= :key k)             m
                                  (= :class k)           m
                                  (= :id k)              m
@@ -1080,7 +1080,7 @@
   malformed HEAD, and `[:> :div]` with a pointer to L3: an instruction to
   go mount, in a browser, a form that cannot mount anywhere."
   [form ns-ctx]
-  (case (codec/vector-kind form)
+  (case (rf.hicasso.impl.codec/vector-kind form)
     :tag      (element-node form ns-ctx)
     :fragment (fragment-node form ns-ctx)
     :boundary (boundary-node form ns-ctx)
@@ -1197,7 +1197,7 @@
   live cell, and [[tree]] removes every one of them on the way out."
   [frame-kw fixtures]
   (let [keys' (mapv (fn [[query-v _]] [frame-kw query-v]) fixtures)]
-    (swap! collector/!cells
+    (swap! rf.hicasso.impl.collector/!cells
            (fn [cells]
              (reduce-kv (fn [m query-v v]
                           ;; `epoch` alongside the reaction because a
@@ -1224,7 +1224,7 @@
   correctly present."
   [frame-kw fixtures entry]
   (let [supplied (into #{} (map (fn [[q _]] [frame-kw q])) fixtures)
-        missing  (remove supplied (runtime/reads-of entry))]
+        missing  (remove supplied (rf.hicasso.test.runtime/reads-of entry))]
     (when (seq missing)
       (refuse! :rf.error/hicasso-test-missing-read-fixture
                (str "the body read " (count missing) " subscription"
@@ -1338,8 +1338,8 @@
          ;; property (rf2-kjf5). Substituting it here is the whole of L2's
          ;; support for `[some-view …]`: everything below then reads the
          ;; body function, and the view runs AS WRITTEN.
-         head   (if (codec/boundary-head? minted)
-                  (or (codec/retained-body minted)
+         head   (if (rf.hicasso.impl.codec/boundary-head? minted)
+                  (or (rf.hicasso.impl.codec/retained-body minted)
                       ;; Reachable in one build only — `:advanced` with
                       ;; `goog.DEBUG=false`, where the property was never
                       ;; written. There is genuinely nothing to run, so the
@@ -1356,7 +1356,7 @@
                                     (tier-pointer :l3))
                                {:view (view-name minted)}))
                   minted)]
-     (when (codec/host-head? head)
+     (when (rf.hicasso.impl.codec/host-head? head)
        (refuse-opaque! :rf.error/hicasso-test-host-is-opaque
                        (str "`" (view-name head) "` is a `h/defhost` crossing. "
                             "What a foreign React component renders is React's "
@@ -1384,19 +1384,19 @@
            ;; drop them. `codec/realize-children` is the flatten, so the
            ;; one-level seq splice is the runtime's rather than a second
            ;; rule with the same name.
-           props    (if-some [cs (codec/realize-children form (if has-props? 2 1))]
+           props    (if-some [cs (rf.hicasso.impl.codec/realize-children form (if has-props? 2 1))]
                       (assoc props :children cs)
                       props)
            !tree    (volatile! nil)
            keys'    (install-fixtures! frame-kw fixtures)]
        (try
-         (collector/render-body
+         (rf.hicasso.impl.collector/render-body
            frame-kw
            (fn hicasso-test-body [p]
              (vreset! !tree (canonical-children [(head p)] nil))
              nil)
            props)
-         (verify-fixtures! frame-kw fixtures (collector/last-reads))
+         (verify-fixtures! frame-kw fixtures (rf.hicasso.impl.collector/last-reads))
          ;; 004B §Versioning — the emitter returns the ROOT NODE, always a
          ;; map, carrying the version. A body that answered ONE node roots
          ;; in it; a body that answered text, several nodes, or NOTHING
@@ -1410,7 +1410,7 @@
              (assoc (nth children 0) tree-version-key tree-version)
              {tree-version-key tree-version :children children}))
          (finally
-           (swap! collector/!cells (fn [cells] (apply dissoc cells keys')))))))))
+           (swap! rf.hicasso.impl.collector/!cells (fn [cells] (apply dissoc cells keys')))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; L2 — the projections (004B §Projections; `re-frame.freehand.test`'s

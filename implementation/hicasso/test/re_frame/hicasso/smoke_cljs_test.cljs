@@ -32,14 +32,14 @@
   and an SSR entry to the package is the consumer app's."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.test-support :as test-support]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.test-support :as rf.test-support]
             ["react-dom/server" :as react-dom-server]))
 
 (def ^:private frame-id ::smoke)
@@ -56,21 +56,21 @@
 ;; subscription under it never notifies and a "the value changed" assertion
 ;; would pass vacuously by never firing.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The consumer's whole source file
 ;; ---------------------------------------------------------------------------
 
-(h/defview greeting-line
+(rf.hicasso/defview greeting-line
   "A boundary declared exactly as a consumer declares one: the macro off
   the public door, the read off the public door, and nothing imported from
   below it."
   [{:keys [tag]}]
-  [:p {:class tag} (h/sub [:smoke/greeting])])
+  [:p {:class tag} (rf.hicasso/sub [:smoke/greeting])])
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -90,7 +90,7 @@
 (defn- html
   [hiccup]
   (react-dom-server/renderToString
-    (mount/provider frame-id (codec/root-element frame-id hiccup))))
+    (rf.hicasso.impl.mount/provider frame-id (rf.hicasso.impl.codec/root-element frame-id hiccup))))
 
 ;; ---------------------------------------------------------------------------
 ;; The round-trip
@@ -100,7 +100,7 @@
   (testing "the door hands over a real minted boundary, not a plain fn —
             which is what `defview` expanding correctly through the
             self-required macro namespace looks like"
-    (is (true? (codec/boundary-head? greeting-line))
+    (is (true? (rf.hicasso.impl.codec/boundary-head? greeting-line))
         "greeting-line should be a Hicasso boundary head"))
 
   (testing "a boundary's body reads its subscription and the value reaches
@@ -134,4 +134,4 @@
     (seeded! "hello")
     (html [greeting-line {:tag "greet"}])
     (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0}
-           (dissoc (runtime/residue) :entries)))))
+           (dissoc (rf.hicasso.test.runtime/residue) :entries)))))

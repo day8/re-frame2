@@ -72,14 +72,14 @@
   making non-zero, which is the failure mode this repo has been bitten by
   twice."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.test-support :as test-support]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.test-support :as rf.test-support]
             ["react-dom/server" :as react-dom-server]))
 
 (def ^:private frame-id ::kernel-commit-owns)
@@ -104,11 +104,11 @@
 ;; async body has resumed. `:ambient-frame nil` because this suite seats
 ;; its own top-level frame.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -140,7 +140,7 @@
 (defn- ownership
   "The census with the entry cache projected out."
   []
-  (dissoc (runtime/residue) :entries))
+  (dissoc (rf.hicasso.test.runtime/residue) :entries))
 
 (defn- probe!
   "Run ONE boundary body under the real generation fence — the same call
@@ -148,35 +148,35 @@
   and return the read-set entry the render resolved. Commits nothing:
   `subscribe` is React's to call, and nothing here calls it."
   [body-fn]
-  (collector/render-body frame-id body-fn {})
-  (collector/last-reads))
+  (rf.hicasso.impl.collector/render-body frame-id body-fn {})
+  (rf.hicasso.impl.collector/last-reads))
 
 ;; ---------------------------------------------------------------------------
 ;; A real React render that never commits
 ;; ---------------------------------------------------------------------------
 
-(h/defview left-line  [_] [:p.left (h/sub [:kco/left])])
-(h/defview right-line [_] [:p.right (h/sub [:kco/right])])
+(rf.hicasso/defview left-line  [_] [:p.left (rf.hicasso/sub [:kco/left])])
+(rf.hicasso/defview right-line [_] [:p.right (rf.hicasso/sub [:kco/right])])
 
-(h/defview both-lines
+(rf.hicasso/defview both-lines
   [_]
   [:div [left-line {}] [right-line {}]])
 
 (defn- server-html
   [hiccup]
   (react-dom-server/renderToString
-    (mount/provider frame-id (codec/root-element frame-id hiccup))))
+    (rf.hicasso.impl.mount/provider frame-id (rf.hicasso.impl.codec/root-element frame-id hiccup))))
 
 (deftest a-server-render-runs-every-body-and-acquires-nothing-from-any-of-them
   (async done
     (seeded!)
-    (runtime/reset-body-runs!)
+    (rf.hicasso.test.runtime/reset-body-runs!)
     (let [markup (server-html [both-lines {}])]
 
       (testing "the premise: React really did run all three bodies. Without
                 this the zeros below would be the zeros of a render that
                 never happened"
-        (is (= 3 (runtime/body-runs)))
+        (is (= 3 (rf.hicasso.test.runtime/body-runs)))
         (is (re-find #"1" markup))
         (is (re-find #"2" markup)))
 
@@ -186,21 +186,21 @@
 
       (testing "the individually-named keys confirm it per key, which a
                 summed census could hide"
-        (is (= [] (runtime/cell-readers (sub-key [:kco/left]))))
-        (is (= [] (runtime/cell-readers (sub-key [:kco/right])))))
+        (is (= [] (rf.hicasso.test.runtime/cell-readers (sub-key [:kco/left]))))
+        (is (= [] (rf.hicasso.test.runtime/cell-readers (sub-key [:kco/right])))))
 
       (testing "the read-set entries ARE there — a render-phase cache is the
                 one thing a probing render leaves, and calling it out is
                 what keeps the zero above honest"
-        (is (pos? (:entries (runtime/residue)))))
+        (is (pos? (:entries (rf.hicasso.test.runtime/residue)))))
 
-      (.then (runtime/quiesced!)
+      (.then (rf.hicasso.test.runtime/quiesced!)
              (fn [_]
                (testing "and the cache evaporates at the runtime's own
                          horizon: zero residue after quiescence, which is
                          I5's last clause"
                  (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                        (runtime/residue))))
+                        (rf.hicasso.test.runtime/residue))))
                (done))))))
 
 ;; ---------------------------------------------------------------------------
@@ -210,23 +210,23 @@
 (deftest the-commit-acquires-exactly-the-current-read-set
   (async done
     (seeded!)
-    (let [entry     (probe! (fn [_] [:p (h/sub [:kco/left])]))
+    (let [entry     (probe! (fn [_] [:p (rf.hicasso/sub [:kco/left])]))
           !notified (atom 0)]
 
       (testing "the render resolved the read set without owning it"
-        (is (= #{(sub-key [:kco/left])} (runtime/reads-of entry)))
+        (is (= #{(sub-key [:kco/left])} (rf.hicasso.test.runtime/reads-of entry)))
         (is (= nothing-owned (ownership))))
 
-      (let [cleanup (collector/commit-boundary! entry (fn [] (swap! !notified inc)))]
+      (let [cleanup (rf.hicasso.impl.collector/commit-boundary! entry (fn [] (swap! !notified inc)))]
 
         (testing "the commit takes exactly one cell, one reference, one edge"
           (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1} (ownership)))
-          (is (= 1 (count (runtime/cell-readers (sub-key [:kco/left]))))))
+          (is (= 1 (count (rf.hicasso.test.runtime/cell-readers (sub-key [:kco/left]))))))
 
         (testing "and NOTHING for a key this body did not read — the
                   acquisition is the read set, not the registrar"
-          (is (= [] (runtime/cell-readers (sub-key [:kco/right]))))
-          (is (nil? (runtime/cell-reaction (sub-key [:kco/right])))))
+          (is (= [] (rf.hicasso.test.runtime/cell-readers (sub-key [:kco/right]))))
+          (is (nil? (rf.hicasso.test.runtime/cell-reaction (sub-key [:kco/right])))))
 
         (testing "the acquired boundary is a live reader: a write to its key
                   notifies it exactly once"
@@ -245,13 +245,13 @@
                   and the cell survives only until its reaper"
           (is (= {:cells 1 :cell-refs 0 :boundaries 0 :edges 0} (ownership)))))
 
-      (.then (runtime/quiesced!)
+      (.then (rf.hicasso.test.runtime/quiesced!)
              (fn [_]
                (testing "and at the runtime's own horizon — which is strictly
                          past every reaper armed before it, the cell reapers
                          included — teardown is exact: total zero"
                  (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                        (runtime/residue))))
+                        (rf.hicasso.test.runtime/residue))))
                (done))))))
 
 (deftest a-branch-not-taken-contributes-no-edge
@@ -259,26 +259,26 @@
   ;; The ambient collector's whole claim: the edge is recorded WHERE THE
   ;; READ HAPPENS, so a boundary's edge set is a function of the control
   ;; flow the render actually took.
-  (let [body    (fn [_] [:p (when (h/sub [:kco/flag]) (h/sub [:kco/right]))])
+  (let [body    (fn [_] [:p (when (rf.hicasso/sub [:kco/flag]) (rf.hicasso/sub [:kco/right]))])
         cold    (probe! body)
-        cleanup (collector/commit-boundary! cold (fn []))]
+        cleanup (rf.hicasso.impl.collector/commit-boundary! cold (fn []))]
 
     (testing "flag is false, so the guarded read never ran and its key is
               not in the set"
-      (is (= #{(sub-key [:kco/flag])} (runtime/reads-of cold)))
+      (is (= #{(sub-key [:kco/flag])} (rf.hicasso.test.runtime/reads-of cold)))
       (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1} (ownership)))
-      (is (= [] (runtime/cell-readers (sub-key [:kco/right])))))
+      (is (= [] (rf.hicasso.test.runtime/cell-readers (sub-key [:kco/right])))))
 
     (cleanup)
     (rf/with-frame frame-id (rf/dispatch-sync [:kco/raise]))
 
     (let [warm     (probe! body)
-          cleanup2 (collector/commit-boundary! warm (fn []))]
+          cleanup2 (rf.hicasso.impl.collector/commit-boundary! warm (fn []))]
       (testing "flag is true, so the same body reads two keys and the commit
                 acquires both — the edge set followed the branch"
         (is (= #{(sub-key [:kco/flag]) (sub-key [:kco/right])}
-               (runtime/reads-of warm)))
-        (is (= 1 (count (runtime/cell-readers (sub-key [:kco/right]))))))
+               (rf.hicasso.test.runtime/reads-of warm)))
+        (is (= 1 (count (rf.hicasso.test.runtime/cell-readers (sub-key [:kco/right]))))))
       (cleanup2))))
 
 ;; ---------------------------------------------------------------------------
@@ -290,11 +290,11 @@
   (let [before (ownership)]
 
     (is (thrown-with-msg? js/Error #"planted"
-          (collector/render-body
+          (rf.hicasso.impl.collector/render-body
             frame-id
             (fn [_]
-              (h/sub [:kco/left])
-              (h/sub [:kco/right])
+              (rf.hicasso/sub [:kco/left])
+              (rf.hicasso/sub [:kco/right])
               (throw (js/Error. "planted")))
             {}))
         "the body must actually throw — otherwise this row proves nothing")
@@ -309,19 +309,19 @@
     ;; every body; if a throwing run's reads survived into the next body,
     ;; the next boundary would commit edges it never read — correct on
     ;; screen, wrong forever after.
-    (let [entry   (probe! (fn [_] [:p (h/sub [:kco/flag])]))
-          cleanup (collector/commit-boundary! entry (fn []))]
+    (let [entry   (probe! (fn [_] [:p (rf.hicasso/sub [:kco/flag])]))
+          cleanup (rf.hicasso.impl.collector/commit-boundary! entry (fn []))]
 
       (testing "the next body's read set is ITS OWN, not the throwing run's
                 concatenated with it"
-        (is (= #{(sub-key [:kco/flag])} (runtime/reads-of entry)))
+        (is (= #{(sub-key [:kco/flag])} (rf.hicasso.test.runtime/reads-of entry)))
         (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1} (ownership))))
 
       (testing "named per key, because `:cells 1` alone could be the right
                 count of the wrong keys"
-        (is (= 1 (count (runtime/cell-readers (sub-key [:kco/flag])))))
-        (is (= [] (runtime/cell-readers (sub-key [:kco/left]))))
-        (is (= [] (runtime/cell-readers (sub-key [:kco/right])))))
+        (is (= 1 (count (rf.hicasso.test.runtime/cell-readers (sub-key [:kco/flag])))))
+        (is (= [] (rf.hicasso.test.runtime/cell-readers (sub-key [:kco/left]))))
+        (is (= [] (rf.hicasso.test.runtime/cell-readers (sub-key [:kco/right])))))
 
       (cleanup))))
 
@@ -331,21 +331,21 @@
 
 (deftest a-re-render-before-the-commit-owns-the-second-read-set-and-only-that
   (seeded!)
-  (probe! (fn [_] [:p (h/sub [:kco/left]) (h/sub [:kco/right])]))
+  (probe! (fn [_] [:p (rf.hicasso/sub [:kco/left]) (rf.hicasso/sub [:kco/right])]))
 
   (testing "the first attempt owns nothing, so there is nothing for the
             second to undo"
     (is (= nothing-owned (ownership))))
 
-  (let [second-entry (probe! (fn [_] [:p (h/sub [:kco/flag])]))
-        cleanup      (collector/commit-boundary! second-entry (fn []))]
+  (let [second-entry (probe! (fn [_] [:p (rf.hicasso/sub [:kco/flag])]))
+        cleanup      (rf.hicasso.impl.collector/commit-boundary! second-entry (fn []))]
 
     (testing "React selected the second attempt, so the second attempt's set
               is what got acquired — in full and in isolation"
-      (is (= #{(sub-key [:kco/flag])} (runtime/reads-of second-entry)))
+      (is (= #{(sub-key [:kco/flag])} (rf.hicasso.test.runtime/reads-of second-entry)))
       (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1} (ownership)))
-      (is (= [] (runtime/cell-readers (sub-key [:kco/left]))))
-      (is (= [] (runtime/cell-readers (sub-key [:kco/right])))))
+      (is (= [] (rf.hicasso.test.runtime/cell-readers (sub-key [:kco/left]))))
+      (is (= [] (rf.hicasso.test.runtime/cell-readers (sub-key [:kco/right])))))
 
     (cleanup)))
 
@@ -360,19 +360,19 @@
     ;; at the seam: one entry, two `subscribe` calls, two cleanups. The
     ;; REAL StrictMode witness is the DOM file's; this row states what the
     ;; seam owes it.
-    (let [entry (probe! (fn [_] [:p (h/sub [:kco/left])]))
-          c1    (collector/commit-boundary! entry (fn []))
-          c2    (collector/commit-boundary! entry (fn []))]
+    (let [entry (probe! (fn [_] [:p (rf.hicasso/sub [:kco/left])]))
+          c1    (rf.hicasso.impl.collector/commit-boundary! entry (fn []))
+          c2    (rf.hicasso.impl.collector/commit-boundary! entry (fn []))]
 
       (testing "two boundaries, two memberships, still ONE cell — the cell
                 is shared per unique key and the reader list is the count"
         (is (= {:cells 1 :cell-refs 2 :boundaries 2 :edges 2} (ownership)))
-        (is (= 2 (count (runtime/cell-readers (sub-key [:kco/left]))))))
+        (is (= 2 (count (rf.hicasso.test.runtime/cell-readers (sub-key [:kco/left]))))))
 
       (testing "and the two registrations are distinct objects: the
                 registration IS the boundary id, so a second subscribe
                 cannot be mistaken for the first"
-        (let [[a b] (runtime/cell-readers (sub-key [:kco/left]))]
+        (let [[a b] (rf.hicasso.test.runtime/cell-readers (sub-key [:kco/left]))]
           (is (not (identical? a b)))))
 
       (c1)
@@ -380,11 +380,11 @@
         (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1} (ownership))))
 
       (c2)
-      (.then (runtime/quiesced!)
+      (.then (rf.hicasso.test.runtime/quiesced!)
              (fn [_]
                (testing "and the pair leaves zero residue"
                  (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                        (runtime/residue))))
+                        (rf.hicasso.test.runtime/residue))))
                (done))))))
 
 ;; ---------------------------------------------------------------------------
@@ -395,10 +395,10 @@
   (seeded!)
   ;; The control for the row below, and the reason that row means anything:
   ;; if the number moved on every commit, a difference would prove nothing.
-  (let [entry     (probe! (fn [_] [:p (h/sub [:kco/left])]))
-        at-render (runtime/snapshot-of entry)
-        cleanup   (collector/commit-boundary! entry (fn []))
-        at-commit (runtime/snapshot-of entry)]
+  (let [entry     (probe! (fn [_] [:p (rf.hicasso/sub [:kco/left])]))
+        at-render (rf.hicasso.test.runtime/snapshot-of entry)
+        cleanup   (rf.hicasso.impl.collector/commit-boundary! entry (fn []))
+        at-commit (rf.hicasso.test.runtime/snapshot-of entry)]
     (testing "nothing landed in the gap, so React's post-subscribe re-read
               sees the number the fiber captured at render and schedules no
               correcting re-render"
@@ -410,17 +410,17 @@
   ;; A STAGED key — nothing holds `:kco/left`, so it has no cell, no watch
   ;; and no epoch, and the flush generation is structurally blind to it.
   ;; `commit-basis` is what is not blind, and this is the row that says so.
-  (let [entry     (probe! (fn [_] [:p (h/sub [:kco/left])]))
-        at-render (runtime/snapshot-of entry)]
+  (let [entry     (probe! (fn [_] [:p (rf.hicasso/sub [:kco/left])]))
+        at-render (rf.hicasso.test.runtime/snapshot-of entry)]
 
     (testing "the key really is staged: no cell holds it at render time"
-      (is (nil? (get @collector/!cells (sub-key [:kco/left])))))
+      (is (nil? (get @rf.hicasso.impl.collector/!cells (sub-key [:kco/left])))))
 
     ;; The write lands AFTER the body returned and BEFORE React acquires.
     (rf/with-frame frame-id (rf/dispatch-sync [:kco/bump-left]))
 
-    (let [cleanup   (collector/commit-boundary! entry (fn []))
-          at-commit (runtime/snapshot-of entry)]
+    (let [cleanup   (rf.hicasso.impl.collector/commit-boundary! entry (fn []))
+          at-commit (rf.hicasso.test.runtime/snapshot-of entry)]
       (testing "so the number React re-reads after `subscribe` differs from
                 the one the fiber captured at render, and the boundary is
                 corrected instead of painting a value that moved under it"
@@ -445,12 +445,12 @@
   ;; abandoned attempt.
   (async done
     (seeded!)
-    (let [entry (probe! (fn [_] [:p (h/sub [:kco/left])]))]
+    (let [entry (probe! (fn [_] [:p (rf.hicasso/sub [:kco/left])]))]
 
       (testing "the abandoned render, as every row above finds it"
         (is (= nothing-owned (ownership))))
 
-      (collector/commit-boundary! entry (fn []))
+      (rf.hicasso.impl.collector/commit-boundary! entry (fn []))
 
       (testing "one leaked registration, and the census says so — on the
                 summed counters"
@@ -459,12 +459,12 @@
 
       (testing "and on the per-key reader list, which is the observable the
                 acquisition rows actually assert on"
-        (is (= 1 (count (runtime/cell-readers (sub-key [:kco/left]))))))
+        (is (= 1 (count (rf.hicasso.test.runtime/cell-readers (sub-key [:kco/left]))))))
 
-      (.then (runtime/quiesced!)
+      (.then (rf.hicasso.test.runtime/quiesced!)
              (fn [_]
                (testing "quiescence does NOT launder it: the reapers drop
                          what nothing holds, and this is held"
-                 (is (= 1 (count (runtime/cell-readers (sub-key [:kco/left])))))
-                 (is (not= 0 (:cell-refs (runtime/residue)))))
+                 (is (= 1 (count (rf.hicasso.test.runtime/cell-readers (sub-key [:kco/left])))))
+                 (is (not= 0 (:cell-refs (rf.hicasso.test.runtime/residue)))))
                (done))))))

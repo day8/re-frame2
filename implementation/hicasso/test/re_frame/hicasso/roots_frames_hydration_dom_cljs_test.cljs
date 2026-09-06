@@ -49,16 +49,16 @@
   dependency. What is NEW here is that every row runs TWO roots at once;
   the prototype's rows all run one."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.hicasso.impl.roots :as roots]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.hicasso.motion :as motion]
-            [re-frame.hicasso.roots-frames-support :as sup]
-            [re-frame.test-support :as test-support]))
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.hicasso.impl.roots :as rf.hicasso.impl.roots]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.hicasso.motion :as rf.hicasso.motion]
+            [re-frame.hicasso.roots-frames-support :as rf.hicasso.roots-frames-support]
+            [re-frame.test-support :as rf.test-support]))
 
 (def ^:private frame-a ::frame-a)
 (def ^:private frame-b ::frame-b)
@@ -73,17 +73,17 @@
 (rf/reg-event ::seed (fn [_ [_ label]] {:db {:label label}}))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The app
 ;; ---------------------------------------------------------------------------
 
-(h/defview screen
+(rf.hicasso/defview screen
   "One boundary, one prop and one subscription read.
 
   `title` is a PROP so a server/client divergence is a one-argument
@@ -93,7 +93,7 @@
   [{:keys [title]}]
   [:div.screen
    [:h1.title title]
-   [:p.value (h/sub label-q)]])
+   [:p.value (rf.hicasso/sub label-q)]])
 
 ;; ---------------------------------------------------------------------------
 ;; The presence app — H5's, and the observable that makes a PHASE readable
@@ -104,7 +104,7 @@
   ;; order. Reset at the top of the row that reads it.
   (atom {}))
 
-(h/defview phase-probe
+(rf.hicasso/defview phase-probe
   "A presence child that is a BOUNDARY, so the machine merges the phase's
   override map into its PROPS (`impl.presence/with-phase`, HD-030)
   instead of into a node's attributes. The tray below declares
@@ -128,31 +128,31 @@
   (swap! !phases update tag (fnil conj []) phase)
   [:span.probe (name phase)])
 
-(h/defview tray-screen
+(rf.hicasso/defview tray-screen
   "A screen with a presence tray in it. Reads the label subscription as
   [[screen]] does, so this root acquires a frame-keyed cell and its commit
   is observable; the tray is what the row is about."
   [{:keys [tag]}]
   [:div.screen
-   [:p.value (h/sub label-q)]
-   [motion/presence {:timeout-ms 50}
+   [:p.value (rf.hicasso/sub label-q)]
+   [rf.hicasso.motion/presence {:timeout-ms 50}
     [phase-probe {:key                 "one"
                   :tag                 tag
-                  ::motion/mounting    {:phase :mounting}
-                  ::motion/unmounting  {:phase :unmounting}}]]])
+                  ::rf.hicasso.motion/mounting    {:phase :mounting}
+                  ::rf.hicasso.motion/unmounting  {:phase :unmounting}}]]])
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
 ;; ---------------------------------------------------------------------------
 
 (defn- fresh! []
-  (sup/leave-act-environment!)
+  (rf.hicasso.roots-frames-support/leave-act-environment!)
   (rf/make-frame {:id frame-a})
   (rf/make-frame {:id frame-b})
   (rf/with-frame frame-a (rf/dispatch-sync [::seed "alpha"]))
   (rf/with-frame frame-b (rf/dispatch-sync [::seed "beta"]))
-  (collector/reset-runtime!)
-  (runtime/reset-body-runs!)
+  (rf.hicasso.impl.collector/reset-runtime!)
+  (rf.hicasso.test.runtime/reset-body-runs!)
   nil)
 
 (defn- both-committed?
@@ -160,7 +160,7 @@
   before it, so a frame appearing in the cell table is that root's own
   completion signal — which the page-wide adoption window cannot be."
   []
-  (= #{frame-a frame-b} (sup/cell-frames)))
+  (= #{frame-a frame-b} (rf.hicasso.roots-frames-support/cell-frames)))
 
 (defn- text-in [container sel]
   (some-> (.querySelector container sel) .-textContent))
@@ -220,45 +220,45 @@
 
 (deftest two-overlapping-hydrating-roots-each-adopt-their-own-server-dom
   (async done
-    (if-not (mount/browser?)
-      (do (sup/skip! ":node-test has no DOM") (done))
+    (if-not (rf.hicasso.impl.mount/browser?)
+      (do (rf.hicasso.roots-frames-support/skip! ":node-test has no DOM") (done))
       (do
         (fresh!)
-        (let [html-a (sup/server-html! frame-a [screen {:title "A"}])
-              html-b (sup/server-html! frame-b [screen {:title "B"}])
-              ca     (sup/stamp-server-nodes! (sup/server-dom! html-a))
-              cb     (sup/stamp-server-nodes! (sup/server-dom! html-b))]
-          (is (sup/every-server-node? ca ".screen, .title, .value")
+        (let [html-a (rf.hicasso.roots-frames-support/server-html! frame-a [screen {:title "A"}])
+              html-b (rf.hicasso.roots-frames-support/server-html! frame-b [screen {:title "B"}])
+              ca     (rf.hicasso.roots-frames-support/stamp-server-nodes! (rf.hicasso.roots-frames-support/server-dom! html-a))
+              cb     (rf.hicasso.roots-frames-support/stamp-server-nodes! (rf.hicasso.roots-frames-support/server-dom! html-b))]
+          (is (rf.hicasso.roots-frames-support/every-server-node? ca ".screen, .title, .value")
               "premise: the stamps are on the server's own nodes")
           (is (re-find #"alpha" html-a) "premise: frame A's markup carries frame A's value")
           (is (re-find #"beta"  html-b) "premise: frame B's markup carries frame B's value")
-          (collector/reset-runtime!)
-          (let [ha (mount/hydrate-root! ca frame-a [screen {:title "A"}])
-                hb (mount/hydrate-root! cb frame-b [screen {:title "B"}])]
+          (rf.hicasso.impl.collector/reset-runtime!)
+          (let [ha (rf.hicasso.impl.mount/hydrate-root! ca frame-a [screen {:title "A"}])
+                hb (rf.hicasso.impl.mount/hydrate-root! cb frame-b [screen {:title "B"}])]
             ;; The overlap is a CONSTRUCTION, not a timing guess: both
             ;; roots were handed to React before either had adopted, and
             ;; each root's OWN window being open on this line is what says
             ;; so. Two windows, because the window is per root —
             ;; asserting one page-wide flag here would be satisfied by
             ;; either root alone.
-            (is (true? (roots/adopting? (:adoption ha)))
+            (is (true? (rf.hicasso.impl.roots/adopting? (:adoption ha)))
                 "root A is in flight — `hydrate-root!` returns before the
                  tree is adopted, so its window outlives the call")
-            (is (true? (roots/adopting? (:adoption hb)))
+            (is (true? (rf.hicasso.impl.roots/adopting? (:adoption hb)))
                 "and so is root B, in its own window")
-            (-> (sup/wait-until! both-committed?)
+            (-> (rf.hicasso.roots-frames-support/wait-until! both-committed?)
                 (.then
                   (fn [ok]
                     (is (true? ok)
                         (str "both roots must commit; cell frames were "
-                             (pr-str (sup/cell-frames))))
+                             (pr-str (rf.hicasso.roots-frames-support/cell-frames))))
 
                     (testing "each root ADOPTED its own server DOM — the nodes
                               are the very nodes the markup produced, which no
                               re-render could reconstruct"
-                      (is (sup/every-server-node? ca ".screen, .title, .value")
+                      (is (rf.hicasso.roots-frames-support/every-server-node? ca ".screen, .title, .value")
                           "root A kept the server's nodes")
-                      (is (sup/every-server-node? cb ".screen, .title, .value")
+                      (is (rf.hicasso.roots-frames-support/every-server-node? cb ".screen, .title, .value")
                           "root B kept the server's nodes"))
 
                     (testing "and neither root's adoption reached into the
@@ -271,14 +271,14 @@
                     (testing "the cell table split by frame across the two
                               adoptions, exactly as it does across two ordinary
                               mounts"
-                      (is (= #{[frame-a label-q] [frame-b label-q]} (sup/cell-keys)))
-                      (is (= #{frame-a frame-b} (sup/frame-memo-frames))))))
-                (sup/settle-row!
+                      (is (= #{[frame-a label-q] [frame-b label-q]} (rf.hicasso.roots-frames-support/cell-keys)))
+                      (is (= #{frame-a frame-b} (rf.hicasso.roots-frames-support/frame-memo-frames))))))
+                (rf.hicasso.roots-frames-support/settle-row!
                   {:row      "H1 — two overlapping adoptions, each keeping its own DOM"
                    :done     done
                    :release! (fn []
-                               (mount/release! ha)
-                               (mount/release! hb))}))))))))
+                               (rf.hicasso.impl.mount/release! ha)
+                               (rf.hicasso.impl.mount/release! hb))}))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; H2 — two overlapping mismatches, two independent complaints
@@ -335,23 +335,23 @@
 ;; construction rather than on a schedule.
 (deftest two-overlapping-hydrating-roots-recover-and-complain-independently
   (async done
-    (if-not (mount/browser?)
-      (do (sup/skip! ":node-test has no DOM") (done))
+    (if-not (rf.hicasso.impl.mount/browser?)
+      (do (rf.hicasso.roots-frames-support/skip! ":node-test has no DOM") (done))
       (do
         (fresh!)
-        (let [html-a (sup/server-html! frame-a [screen {:title "server-A"}])
-              html-b (sup/server-html! frame-b [screen {:title "server-B"}])
-              ca     (sup/server-dom! html-a)
-              cb     (sup/server-dom! html-b)]
-          (collector/reset-runtime!)
-          (let [{:keys [seen stop!]}      (sup/watch-mismatches!)
+        (let [html-a (rf.hicasso.roots-frames-support/server-html! frame-a [screen {:title "server-A"}])
+              html-b (rf.hicasso.roots-frames-support/server-html! frame-b [screen {:title "server-B"}])
+              ca     (rf.hicasso.roots-frames-support/server-dom! html-a)
+              cb     (rf.hicasso.roots-frames-support/server-dom! html-b)]
+          (rf.hicasso.impl.collector/reset-runtime!)
+          (let [{:keys [seen stop!]}      (rf.hicasso.roots-frames-support/watch-mismatches!)
                 ;; MANUFACTURED here and asserted on here — the only shape
                 ;; of call site at which swallowing an uncaught error is
                 ;; not the fail-open the pageerror rule forbids.
-                {:keys [captured close!]} (sup/open-console-capture! {:swallow-uncaught? true})
-                ha (mount/hydrate-root! ca frame-a [screen {:title "client-A"}])
-                hb (mount/hydrate-root! cb frame-b [screen {:title "client-B"}])]
-            (-> (sup/wait-until! both-committed?)
+                {:keys [captured close!]} (rf.hicasso.roots-frames-support/open-console-capture! {:swallow-uncaught? true})
+                ha (rf.hicasso.impl.mount/hydrate-root! ca frame-a [screen {:title "client-A"}])
+                hb (rf.hicasso.impl.mount/hydrate-root! cb frame-b [screen {:title "client-B"}])]
+            (-> (rf.hicasso.roots-frames-support/wait-until! both-committed?)
                 (.then
                   (fn [ok]
                     ;; Closed and stopped HERE, and named in `:release!` as
@@ -392,12 +392,12 @@
                       (is (= 2 (count @seen))
                           (str "`:rf.ssr/hydration-mismatch` count; got "
                                (count @seen) " — "
-                               (pr-str (mapv (comp :error sup/tags-of) @seen)))))
+                               (pr-str (mapv (comp :error rf.hicasso.roots-frames-support/tags-of) @seen)))))
 
                     (testing "and what did fire is the framework diagnostic
                               Spec 011 names, tier-discriminated by its door"
                       (doseq [ev @seen]
-                        (let [tags (sup/tags-of ev)]
+                        (let [tags (rf.hicasso.roots-frames-support/tags-of ev)]
                           (is (= :rf.ssr/hydration-mismatch (:operation ev)))
                           (is (= 're-frame.hicasso.impl.mount/hydrate-root! (:where tags)))
                           (is (= :warned-and-replaced (:recovery tags)))
@@ -410,14 +410,14 @@
                       (is (= "client-B" (text-in cb ".title")))
                       (is (= "alpha" (text-in ca ".value")))
                       (is (= "beta"  (text-in cb ".value")))))))
-                (sup/settle-row!
+                (rf.hicasso.roots-frames-support/settle-row!
                   {:row      "H2 — two overlapping mismatches, two complaints"
                    :done     done
                    :release! (fn []
                                (close!)
                                (stop!)
-                               (mount/release! ha)
-                               (mount/release! hb))}))))))))
+                               (rf.hicasso.impl.mount/release! ha)
+                               (rf.hicasso.impl.mount/release! hb))}))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; H3 — independent teardown of two hydrated roots
@@ -425,48 +425,48 @@
 
 (deftest tearing-down-one-hydrated-root-leaves-the-other-adopted-and-live
   (async done
-    (if-not (mount/browser?)
-      (do (sup/skip! ":node-test has no DOM") (done))
+    (if-not (rf.hicasso.impl.mount/browser?)
+      (do (rf.hicasso.roots-frames-support/skip! ":node-test has no DOM") (done))
       (do
         (fresh!)
-        (let [html-a (sup/server-html! frame-a [screen {:title "A"}])
-              html-b (sup/server-html! frame-b [screen {:title "B"}])
-              ca     (sup/server-dom! html-a)
-              cb     (sup/stamp-server-nodes! (sup/server-dom! html-b))]
-          (collector/reset-runtime!)
-          (let [ha (mount/hydrate-root! ca frame-a [screen {:title "A"}])
-                hb (mount/hydrate-root! cb frame-b [screen {:title "B"}])]
-            (-> (sup/wait-until! both-committed?)
+        (let [html-a (rf.hicasso.roots-frames-support/server-html! frame-a [screen {:title "A"}])
+              html-b (rf.hicasso.roots-frames-support/server-html! frame-b [screen {:title "B"}])
+              ca     (rf.hicasso.roots-frames-support/server-dom! html-a)
+              cb     (rf.hicasso.roots-frames-support/stamp-server-nodes! (rf.hicasso.roots-frames-support/server-dom! html-b))]
+          (rf.hicasso.impl.collector/reset-runtime!)
+          (let [ha (rf.hicasso.impl.mount/hydrate-root! ca frame-a [screen {:title "A"}])
+                hb (rf.hicasso.impl.mount/hydrate-root! cb frame-b [screen {:title "B"}])]
+            (-> (rf.hicasso.roots-frames-support/wait-until! both-committed?)
                 (.then
                   (fn [ok]
                     (is (true? ok) "both roots must commit")
                     ;; `unmount!`, not `release!` — `release!` resets the
                     ;; runtime by fiat, and every count below would then
                     ;; read zero whatever the teardown did.
-                    (mount/unmount! ha)
+                    (rf.hicasso.impl.mount/unmount! ha)
                     ;; The inner chain is RETURNED from this handler, so the
                     ;; outer promise adopts it and ONE `sup/settle-row!` at the
                     ;; outer tail settles the whole row. Two — one per chain —
                     ;; would call `done` twice on the green path.
-                    (-> (sup/quiesced!)
+                    (-> (rf.hicasso.roots-frames-support/quiesced!)
                         (.then
                           (fn [_]
                             (testing "frame A's keys are released and frame B's
                                       survive"
-                              (is (= #{[frame-b label-q]} (sup/cell-keys))
-                                  (str "got " (pr-str (sup/cell-keys)))))
+                              (is (= #{[frame-b label-q]} (rf.hicasso.roots-frames-support/cell-keys))
+                                  (str "got " (pr-str (rf.hicasso.roots-frames-support/cell-keys)))))
 
                             (testing "and root B is still ADOPTED — its nodes are
                                       still the server's, so the sibling's
                                       teardown did not force it through a
                                       re-render"
-                              (is (sup/every-server-node? cb ".screen, .title, .value")))
+                              (is (rf.hicasso.roots-frames-support/every-server-node? cb ".screen, .title, .value")))
 
                             (testing "and still live: a render into the surviving
                                       root re-runs its body and keeps its own
                                       frame's value"
-                              (let [ran (sup/body-runs-delta!
-                                          (fn [] (mount/render! hb [screen {:title "B2"}])))]
+                              (let [ran (rf.hicasso.roots-frames-support/body-runs-delta!
+                                          (fn [] (rf.hicasso.impl.mount/render! hb [screen {:title "B2"}])))]
                                 (is (= 1 ran)))
                               (is (= "B2" (text-in cb ".title")))
                               (is (= "beta" (text-in cb ".value"))))
@@ -489,12 +489,12 @@
                                       zero body runs, and every node is still the
                                       SERVER's — neither render remounted the
                                       tree the adoption established"
-                              (let [ran (sup/body-runs-delta!
-                                          (fn [] (mount/render! hb [screen {:title "B2"}])))]
+                              (let [ran (rf.hicasso.roots-frames-support/body-runs-delta!
+                                          (fn [] (rf.hicasso.impl.mount/render! hb [screen {:title "B2"}])))]
                                 (is (zero? ran)
                                     (str "a props-equal render! after adoption "
                                          "ran no body; read " ran)))
-                              (is (sup/every-server-node? cb ".screen, .title, .value")
+                              (is (rf.hicasso.roots-frames-support/every-server-node? cb ".screen, .title, .value")
                                   "and the surviving root's nodes still answer to
                                    the server-node mark — a render! that handed
                                    this root a bare provider where its Fragment
@@ -502,13 +502,13 @@
                                    them"))
 
                             (testing "and tearing the survivor down leaves nothing"
-                              (is (= sup/released (sup/teardown-census! hb)))))))))
-                (sup/settle-row!
+                              (is (= rf.hicasso.roots-frames-support/released (rf.hicasso.roots-frames-support/teardown-census! hb)))))))))
+                (rf.hicasso.roots-frames-support/settle-row!
                   {:row      "H3 — independent teardown of two hydrated roots"
                    :done     done
                    :release! (fn []
-                               (mount/release! ha)
-                               (mount/release! hb))}))))))))
+                               (rf.hicasso.impl.mount/release! ha)
+                               (rf.hicasso.impl.mount/release! hb))}))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; H4 — a COMPLETED root's later recovery is not a mismatch, however many
@@ -552,31 +552,31 @@
 ;; scheduler and would go green or red on timing. It is the same technique
 ;; the deleted row used, turned on the property instead of on the defect.
 (deftest a-completed-roots-later-recovery-is-not-a-mismatch-while-a-sibling-adopts
-  (if-not (mount/browser?)
-    (sup/skip! ":node-test has no DOM")
+  (if-not (rf.hicasso.impl.mount/browser?)
+    (rf.hicasso.roots-frames-support/skip! ":node-test has no DOM")
     (do
       (fresh!)
-      (let [{:keys [seen stop!]}      (sup/watch-mismatches!)
+      (let [{:keys [seen stop!]}      (rf.hicasso.roots-frames-support/watch-mismatches!)
             ;; MANUFACTURED here and asserted on here — the only shape of
             ;; call site at which swallowing an uncaught error is not the
             ;; fail-open the pageerror rule forbids.
-            {:keys [captured close!]} (sup/open-console-capture! {:swallow-uncaught? true})
-            window-a (roots/open-adoption-window!)
-            window-b (roots/open-adoption-window!)
-            report-a (mount/hydration-reporter window-a)
-            report-b (mount/hydration-reporter window-b)
+            {:keys [captured close!]} (rf.hicasso.roots-frames-support/open-console-capture! {:swallow-uncaught? true})
+            window-a (rf.hicasso.impl.roots/open-adoption-window!)
+            window-b (rf.hicasso.impl.roots/open-adoption-window!)
+            report-a (rf.hicasso.impl.mount/hydration-reporter window-a)
+            report-b (rf.hicasso.impl.mount/hydration-reporter window-b)
             later-a  (js/Error. "a concurrent render root A recovered from")
             genuine-b (js/Error. "Hydration failed on root B")]
         (try
-          (is (true? (roots/adopting? window-a)) "premise: root A is adopting")
-          (is (true? (roots/adopting? window-b)) "premise: root B is adopting")
+          (is (true? (rf.hicasso.impl.roots/adopting? window-a)) "premise: root A is adopting")
+          (is (true? (rf.hicasso.impl.roots/adopting? window-b)) "premise: root B is adopting")
 
           ;; Root A's hydration commits. Its closer shuts ITS window.
-          (roots/close-adoption-window! window-a)
+          (rf.hicasso.impl.roots/close-adoption-window! window-a)
 
           (testing "one root's closer shuts one root's window"
-            (is (false? (roots/adopting? window-a)) "root A has completed")
-            (is (true? (roots/adopting? window-b))
+            (is (false? (rf.hicasso.impl.roots/adopting? window-a)) "root A has completed")
+            (is (true? (rf.hicasso.impl.roots/adopting? window-b))
                 "and root B is STILL ADOPTING — this single pair of readings
                  is the whole repair, and it is what the deleted row
                  measured going the other way"))
@@ -587,7 +587,7 @@
             (report-a later-a nil)
             (is (= 0 (count @seen))
                 (str "nothing should have been emitted; got "
-                     (pr-str (mapv (comp :error sup/tags-of) @seen)))))
+                     (pr-str (mapv (comp :error rf.hicasso.roots-frames-support/tags-of) @seen)))))
 
           (testing "while root B's genuine mismatch, arriving while B is still
                     adopting, DOES emit — the assertion a page-global boolean
@@ -595,19 +595,19 @@
             (report-b genuine-b nil)
             (is (= 1 (count @seen)) "exactly one diagnostic")
             (is (= "Hydration failed on root B"
-                   (:error (sup/tags-of (first @seen))))
+                   (:error (rf.hicasso.roots-frames-support/tags-of (first @seen))))
                 "and it is B's error, not A's"))
 
           (testing "IN-ROW DISCRIMINATION: the same later error on A, read
                     against a window some OTHER root is still holding open, is
                     mislabelled a mismatch. So the zero above is a property of
                     the scoping and not of the error"
-            ((mount/hydration-reporter window-b) later-a nil)
+            ((rf.hicasso.impl.mount/hydration-reporter window-b) later-a nil)
             (is (= 2 (count @seen))
                 "a page-wide window still open elsewhere would have labelled
                  A's later recovery a hydration mismatch")
             (is (= "a concurrent render root A recovered from"
-                   (:error (sup/tags-of (last @seen))))))
+                   (:error (rf.hicasso.roots-frames-support/tags-of (last @seen))))))
 
           (testing "and rf2-mwx08's fail-open is untouched in every case: the
                     reporter ALWAYS delegates, emit or no emit"
@@ -617,7 +617,7 @@
           (finally
             (close!)
             (stop!)
-            (roots/close-adoption-window! window-b)))))))
+            (rf.hicasso.impl.roots/close-adoption-window! window-b)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; H5 — presence isolation: adoption belongs to a SUBTREE, not to the page
@@ -651,8 +651,8 @@
 ;; landed on main as commit `fdbf5d6907`.
 (deftest presence-adoption-belongs-to-a-subtree-not-to-the-page
   (async done
-    (if-not (mount/browser?)
-      (do (sup/skip! ":node-test has no DOM") (done))
+    (if-not (rf.hicasso.impl.mount/browser?)
+      (do (rf.hicasso.roots-frames-support/skip! ":node-test has no DOM") (done))
       ;; `held` is what lets ONE settlement cover this row, and it is here
       ;; because this row is the only one whose releasables are minted INSIDE
       ;; the chain: `ha` needs the server's bytes, and those arrive as a
@@ -665,7 +665,7 @@
       (let [held (atom {})]
         (fresh!)
         (reset! !phases {})
-        (-> (sup/settled-server-html!
+        (-> (rf.hicasso.roots-frames-support/settled-server-html!
               frame-a [tray-screen {:tag :hydrated}]
               (fn [c] (= "present" (text-in c ".probe"))))
             (.then
@@ -675,17 +675,17 @@
                           PRESENT — " html))
                 ;; The server render's own phases are not this row's subject.
                 (reset! !phases {})
-                (collector/reset-runtime!)
-                (let [ca (sup/stamp-server-nodes! (sup/server-dom! html))
-                      cb (mount/fresh-container!)
-                      {:keys [seen stop!]} (sup/watch-mismatches!)
-                      ha (mount/hydrate-root! ca frame-a [tray-screen {:tag :hydrated}])]
+                (rf.hicasso.impl.collector/reset-runtime!)
+                (let [ca (rf.hicasso.roots-frames-support/stamp-server-nodes! (rf.hicasso.roots-frames-support/server-dom! html))
+                      cb (rf.hicasso.impl.mount/fresh-container!)
+                      {:keys [seen stop!]} (rf.hicasso.roots-frames-support/watch-mismatches!)
+                      ha (rf.hicasso.impl.mount/hydrate-root! ca frame-a [tray-screen {:tag :hydrated}])]
                   (swap! held assoc :stop! stop! :ha ha)
-                  (is (true? (roots/adopting? (:adoption ha)))
+                  (is (true? (rf.hicasso.impl.roots/adopting? (:adoption ha)))
                       "premise: root A is adopting on THIS line, so what follows
                        happens inside its window by construction")
                   ;; An ORDINARY root, mounted inside root A's adoption window.
-                  (let [hb (mount/root! cb frame-b [tray-screen {:tag :ordinary}])]
+                  (let [hb (rf.hicasso.impl.mount/root! cb frame-b [tray-screen {:tag :ordinary}])]
                     (swap! held assoc :hb hb)
                     (testing "the ordinary sibling gets its ENTER phase, even
                               though a hydration is in flight elsewhere on the
@@ -701,9 +701,9 @@
                               what makes the repair free for it: no object, no
                               provider, no branch"
                       (is (nil? (:adoption hb)))
-                      (is (false? (roots/adopting? (:adoption hb)))))
+                      (is (false? (rf.hicasso.impl.roots/adopting? (:adoption hb)))))
 
-                    (-> (sup/adopted! ha)
+                    (-> (rf.hicasso.roots-frames-support/adopted! ha)
                         (.then
                           (fn [ok]
                             ;; Stopped here and named in `:release!` too —
@@ -726,16 +726,16 @@
                             (testing "so the client's first pass AGREED with the
                                       server's bytes — the adopted nodes are the
                                       server's own, and nothing diverged"
-                              (is (sup/every-server-node? ca ".screen, .probe"))
+                              (is (rf.hicasso.roots-frames-support/every-server-node? ca ".screen, .probe"))
                               (is (= 0 (count @seen))
                                   (str "no hydration mismatch; got "
-                                       (pr-str (mapv (comp :error sup/tags-of)
+                                       (pr-str (mapv (comp :error rf.hicasso.roots-frames-support/tags-of)
                                                      @seen)))))
 
                             (testing "closing root A's window changed nothing
                                       about root B: B still completed its own
                                       enter transition, on its own clock"
-                              (is (false? (roots/adopting? (:adoption ha))))
+                              (is (false? (rf.hicasso.impl.roots/adopting? (:adoption ha))))
                               (is (= [:mounting :present]
                                      (vec (distinct (get @!phases :ordinary))))
                                   (str "root B entered and then settled; saw "
@@ -753,23 +753,23 @@
                                       uses), rather than on a live root whose
                                       mid-hydration teardown would be
                                       measuring React's unmount instead"
-                              (let [window (roots/open-adoption-window!)
+                              (let [window (rf.hicasso.impl.roots/open-adoption-window!)
                                     orphan {:frame     frame-a
-                                            :container (mount/fresh-container!)
+                                            :container (rf.hicasso.impl.mount/fresh-container!)
                                             :root      nil
                                             :adoption  window}]
-                                (is (true? (roots/adopting? window))
+                                (is (true? (rf.hicasso.impl.roots/adopting? window))
                                     "premise: open, and its closer has not run")
-                                (mount/unmount! orphan)
-                                (is (false? (roots/adopting? window))
+                                (rf.hicasso.impl.mount/unmount! orphan)
+                                (is (false? (rf.hicasso.impl.roots/adopting? window))
                                     "teardown shut it"))))))))))
-            (sup/settle-row!
+            (rf.hicasso.roots-frames-support/settle-row!
               {:row      "H5 — presence adoption belongs to a subtree, not to the page"
                :done     done
                :release! (fn []
                            (when-let [stop! (:stop! @held)] (stop!))
-                           (some-> (:ha @held) mount/release!)
-                           (some-> (:hb @held) mount/release!))}))))))
+                           (some-> (:ha @held) rf.hicasso.impl.mount/release!)
+                           (some-> (:hb @held) rf.hicasso.impl.mount/release!))}))))))
 
 ;; ---------------------------------------------------------------------------
 ;; H6 — THE EXECUTING SABOTAGE CONTROL for this risk family
@@ -810,45 +810,45 @@
 ;; than none.
 (deftest a-page-global-adoption-window-steals-an-ordinary-roots-enter-transition
   (async done
-    (if-not (mount/browser?)
-      (do (sup/skip! ":node-test has no DOM") (done))
+    (if-not (rf.hicasso.impl.mount/browser?)
+      (do (rf.hicasso.roots-frames-support/skip! ":node-test has no DOM") (done))
       (do
         (fresh!)
         (reset! !phases {})
-        (let [html (sup/server-html! frame-a [screen {:title "A"}])]
-          (collector/reset-runtime!)
+        (let [html (rf.hicasso.roots-frames-support/server-html! frame-a [screen {:title "A"}])]
+          (rf.hicasso.impl.collector/reset-runtime!)
           (let [armed
-                (sup/with-page-global-adoption
+                (rf.hicasso.roots-frames-support/with-page-global-adoption
                   (fn [page-window]
-                    (is (false? (roots/adopting? page-window))
+                    (is (false? (rf.hicasso.impl.roots/adopting? page-window))
                         "premise: the page-global window is SHUT before anything
                          hydrates, so an open one below was opened by a ROOT and
                          not handed over by the arming")
-                    (let [ha (mount/hydrate-root! (sup/server-dom! html) frame-a
+                    (let [ha (rf.hicasso.impl.mount/hydrate-root! (rf.hicasso.roots-frames-support/server-dom! html) frame-a
                                                   [screen {:title "A"}])]
-                      (is (true? (roots/adopting? page-window))
+                      (is (true? (rf.hicasso.impl.roots/adopting? page-window))
                           "premise: root A's hydration opened it — and under this
                            mutation it is the only window there is")
                       {:ha          ha
                        :page-window page-window
-                       :hb          (mount/root! (mount/fresh-container!) frame-b
+                       :hb          (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-b
                                                  [tray-screen {:tag :under-page-global}])})))
                 disarmed
-                (let [ha (mount/hydrate-root! (sup/server-dom! html) frame-a
+                (let [ha (rf.hicasso.impl.mount/hydrate-root! (rf.hicasso.roots-frames-support/server-dom! html) frame-a
                                               [screen {:title "A"}])]
                   (is (not (identical? (:adoption ha) (:page-window armed)))
                       "premise: the arming restored the per-root mint, so this
                        root's window is its own — a half that inherited the
                        page-global would be no control at all")
-                  (is (true? (roots/adopting? (:adoption ha)))
+                  (is (true? (rf.hicasso.impl.roots/adopting? (:adoption ha)))
                       "premise: root A is adopting in this half too, so the two
                        halves differ only in the SCOPE of its window")
-                  (is (true? (roots/adopting? (:page-window armed)))
+                  (is (true? (rf.hicasso.impl.roots/adopting? (:page-window armed)))
                       "premise: and the armed half's PAGE-WIDE window is still
                        open on this line — so what the tray below reads is the
                        scoping, not the absence of a window")
                   {:ha ha
-                   :hb (mount/root! (mount/fresh-container!) frame-b
+                   :hb (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-b
                                     [tray-screen {:tag :under-root-scoped}])})]
 
             (testing "ARMED — the ordinary root's tray was told it was adopting,
@@ -877,21 +877,21 @@
             ;; holds FOUR handles — so a single rejected adoption stranded all
             ;; four, which is why this is the most expensive row in the file
             ;; to leave unsettled.
-            (-> (js/Promise.all #js [(sup/adopted! (:ha armed))
-                                     (sup/adopted! (:ha disarmed))])
+            (-> (js/Promise.all #js [(rf.hicasso.roots-frames-support/adopted! (:ha armed))
+                                     (rf.hicasso.roots-frames-support/adopted! (:ha disarmed))])
                 (.then
                   (fn [oks]
                     (is (= [true true] (vec oks))
                         "both hydrating roots must reach their own closer, or
                          this row left an open window behind")))
-                (sup/settle-row!
+                (rf.hicasso.roots-frames-support/settle-row!
                   {:row      "H6 — the page-global sabotage control"
                    :done     done
                    :release! (fn []
-                               (mount/release! (:hb armed))
-                               (mount/release! (:ha armed))
-                               (mount/release! (:hb disarmed))
-                               (mount/release! (:ha disarmed)))}))))))))
+                               (rf.hicasso.impl.mount/release! (:hb armed))
+                               (rf.hicasso.impl.mount/release! (:ha armed))
+                               (rf.hicasso.impl.mount/release! (:hb disarmed))
+                               (rf.hicasso.impl.mount/release! (:ha disarmed)))}))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; H7 — THE LEAK CONTROL: a rejected adoption still releases BOTH roots
@@ -917,15 +917,15 @@
 ;; containers in the document for whatever runs next.
 
 (deftest a-rejected-adoption-still-releases-both-roots-and-the-watcher
-  (if-not (mount/browser?)
-    (sup/skip! "what a rejection can leak here is two real roots")
+  (if-not (rf.hicasso.impl.mount/browser?)
+    (rf.hicasso.roots-frames-support/skip! "what a rejection can leak here is two real roots")
     (async done
       (fresh!)
-      (let [html-a   (sup/server-html! frame-a [screen {:title "A"}])
-            html-b   (sup/server-html! frame-b [screen {:title "B"}])
-            ca       (sup/stamp-server-nodes! (sup/server-dom! html-a))
-            cb       (sup/stamp-server-nodes! (sup/server-dom! html-b))
-            watch    (sup/watch-mismatches!)
+      (let [html-a   (rf.hicasso.roots-frames-support/server-html! frame-a [screen {:title "A"}])
+            html-b   (rf.hicasso.roots-frames-support/server-html! frame-b [screen {:title "B"}])
+            ca       (rf.hicasso.roots-frames-support/stamp-server-nodes! (rf.hicasso.roots-frames-support/server-dom! html-a))
+            cb       (rf.hicasso.roots-frames-support/stamp-server-nodes! (rf.hicasso.roots-frames-support/server-dom! html-b))
+            watch    (rf.hicasso.roots-frames-support/watch-mismatches!)
             ;; NOT `:swallow-uncaught? true`: this row manufactures a
             ;; rejected PROMISE, which `sup/settle-row!` handles, and no uncaught
             ;; window error at all. Swallowing anywhere else is the fail-open
@@ -933,32 +933,32 @@
             stops    (atom 0)
             finishes (atom 0)
             reports  (atom [])]
-        (collector/reset-runtime!)
-        (let [ha (mount/hydrate-root! ca frame-a [screen {:title "A"}])
-              hb (mount/hydrate-root! cb frame-b [screen {:title "B"}])]
-          (-> (js/Promise.all #js [(sup/adopted! ha) (sup/adopted! hb)])
+        (rf.hicasso.impl.collector/reset-runtime!)
+        (let [ha (rf.hicasso.impl.mount/hydrate-root! ca frame-a [screen {:title "A"}])
+              hb (rf.hicasso.impl.mount/hydrate-root! cb frame-b [screen {:title "B"}])]
+          (-> (js/Promise.all #js [(rf.hicasso.roots-frames-support/adopted! ha) (rf.hicasso.roots-frames-support/adopted! hb)])
               (.then
                 (fn [oks]
                   (is (= [true true] (vec oks)) "premise: both roots really did adopt")
-                  (is (not= sup/released (sup/census))
+                  (is (not= rf.hicasso.roots-frames-support/released (rf.hicasso.roots-frames-support/census))
                       (str "premise: the runtime is holding these roots' cells "
                            "and edges, so the census taken after the rejection "
                            "is a RELEASE and not an empty page; got "
-                           (pr-str (sup/census))))
+                           (pr-str (rf.hicasso.roots-frames-support/census))))
                   (js/Promise.reject (js/Error. "adoption rejected on purpose"))))
-              (sup/settle-row!
+              (rf.hicasso.roots-frames-support/settle-row!
                 {:row      "the rejected-adoption control"
                  :done     (fn [] (swap! finishes inc))
                  :report!  (fn [e] (swap! reports conj e))
                  :release! (fn []
                              (swap! stops inc)
                              ((:stop! watch))
-                             (mount/release! ha)
-                             (mount/release! hb))})
+                             (rf.hicasso.impl.mount/release! ha)
+                             (rf.hicasso.impl.mount/release! hb))})
               ;; The cell reapers are armed at unmount and run past a bare
               ;; macrotask, so the tables are read at the runtime's own horizon
               ;; rather than one tick after the release.
-              (.then (fn [_] (sup/quiesced!)))
+              (.then (fn [_] (rf.hicasso.roots-frames-support/quiesced!)))
               (.then
                 (fn [_]
                   (testing "the rejection is REPORTED — which is the whole of
@@ -980,19 +980,19 @@
                             all the same, because a row that leans on the
                             fixture to stop its own watcher is measuring the
                             fixture)"
-                    (is (= sup/released (sup/census))
-                        (str "neither root left: residue was " (pr-str (sup/census))))
-                    (is (empty? (sup/cell-frames))
+                    (is (= rf.hicasso.roots-frames-support/released (rf.hicasso.roots-frames-support/census))
+                        (str "neither root left: residue was " (pr-str (rf.hicasso.roots-frames-support/census))))
+                    (is (empty? (rf.hicasso.roots-frames-support/cell-frames))
                         (str "no frame: the cell table still mentions "
-                             (pr-str (sup/cell-frames))))
+                             (pr-str (rf.hicasso.roots-frames-support/cell-frames))))
                     (is (= 1 @stops)
                         (str "the mismatch watcher was stopped — `stop!` is what "
                              "unregisters the trace listener; it ran "
                              @stops " times")))))
-              (sup/settle-row!
+              (rf.hicasso.roots-frames-support/settle-row!
                 {:row      "the rejected-adoption control's own settlement"
                  :done     done
                  :release! (fn []
                              ((:stop! watch))
-                             (mount/release! ha)
-                             (mount/release! hb))})))))))
+                             (rf.hicasso.impl.mount/release! ha)
+                             (rf.hicasso.impl.mount/release! hb))})))))))

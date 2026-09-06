@@ -55,12 +55,12 @@
   writes thereafter. That is this file, and it is one row plus the control
   that makes the row attributable."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso.checkpoint-support :as support]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.test-support :as test-support]))
+            [re-frame.hicasso.checkpoint-support :as rf.hicasso.checkpoint-support]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.test-support :as rf.test-support]))
 
 (def ^:private frame-id ::first-registration)
 
@@ -71,17 +71,17 @@
 (rf/reg-event :firstreg/bump (fn [{:keys [db]} _] {:db (update db :late inc)}))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 (def ^:private late-key [frame-id [:firstreg/late]])
 
 (defn- seeded!
   []
-  (support/leave-act-environment!)
+  (rf.hicasso.checkpoint-support/leave-act-environment!)
   (rf/make-frame {:id frame-id})
   (rf/with-frame frame-id (rf/dispatch-sync [:firstreg/seed {:late 5}]))
   frame-id)
@@ -90,8 +90,8 @@
   "One body run reading the late-registered key, and what it saw."
   []
   (let [!seen (volatile! ::unread)]
-    (collector/render-body frame-id
-                           (fn [_] (vreset! !seen (collector/sub [:firstreg/late])) [:p])
+    (rf.hicasso.impl.collector/render-body frame-id
+                           (fn [_] (vreset! !seen (rf.hicasso.impl.collector/sub [:firstreg/late])) [:p])
                            {})
     @!seen))
 
@@ -100,13 +100,13 @@
   late-registered key."
   []
   (let [!seen   (volatile! ::unread)
-        _       (collector/render-body
+        _       (rf.hicasso.impl.collector/render-body
                   frame-id
-                  (fn [_] (vreset! !seen (collector/sub [:firstreg/late])) [:p])
+                  (fn [_] (vreset! !seen (rf.hicasso.impl.collector/sub [:firstreg/late])) [:p])
                   {})
-        entry    (collector/last-reads)
+        entry    (rf.hicasso.impl.collector/last-reads)
         !notified (volatile! 0)
-        release  (collector/commit-boundary! entry (fn [] (vswap! !notified inc)))]
+        release  (rf.hicasso.impl.collector/commit-boundary! entry (fn [] (vswap! !notified inc)))]
     {:value @!seen :entry entry :notified !notified :release release}))
 
 (deftest a-cell-holding-an-unregistered-ids-recovery-is-repaired-by-the-first-registration
@@ -120,7 +120,7 @@
                 the substrate declined to cache, cached anyway, where
                 nothing evicts it"
         (is (nil? value))
-        (is (some? (runtime/cell-reaction late-key))))
+        (is (some? (rf.hicasso.test.runtime/cell-reaction late-key))))
 
       ;; NEGATIVE CONTROL, taken FIRST, so the drop measured below is
       ;; attributable to registering THIS id rather than to the mere fact
@@ -128,7 +128,7 @@
       ;; holding the id being registered, and this is the assertion that
       ;; makes that narrowing a measured property.
       (rf/reg-sub :firstreg/unrelated (fn [db _] (:late db)))
-      (is (some? (runtime/cell-reaction late-key))
+      (is (some? (rf.hicasso.test.runtime/cell-reaction late-key))
           "an unrelated first registration leaves this cell's reaction in place")
 
       (let [notified-before @notified]
@@ -140,7 +140,7 @@
 
         (testing "synchronously the held recovery is dropped — the repair's
                   first phase, which is all a correct READ needs"
-          (is (nil? (runtime/cell-reaction late-key))))
+          (is (nil? (rf.hicasso.test.runtime/cell-reaction late-key))))
 
         (testing "and a body run inside the window already answers with the
                   real handler, because a cell with no reaction takes the
@@ -148,8 +148,8 @@
                   is live now"
           (is (= 5 (read-late!))))
 
-        (support/at-the-checkpoint
-          #(some? (runtime/cell-reaction late-key))
+        (rf.hicasso.checkpoint-support/at-the-checkpoint
+          #(some? (rf.hicasso.test.runtime/cell-reaction late-key))
           "the first-registration repair"
           done
           (fn [_turns]
@@ -158,7 +158,7 @@
                       to correct itself — it painted nil, and a correction
                       that arrived in a later task could arrive after the
                       paint"
-              (is (some? (runtime/cell-reaction late-key)))
+              (is (some? (rf.hicasso.test.runtime/cell-reaction late-key)))
               (is (> @notified notified-before)))
 
             (testing "and the property the repair exists for: a LATER write
@@ -167,7 +167,7 @@
                       the mount, so the page rendered, painted, errored
                       nowhere, and never moved again"
               (let [before @notified]
-                (collector/dispatch! frame-id [:firstreg/bump])
+                (rf.hicasso.impl.collector/dispatch! frame-id [:firstreg/bump])
                 (is (= (inc before) @notified))))
 
             (testing "reading through the repaired cell answers the moved

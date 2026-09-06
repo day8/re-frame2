@@ -10,7 +10,7 @@
    Minimal by design. Don't grow it. Real coverage is the framework's
    CLJS / browser tests and the Xray feature gate."
   (:require [re-frame.core    :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter])
+            [re-frame.adapter.reagent :as rf.adapter.reagent])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; -- Events / subs ----------------------------------------------------------
@@ -59,7 +59,7 @@
 ;; React Root is created by the first `render!` through it and updated by
 ;; every later one — the same shape the boot guide and the generated
 ;; template teach, so this smoke mounts the way an app does.
-(defonce app-root (reagent-adapter/client-root))
+(defonce app-root (rf.adapter.reagent/client-root))
 
 (defn ^:export init []
   ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
@@ -67,10 +67,10 @@
   ;; explicitly here (init! installs only the adapter). The boot dispatch
   ;; runs under the frame scope and the render is wrapped in a
   ;; `frame-provider` so in-tree dispatch/subscribe resolve to it.
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (rf/dispatch-sync [:counter/init]))
-  (reagent-adapter/render! app-root
+  (rf.adapter.reagent/render! app-root
     [rf/frame-provider {:frame :rf/default} [root]]
     (js/document.getElementById "app")))

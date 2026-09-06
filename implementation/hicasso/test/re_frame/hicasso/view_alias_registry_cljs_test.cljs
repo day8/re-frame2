@@ -46,10 +46,10 @@
   nothing at all."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.registrar :as registrar]
-            [re-frame.test-support :as test-support]))
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; ---------------------------------------------------------------------------
 ;; The declarations — ABOVE `use-fixtures`, and that is load-bearing
@@ -63,13 +63,13 @@
 ;; hazard the fixture's own docstring describes. Declared above it, they are
 ;; part of this file's baseline and are reinstated before every row.
 
-(h/defview aliased-row
+(rf.hicasso/defview aliased-row
   "A DOCUMENTED boundary — the `:doc` half of the slot needs one that has a
   docstring to carry."
   [{:keys [label]}]
   [:li label])
 
-(h/defview undocumented-row
+(rf.hicasso/defview undocumented-row
   [_]
   [:li "no docstring"])
 
@@ -81,7 +81,7 @@
   [:li "core"])
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
+  (rf.test-support/make-reset-runtime-fixture
     {:ambient-frame nil}))
 
 ;; ---------------------------------------------------------------------------
@@ -185,7 +185,7 @@
             whole — same id, same coord keys, same untouched head"
     (let [head #(:hicasso/component (slot ::aliased-row))
           before (head)]
-      (collector/publish-view-alias!
+      (rf.hicasso.impl.collector/publish-view-alias!
         ::aliased-row (select-keys (slot ::aliased-row) coord-keys) before)
       (is (identical? before (head)))
       (is (not (contains? (slot ::aliased-row) :handler-fn))))))
@@ -204,7 +204,7 @@
         coords    (select-keys (slot ::aliased-row) coord-keys)
         before    (count (rf/registrations :view))]
 
-    (collector/publish-view-alias! ::aliased-row coords reloaded)
+    (rf.hicasso.impl.collector/publish-view-alias! ::aliased-row coords reloaded)
 
     (testing "one entry, not two — the registrar replaces the slot behind
               the id it already holds"
@@ -248,7 +248,7 @@
   (atom nil))
 
 (defonce ^:private recording-hook
-  (do (registrar/add-replacement-hook!
+  (do (rf.registrar/add-replacement-hook!
         (fn [m]
           (when @recorded
             (swap! recorded conj (select-keys m [:kind :id :different-fn?])))))
@@ -279,7 +279,7 @@
               devtool refreshes on"
       (let [rotated (fn rotated-row [_] nil)
             calls   (while-recording
-                      #(collector/publish-view-alias! ::aliased-row coords rotated))]
+                      #(rf.hicasso.impl.collector/publish-view-alias! ::aliased-row coords rotated))]
         (is (= 1 (count calls)) "exactly one replacement, not zero and not two")
         (is (= {:kind :view :id ::aliased-row :different-fn? true}
                (first calls)))))
@@ -289,7 +289,7 @@
               like, and still says so"
       (let [same  (head)
             calls (while-recording
-                    #(collector/publish-view-alias! ::aliased-row coords same))]
+                    #(rf.hicasso.impl.collector/publish-view-alias! ::aliased-row coords same))]
         (is (= 1 (count calls)) "the hook fires on every re-registration")
         (is (= {:kind :view :id ::aliased-row :different-fn? false}
                (first calls)))))))

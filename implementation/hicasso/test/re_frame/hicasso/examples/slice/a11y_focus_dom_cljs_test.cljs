@@ -44,14 +44,14 @@
   than to a false green — the skip is honest, and it is not a
   measurement."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso.examples.slice.events :as events]
-            [re-frame.hicasso.examples.slice.routes :as routes]
-            [re-frame.hicasso.examples.slice.subs :as subs]
-            [re-frame.hicasso.examples.slice.views :as views]
-            [re-frame.hicasso.test.mounted :as hm]
-            [re-frame.test-support :as test-support]))
+            [re-frame.hicasso.examples.slice.events :as rf.hicasso.examples.slice.events]
+            [re-frame.hicasso.examples.slice.routes :as rf.hicasso.examples.slice.routes]
+            [re-frame.hicasso.examples.slice.subs :as rf.hicasso.examples.slice.subs]
+            [re-frame.hicasso.examples.slice.views :as rf.hicasso.examples.slice.views]
+            [re-frame.hicasso.test.mounted :as rf.hicasso.test.mounted]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; ---------------------------------------------------------------------------
 ;; The lane
@@ -63,13 +63,13 @@
   (is true (str "a focus witness needs a real browser — " why)))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
      :init-fn       (fn []
                       (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
-                      (routes/register!))}))
+                      (rf.hicasso.examples.slice.routes/register!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Reading the page
@@ -79,13 +79,13 @@
 
 (defn- at-article!
   [slug]
-  (hm/mount! [views/app {}]
-             {:initial-events [[::events/seed]
-                               [:rf.route/navigate {:to routes/article
+  (rf.hicasso.test.mounted/mount! [rf.hicasso.examples.slice.views/app {}]
+             {:initial-events [[::rf.hicasso.examples.slice.events/seed]
+                               [:rf.route/navigate {:to rf.hicasso.examples.slice.routes/article
                                                     :params {:slug slug}}]]}))
 
 (defn- finish [m done]
-  (-> (hm/unmount! m) (hm/assert-clean!) (.then done)))
+  (-> (rf.hicasso.test.mounted/unmount! m) (rf.hicasso.test.mounted/assert-clean!) (.then done)))
 
 (defn- read-sub [m query-v] (rf/subscribe-once query-v {:frame (:frame m)}))
 
@@ -146,7 +146,7 @@
         d (js/Object.getOwnPropertyDescriptor js/HTMLInputElement.prototype "value")]
     (.call (.-set d) n s)
     (.dispatchEvent n (js/InputEvent. "input" #js {:bubbles true}))
-    (hm/settle! m)))
+    (rf.hicasso.test.mounted/settle! m)))
 
 ;; ---------------------------------------------------------------------------
 ;; The label associations, as the engine computes them
@@ -263,7 +263,7 @@
       (let [m (at-article! "intents")]
         (type-into! m "#slice-title" "A new title")
         (.click (node m ".save"))
-        (hm/settle! m)
+        (rf.hicasso.test.mounted/settle! m)
 
         (testing "the save is in flight, the button is disabled, and it is
                   out of the order — the other direction of the same
@@ -278,9 +278,9 @@
         ;; wait for the region to leave `:saving`, then assert the button
         ;; came BACK, which is what makes the row above about a transition
         ;; rather than about a button that is simply always disabled.
-        (-> (hm/settle-until!
+        (-> (rf.hicasso.test.mounted/settle-until!
               m
-              #(not= :saving (:status (read-sub m [::subs/save-state "intents"])))
+              #(not= :saving (:status (read-sub m [::rf.hicasso.examples.slice.subs/save-state "intents"])))
               {:label "the stand-in server's reply for intents"})
             (.then (fn [_]
                      (is (false? (.-disabled (node m ".save"))))
@@ -304,7 +304,7 @@
           ;; clicking the `<select>` would move focus itself, and what is
           ;; under test is what the RE-RENDER does to focus, not what a
           ;; click does.
-          (hm/dispatch-and-settle! m [::events/set-locale "fr"])
+          (rf.hicasso.test.mounted/dispatch-and-settle! m [::rf.hicasso.examples.slice.events/set-locale "fr"])
 
           (is (identical? field (.-activeElement js/document))
               "the SAME element still holds focus after every label on the
@@ -338,7 +338,7 @@
           ;; Dispatched rather than clicked: clicking `.save` would move
           ;; focus to the button, and what is under test is what the
           ;; ALERT's arrival does to focus.
-          (hm/dispatch-and-settle! m [::events/save {:slug "intents"}])
+          (rf.hicasso.test.mounted/dispatch-and-settle! m [::rf.hicasso.examples.slice.events/save {:slug "intents"}])
 
           (is (= "alert" (.getAttribute (node m ".save-problem") "role"))
               "the region really did arrive, so the row below is not green

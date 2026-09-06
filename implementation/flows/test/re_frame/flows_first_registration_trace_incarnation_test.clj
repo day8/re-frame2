@@ -41,16 +41,16 @@
   already-entered delivery and the observer is the SUBSEQUENT one."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.flows :as flows]
-            [re-frame.flows.registry :as registry]
-            [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace]))
+            [re-frame.elision :as rf.elision]
+            [re-frame.flows :as rf.flows]
+            [re-frame.flows.registry :as rf.flows.registry]
+            [re-frame.frame :as rf.frame]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---------------------------------------------------------------------------
 ;; The trace-internal boundary: A's first-registration emit reaches ordered
@@ -85,24 +85,24 @@
     ;; and publishes same-id B, exactly once (one-shot CAS), then snapshots B's
     ;; stores for the byte-identical assertions. This is the trace-internal loss
     ;; the ytpeqf mark-write seam cannot reach.
-    (trace/register-listener!
+    (rf.trace/register-listener!
       ::destroyer
       (fn [ev]
         (when (and (= :rf.flow/registered (:operation ev))
                    (= id (get-in ev [:tags :frame]))
                    (compare-and-set! armed? true false))
           (swap! destroyer-hits inc)
-          (frame/destroy-frame! id)
+          (rf.frame/destroy-frame! id)
           (rf/make-frame {:id id})
-          (reset! b-token (frame/frame-incarnation-token id))
-          (reset! b-flow-registry (get (registry/flows-snapshot) id ::none))
-          (reset! b-commit (frame/frame-commit-epoch id))
-          (reset! b-sensitive (elision/sensitive-declarations id))
-          (reset! b-trace-disabled (trace/frame-trace-disabled? id)))))
+          (reset! b-token (rf.frame/frame-incarnation-token id))
+          (reset! b-flow-registry (get (rf.flows.registry/flows-snapshot) id ::none))
+          (reset! b-commit (rf.frame/frame-commit-epoch id))
+          (reset! b-sensitive (rf.elision/sensitive-declarations id))
+          (reset! b-trace-disabled (rf.trace/frame-trace-disabled? id)))))
     ;; Listener 2 (registered SECOND → fans out AFTER the destroyer): the
     ;; SUBSEQUENT observer. Absent the fence it receives A's stale
     ;; :rf.flow/registered after B owns the bare id; the fence suppresses it.
-    (trace/register-listener!
+    (rf.trace/register-listener!
       ::observer
       (fn [ev]
         (when (= :rf.flow/registered (:operation ev))
@@ -124,7 +124,7 @@
           "the destroyer listener received A's :rf.flow/registered once — the
            already-entered delivery stands")
       (is (some? @b-token) "the destroyer published a same-id B")
-      (is (identical? @b-token (frame/frame-incarnation-token id))
+      (is (identical? @b-token (rf.frame/frame-incarnation-token id))
           "B remains the live incarnation")
       ;; THE TOOTH: the subsequent listener never receives A's stale event.
       (is (empty? @observer-a-regs)
@@ -135,13 +135,13 @@
       ;; B is never observed by A's tail: B's stores are byte-identical to the
       ;; clean slate the destroy handed it; no A work consulted or mutated B.
       (is (= ::none @b-flow-registry) "B started with an empty flow registry")
-      (is (= ::none (get (registry/flows-snapshot) id ::none))
+      (is (= ::none (get (rf.flows.registry/flows-snapshot) id ::none))
           "A's stale first-registration tail never wrote a flow row onto B")
-      (is (= @b-commit (frame/frame-commit-epoch id))
+      (is (= @b-commit (rf.frame/frame-commit-epoch id))
           "A's stale tail never bumped B's commit epoch")
-      (is (= @b-sensitive (elision/sensitive-declarations id))
+      (is (= @b-sensitive (rf.elision/sensitive-declarations id))
           "A's stale tail never wrote B's output-mark declaration")
-      (is (= @b-trace-disabled (trace/frame-trace-disabled? id))
+      (is (= @b-trace-disabled (rf.trace/frame-trace-disabled? id))
           "A's stale tail never changed B's trace policy")
       ;; The fence does not POISON the successor: a later independent
       ;; registration owned by B (outside A's continuation scope) emits
@@ -157,8 +157,8 @@
       (is (= b-flow-id (get-in (first @observer-regs) [:tags :flow-id]))
           "the sole post-loss registration observed is B's own")
       (finally
-        (trace/unregister-listener! ::destroyer)
-        (trace/unregister-listener! ::observer)))))
+        (rf.trace/unregister-listener! ::destroyer)
+        (rf.trace/unregister-listener! ::observer)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Green control / over-fence tooth — when A retains ownership through a
@@ -177,12 +177,12 @@
         touched  (atom 0)
         observed (atom [])]
     (rf/make-frame {:id id})
-    (trace/register-listener!
+    (rf.trace/register-listener!
       ::live-touch
       (fn [ev]
         (when (= :rf.flow/registered (:operation ev))
           (swap! touched inc))))          ;; observe only — A stays live
-    (trace/register-listener!
+    (rf.trace/register-listener!
       ::live-observer
       (fn [ev]
         (when (= :rf.flow/registered (:operation ev))
@@ -200,8 +200,8 @@
         (is (= [:out]  (:path tags))    "A's own :output-path")
         (is (= id      (:frame tags))   "A's own frame"))
       (finally
-        (trace/unregister-listener! ::live-touch)
-        (trace/unregister-listener! ::live-observer)))))
+        (rf.trace/unregister-listener! ::live-touch)
+        (rf.trace/unregister-listener! ::live-observer)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The reserved-effect `:rf.fx/reg-flow` route already runs the first-

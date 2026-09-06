@@ -62,8 +62,8 @@
   Runtime: `-dom-cljs-test`. Every row needs a real React tree over a real
   document; under `:node-test` each degrades to a stated skip."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.controlled :as controlled]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.controlled :as rf.hicasso.impl.controlled]
             ["react" :as react]
             ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]
@@ -135,7 +135,7 @@
 (def ^:private walled-field
   (react/memo
    (fn [props]
-     (codec/as-element
+     (rf.hicasso.impl.codec/as-element
       (field (keyword (unchecked-get props "tag"))
              (unchecked-get props "value")
              (unchecked-get props "revision"))))))
@@ -174,12 +174,12 @@
       (let [c    (container!)
             root (react-dom-client/createRoot c)]
         (try
-          (render! root (codec/as-element (field :input "committed")))
+          (render! root (rf.hicasso.impl.codec/as-element (field :input "committed")))
           (let [n (node c)]
             (is (= "committed" (.-value n)))
             (drift! n "foreign")
             (is (= "foreign" (.-value n)) "the drift really landed")
-            (render! root (codec/as-element (field :input "committed")))
+            (render! root (rf.hicasso.impl.codec/as-element (field :input "committed")))
             (is (= "committed" (.-value n))
                 "the commit re-asserted the model over the drift")
             (is (identical? n (node c))
@@ -196,11 +196,11 @@
       (let [c    (container!)
             root (react-dom-client/createRoot c)]
         (try
-          (render! root (codec/as-element (field :textarea "committed")))
+          (render! root (rf.hicasso.impl.codec/as-element (field :textarea "committed")))
           (let [n (node c)]
             (is (= "TEXTAREA" (.-tagName n)))
             (drift! n "foreign")
-            (render! root (codec/as-element (field :textarea "committed")))
+            (render! root (rf.hicasso.impl.codec/as-element (field :textarea "committed")))
             (is (= "committed" (.-value n)))
             (is (identical? n (node c))))
           (finally (react-dom/flushSync #(.unmount root)) (drop-container! c)))))))
@@ -232,9 +232,9 @@
            field's first, so no reset ever fires and the draft survives.
            What THIS row pins is the fact underneath that: the prop cannot
            influence adoption at all."
-    (let [with-rev    (codec/as-element (field :input "server" "rev-1"))
-          bumped      (codec/as-element (field :input "server" "rev-2"))
-          without-rev (codec/as-element (field :input "server"))
+    (let [with-rev    (rf.hicasso.impl.codec/as-element (field :input "server" "rev-1"))
+          bumped      (rf.hicasso.impl.codec/as-element (field :input "server" "rev-2"))
+          without-rev (rf.hicasso.impl.codec/as-element (field :input "server"))
           names       (fn [el] (vec (sort (js/Object.keys (.-props el)))))
           plain       (fn [el] (into {} (for [k (names el)
                                               :let [v (unchecked-get (.-props el) k)]
@@ -256,7 +256,7 @@
            two places, so a `revision` cannot reach the wire by construction
            rather than by a server-side special case"
     (let [bytes (react-dom-server/renderToString
-                 (codec/as-element (field :input "server" "rev-1")))]
+                 (rf.hicasso.impl.codec/as-element (field :input "server" "rev-1")))]
       (is (re-find #"value=\"server\"" bytes))
       (is (not (re-find #"revision" bytes)) bytes))))
 
@@ -391,7 +391,7 @@
              ["a <select>, which has no text cursor and no mirror"
               [:select {:re-frame.hicasso/revision "r" :value "x" :on-input noop-input}]]]]
       (is (= :rf.error/hicasso-revision-not-controlled
-             (:rf.error/id (errors-of #(codec/as-element hiccup))))
+             (:rf.error/id (errors-of #(rf.hicasso.impl.codec/as-element hiccup))))
           what)))
   (testing "and the coverage is stated honestly rather than overstated.
            `controlled-text-tag?` is deliberately TYPE-BLIND — tag plus a
@@ -405,7 +405,7 @@
              ["an <input type=number>, with caret semantics that do not apply"
               [:input {:type :number :value "1"
                        :re-frame.hicasso/revision "r" :on-input noop-input}]]]]
-      (is (nil? (errors-of #(codec/as-element hiccup))) what))))
+      (is (nil? (errors-of #(rf.hicasso.impl.codec/as-element hiccup))) what))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3 — NEVER A DOM ATTRIBUTE
@@ -418,7 +418,7 @@
            bytes cannot carry a revision by construction rather than by a
            server-side special case."
     (let [bytes (react-dom-server/renderToString
-                 (codec/as-element (field :input "committed" "rev-1")))]
+                 (rf.hicasso.impl.codec/as-element (field :input "committed" "rev-1")))]
       (is (not (re-find #"revision" bytes))
           (str "no revision in the server bytes: " bytes))
       (is (re-find #"value=\"committed\"" bytes)
@@ -429,7 +429,7 @@
       (let [c    (container!)
             root (react-dom-client/createRoot c)]
         (try
-          (render! root (codec/as-element (field :input "committed" "rev-1")))
+          (render! root (rf.hicasso.impl.codec/as-element (field :input "committed" "rev-1")))
           (let [n (node c)]
             (is (not (.hasAttribute n "revision")))
             (is (not (re-find #"revision" (.-outerHTML n)))
@@ -438,15 +438,15 @@
           (finally (react-dom/flushSync #(.unmount root)) (drop-container! c))))))
   (testing "and the marker the codec stashes for `install!` does not survive
            it either — it exists for the length of one call"
-    (let [el (codec/as-element (field :input "committed" "rev-1"))]
-      (is (undefined? (unchecked-get (.-props el) controlled/revision-slot))
+    (let [el (rf.hicasso.impl.codec/as-element (field :input "committed" "rev-1"))]
+      (is (undefined? (unchecked-get (.-props el) rf.hicasso.impl.controlled/revision-slot))
           "deleted as it was read")
       (is (undefined? (unchecked-get (.-props el) "revision"))
           "and never emitted under its own name")))
   (testing "every OTHER spelling is an ordinary attribute, which is the
            documented honest loss: the exact namespaced keyword or nothing"
     (let [bytes (react-dom-server/renderToString
-                 (codec/as-element
+                 (rf.hicasso.impl.codec/as-element
                   [:input {:value "committed" :on-input noop-input :revision "rev-1"}]))]
       (is (re-find #"revision=\"rev-1\"" bytes)
           (str "a misspelled bare :revision is silent and becomes an
@@ -481,14 +481,14 @@
       (let [c    (container!)
             root (react-dom-client/createRoot c)]
         (try
-          (render! root (codec/as-element (field :input "committed" "rev-1")))
+          (render! root (rf.hicasso.impl.codec/as-element (field :input "committed" "rev-1")))
           (let [n (node c)]
             (.focus n)
             (composing-input! n "kana-in-flight")
             (is (= "kana-in-flight" (.-value n))
                 "the shadow holds the live draft, so React's own restore
                  finds nothing to write")
-            (render! root (codec/as-element (field :input "committed" "rev-2")))
+            (render! root (rf.hicasso.impl.codec/as-element (field :input "committed" "rev-2")))
             (is (= "kana-in-flight" (.-value n))
                 "THE DEFERRAL: the revision bumped mid-composition and the
                  exchange was NOT destroyed — no immediate write, so no
@@ -521,7 +521,7 @@
             !model (atom "committed")
             accept (fn [e] (reset! !model (.. e -target -value)))
             paint! (fn [rev]
-                     (render! root (codec/as-element
+                     (render! root (rf.hicasso.impl.codec/as-element
                                     [:input {:id "f" :value @!model :on-input accept
                                              :re-frame.hicasso/revision rev}])))]
         (try
@@ -587,7 +587,7 @@
             !runs (atom 0)
             paint! (fn [rev]
                      (render! root
-                              (codec/as-element
+                              (rf.hicasso.impl.codec/as-element
                                [:input {:id "f" :value "committed"
                                         :on-input (fn [_e] (swap! !runs inc))
                                         :re-frame.hicasso/revision rev}])))]

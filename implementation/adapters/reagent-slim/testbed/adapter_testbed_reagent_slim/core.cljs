@@ -29,7 +29,7 @@
    grep, and the Xray feature gate."
   (:require [re-frame.core                 :as rf]
             [re-frame.views]
-            [re-frame.adapter.reagent-slim :as reagent-slim-adapter])
+            [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; -- Events / subs ----------------------------------------------------------
@@ -73,7 +73,7 @@
 ;; The adapter-owned client root (rf2-k5r9t) — the same trio the stock
 ;; Reagent adapter publishes, from the same shared spine, so the slim smoke
 ;; mounts exactly the way the stock one does.
-(defonce app-root (reagent-slim-adapter/client-root))
+(defonce app-root (rf.adapter.reagent-slim/client-root))
 
 (defn ^:export init []
   ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
@@ -81,10 +81,10 @@
   ;; explicitly here (init! installs only the slim adapter). The boot
   ;; dispatch runs under the frame scope and the render is wrapped in a
   ;; `frame-provider` so in-tree dispatch/subscribe resolve to it.
-  (rf/init! reagent-slim-adapter/adapter)
+  (rf/init! rf.adapter.reagent-slim/adapter)
   (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (rf/dispatch-sync [:counter/init]))
-  (reagent-slim-adapter/render! app-root
+  (rf.adapter.reagent-slim/render! app-root
     [rf/frame-provider {:frame :rf/default} [root]]
     (js/document.getElementById "app")))

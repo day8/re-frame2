@@ -22,7 +22,7 @@
   unmatched URL both coerce to `:all` rather than producing a filter
   nothing can render."
   (:require [re-frame.core :as rf]
-            [re-frame.hicasso.examples.todo.routes :as routes]))
+            [re-frame.hicasso.examples.todo.routes :as rf.hicasso.examples.todo.routes]))
 
 ;; ---------------------------------------------------------------------------
 ;; What is on the page
@@ -43,7 +43,7 @@
   :<- [:rf.route/id]
   :<- [:rf.route/params]
   (fn [[route-id params] _]
-    (if (= routes/filtered route-id)
+    (if (= rf.hicasso.examples.todo.routes/filtered route-id)
       (case (:filter params)
         "active"    :active
         "completed" :completed

@@ -27,7 +27,7 @@
   A `nil` draft means *this row is not being edited* — one representation
   of unset, which is why cancelling an edit is `[::h/clear ::draft id]`
   (removal, back to the default) rather than a write of `nil`."
-  (:require [re-frame.hicasso :as h]))
+  (:require [re-frame.hicasso :as rf.hicasso]))
 
 ;; ---------------------------------------------------------------------------
 ;; The shape
@@ -73,4 +73,4 @@
   A hand-rolled `[:ui :edit-draft]` path is the bug this deletes: every
   row on the page would share one draft, they would all open together,
   and nothing would complain."
-  (h/reg-state ::draft {:default nil}))
+  (rf.hicasso/reg-state ::draft {:default nil}))

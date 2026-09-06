@@ -29,14 +29,14 @@
   shapes drift, and a roster that could be emitted without its loss
   eventually is. The contract is
   docs/design/hicasso/product/lanes/testing-xray.md §Evidence contract."
-  (:require [re-frame.elision :as elision]
-            [re-frame.hicasso.evidence :as evidence]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.error :as error]
-            [re-frame.hicasso.impl.frames :as frames]
-            [re-frame.hicasso.impl.generation :as generation]
-            [re-frame.interop :as interop]
-            [re-frame.trace.tooling :as trace-tooling]))
+  (:require [re-frame.elision :as rf.elision]
+            [re-frame.hicasso.evidence :as rf.hicasso.evidence]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.error :as rf.hicasso.impl.error]
+            [re-frame.hicasso.impl.frames :as rf.hicasso.impl.frames]
+            [re-frame.hicasso.impl.generation :as rf.hicasso.impl.generation]
+            [re-frame.interop :as rf.interop]
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; ---------------------------------------------------------------------------
 ;; Deterministic order — the precondition of a byte-for-byte contract
@@ -76,7 +76,7 @@
   absolute declarations match the bare query, exactly as the Pair MCP
   direct reads do."
   [frame-id query-v]
-  (elision/elide-wire-value query-v {:frame frame-id :query-v query-v}))
+  (rf.elision/elide-wire-value query-v {:frame frame-id :query-v query-v}))
 
 (defn- sub-id-of
   "The registration id a query names.
@@ -89,7 +89,7 @@
   [query-v]
   (cond (keyword? query-v)                    query-v
         (and (vector? query-v) (seq query-v)) (nth query-v 0)
-        :else                                 evidence/unknown))
+        :else                                 rf.hicasso.evidence/unknown))
 
 (defn- read-identity
   "One read edge's EXPORTED identity: `[frame-id sub-id projected-query]`.
@@ -144,9 +144,9 @@
     {:sub-id   (sub-id-of query-v)
      :query    (projected-query frame-id query-v)
      :frame-id frame-id
-     :epoch    (if-some [^js cell (get @collector/!cells sub-key)]
+     :epoch    (if-some [^js cell (get @rf.hicasso.impl.collector/!cells sub-key)]
                  (.-epoch cell)
-                 evidence/unknown)}))
+                 rf.hicasso.evidence/unknown)}))
 
 ;; ---------------------------------------------------------------------------
 ;; The view names — the dev-only stamp, resolved to a coordinate
@@ -163,9 +163,9 @@
   (if (seq names)
     (mapv (fn [view-name]
             {:view view-name
-             :source (or (error/source-of view-name) evidence/unknown)})
+             :source (or (rf.hicasso.impl.error/source-of view-name) rf.hicasso.evidence/unknown)})
           (sort names))
-    evidence/unknown))
+    rf.hicasso.evidence/unknown))
 
 (defn- views-by-read-set
   "A `js/Map` from each entry's key SET — the object a registration's
@@ -174,11 +174,11 @@
   through a second registry."
   []
   (let [views-by-read-set-map (js/Map.)]
-    (doseq [[_ bucket] @collector/!entries
+    (doseq [[_ bucket] @rf.hicasso.impl.collector/!entries
             ^js entry  bucket]
       (.set views-by-read-set-map
             (.-set entry)
-            (view-rows (collector/entry-views entry))))
+            (view-rows (rf.hicasso.impl.collector/entry-views entry))))
     views-by-read-set-map))
 
 ;; ---------------------------------------------------------------------------
@@ -200,7 +200,7 @@
   entries, which the same subscribe/cleanup pair that moves `refs`
   keeps."
   []
-  (let [live-entries (for [[_ bucket] @collector/!entries
+  (let [live-entries (for [[_ bucket] @rf.hicasso.impl.collector/!entries
                            ^js entry  bucket
                            :when      (pos? (.-refs entry))]
                        entry)]
@@ -217,7 +217,7 @@
                                                (seq (.-set entry))))
                                      entries))]
                   {:boundary    {:parent nil :key projected-boundary-key}
-                   :views       (view-rows (into #{} (mapcat collector/entry-views) entries))
+                   :views       (view-rows (into #{} (mapcat rf.hicasso.impl.collector/entry-views) entries))
                    :instances   (reduce + 0 (map (fn [^js entry]
                                                   (.-refs entry))
                                                 entries))
@@ -228,7 +228,7 @@
                                             projected-boundary-key)]
                                   (if (= 1 (count frame-ids))
                                     (first frame-ids)
-                                    evidence/unknown))
+                                    rf.hicasso.evidence/unknown))
                    :reads       (mapv read-row raw-read-keys)})))
          (ordered (comp :key :boundary)))))
 
@@ -262,10 +262,10 @@
   subscribed and stays listed. React DevTools is the authority on
   visibility."
   []
-  (when interop/debug-enabled?
-    (evidence/envelope :mounted-boundaries true nil
+  (when rf.interop/debug-enabled?
+    (rf.hicasso.evidence/envelope :mounted-boundaries true nil
                        {:boundaries (entry-rows)
-                        :generation (generation/generation)})))
+                        :generation (rf.hicasso.impl.generation/generation)})))
 
 ;; ---------------------------------------------------------------------------
 ;; Read 2 — read attribution (sub → boundary)
@@ -293,7 +293,7 @@
                                       :key    (boundary-key (.-reads registration))
                                       :views  (or (.get views-by-read-set-map
                                                         (.-reads registration))
-                                                  evidence/unknown)}))
+                                                  rf.hicasso.evidence/unknown)}))
                               readers))}))
 
 (defn read-read-attribution
@@ -315,16 +315,16 @@
   nothing holds has no cell and is absent — it is not a subscription with
   zero readers, it is one this runtime is not holding."
   []
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
     (let [views-by-read-set-map (views-by-read-set)]
-      (evidence/envelope :read-attribution true nil
+      (rf.hicasso.evidence/envelope :read-attribution true nil
                          ;; Ordered by SUB-KEY before the row is built, never
                          ;; by a field on the row: the sub-key carries the raw
                          ;; query vector, and a sort key that rode on the row
                          ;; would be a second egress path for its arguments.
                          {:edges (mapv (fn [[sub-key cell]]
                                         (edge-row views-by-read-set-map sub-key cell))
-                                       (ordered key @collector/!cells))}))))
+                                       (ordered key @rf.hicasso.impl.collector/!cells))}))))
 
 ;; ---------------------------------------------------------------------------
 ;; Read 3 — the intent stream
@@ -334,7 +334,7 @@
   "The frames this runtime dispatches through — the frame-ops table's
   keys, which is where every Hicasso intent's dispatch was captured."
   []
-  (vec (sort-by pr-str (keys @frames/!frame-ops))))
+  (vec (sort-by pr-str (keys @rf.hicasso.impl.frames/!frame-ops))))
 
 (defn- intent-row
   "One retained run, as an intent row: WHICH event, and how many arguments
@@ -368,8 +368,8 @@
   (let [event (:event bundle)]
     {:frames      #{frame-id}
      :dispatch-id (:dispatch-id bundle)
-     :event-id    (if (vector? event) (nth event 0) evidence/unknown)
-     :arg-count   (if (vector? event) (dec (count event)) evidence/unknown)
+     :event-id    (if (vector? event) (nth event 0) rf.hicasso.evidence/unknown)
+     :arg-count   (if (vector? event) (dec (count event)) rf.hicasso.evidence/unknown)
      :sub-ids     (into #{} (keep #(get-in % [:tags :rf.sub/id])) (:subs bundle))}))
 
 (defn- merge-fragments
@@ -426,7 +426,7 @@
                  (-> row
                      (update :frames #(vec (sort-by pr-str %)))
                      (update :sub-ids #(vec (sort-by pr-str %)))
-                     (update :dispatch-id #(if (number? %) % evidence/unknown))))))))
+                     (update :dispatch-id #(if (number? %) % rf.hicasso.evidence/unknown))))))))
 
 (defn read-intents
   "What was dispatched inside Spec 009's retained window, oldest first,
@@ -452,10 +452,10 @@
   at markup or at a timer is not recorded by the ring and is not claimed
   here."
   []
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
     (let [frame-ids (hicasso-frames)
-          windows   (into {} (map (fn [fid] [fid (trace-tooling/trace-buffer fid)])) frame-ids)]
-      (evidence/envelope :intents false {:reason :cap :dropped evidence/unknown}
+          windows   (into {} (map (fn [fid] [fid (rf.trace.tooling/trace-buffer fid)])) frame-ids)]
+      (rf.hicasso.evidence/envelope :intents false {:reason :cap :dropped rf.hicasso.evidence/unknown}
                          {:frames  frame-ids
                           :intents (intent-rows windows frame-ids)}))))
 
@@ -505,8 +505,8 @@
      :instances    (:instances boundary-row)
      :window       {:frames (vec (sort-by pr-str frame-ids))
                     :retained-runs retained-runs}
-     :snapshot     (if (seq epochs) (reduce + epochs) evidence/unknown)
-     :peak-epoch   (or peak-epoch evidence/unknown)
+     :snapshot     (if (seq epochs) (reduce + epochs) rf.hicasso.evidence/unknown)
+     :peak-epoch   (or peak-epoch rf.hicasso.evidence/unknown)
      ;; The READ IDENTITY, not the bare sub-id: `[:row 1]` and `[:row 2]`
      ;; are one sub-id and two different reads, and a Why view that
      ;; collapsed them would answer "`:row` moved" to a developer looking
@@ -517,11 +517,11 @@
                            (comp (filter #(= peak-epoch (:epoch %)))
                                  (map #(select-keys % [:sub-id :query :frame-id])))
                            boundary-reads)
-                     evidence/unknown)
+                     rf.hicasso.evidence/unknown)
      :loss         (if searched-window?
-                     {:reason :uncorrelated :dropped evidence/unknown}
-                     {:reason :cap :dropped evidence/unknown})
-     :candidates   (if searched-window? candidate-leads evidence/unknown)}))
+                     {:reason :uncorrelated :dropped rf.hicasso.evidence/unknown}
+                     {:reason :cap :dropped rf.hicasso.evidence/unknown})
+     :candidates   (if searched-window? candidate-leads rf.hicasso.evidence/unknown)}))
 
 (defn explain-render
   "Which reads changed, and which boundaries hold them — the honest half
@@ -548,7 +548,7 @@
   RAN is React's to know: a notification delivered is not a render
   performed."
   []
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
     (let [rows      (entry-rows)
           ;; Every frame that could hold a lead for one of these rows: the
           ;; frames this runtime dispatches through, PLUS any frame a
@@ -562,7 +562,7 @@
                                         rows)))
           windows   (into {}
                           (map (fn [frame-id]
-                                 [frame-id (trace-tooling/trace-buffer frame-id)]))
+                                 [frame-id (rf.trace.tooling/trace-buffer frame-id)]))
                           frame-ids)
           runs      (reduce + 0 (map count (vals windows)))
           ;; Keyed by [frame-id sub-id]: a run that recomputed `:todo` in
@@ -583,6 +583,6 @@
                     (update candidates candidate-key (fnil conj #{}) lead))
                   {}
                   leads)]
-      (evidence/envelope :explain-render false {:reason :uncorrelated :dropped evidence/unknown}
+      (rf.hicasso.evidence/envelope :explain-render false {:reason :uncorrelated :dropped rf.hicasso.evidence/unknown}
                          {:explanations (mapv #(explanation windows by-frame-sub %) rows)
                           :window       {:frames frame-ids :retained-runs runs}}))))

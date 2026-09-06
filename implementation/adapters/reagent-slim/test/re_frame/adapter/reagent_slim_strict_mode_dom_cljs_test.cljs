@@ -104,8 +104,8 @@
             [reagent2.core :as r]
             ["react" :as React]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
+            [re-frame.test-support :as rf.test-support]
             [re-frame.views]))
 
 ;; MAP-FORM fixture (`:async? true`): cljs.test requires `:each` fixtures to be
@@ -119,8 +119,8 @@
 ;; React-context tier — an ambient :rf/default scope would shadow that tier and
 ;; read the wrong (empty) app-db. Mirrors the flush-render / sCU-gate DOM twins.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-slim-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent-slim/adapter
      :async? true
      :ambient-frame nil}))
 
@@ -172,7 +172,7 @@
     (is true ":node-test: no DOM — :browser-test runner exercises the assertions")
     (async done
       (let [frame-kw     :rf.reagent-slim-strict/probe-frame
-            flush!       (:flush-render! reagent-slim-adapter/adapter)
+            flush!       (:flush-render! rf.adapter.reagent-slim/adapter)
             ;; A plain reagent2 RAtom the probe view ALSO derefs. The render
             ;; Reaction wires a watch onto it via the SAME deref-capture edge it
             ;; uses for the subscription, so its `.-watches` count is a

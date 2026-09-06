@@ -29,18 +29,18 @@
             [clojure.string :as str]
             [goog.object :as gobj]
             [re-frame.core :as rf]
-            [re-frame.views.source-coord-annotation :as source-coord]
+            [re-frame.views.source-coord-annotation :as rf.views.source-coord-annotation]
             [reagent2.core :as r2]
             ;; ns-load wires the hiccup -> React-element `as-element` seam that
             ;; the class's `render` method delegates through (lifecycle test).
             [reagent2.impl.template]
-            [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
+            [re-frame.test-support :as rf.test-support]
             [re-frame.views]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-slim-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent-slim/adapter}))
 
 ;; ---- helper: capture console.warn calls -----------------------------------
 
@@ -69,7 +69,7 @@
             identity was lost."
     (let [slim-class (r2/create-class {:reagent-render (fn [] [:div "form-3 body"])
                                        :display-name   "SlimForm3"})
-          out        (source-coord/inject-source-coord-attr
+          out        (rf.views.source-coord-annotation/inject-source-coord-attr
                        :rf.slim-src-coord/form-3
                        "rf.slim-src-coord:form-3:1:1"
                        slim-class)]
@@ -93,7 +93,7 @@
             shapes are classified Form-3."
     (let [stock-shape (fn stock-form-3 [])]
       (set! (.-prototype stock-shape) #js {:reagentRender (fn [])})
-      (let [out (source-coord/inject-source-coord-attr
+      (let [out (rf.views.source-coord-annotation/inject-source-coord-attr
                   :rf.slim-src-coord/stock-shape
                   "rf.slim-src-coord:stock-shape:1:1"
                   stock-shape)]
@@ -126,7 +126,7 @@
           warnings   (with-captured-console-warn
                        (fn []
                          (dotimes [_ 5]
-                           (source-coord/inject-source-coord-attr
+                           (rf.views.source-coord-annotation/inject-source-coord-attr
                              :rf.slim-src-coord/warn-once-f3
                              "rf.slim-src-coord:warn-once-f3:1:1"
                              slim-class))))]
@@ -148,7 +148,7 @@
                        {:reagent-render      (fn [] [:p "lifecycle-intact"])
                         :component-did-mount (fn [_this] (reset! mounted? true))
                         :display-name        "SlimForm3Lifecycle"})
-          out        (source-coord/inject-source-coord-attr
+          out        (rf.views.source-coord-annotation/inject-source-coord-attr
                        :rf.slim-src-coord/lifecycle-f3
                        "rf.slim-src-coord:lifecycle-f3:1:1"
                        slim-class)

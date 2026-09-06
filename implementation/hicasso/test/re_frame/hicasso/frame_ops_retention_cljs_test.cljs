@@ -43,14 +43,14 @@
   render or a direct table read, and none touches a document."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.frames :as frames]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.hicasso.server :as server]
-            [re-frame.test-support :as test-support]))
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.frames :as rf.hicasso.impl.frames]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.hicasso.server :as rf.hicasso.server]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; Registered ABOVE `use-fixtures` for the sibling suites' reason: the
 ;; reset fixture captures its source-store baseline when the
@@ -59,17 +59,17 @@
 
 (rf/reg-sub ::label (fn [db _] (:label db)))
 
-(h/defview page
+(rf.hicasso/defview page
   "One subscription read, so the render acquires a frame-keyed cell and
   the boundary body actually runs."
   [_]
-  [:div.page [:p.value (h/sub [::label])]])
+  [:div.page [:p.value (rf.hicasso/sub [::label])]])
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 (def ^:private snapshot {:label "alpha"})
 
@@ -87,7 +87,7 @@
   this counts exactly the rows a request left behind and is blind to
   whatever else the bundle's other suites have in the table."
   []
-  (filter #(= "hicasso.ssr" (namespace %)) (keys @frames/!frame-ops)))
+  (filter #(= "hicasso.ssr" (namespace %)) (keys @rf.hicasso.impl.frames/!frame-ops)))
 
 ;; ---------------------------------------------------------------------------
 ;; 1 — the general claim: the row dies with the incarnation
@@ -97,16 +97,16 @@
   (rf/make-frame {:id ::live :initial-events [[:rf/set-db snapshot]]})
 
   (testing "control — a body run under a live frame mints the row"
-    (is (nil? (get @frames/!frame-ops ::live))
+    (is (nil? (get @rf.hicasso.impl.frames/!frame-ops ::live))
         "nothing has rendered under this frame yet")
     ;; The exact lookup `run-once` makes around every boundary body.
-    (collector/frame-dispatch ::live)
-    (is (some? (get @frames/!frame-ops ::live))
+    (rf.hicasso.impl.collector/frame-dispatch ::live)
+    (is (some? (get @rf.hicasso.impl.frames/!frame-ops ::live))
         "a row exists — without this the assertion below is vacuous"))
 
   (testing "and `destroy-frame!` drops it"
     (rf/destroy-frame! ::live)
-    (is (nil? (get @frames/!frame-ops ::live))
+    (is (nil? (get @rf.hicasso.impl.frames/!frame-ops ::live))
         (str "the row is the destroyed incarnation's `capture-frame` bundle and "
              "the closure over it; no successor can ever look it up, so the "
              "destruction is the eviction"))))
@@ -119,18 +119,18 @@
   (is (empty? (ssr-rows))
       "baseline: no per-request rows before the first render")
 
-  (runtime/reset-body-runs!)
+  (rf.hicasso.test.runtime/reset-body-runs!)
 
   (testing "control — a render really runs this page's boundary body"
-    (is (str/includes? (:html (server/render (request))) "alpha")
+    (is (str/includes? (:html (rf.hicasso.server/render (request))) "alpha")
         "the seeded snapshot reaches the bytes")
-    (is (pos? (runtime/body-runs))
+    (is (pos? (rf.hicasso.test.runtime/body-runs))
         (str "a `render` that reached no boundary would leave the table "
-             "empty for the wrong reason; ran " (runtime/body-runs)
+             "empty for the wrong reason; ran " (rf.hicasso.test.runtime/body-runs)
              " bodies")))
 
   (let [after-1 (count (ssr-rows))]
-    (dotimes [_ 3] (server/render (request)))
+    (dotimes [_ 3] (rf.hicasso.server/render (request)))
     (let [after-4 (count (ssr-rows))]
 
       (testing "the table is BOUNDED in requests served, not linear in them"

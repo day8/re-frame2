@@ -33,9 +33,9 @@
   unreliable in production."
   (:require [cljs.test :refer-macros [deftest is testing async use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; Async map-form fixture (a fn-form fixture's teardown would restore the
 ;; registrar before an `(async done)` body completes). `make-reset-runtime-
@@ -47,8 +47,8 @@
 ;; leak shows as 'reducer ran on the wrong frame's db'; those registrations
 ;; roll back with the per-test registrar snapshot.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       reagent-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.reagent/adapter
      :async?        true
      :ambient-frame nil
      :init-fn       (fn []
@@ -64,14 +64,14 @@
   "Return the :mode slot of a frame's app-db. nil if the frame doesn't
   carry the slot."
   [frame-id]
-  (get (frame/frame-app-db-value frame-id) :mode))
+  (get (rf.frame/frame-app-db-value frame-id) :mode))
 
 (defn- await-mode
   "Poll until the named frame's :mode slot equals `expected`. The router
   drain is async (goog.async.nextTick microtask) so a queued dispatch
   needs one or two macrotasks before its reducer lands."
   [frame-id expected]
-  (test-support/poll-until
+  (rf.test-support/poll-until
     #(= expected (mode-of frame-id))
     {:label      (str frame-id " :mode = " expected)
      :timeout-ms 1000}))
@@ -188,7 +188,7 @@
             escape, any concurrent renderer transition."
     (async done
       ;; Wrap under :rf/xray.
-      (let [wrapped (frame/bind-fn :rf/xray
+      (let [wrapped (rf.frame/bind-fn :rf/xray
                       (fn [mode] (rf/dispatch [:rf-tvu99/set-mode mode])))]
         (-> (inside-set-timeout
               (fn [] (wrapped :all)))
@@ -210,7 +210,7 @@
             still routes to the captured frame."
     (async done
       (let [wrapped (rf/with-frame :rf/xray
-                      (frame/bind-fn :rf/xray
+                      (rf.frame/bind-fn :rf/xray
                         (fn [mode] (rf/dispatch [:rf-tvu99/set-mode mode]))))]
         (-> (inside-set-timeout
               (fn [] (wrapped :all)))
@@ -230,7 +230,7 @@
   (testing "rf2-tvu99 — `dispatch-sync` inside the wrapped callback
             also routes to the captured frame. The binding tier is
             the same; nothing about the sync drain bypasses it."
-    (let [wrapped (frame/bind-fn :rf/xray
+    (let [wrapped (rf.frame/bind-fn :rf/xray
                     (fn [mode] (rf/dispatch-sync [:rf-tvu99/set-mode mode])))]
       (wrapped :all)
       (is (= :all (mode-of :rf/xray))

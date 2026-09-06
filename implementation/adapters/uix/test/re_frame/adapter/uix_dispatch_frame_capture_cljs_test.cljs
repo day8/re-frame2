@@ -12,9 +12,9 @@
 
   ns ends in `-cljs-test` so shadow-cljs `:node-test` picks it up."
   (:require [cljs.test :refer-macros [deftest async use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.adapter.react-shared-suite :as suite]
-            [re-frame.test-support :as test-support]))
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.adapter.react-shared-suite :as rf.adapter.react-shared-suite]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; Async map-form fixture (a fn-form fixture's teardown would restore the
 ;; registrar before an `(async done)` body completes). `make-reset-runtime-
@@ -25,32 +25,32 @@
 ;; validation rollbacks against this test's frames). `:ambient-frame nil`
 ;; preserves the suite's no-ambient-scope behaviour.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter uix-adapter/adapter :async? true :ambient-frame nil}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.uix/adapter :async? true :ambient-frame nil}))
 
 (def ^:private cfg
-  {:adapter      uix-adapter/adapter
+  {:adapter      rf.adapter.uix/adapter
    :substrate-kw :uix
    :name         "UIx"})
 
 ;; ---- synchronous cases ----------------------------------------------------
 
 (deftest sync-dispatch-routes-to-handlers-frame
-  (suite/assert-dfc-sync-dispatch-routes-to-handlers-frame cfg))
+  (rf.adapter.react-shared-suite/assert-dfc-sync-dispatch-routes-to-handlers-frame cfg))
 
 (deftest fx-dispatch-routes-to-handlers-frame
-  (suite/assert-dfc-fx-dispatch-routes-to-handlers-frame cfg))
+  (rf.adapter.react-shared-suite/assert-dfc-fx-dispatch-routes-to-handlers-frame cfg))
 
 (deftest sync-dispatch-isolation
-  (suite/assert-dfc-sync-dispatch-isolation cfg))
+  (rf.adapter.react-shared-suite/assert-dfc-sync-dispatch-isolation cfg))
 
 ;; ---- asynchronous cases (map-form fixture mandatory) ----------------------
 
 (deftest raw-dispatch-from-set-timeout-falls-through
-  (async done (suite/assert-dfc-raw-dispatch-from-set-timeout-falls-through cfg done)))
+  (async done (rf.adapter.react-shared-suite/assert-dfc-raw-dispatch-from-set-timeout-falls-through cfg done)))
 
 (deftest dispatch-later-survives-the-timer
-  (async done (suite/assert-dfc-dispatch-later-survives-the-timer cfg done)))
+  (async done (rf.adapter.react-shared-suite/assert-dfc-dispatch-later-survives-the-timer cfg done)))
 
 (deftest dispatcher-survives-set-timeout
-  (async done (suite/assert-dfc-dispatcher-survives-set-timeout cfg done)))
+  (async done (rf.adapter.react-shared-suite/assert-dfc-dispatcher-survives-set-timeout cfg done)))

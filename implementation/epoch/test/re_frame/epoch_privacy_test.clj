@@ -21,12 +21,12 @@
   Also covers retention caps and the JVM debug-disabled path."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.epoch :as epoch]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
+            [re-frame.elision :as rf.elision]
+            [re-frame.epoch :as rf.epoch]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
             ;; Side-effect requires (mirrors epoch_test.clj):
             [re-frame.machines]))
 
@@ -52,8 +52,8 @@
 ;; hand-rolled `make-frame` + `with-frame` here. Explicit `{:frame …}` opts
 ;; in the bodies still win.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
      :init-fn (fn [] (rf/configure! {:epoch-history {:trace-events-keep 5}}))}))
 
 ;; ---- helpers ---------------------------------------------------------------
@@ -73,8 +73,8 @@
   cascades that legitimately leave `:auth` absent (a non-auth event) or
   clear `:password` mid-cascade need no `:maybe` / `:optional` wrapper."
   [frame-id]
-  (frame/swap-runtime-db! frame-id
-    (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))
+  (rf.frame/swap-runtime-db! frame-id
+    (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))
   nil)
 
 (defn- install-large-schema!
@@ -83,8 +83,8 @@
   under `:source :effect`). The frame container is make-frame'd by each
   deftest before this runs."
   [frame-id]
-  (frame/swap-runtime-db! frame-id
-    (fn [rt] (elision/apply-classification-effects rt {:large [[:blob :payload]]})))
+  (rf.frame/swap-runtime-db! frame-id
+    (fn [rt] (rf.elision/apply-classification-effects rt {:large [[:blob :payload]]})))
   nil)
 
 (defn- big-string [n]
@@ -208,7 +208,7 @@
                              (fn [r] (swap! seen conj r)))
       (rf/reg-event :destroy-self
                        (fn [_ _]
-                         (frame/destroy-frame! :test/main)
+                         (rf.frame/destroy-frame! :test/main)
                          {}))
       ;; The destroy fires inside the drain — on-frame-destroyed!
       ;; emits a :halted-destroy partial record carrying the REAL
@@ -267,7 +267,7 @@
     (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
 
     (let [raw       (last-record :test/main)
-          projected (epoch/projected-record raw)]
+          projected (rf.epoch/projected-record raw)]
       (is (= "topsecret" (get-in raw [:db-after :auth :password]))
           "raw record carries the unredacted value (in-process)")
       (is (= :rf/redacted (get-in projected [:db-after :auth :password]))
@@ -287,7 +287,7 @@
     (rf/dispatch-sync [:inc]  {:frame :test/main})
 
     (let [raw       (last-record :test/main)
-          projected (epoch/projected-record raw)]
+          projected (rf.epoch/projected-record raw)]
       (is (= "original-secret"
              (get-in raw [:db-before :auth :password]))
           "raw :db-before carries the value")
@@ -306,14 +306,14 @@
     (rf/dispatch-sync [:store (big-string 50000)] {:frame :test/main})
 
     (let [raw       (last-record :test/main)
-          projected (epoch/projected-record raw)
+          projected (rf.epoch/projected-record raw)
           marked    (get-in projected [:blob :payload])]
       (is (= 50000 (count (get-in raw [:db-after :blob :payload])))
           "raw record carries the full string")
       ;; :large? matches at :db-after.[:blob :payload], so the projected
       ;; record's [:db-after :blob :payload] slot is a marker map.
-      (is (or (elision/marker? (get-in projected [:db-after :blob :payload]))
-              (elision/marker? marked))
+      (is (or (rf.elision/marker? (get-in projected [:db-after :blob :payload]))
+              (rf.elision/marker? marked))
           "projected record substitutes a :rf.size/large-elided marker"))))
 
 (deftest projected-record-elides-large-sub-output
@@ -350,7 +350,7 @@
 
     (let [raw       (last-record :test/main)
           raw-row   (->> (:sub-runs raw)   (filter #(= :big (:sub-id %))) first)
-          projected (epoch/projected-record raw)
+          projected (rf.epoch/projected-record raw)
           proj-row  (->> (:sub-runs projected) (filter #(= :big (:sub-id %))) first)]
       (is (some? raw-row)   "the :big sub produced a structured :sub-runs row")
       (is (some? proj-row)  "the projected record keeps the :big sub-run row")
@@ -363,7 +363,7 @@
           "raw row threads the whole-output :large? marker")
 
       ;; Off-box projected row: value slot is a marker, NOT the raw value.
-      (is (elision/marker? (:value proj-row))
+      (is (rf.elision/marker? (:value proj-row))
           "projected :sub-runs :value is a :rf.size/large-elided marker, not raw")
       (is (not= (:value raw-row) (:value proj-row))
           "the raw 50KB value does NOT egress in the projected :sub-runs")
@@ -372,7 +372,7 @@
       ;; it is never the raw bulky value.
       (when (contains? proj-row :prev-value)
         (is (or (nil? (:prev-value proj-row))
-                (elision/marker? (:prev-value proj-row)))
+                (rf.elision/marker? (:prev-value proj-row)))
             "projected :prev-value is never a raw bulky value"))
 
       ;; Non-value metadata preserved; the spent :large? flag is stripped.
@@ -383,11 +383,11 @@
           "the now-spent :large? row flag is stripped from the projection")
 
       ;; projected-history routes through the same projection.
-      (let [hist-row (->> (epoch/projected-history :test/main)
+      (let [hist-row (->> (rf.epoch/projected-history :test/main)
                           (mapcat :sub-runs)
                           (filter #(= :big (:sub-id %)))
                           first)]
-        (is (elision/marker? (:value hist-row))
+        (is (rf.elision/marker? (:value hist-row))
             "projected-history also elides the large :sub-runs value"))
 
       ;; rf2-irwsq — THE TRACE-TAG TWIN. The same value also rides the
@@ -408,7 +408,7 @@
             "raw on-box trace tag carries the full computed value")
         (is (true? (:large? raw-tags))
             "the emit chokepoint stamped the whole-output :large? flag on the tag")
-        (is (elision/marker? (:rf.sub/value proj-tags))
+        (is (rf.elision/marker? (:rf.sub/value proj-tags))
             "projected :rf.sub/run tag's :rf.sub/value is a :rf.size/large-elided
              marker, not the raw 50KB string")
         (is (not (contains? proj-tags :large?))
@@ -416,10 +416,10 @@
         (is (= (get-in (:value proj-row)          [:rf.size/large-elided :bytes])
                (get-in (:rf.sub/value proj-tags)  [:rf.size/large-elided :bytes]))
             "row marker and tag marker agree on :bytes — one rule built both")
-        (is (elision/marker? (:rf.sub/value
-                               (tags-of (last (epoch/projected-history :test/main)))))
+        (is (rf.elision/marker? (:rf.sub/value
+                               (tags-of (last (rf.epoch/projected-history :test/main)))))
             "projected-history elides the trace-tag twin too")
-        (let [lifted (tags-of (epoch/projected-record raw {:include-large? true}))]
+        (let [lifted (tags-of (rf.epoch/projected-record raw {:include-large? true}))]
           (is (= 50000 (count (:rf.sub/value lifted)))
               "NEGATIVE CONTROL — :include-large? true returns the raw value to
                the tag, so the default elision is classification-driven"))))))
@@ -434,7 +434,7 @@
     (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
 
     (let [raw       (last-record :test/main)
-          projected (epoch/projected-record raw)]
+          projected (rf.epoch/projected-record raw)]
       (doseq [k [:epoch-id :frame :committed-at :event-id :outcome
                  :schema-digest :rf.epoch/sensitive?]]
         (is (= (get raw k) (get projected k))
@@ -460,7 +460,7 @@
     (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
 
     (let [raw       (last-record :test/main)
-          projected (epoch/projected-record raw)]
+          projected (rf.epoch/projected-record raw)]
       (is (= (:sub-runs raw) (:sub-runs projected)))
       (is (= (:renders  raw) (:renders  projected))))))
 
@@ -493,8 +493,8 @@
 
       (let [raw       (last-record :test/main)
             raw-row   (effect-row raw :fxp/login)
-            proj-row  (effect-row (epoch/projected-record raw) :fxp/login)
-            wide-row  (effect-row (epoch/projected-record raw {:include-fx-args? true})
+            proj-row  (effect-row (rf.epoch/projected-record raw) :fxp/login)
+            wide-row  (effect-row (rf.epoch/projected-record raw {:include-fx-args? true})
                                   :fxp/login)]
         ;; Negative control: the raw ring record carries the EXACT secret args.
         (is (= secret (:args raw-row))
@@ -524,7 +524,7 @@
 
       (let [raw      (last-record :test/main)
             raw-row  (effect-row raw :fxp/local-storage)
-            proj-row (effect-row (epoch/projected-record raw) :fxp/local-storage)]
+            proj-row (effect-row (rf.epoch/projected-record raw) :fxp/local-storage)]
         (is (= :skipped-on-platform (:outcome raw-row))
             "fixture produced a skipped-on-platform row")
         (is (= secret (:args raw-row)) "raw ring keeps the exact args")
@@ -545,7 +545,7 @@
 
       (let [raw      (last-record :test/main)
             raw-row  (effect-row raw :fxp/missing)
-            proj-row (effect-row (epoch/projected-record raw) :fxp/missing)]
+            proj-row (effect-row (rf.epoch/projected-record raw) :fxp/missing)]
         (is (some? raw-row) "fixture produced a no-such-fx :effects row")
         (is (= :error (:outcome raw-row)))
         (is (= secret (:args raw-row)) "raw ring keeps the exact args")
@@ -568,7 +568,7 @@
 
       (let [raw      (last-record :test/main)
             raw-row  (effect-row raw :fxp/boom)
-            proj-row (effect-row (epoch/projected-record raw) :fxp/boom)]
+            proj-row (effect-row (rf.epoch/projected-record raw) :fxp/boom)]
         (is (some? raw-row) "fixture produced an fx-handler-exception :effects row")
         (is (= :error (:outcome raw-row)))
         (is (= secret (:args raw-row)) "raw ring keeps the exact args")
@@ -589,8 +589,8 @@
     (rf/dispatch-sync [:do-login {:password "topsecret"}] {:frame :test/main})
 
     (let [raw    (last-record :test/main)
-          once   (epoch/projected-record raw)
-          twice  (epoch/projected-record once)]
+          once   (rf.epoch/projected-record raw)
+          twice  (rf.epoch/projected-record once)]
       (is (= :rf/redacted (:args (effect-row once  :fxp/login))))
       (is (= :rf/redacted (:args (effect-row twice :fxp/login)))
           "double-projection is idempotent at the :args slot"))))
@@ -616,7 +616,7 @@
     (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
 
     (let [raw       (last-record :test/main)
-          projected (epoch/projected-record raw)]
+          projected (rf.epoch/projected-record raw)]
       (is (= [:login "topsecret"] (:trigger-event raw))
           "the raw ring keeps the exact dispatched event vector")
       (is (contains? projected :trigger-event)
@@ -645,7 +645,7 @@
                       {:frame :test/main})
 
     (let [raw       (last-record :test/main)
-          projected (epoch/projected-record raw)]
+          projected (rf.epoch/projected-record raw)]
       (is (= [:auth/login {:password "topsecret" :email "a@b.c"}]
              (:trigger-event raw))
           "the raw ring keeps the exact dispatched map arg")
@@ -674,7 +674,7 @@
                        {:db (assoc-in db [:auth :password] password)}))
     (rf/dispatch-sync [:auth/login {:password "topsecret"}] {:frame :test/main})
 
-    (let [projected (epoch/projected-record (last-record :test/main))]
+    (let [projected (rf.epoch/projected-record (last-record :test/main))]
       (is (= [:auth/login :rf/redacted] (:trigger-event projected))
           "a marked event arg still fails closed at the trigger-event slot")
       (is (not (contains-leaf? (:trigger-event projected) "topsecret"))
@@ -694,15 +694,15 @@
 
     (let [raw (last-record :test/main)]
       (is (= [:login "topsecret"]
-             (:trigger-event (epoch/projected-record raw {:include-event-args? true})))
+             (:trigger-event (rf.epoch/projected-record raw {:include-event-args? true})))
           ":include-event-args? true keeps the raw event args off-box")
       ;; Orthogonality: the app-db sensitive/large opt-ins do NOT lift the
       ;; event-args redaction (event args are a different keyspace).
       (is (= [:login :rf/redacted]
-             (:trigger-event (epoch/projected-record raw {:include-sensitive? true})))
+             (:trigger-event (rf.epoch/projected-record raw {:include-sensitive? true})))
           ":include-sensitive? does NOT lift the trigger-event-args redaction")
       (is (= [:login :rf/redacted]
-             (:trigger-event (epoch/projected-record raw {:include-large? true})))
+             (:trigger-event (rf.epoch/projected-record raw {:include-large? true})))
           ":include-large? does NOT lift the trigger-event-args redaction"))))
 
 (deftest projected-record-trigger-event-redaction-idempotent
@@ -716,8 +716,8 @@
     (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
 
     (let [raw   (last-record :test/main)
-          once  (epoch/projected-record raw)
-          twice (epoch/projected-record once)]
+          once  (rf.epoch/projected-record raw)
+          twice (rf.epoch/projected-record once)]
       (is (= [:login :rf/redacted] (:trigger-event once)))
       (is (= [:login :rf/redacted] (:trigger-event twice))
           "double-projection is idempotent at the :trigger-event slot"))))
@@ -734,8 +734,8 @@
     ;; sensitive-wins-over-large rule (sensitive is checked before large per
     ;; node), so the projected slot lands as `:rf/redacted`, never a large
     ;; marker, even though both decls are present in the registry.
-    (frame/swap-runtime-db! :test/main
-      (fn [rt] (elision/apply-classification-effects rt
+    (rf.frame/swap-runtime-db! :test/main
+      (fn [rt] (rf.elision/apply-classification-effects rt
                  {:sensitive [[:secret-pdf]]
                   :large     [[:secret-pdf]]})))
     (rf/reg-event :store-pdf
@@ -744,16 +744,16 @@
     (rf/dispatch-sync [:store-pdf (big-string 50000)] {:frame :test/main})
 
     (let [raw       (last-record :test/main)
-          projected (epoch/projected-record raw)]
+          projected (rf.epoch/projected-record raw)]
       (is (= :rf/redacted (get-in projected [:db-after :secret-pdf]))
           "sensitive wins — projected slot is :rf/redacted, not a marker"))))
 
 (deftest projected-record-nil-input-returns-nil
   (testing "nil input — projected-record returns nil (a missing-epoch
             lookup must not throw)"
-    (is (nil? (epoch/projected-record nil)))
-    (is (nil? (epoch/projected-record :not-a-map)))
-    (is (nil? (epoch/projected-record [:not :a :map])))))
+    (is (nil? (rf.epoch/projected-record nil)))
+    (is (nil? (rf.epoch/projected-record :not-a-map)))
+    (is (nil? (rf.epoch/projected-record [:not :a :map])))))
 
 (deftest projected-record-handles-missing-payload-slots
   (testing "a record without one of the four payload slots passes
@@ -771,7 +771,7 @@
                           :renders       []
                           :effects       []
                           :rf.epoch/sensitive? false}
-          projected     (epoch/projected-record partial-record)]
+          projected     (rf.epoch/projected-record partial-record)]
       (is (some? projected))
       (is (nil? (:db-before projected))
           "nil :db-before stays nil — no fabricated value")
@@ -796,7 +796,7 @@
   slot (or nil if the slot is not a marker)."
   [record]
   (let [slot (get-in record [:db-after :blob :payload])]
-    (when (elision/marker? slot)
+    (when (rf.elision/marker? slot)
       (:rf.size/large-elided slot))))
 
 (deftest projected-record-tool-profile-includes-structural-digest
@@ -815,17 +815,17 @@
 
     (let [raw       (last-record :test/main)
           obs-body  (large-marker-body
-                      (epoch/projected-record raw))
+                      (rf.epoch/projected-record raw))
           obs-body2 (large-marker-body
-                      (epoch/projected-record
+                      (rf.epoch/projected-record
                         raw {:rf.egress/profile :rf.egress/off-box-observability}))
           tool-body (large-marker-body
-                      (epoch/projected-record
+                      (rf.epoch/projected-record
                         raw {:rf.egress/profile :rf.egress/off-box-tool}))]
       ;; Both off-box profiles elide the large slot to a marker (no raw bytes).
       (is (some? obs-body)  "observability default elides the large slot")
       (is (some? tool-body) "tool profile elides the large slot")
-      (is (not= 50000 (get-in (epoch/projected-record raw) [:db-after :blob :payload]))
+      (is (not= 50000 (get-in (rf.epoch/projected-record raw) [:db-after :blob :payload]))
           "the raw 50KB string never egresses under either off-box profile")
       ;; The DEFAULT (no profile) == the observability profile.
       (is (= obs-body obs-body2)
@@ -856,7 +856,7 @@
     (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
 
     (let [raw  (last-record :test/main)
-          tool (epoch/projected-record
+          tool (rf.epoch/projected-record
                  raw {:rf.egress/profile :rf.egress/off-box-tool})]
       (is (= :rf/redacted (get-in tool [:db-after :auth :password]))
           "tool profile still redacts the sensitive slot"))))
@@ -872,7 +872,7 @@
                        {:db (assoc-in db [:blob :payload] payload)}))
     (rf/dispatch-sync [:store (big-string 50000)] {:frame :test/main})
     (let [raw (last-record :test/main)
-          ex  (try (epoch/projected-record raw {:rf.egress/profile :rf.egress/not-a-real-profile})
+          ex  (try (rf.epoch/projected-record raw {:rf.egress/profile :rf.egress/not-a-real-profile})
                    nil
                    (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex) "an unknown profile throws")
@@ -891,7 +891,7 @@
                        {:db (assoc-in db [:blob :payload] payload)}))
     (rf/dispatch-sync [:store (big-string 50000)] {:frame :test/main})
 
-    (let [tool-hist (epoch/projected-history
+    (let [tool-hist (rf.epoch/projected-history
                       :test/main {:rf.egress/profile :rf.egress/off-box-tool})
           last-body (large-marker-body (last tool-hist))]
       (is (some? last-body) "the whole-ring tool egress elides the large slot")
@@ -914,7 +914,7 @@
     (rf/dispatch-sync [:login "secret-2"]  {:frame :test/main})
 
     (let [history (rf/epoch-history :test/main)
-          ph      (epoch/projected-history :test/main)]
+          ph      (rf.epoch/projected-history :test/main)]
       (is (= (count history) (count ph)))
       (is (= (mapv :epoch-id history) (mapv :epoch-id ph))
           "ordering matches the raw ring")
@@ -929,7 +929,7 @@
   (testing "projected-history on a frame with no recorded epochs
             returns the empty vector (matches the epoch-history empty
             shape)"
-    (is (= [] (epoch/projected-history :rf/no-such-frame)))))
+    (is (= [] (rf.epoch/projected-history :rf/no-such-frame)))))
 
 ;; ---- 4. listener delivery defaults to RAW ---------------------------------
 
@@ -962,7 +962,7 @@
     (let [shipped (atom [])
           ship!   (fn [record]
                     ;; Tool-side forwarder body — project here.
-                    (swap! shipped conj (epoch/projected-record record)))]
+                    (swap! shipped conj (rf.epoch/projected-record record)))]
       (rf/register-listener! :epoch ::forwarder ship!)
       (rf/reg-event :login
                        (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
@@ -984,7 +984,7 @@
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
-    (is (= 5 (:trace-events-keep (epoch/current-config)))
+    (is (= 5 (:trace-events-keep (rf.epoch/current-config)))
         "fixture OVERRIDE — the shipped runtime default is 50 (= :depth)")
 
     (rf/dispatch-sync [:seed] {:frame :test/main})
@@ -1045,11 +1045,11 @@
             ring (per epoch_jvm_prod_gate_test). projected-history of
             an empty ring is the empty vector — projected-record never
             gets called against a record."
-    (with-redefs [interop/debug-enabled? false]
+    (with-redefs [rf.interop/debug-enabled? false]
       (rf/reg-event :prod.priv/inc
                        (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
       (rf/dispatch-sync [:prod.priv/inc])
-      (is (= [] (epoch/projected-history :rf/default))
+      (is (= [] (rf.epoch/projected-history :rf/default))
           "no records to project under disabled gate"))))
 
 (deftest projected-record-pure-fn-survives-disabled-gate
@@ -1073,8 +1073,8 @@
            :sub-runs      []
            :renders       []
            :effects       []}]
-      (with-redefs [interop/debug-enabled? false]
-        (let [projected (epoch/projected-record synthetic-record)]
+      (with-redefs [rf.interop/debug-enabled? false]
+        (let [projected (rf.epoch/projected-record synthetic-record)]
           (is (some? projected))
           (is (= 1 (:epoch-id projected))
               "the projection runs even under the disabled gate — it
@@ -1084,7 +1084,7 @@
   (testing "no records means no rollup to compute. The gate-disabled
             path drops the entire surface — the rollup is dev-only
             because the records are dev-only."
-    (with-redefs [interop/debug-enabled? false]
+    (with-redefs [rf.interop/debug-enabled? false]
       (rf/reg-event :prod.priv/silent
                        (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
       (rf/dispatch-sync [:prod.priv/silent])

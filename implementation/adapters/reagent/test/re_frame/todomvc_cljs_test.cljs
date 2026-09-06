@@ -43,9 +43,9 @@
    carried — run-order independence is now the fixture's contract."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.frame :as rf.frame]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             [re-frame.views]
             ;; todomvc.events requires re-frame.routing at load time
             ;; (reg-route). Required transitively via todomvc.core, but
@@ -55,12 +55,12 @@
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
+  (rf.test-support/make-reset-runtime-fixture
     ;; EP-0002 (rf2-9o48ih): the test spins its OWN top-level frame via
     ;; `make-frame`; opt out of the ambient `:rf/default` scope so the new
     ;; frame's `:initial-events` drain synchronously (top-level boot) rather than
     ;; being treated as a mid-cascade child-frame creation.
-    {:adapter       reagent-adapter/adapter
+    {:adapter       rf.adapter.reagent/adapter
      :ambient-frame nil}))
 
 (defn- todos [frame]
@@ -77,7 +77,7 @@
     ;; so it exercises the empty / first-run path and coerces nil to an empty
     ;; `(sorted-map)`. No manual `:rf.cofx` supply — the registered generator
     ;; provides the fact, which is the whole point of the EP-0017 generator shape.
-    (with-new-frame [f (frame/make-anon-frame-record!
+    (with-new-frame [f (rf.frame/make-anon-frame-record!
                          {:fx-overrides   {:todo.storage/save :rf/no-op}
                           :initial-events [[:todo/initialise]]})]
       ;; The invariant the whole bug hinges on: :todos must be a

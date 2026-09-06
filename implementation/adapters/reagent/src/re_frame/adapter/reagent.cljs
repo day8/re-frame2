@@ -4,8 +4,8 @@
   (:require [reagent.core :as r]
             [reagent.ratom :as ratom]
             [reagent.dom.client :as rdc]
-            [re-frame.substrate.spine :as spine]
-            [re-frame.views :as views]))
+            [re-frame.substrate.spine :as rf.substrate.spine]
+            [re-frame.views :as rf.views]))
 
 ;; ---- exactly-once Reaction disposal (rf2-rzeko) ---------------------------
 ;;
@@ -86,7 +86,7 @@
 ;; that dependency direction keeps stock Reagent out of slim bundles.
 
 (def ^:private spine-fns
-  (spine/make-ratom-spine
+  (rf.substrate.spine/make-ratom-spine
     {;; Keep generated watch ids attributable in mixed-adapter test bundles.
      :gensym-prefix-sub "rf-reagent-sub-"
      ;; Each op is a thin call-through lambda rather than the bare Var
@@ -192,13 +192,13 @@
   `make-ratom-spine` and `make-ratom-adapter` own the logic shared with
   reagent-slim. The Reagent-shaped frame-provider remains injected from
   `re-frame.views`, keeping the spine independent of that component layer."
-  (spine/make-ratom-adapter
+  (rf.substrate.spine/make-ratom-adapter
     spine-fns
     {:kind :rf.adapter/reagent
      ;; The returned component receives the frame keyword at render time.
-     :register-context-provider (fn [_frame-keyword] (views/build-frame-provider))
+     :register-context-provider (fn [_frame-keyword] (rf.views/build-frame-provider))
      ;; The spine handles re-frame-owned disposal before these substrate ops.
-     :current-frame     views/current-frame
+     :current-frame     rf.views/current-frame
      :current-component r/current-component
      :atom              r/atom
      :ratom?            (fn [x] (satisfies? ratom/IReactiveAtom x))

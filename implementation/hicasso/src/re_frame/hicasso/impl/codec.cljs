@@ -52,12 +52,12 @@
   docs/design/hicasso/studio/our-walk-against-reagents.md and
   docs/design/hicasso/studio/the-interpreter-walk-profiled-and-cheapened.md."
   (:require [clojure.string :as str]
-            [re-frame.hicasso.impl.controlled :as controlled]
+            [re-frame.hicasso.impl.controlled :as rf.hicasso.impl.controlled]
             [re-frame.hicasso.impl.error :refer [fail!]]
-            [re-frame.hicasso.impl.intent :as intent]
-            [re-frame.hicasso.impl.slot :as slot]
-            [re-frame.interop :as interop]
-            [re-frame.trace :as trace]
+            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]
+            [re-frame.hicasso.impl.slot :as rf.hicasso.impl.slot]
+            [re-frame.interop :as rf.interop]
+            [re-frame.trace :as rf.trace]
             ["react" :as react]))
 
 (declare as-element)
@@ -145,10 +145,10 @@
 (defn- mint-slot
   "The `PropSlot` for a keyword or symbol prop literal whose name is `n`."
   [k n]
-  (let [js-name (slot/prop-name k)]
+  (let [js-name (rf.hicasso.impl.slot/prop-name k)]
     (->PropSlot js-name
                 (reserved-name? js-name)
-                (intent/event-prop? n)
+                (rf.hicasso.impl.intent/event-prop? n)
                 (identical? "ref" js-name)
                 (identical? "className" js-name))))
 
@@ -160,9 +160,9 @@
   cannot leave the cache holding a different spelling from a cold build's."
   [cache]
   (doto cache
-    (unchecked-set "class" (->PropSlot (slot/prop-name :class) false false false true))
-    (unchecked-set "for" (->PropSlot (slot/prop-name :for) false false false false))
-    (unchecked-set "charset" (->PropSlot (slot/prop-name :charset) false false false false))))
+    (unchecked-set "class" (->PropSlot (rf.hicasso.impl.slot/prop-name :class) false false false true))
+    (unchecked-set "for" (->PropSlot (rf.hicasso.impl.slot/prop-name :for) false false false false))
+    (unchecked-set "charset" (->PropSlot (rf.hicasso.impl.slot/prop-name :charset) false false false false))))
 
 (def ^:private prop-cache (seed-prop-cache! (empty-cache)))
 
@@ -191,7 +191,7 @@
   (docs/design/hicasso/decisions.md HD-023 (c′))."
   [k]
   (if-not (or (keyword? k) (symbol? k))
-    (if (string? k) (slot/prop-name k) k)
+    (if (string? k) (rf.hicasso.impl.slot/prop-name k) k)
     (let [^PropSlot s (prop-slot k (name k))]
       (.-js-name s))))
 
@@ -404,12 +404,12 @@
 
                            (and (.-event? s) (keyword? k))
                            (if (or (vector? v) (map? v) (fn? v))
-                             (intent/lower-prop k v)
+                             (rf.hicasso.impl.intent/lower-prop k v)
                              v)
 
                            :else
-                           (if (intent/callback? v)
-                             (intent/lower-prop k v)
+                           (if (rf.hicasso.impl.intent/callback? v)
+                             (rf.hicasso.impl.intent/lower-prop k v)
                              v)))))
       o)
 
@@ -420,7 +420,7 @@
                             (cond
                               (identical? ref-slot n)   v
                               (identical? class-slot n) (class-names (unchecked-get o class-slot) v)
-                              :else                     (intent/lower-prop k v)))))
+                              :else                     (rf.hicasso.impl.intent/lower-prop k v)))))
       o)))
 
 (defn convert-props
@@ -623,7 +623,7 @@
   fire — silently, since a trace that does not fire looks like a page with
   no crossing on it."
   []
-  (when interop/debug-enabled? #js {:armed false :announced false}))
+  (when rf.interop/debug-enabled? #js {:armed false :announced false}))
 
 (defn- note-unadopted!
   "Arm the crossing: this gate has rendered its placeholder, so the next
@@ -641,7 +641,7 @@
              (unchecked-get crossing "armed")
              (not (unchecked-get crossing "announced")))
     (unchecked-set crossing "announced" true)
-    (trace/emit! :info :rf.ssr/host-adopted
+    (rf.trace/emit! :info :rf.ssr/host-adopted
                  {:host  host-name
                   :where 're-frame.hicasso.impl.codec/mint-host-gate!})))
 
@@ -1279,8 +1279,8 @@
         ;; direct lane.
         js-props    (convert-props props parsed)
         _           (when-some [r (get props revision-key)]
-                      (unchecked-set js-props controlled/revision-slot r))
-        component   (controlled/install! (.-tag parsed) js-props)]
+                      (unchecked-set js-props rf.hicasso.impl.controlled/revision-slot r))
+        component   (rf.hicasso.impl.controlled/install! (.-tag parsed) js-props)]
     (when-some [k (:key props)] (unchecked-set js-props "key" k))
     (make-element component js-props argv (if has-props? 2 1))))
 
@@ -1399,10 +1399,10 @@
             ;; not claim — a vector at `:render` — crosses as data
             ;; exactly as it would at an inferred position.
             (contains? declared slot)
-            (host-prop-value slot (intent/lower-declared-prop k v (get declared slot)))
+            (host-prop-value slot (rf.hicasso.impl.intent/lower-declared-prop k v (get declared slot)))
 
             (contains? slots slot)
-            (do (when (intent/callback? v)
+            (do (when (rf.hicasso.impl.intent/callback? v)
                   (refuse-unclaimed-host-callback! head k))
                 (as-element v))
 
@@ -1414,7 +1414,7 @@
             ;; written against where the value lands. The KEY for the
             ;; classifier, because the spelling is what it reads.
             :else
-            (host-prop-value slot (intent/lower-prop k v)))))
+            (host-prop-value slot (rf.hicasso.impl.intent/lower-prop k v)))))
       o)))
 
 (defn- host-element
@@ -1718,7 +1718,7 @@
   dispatch is what makes an intent vector legal, and an intent outside a
   boundary stays the loud `:rf.error/hicasso-intent-outside-boundary`."
   [frame-kw hiccup]
-  (binding [intent/*frame* frame-kw]
+  (binding [rf.hicasso.impl.intent/*frame* frame-kw]
     (as-element hiccup)))
 
 ;; ---------------------------------------------------------------------------

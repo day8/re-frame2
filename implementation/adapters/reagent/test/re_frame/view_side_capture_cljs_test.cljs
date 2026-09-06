@@ -28,16 +28,16 @@
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
-            [re-frame.views :as views]
+            [re-frame.interop :as rf.interop]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.views :as rf.views]
             [re-frame.epoch]) ;; load so :epoch/run-cause hook is bound
   (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
 ;; ---- helpers ---------------------------------------------------------------
 
@@ -131,11 +131,11 @@
    backs :rf.view/mount? (a real Reagent instance reuses its render-key across
    re-renders, so the same key recurs)"
     (let [rk [:rf2-9hoos/instance 42]]
-      (is (true? (views/first-render?! rk))
+      (is (true? (rf.views/first-render?! rk))
           "first sighting of the render-key → mount")
-      (is (false? (views/first-render?! rk))
+      (is (false? (rf.views/first-render?! rk))
           "second sighting (a re-render of the same instance) → rerender")
-      (is (false? (views/first-render?! rk))
+      (is (false? (rf.views/first-render?! rk))
           "third sighting → still a rerender"))))
 
 (deftest distinct-instances-each-mount
@@ -163,7 +163,7 @@
    :rf.view/id, :frame and the :rf.view/render-key instance tuple"
     (with-trace-recorder! [observed {:pred  (in-op-set #{:rf.view/unmounted})
                                      :shape :by-op}]
-      (views/emit-view-unmounted! :rf2-9hoos/torn [:rf2-9hoos/torn 7] :rf/default)
+      (rf.views/emit-view-unmounted! :rf2-9hoos/torn [:rf2-9hoos/torn 7] :rf/default)
       (let [ev (first (:rf.view/unmounted @observed))
             t  (:tags ev)]
         (is (some? ev) "an :rf.view/unmounted event was emitted")
@@ -180,7 +180,7 @@
    spine-dispose-cljs-test."
     (with-trace-recorder! [observed {:pred  (in-op-set #{:rf.view/unmounted})
                                      :shape :by-op}]
-      (let [rea (views/install-unmount-hook! :rf2-9hoos/lifecycle
+      (let [rea (rf.views/install-unmount-hook! :rf2-9hoos/lifecycle
                                              [:rf2-9hoos/lifecycle 1]
                                              :rf/default)]
         (is (some? rea)
@@ -190,7 +190,7 @@
         ;; Deref once so the reaction is realised, then dispose — the
         ;; teardown signal a real componentWillUnmount sends.
         @rea
-        (interop/dispose! rea)
+        (rf.interop/dispose! rea)
         (let [ev (first (:rf.view/unmounted @observed))]
           (is (some? ev) ":rf.view/unmounted fired on reaction disposal")
           (is (= :rf2-9hoos/lifecycle (get-in ev [:tags :rf.view/id])))

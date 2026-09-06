@@ -29,34 +29,34 @@
   nil in the very extent where the door answers, and shows the same
   reader answering one line outside it."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.context :as adapter-context]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.context :as rf.adapter.context]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.intent :as intent]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.hicasso.todo-support :as todo]
-            [re-frame.test-support :as test-support]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.hicasso.todo-support :as rf.hicasso.todo-support]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      ;; `:ambient-frame nil` for the reason the refusal suite gives: the
      ;; fixture's default leaves a dynamic-var stamp in scope, and tier 1
      ;; wins over everything — so a row claiming the door answered the
      ;; EXTENT's frame would pass for the wrong reason.
      :ambient-frame nil
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 (def ^:private frame-a ::doors-a)
 (def ^:private frame-b ::doors-b)
 
 (defn- frames! []
-  (todo/make-frame! frame-a 3)
-  (todo/make-frame! frame-b 3)
-  (todo/reseed! frame-a 3)
-  (todo/reseed! frame-b 3)
+  (rf.hicasso.todo-support/make-frame! frame-a 3)
+  (rf.hicasso.todo-support/make-frame! frame-b 3)
+  (rf.hicasso.todo-support/reseed! frame-a 3)
+  (rf.hicasso.todo-support/reseed! frame-b 3)
   nil)
 
 (defn- outcome
@@ -73,7 +73,7 @@
   here."
   [frame-kw body-fn]
   (let [seen (volatile! ::unset)]
-    (collector/render-body frame-kw (fn [_] (body-fn seen) [:li]) {})
+    (rf.hicasso.impl.collector/render-body frame-kw (fn [_] (body-fn seen) [:li]) {})
     @seen))
 
 (defn- with-context-frame
@@ -84,7 +84,7 @@
   nil inside a body *anyway*, and the row that needs it would be green
   against a tree with no refusal in it at all."
   [frame-kw thunk]
-  (let [^js ctx  adapter-context/frame-context
+  (let [^js ctx  rf.adapter.context/frame-context
         original (.-_currentValue ctx)]
     (set! (.-_currentValue ctx) frame-kw)
     (try (thunk)
@@ -144,17 +144,17 @@
                                     :read    (outcome #(rf/subscribe [:hicasso.todo/done? 0]))}))]
       ;; Lowered at a NON-event position inside frame-a's body, which is
       ;; what gives it the render contract.
-      (collector/render-body frame-a
+      (rf.hicasso.impl.collector/render-body frame-a
                              (fn [_]
                                (vreset! callback
-                                        (intent/lower-prop :render-row (intent/callback probe)))
+                                        (rf.hicasso.impl.intent/lower-prop :render-row (rf.hicasso.impl.intent/callback probe)))
                                [:li])
                              {})
       (is (some? @callback) "precondition: the render position lowered a wrapper")
 
       (testing "invoked from outside any extent at all — the foreign
                component's own render"
-        (is (not (collector/rendering?))
+        (is (not (rf.hicasso.impl.collector/rendering?))
             "the premise, asserted rather than described: the runtime's own
              render slot is EMPTY at the moment the callback runs")
         (@callback)
@@ -174,7 +174,7 @@
                so the supplying boundary is the only frame that can own
                this call"
         (vreset! seen ::unset)
-        (intent/with-frame frame-b (collector/frame-dispatch frame-b) (fn [] (@callback)))
+        (rf.hicasso.impl.intent/with-frame frame-b (rf.hicasso.impl.collector/frame-dispatch frame-b) (fn [] (@callback)))
         (is (= frame-a (:id @seen))
             "the invoker's frame must not colonise the owner's callback")
         (is (= frame-a (:capture @seen))))
@@ -200,23 +200,23 @@
            sub-key at all. Reads become edges because they are sub-KEYS;
            the frame is not one — it is render-constant per boundary and
            resolved once by the shell"
-    (collector/render-body frame-a (fn [_] [:li (str (rf/current-frame-id))]) {})
-    (is (= [] (vec (runtime/reads-of (collector/last-reads))))))
+    (rf.hicasso.impl.collector/render-body frame-a (fn [_] [:li (str (rf/current-frame-id))]) {})
+    (is (= [] (vec (rf.hicasso.test.runtime/reads-of (rf.hicasso.impl.collector/last-reads))))))
 
   (testing "and adding it to a READING body changes the read set not at
            all — same keys, same order. The control is the point: the
            first row alone would be green for a body that read nothing
            for any reason"
-    (collector/render-body frame-a
-                           (fn [_] [:li (str (collector/sub [:hicasso.todo/done? 0]))])
+    (rf.hicasso.impl.collector/render-body frame-a
+                           (fn [_] [:li (str (rf.hicasso.impl.collector/sub [:hicasso.todo/done? 0]))])
                            {})
-    (let [without (vec (runtime/reads-of (collector/last-reads)))]
-      (collector/render-body frame-a
+    (let [without (vec (rf.hicasso.test.runtime/reads-of (rf.hicasso.impl.collector/last-reads)))]
+      (rf.hicasso.impl.collector/render-body frame-a
                              (fn [_]
                                [:li (str (rf/current-frame-id))
-                                (str (collector/sub [:hicasso.todo/done? 0]))])
+                                (str (rf.hicasso.impl.collector/sub [:hicasso.todo/done? 0]))])
                              {})
-      (let [with (vec (runtime/reads-of (collector/last-reads)))]
+      (let [with (vec (rf.hicasso.test.runtime/reads-of (rf.hicasso.impl.collector/last-reads)))]
         (is (= 1 (count without)) "precondition: the control body read exactly one key")
         (is (= without with)
             (str "the identity read must contribute nothing to the collector: "
@@ -243,12 +243,12 @@
     (let [seen (volatile! ::unset)]
       (with-context-frame frame-a
         (fn []
-          (is (= frame-a (frame/resolve-current-frame))
+          (is (= frame-a (rf.frame/resolve-current-frame))
               "control: tier 2 is genuinely answering out here, so the nil
                below is the withdrawal and not an empty chain")
-          (collector/render-body frame-a
+          (rf.hicasso.impl.collector/render-body frame-a
                                  (fn [_]
-                                   (vreset! seen {:reader (frame/resolve-current-frame)
+                                   (vreset! seen {:reader (rf.frame/resolve-current-frame)
                                                   :door   (rf/current-frame-id)})
                                    [:li])
                                  {})))
@@ -272,7 +272,7 @@
            lands in the wrong place and this row says so"
     (let [carry (fn [frame-kw]
                   (let [held (volatile! nil)]
-                    (collector/render-body frame-kw
+                    (rf.hicasso.impl.collector/render-body frame-kw
                                            (fn [_]
                                              (vreset! held (rf/capture-frame))
                                              [:li])
@@ -285,7 +285,7 @@
 
       (testing "and each dispatches into ITS OWN frame, after the extent
                has gone"
-        (is (nil? intent/*frame*) "precondition: no render extent is live here")
+        (is (nil? rf.hicasso.impl.intent/*frame*) "precondition: no render extent is live here")
         ((:dispatch-sync a) [:hicasso.todo/toggle 0])
         (is (true? @(rf/subscribe [:hicasso.todo/done? 0] {:frame frame-a})))
         (is (false? @(rf/subscribe [:hicasso.todo/done? 0] {:frame frame-b}))
@@ -338,7 +338,7 @@
            is refused rather than silently repaired to its own frame"
     (let [seen (volatile! ::unset)]
       (rf/with-frame frame-b
-        (collector/render-body frame-a
+        (rf.hicasso.impl.collector/render-body frame-a
                                (fn [_]
                                  (vreset! seen {:capture  (outcome #(rf/capture-frame))
                                                 :id       (outcome #(rf/current-frame-id))
@@ -360,7 +360,7 @@
            there is no second frame and both doors answer it"
     (let [seen (volatile! ::unset)]
       (rf/with-frame frame-a
-        (collector/render-body frame-a
+        (rf.hicasso.impl.collector/render-body frame-a
                                (fn [_]
                                  (vreset! seen {:capture (:frame (rf/capture-frame))
                                                 :id      (rf/current-frame-id)})

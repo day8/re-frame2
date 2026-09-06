@@ -55,16 +55,16 @@
   ;; `"NO_SOURCE_PATH"` sentinel into every declaration; core solved that
   ;; once, absolutises the classpath-relative path while it is there, and
   ;; is already this package's only dependency.
-  #?(:clj (:require [re-frame.source-coords :as source-coords]))
+  #?(:clj (:require [re-frame.source-coords :as rf.source-coords]))
   #?(:cljs
-     (:require [re-frame.hicasso.impl.boundary :as impl-boundary]
-               [re-frame.hicasso.impl.codec :as impl-codec]
-               [re-frame.hicasso.impl.collector :as impl-collector]
+     (:require [re-frame.hicasso.impl.boundary :as rf.hicasso.impl.boundary]
+               [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+               [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
                [re-frame.hicasso.impl.intent]
-               [re-frame.hicasso.impl.mount :as impl-mount]
-               [re-frame.hicasso.impl.portal :as impl-portal]
-               [re-frame.hicasso.impl.route-link :as impl-route-link]
-               [re-frame.hicasso.impl.state :as impl-state]))
+               [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+               [re-frame.hicasso.impl.portal :as rf.hicasso.impl.portal]
+               [re-frame.hicasso.impl.route-link :as rf.hicasso.impl.route-link]
+               [re-frame.hicasso.impl.state :as rf.hicasso.impl.state]))
   #?(:cljs (:require-macros [re-frame.hicasso :refer [defview defhost event]])))
 
 ;; ---------------------------------------------------------------------------
@@ -242,7 +242,7 @@
            ;; substrates spell one convention. No `^{:rf/id …}` override
            ;; here: a `defview` has exactly one name and this is it.
            view-id   (keyword (str (ns-name *ns*)) (str sym))
-           coord     (source-coords/coords-form (meta &form) *file* (ns-name *ns*))
+           coord     (rf.source-coords/coords-form (meta &form) *file* (ns-name *ns*))
            ;; The registration slot IS the coordinate map — `reg-view`
            ;; merges its coords into the slot's top level and tools read
            ;; them back from there — plus the author's `:doc`, without
@@ -400,7 +400,7 @@
            ;; the refusal carries the declaration's coordinate.
            extra       (seq (drop 2 forms))
            host-name   (str (ns-name *ns*) "/" sym)
-           coord       (source-coords/coords-form (meta &form) *file* (ns-name *ns*))]
+           coord       (rf.source-coords/coords-form (meta &form) *file* (ns-name *ns*))]
        `(def ~(if doc (vary-meta sym assoc :doc doc) sym)
           (do
             (when re-frame.interop/debug-enabled?
@@ -426,7 +426,7 @@
   inlined helper. The edge is recorded where the read happens, so a branch
   not taken contributes no edge.
   `re-frame.hicasso.impl.collector/sub`."}
-       sub impl-collector/sub)
+       sub rf.hicasso.impl.collector/sub)
 
      (def ^{:doc "`h/error-boundary` — the runtime's own error boundary
   (HD-020(c)); takes `:fallback`, `:reset-key` and `:on-error`.
@@ -435,12 +435,12 @@
   rules (row 12). A bare `boundary` would be the wrong word twice over: every minted `defview` is already *a boundary* here,
   and React has a second kind — the Suspense boundary — that this one is
   not. `re-frame.hicasso.impl.boundary/boundary`."}
-       error-boundary impl-boundary/boundary)
+       error-boundary rf.hicasso.impl.boundary/boundary)
 
      (def ^{:doc "`h/reg-state` — the instance-key sugar (HD-009). Mints one
   parametric subscription and one setter event under `[:ui ::concern ikey]`,
   and nothing else. `re-frame.hicasso.impl.state/reg-state`."}
-       reg-state impl-state/reg-state)
+       reg-state rf.hicasso.impl.state/reg-state)
 
      (def ^{:doc "`h/portal` — **hiccup into `createPortal`**.
   A legal hiccup head taking `:target`, the DOM container the subtree
@@ -468,13 +468,13 @@
   The raw mechanism, for containers the application does not own.
   Anchoring, dismissal and focus conduct are the overlay module's.
   `re-frame.hicasso.impl.portal/portal`."}
-       portal impl-portal/portal)
+       portal rf.hicasso.impl.portal/portal)
 
      (def ^{:doc "One real anchor, as data — href and click decision taken
   whole from routing's late-bound seams. A plain function, not a boundary:
   it mints no boundary and adds no hook.
   `re-frame.hicasso.impl.route-link/route-link`."}
-       route-link impl-route-link/route-link)
+       route-link rf.hicasso.impl.route-link/route-link)
 
      (def ^{:doc "`h/as-element` — **the one explicit hiccup→ReactNode
   conversion**. Answers the React element a hiccup form
@@ -517,7 +517,7 @@
   and an intent written in that markup stays the loud
   `:rf.error/hicasso-intent-outside-boundary` it is everywhere else.
   `re-frame.hicasso.impl.codec/as-element`."}
-       as-element impl-codec/as-element)
+       as-element rf.hicasso.impl.codec/as-element)
 
      (def ^{:doc "`h/as-component` — **the outward bridge**.
   Answers a real React component for a hiccup head, so a React parent —
@@ -537,7 +537,7 @@
   parent must not have to require the native namespace — and therefore
   ship it — to cross inward.
   `re-frame.hicasso.impl.codec/as-component`."}
-       as-component impl-codec/as-component)
+       as-component rf.hicasso.impl.codec/as-component)
 
      ;; ---- the root lifecycle: mount, re-render, tear down ----------------
      ;;
@@ -605,7 +605,7 @@
        ;; `hydrate!` below already has: impl reads the keys it owns and a
        ;; config key added later needs no edit here.
        (fn mount! [container config hiccup]
-         (impl-mount/root! container (:frame config) hiccup config)))
+         (rf.hicasso.impl.mount/root! container (:frame config) hiccup config)))
 
      (def ^{:doc "`h/hydrate!` — **adopt a container's existing
   server-rendered DOM** rather than replacing it; `mount!`'s hydrating
@@ -658,7 +658,7 @@
        ;; than re-built from `:identifier-prefix` — impl reads the keys
        ;; it owns and a config key added later needs no edit here.
        (fn hydrate! [container config hiccup]
-         (impl-mount/hydrate-root! container (:frame config) hiccup config)))
+         (rf.hicasso.impl.mount/hydrate-root! container (:frame config) hiccup config)))
 
      (def ^{:doc "Re-render a mounted root in place, synchronously, and
   answer its handle — **the hot-reload door**:
@@ -671,11 +671,11 @@
   `createRoot` a second time and replace the tree instead, discarding
   every node, subscription and scrap of component state.
   `re-frame.hicasso.impl.mount/render!`."}
-       render! impl-mount/render!)
+       render! rf.hicasso.impl.mount/render!)
 
      (def ^{:doc "Take THIS root down — `mount!`'s inverse, and
   idempotent. Unmounts the root and leaves everything else exactly where
   it was: the sibling roots' subscriptions and frames, and the container
   you handed `mount!`, which React empties but does not remove.
   `re-frame.hicasso.impl.mount/unmount!`."}
-       unmount! impl-mount/unmount!)))
+       unmount! rf.hicasso.impl.mount/unmount!)))

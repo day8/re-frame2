@@ -13,14 +13,14 @@
   IDENTITY, and a `(thrown? …)` stays green for a throw from any layer
   with any id. Every row asserts the ex-data as a map."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.error :as error]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.test-support :as test-support]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.error :as rf.hicasso.impl.error]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.test-support :as rf.test-support]
             ["react-dom/server" :as react-dom-server]))
 
 (def ^:private frame-id ::error-shape)
@@ -28,17 +28,17 @@
 (rf/reg-sub :error-shape/anything (fn [db _] (:anything db)))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The consumer's source file — declared through the public door, so the
 ;; coordinates below are the macro's own and not a fixture's
 ;; ---------------------------------------------------------------------------
 
-(h/defview refusing-row
+(rf.hicasso/defview refusing-row
   "A boundary whose body writes a plain function in head position — the
   ordinary authoring mistake HD-016 makes loud. The refusal is raised by
   `codec/vec->element`, which knows nothing about this view; everything
@@ -46,7 +46,7 @@
   [_]
   [:li [(fn a-plain-function [] [:span "not a head"])]])
 
-(h/defhost date-picker
+(rf.hicasso/defhost date-picker
   "A well-formed crossing, declared so the DECLARATION channel has a real
   macro-captured coordinate to assert on rather than a fabricated one."
   (fn DatePicker [_props] nil)
@@ -64,7 +64,7 @@
   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
   (rf/make-frame {:id frame-id})
   (react-dom-server/renderToString
-    (mount/provider frame-id (codec/root-element frame-id hiccup))))
+    (rf.hicasso.impl.mount/provider frame-id (rf.hicasso.impl.codec/root-element frame-id hiccup))))
 
 (defn- refusal
   "Run `f`, and answer the ex-data of the refusal it raised — or a marker
@@ -95,7 +95,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest fail-builds-the-canonical-map-and-the-bracketed-id-message
-  (let [throw! #(error/fail! :rf.error/hicasso-state-bad-argument
+  (let [throw! #(rf.hicasso.impl.error/fail! :rf.error/hicasso-state-bad-argument
                              're-frame.hicasso.impl.state/reg-state
                              "reg-state options must be a map."
                              {:options :not-a-map})]
@@ -116,9 +116,9 @@
   (testing "the four canonical fields and the two ambient ones belong to the
             CONSTRUCTOR: an `extra` that spells any of them loses, and the
             class's own slots ride alongside untouched"
-    (error/declaring! "app.pickers/calendar" {:ns 'app.pickers :file "app/pickers.cljs"
+    (rf.hicasso.impl.error/declaring! "app.pickers/calendar" {:ns 'app.pickers :file "app/pickers.cljs"
                                               :line 12 :column 3})
-    (let [data (refusal #(error/fail! :rf.error/hicasso-state-bad-argument
+    (let [data (refusal #(rf.hicasso.impl.error/fail! :rf.error/hicasso-state-bad-argument
                                       're-frame.hicasso.impl.state/reg-state
                                       "reg-state options must be a map."
                                       {:rf.error/id :rf.error/hicasso-true-child
@@ -128,7 +128,7 @@
                                        :view        "app.impostor/not-this-one"
                                        :source      {:ns 'app.impostor}
                                        :options     :not-a-map}))]
-      (error/declared!)
+      (rf.hicasso.impl.error/declared!)
       (is (= {:rf.error/id :rf.error/hicasso-state-bad-argument
               :where       're-frame.hicasso.impl.state/reg-state
               :reason      "reg-state options must be a map."
@@ -148,7 +148,7 @@
   (testing "outside every extent a forged `:view` and `:source` are DROPPED,
             not overwritten — a catch site reading `:view` gets absence
             rather than a file name the call site made up"
-    (let [data (refusal #(error/fail! :rf.error/hicasso-state-bad-argument
+    (let [data (refusal #(rf.hicasso.impl.error/fail! :rf.error/hicasso-state-bad-argument
                                       're-frame.hicasso.impl.state/reg-state
                                       "reg-state options must be a map."
                                       {:view    "app.impostor/not-a-view"
@@ -202,7 +202,7 @@
 (deftest defhost-registers-its-macro-captured-coordinate
   (testing "the coordinate is keyed by the same `<ns>/<sym>` string the
             macro stamps as `displayName`, and it is the declaration's own"
-    (let [coord (error/source-of "re-frame.hicasso.error-shape-cljs-test/date-picker")]
+    (let [coord (rf.hicasso.impl.error/source-of "re-frame.hicasso.error-shape-cljs-test/date-picker")]
       (is (some? coord) "defhost registered a coordinate")
       (is (= 're-frame.hicasso.error-shape-cljs-test (:ns coord)))
       (is (string? (:file coord)))
@@ -213,13 +213,13 @@
   (testing "this is the extent `defhost` opens around `mint-host!`, driven
             directly because a declaration that refuses cannot be written
             at the top of a file that must load"
-    (error/declaring! "app.pickers/calendar" {:ns 'app.pickers :file "app/pickers.cljs"
+    (rf.hicasso.impl.error/declaring! "app.pickers/calendar" {:ns 'app.pickers :file "app/pickers.cljs"
                                               :line 12 :column 3})
-    (let [data (refusal #(error/fail! :rf.error/hicasso-bad-host-declaration
+    (let [data (refusal #(rf.hicasso.impl.error/fail! :rf.error/hicasso-bad-host-declaration
                                       're-frame.hicasso.impl.codec/mint-host!
                                       "defhost was given an option it does not know."
                                       {:option :nope}))]
-      (error/declared!)
+      (rf.hicasso.impl.error/declared!)
       (is (= {:rf.error/id :rf.error/hicasso-bad-host-declaration
               :where       're-frame.hicasso.impl.codec/mint-host!
               :recovery    :no-recovery
@@ -229,7 +229,7 @@
              (dissoc data :reason)))))
 
   (testing "and the extent closes, so the next refusal is not attributed to it"
-    (is (nil? (:view (refusal #(error/fail! :rf.error/hicasso-state-bad-argument
+    (is (nil? (:view (refusal #(rf.hicasso.impl.error/fail! :rf.error/hicasso-state-bad-argument
                                             're-frame.hicasso.impl.state/reg-state
                                             "reg-state options must be a map."
                                             {})))))))
@@ -241,7 +241,7 @@
   ;; loading. Inside a `deftest` the same expansion runs with a catch
   ;; around it — which is not a contrivance but the case itself. An HMR
   ;; runtime catches exactly this and leaves the mounted page rendering.
-  (let [data (refusal (fn [] (h/defhost refusing-declaration
+  (let [data (refusal (fn [] (rf.hicasso/defhost refusing-declaration
                                (fn Refusing [_props] nil)
                                {:not-an-option true})))]
 
@@ -258,14 +258,14 @@
     (testing "and the extent is CLOSED, so a later refusal — from an event
               handler, a timer, any code with no boundary on the stack —
               does not inherit the dead declaration's `:view` and `:source`"
-      (let [later (refusal #(h/sub [:error-shape/anything]))]
+      (let [later (refusal #(rf.hicasso/sub [:error-shape/anything]))]
         (is (= :rf.error/hicasso-sub-outside-render (:rf.error/id later))
             "the later refusal is the ordinary outside-extent one")
         (is (not (contains? later :view)))
         (is (not (contains? later :source)))))))
 
 (deftest a-refusal-outside-every-extent-omits-the-ambient-pair
-  (let [data (refusal #(h/sub [:error-shape/anything]))]
+  (let [data (refusal #(rf.hicasso/sub [:error-shape/anything]))]
 
     (testing "the identity, whole"
       (is (= {:rf.error/id :rf.error/hicasso-sub-outside-render

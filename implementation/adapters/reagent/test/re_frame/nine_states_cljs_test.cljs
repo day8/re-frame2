@@ -25,9 +25,9 @@
    leaves them intact for any subsequent test ns."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.frame :as rf.frame]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             [re-frame.views]
             ;; `re-frame.http.test-support` registers
             ;; `:rf.http/managed-canned-failure` — the fx the failing Story
@@ -48,12 +48,12 @@
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
+  (rf.test-support/make-reset-runtime-fixture
     ;; EP-0002 (rf2-9o48ih): each test spins its OWN top-level frame via
     ;; `make-frame`; opt out of the ambient `:rf/default` scope so the new
     ;; frame's `:initial-events` drain synchronously (top-level boot) rather than
     ;; being treated as a mid-cascade child-frame creation.
-    {:adapter       reagent-adapter/adapter
+    {:adapter       rf.adapter.reagent/adapter
      :ambient-frame nil}))
 
 ;; ----------------------------------------------------------------------------
@@ -83,7 +83,7 @@
   {:rf.http/managed :nine-states.http/managed-demo})
 
 (defn- new-frame []
-  (frame/make-anon-frame-record!
+  (rf.frame/make-anon-frame-record!
     {:initial-events [[:nine-states.app/initialise]]
      :fx-overrides demo-overrides}))
 
@@ -308,7 +308,7 @@
     ;; setup event.
     (is (some? (rf/handler-meta :event :nine-states.story/load-failing))
         ":nine-states.story/load-failing registered (stories.cljs required)")
-    (with-new-frame [f (frame/make-anon-frame-record!
+    (with-new-frame [f (rf.frame/make-anon-frame-record!
                          {:initial-events [[:nine-states.app/initialise]]
                           :fx-overrides story-failure-overrides})]
       ;; Drive the variant's setup load event. The canned-failure stub
@@ -334,7 +334,7 @@
     ;; with no per-variant override. Guards that success and failure stay
     ;; SEPARATELY represented (acceptance: keep the success lifecycle
     ;; variant proving canned-success).
-    (with-new-frame [f (frame/make-anon-frame-record!
+    (with-new-frame [f (rf.frame/make-anon-frame-record!
                          {:initial-events [[:nine-states.app/initialise]]
                           :fx-overrides {:rf.http/managed
                                          :rf.http/managed-canned-success}})]

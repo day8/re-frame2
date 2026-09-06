@@ -39,12 +39,12 @@
   already has, so the reloaded view code meets its own DOM; a second
   `h/mount!` would `createRoot` again and discard every node, subscription
   and scrap of component state."
-  (:require [re-frame.adapter.uix :as uix-adapter]
+  (:require [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.examples.slice.events :as events]
-            [re-frame.hicasso.examples.slice.routes :as routes]
-            [re-frame.hicasso.examples.slice.views :as views]))
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.examples.slice.events :as rf.hicasso.examples.slice.events]
+            [re-frame.hicasso.examples.slice.routes :as rf.hicasso.examples.slice.routes]
+            [re-frame.hicasso.examples.slice.views :as rf.hicasso.examples.slice.views]))
 
 (def frame-id
   "This application's frame. One root, one frame; a page holding a second
@@ -62,10 +62,10 @@
   and takes `:initial-events`, so the two steps below are the value a
   witness passes it. A consumer calls it once, here."
   []
-  (routes/register!)
+  (rf.hicasso.examples.slice.routes/register!)
   (rf/make-frame {:id             frame-id
-                  :initial-events [[::events/seed]
-                                   [:rf.route/navigate {:to routes/feed}]]}))
+                  :initial-events [[::rf.hicasso.examples.slice.events/seed]
+                                   [:rf.route/navigate {:to rf.hicasso.examples.slice.routes/feed}]]}))
 
 (defn ^:dev/after-load reload!
   "Re-render the mounted root after a hot reload. React reconciles the new
@@ -74,12 +74,12 @@
   code is different."
   []
   (when-some [root @!root]
-    (h/render! root [views/app {}])))
+    (rf.hicasso/render! root [rf.hicasso.examples.slice.views/app {}])))
 
 (defn ^:export -main
   "Start the application."
   []
-  (rf/init! uix-adapter/adapter)
+  (rf/init! rf.adapter.uix/adapter)
   (make-frame!)
-  (reset! !root (h/mount! (js/document.getElementById "app") {:frame frame-id} [views/app {}]))
+  (reset! !root (rf.hicasso/mount! (js/document.getElementById "app") {:frame frame-id} [rf.hicasso.examples.slice.views/app {}]))
   nil)

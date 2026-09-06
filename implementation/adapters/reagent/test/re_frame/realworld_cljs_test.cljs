@@ -26,10 +26,10 @@
   (:require [clojure.string :as str]
             [cljs.test :refer-macros [deftest testing use-fixtures is async]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             ;; Activate the default Malli validator (rf2-t0hq): without this
             ;; require the CLJS default validator soft-passes and the durable
             ;; AuthSlice regression below could never observe a rollback. This is
@@ -91,7 +91,7 @@
   (rf/reg-fx fx-id
     {:platforms #{:client :server}}
     (fn [frame-ctx args]
-      (let [stub (registrar/handler :fx :rf.http/managed-canned-success)]
+      (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-success)]
         (stub frame-ctx (assoc args :value value))))))
 
 (defn- reg-canned-success-by-url!
@@ -103,7 +103,7 @@
   (rf/reg-fx fx-id
     {:platforms #{:client :server}}
     (fn [frame-ctx args]
-      (let [stub   (registrar/handler :fx :rf.http/managed-canned-success)
+      (let [stub   (rf.registrar/handler :fx :rf.http/managed-canned-success)
             req    (:request args)
             method (or (:method req) :get)
             url    (:url req)
@@ -122,7 +122,7 @@
   (rf/reg-fx fx-id
     {:platforms #{:client :server}}
     (fn [frame-ctx args]
-      (let [stub (registrar/handler :fx :rf.http/managed-canned-failure)]
+      (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-failure)]
         (stub frame-ctx (assoc args :kind kind :tags tags))))))
 
 ;; A generic success stub: every :rf.http/managed call resolves :success
@@ -134,13 +134,13 @@
 (reg-canned-success! :realworld.test/canned-success-empty {})
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
+  (rf.test-support/make-reset-runtime-fixture
     ;; EP-0002 (rf2-9o48ih): each helper spins its OWN top-level frame via
     ;; `make-frame`; opt out of the ambient `:rf/default` scope so the new
     ;; frame's `:initial-events` drain synchronously (top-level boot) rather than
     ;; being treated as a mid-cascade child-frame creation. In-body dispatches
     ;; carry explicit `{:frame f}` or run inside the `with-new-frame` scope.
-    {:adapter       reagent-adapter/adapter
+    {:adapter       rf.adapter.reagent/adapter
      :ambient-frame nil
      ;; Map-form (rf2-k5lbd): the production-seam receipt at the bottom is an
      ;; `(async done …)` row — it awaits the demo backend's deferred replies —
@@ -169,7 +169,7 @@
                                :bio      nil
                                :image    nil}})
 
-  (with-new-frame [f (frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed      :realworld.test/login-success
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed      :realworld.test/login-success
                                                     :auth.session/persist :rf/no-op}})]
     ;; EP-0017 (rf2-16ck78): `:auth/initialise` consumes the recordable
     ;; `:auth.session/token` coeffect. Live, its registered supplier reads
@@ -205,7 +205,7 @@
   ;; provided (it has a generator), and carries a supplier fn (the localStorage
   ;; read). A declaring handler receives the generated value FLAT under
   ;; `:auth.session/token` via `:rf.cofx/requires`.
-  (let [cofx-meta (registrar/handler-meta :cofx :auth.session/token)]
+  (let [cofx-meta (rf.registrar/handler-meta :cofx :auth.session/token)]
     (is (true? (:recordable? cofx-meta))
         "the cofx is recordable — its value rides the recorded token")
     (is (not (:provided? cofx-meta))
@@ -219,7 +219,7 @@
                        {:status 422
                         :body   {:errors {:body ["email or password is invalid"]}}})
 
-  (with-new-frame [f (frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed :realworld.test/login-failure}})]
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed :realworld.test/login-failure}})]
     ;; EP-0017 (rf2-16ck78): pin the recordable `:auth.session/token` through the
     ;; dispatch-site `:rf.cofx` stub (nil node-side, as the supplier would give).
     (rf/dispatch-sync [:auth/initialise]
@@ -281,7 +281,7 @@
 
   ;; --- DURABLE contract: the token-free session user is stored AND validates
   ;;     against the real AuthSlice under the real post-commit validator ---
-  (with-new-frame [f (frame/make-anon-frame-record! {})]
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
     ;; Register the ACTUAL production AuthSlice on THIS frame so the post-commit
     ;; validator consults it — the wiring the anon-frame tests route around.
     (rf/reg-app-schema [:auth] {:frame f} app-schema/AuthSlice)
@@ -326,7 +326,7 @@
                                              :following false}}]
                         :articlesCount 1})
 
-  (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-articles}})]
     (is (= :idle (:status (rf/compute-sub [:articles/slice] (rf/frame-state-value f)))))
     (rf/dispatch-sync [:articles/load] {:frame f})
@@ -345,7 +345,7 @@
                        {:status 500
                         :body   "server error"})
 
-  (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-articles-failure}})]
     (rf/dispatch-sync [:articles/load] {:frame f})
     (is (= :error (:status (rf/compute-sub [:articles/slice] (rf/frame-state-value f)))))
@@ -368,7 +368,7 @@
                                   :favoritesCount 0
                                   :author {:username "alice" :bio nil :image nil :following false}}})
 
-  (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-editor-save}})]
     (rf/dispatch-sync [:editor/initialise] {:frame f})
     ;; The :mode region starts at :create; the :lifecycle region starts
@@ -391,7 +391,7 @@
     (is (false? (rf/compute-sub [:editor/dirty?] (rf/frame-state-value f))))))
 
 (defn- editor-can-leave-test []
-  (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}})]
     (rf/dispatch-sync [:editor/initialise] {:frame f})
     (is (true? (rf/compute-sub [:editor/can-leave?] (rf/frame-state-value f))))
@@ -428,7 +428,7 @@
                                              :favoritesCount 0
                                              :author {:username "alice" :bio nil :image nil :following false}}})))
 
-  (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-article-and-comments}})]
     (rf/dispatch-sync [:article/initialise] {:frame f})
     (rf/dispatch-sync [:comments/initialise] {:frame f})
@@ -467,7 +467,7 @@
                                              :favoritesCount 0
                                              :author {:username "alice" :bio nil :image nil :following false}}})))
 
-  (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-comment-post}})]
     (rf/dispatch-sync [:article/initialise] {:frame f})
     (rf/dispatch-sync [:comments/initialise] {:frame f})
@@ -488,7 +488,7 @@
   ;; or a concurrent delete), a stale index can point past the current
   ;; vector. The rollback's `subvec` must NOT throw IndexOutOfBounds — it
   ;; clamps the index to the current length and re-inserts at the tail.
-  (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}})]
     (rf/dispatch-sync [:comments/initialise] {:frame f})
     ;; Seed a single comment (the list is now length 1). :comments/loaded
@@ -533,7 +533,7 @@
                        {:status 400
                         :body   {:errors {:body ["rollback"]}}})
 
-  (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
                                  :fx-overrides {:rf.http/managed :realworld.test/favorite-rollback}})]
     (rf/dispatch-sync [:articles/initialise] {:frame f})
     ;; :article/toggle-favorite is auth-gated (rf2-ygh4m): a logged-out
@@ -583,7 +583,7 @@
                                                :favoritesCount 0
                                                :author {:username "eve" :bio nil :image nil :following false}}]})))
 
-  (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-profile}})]
     (rf/dispatch-sync [:profile/initialise] {:frame f})
     (rf/dispatch-sync [:rf.route/handle-url-change "/profile/eve"] {:frame f})
@@ -621,7 +621,7 @@
                                :bio "New bio"
                                :image nil}})
 
-  (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
                                  :fx-overrides {:rf.http/managed    :realworld.test/canned-settings-save
                                                 :auth.session/persist :rf/no-op}})]
     ;; After :app/initialise → :settings/initialise → [:reset], the
@@ -685,7 +685,7 @@
   (reg-canned-failure! :realworld.test/canned-settings-failure
                        :rf.http/http-5xx
                        {:status 500 :body "server error"})
-  (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
                                  :fx-overrides {:rf.http/managed    :realworld.test/canned-settings-failure
                                                 :auth.session/persist :rf/no-op}})]
     (rf/dispatch-sync [:auth/store-session {:email "alice@example.com"
@@ -717,7 +717,7 @@
   ;; validate inside :settings/submit would dispatch :submit-invalid
   ;; when the draft failed validation, matching Pattern-Forms'
   ;; §Standard events table.
-  (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
                                  :fx-overrides {:rf.http/managed       :realworld.test/canned-success-empty
                                                 :auth.session/persist :rf/no-op}})]
     (rf/dispatch-sync [:auth/store-session {:email "alice@example.com"
@@ -765,7 +765,7 @@
                   (rf/frame-state-value frame)))
 
 (defn- tag-query-test []
-  (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}})]
     ;; rf2-e90vfv route-shape conformance: applying a tag navigates to the
     ;; official `/tag/:tag` PATH route, so the active tag is a route PARAM (read
@@ -781,7 +781,7 @@
   ;; The :tags lifecycle — load happy path through the machine.
   (reg-canned-success! :realworld.test/canned-tags
                        {:tags ["intro" "demo" "clojure"]})
-  (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-tags}})]
     ;; After :app/initialise → :tags/initialise → [:reset], the machine
     ;; sits at :idle with empty :data.
@@ -825,7 +825,7 @@
   (reg-canned-failure! :realworld.test/canned-tags-failure
                        :rf.http/http-5xx
                        {:status 500 :body "server error"})
-  (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-tags-failure}})]
     (rf/dispatch-sync [:tags/load] {:frame f})
     (let [db   (rf/frame-state-value f)
@@ -841,7 +841,7 @@
 ;; ============================================================================
 
 (defn- routing-tests []
-  (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}})]
     (rf/dispatch-sync [:rf.route/navigate {:to :realworld.article/show :params {:slug "hello"}}] {:frame f})
     (is (= :realworld.article/show (rf/compute-sub [:rf.route/id] (rf/frame-state-value f))))
@@ -876,7 +876,7 @@
   ;; one pipeline runs the guard on every door. Entry denial is TERMINAL: it
   ;; commits nothing and creates NO pending value, so the return after sign-in
   ;; is a FRESH navigate, not a resume.
-  (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}})]
     ;; Unauthenticated: navigating to a :requires-auth route
     ;; (:realworld.user/settings) is denied by :can-enter → :rf.route/entry-denied
@@ -923,7 +923,7 @@
   ;; three doors redirect to login (no frame interceptor needed).
 
   ;; --- direct-URL / reload / popstate (`:rf.route/handle-url-change`) ---
-  (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}})]
     ;; Logged-out direct URL (or reload) to a :requires-auth route.
     (rf/dispatch-sync [:rf.route/handle-url-change "/settings"] {:frame f})
@@ -948,7 +948,7 @@
         "logged-out direct-URL to a non-auth route is unaffected"))
 
   ;; --- anchor click (`:rf.route/url-requested`) ---
-  (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}})]
     ;; An anchor whose href targets a :requires-auth route. The
     ;; framework `rf/route-link` dispatches `:rf.route/url-requested` with the
@@ -976,7 +976,7 @@
         "logged-out anchor to a non-auth route is unaffected"))
 
   ;; --- authenticated: every entry point now PASSES through ---
-  (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}})]
     (rf/dispatch-sync [:auth/store-session {:username "eve" :token "t"}] {:frame f})
     ;; direct-URL / reload to a guarded route proceeds when logged in.
@@ -1000,7 +1000,7 @@
   ;; auth.cljs `:auth/post-login-redirect`).
 
   ;; --- 1. destination deep-link carrying BOTH query and fragment ---
-  (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}})]
     ;; Logged-out deep-link to the guarded editor with a query AND a fragment.
     ;; (`:tab` is an undeclared query key — the guarded routes declare none — so
@@ -1031,7 +1031,7 @@
         "the crumb was read AND cleared in one step"))
 
   ;; --- 2. in-place edit under an expired session ---
-  (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}})]
     ;; Enter the editor legitimately, then let the session expire.
     (rf/dispatch-sync [:auth/store-session {:username "eve" :token "t"}] {:frame f})
@@ -1052,7 +1052,7 @@
         "the in-place edit's resolved destination (current route + new #fragment) is stashed whole"))
 
   ;; --- 3. an unmatchable raw URL stays a RAW destination ---
-  (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}})]
     ;; The runtime never rewrites a destination it cannot reify without
     ;; changing the requested URL: an unmatched in-app URL stays `{:url …}`
@@ -1141,7 +1141,7 @@
     (is (str/includes? p "offset=20") "page 3 → offset 20")))
 
 (defn- pagination-nav-events-test []
-  (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}})]
     ;; --- :home/show-page carries the active feed forward ---
     ;; Global feed, then page 3: the home route, no ?feed=, ?page=3.
@@ -1207,7 +1207,7 @@
 
   ;; --- RESTORE STAYS PUT: a cold boot with a saved token restores the session
   ;;     without navigating (a deep link must survive a refresh) ---
-  (with-new-frame [f (frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed       :realworld.test/restore-user
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed       :realworld.test/restore-user
                                                     :auth.session/persist :rf/no-op}})]
     ;; Land on a deep link (a public article), as a refresh would.
     (rf/dispatch-sync [:rf.route/handle-url-change "/article/some-slug"] {:frame f})
@@ -1232,7 +1232,7 @@
   ;; --- CONTRAST: an INTERACTIVE login DOES bounce (proves navigation is
   ;;     observable here, so the restore's non-navigation above is a real
   ;;     signal, not a harness that simply never navigates) ---
-  (with-new-frame [f (frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed       :realworld.test/restore-user
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed       :realworld.test/restore-user
                                                     :auth.session/persist :rf/no-op}})]
     (rf/dispatch-sync [:rf.route/handle-url-change "/article/some-slug"] {:frame f})
     (rf/dispatch-sync [:auth/initialise]
@@ -1327,7 +1327,7 @@
    the recordable coeffect is stubbed at the one seam its own registration
    documents, and node's absent localStorage is not in the way."
   [url token sink]
-  (frame/make-anon-frame-record!
+  (rf.frame/make-anon-frame-record!
     {:url-bound?     true
      :url-strategy   (decode-to-url-strategy url)
      :initial-events [[:auth/classify-token]
@@ -1459,7 +1459,7 @@
 ;; ============================================================================
 
 (defn- app-smoke-test []
-  (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
                                  :fx-overrides {:rf.http/managed      :realworld.test/canned-success-empty
                                                 :auth.session/persist :rf/no-op}})]
     ;; EP-0017 (rf2-16ck78): `:auth/initialise` is no longer in the
@@ -1623,7 +1623,7 @@
                    :createdAt "2026-05-01" :updatedAt "2026-05-01"
                    :favorited false :favoritesCount 0
                    :author {:username "alice" :bio nil :image nil :following false}}}))
-    (with-new-frame [f (frame/make-anon-frame-record!
+    (with-new-frame [f (rf.frame/make-anon-frame-record!
                          {:initial-events [[:app/initialise]]
                           :fx-overrides {:rf.http/managed :realworld.test/editor-edit}})]
       ;; /editor/:slug is :requires-auth — sign in so the :can-enter guard passes and
@@ -1659,7 +1659,7 @@
 (defn- editor-load-failure-test []
   (reg-canned-failure! :realworld.test/editor-load-fail
                        :rf.http/http-5xx {:status 500 :body "server error"})
-  (with-new-frame [f (frame/make-anon-frame-record!
+  (with-new-frame [f (rf.frame/make-anon-frame-record!
                        {:initial-events [[:app/initialise]]
                         :fx-overrides {:rf.http/managed :realworld.test/editor-load-fail}})]
     (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
@@ -1678,7 +1678,7 @@
         {:article {:slug "doomed" :title "Doomed" :description "d" :body "b" :tagList []
                    :createdAt "x" :updatedAt "x" :favorited false :favoritesCount 0
                    :author {:username "alice" :bio nil :image nil :following false}}}))
-    (with-new-frame [f (frame/make-anon-frame-record!
+    (with-new-frame [f (rf.frame/make-anon-frame-record!
                          {:initial-events [[:app/initialise]]
                           :fx-overrides {:rf.http/managed :realworld.test/editor-delete}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
@@ -1698,7 +1698,7 @@
           "the :mode region resets to :create after a delete"))))
 
 (defn- editor-invalid-submit-test []
-  (with-new-frame [f (frame/make-anon-frame-record!
+  (with-new-frame [f (rf.frame/make-anon-frame-record!
                        {:initial-events [[:app/initialise]]
                         :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}})]
     (rf/dispatch-sync [:editor/initialise] {:frame f})
@@ -1727,7 +1727,7 @@
     (rf/reg-fx :realworld.test/editor-in-flight
       {:platforms #{:client :server}}
       (fn [_frame-ctx args] (reset! in-flight args) nil))
-    (with-new-frame [f (frame/make-anon-frame-record!
+    (with-new-frame [f (rf.frame/make-anon-frame-record!
                          {:initial-events [[:app/initialise]]
                           :fx-overrides {:rf.http/managed :realworld.test/editor-in-flight}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
@@ -1790,7 +1790,7 @@
     (rf/reg-fx :realworld.test/editor-cross-slug
       {:platforms #{:client :server}}
       (fn [_frame-ctx args] (swap! lowered conj args) nil))
-    (with-new-frame [f (frame/make-anon-frame-record!
+    (with-new-frame [f (rf.frame/make-anon-frame-record!
                          {:initial-events [[:app/initialise]]
                           :fx-overrides {:rf.http/managed :realworld.test/editor-cross-slug}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
@@ -1850,7 +1850,7 @@
     (rf/reg-fx :realworld.test/editor-cross-slug-fail
       {:platforms #{:client :server}}
       (fn [_frame-ctx args] (swap! lowered conj args) nil))
-    (with-new-frame [f (frame/make-anon-frame-record!
+    (with-new-frame [f (rf.frame/make-anon-frame-record!
                          {:initial-events [[:app/initialise]]
                           :fx-overrides {:rf.http/managed :realworld.test/editor-cross-slug-fail}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
@@ -1959,7 +1959,7 @@
     (rf/reg-fx :realworld.test/article-cross-slug
       {:platforms #{:client :server}}
       (fn [_frame-ctx args] (swap! lowered conj args) nil))
-    (with-new-frame [f (frame/make-anon-frame-record!
+    (with-new-frame [f (rf.frame/make-anon-frame-record!
                          {:initial-events [[:app/initialise]]
                           :fx-overrides {:rf.http/managed :realworld.test/article-cross-slug}})]
       (rf/dispatch-sync [:article/initialise] {:frame f})
@@ -2015,7 +2015,7 @@
     (rf/reg-fx :realworld.test/article-cross-slug-fail
       {:platforms #{:client :server}}
       (fn [_frame-ctx args] (swap! lowered conj args) nil))
-    (with-new-frame [f (frame/make-anon-frame-record!
+    (with-new-frame [f (rf.frame/make-anon-frame-record!
                          {:initial-events [[:app/initialise]]
                           :fx-overrides {:rf.http/managed :realworld.test/article-cross-slug-fail}})]
       (rf/dispatch-sync [:article/initialise] {:frame f})
@@ -2062,7 +2062,7 @@
     (rf/reg-fx :realworld.test/article-transition
       {:platforms #{:client :server}}
       (fn [_frame-ctx args] (swap! lowered conj args) nil))
-    (with-new-frame [f (frame/make-anon-frame-record!
+    (with-new-frame [f (rf.frame/make-anon-frame-record!
                          {:initial-events [[:app/initialise]]
                           :fx-overrides {:rf.http/managed :realworld.test/article-transition}})]
       (rf/dispatch-sync [:article/initialise] {:frame f})
@@ -2177,7 +2177,7 @@
     (rf/reg-fx fx-id
       {:platforms #{:client :server}}
       (fn [_frame-ctx args] (swap! lowered conj args) nil))
-    (with-new-frame [f (frame/make-anon-frame-record!
+    (with-new-frame [f (rf.frame/make-anon-frame-record!
                          {:initial-events [[:app/initialise]]
                           :fx-overrides {:rf.http/managed fx-id}})]
       (rf/dispatch-sync [:article/initialise] {:frame f})
@@ -2717,7 +2717,7 @@
                :createdAt "x" :updatedAt "x"
                :favorited true :favoritesCount 42
                :author {:username "alice" :bio nil :image nil :following false}}})
-  (with-new-frame [f (frame/make-anon-frame-record!
+  (with-new-frame [f (rf.frame/make-anon-frame-record!
                        {:initial-events [[:app/initialise]]
                         :fx-overrides {:rf.http/managed :realworld.test/favorite-ok}})]
     (rf/dispatch-sync [:articles/initialise] {:frame f})
@@ -2751,7 +2751,7 @@
                          :tagList [] :createdAt "x" :updatedAt "x"
                          :favorited false :favoritesCount 0
                          :author {:username "eve" :bio nil :image nil :following false}}})))
-  (with-new-frame [f (frame/make-anon-frame-record!
+  (with-new-frame [f (rf.frame/make-anon-frame-record!
                        {:initial-events [[:app/initialise]]
                         :fx-overrides {:rf.http/managed :realworld.test/follow-author}})]
     (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
@@ -2782,7 +2782,7 @@
         {:article {:slug "hello" :title "Hello" :description "d" :body "b" :tagList []
                    :createdAt "x" :updatedAt "x" :favorited false :favoritesCount 0
                    :author {:username "alice" :bio nil :image nil :following false}}})))
-  (with-new-frame [f (frame/make-anon-frame-record!
+  (with-new-frame [f (rf.frame/make-anon-frame-record!
                        {:initial-events [[:app/initialise]]
                         :fx-overrides {:rf.http/managed :realworld.test/detail-delete}})]
     (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
@@ -2801,7 +2801,7 @@
 
 (defn- comment-blank-body-test []
   ;; :comment-form/submit with a blank body → client-side validation, no round trip.
-  (with-new-frame [f (frame/make-anon-frame-record!
+  (with-new-frame [f (rf.frame/make-anon-frame-record!
                        {:initial-events [[:app/initialise]]
                         :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}})]
     (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
@@ -2821,7 +2821,7 @@
                  :createdAt "x" :updatedAt "x" :favorited false :favoritesCount 0
                  :author {:username "bob" :bio nil :image nil :following true}}]
      :articlesCount 7})
-  (with-new-frame [f (frame/make-anon-frame-record!
+  (with-new-frame [f (rf.frame/make-anon-frame-record!
                        {:initial-events [[:app/initialise]]
                         :fx-overrides {:rf.http/managed :realworld.test/feed-ok}})]
     (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
@@ -2835,7 +2835,7 @@
 
 (defn- feed-load-failure-test []
   (reg-canned-failure! :realworld.test/feed-fail :rf.http/http-5xx {:status 500 :body "boom"})
-  (with-new-frame [f (frame/make-anon-frame-record!
+  (with-new-frame [f (rf.frame/make-anon-frame-record!
                        {:initial-events [[:app/initialise]]
                         :fx-overrides {:rf.http/managed :realworld.test/feed-fail}})]
     (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
@@ -2858,7 +2858,7 @@
                            :createdAt "x" :updatedAt "x" :favorited true :favoritesCount 3
                            :author {:username "eve" :bio nil :image nil :following false}}]
                :articlesCount 3})))
-  (with-new-frame [f (frame/make-anon-frame-record!
+  (with-new-frame [f (rf.frame/make-anon-frame-record!
                        {:initial-events [[:app/initialise]]
                         :fx-overrides {:rf.http/managed :realworld.test/profile-follow}})]
     (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
@@ -2978,7 +2978,7 @@
     (rf/reg-fx fx-id
       {:platforms #{:client :server}}
       (fn [_frame-ctx args] (swap! lowered conj args) nil))
-    (with-new-frame [f (frame/make-anon-frame-record!
+    (with-new-frame [f (rf.frame/make-anon-frame-record!
                          {:initial-events [[:app/initialise]]
                           :fx-overrides {:rf.http/managed fx-id}})]
       (rf/dispatch-sync [:auth/store-session {:username "zed" :email "z@b.c"
@@ -3515,7 +3515,7 @@
     (async done
       ;; The documented reset boundary: this receipt's world, and nobody else's.
       (reset! rh/demo-state (demo/fresh-state))
-      (let [f        (frame/make-anon-frame-record!
+      (let [f        (rf.frame/make-anon-frame-record!
                        {:initial-events [[:app/initialise]]
                         :fx-overrides   {:rf.http/managed :realworld.demo/http-stub}})
             slug     "hello-conduit"
@@ -3529,7 +3529,7 @@
         (rf/dispatch-sync [:rf.route/handle-url-change (str "/article/" slug)] {:frame f})
         (is (= :loading (status))
             "the route's own :comments/load is in flight against the demo backend")
-        (-> (test-support/poll-until
+        (-> (rf.test-support/poll-until
               #(= :loaded (status))
               {:label "the route's comments load settles from the demo backend"})
             (.then (fn [_]
@@ -3544,7 +3544,7 @@
                          "the optimistic temp card is on screen before the backend answers")
                      (is (str/starts-with? (str (:id (second (comments)))) "temp-")
                          "…under its recordable temp-id")
-                     (test-support/poll-until
+                     (rf.test-support/poll-until
                        #(= 1000 (:id (second (comments))))
                        {:label "the POST settles from the demo backend and the saved comment replaces the temp card"})))
             (.then (fn [_]
@@ -3554,7 +3554,7 @@
                      (rf/dispatch-sync [:comments/load] {:frame f})
                      (is (= :fetching (status))
                          "a same-slug re-load keeps the list up while it refreshes")
-                     (test-support/poll-until
+                     (rf.test-support/poll-until
                        #(= :loaded (status))
                        {:label "the later load settles from the demo backend"})))
             (.then (fn [_]

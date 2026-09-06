@@ -25,7 +25,7 @@
   shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest testing is]]
             [uix.compiler.input]
-            [re-frame.adapter.uix :as uix-adapter]))
+            [re-frame.adapter.uix :as rf.adapter.uix]))
 
 (def ^:private reagent-input-enabled-at-load?
   "The var as `re-frame.adapter.uix`'s load left it, snapshotted at THIS
@@ -49,7 +49,7 @@
 (deftest react-controlled-input-is-the-adapters-default
   (testing "requiring the adapter is enough: a UIx `:input` is a plain React
            controlled input"
-    (is (some? uix-adapter/adapter)
+    (is (some? rf.adapter.uix/adapter)
         "the adapter namespace is loaded — which is what runs the pin")
     (is (false? reagent-input-enabled-at-load?)
         "the adapter's load left the var at false — asserted from the

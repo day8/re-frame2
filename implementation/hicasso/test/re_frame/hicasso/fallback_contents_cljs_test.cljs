@@ -62,14 +62,14 @@
   Runtime: `-cljs-test`, not `-dom-`. Every claim is a declaration or a
   `renderToString`, so there is nothing here a DOM would add."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.checkpoint-support :as support]
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.checkpoint-support :as rf.hicasso.checkpoint-support]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.test-support :as test-support]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.test-support :as rf.test-support]
             ["react" :as react]
             ["react-dom/server" :as react-dom-server]))
 
@@ -85,16 +85,16 @@
 (rf/reg-event :hicasso.fb/seed (fn [_ [_ title]] {:db {:title title}}))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 (defn- fresh!
   "Two frames holding different values, because frame isolation is what
   the placeholder rows are read against."
   []
-  (support/leave-act-environment!)
+  (rf.hicasso.checkpoint-support/leave-act-environment!)
   (rf/make-frame {:id frame-a})
   (rf/make-frame {:id frame-b})
   (rf/with-frame frame-a (rf/dispatch-sync [:hicasso.fb/seed "ALPHA"]))
@@ -111,15 +111,15 @@
   fallback and nothing else."
   (react/createContext "unset"))
 
-(h/defview fallback-view
+(rf.hicasso/defview fallback-view
   "A `defview` head written into a fallback — the whole question."
   [_]
-  [:section.fb-view [:h2.sub (collector/sub [:hicasso.fb/title])]])
+  [:section.fb-view [:h2.sub (rf.hicasso.impl.collector/sub [:hicasso.fb/title])]])
 
 (defn- inner-component [_props]
   (react/createElement "i" #js {:className "inner"} "INNER"))
 
-(h/defhost inner-host
+(rf.hicasso/defhost inner-host
   "A `defhost` head written into a fallback — a second deferring head, so
   the rule is not a `defview` fact."
   inner-component
@@ -139,12 +139,12 @@
   "One declaration, made HERE rather than at the top level, so a row that
   is about the declaration can put its own hiccup in it."
   [host-name fallback]
-  (codec/mint-host! host-name (.-Provider theme-context)
+  (rf.hicasso.impl.codec/mint-host! host-name (.-Provider theme-context)
                     {:fallback fallback}))
 
 (defn- server-html [frame hiccup]
   (react-dom-server/renderToString
-    (mount/provider frame (codec/root-element frame hiccup))))
+    (rf.hicasso.impl.mount/provider frame (rf.hicasso.impl.codec/root-element frame hiccup))))
 
 ;; ---------------------------------------------------------------------------
 ;; 1 — what the mint-time WALK can see, it refuses (unchanged by the ruling)
@@ -166,7 +166,7 @@
             declaration is, which is outside any render"
     (is (= :rf.error/hicasso-sub-outside-render
            (error-id #(host-with-fallback "fb/sub"
-                                          [:div (collector/sub [:hicasso.fb/title])])))))
+                                          [:div (rf.hicasso.impl.collector/sub [:hicasso.fb/title])])))))
   (testing "and hiccup that is not hiccup, which is the property the walk
             was moved to the declaration FOR"
     (is (= :rf.error/hicasso-empty-vector

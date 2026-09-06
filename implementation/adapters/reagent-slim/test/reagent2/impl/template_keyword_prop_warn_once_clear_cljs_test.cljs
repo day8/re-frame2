@@ -29,7 +29,7 @@
             ;; `spine/install-clear-warn-once-step!` registration that wires
             ;; template/clear-warned-keyword-prop! into the chained hook.
             [re-frame.adapter.reagent-slim]
-            [re-frame.late-bind :as late-bind]
+            [re-frame.late-bind :as rf.late-bind]
             [reagent2.impl.template :as template]))
 
 (defn- with-warn-spy
@@ -68,7 +68,7 @@
       (is (= 1 (count phase-1))
           (str "phase-1 sanity: warn fires exactly once within a phase; got "
                (count phase-1) ": " (pr-str phase-1)))
-      (let [chained-hook (late-bind/get-fn :adapter/clear-warn-once-caches!)]
+      (let [chained-hook (rf.late-bind/get-fn :adapter/clear-warn-once-caches!)]
         (is (some? chained-hook)
             "precondition: the chained :adapter/clear-warn-once-caches! hook is registered")
         (chained-hook)

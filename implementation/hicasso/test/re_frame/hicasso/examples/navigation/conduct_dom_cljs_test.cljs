@@ -83,16 +83,16 @@
   a naming-ledger question that is still open (row 36 — *keep as taught*,
   status open), not this bead's to settle."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso.examples.navigation.events :as events]
-            [re-frame.hicasso.examples.navigation.routes :as routes]
-            [re-frame.hicasso.examples.navigation.subs :as subs]
-            [re-frame.hicasso.examples.navigation.views :as views]
-            [re-frame.hicasso.test :as ht]
-            [re-frame.hicasso.test.mounted :as hm]
-            [re-frame.routing :as routing]
-            [re-frame.test-support :as test-support]))
+            [re-frame.hicasso.examples.navigation.events :as rf.hicasso.examples.navigation.events]
+            [re-frame.hicasso.examples.navigation.routes :as rf.hicasso.examples.navigation.routes]
+            [re-frame.hicasso.examples.navigation.subs :as rf.hicasso.examples.navigation.subs]
+            [re-frame.hicasso.examples.navigation.views :as rf.hicasso.examples.navigation.views]
+            [re-frame.hicasso.test :as rf.hicasso.test]
+            [re-frame.hicasso.test.mounted :as rf.hicasso.test.mounted]
+            [re-frame.routing :as rf.routing]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; ---------------------------------------------------------------------------
 ;; The lane
@@ -104,8 +104,8 @@
   (is true (str "a navigation-conduct witness needs a real browser — " why)))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
      :init-fn       (fn []
@@ -115,8 +115,8 @@
                       ;; position saved by one row would still be there for
                       ;; the next — which is precisely what the
                       ;; never-visited-URL row is written to rule out.
-                      (routing/reset-scroll-cache!)
-                      (routes/register!))}))
+                      (rf.routing/reset-scroll-cache!)
+                      (rf.hicasso.examples.navigation.routes/register!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Reading the page
@@ -171,8 +171,8 @@
   link, and the shape every other row starts from."
   ([route] (at! route nil))
   ([route params]
-   (hm/mount! [views/app {}]
-              {:initial-events [[::events/seed]
+   (rf.hicasso.test.mounted/mount! [rf.hicasso.examples.navigation.views/app {}]
+              {:initial-events [[::rf.hicasso.examples.navigation.events/seed]
                                 [:rf.route/navigate (cond-> {:to route}
                                                       params (assoc :params params))]]})))
 
@@ -183,7 +183,7 @@
   ([m done] (finish m nil done))
   ([m extra-nodes done]
    (doseq [n extra-nodes] (try (.remove n) (catch :default _ nil)))
-   (-> (hm/unmount! m) (hm/assert-clean!) (.then done))))
+   (-> (rf.hicasso.test.mounted/unmount! m) (rf.hicasso.test.mounted/assert-clean!) (.then done))))
 
 (defn- finish-after
   "End the row when `p` settles, reporting a rejection as a failure rather
@@ -232,7 +232,7 @@
   a recipe that focused somebody else's heading, which is precisely the
   document-scoped defect the decoy row exists to catch."
   [m label]
-  (-> (test-support/poll-until
+  (-> (rf.test-support/poll-until
         #(let [h (heading m)]
            (and (some? h) (identical? h (active))))
         {:label label})
@@ -265,50 +265,50 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-element-the-recipe-focuses-is-a-heading-with-the-panes-name
-  (let [tree (ht/tree [views/feed-page {}]
-                      {:subs {[::subs/feed] [{:slug "deep-space" :title "Deep space"}]}})
-        marked (ht/find tree #(= "true" (:data-route-heading (ht/attrs %))))]
+  (let [tree (rf.hicasso.test/tree [rf.hicasso.examples.navigation.views/feed-page {}]
+                      {:subs {[::rf.hicasso.examples.navigation.subs/feed] [{:slug "deep-space" :title "Deep space"}]}})
+        marked (rf.hicasso.test/find tree #(= "true" (:data-route-heading (rf.hicasso.test/attrs %))))]
     (testing "the marker the focus effect selects on exists, exactly once,
               and is on a real heading"
       (is (some? marked)
           "no element carries :data-route-heading — the recipe would focus
            nothing, and every browser row below would be asserting that a
            nil selector match is a no-op")
-      (is (= 1 (count (ht/find-all tree #(= "true" (:data-route-heading (ht/attrs %))))))
+      (is (= 1 (count (rf.hicasso.test/find-all tree #(= "true" (:data-route-heading (rf.hicasso.test/attrs %))))))
           "exactly one: `querySelector` takes the first match in document
            order, so a second marker is a focus target chosen by accident
            of markup order")
-      (is (= :heading (ht/role marked))
+      (is (= :heading (rf.hicasso.test/role marked))
           "a heading, per `ht/role` — landing focus on an unlabelled
            `<div>` announces nothing, which is the version of this recipe
            that passes a browser row and helps nobody"))
 
     (testing "and it carries the pane's own accessible name, so arriving
               there says WHERE the user arrived"
-      (is (= "Articles" (ht/accessible-name tree marked))))
+      (is (= "Articles" (rf.hicasso.test/accessible-name tree marked))))
 
     (testing "it is programmatically focusable and NOT a new Tab stop"
-      (is (= -1 (:tab-index (ht/attrs marked)))
+      (is (= -1 (:tab-index (rf.hicasso.test/attrs marked)))
           "-1, not 0: the heading is a focus TARGET, not a stop on the Tab
            order. Without any tabindex the engine refuses focus outright
            and `.focus()` is a silent no-op; with 0 the recipe buys itself
            an extra Tab press for every keyboard user on every page"))))
 
 (deftest the-recipe-names-a-root-and-not-the-document
-  (let [fx           (:fx (events/pane-shown {} [::events/pane-shown]))
+  (let [fx           (:fx (rf.hicasso.examples.navigation.events/pane-shown {} [::rf.hicasso.examples.navigation.events/pane-shown]))
         [fx-id args] (first fx)]
     (testing "`:on-match` asks for exactly one effect, and it is the focus one"
       (is (= 1 (count fx)))
-      (is (= ::events/focus-heading fx-id)))
+      (is (= ::rf.hicasso.examples.navigation.events/focus-heading fx-id)))
 
     (testing "the effect carries a ROOT scope alongside the selector"
-      (is (= events/root-selector (:root args))
+      (is (= rf.hicasso.examples.navigation.events/root-selector (:root args))
           "without `:root` the effect resolves its selector against the whole
            document and focuses the first marked heading on the page, whoever
            it belongs to — the defect
            [[a-deep-link-focuses-inside-the-applications-own-root]] mounts a
            decoy to catch")
-      (is (= events/heading-selector (:selector args))))
+      (is (= rf.hicasso.examples.navigation.events/heading-selector (:selector args))))
 
     (testing "and the shell RENDERS that root, so the scope names an element
               rather than nothing"
@@ -316,11 +316,11 @@
       ;; cannot state: a recipe scoped to an id no view writes resolves to
       ;; nil and focuses nothing at all — a no-op that looks exactly like a
       ;; working recipe on a page where nothing else competes for the marker.
-      (let [tree (ht/tree [views/app {}] {:subs {[:rf.route/id] routes/feed}})
-            root (ht/find tree #(= events/root-id (:id (ht/attrs %))))]
+      (let [tree (rf.hicasso.test/tree [rf.hicasso.examples.navigation.views/app {}] {:subs {[:rf.route/id] rf.hicasso.examples.navigation.routes/feed}})
+            root (rf.hicasso.test/find tree #(= rf.hicasso.examples.navigation.events/root-id (:id (rf.hicasso.test/attrs %))))]
         (is (some? root)
             (str "no element in the shell carries the id "
-                 (pr-str events/root-id) " that " (pr-str events/root-selector)
+                 (pr-str rf.hicasso.examples.navigation.events/root-id) " that " (pr-str rf.hicasso.examples.navigation.events/root-selector)
                  " names"))
         (is (= :main (:tag root))
             "and it is the application's own root element")))))
@@ -333,7 +333,7 @@
   (if-not (browser?)
     (skip! ":node-test has no focus model")
     (async done
-      (let [m (at! routes/article {:slug (:slug first-article)})]
+      (let [m (at! rf.hicasso.examples.navigation.routes/article {:slug (:slug first-article)})]
         (-> (focused-heading m "the deep link's landing focus")
             (.then (fn [h]
                      (is (identical? h (active))
@@ -356,20 +356,20 @@
       ;; application's container in document order and a document-wide
       ;; lookup reaches it first. Binding order is the whole mechanism.
       (let [decoy (decoy!)
-            m     (at! routes/article {:slug (:slug first-article)})]
+            m     (at! rf.hicasso.examples.navigation.routes/article {:slug (:slug first-article)})]
         (-> (js/Promise.resolve
               (testing "the near-miss is LIVE — a document-wide lookup does NOT
                         answer this application's heading"
                 (is (some? (heading m))
                     "precondition: the pane rendered a marked heading of its own")
-                (is (some? (.querySelector js/document events/root-selector))
+                (is (some? (.querySelector js/document rf.hicasso.examples.navigation.events/root-selector))
                     (str "precondition: the shell rendered "
-                         (pr-str events/root-selector) ", the root the recipe
+                         (pr-str rf.hicasso.examples.navigation.events/root-selector) ", the root the recipe
                          scopes to. A scope that resolves to nothing focuses
                          nothing, which on a page with no decoy is
                          indistinguishable from a recipe that works"))
                 (is (not (identical? (heading m)
-                                     (.querySelector js/document events/heading-selector)))
+                                     (.querySelector js/document rf.hicasso.examples.navigation.events/heading-selector)))
                     "the decoy precedes the application in document order, so
                      `document.querySelector` over the shared marker answers
                      something that is not this application's heading. The
@@ -397,7 +397,7 @@
   (if-not (browser?)
     (skip! ":node-test has no focus model")
     (async done
-      (let [m (at! routes/article {:slug (:slug first-article)})]
+      (let [m (at! rf.hicasso.examples.navigation.routes/article {:slug (:slug first-article)})]
         (-> (focused-heading m "the deep link's landing focus")
             (.then (fn [_]
                      ;; The Back button, as the framework sees it: one
@@ -406,10 +406,10 @@
                      ;; because this mount's frame is not URL-bound — what
                      ;; is under test is the conduct the door produces, not
                      ;; the listener that opens it.
-                     (hm/dispatch-and-settle!
+                     (rf.hicasso.test.mounted/dispatch-and-settle!
                        m [:rf.route/handle-url-change "/navigation"
                           {:rf.route/cause :popstate}])
-                     (is (= routes/feed (read-sub m [:rf.route/id]))
+                     (is (= rf.hicasso.examples.navigation.routes/feed (read-sub m [:rf.route/id]))
                          "the Back really landed, so the row below is not green
                           for want of anything happening")
                      (focused-heading m "the Back navigation's landing focus")))
@@ -430,15 +430,15 @@
   (if-not (browser?)
     (skip! ":node-test has no focus model")
     (async done
-      (let [m (at! routes/article {:slug (:slug first-article)})]
+      (let [m (at! rf.hicasso.examples.navigation.routes/article {:slug (:slug first-article)})]
         (-> (focused-heading m "the deep link's landing focus")
             (.then (fn [_]
                      ;; Put focus where a user would have it — in the field
                      ;; they are typing in — and then re-render underneath
                      ;; them.
                      (.focus (node m "#navigation-title"))
-                     (hm/dispatch-and-settle!
-                       m [::events/edit (:slug first-article) "Deep space, revisited"])
+                     (rf.hicasso.test.mounted/dispatch-and-settle!
+                       m [::rf.hicasso.examples.navigation.events/edit (:slug first-article) "Deep space, revisited"])
                      (is (= "Deep space, revisited" (.-value (node m "#navigation-title")))
                          "the re-render really happened")
                      (two-frames)))
@@ -455,19 +455,19 @@
   (if-not (browser?)
     (skip! ":node-test has no focus model")
     (async done
-      (let [m    (at! routes/article {:slug (:slug first-article)})
+      (let [m    (at! rf.hicasso.examples.navigation.routes/article {:slug (:slug first-article)})
             slug (:slug first-article)]
         (-> (focused-heading m "the deep link's landing focus")
             (.then (fn [_]
                      ;; The pending mutation: a typed, unsaved title. The
                      ;; article route's `:can-leave` guard reads it.
-                     (hm/dispatch-and-settle! m [::events/edit slug "Half a title"])
+                     (rf.hicasso.test.mounted/dispatch-and-settle! m [::rf.hicasso.examples.navigation.events/edit slug "Half a title"])
                      (.focus (node m "#navigation-title"))
 
-                     (hm/dispatch-and-settle! m [:rf.route/navigate {:to routes/feed}])
+                     (rf.hicasso.test.mounted/dispatch-and-settle! m [:rf.route/navigate {:to rf.hicasso.examples.navigation.routes/feed}])
 
                      (testing "the leave is REFUSED, and parked rather than dropped"
-                       (is (= routes/article (read-sub m [:rf.route/id]))
+                       (is (= rf.hicasso.examples.navigation.routes/article (read-sub m [:rf.route/id]))
                            "the route did not move")
                        (is (some? (read-sub m [:rf/pending-navigation]))
                            "and the refusal is resumable — routing wrote one
@@ -489,8 +489,8 @@
                      ;; Resume through the application's own wiring point,
                      ;; not through a hand-written event id.
                      (.click (node m ".leave-anyway"))
-                     (hm/settle! m)
-                     (is (= routes/feed (read-sub m [:rf.route/id]))
+                     (rf.hicasso.test.mounted/settle! m)
+                     (is (= rf.hicasso.examples.navigation.routes/feed (read-sub m [:rf.route/id]))
                          "the parked navigation resumed on confirmation")
                      (focused-heading m "the resumed navigation's landing focus")))
             (.then (fn [h]
@@ -514,15 +514,15 @@
     (skip! ":node-test has no scroll model")
     (async done
       (scroll-to! 0)
-      (let [m (at! routes/feed)]
+      (let [m (at! rf.hicasso.examples.navigation.routes/feed)]
         (-> (focused-heading m "the list's landing focus")
             (.then (fn [_]
                      (scrolled-to! deep-offset)
 
-                     (hm/dispatch-and-settle!
-                       m [:rf.route/navigate {:to routes/article
+                     (rf.hicasso.test.mounted/dispatch-and-settle!
+                       m [:rf.route/navigate {:to rf.hicasso.examples.navigation.routes/article
                                               :params {:slug (:slug first-article)}}])
-                     (is (= routes/article (read-sub m [:rf.route/id])))
+                     (is (= rf.hicasso.examples.navigation.routes/article (read-sub m [:rf.route/id])))
                      (is (= 0 (scroll-y))
                          (str "a forward navigation lands at the top and this one
                               is at " (scroll-y) ". Arriving at a new page
@@ -533,10 +533,10 @@
                      ;; `:restore`, and the position it looks up is the one
                      ;; `:rf.nav/capture-scroll` saved for `/navigation`
                      ;; when the navigation above left it.
-                     (hm/dispatch-and-settle!
+                     (rf.hicasso.test.mounted/dispatch-and-settle!
                        m [:rf.route/handle-url-change "/navigation"
                           {:rf.route/cause :popstate}])
-                     (is (= routes/feed (read-sub m [:rf.route/id])))
+                     (is (= rf.hicasso.examples.navigation.routes/feed (read-sub m [:rf.route/id])))
                      (is (= deep-offset (scroll-y))
                          (str "Back restored " (scroll-y) " rather than "
                               deep-offset ". The list is where the user was
@@ -569,16 +569,16 @@
     (skip! ":node-test has no scroll model")
     (async done
       (scroll-to! 0)
-      (let [m (at! routes/feed)]
+      (let [m (at! rf.hicasso.examples.navigation.routes/feed)]
         (-> (focused-heading m "the list's landing focus")
             (.then (fn [_]
                      (scrolled-to! 700)
 
-                     (hm/dispatch-and-settle!
-                       m [:rf.route/navigate {:to     routes/article
+                     (rf.hicasso.test.mounted/dispatch-and-settle!
+                       m [:rf.route/navigate {:to     rf.hicasso.examples.navigation.routes/article
                                               :params {:slug (:slug first-article)}
                                               :scroll false}])
-                     (is (= routes/article (read-sub m [:rf.route/id]))
+                     (is (= rf.hicasso.examples.navigation.routes/article (read-sub m [:rf.route/id]))
                          "the navigation happened, so the row is not green for
                           want of one")
                      (is (= 700 (scroll-y))
@@ -600,22 +600,22 @@
     (skip! ":node-test has no scroll model")
     (async done
       (scroll-to! 0)
-      (let [m (at! routes/feed)]
+      (let [m (at! rf.hicasso.examples.navigation.routes/feed)]
         (-> (focused-heading m "the list's landing focus")
             (.then (fn [_]
                      ;; Leave `/navigation` at a distinctive offset, so the
                      ;; cache holds exactly one position and it is one no
                      ;; other URL is entitled to.
                      (scrolled-to! deep-offset)
-                     (hm/dispatch-and-settle!
-                       m [:rf.route/navigate {:to routes/article
+                     (rf.hicasso.test.mounted/dispatch-and-settle!
+                       m [:rf.route/navigate {:to rf.hicasso.examples.navigation.routes/article
                                               :params {:slug (:slug first-article)}}])
                      (is (= 0 (scroll-y)))
                      (scrolled-to! 300)
 
                      ;; A Back to a URL this session has never left — so the
                      ;; cache has nothing keyed under it.
-                     (hm/dispatch-and-settle!
+                     (rf.hicasso.test.mounted/dispatch-and-settle!
                        m [:rf.route/handle-url-change "/navigation/article/shallow-water"
                           {:rf.route/cause :popstate}])
                      (is (= "shallow-water" (:slug (read-sub m [:rf.route/params])))

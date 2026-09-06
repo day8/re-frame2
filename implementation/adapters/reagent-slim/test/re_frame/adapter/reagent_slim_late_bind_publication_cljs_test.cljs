@@ -30,8 +30,8 @@
             ;; Loading the Reagent Slim adapter triggers its ns-load
             ;; publication side effects - that's the point of this test.
             [re-frame.adapter.reagent-slim]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.late-bind.directory :as directory]))
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.late-bind.directory :as rf.late-bind.directory]))
 
 (def ^:private expected-hook-keys
   "Every late-bind hook the Reagent Slim adapter publishes at ns-load."
@@ -59,11 +59,11 @@
 (defn- directory-entry
   [k]
   (some (fn [entry] (when (= k (:key entry)) entry))
-        directory/hooks))
+        rf.late-bind.directory/hooks))
 
 (defn- directory-hook-keys-for
   [producer-ns]
-  (->> directory/hooks
+  (->> rf.late-bind.directory/hooks
        (filter #(some #{producer-ns} (producers %)))
        (map :key)
        set))
@@ -74,7 +74,7 @@
             adapter ns has loaded. A future refactor that drops or
             renames a hook trips this test."
     (doseq [k expected-hook-keys]
-      (is (some? (late-bind/get-fn k))
+      (is (some? (rf.late-bind/get-fn k))
           (str "expected the Reagent Slim adapter to publish " k
                " through the late-bind hook table at ns-load")))))
 

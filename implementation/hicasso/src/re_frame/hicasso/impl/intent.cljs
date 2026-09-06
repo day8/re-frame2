@@ -39,9 +39,9 @@
   Design record: docs/design/hicasso/decisions.md HD-020, HD-024, HD-026
   and HD-027; the authoring surface in docs/design/hicasso/authoring.md
   §Event intent as data."
-  (:require [re-frame.frame :as frame]
+  (:require [re-frame.frame :as rf.frame]
             [re-frame.hicasso.impl.error :refer [fail!]]
-            [re-frame.late-bind :as late-bind]))
+            [re-frame.late-bind :as rf.late-bind]))
 
 ;; ---------------------------------------------------------------------------
 ;; The ambient frame (HD-020(a))
@@ -117,7 +117,7 @@
   ([frame-kw dispatch body-fn]
    (binding [*frame*                       frame-kw
              *dispatch*                    dispatch
-             frame/*ambient-frame-refusal* (cond-> ambient-frame-refusal
+             rf.frame/*ambient-frame-refusal* (cond-> ambient-frame-refusal
                                              frame-kw (assoc :extent-frame frame-kw))]
      (body-fn))))
 
@@ -227,11 +227,11 @@
   [_k f]
   (let [owner-dispatch *dispatch*
         owner-frame    *frame*
-        owner-refusal  frame/*ambient-frame-refusal*]
+        owner-refusal  rf.frame/*ambient-frame-refusal*]
     (fn hicasso-render-callback [& args]
       (binding [*frame*                       owner-frame
                 *dispatch*                    owner-dispatch
-                frame/*ambient-frame-refusal* owner-refusal]
+                rf.frame/*ambient-frame-refusal* owner-refusal]
         (apply f args)))))
 
 ;; ---------------------------------------------------------------------------
@@ -489,7 +489,7 @@
   (let [{:keys [frame payload native? veto]} (unwrap-navigate k v)
         veto-fn (lower-veto k veto)]
     (fn hicasso-navigate [e]
-      (if-some [activate (late-bind/get-fn :routing/activate-link!)]
+      (if-some [activate (rf.late-bind/get-fn :routing/activate-link!)]
         (activate e veto-fn frame payload native?)
         (when veto-fn (veto-fn e)))
       nil)))

@@ -31,12 +31,12 @@
   boundary that read it must re-render, and the headless plain-atom
   adapter's derived value is not `IWatchable`, so a moving subscription
   under it notifies nothing at all."
-  (:require [re-frame.adapter.uix :as uix-adapter]
+  (:require [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.examples.todo.events :as events]
-            [re-frame.hicasso.examples.todo.routes :as routes]
-            [re-frame.hicasso.examples.todo.views :as views]))
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.examples.todo.events :as rf.hicasso.examples.todo.events]
+            [re-frame.hicasso.examples.todo.routes :as rf.hicasso.examples.todo.routes]
+            [re-frame.hicasso.examples.todo.views :as rf.hicasso.examples.todo.views]))
 
 (def frame-id
   "This application's frame. One root, one frame; a page holding a second
@@ -60,10 +60,10 @@
   and takes `:initial-events`, so the two events below are the value a
   witness hands it."
   []
-  (routes/register!)
+  (rf.hicasso.examples.todo.routes/register!)
   (rf/make-frame {:id             frame-id
-                  :initial-events [[::events/seed sample-todos]
-                                   [:rf.route/navigate {:to routes/all}]]}))
+                  :initial-events [[::rf.hicasso.examples.todo.events/seed sample-todos]
+                                   [:rf.route/navigate {:to rf.hicasso.examples.todo.routes/all}]]}))
 
 (defn ^:dev/after-load reload!
   "Re-render the mounted root after a hot reload. React reconciles the
@@ -73,12 +73,12 @@
   discard all three."
   []
   (when-some [root @!root]
-    (h/render! root [views/app {}])))
+    (rf.hicasso/render! root [rf.hicasso.examples.todo.views/app {}])))
 
 (defn ^:export -main
   "Start the application."
   []
-  (rf/init! uix-adapter/adapter)
+  (rf/init! rf.adapter.uix/adapter)
   (make-frame!)
-  (reset! !root (h/mount! (js/document.getElementById "app") {:frame frame-id} [views/app {}]))
+  (reset! !root (rf.hicasso/mount! (js/document.getElementById "app") {:frame frame-id} [rf.hicasso.examples.todo.views/app {}]))
   nil)

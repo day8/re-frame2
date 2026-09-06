@@ -95,15 +95,15 @@
   React DOM. The payload-shape row needs no DOM and runs under
   `:node-test` too; every DOM claim degrades to a stated skip there."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.hicasso.impl.state :as impl-state]
-            [re-frame.hicasso.roots-frames-support :as sup]
-            [re-frame.hicasso.server :as server]
-            [re-frame.test-support :as test-support]))
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.hicasso.impl.state :as rf.hicasso.impl.state]
+            [re-frame.hicasso.roots-frames-support :as rf.hicasso.roots-frames-support]
+            [re-frame.hicasso.server :as rf.hicasso.server]
+            [re-frame.test-support :as rf.test-support]))
 
 (def ^:private wire-frame ::instance-key-payload)
 
@@ -149,16 +149,16 @@
   documented tier. Spelled through `impl-state/ui-root` so the witness
   asserts on the same vector the sugar writes rather than on a
   hand-spelled copy of it."
-  [impl-state/ui-root open? open-key])
+  [rf.hicasso.impl.state/ui-root open? open-key])
 
 (rf/reg-sub ::panel-ids (fn [db _] (mapv :id (:panels db))))
 
 (rf/reg-sub ::panel-title
   (fn [db [_ id]] (some (fn [p] (when (= id (:id p)) (:title p))) (:panels db))))
 
-(h/reg-state open? {:default false})
+(rf.hicasso/reg-state open? {:default false})
 
-(h/defview panel
+(rf.hicasso/defview panel
   "A disclosure. It holds its own open flag under the instance key it was
   handed and knows nothing else about where it sits.
 
@@ -168,28 +168,28 @@
   be measuring React's SSR text-separator behaviour alongside the thing
   under test."
   [{:keys [ikey title]}]
-  (let [shown? (h/sub [open? ikey])]
+  (let [shown? (rf.hicasso/sub [open? ikey])]
     [:section.panel {:data-ikey ikey}
      [:button.panel-toggle {:on-click [open? ikey (not shown?)]} title]
      (when shown?
        [:div.panel-body "the details"])]))
 
-(h/defview screen
+(rf.hicasso/defview screen
   "The page. A heading, then one [[panel]] per roster entry, keyed by the
   same authored id it is instance-keyed by."
   [_]
   [:div.instance-key-page
    [:h1.title "instance state across the wire"]
    [:div.panels
-    (for [id (h/sub [::panel-ids])]
-      [panel {:key id :ikey id :title (h/sub [::panel-title id])}])]])
+    (for [id (rf.hicasso/sub [::panel-ids])]
+      [panel {:key id :ikey id :title (rf.hicasso/sub [::panel-title id])}])]])
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The two requests, differing by ONE allowlist entry
@@ -228,7 +228,7 @@
   so the seeding door is deliberately the least interesting part of the
   row."
   [payload]
-  (sup/leave-act-environment!)
+  (rf.hicasso.roots-frames-support/leave-act-environment!)
   (rf/make-frame {:id             wire-frame
                   :platform       :client
                   :initial-events [[:rf/set-db (:rf/app-db payload)]]})
@@ -246,12 +246,12 @@
   sets `:swallow-uncaught?` is the row that manufactures the fault and
   asserts on it."
   [html capture-opts]
-  (let [container                 (sup/stamp-server-nodes! (sup/server-dom! html))
-        {:keys [seen stop!]}      (sup/watch-mismatches!)
-        {:keys [captured close!]} (sup/open-console-capture! capture-opts)
+  (let [container                 (rf.hicasso.roots-frames-support/stamp-server-nodes! (rf.hicasso.roots-frames-support/server-dom! html))
+        {:keys [seen stop!]}      (rf.hicasso.roots-frames-support/watch-mismatches!)
+        {:keys [captured close!]} (rf.hicasso.roots-frames-support/open-console-capture! capture-opts)
         before                    (some? (open-panel-in container))
-        handle                    (h/hydrate! container {:frame wire-frame} [screen {}])]
-    (-> (sup/adopted! handle)
+        handle                    (rf.hicasso/hydrate! container {:frame wire-frame} [screen {}])]
+    (-> (rf.hicasso.roots-frames-support/adopted! handle)
         (.then (fn [shut?]
                  (close!)
                  (stop!)
@@ -272,8 +272,8 @@
            identical; the allowlist is the only thing that moves. Without
            this row the two hydration rows below could be measuring any
            difference at all between two pages"
-    (let [green (server/render (request names-ui))
-          red   (server/render (request omits-ui))
+    (let [green (rf.hicasso.server/render (request names-ui))
+          red   (rf.hicasso.server/render (request omits-ui))
           gdb   (:rf/app-db (:payload green))
           rdb   (:rf/app-db (:payload red))]
       (is (= (:html green) (:html red))
@@ -325,10 +325,10 @@
            first render draws the same open panel, and React finds nothing
            to reconcile — asserted on the framework's own diagnostic AND on
            both channels React complains through"
-    (if-not (mount/browser?)
-      (sup/skip! "a payload-obligation hydration claim needs a real React DOM")
+    (if-not (rf.hicasso.impl.mount/browser?)
+      (rf.hicasso.roots-frames-support/skip! "a payload-obligation hydration claim needs a real React DOM")
       (async done
-        (let [{:keys [html payload]} (server/render (request names-ui))]
+        (let [{:keys [html payload]} (rf.hicasso.server/render (request names-ui))]
           (client-frame! payload)
           (is (= true (get-in (rf/app-db-value wire-frame) state-path))
               "the client frame booted holding the instance state the server
@@ -355,19 +355,19 @@
                         "the panel is STILL open after adoption — open before,
                          open after, which is what \"hydrated\" means for a
                          page whose appearance is instance state")
-                    (is (sup/server-node? (open-panel-in container))
+                    (is (rf.hicasso.roots-frames-support/server-node? (open-panel-in container))
                         "and it is the SERVER'S own node. The stamp is an
                          expando and cannot survive re-serialisation, so React
                          reused the markup rather than building a replacement
                          that happens to look alike")
-                    (is (sup/every-server-node? container "*")
+                    (is (rf.hicasso.roots-frames-support/every-server-node? container "*")
                         "as is every element on the page — no partial adoption,
                          which is what a mismatch on one subtree would look
                          like")
                     (is (= 2 (panel-count container))
                         "both panels are there, so the row above is a claim
                          about a page and not about an empty container")
-                    (finally (h/unmount! handle)))))
+                    (finally (rf.hicasso/unmount! handle)))))
               ;; Reports and UNMOUNTS; it never finishes. `done` runs the whole
               ;; remainder of the run synchronously, so a `.catch` downstream of
               ;; it would claim a later namespace's throw as this row's and fire
@@ -394,10 +394,10 @@
            `:swallow-uncaught?` exists for. `rf2-mwx08` is not softened: the
            error is not unasserted here, it is the subject, and the row goes
            on to assert that the door reported it as well as emitting it"
-    (if-not (mount/browser?)
-      (sup/skip! "a payload-obligation hydration claim needs a real React DOM")
+    (if-not (rf.hicasso.impl.mount/browser?)
+      (rf.hicasso.roots-frames-support/skip! "a payload-obligation hydration claim needs a real React DOM")
       (async done
-        (let [{:keys [html payload]} (server/render (request omits-ui))]
+        (let [{:keys [html payload]} (rf.hicasso.server/render (request omits-ui))]
           (client-frame! payload)
           (is (nil? (get-in (rf/app-db-value wire-frame) state-path))
               "the client frame booted WITHOUT the instance state — the entry
@@ -419,7 +419,7 @@
                               machinery, and this is that machinery answering.
                               Saw " (count mismatches) ": " (pr-str mismatches)))
                     (doseq [mm mismatches]
-                      (let [tags (sup/tags-of mm)]
+                      (let [tags (rf.hicasso.roots-frames-support/tags-of mm)]
                         (is (= :rf.ssr/hydration-mismatch (:operation mm)))
                         (is (= 're-frame.hicasso.impl.mount/hydrate-root! (:where tags))
                             "tier-discriminated by :where — this arm's hydrate
@@ -448,7 +448,7 @@
                     (is (= 2 (panel-count container))
                         "the rest of the page adopted normally — a stranded
                          partition is a wrong screen, not a blank one")
-                    (finally (h/unmount! handle)))))
+                    (finally (rf.hicasso/unmount! handle)))))
               ;; Reports and UNMOUNTS, as above.
               (.catch (fn [e] (is false (str "row 2 threw: " e)) nil))
               (.then (fn [_] (done)))))))))

@@ -8,7 +8,7 @@
   writers, because a counter anything can increment is a counter nothing
   can reason about. Why the basis has three terms and what each one sees
   is docs/design/hicasso/architecture.md, section The collector."
-  (:require [re-frame.frame :as frame]))
+  (:require [re-frame.frame :as rf.frame]))
 
 (defonce ^:private !generation (volatile! 0))
 (defonce ^:private !registry-epoch (volatile! 0))
@@ -69,7 +69,7 @@
   `:node-key` axis, not this number's. Full argument:
   docs/design/hicasso/architecture.md, section The collector."
   [frame-kw]
-  (+ @!generation (frame/frame-commit-epoch frame-kw) @!registry-epoch))
+  (+ @!generation (rf.frame/frame-commit-epoch frame-kw) @!registry-epoch))
 
 (defn reset-basis!
   "Zero both terms this namespace owns: the teardown half of the

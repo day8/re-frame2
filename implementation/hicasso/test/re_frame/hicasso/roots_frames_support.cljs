@@ -69,12 +69,12 @@
   `re-frame.hicasso.frame-doors-dom-cljs-test`, a file in this package."
   (:require [cljs.test :refer-macros [is]]
             [clojure.string :as str]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.frames :as frames]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.hicasso.impl.roots :as roots]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.trace.tooling :as trace-tooling]))
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.frames :as rf.hicasso.impl.frames]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.hicasso.impl.roots :as rf.hicasso.impl.roots]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; ---------------------------------------------------------------------------
 ;; Lane
@@ -190,7 +190,7 @@
   produce ONE key — and would still render two visually plausible
   subtrees, which is exactly why the DOM is not where this is read."
   []
-  (set (keys @collector/!cells)))
+  (set (keys @rf.hicasso.impl.collector/!cells)))
 
 (defn cell-frames
   "The frames the live cell table mentions, as a set."
@@ -205,7 +205,7 @@
   one key, and `(+ 1 1)` and `2` are different numbers on different
   keys."
   [sub-key]
-  (count (runtime/cell-readers sub-key)))
+  (count (rf.hicasso.test.runtime/cell-readers sub-key)))
 
 (defn frame-memo-frames
   "The frames the arm's frame memo holds a row for.
@@ -225,14 +225,14 @@
   incarnations — and which is why a render, not a dispatch, is now what
   fills this. `test.runtime/stats`'s `:frames` counts the same rows."
   []
-  (set (keys @frames/!frame-ops)))
+  (set (keys @rf.hicasso.impl.frames/!frame-ops)))
 
 (defn frame-memo-row
   "The arm's memo row for `frame-kw`, or nil — `{:incarnation :ops
   :dispatch}`. Read by IDENTITY, never by value: what a witness wants to
   know is whether this is the same row it saw before."
   [frame-kw]
-  (get @frames/!frame-ops frame-kw))
+  (get @rf.hicasso.impl.frames/!frame-ops frame-kw))
 
 (defn body-runs-delta!
   "Run `f`, answer how many boundary bodies ran while it did.
@@ -241,9 +241,9 @@
   a reading of everything since the page loaded — the counter is monotone
   by design and `reset-runtime!` deliberately leaves it alone."
   [f]
-  (runtime/reset-body-runs!)
+  (rf.hicasso.test.runtime/reset-body-runs!)
   (f)
-  (runtime/body-runs))
+  (rf.hicasso.test.runtime/body-runs))
 
 ;; ---------------------------------------------------------------------------
 ;; Teardown census — read BETWEEN the unmount and the reset
@@ -261,7 +261,7 @@
   asserting them here would be asserting a schedule rather than a
   release — [[quiesced!]] is where those two become readable."
   []
-  (select-keys (runtime/residue) [:cell-refs :boundaries :edges]))
+  (select-keys (rf.hicasso.test.runtime/residue) [:cell-refs :boundaries :edges]))
 
 (defn teardown-census!
   "Unmount `handle`, read the census, and only THEN finish the release.
@@ -277,9 +277,9 @@
   reset the runtime, drop the container — without unmounting a root that
   is already gone."
   [handle]
-  (mount/unmount! handle)
+  (rf.hicasso.impl.mount/unmount! handle)
   (let [c (census)]
-    (mount/release! (assoc handle :root nil))
+    (rf.hicasso.impl.mount/release! (assoc handle :root nil))
     c))
 
 (defn quiesced!
@@ -287,7 +287,7 @@
   has run. `test.runtime/quiesced!`, re-exported so a suite settles
   against the runtime's horizon rather than against a copy of it."
   []
-  (runtime/quiesced!))
+  (rf.hicasso.test.runtime/quiesced!))
 
 ;; ---------------------------------------------------------------------------
 ;; Server bytes, and the node identity that survives them
@@ -314,17 +314,17 @@
   trees rendered through this fn carry none — see
   [[settled-server-html!]] for the ones that do."
   [frame-kw hiccup]
-  (let [container (mount/fresh-container!)
-        handle    (mount/root! container frame-kw hiccup)
+  (let [container (rf.hicasso.impl.mount/fresh-container!)
+        handle    (rf.hicasso.impl.mount/root! container frame-kw hiccup)
         html      (.-innerHTML container)]
-    (mount/release! handle)
+    (rf.hicasso.impl.mount/release! handle)
     html))
 
 (defn server-dom!
   "A container carrying `html`, attached to the document — the page as it
   arrives, before any JavaScript has adopted it."
   [html]
-  (let [container (mount/fresh-container!)]
+  (let [container (rf.hicasso.impl.mount/fresh-container!)]
     (set! (.-innerHTML container) html)
     container))
 
@@ -385,7 +385,7 @@
              window   (:adoption handle)]
          (letfn [(tick []
                    (cond
-                     (not (roots/adopting? window))
+                     (not (rf.hicasso.impl.roots/adopting? window))
                      ;; Past the closer AND past the entry reap horizon,
                      ;; so a reading of the entry cache is taken on the
                      ;; far side of the race.
@@ -453,14 +453,14 @@
   by PLAYING its transition, which is precisely the thing the hydrated
   root must not do."
   [frame-kw hiccup settled?]
-  (let [container (mount/fresh-container!)
-        handle    (mount/root! container frame-kw hiccup)]
+  (let [container (rf.hicasso.impl.mount/fresh-container!)
+        handle    (rf.hicasso.impl.mount/root! container frame-kw hiccup)]
     (-> (wait-until! (fn [] (settled? container)))
         (.then (fn [ok]
                  (is (true? ok)
                      "premise: the server tree settled before its bytes were read")
                  (let [html (.-innerHTML container)]
-                   (mount/release! handle)
+                   (rf.hicasso.impl.mount/release! handle)
                    html))))))
 
 ;; ---------------------------------------------------------------------------
@@ -528,10 +528,10 @@
   []
   (let [seen (atom [])
         k    (keyword (str "rf2-hic-012-" (gensym)))]
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       k (fn [ev] (when (= :rf.ssr/hydration-mismatch (:operation ev))
                    (swap! seen conj ev))))
-    {:seen seen :stop! (fn [] (trace-tooling/unregister-listener! k) @seen)}))
+    {:seen seen :stop! (fn [] (rf.trace.tooling/unregister-listener! k) @seen)}))
 
 (defn tags-of
   "A diagnostic's tags merged with its top level, so a read is robust to
@@ -619,17 +619,17 @@
   which is the pre-fix behaviour exactly."
   [f]
   (let [page-window   #js {"open" false}
-        mint-original roots/open-adoption-window!
-        here-original roots/adopting-here?]
-    (set! roots/open-adoption-window!
+        mint-original rf.hicasso.impl.roots/open-adoption-window!
+        here-original rf.hicasso.impl.roots/adopting-here?]
+    (set! rf.hicasso.impl.roots/open-adoption-window!
           (fn [] (set! (.-open page-window) true) page-window))
-    (set! roots/adopting-here?
+    (set! rf.hicasso.impl.roots/adopting-here?
           (fn []
             ;; Let-bound, never inlined into the `or`: short-circuiting
             ;; past it would skip the hook, which is the whole hazard.
             (let [in-this-roots-own-window? (here-original)]
-              (or (roots/adopting? page-window) in-this-roots-own-window?))))
+              (or (rf.hicasso.impl.roots/adopting? page-window) in-this-roots-own-window?))))
     (try (f page-window)
          (finally
-           (set! roots/open-adoption-window! mint-original)
-           (set! roots/adopting-here? here-original)))))
+           (set! rf.hicasso.impl.roots/open-adoption-window! mint-original)
+           (set! rf.hicasso.impl.roots/adopting-here? here-original)))))

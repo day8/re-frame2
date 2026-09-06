@@ -9,7 +9,7 @@
   same closures is the arms' witness (validation.md's 100-cell grid), not
   this file's."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.hicasso.impl.intent :as intent]))
+            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]))
 
 ;; ---------------------------------------------------------------------------
 ;; A recording dispatch, and stand-in events
@@ -36,7 +36,7 @@
   below exercises a callback the browser invokes after the render's
   dynamic extent has unwound."
   [dispatch k v]
-  (intent/with-frame dispatch (fn [] (intent/lower-prop k v))))
+  (rf.hicasso.impl.intent/with-frame dispatch (fn [] (rf.hicasso.impl.intent/lower-prop k v))))
 
 ;; ---------------------------------------------------------------------------
 ;; Event vectors
@@ -67,17 +67,17 @@
             calls it long after the render unwound"
     (let [!seen (recorder)
           h     (lowered (dispatching !seen) :on-click [:ping])]
-      (is (nil? intent/*dispatch*))
+      (is (nil? rf.hicasso.impl.intent/*dispatch*))
       (h (ev {}))
       (is (= [[:ping]] @!seen)))))
 
 (deftest an-intent-lowered-outside-a-boundary-is-a-loud-error
-  (is (nil? intent/*dispatch*))
+  (is (nil? rf.hicasso.impl.intent/*dispatch*))
   (is (thrown-with-msg? js/Error #"no ambient frame"
-                        (intent/lower-prop :on-click [:ping])))
+                        (rf.hicasso.impl.intent/lower-prop :on-click [:ping])))
   (testing "the error carries its id"
     (try
-      (intent/lower-prop :on-click [:ping])
+      (rf.hicasso.impl.intent/lower-prop :on-click [:ping])
       (is false "should have thrown")
       (catch :default e
         (is (= :rf.error/hicasso-intent-outside-boundary (:rf.error/id (ex-data e))))))))
@@ -95,13 +95,13 @@
       (is (nil? (lowered d :on-click nil))))))
 
 (deftest both-event-prop-spellings-are-recognised-and-nothing-else-is
-  (is (true? (intent/event-prop? :on-click)))
-  (is (true? (intent/event-prop? :on-key-down)))
-  (is (true? (intent/event-prop? :onClick)))
-  (is (false? (intent/event-prop? :online)) "a kebab-less word starting with `on`")
-  (is (false? (intent/event-prop? :class)))
-  (is (false? (intent/event-prop? :data-on-click)))
-  (is (false? (intent/event-prop? nil))))
+  (is (true? (rf.hicasso.impl.intent/event-prop? :on-click)))
+  (is (true? (rf.hicasso.impl.intent/event-prop? :on-key-down)))
+  (is (true? (rf.hicasso.impl.intent/event-prop? :onClick)))
+  (is (false? (rf.hicasso.impl.intent/event-prop? :online)) "a kebab-less word starting with `on`")
+  (is (false? (rf.hicasso.impl.intent/event-prop? :class)))
+  (is (false? (rf.hicasso.impl.intent/event-prop? :data-on-click)))
+  (is (false? (rf.hicasso.impl.intent/event-prop? nil))))
 
 ;; ---------------------------------------------------------------------------
 ;; The value placeholder and the one pure materializer
@@ -128,18 +128,18 @@
   (testing "several markers in one intent all materialize"
     (let [e (ev {:value "v" :checked true})]
       (is (= [:e "v" true :tail]
-             (intent/materialize [:e :re-frame.hicasso/value :re-frame.hicasso/checked :tail] e)))))
+             (rf.hicasso.impl.intent/materialize [:e :re-frame.hicasso/value :re-frame.hicasso/checked :tail] e)))))
   (testing "an intent with no marker comes back with the same elements"
     (let [e (ev {:value "v"})]
-      (is (= [:e 1 "two"] (intent/materialize [:e 1 "two"] e)))))
+      (is (= [:e 1 "two"] (rf.hicasso.impl.intent/materialize [:e 1 "two"] e)))))
   (testing "markers are substituted at the top level only — the documented shape"
     (let [e (ev {:value "v"})]
       (is (= [:e {:v :re-frame.hicasso/value}]
-             (intent/materialize [:e {:v :re-frame.hicasso/value}] e)))))
+             (rf.hicasso.impl.intent/materialize [:e {:v :re-frame.hicasso/value}] e)))))
   (testing "the static/dynamic split is decidable before any event exists"
-    (is (true? (intent/markers? [:e :re-frame.hicasso/value])))
-    (is (true? (intent/markers? [:e :re-frame.hicasso/checked])))
-    (is (false? (intent/markers? [:e 1 "two"])))))
+    (is (true? (rf.hicasso.impl.intent/markers? [:e :re-frame.hicasso/value])))
+    (is (true? (rf.hicasso.impl.intent/markers? [:e :re-frame.hicasso/checked])))
+    (is (false? (rf.hicasso.impl.intent/markers? [:e 1 "two"])))))
 
 ;; ---------------------------------------------------------------------------
 ;; Submit auto-prevent, and the one reserved head that opts in elsewhere
@@ -239,9 +239,9 @@
           "and the difference is exactly the decorator, nothing else")))
   (testing "the predicate the classification uses is public, so a test can ask
             the same question the lowering asks"
-    (is (true? (intent/prevent-head? [:re-frame.hicasso/prevent [:x]])))
-    (is (false? (intent/prevent-head? [:conduit/show-your-feed])))
-    (is (false? (intent/prevent-head?
+    (is (true? (rf.hicasso.impl.intent/prevent-head? [:re-frame.hicasso/prevent [:x]])))
+    (is (false? (rf.hicasso.impl.intent/prevent-head? [:conduit/show-your-feed])))
+    (is (false? (rf.hicasso.impl.intent/prevent-head?
                   (with-meta [:conduit/show-your-feed]
                              {:re-frame.hicasso/prevent? true})))
         "the retired metadata is no longer a spelling of anything")))
@@ -297,8 +297,8 @@
     (testing "the refusal is taken at LOWERING time — before any event exists,
               so a malformed decorator cannot reach a user's click"
       (is (thrown? js/Error
-                   (intent/with-frame d
-                     (fn [] (intent/lower-props
+                   (rf.hicasso.impl.intent/with-frame d
+                     (fn [] (rf.hicasso.impl.intent/lower-props
                               {:on-click [:re-frame.hicasso/prevent :nope]}))))))
     (testing "and only at an event position: an intent travelling as data is
               not lowered, so it is not classified either"
@@ -389,10 +389,10 @@
       (is (true? @!called)))))
 
 (deftest the-composition-predicate-reads-both-signals
-  (is (true? (intent/composing? (ev {:composing? true}))))
-  (is (true? (intent/composing? (ev {:key-code 229}))))
-  (is (false? (intent/composing? (ev {:key-code 13}))))
-  (is (false? (intent/composing? (ev {})))))
+  (is (true? (rf.hicasso.impl.intent/composing? (ev {:composing? true}))))
+  (is (true? (rf.hicasso.impl.intent/composing? (ev {:key-code 229}))))
+  (is (false? (rf.hicasso.impl.intent/composing? (ev {:key-code 13}))))
+  (is (false? (rf.hicasso.impl.intent/composing? (ev {})))))
 
 ;; ---------------------------------------------------------------------------
 ;; The whole-map door
@@ -402,11 +402,11 @@
   (let [!seen (recorder)]
     (testing "a props map with nothing to lower comes back by identity"
       (let [props {:class "row" :data-index 3 :on-click (fn [_])}]
-        (is (identical? props (intent/with-frame (dispatching !seen)
-                                                 (fn [] (intent/lower-props props)))))))
+        (is (identical? props (rf.hicasso.impl.intent/with-frame (dispatching !seen)
+                                                 (fn [] (rf.hicasso.impl.intent/lower-props props)))))))
     (testing "a props map with an intent comes back lowered, everything else intact"
       (let [props    {:class "row" :data-index 3 :on-click [:touch 3]}
-            lowered' (intent/with-frame (dispatching !seen) (fn [] (intent/lower-props props)))]
+            lowered' (rf.hicasso.impl.intent/with-frame (dispatching !seen) (fn [] (rf.hicasso.impl.intent/lower-props props)))]
         (is (= "row" (:class lowered')))
         (is (= 3 (:data-index lowered')))
         (is (fn? (:on-click lowered')))
@@ -427,19 +427,19 @@
             gets the engine's own TypeError naming nothing they wrote. There
             is nothing here that can fail to be callable."
     (let [f  (fn [_] :ran)
-          cb (intent/callback f)]
+          cb (rf.hicasso.impl.intent/callback f)]
       (is (identical? f cb) "`callback` marks and returns the SAME function")
       (is (fn? cb))
-      (is (true? (intent/callback? cb)))
-      (is (false? (intent/callback? (fn [_]))) "an ordinary fn is not the form")
-      (is (false? (intent/callback? [:an :intent])))
-      (is (false? (intent/callback? "on-click"))))))
+      (is (true? (rf.hicasso.impl.intent/callback? cb)))
+      (is (false? (rf.hicasso.impl.intent/callback? (fn [_]))) "an ordinary fn is not the form")
+      (is (false? (rf.hicasso.impl.intent/callback? [:an :intent])))
+      (is (false? (rf.hicasso.impl.intent/callback? "on-click"))))))
 
 (deftest at-an-event-position-a-returned-vector-is-dispatched
   (testing "the contract the predecessor spells `v/event`"
     (let [!seen (recorder)
           h     (lowered (dispatching !seen) :on-change
-                         (intent/callback (fn [e] [:files/picked (.. e -target -value)])))]
+                         (rf.hicasso.impl.intent/callback (fn [e] [:files/picked (.. e -target -value)])))]
       (h (ev {:value "a.png"}))
       (is (= [[:files/picked "a.png"]] @!seen))))
   (testing "and a return that is not a vector is ignored — which is the
@@ -447,7 +447,7 @@
     (let [!seen (recorder)
           !ran  (atom 0)
           h     (lowered (dispatching !seen) :on-click
-                         (intent/callback (fn [_] (swap! !ran inc) :not-an-intent)))]
+                         (rf.hicasso.impl.intent/callback (fn [_] (swap! !ran inc) :not-an-intent)))]
       (h (ev {}))
       (is (= 1 @!ran) "the body ran")
       (is (= [] @!seen) "and nothing was dispatched")))
@@ -455,7 +455,7 @@
             an ordinary conditional returning nil"
     (let [!seen (recorder)
           h     (lowered (dispatching !seen) :on-click
-                         (intent/callback (fn [_] nil)))]
+                         (rf.hicasso.impl.intent/callback (fn [_] nil)))]
       (h (ev {}))
       (is (= [] @!seen)))))
 
@@ -477,7 +477,7 @@
         (reset! !seen [])
         (let [prevented (atom false)
               h (lowered (dispatching !seen) :on-submit
-                         (intent/callback (fn [_] [:signup/submit])))]
+                         (rf.hicasso.impl.intent/callback (fn [_] [:signup/submit])))]
           (h (ev {:prevented prevented}))
           (is (false? @prevented) "the runtime left the event alone")
           (is (= [[:signup/submit]] @!seen)))))))
@@ -489,7 +489,7 @@
             of the value cannot select the contract and the position must."
     (let [!seen (recorder)
           h     (lowered (dispatching !seen) :row-renderer
-                         (intent/callback (fn [row] [:li (:title row)])))]
+                         (rf.hicasso.impl.intent/callback (fn [row] [:li (:title row)])))]
       (is (= [:li "milk"] (h {:title "milk"}))
           "the hiccup came back to the caller and was NOT dispatched")
       (is (= [] @!seen)))))
@@ -506,22 +506,22 @@
           !row      (atom nil)
           !cb       (atom nil)
           !frame    (atom ::unread)
-          h (intent/with-frame ::supplier (dispatching !supplier)
-              (fn [] (intent/lower-prop
+          h (rf.hicasso.impl.intent/with-frame ::supplier (dispatching !supplier)
+              (fn [] (rf.hicasso.impl.intent/lower-prop
                        :row-renderer
-                       (intent/callback
+                       (rf.hicasso.impl.intent/callback
                          (fn [title]
-                           (reset! !frame intent/*frame*)
-                           (reset! !row (intent/lower-prop :on-click [:row/pick title]))
-                           (reset! !cb  (intent/lower-prop
+                           (reset! !frame rf.hicasso.impl.intent/*frame*)
+                           (reset! !row (rf.hicasso.impl.intent/lower-prop :on-click [:row/pick title]))
+                           (reset! !cb  (rf.hicasso.impl.intent/lower-prop
                                           :on-change
-                                          (intent/callback (fn [_] [:row/changed title]))))
+                                          (rf.hicasso.impl.intent/callback (fn [_] [:row/changed title]))))
                            [:li title])))))]
       (testing "the invocation runs under a DIFFERENT boundary — what a foreign
                 component nested below another one does — so neither claim
                 below can pass by accident"
         (is (= [:li "milk"]
-               (intent/with-frame ::other (dispatching !other)
+               (rf.hicasso.impl.intent/with-frame ::other (dispatching !other)
                  (fn [] (h "milk"))))
             "the return is still the render output")
         (is (= ::supplier @!frame)
@@ -530,7 +530,7 @@
         (is (= [] @!supplier) "the render itself dispatched nothing")
         (is (= [] @!other)))
       (testing "and then the browser's click, long after both extents unwound"
-        (is (nil? intent/*dispatch*))
+        (is (nil? rf.hicasso.impl.intent/*dispatch*))
         (@!row (ev {}))
         (@!cb (ev {}))
         (is (= [[:row/pick "milk"] [:row/changed "milk"]] @!supplier)
@@ -546,11 +546,11 @@
             a handler lowered inside it raises the ordinary outside-boundary
             error at lowering — the silently inert handler is the one outcome
             that is never available."
-    (is (nil? intent/*dispatch*))
-    (let [h (intent/lower-prop
+    (is (nil? rf.hicasso.impl.intent/*dispatch*))
+    (let [h (rf.hicasso.impl.intent/lower-prop
               :row-renderer
-              (intent/callback (fn [_]
-                                 (intent/lower-prop :on-click [:oops])
+              (rf.hicasso.impl.intent/callback (fn [_]
+                                 (rf.hicasso.impl.intent/lower-prop :on-click [:oops])
                                  [:li])))]
       (try
         (h {})
@@ -566,11 +566,11 @@
             prop with `:event` or `:render` — the same two wrappers — where
             a vendor's spelling infers the wrong one."
     (let [!seen (recorder)
-          cb    (intent/callback (fn [x] [:host/changed x]))]
+          cb    (rf.hicasso.impl.intent/callback (fn [x] [:host/changed x]))]
       (testing ":event dispatches the return even though :onValueChange is
                 not a position the attribute grammar would call an event"
-        (let [h (intent/with-frame (dispatching !seen)
-                                   (fn [] (intent/lower-declared-prop :onValueChange cb :event)))]
+        (let [h (rf.hicasso.impl.intent/with-frame (dispatching !seen)
+                                   (fn [] (rf.hicasso.impl.intent/lower-declared-prop :onValueChange cb :event)))]
           (h 7)
           (is (= [[:host/changed 7]] @!seen))))
       (testing "and it forwards EVERY argument the invoker passes. A native
@@ -582,9 +582,9 @@
                 silently drop everything after the first, or raise an arity
                 error naming nothing the author wrote."
         (reset! !seen [])
-        (let [pair (intent/callback (fn [value e] [:host/changed value (.-key e)]))
-              h    (intent/with-frame (dispatching !seen)
-                                      (fn [] (intent/lower-declared-prop :onValueChange pair :event)))]
+        (let [pair (rf.hicasso.impl.intent/callback (fn [value e] [:host/changed value (.-key e)]))
+              h    (rf.hicasso.impl.intent/with-frame (dispatching !seen)
+                                      (fn [] (rf.hicasso.impl.intent/lower-declared-prop :onValueChange pair :event)))]
           (h "typed" (ev {:key "Enter"}))
           (is (= [[:host/changed "typed" "Enter"]] @!seen))))
       (testing ":render at an on*-spelled prop is the override's whole
@@ -592,8 +592,8 @@
                 output, where the spelling would have selected the event
                 wrapper and returned nil"
         (reset! !seen [])
-        (let [h (intent/with-frame (dispatching !seen)
-                                   (fn [] (intent/lower-declared-prop :onRenderItem cb :render)))]
+        (let [h (rf.hicasso.impl.intent/with-frame (dispatching !seen)
+                                   (fn [] (rf.hicasso.impl.intent/lower-declared-prop :onRenderItem cb :render)))]
           (is (= [:host/changed 7] (h 7)) "the caller sees the return")
           (is (= [] @!seen) "and nothing was dispatched"))))))
 
@@ -604,14 +604,14 @@
             conveniences at :event only, because dispatching is exactly
             what that contract MEANS"
     (let [!seen (recorder)]
-      (let [h (intent/with-frame (dispatching !seen)
-                                 (fn [] (intent/lower-declared-prop
+      (let [h (rf.hicasso.impl.intent/with-frame (dispatching !seen)
+                                 (fn [] (rf.hicasso.impl.intent/lower-declared-prop
                                           :onValueChange [:host/changed 1] :event)))]
         (h (ev {}))
         (is (= [[:host/changed 1]] @!seen)))
       (reset! !seen [])
-      (let [h (intent/with-frame (dispatching !seen)
-                                 (fn [] (intent/lower-declared-prop
+      (let [h (rf.hicasso.impl.intent/with-frame (dispatching !seen)
+                                 (fn [] (rf.hicasso.impl.intent/lower-declared-prop
                                           :onValueChange {"Enter" [:host/changed 2]} :event)))]
         (h (ev {:key "Enter"}))
         (is (= [[:host/changed 2]] @!seen)))
@@ -619,13 +619,13 @@
                 untouched, to cross as DATA through the shallow conversion
                 exactly as it would at a native tag's render position"
         (doseq [carrier [[:host/changed 3] {"Enter" [:host/changed 3]}]]
-          (is (identical? carrier (intent/lower-declared-prop :onRenderRow carrier :render)))))
+          (is (identical? carrier (rf.hicasso.impl.intent/lower-declared-prop :onRenderRow carrier :render)))))
       (testing "an ordinary unmarked function crosses untouched at both — a
                 plain fn is claimed by no position, which is what the retired
                 :handler contract named"
         (let [f (fn [_] :whatever)]
           (doseq [contract [:event :render]]
-            (is (identical? f (intent/lower-declared-prop :onValueChange f contract))
+            (is (identical? f (rf.hicasso.impl.intent/lower-declared-prop :onValueChange f contract))
                 (str "at " contract))))))))
 
 ;; ---------------------------------------------------------------------------
@@ -644,7 +644,7 @@
   (let [d (dispatching (recorder))]
     (testing "`::h/prevent` needs `preventDefault`, and says so when argument
               one has none"
-      (let [h (intent/with-frame d (fn [] (intent/lower-prop
+      (let [h (rf.hicasso.impl.intent/with-frame d (fn [] (rf.hicasso.impl.intent/lower-prop
                                             :on-pick [:re-frame.hicasso/prevent [:go]])))]
         (try
           (h "a-value")
@@ -659,11 +659,11 @@
               (is (re-find #"h/event" (ex-message e)) "and the spelling that works"))))))
     (testing "`:on-submit`'s auto-prevent is the same law, reached by the
               policy default rather than by the head"
-      (let [h (intent/with-frame d (fn [] (intent/lower-prop :on-submit [:go])))]
+      (let [h (rf.hicasso.impl.intent/with-frame d (fn [] (rf.hicasso.impl.intent/lower-prop :on-submit [:go])))]
         (is (= :rf.error/hicasso-intent-needs-the-event
                (try (h "a-value") ::no (catch :default e (:rf.error/id (ex-data e))))))))
     (testing "the markers need `target`, and the diagnostic says which"
-      (let [h (intent/with-frame d (fn [] (intent/lower-prop
+      (let [h (rf.hicasso.impl.intent/with-frame d (fn [] (rf.hicasso.impl.intent/lower-prop
                                             :on-pick [:set :re-frame.hicasso/value])))]
         (try
           (h 7)
@@ -672,21 +672,21 @@
             (is (= "target" (:needed (ex-data e))))))))
     (testing "a key-map needs `key` — and it is the sharpest of the three,
               because without the law it looks nothing up and does NOTHING"
-      (let [h (intent/with-frame d (fn [] (intent/lower-prop
+      (let [h (rf.hicasso.impl.intent/with-frame d (fn [] (rf.hicasso.impl.intent/lower-prop
                                             :on-pick {"Enter" [:go]})))]
         (is (= :rf.error/hicasso-intent-needs-the-event
                (try (h 7) ::no (catch :default e (:rf.error/id (ex-data e))))))))
     (testing "nil is refused the same way rather than raising the engine's own
               null dereference"
-      (let [h (intent/with-frame d (fn [] (intent/lower-prop :on-submit [:go])))]
+      (let [h (rf.hicasso.impl.intent/with-frame d (fn [] (rf.hicasso.impl.intent/lower-prop :on-submit [:go])))]
         (is (= :rf.error/hicasso-intent-needs-the-event
                (try (h nil) ::no (catch :default e (:rf.error/id (ex-data e))))))))
     (testing "while an intent with NEITHER a marker nor a prevent never reads
               its argument at all, so it costs no law and is correct under any
               invoker contract — the overwhelmingly common case"
       (let [!seen (recorder)
-            h     (intent/with-frame (dispatching !seen)
-                                     (fn [] (intent/lower-prop :on-pick [:go 1])))]
+            h     (rf.hicasso.impl.intent/with-frame (dispatching !seen)
+                                     (fn [] (rf.hicasso.impl.intent/lower-prop :on-pick [:go 1])))]
         (h "a-value")
         (h nil)
         (is (= [[:go 1] [:go 1]] @!seen))))))
@@ -699,7 +699,7 @@
             never anything but a function, so the position not being walked
             costs the contract and nothing else."
     (let [!ran     (atom 0)
-          cb       (intent/callback (fn [x] (swap! !ran inc) [:would-have-dispatched x]))
+          cb       (rf.hicasso.impl.intent/callback (fn [x] (swap! !ran inc) [:would-have-dispatched x]))
           js-props #js {:onPing cb}]
       (is (fn? (.-onPing js-props)))
       (is (= [:would-have-dispatched 3] ((.-onPing js-props) 3))
@@ -712,7 +712,7 @@
   (testing "the form is legal with no frame — a callback that never returns
             an intent has nothing to dispatch. Returning one there is the
             loud error, and it names the position rather than the form."
-    (let [h (intent/lower-prop :on-click (intent/callback (fn [_] [:too/late])))]
+    (let [h (rf.hicasso.impl.intent/lower-prop :on-click (rf.hicasso.impl.intent/callback (fn [_] [:too/late])))]
       (try
         (h (ev {}))
         (is false "should have thrown")
@@ -721,7 +721,7 @@
           (is (= :on-click (:position (ex-data e)))))))
     (testing "while the same callback returning nothing is fine"
       (let [!ran (atom 0)
-            h    (intent/lower-prop :on-click (intent/callback (fn [_] (swap! !ran inc) nil)))]
+            h    (rf.hicasso.impl.intent/lower-prop :on-click (rf.hicasso.impl.intent/callback (fn [_] (swap! !ran inc) nil)))]
         (h (ev {}))
         (is (= 1 @!ran))))))
 
@@ -731,12 +731,12 @@
             COMMIT phase with the node, and its return is the detach
             cleanup. Wrapping it would forbid a legitimate dispatch there and
             would change the identity React re-attaches on."
-    (is (= :ref (intent/position-contract :ref)))
-    (is (= :event (intent/position-contract :on-click)))
-    (is (= :render (intent/position-contract :row-renderer)))
-    (let [cb (intent/callback (fn [_node] :cleanup))]
-      (is (identical? cb (intent/lower-prop :ref cb)))
-      (is (identical? cb (intent/lower-prop "ref" cb))))))
+    (is (= :ref (rf.hicasso.impl.intent/position-contract :ref)))
+    (is (= :event (rf.hicasso.impl.intent/position-contract :on-click)))
+    (is (= :render (rf.hicasso.impl.intent/position-contract :row-renderer)))
+    (let [cb (rf.hicasso.impl.intent/callback (fn [_node] :cleanup))]
+      (is (identical? cb (rf.hicasso.impl.intent/lower-prop :ref cb)))
+      (is (identical? cb (rf.hicasso.impl.intent/lower-prop "ref" cb))))))
 
 (deftest an-ordinary-function-is-untouched-everywhere
   (testing "`raw-fn`'s identity passthrough is not v0 because it is already
@@ -745,6 +745,6 @@
             and every downstream bail-out that compares handler identity keep
             working. One fewer form for nothing given up."
     (let [f (fn [_] :whatever)]
-      (is (identical? f (intent/lower-prop :on-click f)))
-      (is (identical? f (intent/lower-prop :row-renderer f)))
-      (is (identical? f (intent/lower-prop :ref f))))))
+      (is (identical? f (rf.hicasso.impl.intent/lower-prop :on-click f)))
+      (is (identical? f (rf.hicasso.impl.intent/lower-prop :row-renderer f)))
+      (is (identical? f (rf.hicasso.impl.intent/lower-prop :ref f))))))

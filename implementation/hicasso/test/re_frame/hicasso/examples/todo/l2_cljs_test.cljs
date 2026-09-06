@@ -24,46 +24,46 @@
   — and the row's own contents are asserted by running the row's own
   body."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.hicasso.examples.todo.db :as db]
-            [re-frame.hicasso.examples.todo.events :as events]
-            [re-frame.hicasso.examples.todo.routes :as routes]
-            [re-frame.hicasso.examples.todo.subs :as subs]
-            [re-frame.hicasso.examples.todo.views :as views]
-            [re-frame.hicasso.impl.intent :as intent]
-            [re-frame.hicasso.test :as ht]
-            [re-frame.test-support :as test-support]))
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.hicasso.examples.todo.db :as rf.hicasso.examples.todo.db]
+            [re-frame.hicasso.examples.todo.events :as rf.hicasso.examples.todo.events]
+            [re-frame.hicasso.examples.todo.routes :as rf.hicasso.examples.todo.routes]
+            [re-frame.hicasso.examples.todo.subs :as rf.hicasso.examples.todo.subs]
+            [re-frame.hicasso.examples.todo.views :as rf.hicasso.examples.todo.views]
+            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]
+            [re-frame.hicasso.test :as rf.hicasso.test]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       routes/register!}))
+     :init-fn       rf.hicasso.examples.todo.routes/register!}))
 
-(defn- tagged [tree tag] (ht/find tree #(= tag (:tag %))))
+(defn- tagged [tree tag] (rf.hicasso.test/find tree #(= tag (:tag %))))
 
 (defn- classed
   "The first node carrying exactly `class` — the same hook the mounted
   suite selects on, so the two tiers talk about the same parts of the
   page."
   [tree class]
-  (ht/find tree #(= class (:class (ht/attrs %)))))
+  (rf.hicasso.test/find tree #(= class (:class (rf.hicasso.test/attrs %)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The header — a form, and the whole of "Enter adds a to-do"
 ;; ---------------------------------------------------------------------------
 
 (deftest the-new-todo-box-commits-through-the-form
-  (let [tree  (ht/tree [views/new-todo-box {}] {:subs {[::subs/new-todo] "eg"}})
+  (let [tree  (rf.hicasso.test/tree [rf.hicasso.examples.todo.views/new-todo-box {}] {:subs {[::rf.hicasso.examples.todo.subs/new-todo] "eg"}})
         form  (tagged tree :form)
         field (tagged tree :input)]
-    (is (= [::events/add] (:on-submit (ht/attrs form)))
+    (is (= [::rf.hicasso.examples.todo.events/add] (:on-submit (rf.hicasso.test/attrs form)))
         "Enter in a text field submits its form, and :on-submit
          AUTO-PREVENTS — so there is no key test and no .preventDefault
          anywhere in this application's header")
-    (is (= "eg" (:value (ht/attrs field)))
+    (is (= "eg" (:value (rf.hicasso.test/attrs field)))
         "controlled: the text is the subscription's, not the element's")
-    (is (= [::events/typed :re-frame.hicasso/value] (:on-input (ht/attrs field)))
+    (is (= [::rf.hicasso.examples.todo.events/typed :re-frame.hicasso/value] (:on-input (rf.hicasso.test/attrs field)))
         "and the write is an intent vector with the marker at its TOP
          LEVEL — the only position the materializer substitutes at")))
 
@@ -74,17 +74,17 @@
 (def ^:private row-props {:id 7 :title "milk" :done? false})
 
 (defn- row-tree [props draft]
-  (ht/tree [views/todo-row props] {:subs {[db/draft (:id props)] draft}}))
+  (rf.hicasso.test/tree [rf.hicasso.examples.todo.views/todo-row props] {:subs {[rf.hicasso.examples.todo.db/draft (:id props)] draft}}))
 
 (deftest a-row-carries-its-three-intents-and-no-editor
   (let [tree (row-tree row-props nil)]
-    (is (= "milk" (ht/text (classed tree "todo-title"))))
-    (is (= [::events/toggle 7 :re-frame.hicasso/checked]
-           (:on-change (ht/attrs (classed tree "toggle"))))
+    (is (= "milk" (rf.hicasso.test/text (classed tree "todo-title"))))
+    (is (= [::rf.hicasso.examples.todo.events/toggle 7 :re-frame.hicasso/checked]
+           (:on-change (rf.hicasso.test/attrs (classed tree "toggle"))))
         "::h/checked hands the handler what the box IS, so the model and
          the checkbox cannot drift apart through a negation")
-    (is (= [::events/destroy 7] (:on-click (ht/attrs (classed tree "destroy")))))
-    (is (= [db/draft 7 "milk"] (:on-double-click (ht/attrs (classed tree "todo-title"))))
+    (is (= [::rf.hicasso.examples.todo.events/destroy 7] (:on-click (rf.hicasso.test/attrs (classed tree "destroy")))))
+    (is (= [rf.hicasso.examples.todo.db/draft 7 "milk"] (:on-double-click (rf.hicasso.test/attrs (classed tree "todo-title"))))
         "opening the editor and filling it are ONE write — h/reg-state's
          setter, with the row's own id as the instance key")
     (is (nil? (classed tree "edit"))
@@ -95,11 +95,11 @@
   ;; `:class` prop; L2 folds the two, in that order, because the author
   ;; cannot see the sugar otherwise. Everything after the first name is
   ;; this body's.
-  (is (= "todo-row" (:class (ht/attrs (row-tree row-props nil)))))
+  (is (= "todo-row" (:class (rf.hicasso.test/attrs (row-tree row-props nil)))))
   (is (= "todo-row completed"
-         (:class (ht/attrs (row-tree (assoc row-props :done? true) nil)))))
+         (:class (rf.hicasso.test/attrs (row-tree (assoc row-props :done? true) nil)))))
   (is (= "todo-row completed editing"
-         (:class (ht/attrs (row-tree (assoc row-props :done? true) "milk"))))
+         (:class (rf.hicasso.test/attrs (row-tree (assoc row-props :done? true) "milk"))))
       "a completed to-do can still be edited"))
 
 ;; ---------------------------------------------------------------------------
@@ -109,22 +109,22 @@
 (deftest the-editor-is-a-key-map-and-a-stable-ref
   (let [tree  (row-tree row-props "sourdough")
         field (classed tree "edit")
-        attrs (ht/attrs field)]
+        attrs (rf.hicasso.test/attrs field)]
     (is (some? field) "a draft, so the editor is on the page")
     (is (= "sourdough" (:value attrs)))
-    (is (= [db/draft 7 :re-frame.hicasso/value] (:on-input attrs))
+    (is (= [rf.hicasso.examples.todo.db/draft 7 :re-frame.hicasso/value] (:on-input attrs))
         "every keystroke writes h/reg-state's own slot; there is no
          bespoke typing event in this application")
 
     (testing "Enter and Escape are DATA — the map shape at an :on-* prop"
-      (is (= {"Enter"  [::events/commit-edit 7]
-              "Escape" [:re-frame.hicasso/clear db/draft 7]}
+      (is (= {"Enter"  [::rf.hicasso.examples.todo.events/commit-edit 7]
+              "Escape" [:re-frame.hicasso/clear rf.hicasso.examples.todo.db/draft 7]}
              (:on-key-down attrs))
           "one .key lookup per event, composition-gated centrally so an
            IME's Enter commits nothing — and no callback anywhere"))
 
     (testing "blur commits too, and is safe after Escape"
-      (is (= [::events/commit-edit 7] (:on-blur attrs))
+      (is (= [::rf.hicasso.examples.todo.events/commit-edit 7] (:on-blur attrs))
           "the same intent as Enter: the handler reads the draft from
            app-db, so a blur that lands after Escape finds nothing"))
 
@@ -137,19 +137,19 @@
 (deftest the-rows-intent-inventory-includes-both-key-branches
   ;; `ht/intents` unpacks a key-map into its branches, which is the one
   ;; place the tier knows the shape is not an ordinary vector.
-  (let [offered (set (ht/intents (row-tree row-props "sourdough")))]
-    (is (contains? offered [::events/commit-edit 7]))
-    (is (contains? offered [:re-frame.hicasso/clear db/draft 7]))
-    (is (contains? offered [::events/destroy 7]))))
+  (let [offered (set (rf.hicasso.test/intents (row-tree row-props "sourdough")))]
+    (is (contains? offered [::rf.hicasso.examples.todo.events/commit-edit 7]))
+    (is (contains? offered [:re-frame.hicasso/clear rf.hicasso.examples.todo.db/draft 7]))
+    (is (contains? offered [::rf.hicasso.examples.todo.events/destroy 7]))))
 
 ;; ---------------------------------------------------------------------------
 ;; The list — the keyed identity claim, at the tier where the key is data
 ;; ---------------------------------------------------------------------------
 
 (defn- list-tree [visible all-done?]
-  (ht/tree [views/todo-list {}]
-           {:subs {[::subs/visible]   visible
-                   [::subs/all-done?] all-done?}}))
+  (rf.hicasso.test/tree [rf.hicasso.examples.todo.views/todo-list {}]
+           {:subs {[::rf.hicasso.examples.todo.subs/visible]   visible
+                   [::rf.hicasso.examples.todo.subs/all-done?] all-done?}}))
 
 (def ^:private three
   [{:id 1 :title "milk" :done? false}
@@ -179,33 +179,33 @@
 
 (deftest toggle-all-reads-and-writes-the-same-fact
   (let [tree (list-tree three true)
-        box  (ht/attrs (classed tree "toggle-all"))]
+        box  (rf.hicasso.test/attrs (classed tree "toggle-all"))]
     (is (true? (:checked box)))
-    (is (= [::events/toggle-all :re-frame.hicasso/checked] (:on-change box)))))
+    (is (= [::rf.hicasso.examples.todo.events/toggle-all :re-frame.hicasso/checked] (:on-change box)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The footer — three routed tabs, a count, and conditional chrome
 ;; ---------------------------------------------------------------------------
 
 (defn- footer-tree [left done showing]
-  (ht/tree [views/footer {}]
-           {:subs {[::subs/active-count]    left
-                   [::subs/completed-count] done
-                   [::subs/showing]         showing}}))
+  (rf.hicasso.test/tree [rf.hicasso.examples.todo.views/footer {}]
+           {:subs {[::rf.hicasso.examples.todo.subs/active-count]    left
+                   [::rf.hicasso.examples.todo.subs/completed-count] done
+                   [::rf.hicasso.examples.todo.subs/showing]         showing}}))
 
 (deftest the-tabs-are-links-routing-built-and-this-file-names-no-url
   (let [tree (footer-tree 2 1 :active)
-        as   (ht/find-all tree #(= :a (:tag %)))]
+        as   (rf.hicasso.test/find-all tree #(= :a (:tag %)))]
     (is (= ["/hicasso-todo" "/hicasso-todo/active" "/hicasso-todo/completed"]
-           (mapv (comp :href ht/attrs) as))
+           (mapv (comp :href rf.hicasso.test/attrs) as))
         "the href is the routing artefact's own synthesis — `views` names
          no URL anywhere, and every path is under this application's own
          prefix because route paths are a PROCESS-GLOBAL registry")
-    (is (= ["All" "Active" "Completed"] (mapv ht/text as)))
-    (is (= [nil "selected" nil] (mapv (comp :class ht/attrs) as))
+    (is (= ["All" "Active" "Completed"] (mapv rf.hicasso.test/text as)))
+    (is (= [nil "selected" nil] (mapv (comp :class rf.hicasso.test/attrs) as))
         "the highlighted tab is derived from the URL, so it cannot
          disagree with the address bar")
-    (is (every? #(intent/navigate-head? (:on-click (ht/attrs %))) as)
+    (is (every? #(rf.hicasso.impl.intent/navigate-head? (:on-click (rf.hicasso.test/attrs %))) as)
         "the click decision is DATA — a vector headed by the intent
          namespace's own keyword, which `=` can see and which is what
          makes two renders of one link equal")))
@@ -213,24 +213,24 @@
 (deftest the-count-is-pluralised-and-the-clear-button-is-conditional
   (testing "one left"
     (let [tree (footer-tree 1 0 :all)]
-      (is (= "1 item left" (ht/text (classed tree "todo-count"))))
+      (is (= "1 item left" (rf.hicasso.test/text (classed tree "todo-count"))))
       (is (nil? (classed tree "clear-completed"))
           "nothing completed, so there is nothing to clear and no button
            to explain")))
 
   (testing "none left, two done"
     (let [tree (footer-tree 0 2 :all)]
-      (is (= "0 items left" (ht/text (classed tree "todo-count"))))
-      (is (= "Clear completed (2)" (ht/text (classed tree "clear-completed"))))
-      (is (= [::events/clear-completed]
-             (:on-click (ht/attrs (classed tree "clear-completed"))))))))
+      (is (= "0 items left" (rf.hicasso.test/text (classed tree "todo-count"))))
+      (is (= "Clear completed (2)" (rf.hicasso.test/text (classed tree "clear-completed"))))
+      (is (= [::rf.hicasso.examples.todo.events/clear-completed]
+             (:on-click (rf.hicasso.test/attrs (classed tree "clear-completed"))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The page — the conditional chrome
 ;; ---------------------------------------------------------------------------
 
 (deftest an-empty-page-is-the-header-and-nothing-else
-  (let [tree (ht/tree [views/app {}] {:subs {[::subs/any?] false}})
+  (let [tree (rf.hicasso.test/tree [rf.hicasso.examples.todo.views/app {}] {:subs {[::rf.hicasso.examples.todo.subs/any?] false}})
         kids (:children tree)]
     (is (= ["re-frame.hicasso.examples.todo.views/new-todo-box"]
            (into [] (comp (filter :view-id) (map :view-id)) kids))
@@ -238,7 +238,7 @@
          chrome, decided by one boolean read rather than by a count")))
 
 (deftest a-populated-page-carries-the-list-and-the-footer
-  (let [tree  (ht/tree [views/app {}] {:subs {[::subs/any?] true}})
+  (let [tree  (rf.hicasso.test/tree [rf.hicasso.examples.todo.views/app {}] {:subs {[::rf.hicasso.examples.todo.subs/any?] true}})
         views (into [] (comp (filter :view-id) (map :view-id))
                     (tree-seq map? :children tree))]
     (is (= ["re-frame.hicasso.examples.todo.views/new-todo-box"

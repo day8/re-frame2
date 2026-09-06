@@ -33,23 +33,23 @@
             [re-frame.core :as rf]
             ;; Side-effect: publishes the `:epoch/*` late-bind hooks.
             [re-frame.epoch]
-            [re-frame.epoch.listeners :as epoch.listeners]
-            [re-frame.epoch.state :as epoch-state]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support])
+            [re-frame.epoch.listeners :as rf.epoch.listeners]
+            [re-frame.epoch.state :as rf.epoch.state]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support])
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- executor-barrier!
   "Wait until work already submitted through `interop/next-tick` has run."
   []
   (let [latch (CountDownLatch. 1)]
-    (interop/next-tick #(.countDown latch))
+    (rf.interop/next-tick #(.countDown latch))
     (is (.await latch 5 TimeUnit/SECONDS)
         "the executor reached the deterministic barrier")))
 
@@ -75,11 +75,11 @@
         release-a      (CountDownLatch. 1)
         first-epoch?   (atom true)
         silencings     (atom [])
-        original-epoch (late-bind/get-fn :epoch/on-frame-destroyed)]
+        original-epoch (rf.late-bind/get-fn :epoch/on-frame-destroyed)]
     (rf/reg-event :vxgfnd265/claim-idle-settle
       (fn [{:keys [db]} _] {:db (assoc db :a true)}))
     (rf/reg-event :vxgfnd265/claim-idle-destroy
-      (fn [_ _] (frame/destroy-frame! id) {:db {:owner :a-tail}}))
+      (fn [_ _] (rf.frame/destroy-frame! id) {:db {:owner :a-tail}}))
     (rf/make-frame {:id id})
     (rf/register-listener! :epoch cb (fn [_] nil))
     (rf/dispatch-sync [:vxgfnd265/claim-idle-settle] {:frame id})
@@ -88,7 +88,7 @@
         (when (= :rf.epoch.cb/silenced-on-frame-destroy (:operation ev))
           (swap! silencings conj ev))))
     (try
-      (late-bind/set-fn! :epoch/on-frame-destroyed
+      (rf.late-bind/set-fn! :epoch/on-frame-destroyed
         (fn [& args]
           (when (and (= id (first args))
                      (compare-and-set! first-epoch? true false))
@@ -103,8 +103,8 @@
         ;; Same-id B claims the id-keyed stores (models the pre-first-epoch
         ;; render/backfill claim) but never settles → cb never observes B.
         (rf/make-frame {:id id})
-        (epoch-state/claim-frame-owner! id (frame/frame-incarnation-token id))
-        (is (nil? (get-in (epoch-state/observations-snapshot) [cb id]))
+        (rf.epoch.state/claim-frame-owner! id (rf.frame/frame-incarnation-token id))
+        (is (nil? (get-in (rf.epoch.state/observations-snapshot) [cb id]))
             "B's claim dropped cb's observation; B delivered nothing to re-arm it")
         (.countDown release-a)
         (is (not= ::timeout (deref dispatch-a 5000 ::timeout))
@@ -117,8 +117,8 @@
         (.countDown release-a)
         (rf/unregister-listener! :epoch cb)
         (rf/unregister-listener! :trace ::vxgfnd265-claim-idle-silencing)
-        (when (frame/frame id) (frame/destroy-frame! id))
-        (late-bind/set-fn! :epoch/on-frame-destroyed original-epoch)))))
+        (when (rf.frame/frame id) (rf.frame/destroy-frame! id))
+        (rf.late-bind/set-fn! :epoch/on-frame-destroyed original-epoch)))))
 
 (deftest predecessor-silences-after-successor-claims-then-retires-without-delivery
   ;; Mode 1 `retires` variant, composed at the epoch-state seam. cb observes A;
@@ -138,17 +138,17 @@
           (swap! silencings conj ev))))
     (try
       ;; A: claim + cb observes A.
-      (epoch-state/claim-frame-owner! id token-a)
-      (epoch.listeners/notify-listeners! {:frame id :epoch-id 1})
-      (let [a-ev (epoch.listeners/snapshot-terminal-destroy-evidence! id nil nil nil)]
+      (rf.epoch.state/claim-frame-owner! id token-a)
+      (rf.epoch.listeners/notify-listeners! {:frame id :epoch-id 1})
+      (let [a-ev (rf.epoch.listeners/snapshot-terminal-destroy-evidence! id nil nil nil)]
         ;; B claims (dropping cb's observation) but never delivers, then retires.
-        (epoch-state/claim-frame-owner! id token-b)
-        (epoch.listeners/on-frame-destroyed! id token-b
-          (epoch.listeners/snapshot-terminal-destroy-evidence! id nil nil nil))
+        (rf.epoch.state/claim-frame-owner! id token-b)
+        (rf.epoch.listeners/on-frame-destroyed! id token-b
+          (rf.epoch.listeners/snapshot-terminal-destroy-evidence! id nil nil nil))
         (is (zero? (silences-for silencings cb))
             "B's retire silences nothing — B never delivered to cb")
         ;; A resumes: still owes the one silence.
-        (epoch.listeners/on-frame-destroyed! id token-a a-ev)
+        (rf.epoch.listeners/on-frame-destroyed! id token-a a-ev)
         (is (= 1 (silences-for silencings cb))
             "A emits its one owed silence after B claimed-then-retired without delivery"))
       (finally
@@ -172,11 +172,11 @@
         first-epoch?   (atom true)
         received       (atom [])
         silencings     (atom [])
-        original-epoch (late-bind/get-fn :epoch/on-frame-destroyed)]
+        original-epoch (rf.late-bind/get-fn :epoch/on-frame-destroyed)]
     (rf/reg-event :vxgfnd265/aba-settle
       (fn [{:keys [db]} _] {:db (assoc db :a true)}))
     (rf/reg-event :vxgfnd265/aba-destroy
-      (fn [_ _] (frame/destroy-frame! id) {:db {:owner :a-tail}}))
+      (fn [_ _] (rf.frame/destroy-frame! id) {:db {:owner :a-tail}}))
     (rf/reg-event :vxgfnd265/aba-b-settle
       (fn [{:keys [db]} _] {:db (assoc db :owner :b)}))
     (rf/make-frame {:id id})
@@ -187,7 +187,7 @@
         (when (= :rf.epoch.cb/silenced-on-frame-destroy (:operation ev))
           (swap! silencings conj ev))))
     (try
-      (late-bind/set-fn! :epoch/on-frame-destroyed
+      (rf.late-bind/set-fn! :epoch/on-frame-destroyed
         (fn [& args]
           (when (and (= id (first args))
                      (compare-and-set! first-epoch? true false))
@@ -204,9 +204,9 @@
         (rf/dispatch-sync [:vxgfnd265/aba-b-settle] {:frame id})
         (is (= 2 (count @received))
             "cb received A's settle and B's settle — re-armed for the reused id")
-        (let [token-b (frame/frame-incarnation-token id)]
-          (epoch.listeners/on-frame-destroyed! id token-b
-            (epoch.listeners/snapshot-terminal-destroy-evidence! id nil nil nil)))
+        (let [token-b (rf.frame/frame-incarnation-token id)]
+          (rf.epoch.listeners/on-frame-destroyed! id token-b
+            (rf.epoch.listeners/snapshot-terminal-destroy-evidence! id nil nil nil)))
         (is (= 1 (silences-for silencings cb))
             "B's retire fired exactly one truthful silence for cb")
         ;; A resumes: must add NO further silence for cb (ABA prevented).
@@ -220,8 +220,8 @@
         (.countDown release-a)
         (rf/unregister-listener! :epoch cb)
         (rf/unregister-listener! :trace ::vxgfnd265-aba-silencing)
-        (when (frame/frame id) (frame/destroy-frame! id))
-        (late-bind/set-fn! :epoch/on-frame-destroyed original-epoch)))))
+        (when (rf.frame/frame id) (rf.frame/destroy-frame! id))
+        (rf.late-bind/set-fn! :epoch/on-frame-destroyed original-epoch)))))
 
 ;; ---- Mode 3: mixed identities decided independently -----------------------
 
@@ -250,22 +250,22 @@
           (swap! silencings conj ev))))
     (try
       ;; A claims and fans one record → U, V, W all observe A.
-      (epoch-state/claim-frame-owner! id token-a)
-      (epoch.listeners/notify-listeners! {:frame id :epoch-id 1})
-      (is (= #{u v w} (set (epoch-state/cbs-observing-frame id)))
+      (rf.epoch.state/claim-frame-owner! id token-a)
+      (rf.epoch.listeners/notify-listeners! {:frame id :epoch-id 1})
+      (is (= #{u v w} (set (rf.epoch.state/cbs-observing-frame id)))
           "U, V, W all observed A")
-      (let [u-gen (:generation (get (epoch-state/listeners-snapshot) u))
-            a-ev  (epoch.listeners/snapshot-terminal-destroy-evidence! id nil nil nil)]
+      (let [u-gen (:generation (get (rf.epoch.state/listeners-snapshot) u))
+            a-ev  (rf.epoch.listeners/snapshot-terminal-destroy-evidence! id nil nil nil)]
         ;; Successor B claims (dropping every observation) and stays LIVE. It
         ;; re-arms ONLY U; V is left un-rearmed; W is re-registered to a fresh
         ;; generation that never observed the frame.
-        (epoch-state/claim-frame-owner! id token-b)
-        (epoch-state/record-observation! u u-gen id)     ; U live on B
+        (rf.epoch.state/claim-frame-owner! id token-b)
+        (rf.epoch.state/record-observation! u u-gen id)     ; U live on B
         (rf/register-listener! :epoch w (fn [_] nil))     ; W → fresh generation
-        (is (= [u] (epoch-state/cbs-observing-frame id))
+        (is (= [u] (rf.epoch.state/cbs-observing-frame id))
             "only U is a live observer of the reused id under the successor")
         ;; A resumes with its stale snapshot (token-a is no longer the owner).
-        (epoch.listeners/on-frame-destroyed! id token-a a-ev)
+        (rf.epoch.listeners/on-frame-destroyed! id token-a a-ev)
         (is (= 1 (silences-for silencings v))
             "V — A-only identity — is silenced")
         (is (zero? (silences-for silencings u))

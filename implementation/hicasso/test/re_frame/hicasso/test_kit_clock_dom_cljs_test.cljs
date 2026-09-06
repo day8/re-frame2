@@ -56,15 +56,15 @@
   (`:ns-regexp \"cljs-test$\"` matches `-dom-cljs-test`), and each row
   degrades there to a STATED skip rather than to a false green."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.hicasso.motion :as motion]
-            [re-frame.hicasso.roots-frames-support :as sup]
-            [re-frame.hicasso.test.mounted :as hm]
-            [re-frame.test-support :as test-support]))
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.hicasso.motion :as rf.hicasso.motion]
+            [re-frame.hicasso.roots-frames-support :as rf.hicasso.roots-frames-support]
+            [re-frame.hicasso.test.mounted :as rf.hicasso.test.mounted]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; ---------------------------------------------------------------------------
 ;; The screen
@@ -92,29 +92,29 @@
   rather than about rounding."
   1000)
 
-(h/defview tray
+(rf.hicasso/defview tray
   "A toast tray: presence over the keyed children a subscription
   supplies. The dismissed child declares its own exit appearance as data,
   which is what gives the rows below a second, independent reading of the
   same fact — the node's count, and the exit class on it."
   [_]
-  [motion/presence {:timeout-ms retention-ms}
-   (for [t (h/sub [::toasts])]
+  [rf.hicasso.motion/presence {:timeout-ms retention-ms}
+   (for [t (rf.hicasso/sub [::toasts])]
      [:div.toast {:key           t
-                  ::motion/unmounting {:class "toast toast--exit"}}
+                  ::rf.hicasso.motion/unmounting {:class "toast toast--exit"}}
       (name t)])])
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      ;; The MAP shape, because every row here is `async`. `cljs.test`
      ;; refuses an async test under a fn-form fixture and aborts the whole
      ;; run at this namespace.
      :async?        true
      :init-fn       (fn []
-                      (sup/leave-act-environment!)
-                      (collector/reset-runtime!))}))
+                      (rf.hicasso.roots-frames-support/leave-act-environment!)
+                      (rf.hicasso.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Reading the page
@@ -126,7 +126,7 @@
 (defn- two-toasts
   "One clocked mount of the tray, seeded with two toasts."
   []
-  (hm/mount! [tray] {:clock true :initial-events [[::set [:a :b]]]}))
+  (rf.hicasso.test.mounted/mount! [tray] {:clock true :initial-events [[::set [:a :b]]]}))
 
 ;; ---------------------------------------------------------------------------
 ;; Reading the PLATFORM — the five functions the clock replaces
@@ -227,15 +227,15 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-clock-retires-a-retained-child-and-only-at-its-deadline
-  (if-not (mount/browser?)
-    (sup/skip! ":node-test has no React DOM, so no effect runs and no timer is armed")
+  (if-not (rf.hicasso.impl.mount/browser?)
+    (rf.hicasso.roots-frames-support/skip! ":node-test has no React DOM, so no effect runs and no timer is armed")
     (async done
       (let [m (two-toasts)]
         (testing "premise: both toasts are painted before anything leaves"
           (is (= 2 (toast-count m)))
           (is (nil? (exiting m))))
 
-        (hm/dispatch-and-settle! m [::set [:a]])
+        (rf.hicasso.test.mounted/dispatch-and-settle! m [::set [:a]])
 
         (testing "RETENTION: the dismissed toast outlives its data, wearing the
                   exit phase. This is the state every assertion below is
@@ -244,7 +244,7 @@
           (is (= 2 (toast-count m)) "the node survives the data — that is the module")
           (is (some? (exiting m)) "wearing the author's own `::motion/unmounting` class"))
 
-        (hm/advance-clock! m (dec retention-ms))
+        (rf.hicasso.test.mounted/advance-clock! m (dec retention-ms))
 
         (testing "ONE MILLISECOND SHORT — and it is still here. The retirement
                   belongs to the DEADLINE, not to the advance: a clock that
@@ -254,7 +254,7 @@
           (is (= 2 (toast-count m)))
           (is (some? (exiting m))))
 
-        (hm/advance-clock! m 1)
+        (rf.hicasso.test.mounted/advance-clock! m 1)
 
         (testing "AT the deadline it leaves. Nothing between this reading and
                   the one above except one virtual millisecond — no dispatch, no
@@ -269,8 +269,8 @@
                   this window, and a release that dropped them instead of
                   re-arming them would report residue the runtime was about to
                   release"
-          (-> (hm/unmount! m)
-              (hm/assert-clean!)
+          (-> (rf.hicasso.test.mounted/unmount! m)
+              (rf.hicasso.test.mounted/assert-clean!)
               (.then (fn [report]
                        (is (true? (:clean? report)))
                        (is (nil? (:leaked report)))
@@ -281,20 +281,20 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-virtual-instant-moves-and-the-wall-clock-does-not
-  (if-not (mount/browser?)
-    (sup/skip! ":node-test has no React DOM")
+  (if-not (rf.hicasso.impl.mount/browser?)
+    (rf.hicasso.roots-frames-support/skip! ":node-test has no React DOM")
     (async done
       (let [m  (two-toasts)
             t0 (js/Date.now)]
 
-        (hm/advance-clock! m 250)
+        (rf.hicasso.test.mounted/advance-clock! m 250)
 
         (testing "the instant moved exactly as far as it was told — which is
                   what lets a timer callback's own deadline comparison come out
                   right (`impl.presence/expire` takes `now`)"
           (is (= (+ t0 250) (js/Date.now))))
 
-        (hm/advance-clock! m 60000)
+        (rf.hicasso.test.mounted/advance-clock! m 60000)
 
         (testing "AND THE WALL CLOCK DID NOT MOVE WITH IT. The `Date`
                   CONSTRUCTOR reads the system clock and is deliberately not
@@ -305,15 +305,15 @@
           (is (< 30000 (- (js/Date.now) (.getTime (js/Date.))))
               "the virtual instant has run away from the machine's own clock"))
 
-        (-> (hm/unmount! m) (hm/assert-clean!) (.then (fn [_] (done))))))))
+        (-> (rf.hicasso.test.mounted/unmount! m) (rf.hicasso.test.mounted/assert-clean!) (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W3 — the window: installed by the mount, gone with it, and refused outside
 ;; ---------------------------------------------------------------------------
 
 (deftest the-clock-is-the-mounts-window-and-nothing-wider
-  (if-not (mount/browser?)
-    (sup/skip! ":node-test has no React DOM")
+  (if-not (rf.hicasso.impl.mount/browser?)
+    (rf.hicasso.roots-frames-support/skip! ":node-test has no React DOM")
     (async done
       (let [platform (.-setTimeout js/globalThis)
             m        (two-toasts)]
@@ -321,7 +321,7 @@
         (testing "inside the window the platform's scheduler has been replaced"
           (is (not (identical? platform (.-setTimeout js/globalThis)))))
 
-        (hm/unmount! m)
+        (rf.hicasso.test.mounted/unmount! m)
 
         (testing "and the teardown puts it back. An instrument that rewrote the
                   platform and left it rewritten would make every later suite in
@@ -332,21 +332,21 @@
                   An advance with no clock under it would move nothing and
                   assert nothing — the row would go green for exactly the reason
                   it was written to rule out"
-          (let [thrown (try (hm/advance-clock! m 5) nil (catch :default e e))]
+          (let [thrown (try (rf.hicasso.test.mounted/advance-clock! m 5) nil (catch :default e e))]
             (is (some? thrown))
             (is (= {:ms 5 :frame (:frame m)} (ex-data thrown)))))
 
-        (-> (hm/assert-clean! m)
+        (-> (rf.hicasso.test.mounted/assert-clean! m)
             (.then (fn [_]
                      (testing "and a mount that never asked for one is refused
                                the same way"
-                       (let [plain  (hm/mount! [tray] {:initial-events [[::set [:a]]]})
-                             thrown (try (hm/advance-clock! plain 5) nil
+                       (let [plain  (rf.hicasso.test.mounted/mount! [tray] {:initial-events [[::set [:a]]]})
+                             thrown (try (rf.hicasso.test.mounted/advance-clock! plain 5) nil
                                          (catch :default e e))]
                          (is (some? thrown))
                          (is (= {:ms 5 :frame (:frame plain)} (ex-data thrown)))
-                         (-> (hm/unmount! plain)
-                             (hm/assert-clean!)
+                         (-> (rf.hicasso.test.mounted/unmount! plain)
+                             (rf.hicasso.test.mounted/assert-clean!)
                              (.then (fn [report]
                                       (is (true? (:clean? report)))
                                       (done)))))))))))))
@@ -369,12 +369,12 @@
 ;; it hangs, or it goes GREEN on a surface it never exercised.
 
 (deftest a-failed-clocked-mount-leaves-no-clock-installed
-  (if-not (mount/browser?)
-    (sup/skip! ":node-test has no React DOM, so no root and no clock")
+  (if-not (rf.hicasso.impl.mount/browser?)
+    (rf.hicasso.roots-frames-support/skip! ":node-test has no React DOM, so no root and no clock")
     (async done
       (let [platform (platform-surface)
             frames   (set (rf/frame-ids))
-            thrown   (try (hm/mount! [tray] {:clock          true
+            thrown   (try (rf.hicasso.test.mounted/mount! [tray] {:clock          true
                                              :initial-events [[::set [:a]] [::boom]]})
                           nil
                           (catch :default e e))
@@ -407,11 +407,11 @@
           (let [m (two-toasts)]
             (is (not (identical? (:set-timeout platform) (.-setTimeout js/globalThis)))
                 "premise: this mount really installed a clock of its own")
-            (hm/unmount! m)
+            (rf.hicasso.test.mounted/unmount! m)
             (surface-is! platform (platform-surface)
                          "back after the only remaining holder let go")
             (install-surface! platform)
-            (-> (hm/assert-clean! m)
+            (-> (rf.hicasso.test.mounted/assert-clean! m)
                 (.then (fn [report]
                          (is (true? (:clean? report)))
                          ;; The last word is the platform's: a real timer,
@@ -438,8 +438,8 @@
 ;; and the peer's own teardown is then enough to put the platform back.
 
 (deftest a-failed-clocked-mount-releases-only-its-own-hold
-  (if-not (mount/browser?)
-    (sup/skip! ":node-test has no React DOM, so no root and no clock")
+  (if-not (rf.hicasso.impl.mount/browser?)
+    (rf.hicasso.roots-frames-support/skip! ":node-test has no React DOM, so no root and no clock")
     (async done
       (let [platform (platform-surface)
             peer     (two-toasts)
@@ -448,7 +448,7 @@
         (testing "premise: the peer is standing on a clock"
           (is (not (identical? (:set-timeout platform) (:set-timeout clocked)))))
 
-        (let [thrown (try (hm/mount! [tray] {:clock true :initial-events [[::boom]]})
+        (let [thrown (try (rf.hicasso.test.mounted/mount! [tray] {:clock true :initial-events [[::boom]]})
                           nil
                           (catch :default e e))]
 
@@ -463,14 +463,14 @@
                     here, because a restored platform would leave these
                     globals looking fine to `identical?` on a later install
                     and still move nothing on an advance"
-            (hm/dispatch-and-settle! peer [::set [:a]])
+            (rf.hicasso.test.mounted/dispatch-and-settle! peer [::set [:a]])
             (is (= 2 (toast-count peer)) "retained, mid-exit")
-            (hm/advance-clock! peer (dec retention-ms))
+            (rf.hicasso.test.mounted/advance-clock! peer (dec retention-ms))
             (is (= 2 (toast-count peer)) "one millisecond short")
-            (hm/advance-clock! peer 1)
+            (rf.hicasso.test.mounted/advance-clock! peer 1)
             (is (= 1 (toast-count peer)) "and gone at its deadline")))
 
-        (hm/unmount! peer)
+        (rf.hicasso.test.mounted/unmount! peer)
 
         (testing "and now — the peer being the last holder — the platform comes
                   back. A failure that released NOTHING would leave a holder
@@ -480,7 +480,7 @@
 
         (install-surface! platform)
 
-        (-> (hm/assert-clean! peer)
+        (-> (rf.hicasso.test.mounted/assert-clean! peer)
             (.then (fn [report]
                      (is (true? (:clean? report)))
                      (done))))))))
@@ -507,8 +507,8 @@
 ;; out the ids a fresh page hands out.
 
 (deftest a-virtual-handle-cannot-alias-a-platform-one
-  (if-not (mount/browser?)
-    (sup/skip! ":node-test has no React DOM, so no root and no clock")
+  (if-not (rf.hicasso.impl.mount/browser?)
+    (rf.hicasso.roots-frames-support/skip! ":node-test has no React DOM, so no root and no clock")
     (async done
       (let [platform              (platform-surface)
             {:keys [log surface]} (recorder platform)
@@ -548,14 +548,14 @@
 
           (testing "…and the virtual timers are untouched by it. A collision
                     would have cleared THIS one and left the real one running"
-            (hm/advance-clock! m 50)
+            (rf.hicasso.test.mounted/advance-clock! m 50)
             (is (= [:v1 :iv] @!fired)))
 
           (testing "and a SPENT virtual id — the ordinary cleanup of a timer
                     that has already fired — cannot cancel an unrelated real
                     timer. It is out of the table, so it goes to the platform;
                     it just names nothing the platform holds"
-            (hm/advance-clock! m 50)
+            (rf.hicasso.test.mounted/advance-clock! m 50)
             (is (= [:v1 :iv :v2 :iv] @!fired) "premise: v2 fired, so its id is stale")
             (js/clearTimeout v2)
             (is (not (cleared? r2)) "the real timer numbered 2 is still armed"))
@@ -563,14 +563,14 @@
           (testing "either clearer cancels either kind, as the platform's own
                     do — and on both sides of the boundary"
             (js/clearTimeout iv)
-            (hm/advance-clock! m 500)
+            (rf.hicasso.test.mounted/advance-clock! m 500)
             (is (= [:v1 :iv :v2 :iv] @!fired) "a clearTimeout retired the VIRTUAL interval")
             (js/clearInterval r2)
             (is (cleared? r2) "and a clearInterval reached the REAL timeout"))
 
-          (hm/unmount! m)
+          (rf.hicasso.test.mounted/unmount! m)
           (install-surface! platform)
-          (-> (hm/assert-clean! m)
+          (-> (rf.hicasso.test.mounted/assert-clean! m)
               (.then (fn [report]
                        (is (true? (:clean? report)))
                        (done)))))))))
@@ -592,8 +592,8 @@
 ;; reading here depends on the wall clock.
 
 (deftest an-interval-hands-back-the-deadline-it-had-left
-  (if-not (mount/browser?)
-    (sup/skip! ":node-test has no React DOM, so no root and no clock")
+  (if-not (rf.hicasso.impl.mount/browser?)
+    (rf.hicasso.roots-frames-support/skip! ":node-test has no React DOM, so no root and no clock")
     (async done
       (let [platform                      (platform-surface)
             {:keys [log surface cancel!]} (recorder platform)
@@ -602,11 +602,11 @@
         (install-surface! surface)
         (let [m (two-toasts)]
           (js/setInterval (fn [& args] (swap! !ticks conj (vec args))) retention-ms "tick" 7)
-          (hm/advance-clock! m (dec retention-ms))
+          (rf.hicasso.test.mounted/advance-clock! m (dec retention-ms))
           (is (empty? @!ticks) "premise: one virtual millisecond short of the first tick")
 
           (let [mark (count @log)
-                _    (hm/unmount! m)
+                _    (rf.hicasso.test.mounted/unmount! m)
                 over (vec (drop mark @log))]
             (install-surface! platform)
 
@@ -641,7 +641,7 @@
                               after))
                     (doseq [e (intervals after)] (cancel! e))))))
 
-            (-> (hm/assert-clean! m)
+            (-> (rf.hicasso.test.mounted/assert-clean! m)
                 (.then (fn [report]
                          (is (true? (:clean? report)))
                          (done))))))))))
@@ -671,8 +671,8 @@
 ;; throw would only move the divergence.
 
 (deftest a-throwing-tick-does-not-disarm-the-handed-back-interval
-  (if-not (mount/browser?)
-    (sup/skip! ":node-test has no React DOM, so no root and no clock")
+  (if-not (rf.hicasso.impl.mount/browser?)
+    (rf.hicasso.roots-frames-support/skip! ":node-test has no React DOM, so no root and no clock")
     (async done
       (let [platform                      (platform-surface)
             {:keys [log surface cancel!]} (recorder platform)
@@ -687,11 +687,11 @@
                             (when (= 1 (count @!ticks))
                               (throw (js/Error. "the first bridged tick throws, deliberately"))))
                           retention-ms "tick" 7)
-          (hm/advance-clock! m (dec retention-ms))
+          (rf.hicasso.test.mounted/advance-clock! m (dec retention-ms))
           (is (empty? @!ticks) "premise: one virtual millisecond short of the first tick")
 
           (let [mark (count @log)
-                _    (hm/unmount! m)
+                _    (rf.hicasso.test.mounted/unmount! m)
                 over (vec (drop mark @log))]
             (install-surface! platform)
 
@@ -740,7 +740,7 @@
                     (doseq [e cadence] (apply (:f e) (:args e)))
                     (is (= [["tick" 7] ["tick" 7]] @!ticks))))))
 
-            (-> (hm/assert-clean! m)
+            (-> (rf.hicasso.test.mounted/assert-clean! m)
                 (.then (fn [report]
                          (is (true? (:clean? report)))
                          (done))))))))))

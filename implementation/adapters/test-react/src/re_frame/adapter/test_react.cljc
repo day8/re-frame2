@@ -27,12 +27,12 @@
         (test-react/unmount! m)
         (mapv :phase (test-react/lifecycle-log m)))
       ;; => [:constructor :render :did-mount :render :did-update :will-unmount]"
-  (:require [re-frame.error :as error]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.substrate.adapter :as substrate-adapter]
-            [re-frame.substrate.atom-container :as atom-container]
-            [re-frame.subs.cache :as subs-cache]
-            [re-frame.frame :as frame]))
+  (:require [re-frame.error :as rf.error]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.substrate.atom-container :as rf.substrate.atom-container]
+            [re-frame.subs.cache :as rf.subs.cache]
+            [re-frame.frame :as rf.frame]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -166,7 +166,7 @@
     (let [mount @self-ref]
       (when @(:mounted? mount)
         (when (rendering?)
-          (error/throw-error!
+          (rf.error/throw-error!
             :rf.error/sync-unmount-during-render
             'rf/test-react-unmount
             (str "Attempted to synchronously unmount a root"
@@ -307,7 +307,7 @@
   [render-tree]
   (let [parent *rendering-mount*]
     (when (nil? parent)
-      (error/throw-error!
+      (rf.error/throw-error!
         :rf.error/mount-child-outside-render
         'rf/test-react-mount-child!
         (str "mount-child! must be called from inside an"
@@ -337,7 +337,7 @@
 (defn- render-to-string [render-tree opts]
   (if-let [emit @hiccup-emitter]
     (emit render-tree opts)
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/no-hiccup-emitter-bound
       'rf/render-to-string
       (str "Test-React adapter has no built-in hiccup emitter; call "
@@ -346,7 +346,7 @@
       ;; Diagnostics may be captured before path-based classification, so never
       ;; attach the raw render tree.
       {:recovery :call-set-hiccup-emitter
-       :extra    {:render-tree/summary (error/diag-value-summary render-tree)}})))
+       :extra    {:render-tree/summary (rf.error/diag-value-summary render-tree)}})))
 
 ;; ---- frame-provider --------------------------------------------------------
 
@@ -391,7 +391,7 @@
   ;; guard deliberately cannot block. The trailing `reset! active-mounts #{}` is
   ;; belt-and-suspenders: the primitive already disj'd each drained record.
   ;;
-  (subs-cache/clear-all-frame-sub-caches!)
+  (rf.subs.cache/clear-all-frame-sub-caches!)
   (doseq [mount @active-mounts]
     (force-teardown-record! mount))
   (reset! active-mounts #{})
@@ -413,10 +413,10 @@
   class-3 lifecycle simulator and its global unmount-during-render guard. See
   `mount!`, `trigger-update!`, and `unmount!` for the test driver."
   {:kind                      :rf.adapter/test-react
-   :make-state-container      atom-container/make-state-container
-   :read-container            atom-container/read-container
-   :replace-container!        atom-container/replace-container!
-   :subscribe-container       atom-container/subscribe-container
+   :make-state-container      rf.substrate.atom-container/make-state-container
+   :read-container            rf.substrate.atom-container/read-container
+   :replace-container!        rf.substrate.atom-container/replace-container!
+   :subscribe-container       rf.substrate.atom-container/subscribe-container
    :make-derived-value        make-derived-value
    :render                    render
    :render-to-string          render-to-string
@@ -454,13 +454,13 @@
   `:kind`, e.g. one `assoc`'d with an instrumentation wrapper) is still
   accepted, matching the routed hooks' acceptance of the same copy."
   [render-tree]
-  (when-not (substrate-adapter/same-adapter? adapter (substrate-adapter/current-adapter-spec))
-    (error/throw-error!
+  (when-not (rf.substrate.adapter/same-adapter? adapter (rf.substrate.adapter/current-adapter-spec))
+    (rf.error/throw-error!
       :rf.error/test-react-not-installed
       'rf/test-react-mount!
       (str "test-react/mount! requires the Test-React adapter"
            " to be the (rf/init!)-installed adapter; got "
-           (substrate-adapter/current-adapter)
+           (rf.substrate.adapter/current-adapter)
            ". Call (rf/init! test-react/adapter) before mount!.")
       {:recovery :install-the-test-react-adapter}))
   (mount-tree! render-tree))
@@ -489,7 +489,7 @@
   already correct."
   [mount new-render-tree]
   (when-not @(:mounted? mount)
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/update-after-unmount
       'rf/test-react-trigger-update!
       (str "trigger-update! called on a mount that has already been "
@@ -582,11 +582,11 @@
 ;; paths that reach for them under a non-React adapter indicate a
 ;; misconfiguration that should surface, not be papered over.
 
-(substrate-adapter/route-hook! adapter :adapter/current-frame
-  (fn test-react-current-frame [] (frame/current-frame))
-  #(frame/current-frame))
+(rf.substrate.adapter/route-hook! adapter :adapter/current-frame
+  (fn test-react-current-frame [] (rf.frame/current-frame))
+  #(rf.frame/current-frame))
 
 ;; SSR emitter install — chains onto the existing :reagent/set-hiccup-emitter!
 ;; late-bind hook so a single `(require '[re-frame.ssr])` wires
 ;; render-to-string for whichever adapter ends up (rf/init!)-installed.
-(late-bind/chain-fn! :reagent/set-hiccup-emitter! set-hiccup-emitter!)
+(rf.late-bind/chain-fn! :reagent/set-hiccup-emitter! set-hiccup-emitter!)

@@ -71,9 +71,9 @@
   `hicasso/testbed/hmr` under `test:hicasso-hmr`, which drives a real
   shadow-cljs watch and a real reload; inventing a second gate here would
   add machinery without adding a witness."
-  (:require [re-frame.adapter.uix :as uix-adapter]
+  (:require [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]))
+            [re-frame.hicasso :as rf.hicasso]))
 
 (def ^:private frame-id ::frame)
 
@@ -95,7 +95,7 @@
 ;; The view — one boundary, one read, one intent, one controlled field
 ;; ---------------------------------------------------------------------------
 
-(h/defview app
+(rf.hicasso/defview app
   "The whole application.
 
   The field is controlled in the substrate's own sense: `:value` is the
@@ -113,9 +113,9 @@
    [:h1 "Hicasso"]
    [:label {:for "greeting"} "Greeting"]
    [:input#greeting {:type     "text"
-                     :value    (h/sub [::greeting])
-                     :on-input [::typed ::h/value]}]
-   [:p.echo "Committed: " (h/sub [::greeting])]])
+                     :value    (rf.hicasso/sub [::greeting])
+                     :on-input [::typed ::rf.hicasso/value]}]
+   [:p.echo "Committed: " (rf.hicasso/sub [::greeting])]])
 
 ;; ---------------------------------------------------------------------------
 ;; The mount, and the reload
@@ -136,7 +136,7 @@
   view code is different."
   []
   (when-some [root @!root]
-    (h/render! root [app {}])))
+    (rf.hicasso/render! root [app {}])))
 
 (defn ^:export -main
   "The `:hicasso-release` build's `:init-fn`, and the three lines that
@@ -156,7 +156,7 @@
   handle is what [[reload!]] re-renders — the one reason a mount-once
   application keeps hold of it."
   []
-  (rf/init! uix-adapter/adapter)
+  (rf/init! rf.adapter.uix/adapter)
   (rf/make-frame {:id frame-id :initial-events [[::seed]]})
-  (reset! !root (h/mount! (js/document.getElementById "app") {:frame frame-id} [app {}]))
+  (reset! !root (rf.hicasso/mount! (js/document.getElementById "app") {:frame frame-id} [app {}]))
   nil)

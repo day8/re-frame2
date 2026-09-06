@@ -145,20 +145,20 @@
   lane is not, and `hook-budget-cljs-test` takes the same view for the
   same reason."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.checkpoint-support :as support]
-            [re-frame.hicasso.hook-probe :as hook-probe]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.controlled :as controlled]
-            [re-frame.hicasso.impl.intent :as intent]
-            [re-frame.hicasso.impl.mount :as mount]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.checkpoint-support :as rf.hicasso.checkpoint-support]
+            [re-frame.hicasso.hook-probe :as rf.hicasso.hook-probe]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.controlled :as rf.hicasso.impl.controlled]
+            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
             [re-frame.hicasso.roots-frames-support :as rf.hicasso.roots-frames-support]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.hicasso.test :as ht]
-            [re-frame.test-support :as test-support]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.hicasso.test :as rf.hicasso.test]
+            [re-frame.test-support :as rf.test-support]
             [uix.core :as uix]
             ["react" :as react]
             ["react-dom/server" :as react-dom-server]))
@@ -174,10 +174,10 @@
   {:labels {1 "quarterly"} :tags {1 ["clj" "react"]}})
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The pair — one page, written twice
@@ -199,11 +199,11 @@
   a callback slot, and a controlled field — one member of each
   population the four probes below count."
   [{:keys [id]}]
-  (let [label (h/sub [:dr/label id])
-        n     (count (h/sub [:dr/tags id]))]
+  (let [label (rf.hicasso/sub [:dr/label id])
+        n     (count (rf.hicasso/sub [:dr/tags id]))]
     [:div {:class "row" :on-click [:dr/picked id]}
      [:span {:class "label"} (str label " " n)]
-     [:input {:class "field" :value label :on-input [:dr/edited id ::h/value]}]]))
+     [:input {:class "field" :value label :on-input [:dr/edited id ::rf.hicasso/value]}]]))
 
 (defn direct-body
   "The Rung 3 spelling of the same page. The reads are the boundary's,
@@ -215,8 +215,8 @@
   the field's echo is the author's to write. Both are the escape's price
   and both are visible in this source."
   [{:keys [id]}]
-  (let [label (h/sub [:dr/label id])
-        n     (count (h/sub [:dr/tags id]))]
+  (let [label (rf.hicasso/sub [:dr/label id])
+        n     (count (rf.hicasso/sub [:dr/tags id]))]
     (react/createElement "div" #js {:className "row" :onClick (fn [_] nil)}
       (react/createElement "span" #js {:className "label"} (str label " " n))
       (react/createElement "input" #js {:className "field" :value label :onChange (fn [_] nil)}))))
@@ -226,8 +226,8 @@
   element, so the escape sees it exactly as it sees [[direct-body]]'s —
   which the probes below read rather than assume."
   [{:keys [id]}]
-  (let [label (h/sub [:dr/label id])
-        n     (count (h/sub [:dr/tags id]))]
+  (let [label (rf.hicasso/sub [:dr/label id])
+        n     (count (rf.hicasso/sub [:dr/tags id]))]
     (uix/$ :div {:class "row" :on-click (fn [_] nil)}
            (uix/$ :span {:class "label"} (str label " " n))
            (uix/$ :input {:class "field" :value label :on-change (fn [_] nil)}))))
@@ -239,10 +239,10 @@
   [_]
   nil)
 
-(h/defview hiccup-arm [props] (hiccup-body props))
-(h/defview direct-arm [props] (direct-body props))
-(h/defview uix-arm    [props] (uix-body props))
-(h/defview floor-arm  [props] (floor-body props))
+(rf.hicasso/defview hiccup-arm [props] (hiccup-body props))
+(rf.hicasso/defview direct-arm [props] (direct-body props))
+(rf.hicasso/defview uix-arm    [props] (uix-body props))
+(rf.hicasso/defview floor-arm  [props] (floor-body props))
 
 ;; ---------------------------------------------------------------------------
 ;; The key pair — a seq of boundary members, which is the population the
@@ -257,7 +257,7 @@
 ;; without meaning anything. The members are boundaries, and their React
 ;; counterpart is an ordinary function component rendering the same span.
 
-(h/defview tag-row  [{:keys [label]}] [:span {:class "tag"} label])
+(rf.hicasso/defview tag-row  [{:keys [label]}] [:span {:class "tag"} label])
 
 (defn- react-tag-row
   "The same span as a raw React component. The arms compare a key
@@ -265,16 +265,16 @@
   [^js props]
   (react/createElement "span" #js {:className "tag"} (.-label props)))
 
-(h/defview key-hiccup-arm
+(rf.hicasso/defview key-hiccup-arm
   [{:keys [id]}]
   [:div {:class "tags"}
-   (for [t (h/sub [:dr/tags id])] [tag-row {:key {:tag t} :label t}])])
+   (for [t (rf.hicasso/sub [:dr/tags id])] [tag-row {:key {:tag t} :label t}])])
 
-(h/defview key-direct-arm
+(rf.hicasso/defview key-direct-arm
   [{:keys [id]}]
   (react/createElement "div" #js {:className "tags"}
     (into-array (map (fn [t] (react/createElement react-tag-row #js {:key #js {:tag t} :label t}))
-                     (h/sub [:dr/tags id])))))
+                     (rf.hicasso/sub [:dr/tags id])))))
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -283,7 +283,7 @@
 (defn- seeded!
   ([] (seeded! seed-db))
   ([db]
-   (support/leave-act-environment!)
+   (rf.hicasso.checkpoint-support/leave-act-environment!)
    (rf/make-frame {:id frame-id})
    (rf/with-frame frame-id (rf/dispatch-sync [:dr/seed db]))
    frame-id))
@@ -302,7 +302,7 @@
   [view]
   (rf.hicasso.roots-frames-support/without-view-annotations
     (react-dom-server/renderToStaticMarkup
-      (mount/provider frame-id (codec/root-element frame-id [view {:id 1}])))))
+      (rf.hicasso.impl.mount/provider frame-id (rf.hicasso.impl.codec/root-element frame-id [view {:id 1}])))))
 
 (defn- probe
   "Entries into the shipping var `install!` wraps, while `view` renders.
@@ -385,39 +385,39 @@
 
 (deftest a-direct-return-does-not-enter-the-hiccup-walk
   (seeded!)
-  (let [real codec/vec->element]
+  (let [real rf.hicasso.impl.codec/vec->element]
     (walks-past
       "the hiccup walk (codec/vec->element)"
-      (probes (fn [n] (set! codec/vec->element
+      (probes (fn [n] (set! rf.hicasso.impl.codec/vec->element
                             (fn [form] (swap! n inc) (real form))))
-              (fn [] (set! codec/vec->element real))))))
+              (fn [] (set! rf.hicasso.impl.codec/vec->element real))))))
 
 (deftest a-direct-return-does-not-enter-the-prop-pipeline
   (seeded!)
-  (let [real codec/convert-props]
+  (let [real rf.hicasso.impl.codec/convert-props]
     (walks-past
       "the prop pipeline (codec/convert-props)"
-      (probes (fn [n] (set! codec/convert-props
+      (probes (fn [n] (set! rf.hicasso.impl.codec/convert-props
                             (fn [& args] (swap! n inc) (apply real args))))
-              (fn [] (set! codec/convert-props real))))))
+              (fn [] (set! rf.hicasso.impl.codec/convert-props real))))))
 
 (deftest a-direct-return-does-not-enter-event-lowering
   (seeded!)
-  (let [real intent/lower-prop]
+  (let [real rf.hicasso.impl.intent/lower-prop]
     (walks-past
       "event lowering (intent/lower-prop)"
-      (probes (fn [n] (set! intent/lower-prop
+      (probes (fn [n] (set! rf.hicasso.impl.intent/lower-prop
                             (fn [& args] (swap! n inc) (apply real args))))
-              (fn [] (set! intent/lower-prop real))))))
+              (fn [] (set! rf.hicasso.impl.intent/lower-prop real))))))
 
 (deftest a-direct-return-does-not-enter-controlled-repair
   (seeded!)
-  (let [real controlled/install!]
+  (let [real rf.hicasso.impl.controlled/install!]
     (walks-past
       "controlled repair (controlled/install!)"
-      (probes (fn [n] (set! controlled/install!
+      (probes (fn [n] (set! rf.hicasso.impl.controlled/install!
                             (fn [& args] (swap! n inc) (apply real args))))
-              (fn [] (set! controlled/install! real))))))
+              (fn [] (set! rf.hicasso.impl.controlled/install! real))))))
 
 (deftest a-direct-return-is-not-inspected-by-the-key-diagnostic
   (seeded!)
@@ -457,10 +457,10 @@
 
 (deftest a-boundary-that-returns-an-element-still-costs-exactly-two-hooks
   (seeded!)
-  (is (true? (hook-probe/install!))
+  (is (true? (rf.hicasso.hook-probe/install!))
       "React's client-internals dispatcher slot was not found — the hook
        budget is UNWITNESSED, not satisfied")
-  (let [hooks-of (fn [view] (hook-probe/record! (fn [] (render! view))))
+  (let [hooks-of (fn [view] (rf.hicasso.hook-probe/record! (fn [] (render! view))))
         hiccup   (hooks-of hiccup-arm)
         direct   (hooks-of direct-arm)]
 
@@ -468,7 +468,7 @@
               subscription/epoch hook, in the order the ledger declares
               them, with the body between"
       (is (= ["useContext" "useSyncExternalStore"] (vec direct)))
-      (is (= (count runtime/shell-hook-ledger) (count direct))))
+      (is (= (count rf.hicasso.test.runtime/shell-hook-ledger) (count direct))))
 
     (testing "the boundary pays the same two on either arm: Rung 3 is an
               escape from the codec, not from the boundary. A third hook
@@ -498,18 +498,18 @@
 (deftest l2-refuses-a-direct-return-as-opaque
   (testing "CONTROL — the hiccup arm's body is exactly what L2 is for, and
             it answers a tree"
-    (is (= :div (:tag (ht/tree [hiccup-body {:id 1}] l2-fixtures)))))
+    (is (= :div (:tag (rf.hicasso.test/tree [hiccup-body {:id 1}] l2-fixtures)))))
 
   (testing "the direct arm's body answers a value only React can
             interpret, so L2 refuses it and points at L3. This is the
             escape's OTHER price and the one an author meets first: a
             boundary moved to Rung 3 leaves the assertion tier that runs
             without a browser"
-    (let [{:keys [refused]} (outcome #(ht/tree [direct-body {:id 1}] l2-fixtures))]
+    (let [{:keys [refused]} (outcome #(rf.hicasso.test/tree [direct-body {:id 1}] l2-fixtures))]
       (is (= :rf.error/hicasso-test-react-is-opaque (:rf.error/id refused)))))
 
   (testing "and it refuses at the DIRECT-RETURN position specifically —
             the body answered the element itself, with no tree around it
             for the refusal to have come from"
-    (let [{:keys [refused]} (outcome #(ht/tree [(fn [_] (react/createElement "b" nil "x"))] {}))]
+    (let [{:keys [refused]} (outcome #(rf.hicasso.test/tree [(fn [_] (react/createElement "b" nil "x"))] {}))]
       (is (= :rf.error/hicasso-test-react-is-opaque (:rf.error/id refused))))))

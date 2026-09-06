@@ -40,12 +40,12 @@
   shapes silently dropped) — unchanged by the storage→projection move."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.epoch :as epoch]
-            [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]
-            [re-frame.test-support :as test-support]
+            [re-frame.elision :as rf.elision]
+            [re-frame.epoch :as rf.epoch]
+            [re-frame.frame :as rf.frame]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]
+            [re-frame.test-support :as rf.test-support]
             ;; Side-effect requires (mirror epoch_test.clj fixture).
             [re-frame.machines]))
 
@@ -65,8 +65,8 @@
 ;; AFTER the post-dispose reset hooks, so the override lands on top of
 ;; the freshly-reset default.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
      :init-fn (fn [] (rf/configure! {:epoch-history {:trace-events-keep 5}}))}))
 
 ;; ---- helpers ---------------------------------------------------------------
@@ -81,8 +81,8 @@
 ;; frame container is make-frame'd by each deftest before this runs.
 (defn- install-sensitive-schema!
   [frame-id]
-  (frame/swap-runtime-db! frame-id
-    (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))
+  (rf.frame/swap-runtime-db! frame-id
+    (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))
   nil)
 
 (defn- record-warnings! []
@@ -105,17 +105,17 @@
             and the slot lands in current-config"
     (let [f (fn [r] r)]
       (rf/configure! {:epoch-history {:redact-fn f}})
-      (is (identical? f (:redact-fn (epoch/current-config)))
+      (is (identical? f (:redact-fn (rf.epoch/current-config)))
           ":redact-fn lands by identity — no wrapping"))))
 
 (deftest configure-accepts-nil-to-clear
   (testing "(rf/configure! {:epoch-history {:redact-fn nil}}) clears a
             previously-installed fn"
     (rf/configure! {:epoch-history {:redact-fn (fn [r] r)}})
-    (is (some? (:redact-fn (epoch/current-config))))
+    (is (some? (:redact-fn (rf.epoch/current-config))))
 
     (rf/configure! {:epoch-history {:redact-fn nil}})
-    (is (nil? (:redact-fn (epoch/current-config)))
+    (is (nil? (:redact-fn (rf.epoch/current-config)))
         "explicit nil clears the slot")))
 
 (deftest configure-rejects-non-fn
@@ -124,19 +124,19 @@
     (let [f (fn [r] r)]
       (rf/configure! {:epoch-history {:redact-fn f}})
       (rf/configure! {:epoch-history {:redact-fn "not-a-fn"}})
-      (is (identical? f (:redact-fn (epoch/current-config)))
+      (is (identical? f (:redact-fn (rf.epoch/current-config)))
           "string silently dropped — prior fn survives")
 
       (rf/configure! {:epoch-history {:redact-fn 42}})
-      (is (identical? f (:redact-fn (epoch/current-config)))
+      (is (identical? f (:redact-fn (rf.epoch/current-config)))
           "number silently dropped")
 
       (rf/configure! {:epoch-history {:redact-fn {:k :v}}})
-      (is (identical? f (:redact-fn (epoch/current-config)))
+      (is (identical? f (:redact-fn (rf.epoch/current-config)))
           "map silently dropped")
 
       (rf/configure! {:epoch-history {:redact-fn [:a :b]}})
-      (is (identical? f (:redact-fn (epoch/current-config)))
+      (is (identical? f (:redact-fn (rf.epoch/current-config)))
           "vector silently dropped"))))
 
 (deftest configure-absent-slot-preserves-existing-fn
@@ -146,9 +146,9 @@
     (let [f (fn [r] r)]
       (rf/configure! {:epoch-history {:redact-fn f}})
       (rf/configure! {:epoch-history {:depth 17}})
-      (is (identical? f (:redact-fn (epoch/current-config)))
+      (is (identical? f (:redact-fn (rf.epoch/current-config)))
           ":redact-fn slot preserved across a :depth-only update")
-      (is (= 17 (:depth (epoch/current-config)))
+      (is (= 17 (:depth (rf.epoch/current-config)))
           "the :depth update was applied"))))
 
 (deftest configure-partial-update-mixed-validity
@@ -157,8 +157,8 @@
     (rf/configure! {:epoch-history {:depth 9}})
     (let [f (fn [r] r)]
       (rf/configure! {:epoch-history {:depth nil :redact-fn f}})
-      (is (identical? f (:redact-fn (epoch/current-config))))
-      (is (= 9 (:depth (epoch/current-config)))
+      (is (identical? f (:redact-fn (rf.epoch/current-config))))
+      (is (= 9 (:depth (rf.epoch/current-config)))
           ":depth nil dropped; prior 9 survives"))))
 
 ;; ============================================================================
@@ -233,7 +233,7 @@
       (rf/dispatch-sync [:seed] {:frame :test/main})
 
       (let [r         (last-record :test/main)
-            projected (epoch/projected-record r)]
+            projected (rf.epoch/projected-record r)]
         (is (= 1 @invocations)
             "one projection call = one :redact-fn invocation")
         (is (= :redacted (:rf/test-tag projected))
@@ -267,7 +267,7 @@
       (rf/dispatch-sync [:login "topsecret" "tok-xyz"] {:frame :test/main})
 
       (let [r         (last-record :test/main)
-            projected (epoch/projected-record r)]
+            projected (rf.epoch/projected-record r)]
         (is (= :rf/redacted @observed)
             "the override observed the frame-declared :password ALREADY
              :rf/redacted by the frame/profile projection (it ran AFTER)")
@@ -290,7 +290,7 @@
       (rf/dispatch-sync [:seed] {:frame :test/main})
 
       (let [r (last-record :test/main)]
-        (dotimes [_ 5] (epoch/projected-record r))
+        (dotimes [_ 5] (rf.epoch/projected-record r))
         (is (= 5 @invocations)
             "five projection calls = five override invocations (one per
              egress); the override is not memoised")))))
@@ -311,7 +311,7 @@
     (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
 
     (let [r         (last-record :test/main)
-          projected (epoch/projected-record r)]
+          projected (rf.epoch/projected-record r)]
       (is (true? (:rf.epoch/sensitive? r))
           "rollup is true on the raw ring record (raw-signal-derived)")
       (is (true? (:rf.epoch/sensitive? projected))
@@ -341,7 +341,7 @@
            storage-side hook")
 
       (let [r         (last-record :test/main)
-            projected (epoch/projected-record r)]
+            projected (rf.epoch/projected-record r)]
         ;; The projection ran the (throwing) override → warning + fallback.
         (is (= :rf/redacted (get-in projected [:db-after :auth :password]))
             "fallback is the PROJECTED record — the frame/profile projection
@@ -376,9 +376,9 @@
                                   (swap! call-count inc)
                                   (throw (ex-info "boom" {})))}})
       (let [r (last-record :test/main)]
-        (epoch/projected-record r)
-        (epoch/projected-record r)
-        (epoch/projected-record r))
+        (rf.epoch/projected-record r)
+        (rf.epoch/projected-record r)
+        (rf.epoch/projected-record r))
       (is (= 3 @call-count)
           "redact-fn re-invoked on every projection despite throwing"))))
 
@@ -401,7 +401,7 @@
     (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
 
     (let [r         (last-record :test/main)
-          projected (epoch/projected-record r)]
+          projected (rf.epoch/projected-record r)]
       (is (= :rf/redacted (get-in projected [:db-after :auth :password]))
           "frame-declared sensitive path redacted by the frame/profile walk")
       (is (= "alice" (get-in projected [:db-after :public :name]))
@@ -436,7 +436,7 @@
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (is (not (contains? (last-record :test/main) :rf/test-tag))
         "settle! path: ring record is RAW (override not applied at storage)")
-    (is (= :redacted (:rf/test-tag (epoch/projected-record
+    (is (= :redacted (:rf/test-tag (rf.epoch/projected-record
                                      (last-record :test/main))))
         "the override IS applied when the record is projected for egress")))
 
@@ -454,7 +454,7 @@
           "frame-state replacement: listener received the raw synthetic record")
       (is (not (contains? (last-record :test/main) :rf/test-tag))
           "frame-state replacement: ring received the raw synthetic record")
-      (is (= :redacted (:rf/test-tag (epoch/projected-record @synthetic)))
+      (is (= :redacted (:rf/test-tag (rf.epoch/projected-record @synthetic)))
           "the override applies when the synthetic record is projected"))))
 
 (deftest wiring-halted-destroy-stores-raw-record
@@ -476,7 +476,7 @@
       (rf/configure! {:epoch-history {:redact-fn (fn [r] (assoc r :rf/test-tag :redacted))}})
       (rf/reg-event :destroy-self
                        (fn [_ _]
-                         (frame/destroy-frame! :test/main)
+                         (rf.frame/destroy-frame! :test/main)
                          {}))
       (try (rf/dispatch-sync [:destroy-self] {:frame :test/main})
            (catch Throwable _ nil))
@@ -488,7 +488,7 @@
         (is (not (contains? halted :rf/test-tag))
             "halted-destroy path: listener received the RAW partial record
              (storage-side redaction was removed)")
-        (is (= :redacted (:rf/test-tag (epoch/projected-record halted)))
+        (is (= :redacted (:rf/test-tag (rf.epoch/projected-record halted)))
             "the override applies when the halted record is projected")))))
 
 ;; ============================================================================
@@ -505,7 +505,7 @@
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (let [r (last-record :test/main)]
       (is (= {:n 0} (:db-after r)))
-      (is (= {:n 0} (:db-after (epoch/projected-record r)))
+      (is (= {:n 0} (:db-after (rf.epoch/projected-record r)))
           "no override — projection of a non-sensitive db is the plain
            frame/profile shape"))))
 
@@ -530,7 +530,7 @@
 ;; `record-unmount!`) routes it into the causing cascade's committed record.
 
 (defn- emit-sub-run! [frame-id sub-id prev-value value]
-  (trace/emit! :rf.sub :rf.sub/run
+  (rf.trace/emit! :rf.sub :rf.sub/run
                {:rf.sub/id             sub-id
                 :rf.sub/query-v        [sub-id]
                 :frame                 frame-id
@@ -601,7 +601,7 @@
     (emit-sub-run! :test/main :secret nil "topsecret")
 
     (let [r         (last-record :test/main)
-          projected (epoch/projected-record r)
+          projected (rf.epoch/projected-record r)
           raw-row   (->> (:sub-runs r)
                          (filter #(= :secret (:sub-id %))) first)
           proj-row  (->> (:sub-runs projected)
@@ -634,7 +634,7 @@
             "the non-sensitive value is RAW in the ring/listener")
         (is (= true (:value-changed? sub-run))
             "the benign sub-run's value-change attribution survives intact")
-        (is (= 42 (:value (->> (:sub-runs (epoch/projected-record renotified))
+        (is (= 42 (:value (->> (:sub-runs (rf.epoch/projected-record renotified))
                                (filter #(= :counter (:sub-id %))) first)))
             "the benign value passes the projection unchanged (no
              over-redaction)")))))
@@ -705,6 +705,6 @@
                               first)]
         (is (= "topsecret" (get-in login-record [:db-after :auth :password]))
             "the durable ring record is RAW (the replay source)")
-        (is (= :rf/redacted (:db-after (epoch/projected-record login-record)))
+        (is (= :rf/redacted (:db-after (rf.epoch/projected-record login-record)))
             "the SAME record projects REDACTED at egress — egress redacts,
              storage stays raw")))))

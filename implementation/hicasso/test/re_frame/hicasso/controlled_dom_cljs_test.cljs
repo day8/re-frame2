@@ -34,8 +34,8 @@
   The guard rows need no DOM and run on both targets; the rest degrade
   to a stated skip under `:node-test`."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.controlled :as controlled]))
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.controlled :as rf.hicasso.impl.controlled]))
 
 (defn- browser? []
   (and (exists? js/document) (some? js/document) (some? (.-body js/document))))
@@ -110,11 +110,11 @@
           (is (= {:value "abXcd" :caret [3 3]} (reading node))
               "the browser got there first, as it always does")
           (committed! node "abXcd")
-          (is (= "abXcd" (controlled/last-rendered node))
+          (is (= "abXcd" (rf.hicasso.impl.controlled/last-rendered node))
               "and the commit moved the record with it")
           (testing "the naive form — the handler's own closure value"
             (.setSelectionRange node 3 3)
-            (controlled/converge-to! node "abXcd" 3 "abcd")
+            (rf.hicasso.impl.controlled/converge-to! node "abXcd" 3 "abcd")
             (is (= "abcd" (.-value node))
                 "the accepted keystroke is GONE. This is the regression,
                  measured rather than assumed")
@@ -125,7 +125,7 @@
           (testing "the same call, one argument different — the record"
             (committed! node "abXcd")
             (.setSelectionRange node 3 3)
-            (controlled/converge-to! node "abXcd" 3 (controlled/last-rendered node))
+            (rf.hicasso.impl.controlled/converge-to! node "abXcd" 3 (rf.hicasso.impl.controlled/last-rendered node))
             (is (= {:value "abXcd" :caret [3 3]} (reading node))
                 "nothing moved, which is the whole of what a keystroke
                  the model took verbatim is owed"))
@@ -151,9 +151,9 @@
               "the field still shows what was typed — nothing re-rendered")
           (is (= "abXcd" (.-value accepted))
               "and so does this one — because that IS what was rendered")
-          (is (not= (controlled/last-rendered refused) (.-value refused))
+          (is (not= (rf.hicasso.impl.controlled/last-rendered refused) (.-value refused))
               "the record is the only thing that tells them apart")
-          (is (= (controlled/last-rendered accepted) (.-value accepted)))
+          (is (= (rf.hicasso.impl.controlled/last-rendered accepted) (.-value accepted)))
           (finally (drop! refused) (drop! accepted)))))))
 
 ;; ---------------------------------------------------------------------------
@@ -173,7 +173,7 @@
           (typed! node "5" 5)
           (is (= {:value "1,2345" :caret [6 6]} (reading node)))
           (committed! node "12,345")
-          (controlled/converge-to! node "1,2345" 6 "12,345")
+          (rf.hicasso.impl.controlled/converge-to! node "1,2345" 6 "12,345")
           (is (= {:value "12,345" :caret [6 6]} (reading node))
               "0 from the end of a six-character string and 0 from the
                end of a seven-character one are the same caret")
@@ -186,7 +186,7 @@
         (try
           (typed! node "z" 2)
           (is (= {:value "12z345" :caret [3 3]} (reading node)))
-          (controlled/converge-to! node "12z345" 3 (controlled/last-rendered node))
+          (rf.hicasso.impl.controlled/converge-to! node "12z345" 3 (rf.hicasso.impl.controlled/last-rendered node))
           (is (= {:value "12345" :caret [2 2]} (reading node))
               "3 from the end of \"12z345\" is 2 from the end of
                \"12345\" — the position before the refused character")
@@ -203,7 +203,7 @@
   event target, and read the node afterwards — so a row says whether a
   converge ran without knowing how it was installed."
   [hiccup name' node]
-  ((slot (codec/as-element hiccup) name') #js {:target node})
+  ((slot (rf.hicasso.impl.codec/as-element hiccup) name') #js {:target node})
   (reading node))
 
 (deftest a-controlled-field-converges-through-the-handler-the-codec-emitted
@@ -234,7 +234,7 @@
       (let [node (field! "12345")]
         (try
           (typed! node "z" 2)
-          (let [e (codec/as-element [:input {:value     "12345"
+          (let [e (rf.hicasso.impl.codec/as-element [:input {:value     "12345"
                                              :on-input  (fn [_e])
                                              :on-change (fn [_e])}])]
             ((slot e "onInput") #js {:target node})
@@ -277,7 +277,7 @@
       (skip! ":node-test has no DOM")
       (let [!ran (atom 0)
             hiccup [:input {:value "12345" :on-input (fn [_e] (swap! !ran inc))}]
-            handler (fn [] (slot (codec/as-element hiccup) "onInput"))]
+            handler (fn [] (slot (rf.hicasso.impl.codec/as-element hiccup) "onInput"))]
         (testing "not composing — the converge runs"
           (let [node (field! "12345")]
             (try
@@ -302,11 +302,11 @@
            `isComposing` off it would be dead. A synthetic target from a
            node-side row carries no native event at all, which is why
            every row written before the carve-out reads as it did"
-    (is (false? (controlled/composing-input? #js {:target #js {}})))
-    (is (false? (controlled/composing-input? #js {})))
-    (is (false? (controlled/composing-input? #js {:nativeEvent #js {}})))
-    (is (false? (controlled/composing-input? #js {:nativeEvent #js {:isComposing false}})))
-    (is (true? (controlled/composing-input? #js {:nativeEvent #js {:isComposing true}})))))
+    (is (false? (rf.hicasso.impl.controlled/composing-input? #js {:target #js {}})))
+    (is (false? (rf.hicasso.impl.controlled/composing-input? #js {})))
+    (is (false? (rf.hicasso.impl.controlled/composing-input? #js {:nativeEvent #js {}})))
+    (is (false? (rf.hicasso.impl.controlled/composing-input? #js {:nativeEvent #js {:isComposing false}})))
+    (is (true? (rf.hicasso.impl.controlled/composing-input? #js {:nativeEvent #js {:isComposing true}})))))
 
 (deftest the-element-type-does-not-move-when-the-input-type-does
   (testing "why the shadow's component is chosen without reading `:type`.
@@ -319,7 +319,7 @@
            reads the type — one render later, where a wrong answer costs
            nothing"
     (let [f   (fn [_e])
-          typ (fn [props] (.-type (codec/as-element [:input props])))
+          typ (fn [props] (.-type (rf.hicasso.impl.codec/as-element [:input props])))
           controlled-as (fn [t] (typ (cond-> {:value "1" :on-input f}
                                        (some? t) (assoc :type t))))]
       (is (identical? (controlled-as "text") (controlled-as "number"))
@@ -335,7 +335,7 @@
            so an element-tree reader asks for the TAG rather than the
            type. Everything else answers itself"
     (let [f (fn [_e])
-          tag-of (fn [hiccup] (controlled/element-tag (codec/as-element hiccup)))]
+          tag-of (fn [hiccup] (rf.hicasso.impl.controlled/element-tag (rf.hicasso.impl.codec/as-element hiccup)))]
       (is (= "input" (tag-of [:input {:value "x" :on-input f}])))
       (is (= "textarea" (tag-of [:textarea {:value "x" :on-input f}])))
       (is (= "input" (tag-of [:input {:on-input f}]))
@@ -354,7 +354,7 @@
            function to React by identity, so `identical?` is exactly the
            question \"was anything installed here?\""
     (let [f (fn [_e])
-          emitted (fn [hiccup] (slot (codec/as-element hiccup) "onInput"))]
+          emitted (fn [hiccup] (slot (rf.hicasso.impl.codec/as-element hiccup) "onInput"))]
       (is (not (identical? f (emitted [:input {:value "x" :on-input f}])))
           "the control: a controlled text field IS wrapped")
       (is (identical? f (emitted [:input {:on-input f}]))
@@ -420,7 +420,7 @@
 
 (deftest every-spelling-of-a-caret-type-is-the-same-control
   (let [f       (fn [_e])
-        emitted (fn [hiccup] (slot (codec/as-element hiccup) "onInput"))
+        emitted (fn [hiccup] (slot (rf.hicasso.impl.codec/as-element hiccup) "onInput"))
         wrapped? (fn [hiccup] (not (identical? f (emitted hiccup))))]
     (testing "every caret-bearing type, shouted — each of these IS a text
              entry control to the engine, and each used to walk past the
@@ -524,7 +524,7 @@
            after, which is what makes it a statement about the design
            rather than about the repair."
     (let [f   (fn [_e])
-          typ (fn [t] (.-type (codec/as-element
+          typ (fn [t] (.-type (rf.hicasso.impl.codec/as-element
                                [:input (cond-> {:value "1" :on-input f}
                                          (some? t) (assoc :type t))])))]
       (is (identical? (typ "text") (typ "TEXT")))
@@ -535,7 +535,7 @@
 (deftest a-controlled-field-with-no-change-handler-has-nothing-wrapped
   (testing "there is no slot to install into, and the codec does not mint
            one — an element with no handler comes out with no handler"
-    (let [e (codec/as-element [:input {:value "12345"}])]
+    (let [e (rf.hicasso.impl.codec/as-element [:input {:value "12345"}])]
       (is (nil? (slot e "onInput")))
       (is (nil? (slot e "onChange")))
       (is (= "12345" (slot e "value"))))))
@@ -547,15 +547,15 @@
            synthetic `#js {:target #js {…}}`, and none of them may throw
            or flush anything."
     (let [!seen (atom [])
-          e     (codec/as-element
+          e     (rf.hicasso.impl.codec/as-element
                  [:input {:value    "12345"
                           :on-input (fn [ev] (swap! !seen conj (.. ev -target -value)))}])]
       ((slot e "onInput") #js {:target #js {:value "typed"}})
       (is (= ["typed"] @!seen) "the author's handler ran and saw the event")
-      (is (nil? (controlled/last-rendered #js {:value "typed"}))
+      (is (nil? (rf.hicasso.impl.controlled/last-rendered #js {:value "typed"}))
           "and there was no record to converge to")))
   (testing "an event with no target at all"
     (let [!ran (atom 0)
-          e    (codec/as-element [:input {:value "x" :on-input (fn [_e] (swap! !ran inc))}])]
+          e    (rf.hicasso.impl.codec/as-element [:input {:value "x" :on-input (fn [_e] (swap! !ran inc))}])]
       ((slot e "onInput") #js {})
       (is (= 1 @!ran)))))

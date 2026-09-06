@@ -58,18 +58,18 @@
   What can be said without a fiber is said in `hooks_island_cljs_test`."
   (:require [clojure.set :as set]
             [cljs.test :refer-macros [deftest is testing use-fixtures async]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.frame :as frame]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.hicasso.native :as n]
-            [re-frame.hicasso.roots-frames-support :as support]
-            [re-frame.hicasso.tool :as tool]
-            [re-frame.test-support :as test-support]
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.frame :as rf.frame]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.hicasso.native :as rf.hicasso.native]
+            [re-frame.hicasso.roots-frames-support :as rf.hicasso.roots-frames-support]
+            [re-frame.hicasso.tool :as rf.hicasso.tool]
+            [re-frame.test-support :as rf.test-support]
             [uix.core :as uix :refer-macros [defui]]
             ["react" :as react]))
 
@@ -136,8 +136,8 @@
   [^js props]
   (swap! !island-runs inc)
   (let [sym               (.-sym props)
-        price             (n/use-sub [::price sym])
-        ops               (n/use-frame)
+        price             (rf.hicasso.native/use-sub [::price sym])
+        ops               (rf.hicasso.native/use-frame)
         [local set-local] (react/useState 0)]
     (reset! !last-ops ops)
     ;; The class on the ROOT node is what the rows read; the `.price`,
@@ -159,8 +159,8 @@
   same local state, the same DOM."
   [{:keys [sym]}]
   (swap! !island-runs inc)
-  (let [price             (n/use-sub [::price sym])
-        ops               (n/use-frame)
+  (let [price             (rf.hicasso.native/use-sub [::price sym])
+        ops               (rf.hicasso.native/use-frame)
         [local set-local] (uix/use-state 0)]
     (reset! !last-ops ops)
     (uix/$ :div {:class "island"}
@@ -183,8 +183,8 @@
   "An island reading TWO keys — the shape `n/use-sub`'s docstring prices
   at two cells, and the row below measures."
   [^js props]
-  (let [price (n/use-sub [::price (.-sym props)])
-        other (n/use-sub [::elsewhere])]
+  (let [price (rf.hicasso.native/use-sub [::price (.-sym props)])
+        other (rf.hicasso.native/use-sub [::elsewhere])]
     (react/createElement "div" #js {:className "two"}
       (react/createElement "b" #js {:className "price"} (str price))
       (react/createElement "i" #js {:className "other"} (str other)))))
@@ -193,12 +193,12 @@
 ;; on is the author's own function with nothing in between — the declared
 ;; arm the parity floor is stated over — and so the same tree is one tree
 ;; on every lane.
-(h/defhost ticker-host    ticker    {:server :render})
-(h/defhost uix-host-arm   uix-arm   {:server :render})
-(h/defhost two-reads-host two-reads {:server :render})
-(h/defhost strict-mode    react/StrictMode {:server :render})
+(rf.hicasso/defhost ticker-host    ticker    {:server :render})
+(rf.hicasso/defhost uix-host-arm   uix-arm   {:server :render})
+(rf.hicasso/defhost two-reads-host two-reads {:server :render})
+(rf.hicasso/defhost strict-mode    react/StrictMode {:server :render})
 
-(h/defview host
+(rf.hicasso/defview host
   "Rung 3's neighbour: an ordinary boundary body crossing into a raw
   React island through the named door. The island reaches the frame
   through the context this boundary's root installed, and through
@@ -206,36 +206,36 @@
   [{:keys [sym]}]
   [ticker-host {:sym sym}])
 
-(h/defview uix-host
+(rf.hicasso/defview uix-host
   "The same page with the UIx arm in the island's place."
   [{:keys [sym]}]
   [uix-host-arm {:sym sym}])
 
-(h/defview strict-host
+(rf.hicasso/defview strict-host
   "The raw island under React's own StrictMode, which double-invokes
   the body and runs mount/unmount/mount over every effect. StrictMode
   is a foreign component too, so it crosses through the same door."
   [{:keys [sym]}]
   [strict-mode [ticker-host {:sym sym}]])
 
-(h/defview two-reads-page
+(rf.hicasso/defview two-reads-page
   [{:keys [sym]}]
   [two-reads-host {:sym sym}])
 
-(h/defview boundary-reader
+(rf.hicasso/defview boundary-reader
   "A BOUNDARY reading the identical key the island reads — the control
   for the shared-entry claim."
   [{:keys [sym]}]
-  [:u.boundary (str (h/sub [::price sym]))])
+  [:u.boundary (str (rf.hicasso/sub [::price sym]))])
 
-(h/defview shared-host
+(rf.hicasso/defview shared-host
   "One boundary and one island, reading one key."
   [{:keys [sym]}]
   [:div [boundary-reader {:sym sym}] [ticker-host {:sym sym}]])
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.uix/adapter
      ;; `nil` and not the default: a dynamic-var frame left in ambient scope
      ;; would let a hook that failed to resolve its own frame answer that one
      ;; instead, and the isolation row would read a rendering difference where
@@ -244,11 +244,11 @@
      ;; The MAP shape, because every row here is `async`.
      :async?        true
      :init-fn       (fn []
-                      (support/leave-act-environment!)
+                      (rf.hicasso.roots-frames-support/leave-act-environment!)
                       (reset! !island-runs 0)
                       (reset! !last-ops nil)
-                      (error-emit/clear-error-listeners!)
-                      (collector/reset-runtime!))}))
+                      (rf.error-emit/clear-error-listeners!)
+                      (rf.hicasso.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -262,7 +262,7 @@
   [frame-kw prices]
   (rf/make-frame {:id frame-kw})
   (rf/with-frame frame-kw (rf/dispatch-sync [::seed prices]))
-  (frame/frame-incarnation-token frame-kw))
+  (rf.frame/frame-incarnation-token frame-kw))
 
 (defn- query-node [handle selector]
   (.querySelector ^js (:container handle) selector))
@@ -270,10 +270,10 @@
   (some-> (query-node handle selector) .-textContent))
 (defn- click! [handle selector]
   (.click ^js (query-node handle selector))
-  (mount/settle!)
+  (rf.hicasso.impl.mount/settle!)
   nil)
 
-(defn- readers-of [sub-key] (runtime/cell-readers sub-key))
+(defn- readers-of [sub-key] (rf.hicasso.test.runtime/cell-readers sub-key))
 
 (defonce ^:private !minted
   ;; Every root a row has minted through `mount-live!`, oldest first.
@@ -292,7 +292,7 @@
   SYNCHRONOUSLY and hands it over only once the wait succeeds, so a
   rejection reaches the arm with a live root the arm has no name for."
   []
-  (run! mount/release! @!minted)
+  (run! rf.hicasso.impl.mount/release! @!minted)
   (reset! !minted [])
   nil)
 
@@ -312,15 +312,15 @@
   instant until [[release-minted!]] runs there is a live root on the page
   and this promise is the only thing that could ever name it."
   [frame-kw hiccup sub-key readers]
-  (let [container (mount/fresh-container!)
-        handle    (mount/root! container frame-kw hiccup)]
+  (let [container (rf.hicasso.impl.mount/fresh-container!)
+        handle    (rf.hicasso.impl.mount/root! container frame-kw hiccup)]
     (swap! !minted conj handle)
-    (-> (support/wait-until! #(= readers (count (readers-of sub-key))))
+    (-> (rf.hicasso.roots-frames-support/wait-until! #(= readers (count (readers-of sub-key))))
         (.then (fn [subscribed?]
                  (when-not subscribed?
                    (throw (ex-info (str "expected " readers
                                         " subscribed reader(s) on " (pr-str sub-key))
-                                   {:residue (runtime/residue)})))
+                                   {:residue (rf.hicasso.test.runtime/residue)})))
                  handle)))))
 
 (defn- skip! [why] (is true (str "a hook claim needs a real React DOM — " why)))
@@ -338,7 +338,7 @@
   [label]
   (fn [e]
     (is false (str label " — " (.-message e)
-                   " | residue " (pr-str (runtime/residue))))
+                   " | residue " (pr-str (rf.hicasso.test.runtime/residue))))
     nil))
 
 (defn- teardown!
@@ -348,7 +348,7 @@
   census taken after it reads zeros whether the teardown released
   anything or not."
   [handle]
-  (support/teardown-census! handle))
+  (rf.hicasso.roots-frames-support/teardown-census! handle))
 
 ;; ---------------------------------------------------------------------------
 ;; W1. The read is the runtime's own, and the tool tier can see it
@@ -356,7 +356,7 @@
 
 (deftest an-islands-read-is-the-runtimes-own-and-xray-sees-it
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.hicasso.impl.mount/browser?)
       (do (skip! ":node-test has no React DOM") (done))
       (let [k (price-key alpha "AAPL")]
         (seat! alpha {"AAPL" 191})
@@ -374,7 +374,7 @@
                           hook that read through `subscribe-once` per render —
                           the paint above is identical under it and there would
                           be one reader here, or none"
-                  (is (= #{k} (support/cell-keys)))
+                  (is (= #{k} (rf.hicasso.roots-frames-support/cell-keys)))
                   (is (= 2 (count (readers-of k)))))
 
                 (testing "and TWO read-set entries exist, which is the honest
@@ -383,7 +383,7 @@
                           body that reads nothing still mints and claims an
                           entry, and that is what makes the tool tier's census
                           complete"
-                  (is (= 2 (:entries (runtime/residue)))))
+                  (is (= 2 (:entries (rf.hicasso.test.runtime/residue)))))
 
                 (testing "and `re-frame.hicasso.tool`'s mounted-boundary
                           projection — hic-023's, the one Xray consumes — NAMES
@@ -397,7 +397,7 @@
                           unchanged under it, because two entries with equal
                           key sets group into one row; what doubles is the
                           number of entries folded into that row"
-                  (let [projection (tool/read-mounted-boundaries)
+                  (let [projection (rf.hicasso.tool/read-mounted-boundaries)
                         row        (first (filter (fn [r]
                                                     (some #(= ::price (:sub-id %))
                                                           (:reads r)))
@@ -414,7 +414,7 @@
 
                 (exercised! :hooks/mounted-read)
                 (testing "teardown releases every membership the mount took"
-                  (is (= support/released (teardown! handle))))
+                  (is (= rf.hicasso.roots-frames-support/released (teardown! handle))))
                 nil))
             (.catch (report-failure! "W1 mounted read"))
             (.then (fn [_] (release-minted!) (done))))))))
@@ -425,7 +425,7 @@
 
 (deftest a-write-wakes-the-island-that-reads-it-and-nothing-else
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.hicasso.impl.mount/browser?)
       (do (skip! ":node-test has no React DOM") (done))
       (let [k (price-key alpha "AAPL")]
         (seat! alpha {"AAPL" 191})
@@ -433,7 +433,7 @@
             (.then
               (fn [handle]
                 (testing "a write to the key the island reads repaints it"
-                  (mount/dispatch! handle [::set-price "AAPL" 204])
+                  (rf.hicasso.impl.mount/dispatch! handle [::set-price "AAPL" 204])
                   (is (= "204" (text-at handle ".price"))))
 
                 (let [runs (deref !island-runs)]
@@ -443,7 +443,7 @@
                             whole — it repaints correctly on the row above and
                             wakes on every write in the application here, which
                             is the cost the whole cell table exists to avoid"
-                    (mount/dispatch! handle [::touch-elsewhere])
+                    (rf.hicasso.impl.mount/dispatch! handle [::touch-elsewhere])
                     (is (= runs (deref !island-runs)))
                     (is (= "204" (text-at handle ".price")))))
 
@@ -457,7 +457,7 @@
                          (rf/with-frame alpha @(rf/subscribe [::price "AAPL"])))))
 
                 (exercised! :hooks/selective-wake)
-                (is (= support/released (teardown! handle)))
+                (is (= rf.hicasso.roots-frames-support/released (teardown! handle)))
                 nil))
             (.catch (report-failure! "W2 selective wake"))
             (.then (fn [_] (release-minted!) (done))))))))
@@ -484,7 +484,7 @@
           (fn [handle]
             (let [reg-at-mount (first (readers-of k))
                   runs         (deref !island-runs)
-                  residue      (runtime/residue)]
+                  residue      (rf.hicasso.test.runtime/residue)]
 
               (testing "three re-renders driven by the island's OWN React
                         state — a state bump behind a real click, which the
@@ -512,27 +512,27 @@
               (testing "so nothing was released and re-acquired: one cell,
                         one membership, one boundary, one edge, one entry —
                         the numbers the mount established, unmoved"
-                (is (= residue (runtime/residue))))
+                (is (= residue (rf.hicasso.test.runtime/residue))))
 
               (testing "the same holds across a re-render the RUNTIME
                         caused. A write moves the value, React re-renders
                         the island, and the read set is what it was — so
                         React is never handed a new `subscribe` and the
                         commit does no work"
-                (mount/dispatch! handle [::set-price "AAPL" 204])
+                (rf.hicasso.impl.mount/dispatch! handle [::set-price "AAPL" 204])
                 (is (= "204" (text-at handle ".price")))
                 (is (true? (identical? reg-at-mount (first (readers-of k))))
                     "React holds a DIFFERENT registration, so the
                      subscription was torn down and rebuilt")
-                (is (= residue (runtime/residue))))
+                (is (= residue (rf.hicasso.test.runtime/residue))))
 
               (exercised! mechanism)
-              (is (= support/released (teardown! handle)))
+              (is (= rf.hicasso.roots-frames-support/released (teardown! handle)))
               nil))))))
 
 (deftest a-re-render-that-changed-no-read-performs-no-re-subscribe
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.hicasso.impl.mount/browser?)
       (do (skip! ":node-test has no React DOM") (done))
       (-> (no-resubscribe-row! host :hooks/no-resubscribe)
           (.catch (report-failure! "W3 no re-subscribe"))
@@ -540,7 +540,7 @@
 
 (deftest a-uix-island-re-rendered-for-its-own-reasons-performs-no-re-subscribe
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.hicasso.impl.mount/browser?)
       (do (skip! ":node-test has no React DOM") (done))
       (-> (no-resubscribe-row! uix-host :hooks/no-resubscribe-uix)
           (.catch (report-failure! "W3 no re-subscribe, UIx arm"))
@@ -552,7 +552,7 @@
 
 (deftest strict-modes-double-mount-acquires-once-and-unmount-releases-exactly
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.hicasso.impl.mount/browser?)
       (do (skip! ":node-test has no React DOM") (done))
       (let [k (price-key alpha "AAPL")]
         (seat! alpha {"AAPL" 191})
@@ -573,16 +573,16 @@
                           state machine's one prohibition — which under a
                           double-invoked render acquires twice and reads 2 here
                           while painting perfectly"
-                  (is (= #{k} (support/cell-keys)))
+                  (is (= #{k} (rf.hicasso.roots-frames-support/cell-keys)))
                   (is (= 1 (count (readers-of k))))
                   (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1}
-                         (dissoc (runtime/residue) :entries))))
+                         (dissoc (rf.hicasso.test.runtime/residue) :entries))))
 
                 (testing "the island is live, not merely tidy — a subscription
                           torn down by StrictMode's first cleanup and never
                           rebuilt would satisfy every count above and repaint
                           nothing"
-                  (mount/dispatch! handle [::set-price "AAPL" 204])
+                  (rf.hicasso.impl.mount/dispatch! handle [::set-price "AAPL" 204])
                   (is (= "204" (text-at handle ".price"))))
 
                 (testing "and unmount releases EXACTLY what mount acquired,
@@ -590,15 +590,15 @@
                           caught: a cleanup that released by key rather than by
                           the cells it acquired — after a reap and rebuild it
                           would release a successor's and leave its own"
-                  (is (= support/released (teardown! handle))))
+                  (is (= rf.hicasso.roots-frames-support/released (teardown! handle))))
 
                 (exercised! :hooks/strict-mode)
-                (-> (support/quiesced!)
+                (-> (rf.hicasso.roots-frames-support/quiesced!)
                     (.then (fn [_]
                              (testing "past the reapers the tables are empty"
                                (is (= {:cells 0 :cell-refs 0 :boundaries 0
                                        :edges 0 :entries 0}
-                                      (runtime/residue))))
+                                      (rf.hicasso.test.runtime/residue))))
                              nil)))))
             (.catch (report-failure! "W4 StrictMode"))
             (.then (fn [_] (release-minted!) (done))))))))
@@ -629,7 +629,7 @@
                         global, a dynamic var, a `:rf/default` floor —
                         every one of which produces ONE key here and two
                         visually plausible subtrees"
-                (is (= #{ka kb} (support/cell-keys)))
+                (is (= #{ka kb} (rf.hicasso.roots-frames-support/cell-keys)))
                 (is (= 1 (count (readers-of ka))))
                 (is (= 1 (count (readers-of kb)))))
 
@@ -640,19 +640,19 @@
               (testing "a write in one frame moves that frame's island and
                         leaves the other exactly where it was — the
                         isolation claim as a REPAINT rather than as a count"
-                (mount/dispatch! a [::set-price "AAPL" "alpha-moved"])
+                (rf.hicasso.impl.mount/dispatch! a [::set-price "AAPL" "alpha-moved"])
                 (is (= "alpha-moved" (text-at a ".price")))
                 (is (= "beta-price"  (text-at b ".price"))))
 
               (exercised! mechanism)
-              (mount/unmount! a)
-              (is (= support/released (teardown! b)))
-              (mount/release! (assoc a :root nil))
+              (rf.hicasso.impl.mount/unmount! a)
+              (is (= rf.hicasso.roots-frames-support/released (teardown! b)))
+              (rf.hicasso.impl.mount/release! (assoc a :root nil))
               nil))))))
 
 (deftest two-frames-are-two-cells-and-an-island-cannot-see-across
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.hicasso.impl.mount/browser?)
       (do (skip! ":node-test has no React DOM") (done))
       (-> (isolation-row! host :hooks/frame-isolation)
           (.catch (report-failure! "W5 frame isolation"))
@@ -660,7 +660,7 @@
 
 (deftest a-uix-island-cannot-see-across-frames-either
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.hicasso.impl.mount/browser?)
       (do (skip! ":node-test has no React DOM") (done))
       (-> (isolation-row! uix-host :hooks/frame-isolation-uix)
           (.catch (report-failure! "W5 frame isolation, UIx arm"))
@@ -672,7 +672,7 @@
 
 (deftest two-reads-in-one-island-are-two-cells
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.hicasso.impl.mount/browser?)
       (do (skip! ":node-test has no React DOM") (done))
       (let [ka (price-key alpha "AAPL")
             ke [alpha [::elsewhere]]]
@@ -687,7 +687,7 @@
                           subscription is a hook, so `n` reads cost `n` of
                           them. Narrowing caught: a hook that folded a
                           component's reads into one entry and dropped one"
-                  (is (= #{ka ke} (support/cell-keys)))
+                  (is (= #{ka ke} (rf.hicasso.roots-frames-support/cell-keys)))
                   (is (= 1 (count (readers-of ka))))
                   (is (= 1 (count (readers-of ke))))
                   (is (= "191" (text-at handle ".price")))
@@ -695,16 +695,16 @@
 
                 (testing "and both are live: a write to either key repaints
                           the island through its own cell"
-                  (mount/dispatch! handle [::touch-elsewhere])
+                  (rf.hicasso.impl.mount/dispatch! handle [::touch-elsewhere])
                   (is (= "1" (text-at handle ".other")))
                   (is (= "191" (text-at handle ".price")))
-                  (mount/dispatch! handle [::set-price "AAPL" 204])
+                  (rf.hicasso.impl.mount/dispatch! handle [::set-price "AAPL" 204])
                   (is (= "204" (text-at handle ".price")))
                   (is (= 1 (count (readers-of ka))))
                   (is (= 1 (count (readers-of ke)))))
 
                 (exercised! :hooks/two-cells)
-                (is (= support/released (teardown! handle)))
+                (is (= rf.hicasso.roots-frames-support/released (teardown! handle)))
                 nil))
             (.catch (report-failure! "W5b two cells"))
             (.then (fn [_] (release-minted!) (done))))))))
@@ -720,14 +720,14 @@
   [thunk]
   (let [seen (atom [])
         k    ::destroyed-listener]
-    (error-emit/register-error-listener!
+    (rf.error-emit/register-error-listener!
       k (fn [r] (when (= :rf.error/frame-destroyed (:error r)) (swap! seen conj r))))
     (try (thunk) @seen
-         (finally (error-emit/unregister-error-listener! k)))))
+         (finally (rf.error-emit/unregister-error-listener! k)))))
 
 (deftest use-frame-is-stable-across-renders-and-retargets-across-a-reincarnation
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.hicasso.impl.mount/browser?)
       (do (skip! ":node-test has no React DOM") (done))
       (let [k (price-key alpha "AAPL")]
         (seat! alpha {"AAPL" "predecessor"})
@@ -735,7 +735,7 @@
             (.then
               (fn [handle]
                 (let [ops-1   (deref !last-ops)
-                      token-1 (frame/frame-incarnation-token alpha)]
+                      token-1 (rf.frame/frame-incarnation-token alpha)]
 
                   (testing "reference stability: three re-renders that changed
                             no frame hand back the IDENTICAL map, which is what
@@ -755,7 +755,7 @@
                               public id"
                       (is (not (identical? token-1 token-2))))
 
-                    (-> (support/wait-until! #(= "successor" (text-at handle ".price")))
+                    (-> (rf.hicasso.roots-frames-support/wait-until! #(= "successor" (text-at handle ".price")))
                         (.then
                           (fn [corrected?]
                             (is (true? corrected?)
@@ -798,7 +798,7 @@
                                                   @(rf/subscribe [::price "AAPL"])))))))
 
                             (exercised! :hooks/incarnation)
-                            (is (= support/released (teardown! handle)))
+                            (is (= rf.hicasso.roots-frames-support/released (teardown! handle)))
                             nil))
                         ;; The inner chain finishes NOTHING and tears nothing
                         ;; down — it is returned into the outer one below.
@@ -819,7 +819,7 @@
   ;; fallback honestly rather than advertise transition-awareness. This is
   ;; the test half; `n/use-sub`'s docstring is the documented half.
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.hicasso.impl.mount/browser?)
       (do (skip! ":node-test has no React DOM") (done))
       (let [k (price-key alpha "AAPL")]
         (seat! alpha {"AAPL" 191})
@@ -827,8 +827,8 @@
             (.then
               (fn [handle]
                 (react/startTransition
-                  (fn [] (collector/dispatch! alpha [::set-price "AAPL" 204])))
-                (mount/settle!)
+                  (fn [] (rf.hicasso.impl.collector/dispatch! alpha [::set-price "AAPL" 204])))
+                (rf.hicasso.impl.mount/settle!)
                 (testing "the paint agrees with app-db — no tear. A hook that
                           returned a value captured independently of the epoch
                           `getSnapshot` reports could disagree here, and React
@@ -840,10 +840,10 @@
                           transition"
                   (is (= 1 (count (readers-of k))))
                   (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1}
-                         (dissoc (runtime/residue) :entries))))
+                         (dissoc (rf.hicasso.test.runtime/residue) :entries))))
 
                 (exercised! :hooks/transition)
-                (is (= support/released (teardown! handle)))
+                (is (= rf.hicasso.roots-frames-support/released (teardown! handle)))
                 nil))
             (.catch (report-failure! "W7 transition"))
             (.then (fn [_] (release-minted!) (done))))))))
@@ -853,7 +853,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-declared-population-was-actually-exercised
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test reaches none of the mechanisms")
     (is (= declared-population (deref !exercised))
         (str "declared but never reached: "

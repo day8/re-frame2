@@ -42,10 +42,10 @@
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.core :as r]
-            [re-frame.interop :as interop]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.substrate.adapter :as substrate-adapter]
-            [re-frame.test-support :as test-support]))
+            [re-frame.interop :as rf.interop]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; The `:adapter/after-render` hook is routed: `interop/after-render`
 ;; runs Reagent's `r/after-render` ONLY when the Reagent adapter is the
@@ -60,8 +60,8 @@
 ;; queue / pending fake-raf (`r/flush`) so an enqueued callback can't leak
 ;; into a later test ns sharing the bundle.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter :ambient-frame nil})
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter :ambient-frame nil})
   (fn [test-fn] (try (test-fn) (finally (r/flush)))))
 
 ;; ---- (1) the hook is reachable through interop under the Reagent adapter ---
@@ -75,7 +75,7 @@
       ;; The return value is Reagent-internal (stock r/after-render arms a
       ;; deferred drain and hands back its scheduler token); we assert the
       ;; DEFERRAL contract, not the token shape.
-      (interop/after-render (fn [] (swap! fired inc)))
+      (rf.interop/after-render (fn [] (swap! fired inc)))
       (is (zero? @fired)
           "after-render defers — the callback does not fire synchronously
            during the enqueue call"))))
@@ -87,14 +87,14 @@
             adapter FIRES when Reagent's render queue drains; (r/flush)
             forces that drain synchronously"
     (let [fired (atom 0)]
-      (interop/after-render (fn [] (swap! fired inc)))
+      (rf.interop/after-render (fn [] (swap! fired inc)))
       (is (zero? @fired) "not fired before the drain")
       (r/flush)
       (is (= 1 @fired)
           "callback fired exactly once after the render queue drained")
       ;; The queue is re-armed per drain (not a one-shot): a second
       ;; enqueue + drain fires again, and does NOT re-fire the first.
-      (interop/after-render (fn [] (swap! fired inc)))
+      (rf.interop/after-render (fn [] (swap! fired inc)))
       (r/flush)
       (is (= 2 @fired)
           "a subsequent after-render callback also fires on the next drain")
@@ -110,9 +110,9 @@
   (testing "multiple callbacks enqueued before a single drain all fire,
             in enqueue order (Reagent's afterRender queue is FIFO)"
     (let [order (atom [])]
-      (interop/after-render (fn [] (swap! order conj :first)))
-      (interop/after-render (fn [] (swap! order conj :second)))
-      (interop/after-render (fn [] (swap! order conj :third)))
+      (rf.interop/after-render (fn [] (swap! order conj :first)))
+      (rf.interop/after-render (fn [] (swap! order conj :second)))
+      (rf.interop/after-render (fn [] (swap! order conj :third)))
       (is (= [] @order) "none fire before the drain")
       (r/flush)
       (is (= [:first :second :third] @order)
@@ -130,17 +130,17 @@
 (deftest copied-adapter-map-routes-to-live-after-render-hook
   (testing "a copied stock-Reagent adapter map still drives the live
             :adapter/after-render hook (rf2-dkl5z1)"
-    (let [original (substrate-adapter/current-adapter-spec)
-          copied   (assoc reagent-adapter/adapter :rf.test/instrumentation-wrapper true)
+    (let [original (rf.substrate.adapter/current-adapter-spec)
+          copied   (assoc rf.adapter.reagent/adapter :rf.test/instrumentation-wrapper true)
           fired    (atom 0)]
-      (substrate-adapter/dispose-adapter!)
-      (substrate-adapter/install-adapter! copied)
+      (rf.substrate.adapter/dispose-adapter!)
+      (rf.substrate.adapter/install-adapter! copied)
       (try
-        (is (false? (identical? reagent-adapter/adapter (substrate-adapter/current-adapter-spec)))
+        (is (false? (identical? rf.adapter.reagent/adapter (rf.substrate.adapter/current-adapter-spec)))
             "precondition: the installed copy is NOT identical to the routed canonical map")
-        (is (= :rf.adapter/reagent (substrate-adapter/current-adapter))
+        (is (= :rf.adapter/reagent (rf.substrate.adapter/current-adapter))
             "precondition: the copy preserves the canonical :kind token")
-        (interop/after-render (fn [] (swap! fired inc)))
+        (rf.interop/after-render (fn [] (swap! fired inc)))
         (is (zero? @fired) "after-render still DEFERS under the copied map")
         (r/flush)
         (is (= 1 @fired)
@@ -150,5 +150,5 @@
                  " identity (rf2-dkl5z1)"))
         (finally
           (r/flush)
-          (substrate-adapter/dispose-adapter!)
-          (substrate-adapter/install-adapter! original))))))
+          (rf.substrate.adapter/dispose-adapter!)
+          (rf.substrate.adapter/install-adapter! original))))))

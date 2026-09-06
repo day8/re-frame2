@@ -31,8 +31,8 @@
    which is precisely the browser/DOM split the seam is built around."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             [re-frame.views]
             ;; the flows artefact (the example requires it too; explicit here
             ;; so the fixture's late-bound flows-registry reset is armed even
@@ -45,8 +45,8 @@
   (:require-macros [re-frame.core :refer [with-frame]]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
 (defn- cart [] (:cart (rf/app-db-value :rf/default)))
 

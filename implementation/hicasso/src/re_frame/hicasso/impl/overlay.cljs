@@ -34,11 +34,11 @@
   `:rf.error/hicasso-intent-outside-boundary`, because an element that
   invites a dismissal nothing can route is exactly the second owner
   (HD-020's frameless ruling)."
-  (:require [re-frame.adapter.context :as adapter-context]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.collector :as collector]
+  (:require [re-frame.adapter.context :as rf.adapter.context]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
             [re-frame.hicasso.impl.error :refer [fail!]]
-            [re-frame.hicasso.impl.intent :as intent]
+            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]
             ["react" :as react]))
 
 ;; ---------------------------------------------------------------------------
@@ -414,8 +414,8 @@
         ;; Hook 1 — the frame, through the shared reader so a no-provider
         ;; sentinel resolves to nil ("no scope") rather than being mistaken
         ;; for a frame keyword.
-        frame-kw (adapter-context/context-value->current-frame
-                   (react/useContext adapter-context/frame-context))
+        frame-kw (rf.adapter.context/context-value->current-frame
+                   (react/useContext rf.adapter.context/frame-context))
         ;; Hook 2 — the instance cell, filled lazily rather than through
         ;; `useRef`'s argument, which is evaluated on EVERY render and would
         ;; burn the counter once per render.
@@ -427,7 +427,7 @@
       ;; Zero cost when closed: no element, so no top-layer entry, no
       ;; listener, no anchor claim and no children rendered.
       (when (:open? props)
-        (let [dispatch (when frame-kw (collector/frame-dispatch frame-kw))
+        (let [dispatch (when frame-kw (rf.hicasso.impl.collector/frame-dispatch frame-kw))
               area     (position-area (:placement props))
               extra    (cond-> (assoc (dismissal-attrs props)
                                       :ref   (unchecked-get cell "ref")
@@ -449,9 +449,9 @@
           ;; the parent's body and are walked HERE, so the ambient frame the
           ;; codec's intent lowering reads is re-established around this
           ;; call and nowhere else.
-          (intent/with-frame frame-kw dispatch
+          (rf.hicasso.impl.intent/with-frame frame-kw dispatch
             (fn []
-              (codec/as-element
+              (rf.hicasso.impl.codec/as-element
                 (into [tag (element-attrs props extra)] (:children props))))))))))
 
 (defn- modal-dismissal-attrs
@@ -474,12 +474,12 @@
 
 (def modal
   "See `re-frame.hicasso.overlay/modal`."
-  (codec/mark-boundary!
+  (rf.hicasso.impl.codec/mark-boundary!
     (doto (fn hicasso-modal [js-props] (body modal-ops modal-dismissal-attrs js-props))
       (unchecked-set "displayName" "hicasso/modal"))))
 
 (def popover
   "See `re-frame.hicasso.overlay/popover`."
-  (codec/mark-boundary!
+  (rf.hicasso.impl.codec/mark-boundary!
     (doto (fn hicasso-popover [js-props] (body popover-ops popover-dismissal-attrs js-props))
       (unchecked-set "displayName" "hicasso/popover"))))

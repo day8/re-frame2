@@ -74,10 +74,10 @@
   [`spec/006-ReactiveSubstrate.md`](../../../../../spec/006-ReactiveSubstrate.md)
   §The adapter API contract."
   (:require ["react" :as react]
-            [re-frame.adapter.context :as adapter-context]
-            [re-frame.frame :as frame]
-            [re-frame.substrate.spine :as spine]
-            [re-frame.views.frame-boundary :as boundary]))
+            [re-frame.adapter.context :as rf.adapter.context]
+            [re-frame.frame :as rf.frame]
+            [re-frame.substrate.spine :as rf.substrate.spine]
+            [re-frame.views.frame-boundary :as rf.views.frame-boundary]))
 
 ;; ---------------------------------------------------------------------------
 ;; The spine
@@ -92,7 +92,7 @@
   fn object, which is what catches a cross-wired spine key. None of it is
   application API — Hicasso publishes `adapter` and reads subscriptions
   through `h/sub`."
-  (spine/make-react-spine
+  (rf.substrate.spine/make-react-spine
     {:substrate-name        "Hicasso"
      :gensym-prefix-sub     "rf-hic-sub-"
      :gensym-prefix-derived "rf-hic-derived-"
@@ -121,14 +121,14 @@
   here — the props arrive as React hands them over — so there is nothing for a
   wrapper to preserve and no reason to depend on one."
   [^js props]
-  (let [frame-kw (frame/require-frame-provider-target!
+  (let [frame-kw (rf.frame/require-frame-provider-target!
                    (.-frame props)
                    're-frame.hicasso.substrate/frame-provider)]
-    (boundary/require-live-frame-for-scope!
+    (rf.views.frame-boundary/require-live-frame-for-scope!
       frame-kw 're-frame.hicasso.substrate/frame-provider)
-    (apply adapter-context/provider-element
+    (apply rf.adapter.context/provider-element
            frame-kw
-           (adapter-context/normalize-children (.-children props)))))
+           (rf.adapter.context/normalize-children (.-children props)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The adapter Var
@@ -154,6 +154,6 @@
   two chained installs (the warn-once clear and the SSR hiccup emitter). The
   frame-provider stays here because the spine carries no substrate's own
   element machinery."
-  (spine/make-react-adapter spine-fns
+  (rf.substrate.spine/make-react-adapter spine-fns
                             {:kind           :rf.adapter/hicasso
                              :frame-provider frame-provider}))

@@ -35,13 +35,13 @@
   where the rest of the entry's string-only rows run."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.server :as server]
-            [re-frame.hicasso.test.server :as ts]
-            [re-frame.test-support :as test-support]))
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.server :as rf.hicasso.server]
+            [re-frame.hicasso.test.server :as rf.hicasso.test.server]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; Registered ABOVE `use-fixtures`, for the sibling suites' reason: the
 ;; reset fixture captures its source-store baseline when the
@@ -51,8 +51,8 @@
 (rf/reg-sub ::remaining (fn [db _] (:remaining db)))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.uix/adapter
      ;; `:ambient-frame nil`, and here it is load-bearing rather than
      ;; tidiness. The default root-binds `frame/*current-frame*` to
      ;; `:rf/default`, which is a CARRIED tier-1 stamp naming a frame the
@@ -63,7 +63,7 @@
      ;; no scope and a host calls it at top of stack. Measuring the doors
      ;; against the fixture's own stamp would be measuring the fixture.
      :ambient-frame nil
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 (def ^:private !seen
   "Every frame id a server body read, newest last."
@@ -74,22 +74,22 @@
   of its refusal, or `::no-throw` with the value it produced."
   (atom ::unset))
 
-(h/defview discreet
+(rf.hicasso/defview discreet
   "Reads the request's frame and keeps it OUT of the markup — the
   documented correct shape. What it renders is a subscription value, so
   the boundary is an ordinary one."
   [_]
   (swap! !seen conj (rf/current-frame-id))
-  [:span.row (str (h/sub [::remaining]))])
+  [:span.row (str (rf.hicasso/sub [::remaining]))])
 
-(h/defview indiscreet
+(rf.hicasso/defview indiscreet
   "Renders the per-request id INTO the markup. This is the authorable
   hazard the guide warns about, written on purpose so the determinism
   check can be watched failing."
   [_]
   [:span.row {:data-frame (str (rf/current-frame-id))}])
 
-(h/defview carrying
+(rf.hicasso/defview carrying
   "Tries the AMBIENT carry — `(rf/capture-frame)`, 0-arity — inside a
   server body, and records what it got. It catches its own throw so the
   render completes and the row can read the markup rather than a
@@ -98,9 +98,9 @@
   (reset! !ambient
           (try [::no-throw (rf/capture-frame)]
                (catch :default e (ex-data e))))
-  [:span.row (str (h/sub [::remaining]))])
+  [:span.row (str (rf.hicasso/sub [::remaining]))])
 
-(h/defview reading
+(rf.hicasso/defview reading
   "Tries an AMBIENT read — `(rf/subscribe …)` — inside a server body, and
   records what it got, for the same reason `carrying` catches its own
   throw."
@@ -108,7 +108,7 @@
   (reset! !ambient
           (try [::no-throw @(rf/subscribe [::remaining])]
                (catch :default e (ex-data e))))
-  [:span.row (str (h/sub [::remaining]))])
+  [:span.row (str (rf.hicasso/sub [::remaining]))])
 
 (defn- request [hiccup]
   {:hiccup   hiccup
@@ -125,8 +125,8 @@
            different ones — which is what per-request isolation means when
            the id is the thing being read"
     (reset! !seen [])
-    (let [a (server/render (request [discreet {}]))
-          b (server/render (request [discreet {}]))]
+    (let [a (rf.hicasso.server/render (request [discreet {}]))
+          b (rf.hicasso.server/render (request [discreet {}]))]
       (is (= 2 (count @!seen)) "one read per request")
       (is (= [(:frame-id a) (:frame-id b)] @!seen)
           "each body read its OWN request's id, in order")
@@ -139,7 +139,7 @@
            documents are byte-identical anyway — because the value went
            into a read and not into the page"
     (let [{:keys [identical? differs-at] a :first b :second}
-          (ts/render-twice (request [discreet {}]))]
+          (rf.hicasso.test.server/render-twice (request [discreet {}]))]
       (is identical? (str "the two documents differ at index " differs-at))
       (is (not= (:frame-id a) (:frame-id b))
           "and they were different requests — this is the whole point")
@@ -152,7 +152,7 @@
            `ts/render-twice`'s byte comparison catches it. A claim about a
            check that has never been watched failing is not a check, so
            here it is failing"
-    (let [{:keys [identical? differs-at] a :first} (ts/render-twice (request [indiscreet {}]))]
+    (let [{:keys [identical? differs-at] a :first} (rf.hicasso.test.server/render-twice (request [indiscreet {}]))]
       (is (not identical?)
           "a document carrying the per-request gensym cannot be
            deterministic, and the determinism witness must say so")
@@ -171,7 +171,7 @@
            pure doors to the extent's declared frame, and the server
            render extent declares it exactly as the client's does"
     (reset! !ambient ::unset)
-    (let [{:keys [document frame-id]} (server/render (request [carrying {}]))
+    (let [{:keys [document frame-id]} (rf.hicasso.server/render (request [carrying {}]))
           data                        @!ambient]
       (is (vector? data)
           (str "expected the carry to be admitted; got " (pr-str data)))
@@ -197,7 +197,7 @@
     ;; the class of fault it exists to catch. The row's subject is untouched
     ;; — it still measures WHOSE refusal the read got, and it now also
     ;; measures that the door names that same refusal as its reason.
-    (let [thrown (try (server/render (request [reading {}]))
+    (let [thrown (try (rf.hicasso.server/render (request [reading {}]))
                       (catch :default e e))
           data   @!ambient]
       (is (= :rf.error/ambient-frame-refused (:rf.error/id data))

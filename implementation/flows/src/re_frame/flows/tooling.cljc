@@ -4,8 +4,8 @@
   Kept separate from `re-frame.flows` so CLJS applications that attach no tool
   can eliminate this namespace. JVM consumers receive a facade alias; CLJS
   tools require this sibling directly."
-  (:require [re-frame.derivation.node :as node]
-            [re-frame.flows.registry :as registry]))
+  (:require [re-frame.derivation.node :as rf.derivation.node]
+            [re-frame.flows.registry :as rf.flows.registry]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -21,9 +21,9 @@
 (defn- declared-input
   "Lower a flow input to `[:db path]` or `[:runtime path]`."
   [path]
-  (if (registry/runtime-input? path)
-    [:runtime (registry/partition-relative-input-path path)]
-    [:db (registry/partition-relative-input-path path)]))
+  (if (rf.flows.registry/runtime-input? path)
+    [:runtime (rf.flows.registry/partition-relative-input-path path)]
+    [:db (rf.flows.registry/partition-relative-input-path path)]))
 
 (defn- declared-inputs
   "Project inputs in the positional order expected by `:derive`."
@@ -33,7 +33,7 @@
 (defn- flow-source-coords
   "Return a flow's source-coordinate map, or nil when absent."
   [flow]
-  (let [source (node/source-coords flow)]
+  (let [source (rf.derivation.node/source-coords flow)]
     (when (seq source) source)))
 
 (defn- with-metadata
@@ -50,7 +50,7 @@
   "Build one frame-owned, app-db-materialized derivation node."
   [frame-id flow]
   (let [flow-id (:id flow)]
-    (-> (node/node-base flow-id [:db (vec (:output-path flow))]
+    (-> (rf.derivation.node/node-base flow-id [:db (vec (:output-path flow))]
                         {:kind          :derivation
                          :storage       :app-db
                          :evaluation    :after-event
@@ -69,7 +69,7 @@
   frame's `{flow-id derivation-node}` map. The projection is read-only and
   preserves frame ownership for ids registered in more than one frame."
   ([]
-   (let [snapshot (registry/flows-snapshot)]
+   (let [snapshot (rf.flows.registry/flows-snapshot)]
      (reduce-kv
        (fn [acc frame-id flow-map]
          (assoc acc frame-id
@@ -81,7 +81,7 @@
        {}
        snapshot)))
   ([frame-id]
-   (let [flow-map (get (registry/flows-snapshot) frame-id)]
+   (let [flow-map (get (rf.flows.registry/flows-snapshot) frame-id)]
      (reduce-kv
        (fn [m flow-id flow]
          (assoc m flow-id (node-for frame-id flow)))

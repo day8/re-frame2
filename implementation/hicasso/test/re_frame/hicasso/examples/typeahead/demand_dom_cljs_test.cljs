@@ -51,14 +51,14 @@
   compiles this namespace too (`cljs-test$` matches `-dom-cljs-test`), and
   each row degrades there to a STATED skip rather than to a false green."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso.examples.typeahead.db :as db]
-            [re-frame.hicasso.examples.typeahead.events :as events]
-            [re-frame.hicasso.examples.typeahead.service :as service]
-            [re-frame.hicasso.examples.typeahead.views :as views]
-            [re-frame.hicasso.test.mounted :as hm]
-            [re-frame.test-support :as test-support]
+            [re-frame.hicasso.examples.typeahead.db :as rf.hicasso.examples.typeahead.db]
+            [re-frame.hicasso.examples.typeahead.events :as rf.hicasso.examples.typeahead.events]
+            [re-frame.hicasso.examples.typeahead.service :as rf.hicasso.examples.typeahead.service]
+            [re-frame.hicasso.examples.typeahead.views :as rf.hicasso.examples.typeahead.views]
+            [re-frame.hicasso.test.mounted :as rf.hicasso.test.mounted]
+            [re-frame.test-support :as rf.test-support]
             ["react" :as react]))
 
 (defn- browser? [] (exists? js/document))
@@ -67,8 +67,8 @@
   (is true (str "a mounted resource witness needs a real React DOM — " why)))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      ;; The MAP shape, because every row is `async`: `cljs.test` refuses an
      ;; async test under a fn-form fixture and aborts the namespace.
@@ -78,7 +78,7 @@
                       ;; scheduler, and every reading here is taken
                       ;; outside it.
                       (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
-                      (service/reset-log!))}))
+                      (rf.hicasso.examples.typeahead.service/reset-log!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Reading and driving the page
@@ -101,22 +101,22 @@
         d (js/Object.getOwnPropertyDescriptor js/HTMLInputElement.prototype "value")]
     (.call (.-set d) n v)
     (.dispatchEvent n (js/InputEvent. "input" #js {:bubbles true}))
-    (hm/settle! m)))
+    (rf.hicasso.test.mounted/settle! m)))
 
 (defn- app-db [m] (rf/app-db-value (:frame m)))
 
-(defn- searches [] (filterv #(= :search (:kind %)) (service/requests)))
+(defn- searches [] (filterv #(= :search (:kind %)) (rf.hicasso.examples.typeahead.service/requests)))
 
 (defn- seeded
   "An `app-db` the application could have arrived at, handed to a mount so
   that the page opens in a named state. Core's own `[:rf/set-db …]`
   vocabulary, which is what `hm/mount!`'s `:initial-events` documents."
   [search]
-  [[:rf/set-db (update db/seed :search merge search)]])
+  [[:rf/set-db (update rf.hicasso.examples.typeahead.db/seed :search merge search)]])
 
 (defn- mount-screen!
-  ([] (mount-screen! [[::events/seed]]))
-  ([initial-events] (hm/mount! [views/screen {}] {:initial-events initial-events})))
+  ([] (mount-screen! [[::rf.hicasso.examples.typeahead.events/seed]]))
+  ([initial-events] (rf.hicasso.test.mounted/mount! [rf.hicasso.examples.typeahead.views/screen {}] {:initial-events initial-events})))
 
 (defn- mount-strict!
   "The same screen under `React.StrictMode`, which runs every body twice
@@ -124,9 +124,9 @@
   StrictMode is this file's variable: a consumer's own root would carry it
   in `app.cljs`, and a witness that baked it in could not measure with and
   without."
-  ([] (mount-strict! [[::events/seed]]))
+  ([] (mount-strict! [[::rf.hicasso.examples.typeahead.events/seed]]))
   ([initial-events]
-   (hm/mount! [:> react/StrictMode {} [views/screen {}]]
+   (rf.hicasso.test.mounted/mount! [:> react/StrictMode {} [rf.hicasso.examples.typeahead.views/screen {}]]
               {:initial-events initial-events})))
 
 ;; ---------------------------------------------------------------------------
@@ -143,21 +143,21 @@
       (let [m (mount-screen!)]
         (type-into! m "ca")
         (is (nil? (node m ".suggestion")) "nothing is on screen yet")
-        (-> (hm/settle-until! m #(node m ".suggestion")
+        (-> (rf.hicasso.test.mounted/settle-until! m #(node m ".suggestion")
                               {:label "the debounced search replies"})
             (.then (fn [_]
                      (is (= 1 (count (searches))) "one keystroke burst, one request")
                      (is (= 3 (count (nodes m ".suggestion")))
                          "three catalogue rows start with `ca`")
                      (.click (node m ".suggestion-choose"))
-                     (hm/settle! m)
+                     (rf.hicasso.test.mounted/settle! m)
                      (is (nil? (node m ".suggestion"))
                          "choosing closes the panel, so the suggestion read is gone")
-                     (hm/settle-until! m #(node m ".detail-name")
+                     (rf.hicasso.test.mounted/settle-until! m #(node m ".detail-name")
                                        {:label "the detail replies"})))
             (.then (fn [_]
                      (is (= "Cataract" (text m ".detail-name")))
-                     (-> (hm/unmount! m) (hm/assert-clean!))))
+                     (-> (rf.hicasso.test.mounted/unmount! m) (rf.hicasso.test.mounted/assert-clean!))))
             (.then done))))))
 
 ;; ---------------------------------------------------------------------------
@@ -185,12 +185,12 @@
         ;; The control: the same page, the same read, one intent. The
         ;; request appears — so the acquisition is real and it is the
         ;; INTENT that carries it, not the read.
-        (hm/dispatch-and-settle! m [::events/focus])
+        (rf.hicasso.test.mounted/dispatch-and-settle! m [::rf.hicasso.examples.typeahead.events/focus])
         (is (= 1 (count (searches)))
             "an intent acquires; a commit does not")
-        (-> (hm/settle-until! m #(node m ".suggestion")
+        (-> (rf.hicasso.test.mounted/settle-until! m #(node m ".suggestion")
                               {:label "the reply lands"})
-            (.then (fn [_] (-> (hm/unmount! m) (hm/assert-clean!))))
+            (.then (fn [_] (-> (rf.hicasso.test.mounted/unmount! m) (rf.hicasso.test.mounted/assert-clean!))))
             (.then done))))))
 
 ;; ---------------------------------------------------------------------------
@@ -219,10 +219,10 @@
       ;; keystroke on which a demand mechanism would have work to do, and
       ;; because three is a number with a reason rather than whatever a
       ;; steady-state keystroke happened to cost.
-      (let [keystroke (fn [m] (hm/bodies-run #(type-into! m "cc")))
+      (let [keystroke (fn [m] (rf.hicasso.test.mounted/bodies-run #(type-into! m "cc")))
             plain-m   (mount-screen! (seeded {:term "c" :open? true}))
             plain     (keystroke plain-m)]
-        (-> (hm/assert-clean! (hm/unmount! plain-m))
+        (-> (rf.hicasso.test.mounted/assert-clean! (rf.hicasso.test.mounted/unmount! plain-m))
             (.then
               (fn [_]
                 (let [strict-m (mount-strict! (seeded {:term "c" :open? true}))
@@ -236,7 +236,7 @@
                       "so the abandoned-render population on this witness
                        is non-empty and counted: `strict - plain` renders
                        ran and were discarded")
-                  (hm/assert-clean! (hm/unmount! strict-m)))))
+                  (rf.hicasso.test.mounted/assert-clean! (rf.hicasso.test.mounted/unmount! strict-m)))))
             (.then done))))))
 
 (deftest an-abandoned-render-asks-the-service-for-nothing
@@ -251,7 +251,7 @@
     (async done
       (let [m (mount-strict!)]
         (type-into! m "ca")
-        (-> (hm/settle-until! m #(node m ".suggestion")
+        (-> (rf.hicasso.test.mounted/settle-until! m #(node m ".suggestion")
                               {:label "the debounced search replies"})
             (.then (fn [_]
                      (is (= 1 (count (searches)))
@@ -259,7 +259,7 @@
                           twice and half of those renders were discarded")
                      (is (= 3 (count (nodes m ".suggestion")))
                          "and the page is the same page")
-                     (-> (hm/unmount! m) (hm/assert-clean!))))
+                     (-> (rf.hicasso.test.mounted/unmount! m) (rf.hicasso.test.mounted/assert-clean!))))
             (.then done))))))
 
 ;; ---------------------------------------------------------------------------
@@ -282,17 +282,17 @@
     (async done
       (let [released (mount-screen!)]
         (type-into! released "ca")
-        (hm/dispatch-and-settle! released [::events/dismiss])
-        (is (nil? (db/wanted (app-db released)))
+        (rf.hicasso.test.mounted/dispatch-and-settle! released [::rf.hicasso.examples.typeahead.events/dismiss])
+        (is (nil? (rf.hicasso.examples.typeahead.db/wanted (app-db released)))
             "the dismissal ended the read, and the model knows it")
-        (hm/unmount! released)
+        (rf.hicasso.test.mounted/unmount! released)
 
         (let [orphaned (mount-screen!)]
           (type-into! orphaned "ca")
-          (hm/unmount! orphaned)
+          (rf.hicasso.test.mounted/unmount! orphaned)
           (is (nil? (node orphaned ".typeahead-panel"))
               "the page is gone")
-          (-> (test-support/poll-until
+          (-> (rf.test-support/poll-until
                 #(some? (get-in (app-db orphaned) [:search :shown]))
                 {:label "the reply for the unmounted page lands"})
               (.then
@@ -305,8 +305,8 @@
                       "while the released arm, armed first and read last,
                        asked for nothing at all: its intent carried the
                        release the unmount could not")
-                  (-> (hm/assert-clean! orphaned)
-                      (.then (fn [_] (hm/assert-clean! released))))))
+                  (-> (rf.hicasso.test.mounted/assert-clean! orphaned)
+                      (.then (fn [_] (rf.hicasso.test.mounted/assert-clean! released))))))
               (.then done)))))))
 
 ;; ---------------------------------------------------------------------------
@@ -323,11 +323,11 @@
     (skip! "a retained-structure reading is only worth what built the page")
     (async done
       (let [m       (mount-screen! (seeded {:term "ca" :open? false}))
-            closed  (hm/census)
-            _       (hm/dispatch-and-settle! m [::events/focus])
-            open    (hm/census)
-            _       (hm/dispatch-and-settle! m [::events/dismiss])
-            again   (hm/census)]
+            closed  (rf.hicasso.test.mounted/census)
+            _       (rf.hicasso.test.mounted/dispatch-and-settle! m [::rf.hicasso.examples.typeahead.events/focus])
+            open    (rf.hicasso.test.mounted/census)
+            _       (rf.hicasso.test.mounted/dispatch-and-settle! m [::rf.hicasso.examples.typeahead.events/dismiss])
+            again   (rf.hicasso.test.mounted/census)]
         (is (some? (node m ".typeahead-field")) "the page is up")
 
         ;; The closed page is two boundaries and five reads, and every one
@@ -371,6 +371,6 @@
         ;; cells and the entry are released, just later than the
         ;; memberships were. A row that stopped at `again` would have
         ;; published a leak that is not one.
-        (-> (hm/unmount! m)
-            (hm/assert-clean!)
+        (-> (rf.hicasso.test.mounted/unmount! m)
+            (rf.hicasso.test.mounted/assert-clean!)
             (.then done))))))

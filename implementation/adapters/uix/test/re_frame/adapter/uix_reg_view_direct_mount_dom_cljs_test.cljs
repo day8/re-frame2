@@ -58,9 +58,9 @@
             ["react-dom/client" :as react-dom-client]
             [uix.core :as uix :refer-macros [defui $]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.test-support :as test-support]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; The `use-fixtures` call is NOT here. It sits below the ns-load registration
 ;; further down the file, and the position is load-bearing —
@@ -174,8 +174,8 @@
   captured under a broken boundary would be locked to the wrong frame, and
   the dispatch would move a `:n` nothing on screen is reading."
   [{:keys [payload children]}]
-  (let [n   (uix-adapter/use-subscribe probe-query)
-        ops (uix-adapter/use-frame)]
+  (let [n   (rf.adapter.uix/use-subscribe probe-query)
+        ops (rf.adapter.uix/use-frame)]
     (reset! observed-payload payload)
     (reset! observed-children (some? children))
     (reset! observed-ops ops)
@@ -215,8 +215,8 @@
 
 ;; NOW the fixture — see the note under the ns form for why the order matters.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter uix-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.uix/adapter}))
 
 ;; ---- shared registration + world setup -------------------------------------
 
@@ -250,13 +250,13 @@
     ;; Clear the fixture's ambient `:rf/default` dynamic scope so the
     ;; 1-arg `use-subscribe` resolves through the React-context (provider)
     ;; tier — the shape a real app has.
-    (binding [frame/*current-frame* nil]
+    (binding [rf.frame/*current-frame* nil]
       (let [mount-diagnostics (capture-render-diagnostics
                                 (fn []
                                   (act-fn
                                     (fn []
                                       (.render react-root
-                                        ($ uix-adapter/frame-provider {:frame probe-frame}
+                                        ($ rf.adapter.uix/frame-provider {:frame probe-frame}
                                            ($ head
                                               {:payload probe-payload}
                                               ($ :em {:data-testid "child"} "kid"))))))))

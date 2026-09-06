@@ -23,9 +23,9 @@
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent2.dom.client :as rdc]
-            [re-frame.frame :as frame]
-            [re-frame.substrate.adapter :as adapter]
-            [re-frame.adapter.reagent-slim :as reagent-slim-adapter]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]))
 
 ;; ---- fixture --------------------------------------------------------------
 ;;
@@ -36,12 +36,12 @@
 ;; empty registry (this file pins MUST 2 + 3, not MUST 1).
 
 (defn with-fresh-slim-adapter [test-fn]
-  (adapter/reset-lifecycle-state-for-tests!)
-  (reset! frame/frames {})
-  (adapter/install-adapter! reagent-slim-adapter/adapter)
+  (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
+  (reset! rf.frame/frames {})
+  (rf.substrate.adapter/install-adapter! rf.adapter.reagent-slim/adapter)
   (test-fn)
-  (reset! frame/frames {})
-  (adapter/reset-lifecycle-state-for-tests!))
+  (reset! rf.frame/frames {})
+  (rf.substrate.adapter/reset-lifecycle-state-for-tests!))
 
 (use-fixtures :each with-fresh-slim-adapter)
 
@@ -74,7 +74,7 @@
                                       ([_ _ _]   nil)
                                       ([_ _ _ _] nil))
                     rdc/unmount     (fn [root] (swap! unmount-calls conj root) nil)]
-        (let [render-fn (:render reagent-slim-adapter/adapter)]
+        (let [render-fn (:render rf.adapter.reagent-slim/adapter)]
           ;; Mount three roots; do NOT call the returned unmount thunks
           ;; — they are now "stranded" (mounted-but-not-unmounted).
           (render-fn [:div "a"] #js {} nil)
@@ -84,7 +84,7 @@
               "precondition: no roots unmounted before dispose")
 
           ;; Drive the drain.
-          (adapter/dispose-adapter!)
+          (rf.substrate.adapter/dispose-adapter!)
 
           (is (= 3 (count @unmount-calls))
               "dispose-adapter! unmounted all three stranded roots")
@@ -105,7 +105,7 @@
                                       ([_ _] (let [[r] @roots] (swap! roots rest) r)))
                     rdc/render      (fn ([_ _] nil) ([_ _ _] nil) ([_ _ _ _] nil))
                     rdc/unmount     (fn [root] (swap! unmount-calls conj root) nil)]
-        (let [render-fn (:render reagent-slim-adapter/adapter)
+        (let [render-fn (:render rf.adapter.reagent-slim/adapter)
               _live-thunk (render-fn [:div "live"] #js {} nil)
               gone-thunk  (render-fn [:div "gone"] #js {} nil)]
           ;; Explicitly unmount the second root via its thunk.
@@ -114,7 +114,7 @@
               "precondition: explicit unmount fired exactly once for the gone root")
 
           ;; Dispose: only the still-live root should be drained.
-          (adapter/dispose-adapter!)
+          (rf.substrate.adapter/dispose-adapter!)
 
           (is (= 1 (count (filter #(identical? root-gone %) @unmount-calls)))
               "the explicitly-unmounted root is NOT unmounted a second time")
@@ -139,14 +139,14 @@
                                       (when (identical? root bad-root)
                                         (throw sentinel))
                                       nil)]
-        (let [render-fn (:render reagent-slim-adapter/adapter)]
+        (let [render-fn (:render rf.adapter.reagent-slim/adapter)]
           (render-fn [:div "bad"] #js {} nil)
           (render-fn [:div "good"] #js {} nil)
           ;; The bad root's throw must not ABORT the drain — but it must
           ;; still reach the caller once the drain is done. Both adapters
           ;; share one spine drain, so this is the slim-side witness of the
           ;; same Spec 006 rule.
-          (let [thrown (try (adapter/dispose-adapter!)
+          (let [thrown (try (rf.substrate.adapter/dispose-adapter!)
                             ::returned-normally
                             (catch :default e e))]
             (is (some #(identical? bad-root %) @unmount-calls)
@@ -164,19 +164,19 @@
             installed fn (which captures re-frame.ssr state) does not
             survive teardown — rf2-7v82h MUST 3"
     ;; Install an emitter and prove render-to-string resolves it.
-    (reagent-slim-adapter/set-hiccup-emitter!
+    (rf.adapter.reagent-slim/set-hiccup-emitter!
       (fn [tree _opts] (str "EMITTED:" (pr-str tree))))
     (is (= "EMITTED:[:p \"hi\"]"
-           ((:render-to-string reagent-slim-adapter/adapter) [:p "hi"] nil))
+           ((:render-to-string rf.adapter.reagent-slim/adapter) [:p "hi"] nil))
         "precondition: the installed emitter is live before dispose")
 
     ;; Dispose drains the emitter.
-    (adapter/dispose-adapter!)
+    (rf.substrate.adapter/dispose-adapter!)
 
     ;; Post-dispose: render-to-string raises the no-emitter-bound error
     ;; (the only black-box proof the emitter atom was reset to nil).
     (is (thrown-with-msg?
           cljs.core.ExceptionInfo
           #":rf.error/no-hiccup-emitter-bound"
-          ((:render-to-string reagent-slim-adapter/adapter) [:p "hi"] nil))
+          ((:render-to-string rf.adapter.reagent-slim/adapter) [:p "hi"] nil))
         "after dispose the emitter is nil; render-to-string raises no-emitter-bound")))

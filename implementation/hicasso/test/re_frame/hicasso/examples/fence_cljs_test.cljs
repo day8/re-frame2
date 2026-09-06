@@ -196,9 +196,9 @@
   ;; the public door, through the same reader and predicates the live row
   ;; uses. Both plants are named by package; the door is not.
   (let [form  '(ns re-frame.hicasso.examples.planted.views
-                 (:require [re-frame.hicasso :as h]
-                           [re-frame.hicasso.impl.collector :as collector])
-                 (:require-macros [re-frame.hicasso.test.mounted :as hm]))
+                 (:require [re-frame.hicasso :as rf.hicasso]
+                           [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector])
+                 (:require-macros [re-frame.hicasso.test.mounted :as rf.hicasso.test.mounted]))
         found (breaches {"planted" {"planted/views.cljs" (dependencies form)}})]
     (is (= #{"re-frame.hicasso.impl.collector" "re-frame.hicasso.test.mounted"}
            (into #{} (map #(nth % 2)) found)))

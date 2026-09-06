@@ -43,24 +43,24 @@
   React DOM; under `:node-test` every DOM claim degrades to a stated
   skip."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.checkpoint-support :as checkpoint]
-            [re-frame.hicasso.hook-probe :as probe]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.hicasso.impl.state :as state]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.hicasso.roots-frames-support :as support]
-            [re-frame.test-support :as test-support]))
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.checkpoint-support :as rf.hicasso.checkpoint-support]
+            [re-frame.hicasso.hook-probe :as rf.hicasso.hook-probe]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.hicasso.impl.state :as rf.hicasso.impl.state]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.hicasso.roots-frames-support :as rf.hicasso.roots-frames-support]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 (def ^:private frame-id ::state-dom)
 
@@ -76,18 +76,18 @@
 
 (defn- reset-runs! [] (reset! !panel-runs 0) (reset! !page-runs 0) nil)
 
-(h/defview disclosure
+(rf.hicasso/defview disclosure
   "A disclosure panel. It holds its own open flag and knows nothing about
   where it is on the page beyond the instance key it was handed — which
   is the ergonomic claim: the widget is written ONCE and mounted twice."
   [{:keys [ikey title]}]
   (swap! !panel-runs inc)
-  (let [shown? (collector/sub [open? ikey])]
+  (let [shown? (rf.hicasso.impl.collector/sub [open? ikey])]
     [:section.panel {:data-ikey (pr-str ikey)}
      [:button.toggle {:on-click [open? ikey (not shown?)]} title]
      (when shown? [:div.body "body of " title])]))
 
-(h/defview page
+(rf.hicasso/defview page
   "Two disclosures, and a page-level read of its own so a chrome write
   can re-render the page without touching either panel. Every child key
   is REBUILT here on every render — `child-key` allocates — which is
@@ -95,9 +95,9 @@
   [_]
   (swap! !page-runs inc)
   [:div.page
-   [:h1.chrome (str (collector/sub [label :page]))]
-   [disclosure {:key "billing"  :ikey (state/child-key :panel :billing)  :title "Billing"}]
-   [disclosure {:key "shipping" :ikey (state/child-key :panel :shipping) :title "Shipping"}]])
+   [:h1.chrome (str (rf.hicasso.impl.collector/sub [label :page]))]
+   [disclosure {:key "billing"  :ikey (rf.hicasso.impl.state/child-key :panel :billing)  :title "Billing"}]
+   [disclosure {:key "shipping" :ikey (rf.hicasso.impl.state/child-key :panel :shipping) :title "Shipping"}]])
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -106,12 +106,12 @@
 (defn- skip! [why] (is true (str "a reg-state DOM claim needs a real React DOM — " why)))
 
 (defn- fresh! []
-  (checkpoint/leave-act-environment!)
-  (state/reg-state open? {:default false})
-  (state/reg-state label {:default ""})
+  (rf.hicasso.checkpoint-support/leave-act-environment!)
+  (rf.hicasso.impl.state/reg-state open? {:default false})
+  (rf.hicasso.impl.state/reg-state label {:default ""})
   (rf/make-frame {:id frame-id})
   (reset-runs!)
-  (runtime/reset-body-runs!)
+  (rf.hicasso.test.runtime/reset-body-runs!)
   frame-id)
 
 (defn- panels [handle]
@@ -125,7 +125,7 @@
   (-> (nth (vec (panels handle)) i)
       (.querySelector "button.toggle")
       (.click))
-  (mount/settle!)
+  (rf.hicasso.impl.mount/settle!)
   nil)
 
 ;; ---------------------------------------------------------------------------
@@ -133,21 +133,21 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest two-mounted-instances-of-one-widget-are-independent
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
       (let [[result captured]
-            (support/capture-console!
+            (rf.hicasso.roots-frames-support/capture-console!
               (fn []
-                (let [handle (mount/root! (mount/fresh-container!) frame-id [page {}])]
+                (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [page {}])]
                   (try
                     (let [before (bodies handle)]
                       (click! handle 0)
                       {:before before
                        :after  (bodies handle)
                        :db     (rf/app-db-value frame-id)})
-                    (finally (mount/release! handle))))))]
+                    (finally (rf.hicasso.impl.mount/release! handle))))))]
         (is (= [nil nil] (:before result)) "both panels start closed — the default")
         (is (= ["body of Billing" nil] (:after result))
             "one click opened ONE panel. Before the explicit-key ruling the
@@ -164,9 +164,9 @@
 
 (deftest a-reg-state-widget-shell-still-calls-exactly-two-hooks
   (cond
-    (not (mount/browser?)) (skip! ":node-test has no DOM")
+    (not (rf.hicasso.impl.mount/browser?)) (skip! ":node-test has no DOM")
 
-    (not (probe/install!))
+    (not (rf.hicasso.hook-probe/install!))
     (is false (str "React's internals slot was not found, so the ≤2-hook budget "
                    "is UNWITNESSED for reg-state. A gate nobody has watched fire "
                    "is not evidence — fix "
@@ -176,20 +176,20 @@
     :else
     (do
       (fresh!)
-      (let [container (mount/fresh-container!)
+      (let [container (rf.hicasso.impl.mount/fresh-container!)
             !handle   (volatile! nil)
-            names     (probe/record!
+            names     (rf.hicasso.hook-probe/record!
                         (fn []
                           (vreset! !handle
-                                   (mount/root! container frame-id
+                                   (rf.hicasso.impl.mount/root! container frame-id
                                                 [disclosure {:ikey :solo :title "Solo"}]))))]
-        (mount/release! @!handle)
+        (rf.hicasso.impl.mount/release! @!handle)
         (is (= ["useContext" "useSyncExternalStore"] names)
             (str "the shell called " (pr-str names) " — reg-state mints a sub "
                  "and an event, and a sub read through the ambient collector is "
                  "not a hook. A third call here is a budget breach (HD-020(b)) "
                  "and would mean this sugar had grown machinery."))
-        (is (= (count runtime/shell-hook-ledger) (count names))
+        (is (= (count rf.hicasso.test.runtime/shell-hook-ledger) (count names))
             "and the declared ledger is still the measured one — reg-state
              added nothing to it")
         (is (not-any? #{"useRef" "useState"} names)
@@ -201,15 +201,15 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-fresh-but-equal-key-vector-does-not-defeat-the-memo-bail-out
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
-      (let [handle (mount/root! (mount/fresh-container!) frame-id [page {}])]
+      (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [page {}])]
         (try
           (let [nodes-before (vec (panels handle))]
             (reset-runs!)
-            (mount/dispatch! handle [label :page "chrome moved"])
+            (rf.hicasso.impl.mount/dispatch! handle [label :page "chrome moved"])
             (is (= 1 @!page-runs) "the page re-ran — it reads the chrome")
             (is (= 0 @!panel-runs)
                 "and NEITHER panel did, although the page rebuilt both their
@@ -229,22 +229,22 @@
             (click! handle 1)
             (is (= ["" "body of Shipping"] (mapv #(or % "") (bodies handle))))
             (is (= 1 @!panel-runs) "exactly the panel that moved, and no other"))
-          (finally (mount/release! handle)))))))
+          (finally (rf.hicasso.impl.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 4 — a bad key refuses on the page, and the page keeps working
 ;; ---------------------------------------------------------------------------
 
 (deftest a-nil-keyed-widget-refuses-loudly-and-its-sibling-keeps-rendering
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
       (let [records (volatile! [])]
-        (error-emit/register-error-listener! ::state-dom (fn [r] (vswap! records conj r)))
-        (let [handle (mount/root! (mount/fresh-container!) frame-id [:div.empty])]
+        (rf.error-emit/register-error-listener! ::state-dom (fn [r] (vswap! records conj r)))
+        (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [:div.empty])]
           (try
-            (mount/render! handle
+            (rf.hicasso.impl.mount/render! handle
                            [:div.page
                             [disclosure {:key "good" :ikey :billing :title "Billing"}]
                             [disclosure {:key "bad" :ikey nil :title "Broken"}]])
@@ -263,5 +263,5 @@
                 "the well-keyed sibling still rendered — one widget's bad key
                  is not the page's problem")
             (finally
-              (error-emit/unregister-error-listener! ::state-dom)
-              (mount/release! handle))))))))
+              (rf.error-emit/unregister-error-listener! ::state-dom)
+              (rf.hicasso.impl.mount/release! handle))))))))

@@ -53,11 +53,11 @@
   (:require [clojure.string :as str]
             [cljs.test :refer-macros [deftest testing use-fixtures is async]]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.fx :as rf.fx]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             ;; Activate the default Malli validator (rf2-t0hq): the CLJS default
             ;; validator soft-passes without this require, so the durable
             ;; AuthSlice regression below could never observe a rollback. The
@@ -68,15 +68,15 @@
             [re-frame.http.managed]
             [re-frame.http.test-support]
             [re-frame.resources]
-            [re-frame.resources.route :as resources-route]
-            [re-frame.resources.state :as state]
+            [re-frame.resources.route :as rf.resources.route]
+            [re-frame.resources.state :as rf.resources.state]
             [re-frame.resources.test-support]
-            [re-frame.routing :as routing]
+            [re-frame.routing :as rf.routing]
             ;; the framework trace-ring buffer (Spec 009) — cleared around each
             ;; test body so this dispatching suite leaves no trace residue for a
             ;; later cross-cutting tooling test (e.g. the Xray/Story panel e2e
             ;; seeds, which read the rings). See `clear-trace-rings-fixture`.
-            [re-frame.trace.tooling :as trace-tooling]
+            [re-frame.trace.tooling :as rf.trace.tooling]
             ;; the example's production source — chains in every feature ns.
             [realworld-resources.core :as core]
             [realworld-resources.scope :as scope]
@@ -123,7 +123,7 @@
 ;; `reg-resource-scope` declarations. (Routes / the auth machine live under kinds
 ;; the reset does NOT clear, so they survive via the fixture's ns-load baseline.)
 (def ^:private resource-kind-snapshots
-  (select-keys @registrar/kind->id->metadata
+  (select-keys @rf.registrar/kind->id->metadata
                [:resource :mutation :resource-scope]))
 
 ;; AT NS LOAD, immediately remove THIS example's `:resource` / `:mutation` /
@@ -138,7 +138,7 @@
 ;; `:rf.registry/handler-cleared` burst into its cascade seed (a false-positive
 ;; `:rf.xray/cascades`). We remove only OUR ids (not the whole kind) so a sibling
 ;; suite's ns-load registrations are untouched; ours re-install via `init!`.
-(swap! registrar/kind->id->metadata
+(swap! rf.registrar/kind->id->metadata
        (fn [reg]
          (reduce (fn [r [kind id->meta]]
                    (update r kind (fn [m] (apply dissoc m (keys id->meta)))))
@@ -183,14 +183,14 @@
   ;; frame's next resolution sees the reinstated registrations.
   (doseq [[kind id->meta] resource-kind-snapshots
           [id meta] id->meta]
-    (registrar/register! kind id meta))
-  (routing/reset-counters!)
-  (resources-route/install-routing-integration!)
-  (fx/reg-fx :rf.http/managed (fn [_ctx args]
+    (rf.registrar/register! kind id meta))
+  (rf.routing/reset-counters!)
+  (rf.resources.route/install-routing-integration!)
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx args]
                                 (reset! last-managed-args args)
                                 (swap! managed-args-log conj args)
                                 nil))
-  (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
+  (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
   ;; LAST — see the ordering note in the docstring. Everything the frame's
   ;; construction-time URL sync needs (the reinstated `:resource` / `:mutation`
   ;; rows, the routing integration, the stubbed fx) is registered above.
@@ -232,16 +232,16 @@
    its own collector (its helper calls `reset-sentinels!` +
    `register-trace-collector!`), so clearing here is safe."
   {:before (fn []
-             (trace-tooling/clear-listeners!)
-             (trace-tooling/clear-trace-rings!))
+             (rf.trace.tooling/clear-listeners!)
+             (rf.trace.tooling/clear-trace-rings!))
    :after  (fn []
-             (trace-tooling/clear-listeners!)
-             (trace-tooling/clear-trace-rings!))})
+             (rf.trace.tooling/clear-listeners!)
+             (rf.trace.tooling/clear-trace-rings!))})
 
 (use-fixtures :each
   isolate-trace-bus-fixture
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter
      :init-fn init!
      ;; Map-form (rf2-k5lbd): §11's production-seam receipt is an
      ;; `(async done …)` row, and cljs.test runs one only under map fixtures.
@@ -269,7 +269,7 @@
 
 (defn- entry
   ([scoped-key] (entry :rf/default scoped-key))
-  ([frame-id scoped-key] (get-in (runtime-db frame-id) (state/entry-path scoped-key))))
+  ([frame-id scoped-key] (get-in (runtime-db frame-id) (rf.resources.state/entry-path scoped-key))))
 
 (defn- viewer-scope
   "The concrete `[:rf.scope/viewer {:username …}]` scope for a signed-in reader —
@@ -290,20 +290,20 @@
 ;; explicit viewer for the cross-viewer leak tests.
 (defn- article-key
   ([slug] (article-key "alice" slug))
-  ([viewer slug] (state/scoped-resource-key (viewer-scope viewer) :realworld/article {:slug slug})))
+  ([viewer slug] (rf.resources.state/scoped-resource-key (viewer-scope viewer) :realworld/article {:slug slug})))
 
 (defn- feed-key
   "The session-scoped :realworld/feed key for username + page."
   [username page]
-  (state/scoped-resource-key [:rf.scope/session {:username username}] :realworld/feed {:page page}))
+  (rf.resources.state/scoped-resource-key [:rf.scope/session {:username username}] :realworld/feed {:page page}))
 
 (defn- profile-key
   ([subject] (profile-key "alice" subject))
-  ([viewer subject] (state/scoped-resource-key (viewer-scope viewer) :realworld/profile {:username subject})))
+  ([viewer subject] (rf.resources.state/scoped-resource-key (viewer-scope viewer) :realworld/profile {:username subject})))
 
 (defn- comments-key
   ([slug] (comments-key "alice" slug))
-  ([viewer slug] (state/scoped-resource-key (viewer-scope viewer) :realworld/comments {:slug slug})))
+  ([viewer slug] (rf.resources.state/scoped-resource-key (viewer-scope viewer) :realworld/comments {:slug slug})))
 
 ;; The two profile tabs' own paginated lists. Both are viewer-scoped like the
 ;; banner, and both take the route's `{:username :page}` params — `:page` defaults
@@ -312,19 +312,19 @@
 (defn- author-articles-key
   ([subject page] (author-articles-key "alice" subject page))
   ([viewer subject page]
-   (state/scoped-resource-key (viewer-scope viewer) :realworld/author-articles
+   (rf.resources.state/scoped-resource-key (viewer-scope viewer) :realworld/author-articles
                               {:username subject :page page})))
 
 (defn- favorited-articles-key
   ([subject page] (favorited-articles-key "alice" subject page))
   ([viewer subject page]
-   (state/scoped-resource-key (viewer-scope viewer) :realworld/favorited-articles
+   (rf.resources.state/scoped-resource-key (viewer-scope viewer) :realworld/favorited-articles
                               {:username subject :page page})))
 
 (defn- tags-key
   "The truly-invariant global-scope :realworld/tags key (the one read still global)."
   []
-  (state/scoped-resource-key :rf.scope/global :realworld/tags {}))
+  (rf.resources.state/scoped-resource-key :rf.scope/global :realworld/tags {}))
 
 (defn- reply-success!
   "Replay the captured `:on-success` with the transport's success result
@@ -358,7 +358,7 @@
    in-place request resolves against it); url-push is a no-op so navigation is
    deterministic without a browser."
   []
-  (frame/make-anon-frame-record! {:url-bound?   true
+  (rf.frame/make-anon-frame-record! {:url-bound?   true
                                   :fx-overrides {:rf.nav/push-url :rf/no-op}}))
 
 (defn- gc-recheck!
@@ -476,13 +476,13 @@
             [:auth :token] from the cascade's frame and injects
             `Authorization: Token <jwt>`; it is a no-op when logged out"
     ;; LOGGED OUT — the public reads must not carry an auth header.
-    (with-new-frame [f (frame/make-anon-frame-record! {})]
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
       (let [ctx {:frame f :request {:url "/articles"}}]
         (is (nil? (get-in (core/bearer-auth-interceptor ctx)
                           [:request :headers "Authorization"]))
             "no token → no Authorization header (logged-out reads unaffected)")))
     ;; AUTHED — the token in the frame's app-db is injected as a Bearer header.
-    (with-new-frame [f (frame/make-anon-frame-record! {})]
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt-xyz"}] {:frame f})
       (let [ctx {:frame f :request {:url "/articles/feed"}}]
         (is (= "Token jwt-xyz"
@@ -528,7 +528,7 @@
     (is (true? (:sensitive? (vec-map-slot-props ws/User :token)))
         "the wire User's :token slot stays classified :sensitive? true")
     ;; DURABLE contract — the token-free session user commits and validates.
-    (with-new-frame [f (frame/make-anon-frame-record! {})]
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
       ;; The REAL production AuthSlice on THIS frame → the real validator runs.
       (rf/reg-app-schema [:auth] {:frame f} app-schema/AuthSlice)
       (with-trace-recorder! [traces]
@@ -562,7 +562,7 @@
             global article tags AND the session feed in one set of per-target
             descriptors, and fires no extra wiring; the call-site :reply-to
             continuation fires exactly once on settle"
-    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       ;; log in so the session feed scope resolves
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
@@ -615,7 +615,7 @@
             valid-AND-dirty into app-db; a blank draft is invalid; a valid+dirty
             draft submits the save mutation; the :reply-to [:editor/replied]
             continuation re-seeds a clean draft and navigates to the saved article"
-    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       ;; Boot registers the :editor/can-submit? flow ONCE against the frame
       ;; (`:app/initialise` -> `:editor/register-flow`, rf2-xugvye); the create-route
@@ -660,7 +660,7 @@
             favorited/following flags) via :rf.resource/clear-scope, so the next
             user can never read a stale entry of theirs. Only the truly-invariant
             global tags read is left alone (rf2-j538f7.29)."
-    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
       ;; alice's SESSION feed
@@ -703,7 +703,7 @@
   (testing "examples/real-apps/realworld_resources — the :auth/flow machine drives
             :idle → :submitting → :authed on a login success and stores the
             session (auth is a command/machine, deliberately NOT a read-resource)"
-    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op
                                                       :realworld-resources.session/persist :rf/no-op}})]
       ;; boot the machine at :idle (token nil → the has-token? guard routes to no-op)
@@ -740,7 +740,7 @@
             (cofx.md §Decision tree). The generator runs at processing-start, is
             recorded onto the causal token, and replay re-presents the captured
             value verbatim."
-    (let [cofx-meta (registrar/handler-meta :cofx :realworld-resources.session/token)]
+    (let [cofx-meta (rf.registrar/handler-meta :cofx :realworld-resources.session/token)]
       (is (true? (:recordable? cofx-meta))
           "the cofx is recordable — its value rides the recorded token")
       (is (not (:provided? cofx-meta))
@@ -762,7 +762,7 @@
             :profile/go-to-page keep the active feed / tag / route + username and
             swap only ?page=, and page 1 drops the ?page= param (the canonical
             first-page URL) so page N and N+1 share a filter under distinct keys"
-    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       ;; global feed, page 2 → ?page=2 on the home route
       (rf/dispatch-sync [:home/show-global-feed] {:frame f})
@@ -822,7 +822,7 @@
             the read under [:route :realworld.editor/edit nav-token]; navigating
             edit→New Article releases that owner (the route leave) so the article
             entry is reclaimed (rf2-y4mgw)"
-    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
       ;; EDIT-MODE ENTRY: navigating to /editor/:slug runs the route plan (owns
@@ -876,7 +876,7 @@
             old app-minted [:app :editor/article slug] was released only on
             new/A→B/delete/unmount — so a plain edit→home stranded it. With the
             read re-homed onto the route `:resources`, route leave IS the release"
-    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
       (rf/dispatch-sync [:rf.route/navigate {:to :realworld.editor/edit :params {:slug "hello-conduit"}}] {:frame f})
@@ -908,7 +908,7 @@
             the delete branch clears the slice and navigates home, and that
             navigate-home leaves the edit route, so the runtime releases the
             route-owned article read on the way out (rf2-y4mgw)"
-    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
       (rf/dispatch-sync [:rf.route/navigate {:to :realworld.editor/edit :params {:slug "doomed"}}] {:frame f})
@@ -944,7 +944,7 @@
             B draft the user now edits; now `:editor/article-loaded` seeds only
             while the current route still targets the reply's slug, so the late A
             reply is dropped and the B draft survives"
-    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
       ;; ENTER edit A. Capture A's in-flight read WITHOUT settling it — A's fetch is
@@ -1003,7 +1003,7 @@
             baseline, so the typing survives and stays dirty; every untouched
             field takes the loaded article's value in both, so the dirty-check
             still compares against what the server holds."
-    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
       ;; ENTER edit A. Capture A's read WITHOUT settling it — the fetch is still
@@ -1068,7 +1068,7 @@
 (defn- articles-list-key
   "The :realworld/articles home-list key for a viewer scope + page."
   ([scope] (articles-list-key scope 1))
-  ([scope page] (state/scoped-resource-key scope :realworld/articles {:tag nil :page page})))
+  ([scope page] (rf.resources.state/scoped-resource-key scope :realworld/articles {:tag nil :page page})))
 
 (defn- slice
   "The live route slice `{:route-id :params :query :fragment :transition :error :nav-token}`."
@@ -1090,20 +1090,20 @@
   "The byte-keyed `{<key-id> <scoped-key>}` carrier shape the plan / blocking slots
    hold, built from scoped keys — so a slot can be asserted whole."
   [& scoped-keys]
-  (into {} (map (juxt state/key-id identity)) scoped-keys))
+  (into {} (map (juxt rf.resources.state/key-id identity)) scoped-keys))
 
 (defn- entries-for
   "Every cache entry for `resource-id`, under ANY scope."
   [frame resource-id]
   (into [] (comp (map val) (filter #(= resource-id (second (:resource/key %)))))
-        (get-in (runtime-db frame) (state/entries-path))))
+        (get-in (runtime-db frame) (rf.resources.state/entries-path))))
 
 (defn- restore-frame!
   "A URL-owning anon frame for the restore tests: url-push and the session-persist
    fx are no-op'd so navigation is deterministic and the token never reaches
    localStorage."
   []
-  (frame/make-anon-frame-record! {:url-bound? true
+  (rf.frame/make-anon-frame-record! {:url-bound? true
                                   :fx-overrides {:rf.nav/push-url :rf/no-op
                                                  :realworld-resources.session/persist :rf/no-op}}))
 
@@ -1267,10 +1267,10 @@
       ;; Capture the host nav fxs GLOBALLY (both platforms) so a push / scroll
       ;; would be observable; the frame below therefore does NOT override
       ;; `:rf.nav/push-url`.
-      (fx/reg-fx :rf.nav/push-url    {:platforms #{:server :client}} (fn [_ url]  (swap! pushed conj url)))
-      (fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ url]  (swap! pushed conj url)))
-      (fx/reg-fx :rf.nav/scroll      {:platforms #{:server :client}} (fn [_ args] (swap! scrolled conj args)))
-      (with-new-frame [f (frame/make-anon-frame-record!
+      (rf.fx/reg-fx :rf.nav/push-url    {:platforms #{:server :client}} (fn [_ url]  (swap! pushed conj url)))
+      (rf.fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ url]  (swap! pushed conj url)))
+      (rf.fx/reg-fx :rf.nav/scroll      {:platforms #{:server :client}} (fn [_ args] (swap! scrolled conj args)))
+      (with-new-frame [f (rf.frame/make-anon-frame-record!
                            {:url-bound?   true
                             :fx-overrides {:realworld-resources.session/persist :rf/no-op}})]
         (rf/dispatch-sync [:auth/initialise]
@@ -1377,8 +1377,8 @@
                                                :params {:username "celeb"}}]
                           {:frame f})
         (let [{:keys [nav-token] :as before} (slice f)
-              banner-key (state/scoped-resource-key anon-viewer-scope :realworld/profile {:username "celeb"})
-              fav-key    (state/scoped-resource-key anon-viewer-scope :realworld/favorited-articles
+              banner-key (rf.resources.state/scoped-resource-key anon-viewer-scope :realworld/profile {:username "celeb"})
+              fav-key    (rf.resources.state/scoped-resource-key anon-viewer-scope :realworld/favorited-articles
                                                     {:username "celeb" :page 1})]
           (is (= :rf.error/resource-route-plan (:rf.error/id (:error before)))
               "route entry failed closed while the viewer was unresolved")
@@ -1421,11 +1421,11 @@
         ;; during restore the viewer read fails closed — nothing stored anywhere
         (is (nil? (entry f (article-key "alice" "public-post"))))
         (is (nil? (entry f (article-key "public-post"))) "not under a signed-in viewer")
-        (is (nil? (entry f (state/scoped-resource-key anon-viewer-scope :realworld/article {:slug "public-post"})))
+        (is (nil? (entry f (rf.resources.state/scoped-resource-key anon-viewer-scope :realworld/article {:slug "public-post"})))
             "not under the anonymous viewer yet either (viewer still unresolved)")
         (let [token-before (:nav-token (slice f))
-              anon-article (state/scoped-resource-key anon-viewer-scope :realworld/article {:slug "public-post"})
-              anon-comments (state/scoped-resource-key anon-viewer-scope :realworld/comments {:slug "public-post"})]
+              anon-article (rf.resources.state/scoped-resource-key anon-viewer-scope :realworld/article {:slug "public-post"})
+              anon-comments (rf.resources.state/scoped-resource-key anon-viewer-scope :realworld/comments {:slug "public-post"})]
           ;; GET /user is REJECTED (401) → :auth/restore-failed → :abandon-restore
           (rf/dispatch-sync (conj (:on-failure restore-req) {:status :error :error {:rf.http/status 401}})
                             {:frame f})
@@ -1445,7 +1445,7 @@
               "…and so is its :when-admitted comments sub-resource")
           (is (nil? (entry f (article-key "alice" "public-post")))
               "never stored under a signed-in viewer")
-          (is (nil? (entry f (state/scoped-resource-key :rf.scope/global :realworld/article {:slug "public-post"})))
+          (is (nil? (entry f (rf.resources.state/scoped-resource-key :rf.scope/global :realworld/article {:slug "public-post"})))
               "never stored under :rf.scope/global")
           (is (= (by-id anon-article anon-comments) (plan-slot f token-before))
               "the plan slot records exactly the replanned membership")
@@ -1459,7 +1459,7 @@
             reader's UI — and the favorite verb (POST vs DELETE) is therefore chosen
             from the CURRENT viewer's bytes, not the departing one's (rf2-j538f7.29,
             gates 3 + 4)"
-    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       ;; ALICE loads the article; her representation carries favorited=true.
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt-a"}] {:frame f})
@@ -1508,7 +1508,7 @@
             patch (toggle-article-fav) clamps :favoritesCount at zero, so an
             over-eager unfavorite of an already-zero article can't go negative
             (mutations.cljs zero-clamp adversarial edge)"
-    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
       ;; Seed the article detail with favorited=true, favoritesCount=0 (the edge:
@@ -1543,7 +1543,7 @@
   (testing "examples/real-apps/realworld_resources — :realworld/follow / :realworld/unfollow
             seed the [:profile username] banner from their reply (:populates), so the
             banner's :following flips immediately without waiting on the refetch"
-    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
       ;; own + load the profile banner (following=false) so :populates has an
@@ -1578,7 +1578,7 @@
   (testing "examples/real-apps/realworld_resources — :realworld/post-comment and
             :realworld/delete-comment invalidate [:comments slug], so the mounted
             article page's owned comments read refetches to truth"
-    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
       ;; own + load the comments read so the invalidation has a live owner to
@@ -1617,7 +1617,7 @@
             :realworld/update-settings mutation; the :reply-to [:settings/replied]
             continuation folds the saved User into the auth slice and navigates to
             the profile on :ok"
-    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op
                                                       :realworld-resources.session/persist :rf/no-op}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :email "a@b.c" :token "jwt"
@@ -1645,7 +1645,7 @@
             continuation re-stales [:article slug] so the detail page's embedded
             author flag refetches (the follow mutation itself only invalidates
             [:profile username])"
-    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
       ;; own + load the article detail so the re-stale has a live owner to
@@ -1671,7 +1671,7 @@
   (testing "examples/real-apps/realworld_resources — :ui/delete-article fires the
             :realworld/delete-article mutation with :reply-to [:ui/article-deleted];
             the continuation clears the instance and navigates home on :ok"
-    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
       ;; Land somewhere other than home so the navigate-home is observable.
@@ -1825,7 +1825,7 @@
             `:parent :realworld.profile/show` contributes and the leaf's own
             :realworld/favorited-articles, under the one active-route owner, while
             the parent's authored list stays gated off by its `:when` (rf2-8vccg)"
-    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
       (rf/dispatch-sync [:rf.route/navigate {:to     :realworld.profile/favorites
@@ -1857,7 +1857,7 @@
             refetched (generation unchanged, data intact), while the departed tab's
             own list loses the route owner and the arriving tab's list is ensured —
             EP-0037 R2 partial revalidation, on the shipped table (rf2-8vccg)"
-    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
       (rf/dispatch-sync [:rf.route/navigate {:to     :realworld.profile/favorites
@@ -1911,10 +1911,10 @@
 (deftest route-link-egress-carries-the-arms-own-mount-base
   (testing "egress: a route-link rendered on the Reagent arm's frame config
             targets the arm's OWN served mount base"
-    (with-new-frame [f (frame/make-anon-frame-record!
+    (with-new-frame [f (rf.frame/make-anon-frame-record!
                          {:url-strategy app-routing/url-strategy})]
       (let [[_ attrs] (rf/with-frame f
-                        (routing/route-link-render {:to :realworld.auth/login}))]
+                        (rf.routing/route-link-render {:to :realworld.auth/login}))]
         (is (= "/realworld-resources/login" (:href attrs))
             "the Reagent arm's generated link carries its own mount base")))))
 
@@ -1962,7 +1962,7 @@
    URL-owning, with managed HTTP redirected to this app's PRODUCTION demo-backend
    seam. url-push and the session-persist fx are no-op'd, as in `restore-frame!`."
   []
-  (frame/make-anon-frame-record!
+  (rf.frame/make-anon-frame-record!
     {:url-bound?   true
      :fx-overrides {:rf.http/managed                     :realworld-resources.demo/http-stub
                     :rf.nav/push-url                     :rf/no-op
@@ -2000,7 +2000,7 @@
                           {:frame f})
         (is (= :loading (:status (entry f k)))
             "route entry planned the comments read under the demo viewer, in flight")
-        (-> (test-support/poll-until
+        (-> (rf.test-support/poll-until
               #(= :loaded (:status (entry f k)))
               {:label "the route-owned comments read settles from the demo backend"})
             (.then (fn [_]
@@ -2015,7 +2015,7 @@
                      ;; runtime, never to the entry: `:invalidates`, no `:populates`.
                      (rf/dispatch-sync [:comment-form/edit "great read"] {:frame f})
                      (rf/dispatch-sync [:comment-form/submit slug] {:frame f})
-                     (test-support/poll-until
+                     (rf.test-support/poll-until
                        #(let [e (entry f k)
                               m (rf/compute-sub [:rf/mutation {:instance [:post-comment slug]}]
                                                 (state-value f))]

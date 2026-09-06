@@ -85,15 +85,15 @@
   gates."
   (:require [clojure.set :as set]
             [cljs.test :refer-macros [async deftest is testing use-fixtures]]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.checkpoint-support :as support]
-            [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.test.runtime :as runtime]
-            [re-frame.hicasso.impl.mount :as mount]
-            [re-frame.test-support :as test-support]
+            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.hicasso.checkpoint-support :as rf.hicasso.checkpoint-support]
+            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.test-support :as rf.test-support]
             ["react" :as react]
             ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]
@@ -219,13 +219,13 @@
 
 ;; --- the Suspense hosts ----------------------------------------------------
 
-(h/defhost suspense-host
+(rf.hicasso/defhost suspense-host
   "The guide's declaration: `:fallback` is a ReactNode SLOT, so hiccup
   written there crosses to React as an element."
   (.-Suspense react)
   {:slots #{:fallback}})
 
-(h/defhost suspense-skeleton-host
+(rf.hicasso/defhost suspense-skeleton-host
   "The same crossing with a declared `:fallback` — `defhost`'s
   Client-only PLACEHOLDER, which is a different key with the same name
   and the only one of the two that can put bytes in a server response.
@@ -239,13 +239,13 @@
 
 (def ^:private paint-loader (deferred-loader))
 (def ^:private paint-head (lazy-head paint-loader))
-(h/defhost paint-host paint-head)
+(rf.hicasso/defhost paint-host paint-head)
 
 ;; --- scenario 3: the post-commit suspension --------------------------------
 
 (def ^:private own-loader (deferred-loader))
 (def ^:private own-head (lazy-head own-loader))
-(h/defhost own-host own-head)
+(rf.hicasso/defhost own-host own-head)
 
 ;; --- scenario 4: rejection, and the head that replaces it ------------------
 ;;
@@ -256,14 +256,14 @@
 (def ^:private reject-loader (deferred-loader))
 (def ^:private reject-head (lazy-head reject-loader))
 (def ^:private replacement-head (lazy-head reject-loader))
-(h/defhost reject-host reject-head)
-(h/defhost replacement-host replacement-head)
+(rf.hicasso/defhost reject-host reject-head)
+(rf.hicasso/defhost replacement-host replacement-head)
 
 ;; --- scenario 6: the server render -----------------------------------------
 
 (def ^:private ssr-loader (deferred-loader))
 (def ^:private ssr-head (lazy-head ssr-loader))
-(h/defhost ssr-host ssr-head)
+(rf.hicasso/defhost ssr-host ssr-head)
 
 ;; --- scenario 7: the UNSHADOWED server render ------------------------------
 ;;
@@ -274,7 +274,7 @@
 
 (def ^:private bare-loader (deferred-loader))
 (def ^:private bare-head (lazy-head bare-loader))
-(h/defhost bare-host bare-head)
+(rf.hicasso/defhost bare-host bare-head)
 
 ;; THE CONTROL, and the row is worthless without it. `renderToString` is
 ;; allowed to be inert — a renderer that never reached the region would
@@ -306,21 +306,21 @@
     (react/createElement "h1" #js {:id "title"} "metrics")
     (react/createElement (.-Suspense react)
       #js {:fallback (react/createElement "div" #js {:id "react-fallback"} "loading")}
-      (mount/provider frame-id (codec/root-element frame-id [host {:points [1 2 3]}])))))
+      (rf.hicasso.impl.mount/provider frame-id (rf.hicasso.impl.codec/root-element frame-id [host {:points [1 2 3]}])))))
 
 ;; ---------------------------------------------------------------------------
 ;; Views
 ;; ---------------------------------------------------------------------------
 
-(h/defview own-panel
+(rf.hicasso/defview own-panel
   "A committed boundary inside the Suspense region, and the subject of the
   ownership row: it holds a subscription before anything suspends."
   [_]
-  [:p {:id "panel"} (str "label=" (h/sub [:lzb/label]))])
+  [:p {:id "panel"} (str "label=" (rf.hicasso/sub [:lzb/label]))])
 
 (defonce ^:private !attempts (atom 0))
 
-(h/defview attempt-marker
+(rf.hicasso/defview attempt-marker
   "A sibling INSIDE the error boundary. Its render count is the retry
   row's premise: a `:reset-key` change that cleared the caught error and
   re-rendered the children moves it, and one that did nothing does not —
@@ -335,21 +335,21 @@
 ;; ---------------------------------------------------------------------------
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       uix-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
-     :init-fn       (fn [] (collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 (defn- skip! [why] (is true (str "a lazy-boundary DOM claim needs a real React DOM — " why)))
 
 (defn- seeded! []
-  (support/leave-act-environment!)
+  (rf.hicasso.checkpoint-support/leave-act-environment!)
   (rf/make-frame {:id frame-id})
   (rf/with-frame frame-id (rf/dispatch-sync [:lzb/seed]))
   frame-id)
 
-(defn- tree [hiccup] (mount/provider frame-id (codec/root-element frame-id hiccup)))
+(defn- tree [hiccup] (rf.hicasso.impl.mount/provider frame-id (rf.hicasso.impl.codec/root-element frame-id hiccup)))
 
 (defn- mount-concurrent!
   "A concurrent root rendered WITHOUT `flushSync`. Suspense's fallback and
@@ -379,31 +379,31 @@
   (when (visible? handle id) (.-textContent ^js (node handle id))))
 
 (defn- poll [pred label]
-  (test-support/poll-until pred {:label label :timeout-ms 4000}))
+  (rf.test-support/poll-until pred {:label label :timeout-ms 4000}))
 
 (defn- sub-key [query-v] [frame-id query-v])
 
-(defn- ownership [] (dissoc (runtime/residue) :entries))
+(defn- ownership [] (dissoc (rf.hicasso.test.runtime/residue) :entries))
 
 (defn- reader-count
   "A COUNT rather than the reader vector: a registration and the cells it
   acquired hold each other, so `cljs.test`'s failure printer walks a cycle
   and dies on the vector."
   [query-v]
-  (count (runtime/cell-readers (sub-key query-v))))
+  (count (rf.hicasso.test.runtime/cell-readers (sub-key query-v))))
 
 (defn- sole-reader [query-v]
-  (let [rs (runtime/cell-readers (sub-key query-v))]
+  (let [rs (rf.hicasso.test.runtime/cell-readers (sub-key query-v))]
     (when (= 1 (count rs)) (first rs))))
 
 (defn- teardown-census! [handle]
-  (mount/unmount! handle)
-  (.then (runtime/quiesced!)
+  (rf.hicasso.impl.mount/unmount! handle)
+  (.then (rf.hicasso.test.runtime/quiesced!)
          (fn [_]
            (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                  (runtime/residue))
+                  (rf.hicasso.test.runtime/residue))
                "teardown is exact: zero residue after quiescence")
-           (mount/release! handle)
+           (rf.hicasso.impl.mount/release! handle)
            nil)))
 
 (defn- report-failure!
@@ -417,7 +417,7 @@
     (is false (str label " — " (.-message e)
                    " | DOM was " (pr-str (when handle (.-textContent ^js (:container handle))))
                    " | ownership " (pr-str (ownership))))
-    (when handle (mount/release! handle))
+    (when handle (rf.hicasso.impl.mount/release! handle))
     nil))
 
 ;; ---------------------------------------------------------------------------
@@ -468,11 +468,11 @@
 
 (deftest a-lazy-boundary-paints-the-fallback-then-the-component-with-the-props-it-was-written-with
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.hicasso.impl.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (let [_      (seeded!)
             handle (mount-concurrent!
-                     (mount/fresh-container!)
+                     (rf.hicasso.impl.mount/fresh-container!)
                      (tree [suspense-host {:fallback [:p {:id "skel"} "loading"]}
                             [paint-host {:points [1 2 3]}
                              [:em {:id "kid"} "child"]]]))]
@@ -532,7 +532,7 @@
     ;; cascade that to descendants — a `<div>` in between would report the
     ;; panel visible throughout the suspension and the ownership rows
     ;; below would be measuring a premise that never held.
-    (codec/root-element
+    (rf.hicasso.impl.codec/root-element
       frame-id
       [suspense-host {:fallback [:p {:id "skel2"} "waiting"]}
        [own-panel {}]
@@ -559,12 +559,12 @@
   ;; measurement, particularly for the retry, which under a lazy head is
   ;; React re-reading a payload rather than re-running a component.
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.hicasso.impl.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (let [_      (seeded!)
             _      (reset! !set-split nil)
-            handle (mount-concurrent! (mount/fresh-container!)
-                                      (mount/provider frame-id
+            handle (mount-concurrent! (rf.hicasso.impl.mount/fresh-container!)
+                                      (rf.hicasso.impl.mount/provider frame-id
                                                       (react/createElement split-host nil)))
             !state (atom {})]
         (-> (poll #(and (= 1 (reader-count [:lzb/label])) (some? @!set-split))
@@ -603,7 +603,7 @@
 
                 ;; A write DURING the suspension. Because the subscription
                 ;; survived, the hidden panel hears it.
-                (mount/dispatch! handle [:lzb/relabel "beta"])
+                (rf.hicasso.impl.mount/dispatch! handle [:lzb/relabel "beta"])
                 (settle! own-loader :resolve chart-cell)
                 (poll #(= "label=beta" (painted handle "panel"))
                       "the chunk lands and the boundary is revealed, up to date")))
@@ -624,7 +624,7 @@
                   (is (some? (node handle "chart"))))
 
                 (testing "still live after the arrival"
-                  (mount/dispatch! handle [:lzb/relabel "gamma"])
+                  (rf.hicasso.impl.mount/dispatch! handle [:lzb/relabel "gamma"])
                   (poll #(= "label=gamma" (painted handle "panel"))
                         "the revealed boundary repaints"))))
             (.then
@@ -641,7 +641,7 @@
 
 (defn- reject-tree
   [attempt host]
-  (tree [h/error-boundary {:fallback  [:p {:id "fb"} "caught"]
+  (tree [rf.hicasso/error-boundary {:fallback  [:p {:id "fb"} "caught"]
                            :reset-key attempt}
          [:div
           [attempt-marker {}]
@@ -656,11 +656,11 @@
   ;; the thing that remembers the rejection and neither this tier nor
   ;; React's public API can reset it.
   (async done
-    (if-not (mount/browser?)
+    (if-not (rf.hicasso.impl.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (let [_      (seeded!)
             _      (reset! !attempts 0)
-            handle (mount-concurrent! (mount/fresh-container!) (reject-tree 0 reject-host))]
+            handle (mount-concurrent! (rf.hicasso.impl.mount/fresh-container!) (reject-tree 0 reject-host))]
         (-> (poll #(= "loading" (painted handle "skel3")) "the fallback takes the layout")
             (.then
               (fn [_]
@@ -739,7 +739,7 @@
 
 (defn- server-html [hiccup]
   (react-dom-server/renderToString
-    (mount/provider frame-id (codec/root-element frame-id hiccup))))
+    (rf.hicasso.impl.mount/provider frame-id (rf.hicasso.impl.codec/root-element frame-id hiccup))))
 
 (deftest a-client-only-lazy-region-writes-nothing-and-a-declared-fallback-writes-the-skeleton
   (seeded!)
@@ -832,7 +832,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-declared-population-was-actually-exercised
-  (if-not (mount/browser?)
+  (if-not (rf.hicasso.impl.mount/browser?)
     (is (set/subset? #{:gate/dedupe-and-retry :lazy/server-render :lazy/unshadowed-server-gate} @!exercised)
         (str "the two lane-independent rows must run everywhere; missing "
              (pr-str (set/difference #{:gate/dedupe-and-retry :lazy/server-render :lazy/unshadowed-server-gate} @!exercised))))

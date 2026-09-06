@@ -33,21 +33,21 @@
        the stale `:error` as the machine re-enters `:submitting`."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.machines :as machines]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.frame :as rf.frame]
+            [re-frame.machines :as rf.machines]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             ;; The schemas Malli adapter publishes the registered validator
             ;; the `:where :machine-data` boundary routes through; login.model
             ;; pulls it transitively, require here so the ns is self-sufficient.
-            [re-frame.schemas :as schemas]
+            [re-frame.schemas :as rf.schemas]
             [re-frame.schemas.malli]
             [login.model])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
 ;; ---------------------------------------------------------------------------
 ;; Helpers
@@ -96,16 +96,16 @@
 
 (deftest data-schema-attached
   (testing "the login machine carries AuthLoginData on its [:schemas :data] slot"
-    (let [meta (machines/machine-meta :auth.login/flow)]
+    (let [meta (rf.machines/machine-meta :auth.login/flow)]
       (is (some? meta) "machine-meta resolves the registered login machine")
       (is (= login.model/AuthLoginData (get-in meta [:schemas :data]))
           "the [:schemas :data] schema round-trips as login.model/AuthLoginData")))
   (testing "AuthLoginData validates the :data slot only (rejects a non-string :error)"
-    (is (true?  (schemas/validate-with-registered-fn login.model/AuthLoginData {:attempts 0 :error nil})))
-    (is (true?  (schemas/validate-with-registered-fn login.model/AuthLoginData {:attempts 1 :error "Login failed."})))
-    (is (false? (schemas/validate-with-registered-fn login.model/AuthLoginData {:attempts 0 :error {:not "a string"}}))
+    (is (true?  (rf.schemas/validate-with-registered-fn login.model/AuthLoginData {:attempts 0 :error nil})))
+    (is (true?  (rf.schemas/validate-with-registered-fn login.model/AuthLoginData {:attempts 1 :error "Login failed."})))
+    (is (false? (rf.schemas/validate-with-registered-fn login.model/AuthLoginData {:attempts 0 :error {:not "a string"}}))
         "a non-string :error fails the data-slot schema")
-    (is (false? (schemas/validate-with-registered-fn login.model/AuthLoginData {:attempts "x" :error nil}))
+    (is (false? (rf.schemas/validate-with-registered-fn login.model/AuthLoginData {:attempts "x" :error nil}))
         "a non-int :attempts fails the data-slot schema")))
 
 ;; ---------------------------------------------------------------------------
@@ -114,7 +114,7 @@
 
 (deftest malformed-data-fails-boundary
   (testing "a failure whose message is non-string drives :record-error to write a bad :error, failing the :machine-data boundary and rolling back"
-    (with-new-frame [f (frame/make-anon-frame-record! {})]
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
       ;; A bare :submit signal drives :idle → :submitting; then a :failure whose
       ;; message is a non-string map makes :record-error write that map into
       ;; :error — which AuthLoginData's [:maybe :string] rejects.
@@ -141,7 +141,7 @@
 
 (deftest well-formed-data-passes
   (testing "a normal failing login (string message) settles with no :machine-data trace"
-    (with-new-frame [f (frame/make-anon-frame-record! {})]
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
       (let [traces (collect-machine-data-traces!
                      (fn []
                        (submit! f)
@@ -159,7 +159,7 @@
 
 (deftest retry-clears-prior-error
   (testing "a direct retry from :error-shown clears the stale :error as the machine re-enters :submitting"
-    (with-new-frame [f (frame/make-anon-frame-record! {})]
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
       ;; Drive idle → submitting → (string failure) → error-shown.
       (submit! f)
       (fail! f "Invalid credentials.")

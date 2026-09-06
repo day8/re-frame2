@@ -9,12 +9,12 @@
   independently of rendering."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.interop :as rf.interop]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; Sanity floor: a wall-clock epoch ms is far above any plausible
 ;; `performance.now()` origin-relative value. `js/Date.now()` is ~1.78e12 as
@@ -79,9 +79,9 @@
             that the two clock surfaces ARE distinguishable here — so the
             band test above genuinely catches a swap (it would be vacuous if
             both clocks read the same class, as on the JVM)."
-    (is (> (interop/epoch-now-ms) wall-clock-floor)
+    (is (> (rf.interop/epoch-now-ms) wall-clock-floor)
         "epoch-now-ms is a wall-clock epoch ms on CLJS (js/Date.now)")
-    (is (< (interop/now-ms) wall-clock-floor)
+    (is (< (rf.interop/now-ms) wall-clock-floor)
         "now-ms is an origin-relative perf time on CLJS (performance.now),
          below the wall-clock floor — distinct CLASS from epoch-now-ms, so a
          swap is observable on this runtime (JVM-benign)")))
