@@ -1308,9 +1308,34 @@ jobs:
       # the `run:` line itself reds the `js-harness-self-tests` job, while the
       # identical text one step above passes because it sits inside a block
       # scalar. Measured on this step. Keep the pipe.
+      #
+      # TWO SURFACES, ONE STEP. CLAUDE.md forbids the trailers in "commits or
+      # PRs", and a git hook can only ever see the first. The second invocation
+      # grades the PULL REQUEST BODY, which is where the harness writes the
+      # generated-with marker and a bare session URL (#9255 and #9256 carried
+      # exactly that pair). Still one step and still no new job, so nothing is
+      # added to any PR's check rollup and the required-check band the merge
+      # criterion is measured against does not move.
+      #
+      # DEFAULT ACTIVITY TYPES ONLY. The workflow's `pull_request:` trigger
+      # names no `types:`, so it fires on `opened`, `synchronize` and
+      # `reopened` — and `opened` is the one that grades what `gh pr create`
+      # wrote, which is the injection this closes. `edited` is deliberately NOT
+      # added: a hand edit after the push is a mayor read at merge time and is
+      # the accepted residual.
       - name: Enforce the no-AI-attribution rule (rf2-2e8f)
+        env:
+          # THE BODY REACHES THE SHELL AS DATA, NEVER AS TEXT. `${{ }}` is
+          # expanded by the workflow renderer BEFORE any shell sees the script,
+          # so interpolating the body into the `run:` block below would splice
+          # author-controlled prose straight into the source. An `env:` value is
+          # handed to the process instead of pasted into it. On a non-
+          # pull_request event this is empty and the script exits 0 on its event
+          # check before it ever reads stdin.
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           sh scripts/check-commit-attribution.sh "origin/${GITHUB_BASE_REF}"
+          printf '%s\n' "$PR_BODY" | sh scripts/check-commit-attribution.sh --pr-body
 
   jvm-core:
     name: JVM core (clojure -M:test)

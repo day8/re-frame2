@@ -21,7 +21,7 @@ disturbing beads-managed segments (`bd hooks install`).
 | `lib/check-hook-install-staleness.sh` | POSIX-sh library used by `post-merge` **and** `post-rewrite` (rf2-zt65l) — one advisory, one home. |
 | `lib/check-mayor-commit-boundary.sh` | POSIX-sh library used by `pre-commit` (rf2-ydl2p). |
 | `lib/check-beads-boundary.sh` | POSIX-sh library carrying two checks over one file: `check_beads_boundary` (rf2-ia8o7), used by `pre-commit` **and** by `scripts/check-beads-pr-boundary.sh`, the CI arm; and `check_beads_truncation` (rf2-or8te), used by `pre-commit` alone. |
-| `lib/check-commit-attribution.sh` | POSIX-sh library used by `commit-msg` **and** by `scripts/check-commit-attribution.sh`, its CI arm (rf2-2e8f) — one detector, two arms. |
+| `lib/check-commit-attribution.sh` | POSIX-sh library used by `commit-msg` **and** by `scripts/check-commit-attribution.sh`, its CI arm over the branch's commits **and** its PR body (rf2-2e8f) — one detector, every arm. |
 | `test-pre-commit.sh` | Library unit tests, sandboxed end-to-end smoke for all three pre-commit blocks and the commit-msg block, both CI arms, the installer, real pulls of both shapes, and the checkpoint helper. |
 
 The unit of installation is a marker block, not a hook: `pre-commit`
@@ -364,26 +364,48 @@ and the trunk said nothing either way because nothing checked.
 
 ### What it matches, and what it deliberately does not
 
-Three shapes, case-insensitive, all anchored at **column 0**:
+Four shapes, case-insensitive, all anchored at **column 0**:
 
 | Shape | Example |
 |-------|---------|
 | the session trailer | a `Claude-Session:` line |
-| the co-author trailer, *when the value names the assistant* | a `Co-Authored-By:` line whose value carries `claude` or `anthropic` |
-| the generated-with marker | a `Generated with …` line naming either |
+| the co-author trailer, *when the address is the assistant's* | a `Co-Authored-By:` line whose value carries `@anthropic.com` |
+| the generated-with marker | a `Generated with …` line naming `claude` or `anthropic` |
+| the bare session URL | an `https://claude.ai/code/session_…` line with no key in front |
 
 That is the whole set. This is **not** a commit-message linter: it does not
 grade subject length, mood or trailer hygiene, and a `Co-Authored-By:` naming a
 human colleague is ordinary git and stays permitted. Only AI attribution, which
 is the only thing the convention forbids.
 
+**The co-author rule matches the address family, not the name.** All 31
+trailers in this repository's log carry `@anthropic.com` and the documented
+harness default is `Claude <claude@anthropic.com>`, so the address is both
+sufficient and precise. A name substring is neither — it refuses
+`Co-Authored-By: Jean-Claude Martin <jcm@example.invalid>`, a colleague turned
+away for their own name. Layer 10b pins three human spellings against 10a's two
+assistant ones.
+
+The fourth shape is the first shape's URL with its key removed, which is how
+the harness writes it into a **PR body**; it slips past all three keyed rules,
+so it needs one of its own.
+
 **Column 0 is the escape hatch, and it is load-bearing.** A line indented by
 even one space is exempt, so a commit message may quote the forbidden trailers
 — which any commit documenting the rule, or citing one of the three above, has
 to do. Without that carve-out the guard would refuse the very commit that
-introduces it, which is the fastest route to `--no-verify` becoming habit. It
-also buys two free immunities: `git commit`'s own `#`-prefixed template
-comments, and the `+`/`-` diff body `git commit -v` appends, can never trip it.
+introduces it, which is the fastest route to `--no-verify` becoming habit.
+
+**Git's own furniture is exempt too, and that part is not free.** `#`-prefixed
+template comments are exempt outright, and the detector stops reading at git's
+scissors line, below which `git commit -v` writes the diff. Neither falls out
+of the column-0 anchor: a `#` line *starts* at column 0, and while rules 1, 2
+and 4 are prefix tests that a `#` displaces for free, rule 3 is a **substring**
+test that it does not — so `# 🤖 Generated with [Claude Code]` was refused.
+That bit for real, because `commit-msg` reads `COMMIT_EDITMSG` *before* git
+strips the comments and the diff: any `git commit -v` whose diff touched
+`CLAUDE.md`, the detector or its tests was refused with `--no-verify` the only
+escape. Layer 10d pins both halves.
 
 ### Why `commit-msg` and not `pre-commit`
 
@@ -429,9 +451,40 @@ Enforcement is `pull_request` only. On a push the commits are already history,
 and refusing one there blocks the trunk over a rewrite decision the gate does
 not own.
 
-**Scope: commit messages.** The convention also covers PR descriptions; a git
-hook cannot see one and neither arm here reads one. Left unbuilt rather than
-half-built.
+### The PR-body arm
+
+The convention covers PR **descriptions** as well, and a git hook cannot see
+one — so the CI arm grades that too, reading the body on stdin:
+
+```sh
+printf '%s\n' "$PR_BODY" | sh scripts/check-commit-attribution.sh --pr-body
+```
+
+It is a second invocation in the **same** `beads-pr-boundary` step, not a job
+of its own, so nothing is added to any PR's check rollup. `test.yml` passes the
+body through an `env:` value: `${{ }}` is expanded by the workflow renderer
+before any shell sees the script, so interpolating a body — author-controlled
+prose — into the `run:` text would splice it into the source. The body is data.
+
+Enforcement rides the workflow's default `pull_request` activity types
+(`opened`, `synchronize`, `reopened`). `opened` grades what `gh pr create`
+wrote, which is the injection this closes; `edited` is deliberately absent, so
+a hand edit after the push is a mayor read at merge time and the accepted
+residual.
+
+An **empty body passes**, and that is not a hole in the fail-closed policy
+above. A missing range makes the commit arm inspect nothing while reporting the
+same silent zero as a clean branch; a missing body genuinely contains nothing
+to grade.
+
+### Closing the source
+
+The guard catches the trailers. `.claude/settings.json` stops them being
+written: `"attribution": { "commit": "", "pr": "", "sessionUrl": false }`
+alongside the `bd prime` hooks. An empty string removes that part of the
+harness's injected instruction. The guard stays regardless — the local
+worktree commits that carried a session URL contradict the documentation's
+claim that they cannot, so the enforcement is not retired on a promise.
 
 ## Testing
 

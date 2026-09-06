@@ -1944,6 +1944,18 @@ rm -f "$rc_t" "$TERR"
 # branch. That is not a nicety: three such commits ARE on main, whether to
 # rewrite them is an unmade operator call, and a gate that graded all of
 # history would red every pull request in the repository for ever.
+#
+# THE PAIRING DISCIPLINE IS WHAT THIS LAYER MEASURES, AND IT WAS ONCE SHORT.
+# The first revision paired `Co-Authored-By:` against a human named Mike, and a
+# `#`-prefixed line against the two rules a `#` exempts for FREE — so it proved
+# the detector was awake on shapes it could not have been asleep on, and missed
+# both false positives it was built to catch. Three additions close that, each
+# red before its repair: humans NAMED Claude (10b, against the address-family
+# rule), the generated-with marker under a `#` and below a scissors line (10d,
+# the `git commit -v` refusal), and the bare session URL (10a, rule 4).
+#
+# 10p GRADES A PULL REQUEST BODY, which is the surface no git hook can reach
+# and the one the harness writes the marker and the session URL into.
 # ----------------------------------------------------------------------------
 
 printf '\n[10] AI-attribution guard: the message surface (rf2-2e8f)\n'
@@ -1954,11 +1966,22 @@ ATTR_CI="$REPO_ROOT/scripts/check-commit-attribution.sh"
 
 AERR=/tmp/rf2-attr-test.err
 
-# The three forbidden shapes, built at runtime so the generated-with marker
-# carries its real leading emoji without putting a non-ASCII byte in this file.
+# The forbidden shapes, built at runtime so the generated-with marker carries
+# its real leading emoji without putting a non-ASCII byte in this file. Both
+# co-author spellings are here because the rule matches the ADDRESS FAMILY:
+# `noreply@` is what the trunk's 31 offenders carry, `claude@` is the
+# documented harness default, and 10b pairs them against humans.
 TRAILER_COAUTHOR='Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>'
-TRAILER_SESSION='Claude-Session: https://claude.ai/session/0000'
+TRAILER_COAUTHOR_SHORT='Co-Authored-By: Claude <claude@anthropic.com>'
+TRAILER_SESSION='Claude-Session: https://claude.ai/code/session_01MAi87DChEUnjARRXTV1pZX'
 TRAILER_GENWITH=$(printf '\360\237\244\226 Generated with [Claude Code](https://claude.com/claude-code)')
+# The BARE session URL — the same URL with no key in front of it. It is what
+# the harness writes into a PR BODY, and it passes the three keyed rules.
+TRAILER_SESSION_URL='https://claude.ai/code/session_01MAi87DChEUnjARRXTV1pZX'
+
+# git's scissors line. `git commit -v` writes the diff BELOW it, and the
+# commit-msg hook reads COMMIT_EDITMSG BEFORE git strips either.
+SCISSORS='# ------------------------ >8 ------------------------'
 
 run_attr_lib() {
   # stdin: a commit message. Echoes EXIT=<n>; the refusal block lands on
@@ -1973,7 +1996,8 @@ run_attr_lib() {
 }
 
 # 10a: each forbidden shape is refused, and the refusal QUOTES the line.
-for t in "$TRAILER_COAUTHOR" "$TRAILER_SESSION" "$TRAILER_GENWITH"; do
+for t in "$TRAILER_COAUTHOR" "$TRAILER_COAUTHOR_SHORT" "$TRAILER_SESSION" \
+         "$TRAILER_GENWITH" "$TRAILER_SESSION_URL"; do
   key=$(printf '%s' "$t" | cut -c1-24)
   out=$(printf 'fix(thing): a real change\n\n%s\n' "$t" | run_attr_lib 2>"$AERR") || true
   case "$out" in
@@ -1989,22 +2013,32 @@ for t in "$TRAILER_COAUTHOR" "$TRAILER_SESSION" "$TRAILER_GENWITH"; do
   esac
 done
 
-# 10b: a HUMAN co-author is ordinary git and stays permitted. Paired with 10a's
-# first case: same trailer key, same column, only the value differs — so this
+# 10b: a HUMAN co-author is ordinary git and stays permitted — INCLUDING a
+# colleague whose NAME contains "claude", which is why rule 2 matches the
+# assistant's ADDRESS FAMILY and not a name substring. Paired with 10a's first
+# two cases: same trailer key, same column, only the ADDRESS differs, so this
 # passing does not merely say "the detector is asleep".
-out=$(printf 'fix(thing): a real change\n\nCo-Authored-By: Mike Thompson <mike@example.invalid>\n' \
-  | run_attr_lib 2>"$AERR") || true
-case "$out" in
-  *EXIT=0*)
-    if [ ! -s "$AERR" ]; then
-      pass "(10b) Co-Authored-By naming a colleague passes, silently"
-    else
-      fail "(10b) a human co-author produced diagnostics"
-      cat "$AERR" >&2
-    fi
-    ;;
-  *) fail "(10b) FALSE POSITIVE: a human co-author was refused ($out)" ;;
-esac
+#
+# The last spelling is the prose one that already sits on main (9dd06ab77d):
+# no colon, so it is not a trailer at all and rule 2 must not reach it.
+for t in 'Co-Authored-By: Mike Thompson <mike@example.invalid>' \
+         'Co-Authored-By: Claude Martin <claude.martin@example.invalid>' \
+         'Co-Authored-By: Jean-Claude Martin <jcm@example.invalid>' \
+         'Co-Authored-By line intentionally omitted per project convention.'; do
+  key=$(printf '%s' "$t" | cut -c1-40)
+  out=$(printf 'fix(thing): a real change\n\n%s\n' "$t" | run_attr_lib 2>"$AERR") || true
+  case "$out" in
+    *EXIT=0*)
+      if [ ! -s "$AERR" ]; then
+        pass "(10b) permitted, silently: $key..."
+      else
+        fail "(10b) a permitted co-author line produced diagnostics: $key..."
+        cat "$AERR" >&2
+      fi
+      ;;
+    *) fail "(10b) FALSE POSITIVE: a human co-author was refused: $key... ($out)" ;;
+  esac
+done
 
 # 10c: THE ESCAPE HATCH. The same line, indented by one space, is permitted —
 # which is what lets a commit message document the rule or cite an offending
@@ -2019,11 +2053,33 @@ esac
 
 # 10d: git's own furniture cannot trip it — `#` comment lines from the editor
 # template, and the `+` diff body `git commit -v` appends.
-out=$(printf 'feat: thing\n\n# %s\n+%s\n' "$TRAILER_COAUTHOR" "$TRAILER_SESSION" \
+#
+# THE GENERATED-WITH MARKER IS THE CASE THAT MATTERS, and the earlier revision
+# of 10d never fed it: rules 1 and 2 are PREFIX tests, so a `#` in front of them
+# exempts them for free and testing only those two proves nothing about the one
+# rule that is a SUBSTRING test. `# <marker>` reached rule 3 and was refused —
+# and because `commit-msg` reads COMMIT_EDITMSG BEFORE git strips the comments,
+# every `git commit -v` whose diff touched CLAUDE.md, this detector or these
+# very tests was refused with `--no-verify` the only escape.
+out=$(printf 'feat: thing\n\n# %s\n+%s\n# %s\n' \
+  "$TRAILER_COAUTHOR" "$TRAILER_SESSION" "$TRAILER_GENWITH" \
   | run_attr_lib 2>"$AERR") || true
 case "$out" in
-  *EXIT=0*) pass "(10d) comment lines and diff-body lines are permitted" ;;
+  *EXIT=0*) pass "(10d) template comment lines are permitted, the marker included" ;;
   *) fail "(10d) FALSE POSITIVE: git's own message furniture was refused ($out)"
+     cat "$AERR" >&2 ;;
+esac
+
+# 10d(ii): THE SCISSORS TAIL. Everything below git's cut line is the diff
+# `git commit -v` appends, not the author's message — including `+` lines that
+# ADD the forbidden trailers, which is precisely what a commit editing this
+# guard writes. The detector stops reading there.
+out=$(printf 'docs: describe the guard\n\n%s\n# Do not modify or remove the line above.\ndiff --git a/x b/x\n+%s\n+%s\n' \
+  "$SCISSORS" "$TRAILER_GENWITH" "$TRAILER_COAUTHOR" \
+  | run_attr_lib 2>"$AERR") || true
+case "$out" in
+  *EXIT=0*) pass "(10d) a git commit -v scissors tail is not graded as message" ;;
+  *) fail "(10d) FALSE POSITIVE: the scissors tail was graded as message ($out)"
      cat "$AERR" >&2 ;;
 esac
 
@@ -2210,6 +2266,75 @@ ATTR_EVENT=pull_request
 case "$out" in
   EXIT=0) pass "(10n) a non-pull_request event passes with an explanatory line" ;;
   *) fail "(10n) the guard enforced outside a pull request ($out)"; cat "$AERR" >&2 ;;
+esac
+
+# 10o: back at the DETECTOR — rule 4's permitted pair. 10a refuses the bare
+# session URL at column 0; these two prove that refusal is a rule about one URL
+# and not a blanket allergy to `https://`. Same shape, same column, so neither
+# can pass by the detector merely being asleep.
+out=$(printf 'docs: cite the pull request\n\nhttps://github.com/day8/re-frame2/pull/9317\n' \
+  | run_attr_lib 2>"$AERR") || true
+case "$out" in
+  *EXIT=0*) pass "(10o) an ordinary URL at column 0 is permitted" ;;
+  *) fail "(10o) FALSE POSITIVE: an ordinary URL line was refused ($out)"
+     cat "$AERR" >&2 ;;
+esac
+
+out=$(printf 'docs: quote the session URL on purpose\n\n %s\n' "$TRAILER_SESSION_URL" \
+  | run_attr_lib 2>"$AERR") || true
+case "$out" in
+  *EXIT=0*) pass "(10o) an INDENTED session URL is permitted (the escape hatch)" ;;
+  *) fail "(10o) the escape hatch does not reach rule 4 ($out)"; cat "$AERR" >&2 ;;
+esac
+
+# 10p: THE PR-BODY ARM. CLAUDE.md's rule covers "commits or PRs" and a git hook
+# cannot see a body at all, so this is the only arm that grades one. The two
+# shapes the harness writes there are the generated-with marker and the BARE
+# session URL — the exact pair edited out of #9255 and #9256 by hand.
+#
+# The body arrives on STDIN as DATA. In test.yml it reaches the shell through
+# an `env:` value and is never interpolated into the script text: a PR body is
+# author-controlled prose, and `${{ }}` would splice it into the source.
+run_attr_body() {
+  ( GITHUB_EVENT_NAME="${ATTR_EVENT:-pull_request}" sh "$ATTR_CI" --pr-body ) \
+    >/dev/null 2>"$AERR" && echo "EXIT=0" || echo "EXIT=$?"
+}
+
+out=$(printf 'Fixes the thing.\n\n%s\n%s\n' "$TRAILER_GENWITH" "$TRAILER_SESSION_URL" \
+  | run_attr_body)
+case "$out" in
+  EXIT=0) fail "(10p) FALSE GREEN: a PR body carrying AI attribution was allowed" ;;
+  *)
+    if grep -Fq "$TRAILER_GENWITH" "$AERR" && grep -Fq "$TRAILER_SESSION_URL" "$AERR" \
+       && grep -q 'pull request body' "$AERR"; then
+      pass "(10p) PR-body arm refuses a body and quotes BOTH offending lines"
+    else
+      fail "(10p) refused, but the report misses a line or the PR-body context"
+      cat "$AERR" >&2
+    fi
+    ;;
+esac
+
+out=$(printf 'Fixes the thing.\n\nSee https://github.com/day8/re-frame2/pull/9317.\n' \
+  | run_attr_body)
+case "$out" in
+  EXIT=0)
+    if [ ! -s "$AERR" ]; then
+      pass "(10p) PR-body arm passes a clean body"
+    else
+      fail "(10p) a clean PR body produced diagnostics"; cat "$AERR" >&2
+    fi
+    ;;
+  *) fail "(10p) FALSE POSITIVE: a clean PR body was refused ($out)"; cat "$AERR" >&2 ;;
+esac
+
+# An EMPTY body passes. A pull request may legitimately have none, and unlike a
+# missing commit RANGE — which silently grades nothing, and so fails closed —
+# a missing body genuinely contains nothing to grade.
+out=$(printf '' | run_attr_body)
+case "$out" in
+  EXIT=0) pass "(10p) PR-body arm passes an empty body" ;;
+  *) fail "(10p) FALSE POSITIVE: an empty PR body was refused ($out)"; cat "$AERR" >&2 ;;
 esac
 
 git -C "$AREPO" checkout -q main >/dev/null 2>&1 || true
