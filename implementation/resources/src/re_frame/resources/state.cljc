@@ -539,6 +539,59 @@
                   :scope       scope}}))
   scope)
 
+(defn from-db-reference-scope?
+  "True iff `scope` is a named-resolver REFERENCE `{:from-db <resolver-id>}`
+  — the single derived-scope reference form (Spec 016 §Resolver references).
+  A concrete scope value (a keyword, a `[:rf.scope/session …]` tuple, a plain
+  map without `:from-db`) is NOT a reference.
+
+  The predicate lives HERE, at the concrete-scope boundary, because that is
+  where a reference has to be REFUSED; `scope-registry/from-db-reference?` —
+  the resolution-side spelling every caller already uses — delegates to it,
+  so the shape is defined once. (state cannot require scope-registry: the
+  dependency runs the other way.)"
+  [scope]
+  (and (map? scope) (contains? scope :from-db)))
+
+(defn reject-from-db-reference-scope!
+  "Throw `:rf.error/resource-invalid-scope` when `scope` is a `{:from-db …}`
+  named-resolver REFERENCE reaching a CONCRETE scope boundary (rf2-kuky.79).
+
+  This guard closes a FAIL-OPEN, and the fail-open is the whole reason it
+  exists: a map is a perfectly valid literal scope value, so a `{:from-db
+  :app/session}` payload arriving where a concrete scope is required would
+  otherwise canonicalize as a literal MAP scope, key nothing, match no entry,
+  and no-op — silently, with the caller believing it had cleared or
+  invalidated a tenant's cache. A reference is a POLICY spelling, resolved
+  against a db at its declaration site; it is never a cache scope. The
+  boundary therefore fails closed and the diagnostic names the fix: resolve
+  it first with the pure `rf/resolve-resource-scope` helper and pass the
+  concrete result.
+
+  `where` / `resource-id` name the offending boundary. Returns `scope`
+  unchanged when it conforms."
+  [scope where resource-id]
+  (when (from-db-reference-scope? scope)
+    (rf.error/throw-error!
+      :rf.error/resource-invalid-scope
+      where
+      (str "resource " resource-id " was reached with a "
+           "scope " (pr-str scope) " — a {:from-db …} named-"
+           "resolver REFERENCE where a CONCRETE scope is "
+           "required. A reference is a policy spelling, not "
+           "a cache scope: accepting it here would key the "
+           "cache on the literal reference map, match "
+           "nothing, and silently do nothing. Resolve it "
+           "first against the db you mean — "
+           "(rf/resolve-resource-scope db "
+           (pr-str (:from-db scope)) ") — and pass the "
+           "concrete scope it returns. Per Spec 016 "
+           "§Scope resolution.")
+      {:recovery :fix-scope
+       :extra    {:resource-id resource-id
+                  :scope       scope}}))
+  scope)
+
 (defn canonicalize-scope
   "The SINGLE shared concrete-scope validation + canonicalization path
   (rf2-lzv9xc). Given a CONCRETE resolved scope value, in order:
@@ -548,17 +601,21 @@
     2. reject a reserved bare-keyword scope wrapped in a vector — the
        singleton `[:rf.scope/global]` alias (`reject-wrapped-reserved-scope!`,
        rf2-bwwk6l);
-    3. reject a host / opaque value (`reject-non-edn!`);
-    4. canonicalize the EDN (`canonicalize`).
+    3. reject a `{:from-db …}` named-resolver reference — a policy spelling
+       that would otherwise pass as a literal map scope and key nothing
+       (`reject-from-db-reference-scope!`, rf2-kuky.79);
+    4. reject a host / opaque value (`reject-non-edn!`);
+    5. canonicalize the EDN (`canonicalize`).
 
   Every scope-bearing operation routes its concrete scope through this fn so
-  the typo / wrapped-global / host guarantees hold uniformly across event
-  resolution, sub resolution, route planning, and mutation invalidation
-  defaults. `where` / `resource-id` name the boundary for the structured
-  errors. Returns the canonical scope."
+  the typo / wrapped-global / reference / host guarantees hold uniformly
+  across event resolution, sub resolution, route planning, clear-scope, and
+  mutation invalidation defaults. `where` / `resource-id` name the boundary
+  for the structured errors. Returns the canonical scope."
   [scope where resource-id]
   (reject-reserved-scope-typo! scope where resource-id)
   (reject-wrapped-reserved-scope! scope where resource-id)
+  (reject-from-db-reference-scope! scope where resource-id)
   ;; rf2-rplgkw: validate + canonicalize the concrete scope in ONE CEDN-1
   ;; walk rather than rejecting (one walk) then canonicalizing (a second).
   ;; `canonical` fails closed on exactly the host / non-portable-number

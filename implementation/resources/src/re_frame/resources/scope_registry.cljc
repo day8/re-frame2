@@ -10,7 +10,7 @@
   `:mutation`). It derives a CACHE SCOPE from declared db inputs — the one
   scope-resolution currency the same named resolver carries to resource
   registration, route resources, event-side ensure, subscriptions,
-  invalidation descriptors, populate/patch/remove targets, and `clear-scope`.
+  invalidation descriptors, and populate/patch/remove targets.
 
   ## The `{:inputs …}` metadata + resolver-fn grammar (the ONE canonical form)
 
@@ -128,7 +128,7 @@
   `:runtime` is RESERVED (`[:runtime <path>]`, route-derived scope) and is
   rejected fail-closed at registration until an in-repo consumer carrying a
   principal in a path segment needs named-resolver scope at a non-route site
-  (sub / event ensure / invalidation / `clear-scope`). Per Spec 016 §The
+  (sub / event ensure / invalidation). Per Spec 016 §The
   `{:inputs …}` metadata + resolver-fn grammar / §Route-derived scope is
   reserved."
   #{:db})
@@ -609,19 +609,23 @@
   "True iff `scope` is a named-resolver REFERENCE `{:from-db <resolver-id>}`
   — the single derived-scope reference form (Spec 016 §Resolver references).
   A concrete scope value (a keyword, a `[:rf.scope/session …]` tuple, a
-  plain map without `:from-db`) is NOT a reference."
+  plain map without `:from-db`) is NOT a reference.
+
+  The shape is defined ONCE, at the concrete-scope boundary that has to
+  REFUSE a reference (`state/from-db-reference-scope?`, rf2-kuky.79); this is
+  the resolution-side spelling, and the two can never disagree."
   [scope]
-  (and (map? scope) (contains? scope :from-db)))
+  (rf.resources.state/from-db-reference-scope? scope))
 
 (defn resolve-from-db-reference
   "Resolve a `{:from-db <resolver-id>}` reference against `db` at USE TIME —
   the single use-time resolution rule, uniform across every site that
   accepts a derived scope (resource registration, route resources, ensure /
   refetch payloads, subscriptions, invalidation descriptors, populate/patch
-  targets, clear-scope). Returns the resolved canonical scope, or nil (the
+  targets). Returns the resolved canonical scope, or nil (the
   fail-closed unresolved condition — the caller interprets it; route
   planning MUST NOT substitute global, a sub is explainable as \"scope
-  unresolved\", a clear-scope site emits a loud diagnostic). `where` names
+  unresolved\"). `where` names
   the call-site for the structured registry error. Per Spec 016 §Resolver
   references — `{:from-db <id>}`."
   [reference db where]
@@ -651,12 +655,11 @@
   "Resolve a public ScopeInput — a CONCRETE scope value OR a `{:from-db <id>}`
   named-resolver reference — to a canonical concrete cache scope, for a
   scope-taking OPERATION at a CAUSAL boundary (the direct
-  `:rf.resource/invalidate-tags` and `:rf.resource/clear-scope` events, and
-  the `:rf.mutation/execute` execution-scope resolution — its third consumer,
-  rf2-l11670). The
+  `:rf.resource/invalidate-tags` event and the `:rf.mutation/execute`
+  execution-scope resolution — its second consumer, rf2-l11670). The
   single symmetric resolution arm (rf2-oo8cv7) so a `{:from-db …}` reference
-  resolves IDENTICALLY at every public scope slot (event ensure / clear-scope /
-  invalidate-tags / mutation execute) — never a raw literal-canonicalize
+  resolves IDENTICALLY at every public scope slot that accepts one (event
+  ensure / invalidate-tags / mutation execute) — never a raw literal-canonicalize
   exception, which keys
   nothing and fails as a silent zero-match. Per Spec 016 §Resolver references —
   the single use-time resolution rule, uniform across every site.
@@ -673,8 +676,9 @@
   reference resolved nil (its declared `:inputs` are absent — e.g. no logged-in
   user). The nil POLICY stays per-operation at the CALL SITE: a scope-REQUIRING
   operation (ensure / invalidate / a supplied execute reference) throws
-  `:rf.error/resource-scope-unresolved-reference`; the destructive-teardown
-  clear-scope warns + no-ops (its deliberate exception). `where` names the
+  `:rf.error/resource-scope-unresolved-reference`. (`:rf.resource/clear-scope`
+  is NOT a consumer: it takes a concrete scope only — rf2-kuky.79 — and
+  canonicalizes it directly.) `where` names the
   boundary; `resource-id` scopes the concrete-scope validation error (the
   mutation id for `:rf.mutation/execute`; nil for a
   tag invalidation that spans resources). Throws

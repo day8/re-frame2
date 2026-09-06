@@ -1642,8 +1642,7 @@
   DIAGNOSTICS that ride the `:rf.warning/*` namespace but carry the same
   owner-local scoped-key / scope tags — `:rf.warning/resource-*` (e.g.
   `:rf.warning/resource-load-more-owner-ignored`, which carries a
-  `:resource/key`, and `:rf.warning/resource-clear-scope-unresolved`, which
-  carries a `:scope`). Those rows must take the SAME fail-closed family egress
+  `:resource/key`). Those rows must take the SAME fail-closed family egress
   projection as the `:rf.resource/*` rows, not slip through the
   scoped-key-blind generic walk."
   [operation]

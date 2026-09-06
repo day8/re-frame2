@@ -2071,10 +2071,9 @@
 ;; ---- clear-scope — the causal logout / tenant-switch boundary --------------
 
 (defn- clear-scope-handler*
-  "The clear-scope body once `cscope` is the resolved CANONICAL concrete scope
-  (a literal scope canonicalized, or a `{:from-db …}` reference resolved against
-  app-db — both flow through `rf.resources.scope-registry/resolve-scope-input` at the caller,
-  rf2-oo8cv7, so the concrete-scope validation happens ONCE). Removes the
+  "The clear-scope body once `cscope` is the CANONICAL concrete scope (the
+  payload scope through `rf.resources.state/canonicalize-scope` at the caller,
+  so the concrete-scope validation happens ONCE). Removes the
   in-scope entries, settles their in-flight work rows `:cancelled`, recomputes
   indexes, and emits the explaining trace + fx.
 
@@ -2158,60 +2157,23 @@
   operation uses — a typo can never silently clear the WRONG scope (a
   cross-tenant data wipe).
 
-  **`{:from-db <id>}` reference resolution** (rf2-mfnc5i, Spec 016 §clear-scope
-  is causal / §Named resource-scope resolvers): a `:scope` MAY be a
-  `{:from-db <resolver-id>}` named-resolver reference, resolved at USE TIME
-  against this handler's app-db coeffect (the single use-time rule, uniform
-  with event / route / sub / remove). A reference that resolves NIL at a
-  clear-scope site is FAIL-CLOSED with a loud
-  `:rf.warning/resource-clear-scope-unresolved` diagnostic — NEVER a silent
-  no-op (it INTENDED to derive the tenant / user / leak-boundary scope to wipe
-  and could not; clearing nothing — or matching the literal reference map,
-  which keys nothing — would be the silent no-op the spec prohibits). The
-  resolved concrete scope is then routed through `rf.resources.state/canonicalize-scope`
-  exactly as a literal scope is. Per Spec 016 §clear-scope is causal."
-  [{rt :rf.db/runtime, frame-id :rf.frame/id, app-db :db, time-ms :rf/time-ms}
+  **The scope is CONCRETE — there is no reference form** (rf2-kuky.79, Spec 016
+  §clear-scope takes a concrete scope). `clear-scope` is dispatched from a
+  logout / tenant-switch handler's `:fx`, so it runs in the NEXT event's world:
+  a `{:from-db …}` reference resolved here would resolve against the POST-logout
+  db, where the resolver's declared `:inputs` are already gone. The caller
+  pre-resolves instead, with the pure `rf/resolve-resource-scope` helper over
+  its OWN coeffect db — honest about time, and one fewer payload dialect. A
+  `{:from-db …}` map reaching this handler is REFUSED by the shared
+  concrete-scope guard rather than accepted as a literal map scope, which is a
+  fail-open that would key nothing and clear nothing silently. Per Spec 016
+  §clear-scope takes a concrete scope."
+  [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms}
    [_event-id {:keys [scope cause]}]]
   (let [runtime-db (or rt {})
-        ;; EP-0016 D3 / rf2-mfnc5i / rf2-oo8cv7: resolve the public ScopeInput
-        ;; ONCE through the shared symmetric arm — a concrete scope canonicalizes
-        ;; through `rf.resources.state/canonicalize-scope`, a `{:from-db …}` reference resolves
-        ;; against the handler's app-db coeffect at use time (result already
-        ;; canonical). nil ONLY when a reference resolved nil — the clear-scope
-        ;; warn/no-op fail-closed below (the DELIBERATE destructive-teardown
-        ;; exception; NOT the ensure/invalidate throw). Never canonicalized as a
-        ;; literal reference map (which keys nothing → the silent no-op Spec 016
-        ;; prohibits).
-        from-db?   (rf.resources.scope-registry/from-db-reference? scope)
-        cscope     (rf.resources.scope-registry/resolve-scope-input
-                     scope app-db 'rf.resource/clear-scope nil)]
-    (if (and from-db? (nil? cscope))
-      ;; FAIL-CLOSED: a {:from-db …} reference resolved nil at a clear-scope
-      ;; site — emit the loud dev diagnostic and clear NOTHING. The resolver's
-      ;; declared :inputs are not present in db (e.g. no logged-in user); a
-      ;; derived scope that cannot resolve is the unresolved condition, never
-      ;; permission to clear global or silently no-op. Per Spec 016 §clear-scope
-      ;; is causal (EP-0016 issue-7 tripwire).
-      (do
-        (rf.trace/emit! :warning :rf.warning/resource-clear-scope-unresolved
-                     {:rf.frame/id frame-id
-                      :scope       scope
-                      :from-db     (:from-db scope)
-                      :cause       cause
-                      :recovery    :fix-scope
-                      :hint        (str ":rf.resource/clear-scope referenced named "
-                                        "scope resolver " (pr-str (:from-db scope))
-                                        " via {:from-db …}, but it resolved NIL "
-                                        "against the current db — FAIL-CLOSED. "
-                                        "Nothing was cleared (a {:from-db …} that "
-                                        "cannot resolve is NEVER a silent no-op, and "
-                                        "NEVER a fall-through to clearing global / "
-                                        "another tier). The resolver's declared "
-                                        ":inputs are not present in db (e.g. no "
-                                        "logged-in user at logout). Per Spec 016 "
-                                        "§clear-scope is causal.")})
-        {})
-      (clear-scope-handler* runtime-db frame-id cscope cause time-ms))))
+        cscope     (rf.resources.state/canonicalize-scope
+                     scope 'rf.resource/clear-scope nil)]
+    (clear-scope-handler* runtime-db frame-id cscope cause time-ms)))
 
 ;; ---- remove — single-instance cache removal --------------------------------
 

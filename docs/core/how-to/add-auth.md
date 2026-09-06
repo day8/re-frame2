@@ -398,9 +398,9 @@ Now logout itself. There's one subtlety, and the ordering is the whole game: res
 
     It reads the resolver registry against a `db` value with no dispatch, no app-state mutation, and no trace. That's exactly why you can call it *inline* in the handler to capture `old-scope` before the clear. Note the `:cause :logout` on the payload: `clear-scope` records it in resource history so Xray can attribute the eviction. And there's **no `:snapshot-db` key** — a whole-db snapshot riding an event vector would be an egress-bearing record on traces.
 
-!!! warning "Gotcha — a nil scope is loud, not silent"
+!!! warning "Gotcha — resolve it *here*, not on the payload"
 
-    If the resolver returns `nil` at a `clear-scope` site — say the user was already gone — the runtime emits a loud diagnostic (`:rf.warning/resource-clear-scope-unresolved`) rather than a silent no-op. So a logout that quietly *fails* to clear a session's cache shows up in the trace, instead of leaking the previous user's feed and looking fine.
+    `clear-scope` takes a **concrete** scope. You can't hand it `{:from-db :my-app/session}` and let the runtime resolve it later — that form doesn't exist, and a map that looks like it is refused loud (`:rf.error/resource-invalid-scope`). The reason is the timing this whole recipe turns on: the `:fx` dispatch runs in the *next* event, against the db you just cleared the user out of, so a resolver asked to run there would find its inputs gone and clear nothing. Resolving in the handler, against the cofx `db`, is the only reading that means what you want.
 
 ??? info "Coming from TanStack Query?"
 
