@@ -482,19 +482,26 @@ The same move covers every category: `dispatch-sync` for event errors, a
 [sub](glossary.md#subscription) computation for sub errors, frame setup and teardown
 for lifecycle errors.
 
-!!! note "One verb, four streams"
+!!! note "The test tap is not the production route"
 
-    That first argument to `register-listener!` is a stream selector. `:trace` is the
-    dev tap you just used — [elided](glossary.md#elide) out of production builds, the
-    firehose [Xray](glossary.md#xray) drinks from. `:errors` is the **always-on error
-    channel** promised earlier: the same structured records, but it survives
-    production, fans across every frame, and is not filtered by any frame's egress
-    policy. That's why wiring Sentry in production is just
-    `(rf/register-listener! :errors ::sentry report!)`. Mind one thing: nothing
-    arrives redacted except the event vector, so scrubbing before shipping is on you
-    — the [how-to](how-to/report-errors-in-production.md) walks it. The other two —
-    `:events` (an always-on per-event integration hook) and `:epoch`
-    ([epoch](glossary.md#epoch) records for time-travel tooling) — are
+    That first argument to `register-listener!` is a stream selector, and `:trace` —
+    the dev tap you just used — is [elided](glossary.md#elide) out of production
+    builds; it is the firehose [Xray](glossary.md#xray) drinks from, and it is the
+    right tool inside a test. It is *not* how you ship errors off-box.
+
+    The **always-on error channel** promised earlier survives production, and its
+    normal door is the frame's own `:observability` policy: declare
+    `{:observability {:errors [{:sink ::sentry}]}}` on the frame and register the
+    sink with `rf/register-observability-sink!`. The record arrives **already
+    projected** under that frame's classification — sensitive paths redacted before
+    your code sees them. The advanced door is
+    `(rf/register-listener! :errors ::sentry report!)`: one unprojected fan-out per
+    process across every frame, for independent corpus observation. Nothing arrives
+    redacted there except the event vector, so the trust boundary is yours. The
+    [how-to](how-to/report-errors-in-production.md) walks both, in that order.
+
+    The remaining streams — `:events` (an always-on per-event integration hook) and
+    `:epoch` ([epoch](glossary.md#epoch) records for time-travel tooling) — are
     [observability](observability.md)'s territory. One closed vocabulary; pass an
     unknown stream and you get a loud `:rf.error/unknown-listener-stream`, no silent
     default.
