@@ -154,7 +154,7 @@
       ;; Subs (used to demonstrate the absence of :sub/run / :sub/create
       ;; emit — see rf2-hyxg).
       (rf/reg-sub :n     (fn [db _] (:n db)))
-      (rf/reg-sub :n*2   :<- [:n] (fn [n _] (* 2 (or n 0))))
+      (rf/reg-sub :n*2   {:inputs [[:n]]} (fn [[n] _] (* 2 (or n 0))))
 
       ;; ---- A user-registered fx fires :event/do-fx wrapping the walk ------
       (let [fx-fired (atom 0)]
@@ -213,8 +213,8 @@
       ;; ---- :rf.error/no-such-sub ------------------------------------------
       ;; A sub whose :<- input isn't registered.
       (rf/reg-sub :unresolved
-        :<- [:no-such/input]
-        (fn [v _] v))
+        {:inputs [[:no-such/input]]}
+        (fn [[v] _] v))
       (rf/dispatch-sync [:seed] {:frame :test/main})
       (rf/subscribe-once [:unresolved] {:frame :test/main})
 

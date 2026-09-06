@@ -95,8 +95,8 @@
   (rf/reg-sub ::render-value (fn [db _] (:n db)))
   (rf/reg-sub ::source-value (fn [db _] (:n db)))
   (rf/reg-sub ::lifecycle-value
-    :<- source-query
-    (fn [n _] (* 2 n)))
+    {:inputs [source-query]}
+    (fn [[n] _] (* 2 n)))
   (rf/dispatch-sync [::seed 10] {:frame frame-a})
   (rf/dispatch-sync [::seed 100] {:frame frame-b}))
 

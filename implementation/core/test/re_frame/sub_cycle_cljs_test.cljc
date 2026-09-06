@@ -70,9 +70,9 @@
         (rf/unregister-listener! :trace ::rec)))))
 
 (defn- register-cyclic-subs! []
-  (rf/reg-sub :a :<- [:b] (fn [b _] b))
-  (rf/reg-sub :b :<- [:a] (fn [a _] a))
-  (rf/reg-sub :self :<- [:self] (fn [x _] x)))
+  (rf/reg-sub :a {:inputs [[:b]]} (fn [[b] _] b))
+  (rf/reg-sub :b {:inputs [[:a]]} (fn [[a] _] a))
+  (rf/reg-sub :self {:inputs [[:self]]} (fn [[x] _] x)))
 
 ;; ===========================================================================
 ;; Reactive `subscribe` path
@@ -144,10 +144,10 @@
     ;; :leaf — a layer-1 (`:db`) sub: cacheable + ref-countable, no `:<-` inputs.
     (rf/reg-sub :leaf (fn [db _] (:leaf db 7)))
     ;; :cyc — closes the cycle back to :multi.
-    (rf/reg-sub :cyc :<- [:multi] (fn [m _] m))
+    (rf/reg-sub :cyc {:inputs [[:multi]]} (fn [[m] _] m))
     ;; :multi — TWO inputs; the FIRST (:leaf) resolves cleanly, the SECOND
     ;; (:cyc) cycles back to :multi. This is the multi-input edge .24 left.
-    (rf/reg-sub :multi :<- [:leaf] :<- [:cyc] (fn [[l c] _] [l c]))
+    (rf/reg-sub :multi {:inputs [[:leaf] [:cyc]]} (fn [[l c] _] [l c]))
     (let [cache (:sub-cache (rf.frame/frame fid))]
       ;; Baseline: :leaf is not yet in the cache.
       (is (nil? (get @cache [:leaf]))
@@ -206,9 +206,9 @@
             builds cleanly and emits NO :rf.error/sub-cycle — the guard fires on
             genuine cycles only (rf2-x76af2.24)"
     (rf/reg-sub :root (fn [db _] (:root db 41)))
-    (rf/reg-sub :a :<- [:root] (fn [r _] (inc r)))
-    (rf/reg-sub :b :<- [:root] (fn [r _] (dec r)))
-    (rf/reg-sub :c :<- [:a] :<- [:b] (fn [[a b] _] [a b]))
+    (rf/reg-sub :a {:inputs [[:root]]} (fn [[r] _] (inc r)))
+    (rf/reg-sub :b {:inputs [[:root]]} (fn [[r] _] (dec r)))
+    (rf/reg-sub :c {:inputs [[:a] [:b]]} (fn [[a b] _] [a b]))
     (let [[reaction events] (capture-sub-cycles #(rf.subs/subscribe [:c] {:frame fid}))]
       (is (= [42 40] (deref reaction)) "the diamond computed correctly")
       ;; rf2-d2841 - VACUOUS UNDER THE GATE. `events` is empty for EVERY graph

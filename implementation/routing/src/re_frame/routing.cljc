@@ -390,27 +390,32 @@
   {:doc "Subscribe to the current route slice `{:route-id :params :query :transition :error :fragment :nav-token}` at `[:rf.runtime/routing :current]`. The sub returns that published map directly; sibling routing state such as `:pending-navigation` and optional resource-blocking bookkeeping is not included. Allocator counters and scroll positions are host-side transient caches, not runtime-db siblings. Per Spec 012."}
   route-sub-fn)
 (rf.subs/reg-sub :rf.route/id
-  {:doc "Subscribe to the current route's id keyword (the slice's `:route-id` key). Per Spec 012."}
-  :<- [:rf/route] (fn [route _] (:route-id route)))
+  {:doc "Subscribe to the current route's id keyword (the slice's `:route-id` key). Per Spec 012."
+   :inputs [[:rf/route]]}
+  (fn [[route] _] (:route-id route)))
 (rf.subs/reg-sub :rf.route/params
-  {:doc "Subscribe to the current route's path params map. Per Spec 012."}
-  :<- [:rf/route] (fn [route _] (:params route)))
+  {:doc "Subscribe to the current route's path params map. Per Spec 012." :inputs [[:rf/route]]}
+  (fn [[route] _] (:params route)))
 (rf.subs/reg-sub :rf.route/query
-  {:doc "Subscribe to the current route's query params map. Per Spec 012."}
-  :<- [:rf/route] (fn [route _] (:query route)))
+  {:doc "Subscribe to the current route's query params map. Per Spec 012." :inputs [[:rf/route]]}
+  (fn [[route] _] (:query route)))
 (rf.subs/reg-sub :rf.route/transition
-  {:doc "Subscribe to the current route's `:transition` state. Per Spec 012 §Route transitions."}
-  :<- [:rf/route] (fn [route _] (:transition route)))
+  {:doc "Subscribe to the current route's `:transition` state. Per Spec 012 §Route transitions."
+   :inputs [[:rf/route]]}
+  (fn [[route] _] (:transition route)))
 (rf.subs/reg-sub :rf.route/error
-  {:doc "Subscribe to the current route's `:error` (nil when no error). Per Spec 012."}
-  :<- [:rf/route] (fn [route _] (:error route)))
+  {:doc "Subscribe to the current route's `:error` (nil when no error). Per Spec 012."
+   :inputs [[:rf/route]]}
+  (fn [[route] _] (:error route)))
 (rf.subs/reg-sub :rf.route/fragment
-  {:doc "Subscribe to the current route's URL `#fragment` (string or nil). Per Spec 012 §Fragments."}
-  :<- [:rf/route] (fn [route _] (:fragment route)))
+  {:doc "Subscribe to the current route's URL `#fragment` (string or nil). Per Spec 012 §Fragments."
+   :inputs [[:rf/route]]}
+  (fn [[route] _] (:fragment route)))
 (rf.subs/reg-sub :rf.route/chain
   {:doc "Subscribe to the `:parent`-chain of the active route, returned
-  as a vector `[parent-most ... current]`. Per Spec 012 §Nested layouts."}
-  :<- [:rf.route/id] (fn [id _] (rf.routing.subs/chain-from-meta id)))
+  as a vector `[parent-most ... current]`. Per Spec 012 §Nested layouts."
+   :inputs [[:rf.route/id]]}
+  (fn [[id] _] (rf.routing.subs/chain-from-meta id)))
 (rf.subs/reg-runtime-sub :rf/pending-navigation
   {:doc "Subscribe to the pending-navigation slot at
   `[:rf.runtime/routing :pending-navigation]` in the runtime-db partition

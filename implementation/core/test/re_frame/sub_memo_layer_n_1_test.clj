@@ -55,7 +55,7 @@
     (let [runs (atom 0)]
       (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
       (rf/reg-sub :n  (fn [db _] (:n db)))
-      (rf/reg-sub :n*2 :<- [:n] (fn [n _] (swap! runs inc) (* 2 n)))
+      (rf/reg-sub :n*2 {:inputs [[:n]]} (fn [[n] _] (swap! runs inc) (* 2 n)))
       (rf/dispatch-sync [:seed])
       (let [r (rf/subscribe [:n*2])]
         (is (= 14 @r))
@@ -72,7 +72,7 @@
       (rf/reg-event :seed   (fn [{:keys [db]} _]      {:db {:n 0}}))
       (rf/reg-event :update (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
       (rf/reg-sub :n   (fn [db _] (:n db)))
-      (rf/reg-sub :n*2 :<- [:n] (fn [n _] (swap! runs inc) (* 2 n)))
+      (rf/reg-sub :n*2 {:inputs [[:n]]} (fn [[n] _] (swap! runs inc) (* 2 n)))
       (rf/dispatch-sync [:seed])
       (let [r (rf/subscribe [:n*2])]
         (is (= 0 @r))
@@ -93,7 +93,7 @@
       (rf/reg-event :seed     (fn [{:keys [db]} _]      {:db {:n 1 :other :a}}))
       (rf/reg-event :touch    (fn [{:keys [db]} _]     {:db (assoc db :other :b)}))
       (rf/reg-sub :n   (fn [db _] (:n db)))
-      (rf/reg-sub :n*2 :<- [:n] (fn [n _] (swap! runs inc) (* 2 n)))
+      (rf/reg-sub :n*2 {:inputs [[:n]]} (fn [[n] _] (swap! runs inc) (* 2 n)))
       (rf/dispatch-sync [:seed])
       (let [r (rf/subscribe [:n*2])]
         (is (= 2 @r))
@@ -110,8 +110,8 @@
     (let [captured (atom nil)]
       (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 99}}))
       (rf/reg-sub :n   (fn [db _] (:n db)))
-      (rf/reg-sub :n*2 :<- [:n]
-                  (fn [n query-v]
+      (rf/reg-sub :n*2 {:inputs [[:n]]}
+                  (fn [[n] query-v]
                     (reset! captured [n query-v])
                     (* 2 n)))
       (rf/dispatch-sync [:seed])
@@ -131,8 +131,8 @@
       (rf/reg-event :seed-false (fn [{:keys [db]} _] {:db {:n false}}))
       (rf/reg-event :seed-val   (fn [{:keys [db]} _] {:db {:n 1}}))
       (rf/reg-sub :n   (fn [db _] (:n db)))
-      (rf/reg-sub :n-shadow :<- [:n]
-                  (fn [n _] (swap! runs inc) n))
+      (rf/reg-sub :n-shadow {:inputs [[:n]]}
+                  (fn [[n] _] (swap! runs inc) n))
 
       (rf/dispatch-sync [:seed-nil])
       (let [r (rf/subscribe [:n-shadow])]
@@ -164,9 +164,9 @@
     (rf/reg-event :update (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
     (rf/reg-sub :n  (fn [db _] (:n db)))
     (rf/reg-sub :k  (fn [db _] (:k db)))
-    (rf/reg-sub :n*2-1 :<- [:n]
-                (fn [n _] (* 2 n)))
-    (rf/reg-sub :n*2-2 :<- [:n] :<- [:k]
+    (rf/reg-sub :n*2-1 {:inputs [[:n]]}
+                (fn [[n] _] (* 2 n)))
+    (rf/reg-sub :n*2-2 {:inputs [[:n] [:k]]}
                 (fn [[n _k] _] (* 2 n)))
     (rf/dispatch-sync [:seed])
     (let [r1 (rf/subscribe [:n*2-1])
@@ -190,8 +190,8 @@
     (rf/reg-event :update (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
     (rf/reg-event :touch  (fn [{:keys [db]} _]     {:db (assoc db :other :y)}))
     (rf/reg-sub :a (fn [db _] (swap! a-runs inc) (:n db)))
-    (rf/reg-sub :b :<- [:a] (fn [a _] (swap! b-runs inc) (inc a)))
-    (rf/reg-sub :c :<- [:b] (fn [b _] (swap! c-runs inc) (inc b)))
+    (rf/reg-sub :b {:inputs [[:a]]} (fn [[a] _] (swap! b-runs inc) (inc a)))
+    (rf/reg-sub :c {:inputs [[:b]]} (fn [[b] _] (swap! c-runs inc) (inc b)))
     (rf/dispatch-sync [:seed])
     (let [rc (rf/subscribe [:c])]
       (is (= 3 @rc))
@@ -254,7 +254,7 @@
       (rf/reg-event :touch  (fn [{:keys [db]} _]     {:db (update db :unrelated inc)}))
       (rf/reg-event :update (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
       (rf/reg-sub :n (fn [db _] (:n db)))
-      (rf/reg-sub :arrow    :<- [:n]        (fn [n _]  (swap! arrow-runs inc) (* 2 n)))
+      (rf/reg-sub :arrow    {:inputs [[:n]]}        (fn [[n] _]  (swap! arrow-runs inc) (* 2 n)))
       (rf/reg-sub :declared {:inputs [[:n]]} (fn [[n] _] (swap! declared-runs inc) (* 2 n)))
       (rf/dispatch-sync [:seed])
       (let [a (rf/subscribe [:arrow])

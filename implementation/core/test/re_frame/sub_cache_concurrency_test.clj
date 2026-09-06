@@ -306,7 +306,7 @@
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
     ;; layer-2 sub over two layer-1 inputs, so we can observe input ref-counts.
-    (rf/reg-sub :sum :<- [:a] :<- [:b] (fn [[a b] _] (+ a b)))
+    (rf/reg-sub :sum {:inputs [[:a] [:b]]} (fn [[a b] _] (+ a b)))
     (rf/dispatch-sync [:seed] {:frame :rf/default})
 
     (let [frame-id :rf/default

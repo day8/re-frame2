@@ -766,7 +766,7 @@
       ;; Parametric sub: input-fn (arity-1) THROWS at materialization.
       ;; Registered via the public macro so `[:sub …]` coords are captured.
       (rf/reg-sub :bxud9v/input-throws
-                  (fn [_q] (throw (ex-info "input-fn-boom" {})))
+                  {:inputs (fn [_q] (throw (ex-info "input-fn-boom" {})))}
                   (fn [_in _q] :unreachable))
       ;; Reactive subscribe path → `compute-and-cache!` runs the input-fn,
       ;; catches the throw, emits :rf.error/sub-input-fn-exception, recovers nil.

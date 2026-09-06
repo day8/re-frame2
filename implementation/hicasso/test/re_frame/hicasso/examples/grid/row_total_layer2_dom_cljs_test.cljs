@@ -95,11 +95,9 @@
 
   The `cols` in the query vector is not decoration — see the namespace
   docstring. `input-fn` is pure in the query vector and cannot read
-  `app-db`, so the row's width has to be told to it."}
-  ;; input-fn — pure `query-v -> [query-vector*]`, run once per cache entry.
-  (fn [[_ row cols]]
-    (mapv (fn [col] [::rf.hicasso.examples.grid.subs/cell row col]) (range cols)))
-  ;; computation fn — a parametric sub is handed a VECTOR of input values.
+  `app-db`, so the row's width has to be told to it."
+   :inputs (fn [[_ row cols]]
+    (mapv (fn [col] [::rf.hicasso.examples.grid.subs/cell row col]) (range cols)))}
   (fn [cell-values _]
     (transduce (map (fn [s] (if (seq s) (js/parseInt s 10) 0)))
                +

@@ -196,7 +196,7 @@
     (rf/dispatch-sync [:seed] {:frame :rf/default})
     ;; v1 of :a is the identity over :n (= 10); :sum is :a + 0 (= 10).
     (rf/reg-sub :a (fn [db _] (:n db)))
-    (rf/reg-sub :sum :<- [:a] (fn [a _] (+ a 0)))
+    (rf/reg-sub :sum {:inputs [[:a]]} (fn [[a] _] (+ a 0)))
     ;; Pin the DOWNSTREAM reaction so ref-counting cannot evict it; this is
     ;; the slot that, pre-fix, survives the re-registration with a stale
     ;; input reaction. Subscribing [:sum] also subscribes [:a] (its input).

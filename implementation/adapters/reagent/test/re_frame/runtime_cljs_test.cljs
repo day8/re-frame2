@@ -64,7 +64,7 @@
   (testing "layer-1 + layer-2 subs return computed values"
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:items [10 20 30]}}))
     (rf/reg-sub :items     (fn [db _] (:items db)))
-    (rf/reg-sub :item-sum  :<- [:items] (fn [items _] (reduce + items)))
+    (rf/reg-sub :item-sum  {:inputs [[:items]]} (fn [[items] _] (reduce + items)))
     (rf/dispatch-sync [:seed])
     (is (= [10 20 30] (rf/subscribe-once [:items])))
     (is (= 60         (rf/subscribe-once [:item-sum])))))
@@ -300,8 +300,8 @@
   (testing "a sub whose body throws emits :rf.error/sub-exception and resolves to nil"
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:items "broken"}}))
     (rf/reg-sub :items (fn [db _] (:items db)))
-    (rf/reg-sub :items-count :<- [:items]
-      (fn [items _]
+    (rf/reg-sub :items-count {:inputs [[:items]]}
+      (fn [[items] _]
         ;; Throws on a string.
         (count (.something items))))
     (rf/dispatch-sync [:init])
@@ -371,8 +371,7 @@
     (rf/reg-sub :diamond/a (fn [db _] (:x db)))
     (rf/reg-sub :diamond/b (fn [db _] (:y db)))
     (rf/reg-sub :diamond/c
-      :<- [:diamond/a]
-      :<- [:diamond/b]
+      {:inputs [[:diamond/a] [:diamond/b]]}
       (fn [[a b] _] {:a a :b b}))
     (rf/dispatch-sync [:diamond/init])
     (let [c-reaction (rf/subscribe [:diamond/c])
@@ -401,8 +400,8 @@
     (rf/reg-event :chain/init (fn [{:keys [db]} _] {:db {:n 10}}))
     (rf/reg-event :chain/set  (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
     (rf/reg-sub :chain/a (fn [db _] (:n db)))
-    (rf/reg-sub :chain/b :<- [:chain/a] (fn [a _] (* a 2)))
-    (rf/reg-sub :chain/c :<- [:chain/b] (fn [b _] (inc b)))
+    (rf/reg-sub :chain/b {:inputs [[:chain/a]]} (fn [[a] _] (* a 2)))
+    (rf/reg-sub :chain/c {:inputs [[:chain/b]]} (fn [[b] _] (inc b)))
     (rf/dispatch-sync [:chain/init])
     (let [c-reaction (rf/subscribe [:chain/c])
           history    (atom [])]
@@ -433,8 +432,8 @@
       (rf/reg-sub :stable/a
                   (fn [db _] (swap! a-runs inc) (:n db)))
       (rf/reg-sub :stable/squared
-                  :<- [:stable/a]
-                  (fn [a _] (swap! squared-runs inc) (* a a)))
+                  {:inputs [[:stable/a]]}
+                  (fn [[a] _] (swap! squared-runs inc) (* a a)))
       (rf/dispatch-sync [:stable/init])
       (let [r (rf/subscribe [:stable/squared])]
         (add-watch r ::touch (fn [_ _ _ _] nil))
@@ -658,8 +657,7 @@
     (rf/reg-sub :items  (fn [db _] (:items db)))
     (rf/reg-sub :filter (fn [db _] (:filter db)))
     (rf/reg-sub :visible-items
-                :<- [:items]
-                :<- [:filter]
+                {:inputs [[:items] [:filter]]}
                 (fn [[items _filter] _] items))
     (rf/dispatch-sync [:seed2])
     (let [r (rf/subscribe [:visible-items])
@@ -681,10 +679,10 @@
     (rf/reg-sub :comments/for-article (fn [db [_ id]] (get-in db [:comments id])))
     (rf/reg-sub :viewer/current       (fn [db _] (:viewer db)))
     (rf/reg-sub :article/page
-                (fn [[_ id]]
+                {:inputs (fn [[_ id]]
                   [[:article/by-id id]
                    [:comments/for-article id]
-                   [:viewer/current]])
+                   [:viewer/current]])}
                 (fn [[article comments viewer] [_ id]]
                   {:article article :comments comments :viewer viewer}))
     (rf/dispatch-sync [:seed3])
@@ -764,8 +762,7 @@
     (rf/reg-sub :items  (fn [db _] (:items db)))
     (rf/reg-sub :filter (fn [db _] (:filter db)))
     (rf/reg-sub :visible-items
-                :<- [:items]
-                :<- [:filter]
+                {:inputs [[:items] [:filter]]}
                 (fn [[items _filter] _] items))
     (rf/dispatch-sync [:seed-av2])
     (let [r    (rf/subscribe [:visible-items])
@@ -786,9 +783,9 @@
     (rf/reg-sub :article/by-id        (fn [db [_ id]] (get-in db [:articles id])))
     (rf/reg-sub :comments/for-article (fn [db [_ id]] (get-in db [:comments id])))
     (rf/reg-sub :article/page
-                (fn [[_ id]]
+                {:inputs (fn [[_ id]]
                   [[:article/by-id id]
-                   [:comments/for-article id]])
+                   [:comments/for-article id]])}
                 (fn [[article comments] _]
                   {:article article :comments comments}))
     (rf/dispatch-sync [:seed-av3])

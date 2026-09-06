@@ -424,7 +424,7 @@
             [:fh/value]."
     (rf/reg-event :fh/seed (fn [{:keys [db]} [_ v]] {:db {:value v}}))
     (rf/reg-sub :fh/value (fn [db _] (:value db)))
-    (rf/reg-sub :fh/derived :<- [:fh/value] (fn [v _] [:derived v]))
+    (rf/reg-sub :fh/derived {:inputs [[:fh/value]]} (fn [[v] _] [:derived v]))
     (rf/make-frame {:id :fh/race :doc "incarnation A"})
     (rf/dispatch-sync [:fh/seed :A-value] {:frame :fh/race})
     (let [{:keys [subscribe]} (rf/capture-frame :fh/race)   ;; pins A

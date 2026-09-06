@@ -77,14 +77,14 @@
   (rf/reg-sub :standard-epochs/chain-root            ;; L1
     (fn [db _] (get-in db [:views :chain-input])))
   (rf/reg-sub :standard-epochs/chain-doubled         ;; L2
-    :<- [:standard-epochs/chain-root]
-    (fn [root _] (* 2 root)))
+    {:inputs [[:standard-epochs/chain-root]]}
+    (fn [[root] _] (* 2 root)))
   (rf/reg-sub :standard-epochs/chain-labelled        ;; L3
-    :<- [:standard-epochs/chain-doubled]
-    (fn [doubled _] (str "2×input = " doubled)))
+    {:inputs [[:standard-epochs/chain-doubled]]}
+    (fn [[doubled] _] (str "2×input = " doubled)))
   (rf/reg-sub :standard-epochs/greater-than?         ;; DYNAMIC, arg-keyed
-    :<- [:standard-epochs/chain-root]
-    (fn [root [_ threshold]] (> root threshold))))
+    {:inputs [[:standard-epochs/chain-root]]}
+    (fn [[root] [_ threshold]] (> root threshold))))
 
 (defn- register-section-events! []
   (rf/reg-event :standard-epochs/seed

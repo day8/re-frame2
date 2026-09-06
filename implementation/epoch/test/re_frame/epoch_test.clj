@@ -1693,7 +1693,7 @@
     (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-sub :n     (fn [db _] (:n db)))
-    (rf/reg-sub :n*2   :<- [:n] (fn [n _] (* 2 (or n 0))))
+    (rf/reg-sub :n*2   {:inputs [[:n]]} (fn [[n] _] (* 2 (or n 0))))
 
     ;; Force a sub-run inside a handler (subscribe-once emits :rf.sub/run
     ;; from compute-sub when no cache exists for the query, AND from the
@@ -2697,7 +2697,7 @@
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/reg-sub :n   (fn [db _] (:n db)))
-    (rf/reg-sub :n*2 :<- [:n] (fn [n _] (* 2 (or n 0))))
+    (rf/reg-sub :n*2 {:inputs [[:n]]} (fn [[n] _] (* 2 (or n 0))))
 
     (rf/dispatch-sync [:seed] {:frame :test/main})  ;; n=0
     (rf/dispatch-sync [:inc]  {:frame :test/main})  ;; n=1
@@ -3213,7 +3213,7 @@
     (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf/reg-sub :n*2 :<- [:n] (fn [n _] (* 2 (or n 0))))
+    (rf/reg-sub :n*2 {:inputs [[:n]]} (fn [[n] _] (* 2 (or n 0))))
 
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (is (= 0 (rf/subscribe-once [:n] {:frame :test/main})))

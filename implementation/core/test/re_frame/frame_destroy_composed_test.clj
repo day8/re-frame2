@@ -387,8 +387,7 @@
     (rf/reg-sub :composed/layered-a (fn [db _] (:a db)))
     (rf/reg-sub :composed/layered-b (fn [db _] (:b db)))
     (rf/reg-sub :composed/layered-sum
-      :<- [:composed/layered-a]
-      :<- [:composed/layered-b]
+      {:inputs [[:composed/layered-a] [:composed/layered-b]]}
       (fn [[a b] _] (+ a b)))
     (rf/dispatch-sync [:composed/seed-layered] {:frame :composed/layered-destroy})
 

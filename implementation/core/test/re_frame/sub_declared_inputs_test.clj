@@ -379,8 +379,8 @@
   (testing "a single `:<-` still delivers the BARE value; ≥2 still deliver a vector"
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
-    (rf/reg-sub :bare  :<- [:a]          (fn [a _] {:seen a}))
-    (rf/reg-sub :multi :<- [:a] :<- [:b] (fn [in _] {:seen in}))
+    (rf/reg-sub :bare  {:inputs [[:a]]}          (fn [[a] _] {:seen a}))
+    (rf/reg-sub :multi {:inputs [[:a] [:b]]} (fn [in _] {:seen in}))
     (let [db {:a 1 :b 2}]
       (seed! db)
       (is (= {:reactive {:seen 1} :once {:seen 1} :compute {:seen 1}}
@@ -391,7 +391,7 @@
 (deftest the-two-fn-tail-keeps-its-exact-prior-semantics
   (testing "the two-fn parametric tail still delivers a vector at one input"
     (rf/reg-sub :a (fn [db _] (:a db)))
-    (rf/reg-sub :tail (fn [_] [[:a]]) (fn [in _] {:seen in}))
+    (rf/reg-sub :tail {:inputs (fn [_] [[:a]])} (fn [in _] {:seen in}))
     (let [db {:a 1}]
       (seed! db)
       (is (= {:reactive {:seen [1]} :once {:seen [1]} :compute {:seen [1]}}

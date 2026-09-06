@@ -293,14 +293,14 @@
   (testing "a static :<- [:rf/machine …] sub is recognized as a machine selector"
     (rf/reg-machine :upload/main upload-machine)
     (rf/reg-sub :upload/progress
-      :<- [:rf/machine :upload/main]
-      (fn [snapshot _] (get-in snapshot [:data :progress] 0)))
+      {:inputs [[:rf/machine :upload/main]]}
+      (fn [[snapshot] _] (get-in snapshot [:data :progress] 0)))
     (is (true? (rf.machines.tooling/machine-selector? :upload/progress))
         "a sub reading [:rf/machine …] is a machine selector"))
   (testing "a sub reading [:rf.machine/has-tag? …] is also a selector"
     (rf/reg-sub :upload/has-tag
-      :<- [:rf.machine/has-tag? :upload/main :busy]
-      (fn [has? _] has?))
+      {:inputs [[:rf.machine/has-tag? :upload/main :busy]]}
+      (fn [[has?] _] has?))
     (is (true? (rf.machines.tooling/machine-selector? :upload/has-tag))))
   (testing "an ordinary sub is NOT a machine selector; nor is an unregistered id"
     (rf/reg-sub :plain/sub (fn [db _] (:x db)))
@@ -313,20 +313,19 @@
   (testing "extracts the target machine id from a [:rf/machine machine-id] selector"
     (rf/reg-machine :upload/main upload-machine)
     (rf/reg-sub :upload/progress
-      :<- [:rf/machine :upload/main]
-      (fn [snapshot _] (get-in snapshot [:data :progress] 0)))
+      {:inputs [[:rf/machine :upload/main]]}
+      (fn [[snapshot] _] (get-in snapshot [:data :progress] 0)))
     (is (= #{:upload/main} (rf.machines.tooling/machine-selector-targets :upload/progress))
         "the second element of the [:rf/machine …] input is the target id"))
   (testing "extracts the target from a [:rf.machine/has-tag? machine-id tag] selector"
     (rf/reg-sub :upload/has-tag
-      :<- [:rf.machine/has-tag? :upload/main :busy]
-      (fn [has? _] has?))
+      {:inputs [[:rf.machine/has-tag? :upload/main :busy]]}
+      (fn [[has?] _] has?))
     (is (= #{:upload/main} (rf.machines.tooling/machine-selector-targets :upload/has-tag))
         "the has-tag? form's machine id (second element) is the target"))
   (testing "a selector reading two machines yields both targets"
     (rf/reg-sub :combined
-      :<- [:rf/machine :upload/main]
-      :<- [:rf/machine :download/main]
+      {:inputs [[:rf/machine :upload/main] [:rf/machine :download/main]]}
       (fn [[u d] _] [u d]))
     (is (= #{:upload/main :download/main}
            (rf.machines.tooling/machine-selector-targets :combined))

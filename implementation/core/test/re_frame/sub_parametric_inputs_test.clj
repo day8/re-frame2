@@ -111,7 +111,7 @@
 (deftest static-chain-registers-input-kind-static
   (testing "a :<- chain registers :input-kind :static with the literal query-vectors"
     (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf/reg-sub :n2 :<- [:n] (fn [n _] (* 2 n)))
+    (rf/reg-sub :n2 {:inputs [[:n]]} (fn [[n] _] (* 2 n)))
     (let [m (sub-meta :n2)]
       (is (= :static (:input-kind m)))
       (is (= [[:n]] (:input-signals m)))
@@ -121,7 +121,7 @@
   (testing "the two-function form registers :input-kind :parametric + :input-fn"
     (rf/reg-sub :item/by-id (fn [db [_ id]] (get-in db [:items id])))
     (rf/reg-sub :item/title
-                (fn [[_ id]] [[:item/by-id id]])
+                {:inputs (fn [[_ id]] [[:item/by-id id]])}
                 (fn [[item] _] (:title item)))
     (let [m (sub-meta :item/title)]
       (is (= :parametric (:input-kind m)))
@@ -178,9 +178,9 @@
     (let [seen (atom nil)]
       (rf/reg-sub :leaf (fn [db [_ id]] (get-in db [:by-id id])))
       (rf/reg-sub :wrap
-                  (fn [query-v]
+                  {:inputs (fn [query-v]
                     (reset! seen query-v)
-                    [[:leaf (second query-v)]])
+                    [[:leaf (second query-v)]])}
                   (fn [[v] _] v))
       (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:by-id {:a 1 :b 2}}}))
       (rf/dispatch-sync [:seed])
@@ -195,7 +195,7 @@
             (NOT the bare-value :<- convention) — EP §Single input"
     (rf/reg-sub :item/by-id (fn [db [_ id]] (get-in db [:items id])))
     (rf/reg-sub :item/title
-                (fn [[_ id]] [[:item/by-id id]])
+                {:inputs (fn [[_ id]] [[:item/by-id id]])}
                 (fn [[item] _] (:title item)))   ;; destructures [item]
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:items {:x {:title "Hello"}}}}))
     (rf/dispatch-sync [:seed])
@@ -207,10 +207,10 @@
     (rf/reg-sub :comments/for  (fn [db [_ id]] (get-in db [:comments id])))
     (rf/reg-sub :viewer        (fn [db _] (:viewer db)))
     (rf/reg-sub :article/page
-                (fn [[_ id]]
+                {:inputs (fn [[_ id]]
                   [[:article/by-id id]
                    [:comments/for id]
-                   [:viewer]])
+                   [:viewer]])}
                 (fn [[article comments viewer] [_ id]]
                   {:id id :article article :comments comments :viewer viewer}))
     (rf/reg-event :seed
@@ -230,7 +230,7 @@
             semantics — an upstream value change recomputes it"
     (rf/reg-sub :item/by-id (fn [db [_ id]] (get-in db [:items id])))
     (rf/reg-sub :item/title
-                (fn [[_ id]] [[:item/by-id id]])
+                {:inputs (fn [[_ id]] [[:item/by-id id]])}
                 (fn [[item] _] (:title item)))
     (rf/reg-event :seed   (fn [{:keys [db]} _]        {:db {:items {:x {:title "v1"}}}}))
     (rf/reg-event :rename (fn [{:keys [db]} [_ t]]   {:db (assoc-in db [:items :x :title] t)}))
@@ -246,7 +246,7 @@
 (deftest static-single-input-still-delivers-bare-value
   (testing "static single :<- still delivers the BARE value (unchanged)"
     (rf/reg-sub :n  (fn [db _] (:n db)))
-    (rf/reg-sub :n2 :<- [:n] (fn [n _] (* 2 n)))    ;; bare value, not [n]
+    (rf/reg-sub :n2 {:inputs [[:n]]} (fn [[n] _] (* 2 n)))    ;; bare value, not [n]
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 5}}))
     (rf/dispatch-sync [:seed])
     (is (= 10 (rf/subscribe-once [:n2])))))
@@ -255,7 +255,7 @@
   (testing "static multi :<- still delivers a vector (unchanged)"
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
-    (rf/reg-sub :sum :<- [:a] :<- [:b] (fn [[a b] _] (+ a b)))
+    (rf/reg-sub :sum {:inputs [[:a] [:b]]} (fn [[a b] _] (+ a b)))
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:a 2 :b 3}}))
     (rf/dispatch-sync [:seed])
     (is (= 5 (rf/subscribe-once [:sum])))))
@@ -267,7 +267,7 @@
     (rf/reg-sub :article/by-id (fn [db [_ id]] (get-in db [:articles id])))
     (rf/reg-sub :viewer        (fn [db _] (:viewer db)))
     (rf/reg-sub :article/page
-                (fn [[_ id]] [[:article/by-id id] [:viewer]])
+                {:inputs (fn [[_ id]] [[:article/by-id id] [:viewer]])}
                 (fn [[article viewer] [_ id]]
                   {:id id :article article :can-edit? (= id (:owns viewer))}))
     (rf/reg-event :seed
@@ -286,7 +286,7 @@
   (testing "compute-sub delivers a single parametric input as a vector too"
     (rf/reg-sub :item/by-id (fn [db [_ id]] (get-in db [:items id])))
     (rf/reg-sub :item/title
-                (fn [[_ id]] [[:item/by-id id]])
+                {:inputs (fn [[_ id]] [[:item/by-id id]])}
                 (fn [[item] _] (:title item)))
     (let [db {:items {:x {:title "Hi"}}}]
       (is (= "Hi" (rf/compute-sub [:item/title :x] db))))))
@@ -301,7 +301,7 @@
     (rf/reg-sub :comments/for  (fn [db [_ id]] (get-in db [:comments id])))
     (rf/reg-sub :viewer        (fn [db _] (:viewer db)))
     (rf/reg-sub :article/page
-                (fn [[_ id]] [[:article/by-id id] [:comments/for id] [:viewer]])
+                {:inputs (fn [[_ id]] [[:article/by-id id] [:comments/for id] [:viewer]])}
                 (fn [[a c v] _] [a c v]))
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:articles {} :comments {} :viewer nil}}))
     (rf/dispatch-sync [:seed])
@@ -318,7 +318,7 @@
   (testing "two concrete cache entries realize their own parametric edges"
     (rf/reg-sub :item/by-id (fn [db [_ id]] (get-in db [:items id])))
     (rf/reg-sub :item/title
-                (fn [[_ id]] [[:item/by-id id]])
+                {:inputs (fn [[_ id]] [[:item/by-id id]])}
                 (fn [[item] _] (:title item)))
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:items {:x {:title "X"} :y {:title "Y"}}}}))
     (rf/dispatch-sync [:seed])
@@ -335,7 +335,7 @@
   (testing "disposing a parametric node releases its realized upstream subscriptions"
     (rf/reg-sub :item/by-id (fn [db [_ id]] (get-in db [:items id])))
     (rf/reg-sub :item/title
-                (fn [[_ id]] [[:item/by-id id]])
+                {:inputs (fn [[_ id]] [[:item/by-id id]])}
                 (fn [[item] _] (:title item)))
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:items {:x {:title "X"}}}}))
     (rf/dispatch-sync [:seed])
@@ -358,7 +358,7 @@
             input-fn re-runs on the next subscribe"
     (rf/reg-sub :item/by-id (fn [db [_ id]] (get-in db [:items id])))
     (rf/reg-sub :item/title
-                (fn [[_ id]] [[:item/by-id id]])
+                {:inputs (fn [[_ id]] [[:item/by-id id]])}
                 (fn [[item] _] (:title item)))
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:items {:x {:title "Orig"}}}}))
     (rf/dispatch-sync [:seed])
@@ -367,7 +367,7 @@
       (is (contains? (cache-keys :rf/default) [:item/title :x]))
       ;; Re-register with a new computation fn (hot-reload).
       (rf/reg-sub :item/title
-                  (fn [[_ id]] [[:item/by-id id]])
+                  {:inputs (fn [[_ id]] [[:item/by-id id]])}
                   (fn [[item] _] (str "Title: " (:title item))))
       (is (not (contains? (cache-keys :rf/default) [:item/title :x]))
           "the parametric cache entry was invalidated on re-registration")
@@ -380,7 +380,7 @@
             entry that realized it (transitive dependent closure)"
     (rf/reg-sub :item/by-id (fn [db [_ id]] (get-in db [:items id])))
     (rf/reg-sub :item/title
-                (fn [[_ id]] [[:item/by-id id]])
+                {:inputs (fn [[_ id]] [[:item/by-id id]])}
                 (fn [[item] _] (:title item)))
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:items {:x {:title "X" :name "n"}}}}))
     (rf/dispatch-sync [:seed])
@@ -404,7 +404,7 @@
     (rf/make-frame {:id :frame-b :doc "tenant b"})
     (rf/reg-sub :item/by-id (fn [db [_ id]] (get-in db [:items id])))
     (rf/reg-sub :item/title
-                (fn [[_ id]] [[:item/by-id id]])
+                {:inputs (fn [[_ id]] [[:item/by-id id]])}
                 (fn [[item] _] (:title item)))
     (rf/reg-event :seed (fn [{:keys [db]} [_ title]] {:db {:items {:x {:title title}}}}))
     (rf/dispatch-sync [:seed "A-title"] {:frame :frame-a})
@@ -452,7 +452,7 @@
       (try
         (rf/reg-sub :leaf (fn [db _] (:leaf db)))
         (rf/reg-sub :boom
-                    (fn [_] (throw (ex-info "input-fn boom" {})))
+                    {:inputs (fn [_] (throw (ex-info "input-fn boom" {})))}
                     (fn [[v] _] v))
         ;; compute-sub path.
         (is (nil? (rf/compute-sub [:boom] {:leaf 1}))
@@ -489,7 +489,7 @@
         (rf/reg-sub :leaf (fn [db _] (:leaf db)))
         ;; Returns a scalar query vector — the classic ambiguous shape.
         (rf/reg-sub :bad-shape
-                    (fn [_] [:leaf :extra])     ;; scalar — rejected
+                    {:inputs (fn [_] [:leaf :extra])}     ;; scalar — rejected
                     (fn [[v] _] v))
         ;; compute-sub path.
         (is (nil? (rf/compute-sub [:bad-shape] {:leaf 1})))
@@ -522,7 +522,7 @@
     (let [body-ran (atom false)]
       (rf/reg-sub :leaf (fn [db _] (:leaf db)))
       (rf/reg-sub :bad
-                  (fn [_] :viewer)                       ;; bare keyword — rejected
+                  {:inputs (fn [_] :viewer)}                       ;; bare keyword — rejected
                   (fn [_ _] (reset! body-ran true) :ran))
       (is (nil? (rf/compute-sub [:bad] {:leaf 1})))
       (is (false? @body-ran)
@@ -567,7 +567,7 @@
   (testing "(reg-sub id meta-map :<- [...] computation-fn) — meta-map + :<- chain
             classifies as :static, the chain intact"
     (rf/reg-sub :base (fn [db _] (:n db)))
-    (rf/reg-sub :m2 {:doc "doubled"} :<- [:base] (fn [n _] (* 2 n)))
+    (rf/reg-sub :m2 {:doc "doubled" :inputs [[:base]]} (fn [[n] _] (* 2 n)))
     (let [m (sub-meta :m2)]
       (is (= :static (:input-kind m)))
       (is (= [[:base]] (:input-signals m)))
@@ -597,8 +597,7 @@
   (testing "(reg-sub id meta-map input-fn computation-fn) — a meta-map BEFORE a
             genuine two-fn parametric pair still classifies as :parametric"
     (rf/reg-sub :leaf2 (fn [db [_ id]] (get-in db [:by-id id])))
-    (rf/reg-sub :p1 {:doc "parametric with meta"}
-                (fn [[_ id]] [[:leaf2 id]])
+    (rf/reg-sub :p1 {:doc "parametric with meta" :inputs (fn [[_ id]] [[:leaf2 id]])}
                 (fn [[v] _] v))
     (let [m (sub-meta :p1)]
       (is (= :parametric (:input-kind m)))

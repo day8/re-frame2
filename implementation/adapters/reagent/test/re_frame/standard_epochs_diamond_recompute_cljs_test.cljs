@@ -70,16 +70,15 @@
     (fn [db _] (get-in db [:views :diamond-root])))
 
   (rf/reg-sub :standard-epochs/diamond-a             ;; L2 — left arm
-    :<- [:standard-epochs/diamond-root]
-    (fn [root _] (* 10 (or root 0))))
+    {:inputs [[:standard-epochs/diamond-root]]}
+    (fn [[root] _] (* 10 (or root 0))))
 
   (rf/reg-sub :standard-epochs/diamond-b             ;; L2 — right arm
-    :<- [:standard-epochs/diamond-root]
-    (fn [root _] (inc (or root 0))))
+    {:inputs [[:standard-epochs/diamond-root]]}
+    (fn [[root] _] (inc (or root 0))))
 
   (rf/reg-sub :standard-epochs/diamond-c             ;; join — c = a + b
-    :<- [:standard-epochs/diamond-a]
-    :<- [:standard-epochs/diamond-b]
+    {:inputs [[:standard-epochs/diamond-a] [:standard-epochs/diamond-b]]}
     (fn [[a b] _]
       (swap! diamond-c-runs inc)
       (+ a b))))
