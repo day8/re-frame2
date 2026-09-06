@@ -4,7 +4,7 @@
 
 ## What it does
 
-The `re-frame2-xray` skill is a tour guide for [Xray](../xray/index.md), the human-facing devtools panel that ships with re-frame2. Xray is preloaded into dev builds via shadow-cljs `:preloads` and renders true-inline on the right side of the host app; production builds elide it entirely through the `interop/debug-enabled?` gate.
+The `re-frame2-xray` skill is a tour guide for [Xray](../xray/index.md), the human-facing devtools panel that ships with re-frame2. Xray is preloaded into dev builds via shadow-cljs `:preloads` and renders true-inline on the right side of the host app. It stays out of a release build by **build placement** — `:preloads` is dev build configuration — rather than by a gate inside Xray: the manual `init!` / mount path carries no `goog.DEBUG` gate, so a host installing Xray from app code keeps the `:require` and the calls in a dev-only namespace.
 
 The skill answers three questions:
 

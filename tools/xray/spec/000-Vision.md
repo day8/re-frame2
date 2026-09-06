@@ -233,9 +233,16 @@ browse + 4-mode sub-strip + JUMP-to-Dynamic semantics).
   mount (lock #5).
 - **Not a Chrome extension.** In-app DOM injection plus a same-browser
   pop-out via `window.opener`. Remote-attach lives over re-frame2-pair-mcp (lock #9).
-- **Not part of any production bundle.** Per the bundle-isolation contract
-  in `tools/README.md`, dependency arrows flow tool → implementation; Xray
-  is invisible to consumer apps after elision.
+- **Not part of any production bundle — by build placement.** Per the
+  bundle-isolation contract in `tools/README.md`, dependency arrows flow
+  tool → implementation, so nothing in `implementation/` drags Xray in.
+  Keeping Xray out of a *host's* release build is the host's own
+  decision: the preload rides `:devtools/preloads` (dev build config),
+  and a manual `init!` install belongs in a namespace only the dev entry
+  point loads. Xray carries no `goog.DEBUG` gate on that path, and no CI
+  gate proves its absence from a release bundle — see
+  [`Principles.md`](Principles.md) §Production posture is build
+  placement.
 - **Not a Stately editor / exporter.** No machine→xstate-json bridge; no
   Stately compatibility. Xray is the canonical rendering surface for
   re-frame2 machines.
@@ -260,7 +267,7 @@ Each row is "new in re-frame2 → new tooling story Xray tells."
 | **`:origin` opt on dispatch** | Filter by actor via ribbon IN/OUT pills. |
 | **Data classification** (Spec 015) | Path-marked sensitive + large rendering: `[● REDACTED N]` magenta opaque + `[● ELIDED N]` yellow drillable. See [`018-Event-Spine.md`](018-Event-Spine.md) §12 for the per-surface rendering contract. |
 | **Managed effects** (`spec/Managed-Effects.md` eight-property contract) | **Wire-boundary diff** in the Epoch panel's "EFFECTS HANDLERS RAN" section — per fx, show request payload (post-elision) → wire transit (status / headers / timing waterfall) → response → handler dispatched → app-db slice touched. One template; five surfaces (HTTP, WebSocket, machine `:spawn`, SSR `:rf.server/*`, flows). **Active managed-effects dashboard** — Erlang-Observer for what the runtime is currently busy doing. **Stale-suppression badges** uniform across all four cross-cutting areas. |
-| **Production-elision verifier** | Xray runs `npm run test:elision` and warns before deploy if a dev sentinel leaked. |
+| **Production-elision verifier** | Xray runs `npm run test:elision` and warns before deploy if a **framework** dev sentinel leaked. That probe roots `re-frame.*` namespaces only — it says nothing about whether Xray itself reached the bundle. |
 
 ## The tab inventory
 

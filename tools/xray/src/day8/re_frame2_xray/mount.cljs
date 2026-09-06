@@ -30,10 +30,13 @@
 
   ## Production posture
 
-  The preload's `interop/debug-enabled?` gate (see preload.cljs) means
-  mount never reaches production builds. This namespace therefore
-  contains no production-elision logic of its own — the call-site
-  gate is sufficient.
+  Dev-only by build placement (see preload.cljs); nothing in this ns
+  gates on `goog.DEBUG`. The preload's `(when interop/debug-enabled? …)`
+  block folds away the preload's own call into `open!`, but `init!` and
+  the mount verbs carry no gate, and this ns runs seven top-level
+  `register-first-mount-hook!` forms at load time. A host on the manual
+  path keeps the `:require` and the calls in a namespace only the dev
+  entry point loads.
 
   ## Lazy `:rf/xray` frame registration
 

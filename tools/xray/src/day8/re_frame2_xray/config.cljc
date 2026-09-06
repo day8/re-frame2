@@ -20,10 +20,11 @@
 
   ## Production posture
 
-  The atom is a plain Clojure data store. Production builds DCE the
-  Xray shell (gated on `interop/debug-enabled?` in preload.cljs); the
-  atom survives but is never read. CLJC so the JVM test corpus can
-  cover the round-trip without a CLJS runtime."
+  Dev-only by build placement (see preload.cljs); nothing in this ns
+  gates on `goog.DEBUG`. The atom is a plain Clojure data store — on a
+  build where the shell never mounts, it survives and is never read.
+  CLJC so the JVM test corpus can cover the round-trip without a CLJS
+  runtime."
   (:require [day8.re-frame2-xray.theme.tokens :as tokens]
             [re-frame.privacy :as rf.privacy]
             [re-frame.projection :as rf.projection]
@@ -540,9 +541,9 @@
 ;; both tools may want different roots (e.g. an app-source root for
 ;; Xray, a stories root for Story); two atoms, two `configure!` surfaces.
 ;;
-;; The atom is plain data; production builds DCE the Xray shell that
-;; reads it, so the value is harmless if it survives into a release
-;; bundle.
+;; The atom is plain data, and nothing here gates on `goog.DEBUG`. On a
+;; build where the Xray shell never mounts, nothing reads it, so the
+;; value is harmless if it survives into a release bundle.
 
 (defonce
   ^{:doc "Atom holding the project-root prefix for Xray's 'Open in

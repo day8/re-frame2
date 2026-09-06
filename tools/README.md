@@ -119,9 +119,13 @@ wired into the build, and consumers can use it today.
   devtools panel for re-frame2 — structural successor to
   re-frame-10x (renamed per `tools/xray/spec/DESIGN-RATIONALE.md`
   Lock #1; the standalone 10x port is now redirected into Xray per
-  rf2-jt6t / #556). Preloaded into dev builds via `:preloads`;
-  production builds elide it through the universal
-  `interop/debug-enabled?` gate (zero bytes shipped to consumers).
+  rf2-jt6t / #556). Preloaded into dev builds via `:preloads`, which is
+  dev build configuration — that build placement, not a gate inside
+  Xray, is what keeps it out of a release build. The manual
+  `init!` / mount path carries no `goog.DEBUG` gate, so a host
+  installing Xray from app code keeps the `:require` and the calls in a
+  dev-only namespace; see
+  [`tools/xray/README.md`](./xray/README.md) §Bundle isolation.
   Panel inventory: event-detail, causality graph, time-travel
   scrubber, slice-centric app-db, machine inspector, schema-violation
   timeline, hydration debugger, issues ribbon, AI co-pilot rail. See

@@ -3,6 +3,8 @@
 > Bead **rf2-buor (P2 research).** Working draft for Mike to iterate on. **Not normative; not a port.** The exercise: imagine re-frame-10x's successor with re-frame2's instrumentation as the substrate and 2026-class devtools expectations as the bar. Be bold; flag what's speculative. (Historical working title: "re-frame-10x v2"; the rename to Xray was locked 2026-05-11.)
 >
 > Companion docs: [`re-frame-2-story-feature-set.md`](re-frame-2-story-feature-set.md) (rf2-m6tu) and [`re-frame-2-story-sota-refinement.md`](rf2-94b0). Substrate this consumes: [Spec 009 Instrumentation](../spec/009-Instrumentation.md), [Spec Tool-Pair](../spec/Tool-Pair.md), [Spec 002 Frames](../spec/002-Frames.md), [Spec 005 Machines](../spec/005-StateMachines.md), [Spec 013 Flows](../spec/013-Flows.md), [Spec 011 SSR](../spec/011-SSR.md), [Spec 010 Schemas](../spec/010-Schemas.md), [Spec 012 Routing](../spec/012-Routing.md), [Spec Dynamic-Architecture](../spec/Dynamic-Architecture.md).
+>
+> **Superseded on production elision (rf2-qqn9, ruled 2026-09-06).** This draft's "zero production bytes / non-negotiable / CI verifies via `npm run test:elision`" line was wrong about Xray and is preserved only as the record of what was proposed. The shipped contract is build placement: see [`Principles.md`](../Principles.md) §Production posture is build placement. Do not build on the elision claims below.
 
 ## TL;DR — one paragraph
 

@@ -142,9 +142,12 @@ nothing at all is registered.
 > `machine-selector-targets` extractor), which lives in the resources /
 > machines **tooling siblings**, so it `:require`s them. The machines /
 > resources artefacts depend only on core; their tooling-sibling bodies are
-> dev-gated (`interop/debug-enabled?`) + bundle-isolated, and Xray itself is
-> dev-only (`:devtools/preloads`) — so none of this reaches a production
-> bundle (the bundle-isolation gate verifies it).
+> dev-gated (`interop/debug-enabled?`) + bundle-isolated, and Xray's
+> canonical install is `:devtools/preloads` (dev build config) — so a host
+> that keeps Xray out of its release build carries none of this.
+> `check-bundle-isolation.cjs` pins the counter example's no-feature
+> bundle against the tooling-sibling sentinels; it is a leak check on a
+> bundle that never installed Xray, not a proof about one that did.
 
 ### The `:machines` contributor's selector-target extractor
 

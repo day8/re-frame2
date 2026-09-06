@@ -613,16 +613,23 @@ fid opts)` and apply the consumer-side predicates from
 `self_noise.cljc`. The CLJS-only secondary ring + task
 coalescer + reactive surface do not exist server-side.
 
-## Production elision
+## Production posture
 
-The collector body is gated on `re-frame.interop/debug-enabled?`
-(alias of `goog.DEBUG`); production builds with `:advanced` +
-`goog.DEBUG=false` drop the secondary ring atom, the listener
-registration, and the per-event push entirely. The framework's
-per-frame rings also elide in production via the same gate. Xray
-contributes a sentinel to the elision verifier so
-`npm run test:elision` ([Spec 009 §Production builds](../../../spec/009-Instrumentation.md#production-builds-zero-overhead-zero-code))
-blocks any leak.
+The collector's own entry points are gated on
+`re-frame.interop/debug-enabled?` (alias of `goog.DEBUG`), so under
+`:advanced` + `goog.DEBUG=false` the secondary ring atom, the listener
+registration and the per-event push fold away. The framework's per-frame
+rings elide under the same flag ([Spec 009 §Production
+builds](../../../spec/009-Instrumentation.md#production-builds-zero-overhead-zero-code)).
+
+That is a self-gate on *this* namespace, not a guarantee about Xray as a
+whole: Xray stays out of a release build because the host doesn't load
+it — the preload rides `:devtools/preloads`, and a manual `init!`
+install belongs in a dev-only namespace (per
+[`Principles.md`](./Principles.md) §Production posture is build
+placement). Xray contributes no sentinel to the elision verifier;
+`npm run test:elision` roots `re-frame.*` namespaces only and proves
+nothing about Xray's presence in a bundle.
 
 ## Vision — trace fattening for context-at-position
 

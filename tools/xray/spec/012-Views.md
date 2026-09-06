@@ -487,16 +487,20 @@ drilldown's render-timing block is similarly best-effort.
 This is consistent with the framework split — JVM keeps the data
 plane; the reactive cache is a CLJS-substrate concern.
 
-## Production elision
+## Production posture
 
-Per [`Principles.md`](Principles.md) §Production elision is
-non-negotiable, the Views tab — like every Xray surface — elides
-entirely in production builds. The renderer, the cluster algorithm,
-and the per-component drilldown all ship zero bytes when
-`goog.DEBUG=false`.
+Per [`Principles.md`](Principles.md) §Production posture is build
+placement, the Views tab — like every Xray surface — stays out of a
+release build because the host doesn't load it, not because it elides
+itself. The renderer, the cluster algorithm and the per-component
+drilldown carry no `goog.DEBUG` gate of their own; the preload path
+rides `:devtools/preloads` and folds its boot block under
+`goog.DEBUG=false`, and a manual `init!` install belongs in a namespace
+only the dev entry point loads.
 
-CI's `npm run test:elision` ([`007-UX-IA.md`](007-UX-IA.md)
-§Production posture) verifies the contract.
+No CI gate proves this tab's absence from a release bundle;
+`npm run test:elision` roots `re-frame.*` sentinels only
+([`007-UX-IA.md`](007-UX-IA.md) §Production posture).
 
 ## Performance
 

@@ -745,18 +745,27 @@ window it was registered for (compared to the current
 fires after a fresh `popout!` has replaced the singleton MUST NOT
 nuke the new state.
 
-**Production posture.** The whole foundation block MUST be gated
-on a single dev-only sentinel (the framework's
-`interop/debug-enabled?` flag, per
+**Production posture.** Xray is kept out of production by **build
+placement**, not by construction — per
+[`Principles.md`](./Principles.md) §Production posture is build
+placement. The preload's foundation block is wrapped in
+`(when rf.interop/debug-enabled? …)` (the framework's flag, per
 [`spec/009-Instrumentation.md`](../../../spec/009-Instrumentation.md)
-§Production elision) so Closure DCE strips every side-effect from
-production bundles compiled with `(set! goog.DEBUG false)`. The
-mount module itself carries no elision logic — the call-site gate
-in the preload is sufficient. If the preload is mistakenly
-included in a production bundle, the trace registration is a no-op
-(the framework elides the trace surface) and the mount call fails
-silently because `current-adapter` is unset; the fallback is
-graceful, not catastrophic.
+§Production elision), so Closure folds that block away in bundles
+compiled with `(set! goog.DEBUG false)` — a second line of defence for
+the preload path, on top of `:devtools/preloads` being dev build config
+in the first place. The mount module itself carries no elision logic.
+That is not a gate on the manual path: `init!` and the mount verbs
+carry no `goog.DEBUG` gate of their own, so a host installing Xray from
+app code owns its own exclusion — keep the `:require` and the calls in a
+namespace only the dev entry point loads, per
+`skills/re-frame2-xray/references/launch-programmatic.md` §Keeping the
+manual path out of production. If the preload is mistakenly included
+in a production bundle, its side-effects fold away, the framework's
+trace surface is a no-op under the same flag, and a manual mount call
+fails silently because `current-adapter` is unset unless the host
+called `rf/init!`; the fallback is graceful, not catastrophic — but the
+namespace's bytes are still in the bundle.
 
 ### Epoch pump (rf2-yp92j)
 
@@ -954,19 +963,19 @@ call `re-frame.epoch/unregister-epoch-listener!` for the
 sentinel-based registration will then re-fire on the next
 preload reload. Production sessions never tear down.
 
-**Production elision.** Per
-[`Principles.md`](./Principles.md) §Production elision is
-non-negotiable, the entire foundation block (including the
-epoch-collector registration) is gated on
-`re-frame.interop/debug-enabled?` at the preload's call site.
-Production builds compiled with `(set! goog.DEBUG false)` strip
-the registration, the callback body, and the `:rf/xray`
-event-queue entries entirely — no per-settle dispatch fires in
-production. The framework's epoch surface elides under the same
-gate (per
+**Production posture.** Per [`Principles.md`](./Principles.md)
+§Production posture is build placement, the entire foundation block
+(including the epoch-collector registration) sits inside the preload's
+`(when rf.interop/debug-enabled? …)` block. A build compiled with
+`(set! goog.DEBUG false)` folds away the registration, the callback
+body, and the `:rf/xray` event-queue entries — no per-settle dispatch
+fires. The framework's epoch surface is gated on the same flag (per
 [Spec 009 §Production builds](../../../spec/009-Instrumentation.md#production-builds-zero-overhead-zero-code))
 so even an accidentally-included preload would find the
-register-epoch-listener! call resolve to a no-op.
+`register-epoch-listener!` call resolve to a no-op. Both of those are
+second lines of defence for the *preload* path; a host that calls
+`init!` from app code installs the epoch pump unconditionally, and its
+exclusion is a build-placement decision the host owns.
 
 ## Standalone — the agent attaches to the app, not to Xray
 

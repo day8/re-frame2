@@ -497,11 +497,13 @@ nothing is acquired. The Hicasso tier has no registry and no ownership plane,
 so a consumer cannot claim it, cannot be locked out of it by another tool, and
 cannot read a superseded span's data through it.
 
-Every read is `nil` in a production build (the door nil-gates on
-`re-frame.interop/debug-enabled?`), and Xray itself never reaches a production
-bundle. `re-frame.hicasso` does not require the tool namespace, so a
-production application never loads it at all; the sentinel-based erasure proof
-is rf2-hic-024's.
+Every read is `nil` in a production build: the door nil-gates on
+`re-frame.interop/debug-enabled?`. `re-frame.hicasso` does not require the
+tool namespace, so a production application never loads *it* at all; the
+sentinel-based erasure proof for the door is rf2-hic-024's. Xray itself
+stays out of a release build by build placement — the host doesn't load it
+(see [`Principles.md`](./Principles.md) §Production posture is build
+placement) — and no gate in this repo proves that.
 
 The dependency points one way only: `tools/xray` → `implementation/hicasso`.
 Nothing under `implementation/` may `:require` anything under `tools/`.

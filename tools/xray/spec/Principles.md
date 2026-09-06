@@ -128,25 +128,59 @@ triangles + paths. Active machines are green + filled glyphs.
 
 The colour-blind path is reachable without hue.
 
-## Production elision is non-negotiable
+## Production posture is build placement
 
-Xray ships **zero bytes** in production. The trace bus, the epoch
-history, the schema validation, the registrar trace emit — all
-gated on `re-frame.interop/debug-enabled?` (alias of `goog.DEBUG`).
-Production builds (`:advanced` + `goog.DEBUG=false`) elide all of it.
-The advanced gate executes a private-state
-assertion in addition to bundle sentinels. Its second advanced
-build deliberately creates and mutates a renamed `cacheline*` atom and must
-fail the runtime assertion, proving this specific evidence-state oracle still
-has teeth after minification; it is not a
-general heap analyser.
+Xray is kept out of production builds by **where the host puts it**, not
+by anything in Xray's own construction. Three facts, and they are the
+same three at every carrier in this spec:
 
-Per [Spec 009 §Production builds](../../../spec/009-Instrumentation.md#production-builds-zero-overhead-zero-code).
-CI's elision jobs (`npm run test:elision` and
-`npm run test:browser-prod-elision`) verify the contract.
+**1. The preload path is dev-only build configuration.**
+`day8.re-frame2-xray.preload` is wired through shadow-cljs's
+`:devtools/preloads`, which is dev build config — a release build never
+loads the namespace. The preload wraps its boot block in
+`(when rf.interop/debug-enabled? …)`, which Closure folds away under
+`:advanced` + `goog.DEBUG=false`; that is a second line of defence for
+that path only. The trace and epoch collectors gate their own entry
+points the same way (`trace_collector.cljs`, `drop_in.cljc`).
 
-Xray contributes its own sentinels to the elision verifier; CI
-blocks any leak.
+**2. The manual `init!` / mount path carries no `goog.DEBUG` gate.**
+`init!` registers the `:rf.xray/*` handlers, the trace and epoch
+collectors, the browser-global exports and the keybinding listener
+unconditionally; `open!` gates only on a substrate adapter being
+installed, which every app that called `rf/init!` has in production
+exactly as in dev. Requiring `day8.re-frame2-xray.core` at all runs
+load-time registrations, so guarding the *calls* is not enough.
+Exclusion is the host's job, discharged by keeping the `:require` **and**
+the calls in a namespace only the dev entry point loads — the recipe in
+`skills/re-frame2-xray/references/launch-programmatic.md` §Keeping the
+manual path out of production.
+
+**3. No CI gate proves Xray's absence from a release bundle.**
+`npm run test:elision` roots `re-frame.elision-probe` and greps
+sentinels drawn from `re-frame.*` namespaces; it roots no Xray namespace
+at all. `implementation/scripts/check-bundle-isolation.cjs` pins that the
+counter example's *no-feature* production bundle does not pull the
+tooling siblings or Xray-only dependencies (xyflow, elkjs, zprint,
+editscript) — a dependency-leak check on a bundle that never installed
+Xray, not a proof about one that did. Grepping a release bundle for
+`rf-xray-root` or `rf.xray` is a leak detector, not proof of zero
+retained bytes.
+
+The framework's own instrumentation elision is a separate guarantee and
+is unaffected by any of the above: the trace bus, the epoch history, the
+schema validation and the registrar trace emit are gated on
+`re-frame.interop/debug-enabled?` (alias of `goog.DEBUG`), so a
+production build (`:advanced` + `goog.DEBUG=false`) elides all of it —
+per [Spec 009 §Production builds](../../../spec/009-Instrumentation.md#production-builds-zero-overhead-zero-code),
+verified by `npm run test:elision` and
+`npm run test:browser-prod-elision`. The advanced gate executes a
+private-state assertion in addition to bundle sentinels. Its second
+advanced build deliberately creates and mutates a renamed `cacheline*`
+atom and must fail the runtime assertion, proving this specific
+evidence-state oracle still has teeth after minification; it is not a
+general heap analyser. Those jobs are the *framework's* contract: a
+release build that accidentally loaded Xray would find those substrate
+surfaces inert, and Xray's own bytes would still be in the bundle.
 
 ## Restraint over completeness
 

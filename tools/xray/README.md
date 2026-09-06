@@ -15,9 +15,11 @@ surfaces as an issue you cannot miss.
 An in-app true-inline devtools panel for re-frame2 applications,
 preloaded into dev builds via `:preloads`. The host app provides a
 right-side `[data-rf-xray-host]` column in its normal layout; Xray
-auto-opens there once the substrate adapter is ready. Production builds elide the entire surface
-through the universal `interop/debug-enabled?` gate — zero bytes
-shipped to consumers.
+auto-opens there once the substrate adapter is ready. Xray stays out of
+a release build by **build placement**: `:preloads` is dev build
+configuration, so the release build never loads the namespace. See
+[Bundle isolation](#bundle-isolation) for what that does and does not
+guarantee.
 
 Xray consumes the re-frame2 instrumentation surface (Spec 009 trace
 bus, Tool-Pair epoch history, the registrar query API) — it adds
@@ -333,9 +335,36 @@ Playwright scenarios.
 
 Xray lives under `tools/` so the bundle-isolation contract (per
 [`tools/README.md`](../README.md)) holds: nothing in `implementation/`
-may `:require` from Xray. The preload pulls only when shadow-cljs's
-`:devtools` config asks for it; production builds (`goog.DEBUG=false`)
-elide every surface Xray consumes (per Spec 009 §Production builds).
+may `:require` from Xray. That pins the framework side — a consumer who
+never installs Xray cannot be dragged into it.
+
+Keeping Xray out of your *own* release build is your call, and it is
+build placement rather than construction:
+
+- **The preload path is dev-only build config.** `:devtools/preloads`
+  belongs to the dev build, so the release build never loads
+  `day8.re-frame2-xray.preload`. Its boot block is additionally wrapped
+  in `(when rf.interop/debug-enabled? …)`, which Closure folds away
+  under `:advanced` + `goog.DEBUG=false` — a second line of defence for
+  that path.
+- **The manual `init!` / mount path carries no `goog.DEBUG` gate.**
+  `init!` registers handlers, collectors, browser globals and the
+  keybinding listener unconditionally, and `open!` gates only on a
+  substrate adapter being installed — which every app that called
+  `rf/init!` has, in production exactly as in dev. Requiring
+  `day8.re-frame2-xray.core` at all runs load-time registrations, so
+  guarding the calls is not enough: keep the `:require` **and** the
+  calls in a namespace only your dev entry point loads.
+- **No CI gate proves Xray's absence from a release bundle.**
+  `npm run test:elision` roots `re-frame.*` sentinels only, and
+  `check-bundle-isolation.cjs` greps a no-feature bundle that never
+  installed Xray. Grepping your own release output for `rf-xray-root`
+  or `rf.xray` is a leak detector, not proof of zero retained bytes.
+
+The framework surfaces Xray consumes do elide under
+`goog.DEBUG=false` (per Spec 009 §Production builds), so an
+accidentally-loaded Xray finds them inert — but its own bytes are still
+in the bundle.
 
 ## Publishing
 
