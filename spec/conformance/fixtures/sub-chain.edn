@@ -11,8 +11,7 @@
  {:event {:cart/initialise {:doc "Seed the cart."}
           :cart.item/add   {:doc "Add an item with qty + price."}}
   :sub   {:cart/items {:doc "All items in the cart."}
-          :cart/total {:doc "Sum of qty * price."
-                       :inputs [:cart/items]}}}
+          :cart/total {:doc "Sum of qty * price — a :<- derivation over :cart/items."}}}
 
  :fixture/handlers
  {:event {:cart/initialise [[:set [:cart] {:items []}]]

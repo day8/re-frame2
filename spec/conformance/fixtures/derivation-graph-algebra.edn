@@ -48,8 +48,7 @@
 
  :fixture/registry
  {:sub {:cart/items {:doc "All items in the cart (a layer-1 :db reader)."}
-        :cart/total {:doc   "Item count (a :<- derivation over :cart/items)."
-                     :inputs [:cart/items]}}
+        :cart/total {:doc "Item count (a :<- derivation over :cart/items)."}}
   :machine
   {:upload/main
    {:initial :idle

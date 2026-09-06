@@ -7,7 +7,7 @@
 
     | section     | kind   | body                                   |
     | :reg-event  | :event | event handler `(fn [cofx event] …)`    |
-    | :reg-sub    | :sub   | layer-1 db-reader `(fn [db query] …)`  |
+    | :reg-sub    | :sub   | computation fn; `:inputs` in metadata  |
     | :reg-fx     | :fx    | effect handler `(fn [args] …)`         |
     | :reg-cofx   | :cofx  | coeffect supplier `(fn [] …)`          |
 
@@ -22,11 +22,13 @@
       (the LIVE `:image/lower-inline-<kind>` publisher, exercised through
       `image-assembly/lower-inline-descriptor`), so the inline contract is
       exactly the registrar's contract;
-    * per-kind metadata/body pins: inline `:reg-sub` is the layer-1 `:input-kind
-      :db` db-reader ONLY (`:input-signals []`); inline `:reg-cofx` carries the
-      coeffect's `:recordable?` / `:provided?` grade exactly as `reg-cofx` does;
-      inline `:reg-event` parses `:rf.cofx/requires` into
-      `:rf.cofx/requires-parsed`;
+    * per-kind metadata/body pins: an inline `:reg-sub` with no `:inputs` is the
+      layer-1 `:input-kind :db` db-reader (`:input-signals []`), and one that
+      DECLARES `{:inputs …}` lowers to a derived `:static` / `:parametric` sub
+      through the same seam the public registrar uses (rf2-kuky.46); inline
+      `:reg-cofx` carries the coeffect's `:recordable?` / `:provided?` grade
+      exactly as `reg-cofx` does; inline `:reg-event` parses
+      `:rf.cofx/requires` into `:rf.cofx/requires-parsed`;
     * an UNSUPPORTED inline kind fails loud at `rf/image`;
     * a metadata-only `[id metadata]` 2-tuple fails loud (EP-0026 retires the
       EP-0023 metadata-only form).
@@ -125,11 +127,11 @@
           "declared cofx requirements are parsed onto the runnable descriptor")
       (is (= :rf.cofx/now (:id (first (:rf.cofx/requires-parsed d))))))))
 
-(deftest inline-sub-lowers-to-layer-1-db-reader-only
-  (testing "inline :reg-sub lowers via the LIVE :image/lower-inline-sub into the
-            layer-1 db-reader shape ONLY — :input-kind :db + EMPTY :input-signals
-            (a static :<- / parametric input-fn sub is NOT expressible inline and
-            stays namespace-authored)"
+(deftest inline-sub-without-inputs-lowers-to-the-layer-1-db-reader
+  (testing "inline :reg-sub with NO :inputs lowers via the LIVE
+            :image/lower-inline-sub into the layer-1 db-reader shape —
+            :input-kind :db + EMPTY :input-signals — and the runtime-owned
+            slots still win over hostile authored metadata"
     (let [body (fn [db _] (:counter/value db))
           meta {:schema        :counter/int
                 :doc           "Image-owned counter value."
@@ -160,9 +162,9 @@
       (is (= body (:handler-fn d))
           "the runtime handler wins over a hostile metadata slot")
       (is (= :db (:input-kind d))
-          "the fixed layer-1 input kind wins over hostile metadata")
+          "with no :inputs declared, the layer-1 input kind wins over hostile metadata")
       (is (= [] (:input-signals d))
-          "the fixed empty signal list wins over hostile metadata")))
+          "the empty signal list wins over hostile metadata")))
   (testing "omitted metadata and an explicitly nil schema stay distinguishable"
     (let [body     (fn [_ _] nil)
           omitted (runnable {:reg-sub [[:counter/omitted body]]})
@@ -176,6 +178,51 @@
       (is (nil? (:schema explicit)))
       (is (= {:schema nil} (:metadata explicit))
           "the exact authored nil metadata remains nested for inspection"))))
+
+(deftest inline-sub-declares-derived-inputs-through-the-shared-seam
+  (testing "an inline :reg-sub declaring {:inputs [[…]]} lowers to a DERIVED sub
+            — the layer-2 gain of moving the dependency declaration into the
+            metadata map (rf2-kuky.46). The inline tuple always carried a
+            metadata slot, so nothing about the grammar had to widen."
+    (let [body (fn [[items] _] (sort items))
+          d    (runnable {:reg-sub [[:cart/sorted
+                                     {:doc "Derived inline." :inputs [[:cart/items]]}
+                                     body]]})]
+      (is (= :sub (:kind d)))
+      (is (= body (:handler-fn d)))
+      (is (= :static (:input-kind d))
+          "a literal declaration lowers to the :static producer kind")
+      (is (= [[:cart/items]] (:input-signals d))
+          "the declared query vectors become the runtime's static edge set")
+      (is (not (contains? d :inputs))
+          ":inputs is LIFTED into the runtime-owned slots — the descriptor's
+           TOP LEVEL is the registration shape and carries it only once")
+      (is (contains? (:metadata d) :inputs)
+          "the nested :metadata is the AUTHORED provenance copy and keeps the
+           user's spelling, exactly as it keeps an authored :input-kind the
+           runtime overrode")))
+
+  (testing "a producer declaration lowers to the :parametric kind and is not run"
+    (let [ran      (atom 0)
+          producer (fn [[_ id]] (swap! ran inc) [[:article/by-id id]])
+          d        (runnable {:reg-sub [[:article/page {:inputs producer}
+                                         (fn [[a] _] a)]]})]
+      (is (= :parametric (:input-kind d)))
+      (is (= producer (:input-fn d)))
+      (is (= [] (:input-signals d)))
+      (is (zero? @ran) "the producer is never executed at lowering")))
+
+  (testing "a MALFORMED inline :inputs fails loud with the SAME registration-time
+            error the public registrar raises — the inline path is neither looser
+            nor stricter (EP-0026's standing contract)"
+    (is (= :rf.error/reg-sub-bad-args
+           (invalid-image-id
+             #(runnable {:reg-sub [[:bad {:inputs [:cart/items]} (fn [i _] i)]]})))
+        "the scalar spelling [:a] is refused; a single input is [[:a]]")
+    (is (= :rf.error/reg-sub-bad-args
+           (invalid-image-id
+             #(runnable {:reg-sub [[:bad {:inputs nil} (fn [i _] i)]]})))
+        "an explicit nil is not \"absent\"")))
 
 (deftest inline-fx-lowers-to-the-runnable-fx-slot
   (testing "inline :reg-fx lowers via the LIVE :image/lower-inline-fx into the

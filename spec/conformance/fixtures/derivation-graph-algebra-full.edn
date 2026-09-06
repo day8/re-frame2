@@ -73,8 +73,7 @@
 
  :fixture/registry
  {:sub {:cart/items {:doc "All items in the cart (a layer-1 :db reader)."}
-        :cart/total {:doc    "Item count (a :<- derivation over :cart/items)."
-                     :inputs [:cart/items]}}
+        :cart/total {:doc "Item count (a :<- derivation over :cart/items)."}}
   :flow {:cart/materialized-total
          {:doc    "The subscription's policy TWIN — same whole-value fn, materialized into app-db :after-event."
           :inputs [[:cart :items]]
