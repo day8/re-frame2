@@ -66,11 +66,17 @@
   a likely typo — and warns. Namespaced keys are never checked against this set."
   {:event       (into base-bare-keys (conj classification-bare-keys :interceptors))
    ;; `:inputs` is `reg-sub`'s DEPENDENCY DECLARATION (Spec 006
-   ;; §Subscription input producers) — the same slot `reg-flow` uses. The
-   ;; parser lifts it into the runtime-owned `:input-kind` /
-   ;; `:input-signals` / `:input-fn` slots and it never rides the
-   ;; registration, but it must be a KNOWN key or an author writing the
-   ;; canonical grammar would be warned for a typo.
+   ;; §Subscription input producers) — the same slot `reg-flow` uses. Both
+   ;; registration paths lift it into the runtime-owned `:input-kind` /
+   ;; `:input-signals` / `:input-fn` slots, so it never rides a registration
+   ;; — but they lift in OPPOSITE ORDERS, and only one reaches this check:
+   ;; `subs/parse-reg-sub-args` dissocs `:inputs` BEFORE
+   ;; `normalize-sub-metadata` runs, while `subs/lower-inline-sub` normalizes
+   ;; the raw metadata and lifts AFTER. So this entry is load-bearing for the
+   ;; INLINE-image path, where an author writing the canonical grammar would
+   ;; otherwise be warned for a typo. Pinned by
+   ;; `sub-declared-inputs-test/inputs-is-a-known-registration-key`, whose
+   ;; inline call is the half that fails if this entry is dropped.
    :sub         (into base-bare-keys (conj classification-bare-keys :inputs))
    :fx          (into base-bare-keys classification-bare-keys)
    :cofx        (into base-bare-keys (into classification-bare-keys [:recordable? :provided?]))
