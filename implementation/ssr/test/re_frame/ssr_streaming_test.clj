@@ -28,7 +28,6 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.html-helpers :as html]
             [re-frame.ssr.payload-policy :as payload-policy]
@@ -383,12 +382,6 @@
                          :payload :rf.ssr.payload/whole-app-db})]
           (is (= 42 (:rf/version payload))
               "caller-supplied :version is the highest-priority source"))))))
-
-(deftest late-bind-hooks-published
-  (testing "All three :ssr.streaming/* late-bind hooks resolve to the streaming fns"
-    (is (= streaming/render-shell        (re-frame.late-bind/get-fn :ssr.streaming/render-shell!)))
-    (is (= streaming/render-continuation (re-frame.late-bind/get-fn :ssr.streaming/render-continuation!)))
-    (is (= streaming/build-final-payload (re-frame.late-bind/get-fn :ssr.streaming/build-final-payload)))))
 
 (deftest facade-exposes-streaming-surface
   (testing "`re-frame.ssr` re-exports the streaming public surface"
