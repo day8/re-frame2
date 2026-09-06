@@ -264,7 +264,7 @@ When a source form is parametric, the **static graph MUST mark the edge set `:pa
 
 Graph inspection has two modes.
 
-- A **static graph** (`:mode :static`) is derived from registrations and source forms. It can show literal `:<-` subscription edges, flow input paths, resource declarations, route metadata, and machine declarations.
+- A **static graph** (`:mode :static`) is derived from registrations and source forms. It can show literal declared subscription edges, flow input paths, resource declarations, route metadata, and machine declarations.
 - A **live graph** (`:mode :live`) is derived from a frame at a point in time. It can include concrete subscription query vectors, realized parametric input edges, active resource keys, route owners, machine instances, in-flight work, and current lifecycle state.
 
 For a parametric subscription, the static graph reports the source form rather than guessing edges:
@@ -433,8 +433,7 @@ The clearest illustration of the algebra: the *same* whole-value function, expre
 ;; Source form A — a subscription
 (rf/reg-sub
   :cart/total
-  :<- [:cart/items]
-  :<- [:pricing/discounts]
+  {:inputs [[:cart/items] [:pricing/discounts]]}
   (fn [[items discounts] _] (sum-cart items discounts)))
 
 ;; Source form B — a flow, same function
@@ -462,13 +461,13 @@ Their algebra views differ only in output, storage, evaluation, and lifecycle:
 
 This section is **illustrative, not normative** — the binding rules are the per-member sections below and the [§Conformance](#conformance) list. It collects, in one scannable place, the source form an author writes next to the algebra view it lowers to, for every member of the algebra. Read it as the worked companion to the [node shape](#the-node-shape): each pair shows which axes are *fixed* for that member (the member's identity in the algebra) and which *vary* per registration (its declared `:inputs` and `:output`). A reader-first walkthrough of the same mapping, anchored to the four-homes mental model, lives in the guide chapter [One graph: derivations and algebra views](../docs/core/derivations-and-algebra-views.md).
 
-### Subscription (static `:<-`) → ephemeral derivation
+### Subscription (a literal `:inputs` list) → ephemeral derivation
 
 ```clojure
 ;; SOURCE FORM                              ;; ALGEBRA VIEW
 (rf/reg-sub :cart/total                     {:id          :cart/total
-  :<- [:cart/items]                          :kind        :derivation
-  :<- [:pricing/discounts]                   :source-form {:kind :reg-sub :id :cart/total}
+  {:inputs [[:cart/items]                    :kind        :derivation
+            [:pricing/discounts]]}           :source-form {:kind :reg-sub :id :cart/total}
   (fn [[items discounts] _]                  :inputs      [[:sub [:cart/items]]
     (sum-cart items discounts)))                           [:sub [:pricing/discounts]]]
                                              :output      [:fact :cart/total]
@@ -479,16 +478,16 @@ This section is **illustrative, not normative** — the binding rules are the pe
                                              :derive      #'app.cart/sum-cart}
 ```
 
-Each literal `:<-` input lowers to a `[:sub query-vector]` edge in declaration order. A **layer-1** `:db` reader, which is handed the whole `app-db` value, lowers conservatively to the app-db projection root `[[:db []]]` ([§Subscriptions expose algebra views](#subscriptions-expose-algebra-views)).
+Each literal declared input lowers to a `[:sub query-vector]` edge in declaration order. A **layer-1** `:db` reader, which is handed the whole `app-db` value, lowers conservatively to the app-db projection root `[[:db []]]` ([§Subscriptions expose algebra views](#subscriptions-expose-algebra-views)).
 
 ### Parametric subscription → static `:parametric` / live realized edges
 
 ```clojure
 ;; SOURCE FORM
 (rf/reg-sub :article/page
-  (fn [[_ slug]]                              ;; input function — edges depend on `slug`
+  {:inputs (fn [[_ slug]]                              ;; input function — edges depend on `slug`
     [[:article/by-slug slug]
-     [:comments/for-article slug]])
+     [:comments/for-article slug]])}
   (fn [[article comments] [_ slug]]
     {:slug slug :article article :comments comments}))
 ```
@@ -654,8 +653,8 @@ Every route materializes the *same* slice fact `:rf/route`; the per-route id is 
 ```clojure
 ;; MACHINE PROCESS VIEW                      ;; SELECTOR (a reg-sub over [:rf/machine …])
 {:id          :upload/main                   (rf/reg-sub :upload/progress
- :kind        :process                         :<- [:rf/machine :upload/main]
- :refinement  :machine-process                 (fn [snapshot _]
+ :kind        :process                         {:inputs [[:rf/machine :upload/main]]}
+ :refinement  :machine-process                 (fn [[snapshot] _]
  :source-form {:kind :reg-machine                (get-in snapshot [:data :progress] 0)))
                :id   :upload/main}
  :inputs      [[:event :upload/start]        ;; SELECTOR ALGEBRA VIEW
@@ -674,7 +673,7 @@ The machine is the stateful **process**; the selector is an ephemeral **derivati
 
 ## Subscriptions expose algebra views
 
-Subscriptions are the first concrete algebra member to expose its view. Every subscription registration — `reg-sub` (the layer-1 `:db` reader, the static `:<-` chain, and the parametric input-fn form), the framework-internal `reg-runtime-sub` and `reg-frame-state-sub`, and every live sub-cache entry — projects to the [node shape](#the-node-shape). The projection is **registrar-derived** (see [§The registrar-derived discipline](#the-registrar-derived-discipline)): the reactive substrate ([006](006-ReactiveSubstrate.md)) keeps the cache, ref-counting, and disposal semantics; the algebra view is assembled from the registration metadata that already exists, never from re-executing a source form.
+Subscriptions are the first concrete algebra member to expose its view. Every subscription registration — `reg-sub` (the layer-1 `:db` reader, the literal `:inputs` list, and the parametric input-fn form), the framework-internal `reg-runtime-sub` and `reg-frame-state-sub`, and every live sub-cache entry — projects to the [node shape](#the-node-shape). The projection is **registrar-derived** (see [§The registrar-derived discipline](#the-registrar-derived-discipline)): the reactive substrate ([006](006-ReactiveSubstrate.md)) keeps the cache, ref-counting, and disposal semantics; the algebra view is assembled from the registration metadata that already exists, never from re-executing a source form.
 
 A subscription is always a **`:derivation`** (never a process — [§Derivation](#derivation)), and every subscription node carries the same five fixed classifications, because a subscription is the canonical ephemeral member of the algebra:
 
@@ -693,7 +692,7 @@ The two axes that **vary** per subscription are the declared **inputs** and the 
   - a layer-1 `:db` reader hands the *whole* `app-db` value to its body, so the conservative declared input is the app-db projection root `[[:db []]]` (a future path-aware source form MAY narrow it; correctness does not depend on the narrowing);
   - a `reg-runtime-sub` reads the runtime-db partition — `[[:runtime []]]`;
   - a `reg-frame-state-sub` reads across both partitions (framework-internal) — `[[:frame-state []]]`;
-  - a static `:<-` sub lowers each literal input query-vector to a `[:sub query-vector]` edge, in declaration order (args preserved);
+  - a static declared-input sub lowers each literal input query-vector to a `[:sub query-vector]` edge, in declaration order (args preserved);
   - a parametric input-fn sub reports the **`:parametric`** marker plus an opaque `:input-producer` token — its realized edge set depends on a concrete query vector and is *not statically enumerable* (the [don't-execute rule](#the-dont-execute-rule-ep-0014-issue-3-disposition); the static graph never runs the input-fn). The **live** sub-cache view reports the realized `[:sub query-vector]` edges per concrete entry — exactly the edges the static graph cannot enumerate.
 
 The node additionally carries the opaque `:derive` body token (never serialized — [§The node shape](#the-node-shape)), the `:source-form` `{:kind :reg-sub :id <id>}`, and the `:source` coordinates / `:schema` / doc when the registration carried them. A live cache-entry node also carries its current `:value` (a value summary, redacted by the graph-inspection helper before egress — [§Redaction metadata](#redaction-metadata-ep-0014-issue-1-disposition-ep-0015)) and its `:ref-count` (the lifecycle evidence the cache-entry owner is kept alive by its readers).

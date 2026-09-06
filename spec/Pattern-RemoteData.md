@@ -93,9 +93,9 @@ Standard transitions:
 The `:feature.resource/load` event chooses `:loading` vs `:fetching` based on whether `:data` is currently `nil`. Convenience subs:
 
 ```clojure
-(rf/reg-sub :articles/loading?    :<- [:articles/status] #(= % :loading))
-(rf/reg-sub :articles/fetching?   :<- [:articles/status] #(or (= % :loading) (= % :fetching)))
-(rf/reg-sub :articles/has-data?   :<- [:articles/data]   some?)
+(rf/reg-sub :articles/loading?    {:inputs [[:articles/status]]} (fn [[s] _] (= s :loading)))
+(rf/reg-sub :articles/fetching?   {:inputs [[:articles/status]]} (fn [[s] _] (or (= s :loading) (= s :fetching))))
+(rf/reg-sub :articles/has-data?   {:inputs [[:articles/data]]}   (fn [[d] _] (some? d)))
 ```
 
 ### `:loaded-at` and `:stale-after-ms` — declarative freshness
@@ -104,8 +104,8 @@ The `:feature.resource/load` event chooses `:loading` vs `:fetching` based on wh
 
 ```clojure
 (rf/reg-sub :articles/stale?
-  :<- [:articles]
-  (fn [{:keys [loaded-at stale-after-ms]} _]
+  {:inputs [[:articles]]}
+  (fn [[{:keys [loaded-at stale-after-ms]}] _]
     (cond
       (nil? loaded-at)        true
       (nil? stale-after-ms)   false           ;; never auto-stale; explicit refresh only
@@ -175,11 +175,11 @@ Convenience subs per slice (the `:loading?` / `:fetching?` split is the load-bea
 
 ```clojure
 (rf/reg-sub :articles            (fn [db _] (get db :articles)))
-(rf/reg-sub :articles/status     :<- [:articles] (fn [s _] (:status s)))
-(rf/reg-sub :articles/data       :<- [:articles] (fn [s _] (:data s)))
-(rf/reg-sub :articles/error      :<- [:articles] (fn [s _] (:error s)))
-(rf/reg-sub :articles/loading?   :<- [:articles/status] #(= % :loading))                ;; truly empty + in-flight
-(rf/reg-sub :articles/fetching?  :<- [:articles/status] #(or (= % :loading) (= % :fetching)))  ;; any in-flight
+(rf/reg-sub :articles/status     {:inputs [[:articles]]} (fn [[s] _] (:status s)))
+(rf/reg-sub :articles/data       {:inputs [[:articles]]} (fn [[s] _] (:data s)))
+(rf/reg-sub :articles/error      {:inputs [[:articles]]} (fn [[s] _] (:error s)))
+(rf/reg-sub :articles/loading?   {:inputs [[:articles/status]]} (fn [[s] _] (= s :loading)))   ;; truly empty + in-flight
+(rf/reg-sub :articles/fetching?  {:inputs [[:articles/status]]} (fn [[s] _] (or (= s :loading) (= s :fetching))))  ;; any in-flight
 ```
 
 Views read the convenience subs:

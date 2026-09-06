@@ -50,12 +50,12 @@
 ;;                       `cplus-…`); a portable corpus pins the deterministic
 ;;                       static activation edge + the live-mode shape.
 ;;
-;; The subscription `:<-` `:input` edge is re-pinned here too, so the full
+;; The subscription declared `:input` edge is re-pinned here too, so the full
 ;; fixture is a single cross-family assertion (lowering + classification +
 ;; the `:input` and `:param` edge roles + authority/storage split +
 ;; static/live modes) — the broad claim's contract. The `:selector` edge
 ;; (machine → its selector subscription) needs a parameterized
-;; `[:rf/machine <id>]` `:<-` input the portable corpus DSL does not express;
+;; `[:rf/machine <id>]` declared input the portable corpus DSL does not express;
 ;; it is pinned by the implementation-local reference suite
 ;; (derivation_algebra_conformance_cljs_test `c-static-edges-span-input-param-selector`).
 ;;
@@ -69,11 +69,11 @@
  :fixture/capabilities #{:core/sub :fsm/flat :flow/basic :rf.http/managed
                          :routing/match-url :routing/blocking
                          :derivation/algebra-graph}
- :fixture/doc          "The FULL cross-family derivation/process algebra graph: reg-sub → ephemeral :derivation, reg-flow → materialized app-db :derivation, reg-resource → :process (runtime-db storage + external :authority — the issue-2 split), reg-route → the :rf/route slice :process, reg-machine → :process refined :machine-process. Pins the static :input (sub :<-), :param (route-owned resource activation), and :selector (machine → selector sub) edges, the resource authority/local-storage split, AND the live-graph mode/frame shape (the graph-level :expect-graph {:mode :live :frame :rf/default} check — rf2-ska8zk; the static call pins :expect-graph {:mode :static}). The broad :derivation/algebra-graph claim the portable corpus formerly overclaimed with only subs+machines/static (rf2-djofbh)."
+ :fixture/doc          "The FULL cross-family derivation/process algebra graph: reg-sub → ephemeral :derivation, reg-flow → materialized app-db :derivation, reg-resource → :process (runtime-db storage + external :authority — the issue-2 split), reg-route → the :rf/route slice :process, reg-machine → :process refined :machine-process. Pins the static :input (a sub's declared inputs), :param (route-owned resource activation), and :selector (machine → selector sub) edges, the resource authority/local-storage split, AND the live-graph mode/frame shape (the graph-level :expect-graph {:mode :live :frame :rf/default} check — rf2-ska8zk; the static call pins :expect-graph {:mode :static}). The broad :derivation/algebra-graph claim the portable corpus formerly overclaimed with only subs+machines/static (rf2-djofbh)."
 
  :fixture/registry
  {:sub {:cart/items {:doc "All items in the cart (a layer-1 :db reader)."}
-        :cart/total {:doc "Item count (a :<- derivation over :cart/items)."}}
+        :cart/total {:doc "Item count (a declared-input derivation over :cart/items)."}}
   :flow {:cart/materialized-total
          {:doc    "The subscription's policy TWIN — same whole-value fn, materialized into app-db :after-event."
           :inputs [[:cart :items]]
@@ -102,7 +102,7 @@
  ;; The sub BODIES never run here (this fixture asserts the registration-
  ;; derived GRAPH, not sub values). The realizer resolves the mapper at
  ;; registration, so use the known builtins. The :input edge is derived from
- ;; the `:<-` declared input, not from executing the body.
+ ;; the declared input, not from executing the body.
  :fixture/handlers
  {:sub {:cart/items [[:get [:cart :items]]]
         :cart/total [[:reduce-input :cart/items [:fn :+] [:fn :identity]]]}}
@@ -183,7 +183,7 @@
      :lifecycle  :machine-instance}]
 
    :expect-edges
-   [;; :input — the static `:<-` chain (cart/items → cart/total).
+   [;; :input — the static declared-input edge (cart/items → cart/total).
     {:from [:sub :cart/items] :to [:sub :cart/total] :role :input}
     ;; :param — the route-owned resource ACTIVATION edge. The concrete
     ;; scoped key is :parametric (the don't-execute rule); :blocking? rides

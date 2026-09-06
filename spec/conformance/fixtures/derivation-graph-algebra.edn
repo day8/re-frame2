@@ -32,7 +32,7 @@
 ;;                       subscription-cache-entry; machines are runtime-db /
 ;;                       machine-instance. No node uses `:remote` as a storage
 ;;                       class (external authority is the separate axis).
-;;   - GRAPH EDGES     — a `:<-` chain becomes a static `:input` edge resolved
+;;   - GRAPH EDGES     — a declared `:inputs` list becomes a static `:input` edge resolved
 ;;                       to the upstream subscription node id; a node with no
 ;;                       declared `[:sub …]` input draws no spurious edge.
 ;;
@@ -44,11 +44,11 @@
 {:fixture/id           :derivation-graph/algebra-subs-machines
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/sub :fsm/flat :derivation/algebra-graph-subs-machines}
- :fixture/doc          "The subs+machines SUBSET of the derivation/process algebra graph: a reg-sub lowers to a :derivation node (ephemeral / on-demand / subscription-cache-entry), a :<- chain becomes a static :input edge, and a reg-machine lowers to a :process node (runtime-db / machine-instance, refinement :machine-process). Pins the EP-0014 lowering + storage classification + edge roles a subs+machines-only graph host genuinely proves; the broad algebra-graph claim (flows / resources / routes / route-owned activation / live mode / authority split) is the companion derivation-graph-algebra-full.edn."
+ :fixture/doc          "The subs+machines SUBSET of the derivation/process algebra graph: a reg-sub lowers to a :derivation node (ephemeral / on-demand / subscription-cache-entry), a declared :inputs list becomes a static :input edge, and a reg-machine lowers to a :process node (runtime-db / machine-instance, refinement :machine-process). Pins the EP-0014 lowering + storage classification + edge roles a subs+machines-only graph host genuinely proves; the broad algebra-graph claim (flows / resources / routes / route-owned activation / live mode / authority split) is the companion derivation-graph-algebra-full.edn."
 
  :fixture/registry
  {:sub {:cart/items {:doc "All items in the cart (a layer-1 :db reader)."}
-        :cart/total {:doc "Item count (a :<- derivation over :cart/items)."}}
+        :cart/total {:doc "Item count (a declared-input derivation over :cart/items)."}}
   :machine
   {:upload/main
    {:initial :idle
@@ -59,7 +59,7 @@
  ;; NB the sub BODIES never run here (this fixture asserts the registration-
  ;; derived GRAPH, not sub values) — but the realizer resolves the mapper at
  ;; registration, so use the known `:identity` builtin. The `:input` edge is
- ;; derived from the `:<-` declared input, not from executing the body.
+ ;; derived from the declared input, not from executing the body.
  :fixture/handlers
  {:sub {:cart/items [[:get [:cart :items]]]
         :cart/total [[:reduce-input :cart/items [:fn :+] [:fn :identity]]]}}
@@ -92,7 +92,7 @@
      :storage    :runtime-db
      :lifecycle  :machine-instance}]
 
-   ;; GRAPH EDGES — the static :<- chain becomes an :input edge resolved to
+   ;; GRAPH EDGES — the declared :inputs list becomes an :input edge resolved to
    ;; the upstream subscription node id (by bare sub-id in the static graph).
    :expect-edges
    [{:from [:sub :cart/items] :to [:sub :cart/total] :role :input}]

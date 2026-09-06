@@ -397,8 +397,8 @@ A flow named `:my-app/derived-area` with `:output-path [:my-app/area]` is **obse
 
 ;; (c) derived sub that closes over the path implicitly
 (rf/reg-sub :my-app/area-doubled
-  :<- [:my-app/area]
-  (fn [area _] (* 2 area)))
+  {:inputs [[:my-app/area]]}
+  (fn [[area] _] (* 2 area)))
 ```
 
 The flow's `:output-path` IS the contract surface. Consumers depend on the path, not on a `:rf.flow/<flow-id>` sub-id. This is the same shape as any other `app-db` value: a flow's output is "ordinary application state with a known producer" — exactly the framing at [§When (and when not) to use a flow](#when-and-when-not-to-use-a-flow).

@@ -116,7 +116,7 @@ Each entry below is one CP:
 
 - **Id-shape convention:** `:feature/property` or `:feature/computed-value`. Examples: `:cart/total`, `:cart/items-count`, `:auth/logged-in?`. The relevant registry kind is `:sub`.
 - **Call-shape convention** (per [Principles §Name over place](Principles.md#name-over-place) and [002 §Routing](002-Frames.md#routing-the-dispatch-envelope), same as for events): `[<id>]` for trivial subs, `[<id> <single-scalar>]` for single-argument subs (`[:user-by-id 42]`), `[<id> {<key> <val> ...}]` for multi-argument subs (`[:items-filtered {:status :pending :limit 20}]`). Multi-positional `[<id> a b c]` is accepted by the runtime; the linter nudges new code toward the map shape.
-- **Decide the input.** Either reads `app-db` directly (Layer 1 sub) or composes other subs (Layer 2 / signal-graph chained sub via `:<-`).
+- **Decide the input.** Either reads `app-db` directly (Layer 1 sub) or composes other subs (Layer 2 / signal-graph chained sub via `:inputs`).
 - **Check schemas.** If the sub's return value has a registered schema (rare for layer-1, common for layer-2), align the output shape.
 
 **Template — Layer 1 (reads app-db directly):**
@@ -128,13 +128,12 @@ Each entry below is one CP:
     (get-in db [:feature :items])))
 ```
 
-**Template — Layer 2 (chained via `:<-`):**
+**Template — Layer 2 (chained via `:inputs`):**
 
 ```clojure
 (rf/reg-sub :feature/total
-  {:doc "Aggregate computed from :feature/items."}
-  :<- [:feature/items]
-  (fn sub-feature-total [items _query]
+  {:doc "Aggregate computed from :feature/items." :inputs [[:feature/items]]}
+  (fn sub-feature-total [[items] _query]
     (reduce + (map :amount items))))
 ```
 
@@ -142,10 +141,8 @@ Each entry below is one CP:
 
 ```clojure
 (rf/reg-sub :feature/summary
-  {:doc "Joins items, user, and pricing rules to produce a display summary."}
-  :<- [:feature/items]
-  :<- [:auth/current-user]
-  :<- [:pricing/active-rule]
+  {:doc "Joins items, user, and pricing rules to produce a display summary."
+   :inputs [[:feature/items] [:auth/current-user] [:pricing/active-rule]]}
   (fn sub-feature-summary [[items user rule] _query]
     {:item-count (count items)
      :discount-eligible? (and rule (>= (count items) (:min-items rule)))
@@ -155,7 +152,7 @@ Each entry below is one CP:
 **Pattern-level discipline:**
 
 - Body is **pure** — `(state, query) → value`. No side-effects, no mutation, no I/O.
-- Layer 2 subs **don't** read `app-db` directly. They compose layer-1 subs via `:<-`. (This keeps the signal graph topology static and queryable via `(sub-topology)`.)
+- Layer 2 subs **don't** read `app-db` directly. They compose layer-1 subs via `:inputs`. (This keeps the signal graph topology static and queryable via `(sub-topology)`.)
 - Sub computations should be **fast**. Heavy work belongs in event handlers that pre-compute and store in `app-db`.
 
 **Smoke test (headless via `compute-sub`):**
@@ -170,7 +167,7 @@ Each entry below is one CP:
 
 - Sub id is namespaced and unused.
 - Body is pure.
-- Layer-2 subs use `:<-` chains; they don't read `app-db` directly.
+- Layer-2 subs declare their upstream subs under `:inputs`; they don't read `app-db` directly.
 - `:doc` is present.
 - Smoke test runs headlessly via `compute-sub`.
 - If the return value has a schema, the test asserts conformance.
@@ -179,9 +176,8 @@ Each entry below is one CP:
 
 ```clojure
 (rf/reg-sub :cart/total
-  {:doc "Sum of qty × price across cart items."}
-  :<- [:cart/items]
-  (fn sub-cart-total [items _]
+  {:doc "Sum of qty × price across cart items." :inputs [[:cart/items]]}
+  (fn sub-cart-total [[items] _]
     (reduce + (map #(* (:qty %) (:price %)) items))))
 ```
 
@@ -368,7 +364,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 
 **Where state lives.** Every machine's snapshot lives at the runtime-managed path `[:rf.runtime/machines :snapshots <machine-id>]` in the frame's **runtime-db** partition (not app-db). For id `:auth.login/flow`, the snapshot is at `[:rf.runtime/machines :snapshots :auth.login/flow]` and contains `{:state ... :data ...}`. You do not pick the path — the machine spec has no `:path` key. Per-frame isolation is automatic: each frame has its own runtime-db and thus its own `[:rf.runtime/machines :snapshots]` map. See [005 §Where snapshots live](005-StateMachines.md#where-snapshots-live).
 
-**Reading the snapshot in views.** The framework ships `:rf/machine` as a standard parametric sub. `@(rf/subscribe [:rf/machine :auth.login/flow])` returns the snapshot — no per-machine `reg-sub` needed. Destructure inline, or write a derived sub `:<- [:rf/machine <id>]` for projections. See [005 §Subscribing to machines via the `:rf/machine` sub](005-StateMachines.md#subscribing-to-machines-via-the-rfmachine-sub).
+**Reading the snapshot in views.** The framework ships `:rf/machine` as a standard parametric sub. `@(rf/subscribe [:rf/machine :auth.login/flow])` returns the snapshot — no per-machine `reg-sub` needed. Destructure inline, or write a derived sub declaring `{:inputs [[:rf/machine <id>]]}` for projections. See [005 §Subscribing to machines via the `:rf/machine` sub](005-StateMachines.md#subscribing-to-machines-via-the-rfmachine-sub).
 
 **Strict encapsulation.** Actions and guards see `{:state :data}` only — *no `:db`, no cofx*. Cross-cutting reads pass through the event payload; cross-cutting writes go via `:fx [[:dispatch <named-event>]]`. Action effect maps are `{:data {...} :fx [...]}` — symmetric with `reg-event`'s `{:db :fx}`. The named-bounce-event pattern is a feature, not a tax: it makes the cross-cutting concern visible in the trace, the registry, and 10x's event log (per [005 §Strict encapsulation](005-StateMachines.md#strict-encapsulation--actions-only-see-their-own-data)).
 
@@ -586,12 +582,12 @@ The framework-registered `:rf/machine` sub returns the snapshot for any machine;
        nil          [:p "Loading..."])]))             ;; nil before initialisation
 ```
 
-For projections, compose against `:rf/machine` via `:<-`:
+For projections, compose against `:rf/machine` by declaring it under `:inputs`:
 
 ```clojure
 (rf/reg-sub :auth.login/state
-  :<- [:rf/machine :auth.login/flow]
-  (fn [snap _] (:state snap)))
+  {:inputs [[:rf/machine :auth.login/flow]]}
+  (fn [[snap] _] (:state snap)))
 ```
 
 **AI-first checklist:**
@@ -716,9 +712,8 @@ test/my_app/
   (fn [db _] (get-in db [:cart :items])))
 
 (rf/reg-sub :cart/total
-  {:doc "Sum of qty × price across all items."}
-  :<- [:cart/items]
-  (fn [items _]
+  {:doc "Sum of qty × price across all items." :inputs [[:cart/items]]}
+  (fn [[items] _]
     (reduce + (map #(* (:qty %) (:price %)) items))))
 
 ;; my-app/cart/views.cljs
@@ -1432,7 +1427,7 @@ The [7GUIs example series](../examples/core/seven_guis/README.md) and the [login
 | Prompt | Example |
 |---|---|
 | CP-1 (event handler) | All examples; especially the bookkeeping events in [Flight Booker](../examples/core/seven_guis/flight_booker/core.cljs) and the undo events in [Circle Drawer](../examples/core/seven_guis/circle_drawer/core.cljs) |
-| CP-2 (subscription) | [Temperature Converter](../examples/core/seven_guis/temperature/core.cljs) shows `:<-` chains; [Flight Booker](../examples/core/seven_guis/flight_booker/core.cljs) shows multi-input chains for derived enabled-state |
+| CP-2 (subscription) | [Temperature Converter](../examples/core/seven_guis/temperature/core.cljs) shows declared inputs; [Flight Booker](../examples/core/seven_guis/flight_booker/core.cljs) shows multi-input chains for derived enabled-state |
 | CP-3 (registered fx) | [Login](../examples/core/login/core.cljs) shows `:platforms` metadata + a stub fx for tests; [Timer](../examples/core/seven_guis/timer/core.cljs) shows `:dispatch-later`; [Flight Booker](../examples/core/seven_guis/flight_booker/core.cljs) shows a custom `:notify` fx |
 | CP-4 (registered view) | All examples use Var-reference Form-1 (canonical) |
 | CP-5 (state machine) | [Login](../examples/core/login/core.cljs) — full transition table with guards, actions, terminal states |

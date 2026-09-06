@@ -169,18 +169,16 @@ Worked example — login form:
 ```clojure
 (rf/reg-sub :form.login            (fn [db _] (get-in db [:auth :login])))
 
-(rf/reg-sub :form.login/draft             :<- [:form.login] (fn [s _] (:draft s)))
-(rf/reg-sub :form.login/status            :<- [:form.login] (fn [s _] (:status s)))
-(rf/reg-sub :form.login/errors            :<- [:form.login] (fn [s _] (:errors s)))
-(rf/reg-sub :form.login/touched           :<- [:form.login] (fn [s _] (:touched s)))
-(rf/reg-sub :form.login/submit-attempted? :<- [:form.login] (fn [s _] (:submit-attempted? s)))
+(rf/reg-sub :form.login/draft             {:inputs [[:form.login]]} (fn [[s] _] (:draft s)))
+(rf/reg-sub :form.login/status            {:inputs [[:form.login]]} (fn [[s] _] (:status s)))
+(rf/reg-sub :form.login/errors            {:inputs [[:form.login]]} (fn [[s] _] (:errors s)))
+(rf/reg-sub :form.login/touched           {:inputs [[:form.login]]} (fn [[s] _] (:touched s)))
+(rf/reg-sub :form.login/submit-attempted? {:inputs [[:form.login]]} (fn [[s] _] (:submit-attempted? s)))
 
 ;; Per-field convenience sub — show the error when the field is touched
 ;; OR when submit has been attempted at least once.
 (rf/reg-sub :form.login/field-error
-  :<- [:form.login/errors]
-  :<- [:form.login/touched]
-  :<- [:form.login/submit-attempted?]
+  {:inputs [[:form.login/errors] [:form.login/touched] [:form.login/submit-attempted?]]}
   (fn [[errs touched submit-attempted?] [_ field-id]]
     (when (or submit-attempted? (touched field-id))
       (first (get errs field-id)))))
@@ -188,8 +186,8 @@ Worked example — login form:
 ;; Form-level errors live under the reserved :_form key and are always visible
 ;; whenever they are present.
 (rf/reg-sub :form.login/form-errors
-  :<- [:form.login/errors]
-  (fn [errs _]
+  {:inputs [[:form.login/errors]]}
+  (fn [[errs] _]
     (get errs :_form)))
 
 ;; Convenience: dirty? = draft differs from the canonical reference value.
@@ -198,14 +196,13 @@ Worked example — login form:
 ;; the form's defaults. This makes "dirty?" mean "edited since the last
 ;; durable point" — defaults at first, submitted afterwards.
 (rf/reg-sub :form.login/dirty?
-  :<- [:form.login]
-  (fn [{:keys [draft submitted]} _]
+  {:inputs [[:form.login]]}
+  (fn [[{:keys [draft submitted]}] _]
     (not= draft (or submitted login-form-defaults))))
 
 ;; Convenience: can-submit? = no errors AND not currently submitting.
 (rf/reg-sub :form.login/can-submit?
-  :<- [:form.login/errors]
-  :<- [:form.login/status]
+  {:inputs [[:form.login/errors] [:form.login/status]]}
   (fn [[errs status] _]
     (and (empty? errs) (not= status :submitting))))
 ```

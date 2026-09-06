@@ -680,28 +680,28 @@ These are **framework subscriptions** — their layer-1 reader runs against the 
   (fn route-slice [rt _] (select-keys (get-in rt [:rf.runtime/routing :current]) route-slice-keys)))   ;; rt = runtime-db projection
 
 (rf/reg-sub :rf.route/id   ;; sub-id stays :rf.route/id; reads the slice's :route-id key
-  :<- [:rf.runtime/routing :current]
-  (fn [route _] (:route-id route)))
+  {:inputs [[:rf.runtime/routing :current]]}
+  (fn [[route] _] (:route-id route)))
 
 (rf/reg-sub :rf.route/params
-  :<- [:rf.runtime/routing :current]
-  (fn [route _] (:params route)))
+  {:inputs [[:rf.runtime/routing :current]]}
+  (fn [[route] _] (:params route)))
 
 (rf/reg-sub :rf.route/query
-  :<- [:rf.runtime/routing :current]
-  (fn [route _] (:query route)))
+  {:inputs [[:rf.runtime/routing :current]]}
+  (fn [[route] _] (:query route)))
 
 (rf/reg-sub :rf.route/fragment
-  :<- [:rf.runtime/routing :current]
-  (fn [route _] (:fragment route)))     ;; URL #fragment string, or nil
+  {:inputs [[:rf.runtime/routing :current]]}
+  (fn [[route] _] (:fragment route)))     ;; URL #fragment string, or nil
 
 (rf/reg-sub :rf.route/transition
-  :<- [:rf.runtime/routing :current]
-  (fn [route _] (:transition route)))    ;; :idle | :loading | :error
+  {:inputs [[:rf.runtime/routing :current]]}
+  (fn [[route] _] (:transition route)))    ;; :idle | :loading | :error
 
 (rf/reg-sub :rf.route/error
-  :<- [:rf.runtime/routing :current]
-  (fn [route _] (:error route)))
+  {:inputs [[:rf.runtime/routing :current]]}
+  (fn [[route] _] (:error route)))
 
 (rf/reg-sub :rf/pending-navigation
   (fn [rt _] (get-in rt [:rf.runtime/routing :pending-navigation])))   ;; rt = runtime-db projection; pending-nav slot when :can-leave guard rejects, else nil
@@ -709,7 +709,7 @@ These are **framework subscriptions** — their layer-1 reader runs against the 
 
 Views derive UI from the route the same way they derive UI from any other state — no special routing API in views. A common pattern: a global progress bar reads `:rf.route/transition` and renders when the value is `:loading`; an error banner reads `:rf.route/error`.
 
-For the common top-level read, subscribe to the canonical `[:rf/route]` vector directly — `@(rf/subscribe [:rf/route])` returns a reaction over the published slice. The route is a per-frame singleton, so no id argument is needed; to read a non-default URL-bound frame's slice from outside an established scope, name the frame with `subscribe`'s `{:frame <target>}` opts form — `@(rf/subscribe [:rf/route] {:frame <target>})` (`<target>` is a frame-id keyword or a live frame value). There is no named-read-sugar fn: a runtime-db framework read is a subscription vector, one read grammar (per [Conventions §Reserved sub-ids](Conventions.md#reserved-sub-ids)) — the `[:rf/route]` vector is what a `:<-` chain names and the `:rf.route/*` granular subs derive from.
+For the common top-level read, subscribe to the canonical `[:rf/route]` vector directly — `@(rf/subscribe [:rf/route])` returns a reaction over the published slice. The route is a per-frame singleton, so no id argument is needed; to read a non-default URL-bound frame's slice from outside an established scope, name the frame with `subscribe`'s `{:frame <target>}` opts form — `@(rf/subscribe [:rf/route] {:frame <target>})` (`<target>` is a frame-id keyword or a live frame value). There is no named-read-sugar fn: a runtime-db framework read is a subscription vector, one read grammar (per [Conventions §Reserved sub-ids](Conventions.md#reserved-sub-ids)) — the `[:rf/route]` vector is what an `:inputs` declaration names and the `:rf.route/*` granular subs derive from.
 
 The pending-nav slot is the route slice's runtime-db sibling and is read the same way — `@(rf/subscribe [:rf/pending-navigation])` returns a reaction over the pending-nav map `{:id :destination :target :cause :policy :requested-url :rejecting-route :rejecting-guard}` (or `nil` in the steady state — the slot is non-nil only while a `:can-leave` guard holds a blocked navigation awaiting `:rf.route/continue` / `:rf.route/cancel`, per [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol)). Like the route it is a per-frame singleton, and `subscribe`'s `{:frame <target>}` opts form reads an explicit frame.
 
@@ -1496,8 +1496,8 @@ The `:parent` key gives the rendering side an enumerable answer to "what's the l
 
 ```clojure
 (rf/reg-sub :rf.route/chain
-  :<- [:rf.route/id]
-  (fn [id _]
+  {:inputs [[:rf.route/id]]}
+  (fn [[id] _]
     ;; Returns [parent-most ... current], following :parent links.
     ;; e.g. (:route/account :route/account.settings)
     (chain-from-meta id)))
@@ -1551,18 +1551,18 @@ Two optional route-metadata keys — `:can-leave` on the route being left, `:can
   "/account/settings")
 
 (rf/reg-sub :editor/can-leave?
-  :<- [:editor/dirty?]
-  (fn [dirty? _] (not dirty?)))                 ;; true means "OK to leave"
+  {:inputs [[:editor/dirty?]]}
+  (fn [[dirty?] _] (not dirty?)))                 ;; true means "OK to leave"
 
 (rf/reg-sub :auth/signed-in?
-  :<- [:auth/user]
-  (fn [user _] (some? user)))                   ;; true means "OK to enter"
+  {:inputs [[:auth/user]]}
+  (fn [[user] _] (some? user)))                   ;; true means "OK to enter"
 ```
 
 Each sub returns `true` when the route is OK to leave / enter; `false` to reject. The convention: the *sub's name* describes the positive case, so `false` means "can NOT".
 
 <a id="the-guard-sub-receives-the-pending-target-as-an-argument"></a>
-**The guard sub receives the resolved target as an argument.** The runtime subscribes the guard with the resolved **target** appended to its query vector — `(subscribe [<guard-id> <target>])` — so the guard receives it as the second destructure position, `(fn [inputs [_ target] …])`. `target` is `{:route-id :params :query :fragment :url}`. This is what makes the [fragment-check contract](#fragments) *implementable* for `:can-leave` (compare the current `:rf.route/fragment` against `(:fragment target)` — allow when only the fragment differs) and what gives `:can-enter` the destination to branch on (read `(:route-id target)`, `(:params target)`, or the target route's `:tags` via `handler-meta`). A guard that ignores the extra arg (the common `:<- [:editor/dirty?]` shape) is unaffected — the target rides in the query vector's tail, unread.
+**The guard sub receives the resolved target as an argument.** The runtime subscribes the guard with the resolved **target** appended to its query vector — `(subscribe [<guard-id> <target>])` — so the guard receives it as the second destructure position, `(fn [inputs [_ target] …])`. `target` is `{:route-id :params :query :fragment :url}`. This is what makes the [fragment-check contract](#fragments) *implementable* for `:can-leave` (compare the current `:rf.route/fragment` against `(:fragment target)` — allow when only the fragment differs) and what gives `:can-enter` the destination to branch on (read `(:route-id target)`, `(:params target)`, or the target route's `:tags` via `handler-meta`). A guard that ignores the extra arg (the common `{:inputs [[:editor/dirty?]]}` shape) is unaffected — the target rides in the query vector's tail, unread.
 
 **Closed contract.** The runtime accepts only the literals `true` and `false`. Any other value (`42`, a non-empty string, `nil`, a map) **fails closed** and emits a structured trace — `:rf.error/can-leave-non-boolean` for a leave guard, `:rf.error/can-enter-non-boolean` for an entry guard — with `:tags {:route-id :query :value :reason :recovery :blocked-navigation :frame}`. The closed contract forces the route author to write `(boolean …)` / `(not …)` rather than rely on truthiness (the classic polarity bug: a sub returning the dirty-flag *value* silently let the user navigate away and lose form state). Pre-alpha posture: no shim, no soft transition.
 
@@ -1722,8 +1722,8 @@ Fixture [`route-entry-denied.edn`](conformance/fixtures/route-entry-denied.edn) 
   "/account")
 
 (rf/reg-sub :auth/signed-in?
-  :<- [:auth/user]
-  (fn [user _] (some? user)))     ;; true → OK to enter
+  {:inputs [[:auth/user]]}
+  (fn [[user] _] (some? user)))     ;; true → OK to enter
 
 ;; The app's :rf.route/entry-denied handler turns the denial into a login
 ;; redirect. Entry is TERMINAL, so there is no paused transition to resume:

@@ -3,8 +3,8 @@
 
 EP-0007 rule 2 ("no stable accepted synonyms") gets the no-floor-lint
 treatment "where shapes allow": a *retired* spelling reappearing in
-repo source is a CI failure, not a doc note. Five renames have merged,
-so five retired spellings are now lintable:
+repo source is a CI failure, not a doc note. Six renames have merged,
+so six retired spellings are now lintable:
 
   (a) The bare `:frame` event-context COEFFECT (sweep item 1, rf2-1m6rf1).
       EP-0002 R3 "one carrier, one name" retired the duplicate `:frame`
@@ -44,6 +44,16 @@ so five retired spellings are now lintable:
       `implementation/machines/src/re_frame/machines.cljc`. No `src`
       namespace defines `machine-has-tag?` any more, and
       `spec/api-manifest-metadata.edn` records the removal.
+
+  (f) The `reg-sub` input-chain keyword `:<-` (rf2-kuky.50, ruled on
+      rf2-kuky.45). A subscription declares its dependencies ONCE, under
+      `:inputs` in the registration metadata map, and a declared dependency
+      list always reaches the body as a VECTOR at every count. The v1 `:<-`
+      chain is retired with NO alias: `reg-sub` refuses it at registration
+      with `:rf.error/reg-sub-bad-args` naming `:inputs` and MIGRATION §M-75.
+      193 registration sites moved off it across implementation/ and bench/,
+      after three sibling beads swept examples/, tools/, testbeds/, docs/,
+      skills/ and the migration corpus.
 
 WHY THE SHAPES ARE SCOPED PRECISELY (the "where shapes allow" caveat)
 
@@ -221,6 +231,56 @@ retired SHAPES:
       self-test negatives below, so a future widening that would red a real
       file fails here first rather than in someone else's PR.
 
+  (f) TWO SURFACES, because the retired arrow has two carriers and a
+      source-only rule would see one of them.
+
+      SOURCE — a delimited Clojure KEYWORD TOKEN, read on MASKED lines. The
+      token shape is rule (c)'s, for rule (c)'s reason: the retired keyword has
+      no sanctioned CODE use left, so a token IS the violation. Masking is
+      rules (a)-(c)'s treatment and is right here for the same reason — the
+      retirement is described at length in comments and docstrings across the
+      substrate, and a description is not a reintroduction. The surface is
+      `ARROW_SCAN_DIRS`, which is `DEFAULT_SCAN_DIRS` PLUS `bench/`; the bench
+      tree is added to this rule's roster rather than to the shared default so
+      widening it does not re-scope rules (a)-(e) as a side effect. It matters
+      here specifically: `bench/hicasso` is a hand-run project that no per-PR
+      lane compiles (rf2-6c12m.1), so a retired registration there goes SILENT
+      rather than red, and silent is the worse shape.
+
+      PROSE — the same token inside a ``` FENCED CODE BLOCK under `spec/`,
+      `skills/` and `migration/`. This is the carrier a source rule cannot see,
+      and the one the retirement was found in last: rf2-kuky.49 fixed nine
+      teaching sites that no arrow census had flagged, two of them blocks where
+      an earlier PR had corrected the RULE while leaving the FORM. Fenced-only
+      is the whole prose defence, since Markdown gets no masking: a retirement
+      NOTE — the Spec 009 error-catalogue row, the API manifest's
+      justification, the EP's record — is prose, and prose is not read. `docs/`
+      is off this roster for the reason SCAN SURFACE gives generally (mkdocs
+      stages `spec/` and `migration/` into it, so a built checkout would
+      double-report) and because `docs/design/**` is a dated design record.
+
+      TWO ALLOW-LISTS, BOTH CLOSED BY CONSTRUCTION — which is what makes them
+      different from the one rule (d) rejected as "an allow-list that a correct
+      edit keeps having to extend".
+
+        * `ARROW_SOURCE_ALLOWLIST` is ONE file: the parser that refuses the
+          spelling. `re-frame.subs/parse-reg-sub-args` detects the token with
+          `(some #{:<-} tail)` — live code, unmasked — and quotes the spelling
+          back to the author in its refusal message. A SECOND source file
+          naming the arrow is the reintroduction this rule exists to catch, so
+          the list cannot grow without the growth itself being the finding.
+        * `ARROW_PROSE_ALLOWLIST` is the v1 -> v2 migration corpus: the
+          README's M-75 rule and the migration skill's two reference pages,
+          whose SEARCH blocks must keep quoting v1 spelling to stay findable by
+          someone migrating FROM v1 (rf2-kuky.49 enumerated all 21 deliberate
+          survivors; these three files carry them). Only a migration document
+          has a reason to show the retired form, and a new teaching page
+          showing it is wrong by definition.
+
+      The self-test exercises the source allow-list in BOTH directions on the
+      same line — green through the allow-list, red from any other path — so a
+      rule that had stopped matching altogether cannot pass it looking correct.
+
 WHERE A SHAPE IS TOO AMBIGUOUS TO LINT WITHOUT NOISE (documented, not shipped)
 
 EP-0007 §Enforcement says "where shapes allow"; two shapes are deliberately
@@ -245,6 +305,31 @@ code without unacceptable false-positive noise:
     `event_context_coeffect_keys_test` conformance test pins the exact
     framework-injected coeffect key set so a `:frame` coeffect cannot ride
     back IN even if a read of it slipped past this gate.
+
+  * THE SECOND RETIRED `reg-sub` SPELLING — the POSITIONAL two-fn form
+    `(reg-sub id input-fn computation-fn)`, retired by rf2-kuky.50 alongside
+    the arrow. It carries NO TOKEN AT ALL and is recognisable only
+    STRUCTURALLY, which already puts it past a line-oriented regex; but the
+    reason it is not linted is sharper than that, and it would defeat a
+    balanced-paren reader too. `(reg-sub id sub-meta body)`, where `sub-meta`
+    is a SYMBOL holding a runtime metadata map, is INDISTINGUISHABLE at rest
+    from `(reg-sub id input-fn body)` where the symbol is a producer — the
+    runtime tells them apart with `(map? (first args))`, which a static reader
+    cannot evaluate. Measured while sweeping this repo: a rewrite-clj
+    classifier reported 38 positional two-fn forms under `implementation/`, of
+    which 8 were exactly that shape — four conformance runners and three bench
+    drivers threading a metadata map through positionally. A gate with a 21%
+    false-positive rate on framework code is a gate people learn to route
+    around.
+
+    The backstop here is stronger than the lint would have been, and it is the
+    same argument this section makes for the `:url` redirect case: `reg-sub`
+    REFUSES two trailing fns at registration with
+    `:rf.error/reg-sub-bad-args`, naming `:inputs` and MIGRATION §M-75. That
+    fires at namespace load, on the real arg VALUES, in every test run and
+    every dev boot — so a missed site is loud where a static rule would have
+    been either blind or wrong. Rule (f) lints the token because the token is
+    unambiguous; the runtime owns the shape that is not.
 
   * A retired bench coordinate inside a `;` COMMENT. Rule (d) masks comments,
     which is the same treatment rules (a)-(c) get and is decided on evidence
@@ -355,9 +440,21 @@ from typing import Iterable, NamedTuple
 #     source, the only tracked Clojure under `docs/` — is rostered directly, so
 #     nothing is lost.
 #
-# `spec/` carries no Clojure source at all (prose + EDN fixtures), and this
-# gate's suffix filter is source-only, so it is not a candidate: the retirement
-# NOTES there are held by the self-test's verbatim prose phase instead.
+# `spec/` carries no Clojure source at all (prose + EDN fixtures), so it is not
+# a candidate for THIS roster: the retirement NOTES there are held by the
+# self-test's verbatim prose phase instead. It IS on rule (f)'s separate prose
+# roster, which reads `.md` FENCED CODE — safe for the same staging reason the
+# `docs/` exclusion turns on, since the staged copies live under the gitignored
+# `docs/spec/` and scanning `spec/` reads the source of truth once.
+#
+# `.edn` remains a suffix this gate never opens, on ANY rule, and rule (f) does
+# not change that. The retired-arrow mentions that live in EDN —
+# `spec/api-manifest.edn` and its curated `spec/api-manifest-metadata.edn`
+# sidecar, whose `reg-sub` justification states that "the v1 :<- chain and
+# two-fn tail are deleted", plus the conformance fixtures' `:fixture/doc`
+# prose — are RECORDS OF the retirement, so a rule reading them would fire on
+# the sentence announcing it. This is a NEGATIVE roster of sites the gate
+# deliberately cannot reach, not a coverage claim.
 DEFAULT_SCAN_DIRS = (
     "implementation",
     "examples",
@@ -405,6 +502,49 @@ COORD_EXCLUDE_PATHS = (
 )
 
 _COORD_SUFFIXES = _SOURCE_SUFFIXES + (".md",)
+
+# Rule (f)'s SOURCE surface — every tree `DEFAULT_SCAN_DIRS` covers, plus
+# `bench/`. The bench tree is added HERE and not to `DEFAULT_SCAN_DIRS`
+# deliberately: widening the default would re-scope rules (a)-(e) as a side
+# effect of this one, and `bench/hicasso` is a hand-run project that no
+# per-PR lane compiles (rf2-6c12m.1) — which is exactly why a retired
+# registration there would go SILENT rather than red, and exactly why this
+# rule wants it.
+ARROW_SCAN_DIRS = DEFAULT_SCAN_DIRS + ("bench",)
+
+# The ONE source file that must name the retired arrow: the parser that
+# refuses it. `re-frame.subs/parse-reg-sub-args` detects the token with
+# `(some #{:<-} tail)` and its refusal message quotes the spelling back to the
+# author, so the rule would otherwise fire on the enforcement itself. This is a
+# CLOSED allow-list, not a growing one — a second source file naming the arrow
+# is the reintroduction this rule exists to catch.
+ARROW_SOURCE_ALLOWLIST = (
+    "implementation/core/src/re_frame/subs.cljc",
+)
+
+# Rule (f)'s PROSE surface: the teaching corpus, inside fenced code blocks
+# only. `docs/` is absent for the reason SCAN SURFACE gives for every rule —
+# mkdocs stages `spec/` and `migration/` into `docs/spec/` and `docs/migration/`
+# at build time, so a built checkout would double-report — and `docs/design/**`
+# is a dated design record besides.
+ARROW_PROSE_SCAN_DIRS = ("spec", "skills", "migration")
+
+# The migration corpus, which quotes v1 spelling ON PURPOSE. This allow-list is
+# CLOSED BY CONSTRUCTION and that is what distinguishes it from the one rule (d)
+# rejected: only a v1 -> v2 migration document has a reason to show the retired
+# form, and there are three of them. A new teaching page showing `:<-` is wrong
+# by definition, so nothing correct ever needs adding here.
+#
+#   * the migration README's M-75 rule — its "what to look for" samples ARE the
+#     v1 shapes a reader greps their own codebase for;
+#   * the migration skill's SEARCH blocks — an agent matches these against v1
+#     source, so rewriting them breaks the lookup the page exists for
+#     (rf2-kuky.49 enumerated all 21 survivors; these carry them).
+ARROW_PROSE_ALLOWLIST = (
+    "migration/from-re-frame-v1/README.md",
+    "skills/re-frame-migration/references/auto-call-site-rewrites.md",
+    "skills/re-frame-migration/references/guided-interceptors-subs.md",
+)
 
 # Directory names whose contents are never scannable source for this gate.
 _EXCLUDE_DIR_NAMES = frozenset({
@@ -560,6 +700,28 @@ _RETIRED_COORD_SYMBOL_MD_RE = re.compile(
 # the retired spelling in order to say it is retired.
 _RETIRED_COORD_STRING_RE = re.compile(
     r'(?<!\\)"(?:front|arm1)\.[^"\s\\]*/[^"\s\\]*(?<!\\)"'
+)
+
+# (f) The retired `reg-sub` input-chain keyword `:<-` (rf2-kuky.50). Matched as
+#     a delimited Clojure KEYWORD TOKEN, the same shape rule (c) uses and for
+#     the same reason: the retired keyword has no sanctioned CODE use left at
+#     all, so a token IS the violation wherever it appears in a scanned surface.
+#
+#     Two surfaces, two boundaries, for exactly rule (d)'s reason:
+#
+#       * In Clojure, comments and string literals are masked before the
+#         pattern runs, so prose is already exempt and the boundary need only
+#         be the Clojure one. A backtick is admitted (it is the syntax-quote
+#         reader macro, not a prose device).
+#       * In Markdown nothing is masked and the rule reads FENCED CODE ONLY, so
+#         a backticked mention inside a fence — a nested inline span in a
+#         sample's comment — is prose about the retirement and is denied.
+_ARROW_TOKEN_END = r"(?=[\s)\]},]|$)"
+_RETIRED_ARROW_CLJ_RE = re.compile(
+    r"(?:^|(?<=[\s(\[{,'~@^`]))" r":<-" + _ARROW_TOKEN_END
+)
+_RETIRED_ARROW_MD_RE = re.compile(
+    r"(?:^|(?<=[\s(\[{,'~@^]))" r":<-" + _ARROW_TOKEN_END
 )
 
 
@@ -924,6 +1086,108 @@ def scan_coordinates(scan_root: Path) -> list[Finding]:
 
 
 # --------------------------------------------------------------------------
+# Rule (f) — the retired `reg-sub` arrow, in source and in fenced samples
+# --------------------------------------------------------------------------
+
+
+def _allowlisted(path: Path, roster: Iterable[str]) -> bool:
+    """True when `path` ends with a rostered repo-relative path.
+
+    Matched on the TAIL, like `COORD_EXCLUDE_PATHS`, so the same roster holds
+    under the real checkout and under a self-test's synthetic tree.
+    """
+    posix = path.as_posix()
+    return any(posix == e or posix.endswith("/" + e) for e in roster)
+
+
+def _fenced_code_lines(text: str) -> list[tuple[int, str]]:
+    """Return the (1-based line number, line) pairs INSIDE ``` fences.
+
+    Prose is deliberately not returned. Every remaining in-tree mention of the
+    retired arrow outside the migration corpus is a retirement NOTE — the
+    Spec 009 error-catalogue row, the API manifest's justification, the EP's
+    record — and a note is not a reintroduction. What a reader COPIES is the
+    fenced sample, so that is what the rule grades.
+
+    Fence delimiters themselves are excluded, and an unterminated fence simply
+    runs to end-of-file (the same reading a markdown renderer gives it).
+    """
+    out: list[tuple[int, str]] = []
+    in_fence = False
+    for line_no, line in enumerate(text.splitlines(), start=1):
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            out.append((line_no, line))
+    return out
+
+
+def _scan_arrow_source(path: Path, text: str) -> list[Finding]:
+    """Rule (f) over Clojure source — masked, like rules (a)-(c).
+
+    A `;` comment or a docstring naming the retired spelling is documentation;
+    the parser's own refusal message is the clearest example, and it lives in
+    the one allow-listed file besides.
+    """
+    if _allowlisted(path, ARROW_SOURCE_ALLOWLIST):
+        return []
+    raw = text.splitlines()
+    findings: list[Finding] = []
+    for line_no, line in enumerate(_masked_lines(text), start=1):
+        if _RETIRED_ARROW_CLJ_RE.search(line):
+            snippet = raw[line_no - 1].strip() if line_no - 1 < len(raw) else ""
+            findings.append(
+                Finding(path, line_no, "retired-reg-sub-arrow:source", snippet)
+            )
+    return findings
+
+
+def _scan_arrow_prose(path: Path, text: str) -> list[Finding]:
+    """Rule (f) over a Markdown page's FENCED code blocks only."""
+    if _allowlisted(path, ARROW_PROSE_ALLOWLIST):
+        return []
+    findings: list[Finding] = []
+    for line_no, line in _fenced_code_lines(text):
+        if _RETIRED_ARROW_MD_RE.search(line):
+            findings.append(
+                Finding(path, line_no, "retired-reg-sub-arrow:sample",
+                        line.strip())
+            )
+    return findings
+
+
+def scan_arrow(scan_root: Path, include_tests: bool = False) -> list[Finding]:
+    """Scan rule (f)'s SOURCE surface under scan_root."""
+    findings: list[Finding] = []
+    for path in _iter_source_files(scan_root, include_tests):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        findings.extend(_scan_arrow_source(path, text))
+    return findings
+
+
+def scan_arrow_prose(scan_root: Path) -> list[Finding]:
+    """Scan rule (f)'s PROSE surface (fenced samples) under scan_root."""
+    if scan_root.is_file():
+        paths: Iterable[Path] = (
+            [scan_root] if scan_root.suffix == ".md" else []
+        )
+    else:
+        matches: list[Path] = []
+        for dirpath, dirnames, filenames in os.walk(scan_root):
+            dirnames[:] = [d for d in dirnames if d not in _EXCLUDE_DIR_NAMES]
+            for name in filenames:
+                if name.endswith(".md"):
+                    matches.append(Path(dirpath) / name)
+        paths = sorted(matches)
+    findings: list[Finding] = []
+    for path in paths:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        findings.extend(_scan_arrow_prose(path, text))
+    return findings
+
+
+# --------------------------------------------------------------------------
 # Reporting
 # --------------------------------------------------------------------------
 
@@ -974,6 +1238,25 @@ _FIX_HINTS = {
         "in a `;` comment or a string, both of which the symbol rule masks. "
         "Naming the coordinate inside a larger sentence is always safe — the "
         "string rule fires only on a whole literal that IS the coordinate."
+    ),
+    "retired-reg-sub-arrow": (
+        "The `reg-sub` input-chain keyword `:<-` was retired by rf2-kuky.50 "
+        "(ruled on rf2-kuky.45) with no alias. A subscription declares its "
+        "dependencies ONCE, under `:inputs` in the metadata map, and a "
+        "declared dependency list ALWAYS reaches the body as a VECTOR. "
+        "Rewrite by MIGRATION §M-75: "
+        "`(reg-sub id ?meta :<- q1 ... :<- qn f)` becomes "
+        "`(reg-sub id (assoc meta :inputs [q1 ... qn]) f)`, and when there was "
+        "exactly ONE input the body's first parameter moves inside a vector — "
+        "`(fn [v query-v] ...)` becomes `(fn [[v] query-v] ...)`. The "
+        "positional two-fn form `(reg-sub id input-fn f)` goes the same way: "
+        "`(reg-sub id {:inputs input-fn} f)`, body unchanged (a parametric "
+        "producer always delivered a vector). `reg-sub` itself refuses both "
+        "retired shapes at registration with `:rf.error/reg-sub-bad-args`, so "
+        "a missed site also fails loudly at namespace load. If you are writing "
+        "PROSE about the retirement, this rule never fires on it: in Clojure "
+        "comments and docstrings are masked, and in Markdown only FENCED code "
+        "is read."
     ),
     "retired-machine-has-tag": (
         "The facade fn `machine-has-tag?` was retired by rf2-il99l3 (reversing "
@@ -1086,6 +1369,11 @@ def main(argv: list[str]) -> int:
     scan_dirs = args.scan_dirs or list(DEFAULT_SCAN_DIRS)
     scan_roots = [repo_root / d for d in scan_dirs]
     coord_roots = [repo_root / p for p in COORD_SCAN_PATHS]
+    # Rule (f) has its own two rosters for the reasons given on the constants:
+    # a wider SOURCE surface (it adds `bench/`, which no per-PR lane compiles)
+    # and a PROSE surface of fenced samples in the teaching corpus.
+    arrow_roots = [repo_root / d for d in ARROW_SCAN_DIRS]
+    arrow_prose_roots = [repo_root / d for d in ARROW_PROSE_SCAN_DIRS]
 
     # A rostered tree that has been renamed or deleted is NOT skipped. Skipping
     # is how a widened gate quietly narrows again — it would report success for
@@ -1094,7 +1382,8 @@ def main(argv: list[str]) -> int:
     # Rule (d)'s roster gets the identical treatment, and needs it more: three
     # of its four entries are hicasso subtrees, and a package reorganisation
     # that renamed one would otherwise silently unratchet the rule.
-    missing = [r for r in scan_roots + coord_roots if not r.exists()]
+    missing = [r for r in scan_roots + coord_roots + arrow_roots
+               + arrow_prose_roots if not r.exists()]
     if missing:
         for root in missing:
             sys.stderr.write(f"error: scan dir {root} does not exist.\n")
@@ -1116,12 +1405,26 @@ def main(argv: list[str]) -> int:
             f"scanning {c} file(s) under {', '.join(COORD_SCAN_PATHS)} for "
             "retired bench coordinates (tests always included)...\n"
         )
+        a = sum(
+            1
+            for root in arrow_roots
+            for _ in _iter_source_files(root, args.include_tests)
+        )
+        sys.stderr.write(
+            f"scanning {a} source file(s) under {', '.join(ARROW_SCAN_DIRS)} "
+            f"and the fenced samples under {', '.join(ARROW_PROSE_SCAN_DIRS)} "
+            "for the retired `reg-sub` arrow...\n"
+        )
 
     findings: list[Finding] = []
     for root in scan_roots:
         findings.extend(scan(root, include_tests=args.include_tests))
     for root in coord_roots:
         findings.extend(scan_coordinates(root))
+    for root in arrow_roots:
+        findings.extend(scan_arrow(root, include_tests=args.include_tests))
+    for root in arrow_prose_roots:
+        findings.extend(scan_arrow_prose(root))
     if findings:
         _report(findings, repo_root)
         return 1
@@ -1252,6 +1555,43 @@ _COORD_SELF_TEST_CASES: tuple[tuple[str, int], ...] = (
 )
 
 
+# Rule (f) fixtures. Two surfaces, so two rosters and two scanners — the
+# source rule masks comments and strings, the prose rule reads fenced code only.
+# The `.md` positive is the one that matters most: it is the shape a
+# source-only rule cannot see, and the teaching corpus is where the retired
+# spelling was found last (rf2-kuky.49 fixed nine sites that no arrow census
+# had flagged).
+_ARROW_SOURCE_SELF_TEST_CASES: tuple[tuple[str, int], ...] = (
+    # --- positives: the retired keyword token must FIRE ---
+    ("arrow/positive/arrow_single_input.cljc",     1),
+    ("arrow/positive/arrow_multi_input.cljc",      1),
+    ("arrow/positive/arrow_in_metadata_form.cljc", 1),
+    # --- negatives: prose and every shipped shape stay GREEN ---
+    ("arrow/negative/arrow_in_comment.cljc",  0),
+    ("arrow/negative/declared_inputs.cljc",   0),
+    ("arrow/negative/arrow_lookalikes.cljc",  0),
+)
+
+_ARROW_PROSE_SELF_TEST_CASES: tuple[tuple[str, int], ...] = (
+    ("arrow/positive/fenced_sample.md",         1),
+    ("arrow/negative/prose_mention.md",         0),
+    ("arrow/negative/backticked_in_fence.md",   0),
+)
+
+# The parser that REFUSES the retired spelling has to name it, and its
+# detection is live code (`(some #{:<-} tail)`) that no masking hides. Pinned
+# verbatim so the allow-list is exercised rather than merely declared: the
+# first case must stay green THROUGH the allow-list, and the second proves the
+# same line is a real finding anywhere else — otherwise a rule that had stopped
+# matching altogether would pass this phase looking correct.
+_ARROW_ALLOWLIST_SELF_TEST_CASES: tuple[tuple[str, str, int], ...] = (
+    ("implementation/core/src/re_frame/subs.cljc",
+     "      (some #{:<-} tail)", 0),
+    ("implementation/core/src/re_frame/some_other.cljc",
+     "      (some #{:<-} tail)", 1),
+)
+
+
 def _run_self_tests(verbose: bool = False) -> int:
     """Scan each fixture file and assert the expected finding count.
 
@@ -1378,13 +1718,74 @@ def _run_self_tests(verbose: bool = False) -> int:
             )
             failures += 1
 
+    # Phase 5: rule (f)'s SOURCE surface, through `scan_arrow`.
+    for fixture, expected in _ARROW_SOURCE_SELF_TEST_CASES:
+        path = _SELF_TEST_FIXTURE_ROOT / fixture
+        if not path.is_file():
+            sys.stderr.write(
+                f"self-test FAIL: fixture {fixture!r} missing at {path}\n"
+            )
+            failures += 1
+            continue
+        got = len(scan_arrow(path, include_tests=True))
+        if got == expected:
+            if verbose:
+                sys.stderr.write(f"self-test PASS: {fixture} (findings={got})\n")
+        else:
+            sys.stderr.write(
+                f"self-test FAIL: {fixture} expected findings={expected}, "
+                f"got {got}\n"
+            )
+            failures += 1
+
+    # Phase 6: rule (f)'s PROSE surface, through `scan_arrow_prose`. Its own
+    # scanner because its own reading: fenced code only, no masking.
+    for fixture, expected in _ARROW_PROSE_SELF_TEST_CASES:
+        path = _SELF_TEST_FIXTURE_ROOT / fixture
+        if not path.is_file():
+            sys.stderr.write(
+                f"self-test FAIL: fixture {fixture!r} missing at {path}\n"
+            )
+            failures += 1
+            continue
+        got = len(scan_arrow_prose(path))
+        if got == expected:
+            if verbose:
+                sys.stderr.write(f"self-test PASS: {fixture} (findings={got})\n")
+        else:
+            sys.stderr.write(
+                f"self-test FAIL: {fixture} expected findings={expected}, "
+                f"got {got}\n"
+            )
+            failures += 1
+
+    # Phase 7: rule (f)'s source allow-list, exercised in BOTH directions on
+    # the same line — the allow-listed path stays green, any other path reds.
+    for origin, line, expected in _ARROW_ALLOWLIST_SELF_TEST_CASES:
+        got = len(_scan_arrow_source(Path(origin), line))
+        if got == expected:
+            if verbose:
+                sys.stderr.write(
+                    f"self-test PASS: arrow allow-list {origin} "
+                    f"(findings={got})\n"
+                )
+        else:
+            sys.stderr.write(
+                f"self-test FAIL: arrow allow-list {origin} expected "
+                f"findings={expected}, got {got}:\n      {line}\n"
+            )
+            failures += 1
+
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
         return 1
     if verbose:
         total = (len(cases) + len(_SANCTIONED_PROSE_MENTIONS)
                  + len(_MACHINE_HAS_TAG_SELF_TEST_CASES)
-                 + len(_COORD_SELF_TEST_CASES))
+                 + len(_COORD_SELF_TEST_CASES)
+                 + len(_ARROW_SOURCE_SELF_TEST_CASES)
+                 + len(_ARROW_PROSE_SELF_TEST_CASES)
+                 + len(_ARROW_ALLOWLIST_SELF_TEST_CASES))
         sys.stderr.write(f"all {total} self-tests passed.\n")
     return 0
 
