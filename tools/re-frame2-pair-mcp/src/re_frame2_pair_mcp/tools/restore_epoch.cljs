@@ -108,7 +108,8 @@
                          :frame     frame
                          :hint      (str "restore-epoch returned false — the epoch-id is not in the "
                                          "ring, or a drain is in flight. Read the structured reason "
-                                         "with (re-frame.core/trace-buffer " (pr-str frame)
+                                         "with (re-frame.core/trace-buffer "
+                                         (if frame (pr-str frame) "<frame-id>")
                                          " {:flat true :op-type :error}) "
                                          "filtered to :rf.epoch/*. Frame-id is the first positional "
                                          "arg and :op-type is a :flat-only filter, so both are "
