@@ -211,7 +211,7 @@
   `:rf.xray/epoch-recorded` callback registered by
   `preload/register-epoch-collector!`. In node-test we drive it
   synchronously after each host dispatch — this is what the App-DB
-  Diff and Views panels (which `:<-` on `:rf.xray/epoch-history`)
+  Diff and Views panels (which take `:rf.xray/epoch-history` as an input)
   consume to re-fire on the standard app-db-write reactive path."
   []
   (let [target (sub-xray-target-frame*)]

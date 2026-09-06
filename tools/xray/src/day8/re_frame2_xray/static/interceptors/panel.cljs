@@ -392,15 +392,14 @@
   ;; ---- production data sub ---------------------------------------------
 
   (rf/reg-sub :rf.xray.static.interceptors/registry
-    :<- [:rf.xray/trace-buffer]
-    (fn [_buffer _query]
+    {:inputs [[:rf.xray/trace-buffer]]}
+    (fn [[_buffer] _query]
       (registry-value)))
 
   ;; ---- view-facing composite -------------------------------------------
 
   (rf/reg-sub :rf.xray.static.interceptors/tab-data
-    :<- [:rf.xray.static.interceptors/registry]
-    :<- [:rf.xray.static.interceptors/query]
+    {:inputs [[:rf.xray.static.interceptors/registry] [:rf.xray.static.interceptors/query]]}
     (fn [[registrations-map query] _query]
       (project-data registrations-map query)))
 
@@ -436,8 +435,7 @@
       (get db :rf.xray.static.interceptors/registry-override)))
 
   (rf/reg-sub :rf.xray.static.interceptors/registry
-    :<- [:rf.xray/trace-buffer]
-    :<- [:rf.xray.static.interceptors/registry-override]
+    {:inputs [[:rf.xray/trace-buffer] [:rf.xray.static.interceptors/registry-override]]}
     (fn [[_buffer override] _query]
       (or override (registry-value))))
   nil)

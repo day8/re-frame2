@@ -773,8 +773,7 @@
   ;; `:data` path leaves the snapshot untouched (reference-preserving fast
   ;; path inside `project-machine-tags`).
   (rf/reg-sub :rf.xray/machine-snapshots
-    :<- [:rf.xray/target-frame]
-    :<- [:rf.xray/target-frame-runtime-db]
+    {:inputs [[:rf.xray/target-frame] [:rf.xray/target-frame-runtime-db]]}
     (fn [[target-frame-id target-runtime-db] _query]
       (machine-snapshots-value target-frame-id target-runtime-db)))
 
@@ -783,8 +782,8 @@
   ;; live behind `install-test-overrides!` (rf2-e8330v) — production
   ;; registration carries no `-for-test` ids and no override branches.
   (rf/reg-sub :rf.xray/machine-definitions
-    :<- [:rf.xray/registered-machines]
-    (fn [machines _query]
+    {:inputs [[:rf.xray/registered-machines]]}
+    (fn [[machines] _query]
       (machine-definitions-value machines)))
 
   ;; The user's per-panel machine selection (kept as a slot for the
@@ -802,12 +801,12 @@
   ;; their wiring. (The share surface was a caller until rf2-nugvv
   ;; removed it.)
   (rf/reg-sub :rf.xray/machine-inspector-data
-    :<- [:rf.xray/registered-machines]
-    :<- [:rf.xray/machine-snapshots]
-    :<- [:rf.xray/machine-definitions]
-    :<- [:rf.xray/trace-buffer]
-    :<- [:rf.xray/selected-machine-id]
-    :<- [:rf.xray/target-frame]
+    {:inputs [[:rf.xray/registered-machines]
+              [:rf.xray/machine-snapshots]
+              [:rf.xray/machine-definitions]
+              [:rf.xray/trace-buffer]
+              [:rf.xray/selected-machine-id]
+              [:rf.xray/target-frame]]}
     (fn [[machines live-snapshots definitions buffer selected-id target-frame]
          _query]
       (h/project-data
@@ -816,9 +815,7 @@
   ;; ---- focused-event lens composite (rf2-a9cke) ------------------
 
   (rf/reg-sub :rf.xray/machine-transitions-for-focused-event
-    :<- [:rf.xray/focus]
-    :<- [:rf.xray/epoch-history]
-    :<- [:rf.xray/machine-definitions]
+    {:inputs [[:rf.xray/focus] [:rf.xray/epoch-history] [:rf.xray/machine-definitions]]}
     (fn [[focus history definitions] _query]
       (let [record (h/focused-epoch-record history focus)
             events (when record (:trace-events record))]
@@ -860,9 +857,9 @@
   ;; cascade rows' guard / action source-coords resolve identically to
   ;; the Epoch panel.
   (rf/reg-sub :rf.xray/machine-focused-epoch-cascade
-    :<- [:rf.xray/focus]
-    :<- [:rf.xray/epoch-history]
-    :<- [:rf.xray/machine-transitions-for-focused-event]
+    {:inputs [[:rf.xray/focus]
+              [:rf.xray/epoch-history]
+              [:rf.xray/machine-transitions-for-focused-event]]}
     (fn [[focus history records] _query]
       (let [record   (h/focused-epoch-record history focus)
             events   (when record (:trace-events record))
@@ -1102,8 +1099,7 @@
     (fn [db _query]
       (get db :machine-definitions-override)))
   (rf/reg-sub :rf.xray/machine-definitions
-    :<- [:rf.xray/registered-machines]
-    :<- [:rf.xray/machine-definitions-override]
+    {:inputs [[:rf.xray/registered-machines] [:rf.xray/machine-definitions-override]]}
     (fn [[machines override] _query]
       (or override (machine-definitions-value machines))))
   (rf/reg-event :rf.xray/set-machine-definitions-override-for-test
@@ -1115,13 +1111,13 @@
   ;; The per-panel composite — re-register so the snapshots-override
   ;; flips the projection (same shape the Static Machines surface uses).
   (rf/reg-sub :rf.xray/machine-inspector-data
-    :<- [:rf.xray/registered-machines]
-    :<- [:rf.xray/machine-snapshots]
-    :<- [:rf.xray/machine-snapshots-override]
-    :<- [:rf.xray/machine-definitions]
-    :<- [:rf.xray/trace-buffer]
-    :<- [:rf.xray/selected-machine-id]
-    :<- [:rf.xray/target-frame]
+    {:inputs [[:rf.xray/registered-machines]
+              [:rf.xray/machine-snapshots]
+              [:rf.xray/machine-snapshots-override]
+              [:rf.xray/machine-definitions]
+              [:rf.xray/trace-buffer]
+              [:rf.xray/selected-machine-id]
+              [:rf.xray/target-frame]]}
     (fn [[machines live-snapshots snapshots-override definitions buffer selected-id target-frame]
          _query]
       (let [snapshots (or snapshots-override live-snapshots {})]

@@ -106,7 +106,7 @@
   (reset! rf.source-store/kind->id->ns->descriptor source-store-baseline)
   ;; EP-0026 §Framework Standard Registrations: `rf.story/clear-all!` wipes the
   ;; WHOLE registrar (incl. the framework `:rf/machine` sub the projection subs
-  ;; chain off via `:<- [:rf/machine :login/flow]`). Re-install the machine
+  ;; chain off via `{:inputs [[:rf/machine :login/flow]]}`). Re-install the machine
   ;; runtime — both the regular registrar (so a no-generation
   ;; `rf/compute-sub [:login/state] frame-state` resolves `:rf/machine`) AND the
   ;; image standard registry (so the app-image-scoped variant frame resolves the

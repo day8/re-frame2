@@ -1039,10 +1039,10 @@
   ;; App-DB diff via `[:focus :epoch-id]`) stayed frozen on the old
   ;; epoch while `:dispatch-id` correctly tracked head.
   (rf/reg-sub :rf.xray/focus
-    :<- [:rf.xray/focus-slot]
-    :<- [:rf.xray/event-bundles]
-    :<- [:rf.xray/show-ungrouped?]
-    :<- [:rf.xray/epoch-history]
+    {:inputs [[:rf.xray/focus-slot]
+              [:rf.xray/event-bundles]
+              [:rf.xray/show-ungrouped?]
+              [:rf.xray/epoch-history]]}
     (fn [[focus event-bundles show-ungrouped? epoch-history] _query]
       (compose-focus focus event-bundles show-ungrouped? epoch-history)))
 

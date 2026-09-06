@@ -1198,26 +1198,26 @@
   ;; Production data subs --------------------------------------------------
 
   (rf/reg-sub :rf.xray/registered-resources
-    :<- [:rf.xray/trace-buffer]
-    (fn [_buffer _]
+    {:inputs [[:rf.xray/trace-buffer]]}
+    (fn [[_buffer] _]
       (registered-resources-value)))
 
   ;; Named resource-scope resolvers (rf2-hls77w, EP-0016 D3 / Spec 016
   ;; §Named resource-scope resolvers). The static `:resource-scope` registry
   ;; read decoupled, exactly like `:registered-resources` above.
   (rf/reg-sub :rf.xray/registered-scope-resolvers
-    :<- [:rf.xray/trace-buffer]
-    (fn [_buffer _]
+    {:inputs [[:rf.xray/trace-buffer]]}
+    (fn [[_buffer] _]
       (registered-scope-resolvers-value)))
 
   (rf/reg-sub :rf.xray/resource-entries
-    :<- [:rf.xray/target-frame-runtime-db]
-    (fn [target-runtime-db _]
+    {:inputs [[:rf.xray/target-frame-runtime-db]]}
+    (fn [[target-runtime-db] _]
       (resource-entries-value target-runtime-db)))
 
   (rf/reg-sub :rf.xray/resource-work-ledger
-    :<- [:rf.xray/target-frame-runtime-db]
-    (fn [target-runtime-db _]
+    {:inputs [[:rf.xray/target-frame-runtime-db]]}
+    (fn [[target-runtime-db] _]
       (resource-work-ledger-value target-runtime-db)))
 
   (rf/reg-sub :rf.xray/resource-sub-reads
@@ -1233,26 +1233,26 @@
   ;; surfaces the live `:current` route slice (carrying `:route-id` + `:nav-token`)
   ;; + the per-nav-token unsettled-blocking set.
   (rf/reg-sub :rf.xray/resource-routing-slice
-    :<- [:rf.xray/target-frame-runtime-db]
-    (fn [target-runtime-db _]
+    {:inputs [[:rf.xray/target-frame-runtime-db]]}
+    (fn [[target-runtime-db] _]
       (resource-routing-slice-value target-runtime-db)))
 
   ;; View-facing composite -------------------------------------------------
 
   (rf/reg-sub :rf.xray/resources-tab-data
-    :<- [:rf.xray/registered-resources]
-    :<- [:rf.xray/resource-entries]
-    :<- [:rf.xray/resource-work-ledger]
-    :<- [:rf.xray/trace-buffer]
-    :<- [:rf.xray/resource-sub-reads]
-    :<- [:rf.xray/resource-routing-slice]
-    :<- [:rf.xray/registered-scope-resolvers]
-    ;; rf2-9zix0u — the OBSERVED frame whose `:sensitive` / `:large`
-    ;; classification governs the on-box payload egress below (the frame Xray
-    ;; is inspecting). Already an upstream dep transitively (via
-    ;; `:rf.xray/resource-entries` → `:rf.xray/target-frame-runtime-db`); named
-    ;; directly here so the egress projects the entries under THEIR frame.
-    :<- [:rf.xray/observed-frame]
+    {:inputs [[:rf.xray/registered-resources]
+              [:rf.xray/resource-entries]
+              [:rf.xray/resource-work-ledger]
+              [:rf.xray/trace-buffer]
+              [:rf.xray/resource-sub-reads]
+              [:rf.xray/resource-routing-slice]
+              [:rf.xray/registered-scope-resolvers]
+              ;; rf2-9zix0u — the OBSERVED frame whose `:sensitive` / `:large`
+              ;; classification governs the on-box payload egress below (the frame Xray
+              ;; is inspecting). Already an upstream dep transitively (via
+              ;; `:rf.xray/resource-entries` → `:rf.xray/target-frame-runtime-db`); named
+              ;; directly here so the egress projects the entries under THEIR frame.
+              [:rf.xray/observed-frame]]}
     (fn [[registrations entries ledger trace-buffer sub-reads routing-slice
           scope-resolvers observed-frame] _]
       (let [now-ms        (.now js/Date)
@@ -1404,36 +1404,31 @@
 
   ;; Override-aware re-registration of the production data subs.
   (rf/reg-sub :rf.xray/registered-resources
-    :<- [:rf.xray/trace-buffer]
-    :<- [:rf.xray/registered-resources-override]
+    {:inputs [[:rf.xray/trace-buffer] [:rf.xray/registered-resources-override]]}
     (fn [[_buffer override] _]
       (or override (registered-resources-value))))
 
   (rf/reg-sub :rf.xray/registered-scope-resolvers
-    :<- [:rf.xray/trace-buffer]
-    :<- [:rf.xray/registered-scope-resolvers-override]
+    {:inputs [[:rf.xray/trace-buffer] [:rf.xray/registered-scope-resolvers-override]]}
     (fn [[_buffer override] _]
       (or override (registered-scope-resolvers-value))))
 
   (rf/reg-sub :rf.xray/resource-entries
-    :<- [:rf.xray/target-frame-runtime-db]
-    :<- [:rf.xray/resource-entries-override]
+    {:inputs [[:rf.xray/target-frame-runtime-db] [:rf.xray/resource-entries-override]]}
     (fn [[target-runtime-db override] _]
       (if (some? override) override (resource-entries-value target-runtime-db))))
 
   (rf/reg-sub :rf.xray/resource-work-ledger
-    :<- [:rf.xray/target-frame-runtime-db]
-    :<- [:rf.xray/resource-work-ledger-override]
+    {:inputs [[:rf.xray/target-frame-runtime-db] [:rf.xray/resource-work-ledger-override]]}
     (fn [[target-runtime-db override] _]
       (if (some? override) override (resource-work-ledger-value target-runtime-db))))
 
   (rf/reg-sub :rf.xray/resource-sub-reads
-    :<- [:rf.xray/resource-sub-reads-override]
-    (fn [override _] (or override [])))
+    {:inputs [[:rf.xray/resource-sub-reads-override]]}
+    (fn [[override] _] (or override [])))
 
   (rf/reg-sub :rf.xray/resource-routing-slice
-    :<- [:rf.xray/target-frame-runtime-db]
-    :<- [:rf.xray/resource-routing-slice-override]
+    {:inputs [[:rf.xray/target-frame-runtime-db] [:rf.xray/resource-routing-slice-override]]}
     (fn [[target-runtime-db override] _]
       (if (some? override) override (resource-routing-slice-value target-runtime-db))))
   nil)

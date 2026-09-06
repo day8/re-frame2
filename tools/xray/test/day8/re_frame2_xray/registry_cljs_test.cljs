@@ -1146,7 +1146,7 @@
 ;; live-upgraded process.
 
 (defn- reactive-data-input-ids
-  "The static `:<-` input sub-ids of `:rf.xray/reactive-data`, read off the
+  "The static `:inputs` sub-ids of `:rf.xray/reactive-data`, read off the
   live `sub-topology` (each `[query-id args]` reduced to its head). `[]` when
   the sub is unregistered."
   []
@@ -1267,16 +1267,14 @@
     (fn [db _query]
       (get db :viewcell-evidence-ownership-rev 0)))
   (rf/reg-sub :rf.xray/viewcell-evidence
-    :<- [:rf.xray/epoch-history]
-    :<- [:rf.xray/viewcell-evidence-ownership]
+    {:inputs [[:rf.xray/epoch-history] [:rf.xray/viewcell-evidence-ownership]]}
     (fn [[_history _rev] _query] []))
   (rf/reg-sub :rf.xray/viewcell-evidence-version
-    :<- [:rf.xray/epoch-history]
-    :<- [:rf.xray/viewcell-evidence-ownership]
+    {:inputs [[:rf.xray/epoch-history] [:rf.xray/viewcell-evidence-ownership]]}
     (fn [[_history _rev] _query] {:status :supported}))
   (rf/reg-sub :rf.xray/view-evidence-sites
-    :<- [:rf.xray/viewcell-evidence]
-    (fn [_rows _query] {}))
+    {:inputs [[:rf.xray/viewcell-evidence]]}
+    (fn [[_rows] _query] {}))
   nil)
 
 (defn- registered-ids

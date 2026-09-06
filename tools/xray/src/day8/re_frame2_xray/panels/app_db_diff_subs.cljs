@@ -84,14 +84,12 @@
   ;; resolved a frame yet (cold start, no focusable event-bundles) — keeps
   ;; the boot-time empty-state useful.
   (rf/reg-sub :rf.xray/observed-frame
-    :<- [:rf.xray/focus]
-    :<- [:rf.xray/target-frame]
+    {:inputs [[:rf.xray/focus] [:rf.xray/target-frame]]}
     (fn [[focus target] _query]
       (or (:frame focus) target)))
 
   (rf/reg-sub :rf.xray/target-frame-db
-    :<- [:rf.xray/observed-frame]
-    :<- [:rf.xray/epoch-history]
+    {:inputs [[:rf.xray/observed-frame] [:rf.xray/epoch-history]]}
     (fn [[target _epoch-history] _query]
       (rf/app-db-value target)))
 
@@ -104,8 +102,7 @@
   ;; app-db target sub above; same `:epoch-history` dependency so it
   ;; recomputes on every committed transition the panel is following.
   (rf/reg-sub :rf.xray/target-frame-runtime-db
-    :<- [:rf.xray/observed-frame]
-    :<- [:rf.xray/epoch-history]
+    {:inputs [[:rf.xray/observed-frame] [:rf.xray/epoch-history]]}
     (fn [[target _epoch-history] _query]
       (:rf.db/runtime (rf/frame-state-value target))))
 
@@ -128,13 +125,12 @@
   ;; under RETRO + LIVE-paused via the spine's compose-focus
   ;; passthrough).
   (rf/reg-sub :rf.xray/focus-epoch-id
-    :<- [:rf.xray/focus]
-    (fn [focus _query]
+    {:inputs [[:rf.xray/focus]]}
+    (fn [[focus] _query]
       (:epoch-id focus)))
 
   (rf/reg-sub :rf.xray/selected-epoch-record
-    :<- [:rf.xray/epoch-history]
-    :<- [:rf.xray/focus-epoch-id]
+    {:inputs [[:rf.xray/epoch-history] [:rf.xray/focus-epoch-id]]}
     (fn [[history selected-id] _query]
       (when selected-id
         (find-epoch-in-history history selected-id))))
@@ -144,8 +140,7 @@
       (get db :focused-slice-path)))
 
   (rf/reg-sub :rf.xray/show-me-when-this-changed-result
-    :<- [:rf.xray/focused-slice-path]
-    :<- [:rf.xray/epoch-history]
+    {:inputs [[:rf.xray/focused-slice-path] [:rf.xray/epoch-history]]}
     (fn [[focused-path history] _query]
       (if focused-path
         (h/epochs-touching-path history focused-path)
@@ -217,10 +212,10 @@
   ;;   db and `:before` is nil — the panel renders plain current-state
   ;;   with no diff overlay (unchanged from rf2-yng0y).
   (rf/reg-sub :rf.xray/app-db-current+diff
-    :<- [:rf.xray/target-frame-db]
-    :<- [:rf.xray/target-frame-runtime-db]
-    :<- [:rf.xray/epoch-history]
-    :<- [:rf.xray/focus]
+    {:inputs [[:rf.xray/target-frame-db]
+              [:rf.xray/target-frame-runtime-db]
+              [:rf.xray/epoch-history]
+              [:rf.xray/focus]]}
     (fn [[db runtime-db history focus] _query]
       (let [epoch-id (:epoch-id focus)
             record   (when epoch-id (find-epoch-in-history history epoch-id))
@@ -299,8 +294,7 @@
   ;; unreachable observed frame redacts the whole value rather than ship it
   ;; raw under no policy (`local-render/local-render-value`).
   (rf/reg-sub :rf.xray/app-db-state
-    :<- [:rf.xray/app-db-current+diff]
-    :<- [:rf.xray/observed-frame]
+    {:inputs [[:rf.xray/app-db-current+diff] [:rf.xray/observed-frame]]}
     (fn [[{:keys [value before runtime-value runtime-before]} observed-frame] _query]
       (let [redact (fn [v] (local-render/local-render-value v observed-frame))
             value          (redact value)

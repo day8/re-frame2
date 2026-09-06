@@ -9,7 +9,7 @@
 
       col 0  app-db        — a single source node at the far left
       col 1  Level-1 subs  — extractors (read app-db directly)
-      col 2  Level-2+ subs — derived (`:<-` composition; OPTIONAL layer)
+      col 2  Level-2+ subs — derived (`:inputs` composition; OPTIONAL layer)
       col 3  views         — the right-most focus; each (rerendered)
 
   ## Why a pure layout ns
@@ -216,7 +216,7 @@
           {:from-id :appdb :to-id (:id n)
            :x1 x1 :y1 y1 :x2 x2 :y2 y2
            :changed? (:changed? n) :kind :appdb-l1})
-        ;; 2. input-sub → Level-2 sub (the `:<-` composition chain).
+        ;; 2. input-sub → Level-2 sub (the `:inputs` composition chain).
         ;;    Edge changed when the UPSTREAM input sub changed.
         sub-sub-edges
         (for [n l2

@@ -43,7 +43,7 @@
   `:include-values true` also surfaces each live entry's `:input-kind`
   (`:db` / `:static` / `:parametric`) and `:realized-inputs` — the
   REALIZED input query-vectors for the concrete outer query-v (the
-  literal `:<-` list for `:static`, the `(input-fn query-v)` result for
+  literal `:inputs` list for `:static`, the `(input-fn query-v)` result for
   `:parametric`, `[]` for layer-1). This is the runtime counterpart to
   the static `sub-topology` surface: the static topology reports
   `:inputs :parametric` for an `input-fn` sub (the edge set is not

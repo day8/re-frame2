@@ -176,18 +176,18 @@
     (fn [db _] (get db entries-slot)))
 
   (rf/reg-sub :rf.xray.edn-inspector-popup/open?
-    :<- [stack-slot]
-    (fn [stack _]
+    {:inputs [[stack-slot]]}
+    (fn [[stack] _]
       (boolean (seq stack))))
 
   (rf/reg-sub :rf.xray.edn-inspector-popup/top
-    :<- [stack-slot]
-    (fn [stack _]
+    {:inputs [[stack-slot]]}
+    (fn [[stack] _]
       (top-entry stack)))
 
   (rf/reg-sub :rf.xray.edn-inspector-popup/entry
-    :<- [entries-slot]
-    (fn [entries [_ mount-id]]
+    {:inputs [[entries-slot]]}
+    (fn [[entries] [_ mount-id]]
       (get entries mount-id))))
 
 (defn install-events!

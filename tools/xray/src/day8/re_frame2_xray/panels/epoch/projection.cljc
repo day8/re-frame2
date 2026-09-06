@@ -2364,7 +2364,7 @@
                      vector-of-query-vectors (rf2-nlraqq); otherwise the
                      FULL realized input edge set the substrate stamps on
                      `:rf.sub/inputs` (rf2-e3acps — already a vector of
-                     query-vectors: the literal `:<-` list for a `:static`
+                     query-vectors: the literal `:inputs` list for a `:static`
                      sub, the `(input-fn query-v)` result for a
                      `:parametric` sub, both REALIZED for the concrete
                      cache entry). Layer-1 subs read app-db directly and

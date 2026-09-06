@@ -4633,7 +4633,7 @@
   query-v) off `(rf/handler-meta :sub sub-id)` (rf2-87c8a).
 
   `:input-signals` is registered on the SUB-ID, not the full instance
-  query-v: the `:<-` chain a `reg-sub` declares is the same for every
+  query-v: the `:inputs` a `reg-sub` declares are the same for every
   parameterized instance (`[:sub-id arg…]` all share one registration).
   Keying the lookup by the sub-id is therefore the correct, deterministic
   source for the `inputs` column — present whether or not the sub re-ran

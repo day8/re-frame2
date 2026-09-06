@@ -476,7 +476,7 @@
 (def ^:private topology
   "A static sub-topology snapshot in the rf2-e3acps shape: `:input-kind`
   discriminates `:db` (Level 1) / `:static` / `:parametric`, and
-  `:inputs` carries the literal `:<-` QUERY-VECTORS for `:static`
+  `:inputs` carries the literal declared QUERY-VECTORS for `:static`
   (`[[:cart/state] [:cart/items]]`) or the `:parametric` sentinel for an
   `input-fn` sub. Carries :ns/:line/:file so the code coord resolves."
   {:cart/state {:input-kind :db :inputs [] :ns 'cart :line 10 :file "cart.cljs"}

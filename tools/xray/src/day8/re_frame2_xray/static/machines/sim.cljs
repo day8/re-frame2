@@ -141,47 +141,46 @@
   ;; The per-machine sim slot for the currently-selected machine.
   ;; Returns nil when sim is not active for that machine.
   (rf/reg-sub :rf.xray.static.machines/sim-state
-    :<- [:rf.xray.static.machines/sim-by-machine]
-    :<- [:rf.xray.static.machines/selected-id]
+    {:inputs [[:rf.xray.static.machines/sim-by-machine] [:rf.xray.static.machines/selected-id]]}
     (fn [[by-machine selected-id] _query]
       (when selected-id
         (get by-machine selected-id))))
 
   ;; True iff sim is active for the currently-selected machine.
   (rf/reg-sub :rf.xray.static.machines/sim-active?
-    :<- [:rf.xray.static.machines/sim-state]
-    (fn [sim _query]
+    {:inputs [[:rf.xray.static.machines/sim-state]]}
+    (fn [[sim] _query]
       (boolean (:active? sim))))
 
   ;; The available-transitions projection for the picker. Memoised via
   ;; the sub graph.
   (rf/reg-sub :rf.xray.static.machines/sim-available-transitions
-    :<- [:rf.xray.static.machines/sim-state]
-    (fn [sim _query]
+    {:inputs [[:rf.xray.static.machines/sim-state]]}
+    (fn [[sim] _query]
       (when sim
         (sim-h/available-transitions
           (:definition sim) (:snapshot sim)))))
 
   ;; Distinct event-id suggestions for the autocomplete datalist.
   (rf/reg-sub :rf.xray.static.machines/sim-event-suggestions
-    :<- [:rf.xray.static.machines/sim-state]
-    (fn [sim _query]
+    {:inputs [[:rf.xray.static.machines/sim-state]]}
+    (fn [[sim] _query]
       (when sim
         (sim-h/event-id-suggestions (:definition sim)))))
 
   ;; The sim's current snapshot state, for the on-chart active-state
   ;; highlight (amber via the chart's `:sim?` palette).
   (rf/reg-sub :rf.xray.static.machines/sim-current-state
-    :<- [:rf.xray.static.machines/sim-state]
-    (fn [sim _query]
+    {:inputs [[:rf.xray.static.machines/sim-state]]}
+    (fn [[sim] _query]
       (sim-h/current-sim-state sim)))
 
   ;; The most-recent transition `{:from :to :event}`, feeding the
   ;; chart's focused-event lens so the taken edge animates after each
   ;; on-chart (or step-button) step. nil before the first step.
   (rf/reg-sub :rf.xray.static.machines/sim-last-transition
-    :<- [:rf.xray.static.machines/sim-state]
-    (fn [sim _query]
+    {:inputs [[:rf.xray.static.machines/sim-state]]}
+    (fn [[sim] _query]
       (sim-h/last-transition sim))))
 
 ;; ---- events -------------------------------------------------------------

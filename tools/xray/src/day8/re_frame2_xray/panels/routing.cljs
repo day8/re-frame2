@@ -528,22 +528,22 @@
   ;; Production data subs -------------------------------------------------
 
   (rf/reg-sub :rf.xray/registered-routes
-    :<- [:rf.xray/trace-buffer]
-    (fn [_buffer _query]
+    {:inputs [[:rf.xray/trace-buffer]]}
+    (fn [[_buffer] _query]
       (registered-routes-value)))
 
   (rf/reg-sub :rf.xray/current-route-slice
-    :<- [:rf.xray/target-frame-runtime-db]
-    (fn [target-runtime-db _query]
+    {:inputs [[:rf.xray/target-frame-runtime-db]]}
+    (fn [[target-runtime-db] _query]
       (current-route-slice-value target-runtime-db)))
 
   ;; View-facing composite (topology-plus-overlay shape, rf2-3kjlo) -------
 
   (rf/reg-sub :rf.xray/routing-tab-data
-    :<- [:rf.xray/registered-routes]
-    :<- [:rf.xray/current-route-slice]
-    :<- [:rf.xray/event-bundles]
-    :<- [:rf.xray/focus]
+    {:inputs [[:rf.xray/registered-routes]
+              [:rf.xray/current-route-slice]
+              [:rf.xray/event-bundles]
+              [:rf.xray/focus]]}
     (fn [[routes-map slice event-bundles focus] _query]
       ;; rf2-bz7flo — pass the whole focus map so the lookup is
       ;; frame-strict (dispatch ids collide across frames). Passing only
@@ -605,14 +605,12 @@
 
   ;; Override-aware re-registration of the production data subs.
   (rf/reg-sub :rf.xray/registered-routes
-    :<- [:rf.xray/trace-buffer]
-    :<- [:rf.xray/registered-routes-override]
+    {:inputs [[:rf.xray/trace-buffer] [:rf.xray/registered-routes-override]]}
     (fn [[_buffer override] _query]
       (or override (registered-routes-value))))
 
   (rf/reg-sub :rf.xray/current-route-slice
-    :<- [:rf.xray/target-frame-runtime-db]
-    :<- [:rf.xray/current-route-slice-override]
+    {:inputs [[:rf.xray/target-frame-runtime-db] [:rf.xray/current-route-slice-override]]}
     (fn [[target-runtime-db override] _query]
       (if (some? override)
         override

@@ -14,9 +14,9 @@
   - `:rf.xray/palette-active-item` — convenience: results[cursor].
 
   The `palette-index` sub deliberately pulls the registrar +
-  frame-ids snapshot inside the sub body (i.e. NOT via `:<-`) — the
+  frame-ids snapshot inside the sub body (i.e. NOT via `:inputs`) — the
   registrar / frame registry are atoms outside re-frame's reactive
-  graph, so a `:<-` dependency on them would never recompute.
+  graph, so an `:inputs` dependency on them would never recompute.
   Recomputation happens whenever `:trace-buffer` writes (which is
   every dispatch) — i.e. roughly the same cadence as the trace
   panel's redraws — and the cost is bounded by `build-index` (linear
@@ -124,10 +124,10 @@
   ;; registrar / frame snapshot lookups happen inside the body and
   ;; ride the same recompute cadence.
   (rf/reg-sub :rf.xray/palette-index
-    :<- [:rf.xray/trace-buffer]
-    :<- [:rf.xray/mode]
-    :<- [:rf.xray/palette-recents]
-    :<- [:rf.xray/show-tool-frames?]
+    {:inputs [[:rf.xray/trace-buffer]
+              [:rf.xray/mode]
+              [:rf.xray/palette-recents]
+              [:rf.xray/show-tool-frames?]]}
     (fn [[buffer mode recents show-tool-frames?] _query]
       ;; The sub fn does not receive `db`; we reach into the registrar
       ;; (a process-global atom) + the framework's frame registry
@@ -152,14 +152,12 @@
 
   ;; Layer-3 — ranked results for the current query.
   (rf/reg-sub :rf.xray/palette-results
-    :<- [:rf.xray/palette-index]
-    :<- [:rf.xray/palette-query]
+    {:inputs [[:rf.xray/palette-index] [:rf.xray/palette-query]]}
     (fn [[index query] _query]
       (sources/rank index query)))
 
   (rf/reg-sub :rf.xray/palette-active-item
-    :<- [:rf.xray/palette-results]
-    :<- [:rf.xray/palette-cursor]
+    {:inputs [[:rf.xray/palette-results] [:rf.xray/palette-cursor]]}
     (fn [[results cursor] _query]
       (when (and (seq results) (< cursor (count results)))
         (nth results cursor))))

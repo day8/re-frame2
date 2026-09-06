@@ -2669,7 +2669,7 @@
             row's input by the SUB-ID off `:input-signals`, NOT the
             cascade attribution the row's `:inputs` slot carries. A
             PARAMETERIZED derived sub (`[:chain-root>? 5]`, declared
-            `:<- [:chain-root]`) ran fresh with NO cascade attribution
+            `{:inputs [[:chain-root]]}`) ran fresh with NO cascade attribution
             (`:inputs nil`); pre-fix the cell fell through to the
             `app-db` fallback and mislabeled it a Level-1 reader. The
             fix keys `:input-signals` by the sub-id (first element of
@@ -2681,11 +2681,11 @@
       ;; L1 — reads app-db directly (genuine `:input-signals []`).
       (rf/reg-sub :rf.87c8a-fixture/chain-root
         (fn [db _] (get db :chain-input 0)))
-      ;; Parameterized L2 — `:<-` chain on the SUB-ID; every
+      ;; Parameterized L2 — `:inputs` declared on the SUB-ID; every
       ;; `[:chain-root>? N]` instance shares this one registration.
       (rf/reg-sub :rf.87c8a-fixture/chain-root>?
-        :<- [:rf.87c8a-fixture/chain-root]
-        (fn [root [_ threshold]] (> root threshold)))
+        {:inputs [[:rf.87c8a-fixture/chain-root]]}
+        (fn [[root] [_ threshold]] (> root threshold)))
       ;; `reg-sub` ALWAYS stashes `:input-signals` in the registrar meta
       ;; (`re-frame.subs/parse-reg-sub-args`), so resolution is a hard
       ;; precondition — not a may-or-may-not branch. Pin it so a

@@ -10,7 +10,7 @@
     epoch in history this was masked; once a second host dispatch
     arrives the spine's focused epoch flips to the new head, the
     `:rf.xray/selected-epoch-record` sub MUST re-fire on the
-    standard `:<-` reactive path, and the diff projection MUST land
+    standard declared-input reactive path, and the diff projection MUST land
     on the new pair (db-before = pre-dispatch app-db; db-after =
     post-dispatch app-db).
 

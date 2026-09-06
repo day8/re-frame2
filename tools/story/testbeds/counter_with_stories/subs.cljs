@@ -11,13 +11,13 @@
     (:count db)))
 
 (rf/reg-sub :count-doubled
-  :<- [:count]
-  (fn [c _query]
+  {:inputs [[:count]]}
+  (fn [[c] _query]
     (* 2 c)))
 
 (rf/reg-sub :count-parity
-  :<- [:count]
-  (fn [c _query]
+  {:inputs [[:count]]}
+  (fn [[c] _query]
     (if (even? c) :even :odd)))
 
 (rf/reg-sub :saving?

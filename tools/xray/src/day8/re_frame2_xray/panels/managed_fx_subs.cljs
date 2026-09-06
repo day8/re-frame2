@@ -41,8 +41,7 @@
   ;; event-bundle. Re-derives on every spine flip / event-bundle-list change /
   ;; focus move.
   (rf/reg-sub :rf.xray/managed-fx-for-focused-event
-    :<- [:rf.xray/event-bundles]
-    :<- [:rf.xray/focus]
+    {:inputs [[:rf.xray/event-bundles] [:rf.xray/focus]]}
     (fn [[event-bundles focus] _query]
       ;; rf2-bz7flo — resolve the focused event-bundle frame-strictly. Dispatch
       ;; ids are unique only within a frame, so keying by dispatch-id alone

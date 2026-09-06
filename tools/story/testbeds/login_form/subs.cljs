@@ -14,33 +14,33 @@
   (`(rf/subscribe [:rf/machine :login/flow])`) rather than reaching into
   the runtime-db partition by raw path; the framework sub reads the right
   partition for us. Each projection sub below is a layer-2 sub deriving
-  off `:rf/machine` via the `:<-` chain — it re-computes only when the
+  off `:rf/machine` via its `:inputs` declaration — it re-computes only when the
   snapshot's relevant slice changes."
   (:require [re-frame.core :as rf]))
 
 (rf/reg-sub :login/state
   {:doc "Current state of the login flow — one of :idle :submitting
-        :error :submitting-retry :authenticated."}
-  :<- [:rf/machine :login/flow]
-  (fn sub-login-state [snapshot _query]
+        :error :submitting-retry :authenticated."
+   :inputs [[:rf/machine :login/flow]]}
+  (fn sub-login-state [[snapshot] _query]
     (:state snapshot)))
 
 (rf/reg-sub :login/error
-  {:doc "Current error message, if any."}
-  :<- [:rf/machine :login/flow]
-  (fn sub-login-error [snapshot _query]
+  {:doc "Current error message, if any."
+   :inputs [[:rf/machine :login/flow]]}
+  (fn sub-login-error [[snapshot] _query]
     (get-in snapshot [:data :error])))
 
 (rf/reg-sub :login/attempts
   {:doc "How many login attempts the flow has rejected so far. The
-        retry-state UI labels itself with this count."}
-  :<- [:rf/machine :login/flow]
-  (fn sub-login-attempts [snapshot _query]
+        retry-state UI labels itself with this count."
+   :inputs [[:rf/machine :login/flow]]}
+  (fn sub-login-attempts [[snapshot] _query]
     (get-in snapshot [:data :attempts] 0)))
 
 (rf/reg-sub :login/email
   {:doc "Email the user most recently submitted — surfaced in the
-        :authenticated state's welcome banner."}
-  :<- [:rf/machine :login/flow]
-  (fn sub-login-email [snapshot _query]
+        :authenticated state's welcome banner."
+   :inputs [[:rf/machine :login/flow]]}
+  (fn sub-login-email [[snapshot] _query]
     (get-in snapshot [:data :email])))

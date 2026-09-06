@@ -306,13 +306,13 @@
   ;; {flow-id flow-map}}` shape the projection + picker-scoping helpers
   ;; consume — no flat-to-grouped regroup needed (rf2-en00bk made the
   ;; per-frame flows atom the sole store; the registrar `:flow` slot is
-  ;; reserved-but-empty). `:<-`-composing against `:rf.xray/trace-buffer`
+  ;; reserved-but-empty). Declaring `:rf.xray/trace-buffer` as an `:inputs` head
   ;; keeps the sub reactive against the same "something changed" pulse the
   ;; other static-mode subs ride — without it, a fresh `reg-flow!`
   ;; wouldn't surface until the next subscribe re-render.
   (rf/reg-sub :rf.xray.static.flows/registered-flows
-    :<- [:rf.xray/trace-buffer]
-    (fn [_buffer _query]
+    {:inputs [[:rf.xray/trace-buffer]]}
+    (fn [[_buffer] _query]
       (registered-flows-value)))
 
   ;; ---- view-facing composite -------------------------------------------
@@ -322,9 +322,9 @@
   ;; registry is per-frame (Spec 013), so the picker scopes the
   ;; catalogue — switching frames changes which frame's flows list.
   (rf/reg-sub :rf.xray.static.flows/tab-data
-    :<- [:rf.xray.static.flows/registered-flows]
-    :<- [:rf.xray/observed-frame]
-    :<- [:rf.xray.static.flows/query]
+    {:inputs [[:rf.xray.static.flows/registered-flows]
+              [:rf.xray/observed-frame]
+              [:rf.xray.static.flows/query]]}
     (fn [[registry-snapshot observed-frame query] _query]
       (project-data registry-snapshot observed-frame query)))
 
@@ -367,8 +367,7 @@
       (get db :rf.xray.static.flows/registered-flows-override)))
 
   (rf/reg-sub :rf.xray.static.flows/registered-flows
-    :<- [:rf.xray/trace-buffer]
-    :<- [:rf.xray.static.flows/registered-flows-override]
+    {:inputs [[:rf.xray/trace-buffer] [:rf.xray.static.flows/registered-flows-override]]}
     (fn [[_buffer override] _query]
       (or override (registered-flows-value))))
   nil)

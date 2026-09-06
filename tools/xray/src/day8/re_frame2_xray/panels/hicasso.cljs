@@ -624,8 +624,8 @@
       (hh/normalise-sub-mode (:hicasso-view db))))
 
   (rf/reg-sub :rf.xray.hicasso/data
-    :<- [:rf.xray/trace-buffer]
-    (fn [_tick _query]
+    {:inputs [[:rf.xray/trace-buffer]]}
+    (fn [[_tick] _query]
       (let [envelopes (reads/evidence)
             ;; The window is taken in the SAME turn as the four envelopes,
             ;; for the reason the four are taken together: the advisor

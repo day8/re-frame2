@@ -574,8 +574,8 @@
       (or (get db :muted-event-ids) #{})))
 
   (rf/reg-sub :rf.xray/muted-event-ids-count
-    :<- [:rf.xray/muted-event-ids]
-    (fn [muted _query]
+    {:inputs [[:rf.xray/muted-event-ids]]}
+    (fn [[muted] _query]
       (count muted)))
 
   (rf/reg-sub :rf.xray/mute-manager-open?
