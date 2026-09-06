@@ -178,7 +178,7 @@
 
 ;; ---- chain of layer-2 single-input subs -----------------------------------
 ;;
-;; Stress the memo: B :<- A, C :<- B. A change to db that A absorbs but
+;; Stress the memo: B over A, C over B. A change to db that A absorbs but
 ;; B/C don't should never re-run B or C; a change that A propagates
 ;; should run A, B, C once each.
 
@@ -211,14 +211,14 @@
 ;;
 ;; A single DECLARED input routes through this same fixed-arity-1 wrapper; the
 ;; only thing that differs is the body's argument — `[v0]` rather than the bare
-;; `v0` the transitional `:<-` chain still delivers. The wrapper compares the
+;; `v0` the transitional declared-input chain still delivers. The wrapper compares the
 ;; upstream value either way, so the memo-hit structure these tests pin must be
 ;; identical across the two spellings. That is what makes the vector delivery
 ;; free: it is a change to the CALL, not to the memo cells.
 
 (deftest layer-n-1-memo-holds-for-a-declared-single-input
   (testing "a single declared `:inputs` short-circuits on an `=`-equal upstream
-            value exactly as the `:<-` spelling does, while delivering `[v0]`"
+            value exactly the single-input specialisation always has, while delivering `[v0]`"
     (let [runs (atom 0)
           seen (atom nil)]
       (rf/reg-event :seed   (fn [_ _]              {:db {:n 7 :unrelated 0}}))

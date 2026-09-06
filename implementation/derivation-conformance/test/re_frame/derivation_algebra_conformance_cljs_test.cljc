@@ -150,7 +150,7 @@
   (rf/reg-event ::seed-cart
                    (fn [{:keys [db]} [_ items]]
                      {:db (assoc-in db [:cart :items] items)}))
-  ;; :subs — a layer-1 `:db` reader, a static `:<-` derivation over it (the
+  ;; :subs — a layer-1 `:db` reader, a static declared-input derivation over it (the
   ;; :input edge source carrying the shared sum-cart fn), a parametric
   ;; input-fn sub (the don't-execute / parametric-marker subject), and a
   ;; machine selector (the :selector edge target).
@@ -344,10 +344,10 @@
   (register-one-of-each!)
   (let [edges (:edges (rf.derivation.graph/derivation-graph all-contributors))
         roles (->> edges (map :role) set)]
-    (testing "an :input edge follows the static `:<-` chain (cart/items → cart/total)"
+    (testing "an :input edge follows the static declared-input chain (cart/items → cart/total)"
       (is (some #(= % {:from [:sub :cart/items] :to [:sub :cart/total] :role :input})
                 edges)
-          "the static :<- input edge"))
+          "the static declared-input edge"))
     (testing "a :param edge follows route-owned resource activation (route → resource)"
       (is (some #(and (= [:rf/route :route/article] (:from %))
                       (= [:resource :article/by-slug] (:to %))

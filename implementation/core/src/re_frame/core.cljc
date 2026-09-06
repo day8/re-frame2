@@ -522,7 +522,7 @@
      (rf.core-reg-macros/defreg-macro reg-sub rf.subs/reg-sub
        "Register a subscription under `id`. Every sub is one of three
        input-fn producers: `:db` (layer-1 — reads `app-db` directly, no
-       producer), `:static` (the literal `:<-` producer — a fixed list
+       producer), `:static` (the literal `:inputs` producer — a fixed list
        of input query-vectors), or `:parametric` (an `input-fn` producer
        — a pure `query-v -> vector-of-query-vectors` fn computing the
        inputs per concrete query). Captures source-coords (Spec 001) at

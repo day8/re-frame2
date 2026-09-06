@@ -32,13 +32,13 @@
 
       M1L1  the converged M1 mount (901 el / 300 boundaries), layer-1 —
             the PRIMARY witness, rf2-2rtt6.2's page exactly
-      M1L2  the same page reading through one `:<-` hop
-      M1L3  the same page reading through two `:<-` hops
+      M1L2  the same page reading through one declared-input hop
+      M1L3  the same page reading through two declared-input hops
       M2L1  the converged M2 form (51 el / 12 fields) — DIAGNOSTIC,
             per rf2-2rtt6.2's own grading (clamp-quantised)
-      M2L2  the form through one `:<-` hop — DIAGNOSTIC
+      M2L2  the form through one declared-input hop — DIAGNOSTIC
 
-  The `:<-` input-chain re-deref lives at layer 2+, so the layer ladder is
+  The declared-input re-deref lives at layer 2+, so the layer ladder is
   the split that attributes the double-build clock between the reaction
   allocation itself (visible at layer 1, where there is no chain) and the
   per-hop input rebuild + re-deref (the L2−L1 and L3−L2 increments).
@@ -222,7 +222,7 @@
 (defn- enter-segment!
   "The converged arm's seam, unchanged: tear down, install this segment's
   adapter, re-register the sub graph (`rf.bench.hicasso.coldmount-views/register!` — the converged
-  layer-1 sub plus the `:<-` chain and the witness chain) and stand the
+  layer-1 sub plus the input chain and the witness chain) and stand the
   frame back up seeded. All outside every measured window; a teardown
   that throws is recorded and adjudicated, never swallowed."
   [{:keys [adapter]}]
@@ -340,13 +340,13 @@
   {:M1L1 {:shape :M1 :layer 1 :grade :primary
           :doc "the converged M1 mount (901 el / 300 boundaries), layer-1 subs — the primary witness"}
    :M1L2 {:shape :M1 :layer 2 :grade :primary
-          :doc "the M1 mount through one :<- hop ([:cm/l2 i] :<- [:p0/cell i])"}
+          :doc "the M1 mount through one declared-input hop ([:cm/l2 i] over [:p0/cell i])"}
    :M1L3 {:shape :M1 :layer 3 :grade :primary
-          :doc "the M1 mount through two :<- hops ([:cm/l3 i] :<- [:cm/l2 i] :<- [:p0/cell i])"}
+          :doc "the M1 mount through two declared-input hops ([:cm/l3 i] over [:cm/l2 i] over [:p0/cell i])"}
    :M2L1 {:shape :M2 :layer 1 :grade :diagnostic
           :doc "the converged M2 form (51 el / 12 fields), layer-1 subs — DIAGNOSTIC, clamp-quantised per rf2-2rtt6.2"}
    :M2L2 {:shape :M2 :layer 2 :grade :diagnostic
-          :doc "the M2 form through one :<- hop — DIAGNOSTIC"}})
+          :doc "the M2 form through one declared-input hop — DIAGNOSTIC"}})
 
 (defn- row-spec [row-key]
   (let [{:keys [shape layer] :as spec} (get row-specs row-key)

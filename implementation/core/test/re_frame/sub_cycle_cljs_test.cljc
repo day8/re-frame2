@@ -1,5 +1,5 @@
 (ns re-frame.sub-cycle-cljs-test
-  "rf2-x76af2.24 — a `:<-` dependency cycle in the sub graph must fail LOUD
+  "rf2-x76af2.24 — a declared-input dependency cycle in the sub graph must fail LOUD
   with a structured `:rf.error/sub-cycle` (mirroring flows' typed
   `:rf.error/flow-cycle`) and recover to nil, NOT blow the host stack with a
   raw StackOverflowError.
@@ -8,7 +8,7 @@
   recursed with no build-in-progress marker (the reaction is cached only AFTER
   its inputs resolve), and the pure `compute-sub` per-call memo memoised only
   AFTER the body ran — so the first subscribe/compute of a two-node cycle
-  (`:a :<- [:b]`, `:b :<- [:a]`) or a self-edge (`:self :<- [:self]`) died with
+  (`:a` over `:b`, `:b` over `:a`) or a self-edge (`:self` over itself) died with
   a RAW `StackOverflowError`. The guard tracks the per-thread build stack
   (reactive) / per-call memo (`compute-sub`) and detects the re-entry.
 
@@ -79,7 +79,7 @@
 ;; ===========================================================================
 
 (deftest reactive-two-node-cycle-emits-structured-error-and-recovers-to-nil
-  (testing "subscribing a two-node `:<-` cycle (:a<->:b) emits a structured
+  (testing "subscribing a two-node declared-input cycle (:a<->:b) emits a structured
             :rf.error/sub-cycle carrying the cycle path and recovers to a
             nil-yielding reaction — NOT a raw StackOverflowError (rf2-x76af2.24)"
     (register-cyclic-subs!)
@@ -141,7 +141,7 @@
             (:leaf) was subscribed (ref bumped) then the abandoned :multi build
             unwound to the outermost recovery WITHOUT ever wiring its on-dispose,
             so nothing released :leaf — a monotonic +1 leak."
-    ;; :leaf — a layer-1 (`:db`) sub: cacheable + ref-countable, no `:<-` inputs.
+    ;; :leaf — a layer-1 (`:db`) sub: cacheable + ref-countable, no declared inputs.
     (rf/reg-sub :leaf (fn [db _] (:leaf db 7)))
     ;; :cyc — closes the cycle back to :multi.
     (rf/reg-sub :cyc {:inputs [[:multi]]} (fn [[m] _] m))
@@ -174,7 +174,7 @@
 ;; ===========================================================================
 
 (deftest compute-sub-two-node-cycle-emits-structured-error-and-returns-nil
-  (testing "compute-sub of a two-node `:<-` cycle emits :rf.error/sub-cycle and
+  (testing "compute-sub of a two-node declared-input cycle emits :rf.error/sub-cycle and
             returns nil — NOT a raw StackOverflowError (rf2-x76af2.24)"
     (register-cyclic-subs!)
     (let [[v events] (capture-sub-cycles #(rf/compute-sub [:a] {}))]

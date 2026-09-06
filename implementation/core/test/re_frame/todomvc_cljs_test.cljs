@@ -24,7 +24,7 @@
     1. The event handlers — driven via `dispatch-sync` on an anon frame,
        asserting the resulting `:todos` app-db slice.
     2. The sub graph — read via `rf/compute-sub`. `:todo/showing` is a
-       runtime-db sub chain (`:<- [:rf.route/id]`, which reads the route slice
+       runtime-db sub chain (`{:inputs [[:rf.route/id]]}`, which reads the route slice
        at `[:rf.runtime/routing :current :route-id]`), so those reads use a
        FULL frame-state value with the route-id injected — exercising the exact
        route->filter mapping across all three routes plus the fallback."

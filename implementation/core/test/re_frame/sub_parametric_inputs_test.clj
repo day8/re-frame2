@@ -18,7 +18,7 @@
     - the input-fn receives the full outer query-v
     - vector-of-query-vectors resolves to a vector of input values in
       producer order (single + multi)
-    - static `:<-` behaviour unchanged (bare-value single, vector multi)
+    - declared static inputs deliver a vector at every count (one and many)
     - `compute-sub` ↔ `subscribe-once` agree for parametric subs
     - hot-reload invalidates parametric cache entries (input-fn re-runs)
     - disposal releases realized upstream subscriptions
@@ -108,8 +108,8 @@
       (is (= [] (:input-signals m)))
       (is (not (contains? m :input-fn))))))
 
-(deftest static-chain-registers-input-kind-static
-  (testing "a :<- chain registers :input-kind :static with the literal query-vectors"
+(deftest literal-inputs-register-input-kind-static
+  (testing "a literal `:inputs` vector registers :input-kind :static with the query-vectors"
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/reg-sub :n2 {:inputs [[:n]]} (fn [[n] _] (* 2 n)))
     (let [m (sub-meta :n2)]
@@ -117,7 +117,7 @@
       (is (= [[:n]] (:input-signals m)))
       (is (not (contains? m :input-fn))))))
 
-(deftest two-function-form-registers-input-kind-parametric
+(deftest producer-fn-inputs-register-input-kind-parametric
   (testing "the two-function form registers :input-kind :parametric + :input-fn"
     (rf/reg-sub :item/by-id (fn [db [_ id]] (get-in db [:items id])))
     (rf/reg-sub :item/title
@@ -192,7 +192,7 @@
 
 (deftest single-parametric-input-delivers-a-vector
   (testing "a single parametric input is delivered as a one-element VECTOR
-            (NOT the bare-value :<- convention) — EP §Single input"
+            — EP §Single input"
     (rf/reg-sub :item/by-id (fn [db [_ id]] (get-in db [:items id])))
     (rf/reg-sub :item/title
                 {:inputs (fn [[_ id]] [[:item/by-id id]])}
@@ -241,18 +241,18 @@
       (is (= "v2" @r) "the parametric node recomputed on the upstream change")
       (rf/unsubscribe [:item/title :x]))))
 
-;; ---- static :<- behaviour unchanged --------------------------------------
+;; ---- static declared-input delivery ---------------------------------------
 
-(deftest static-single-input-still-delivers-bare-value
-  (testing "static single :<- still delivers the BARE value (unchanged)"
+(deftest static-single-input-delivers-a-one-element-vector
+  (testing "one declared input arrives as [v], the same shape as two arrive in"
     (rf/reg-sub :n  (fn [db _] (:n db)))
-    (rf/reg-sub :n2 {:inputs [[:n]]} (fn [[n] _] (* 2 n)))    ;; bare value, not [n]
+    (rf/reg-sub :n2 {:inputs [[:n]]} (fn [[n] _] (* 2 n)))
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 5}}))
     (rf/dispatch-sync [:seed])
     (is (= 10 (rf/subscribe-once [:n2])))))
 
-(deftest static-multi-input-still-delivers-vector
-  (testing "static multi :<- still delivers a vector (unchanged)"
+(deftest static-multi-input-delivers-a-vector
+  (testing "two declared inputs arrive as [a b]"
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
     (rf/reg-sub :sum {:inputs [[:a] [:b]]} (fn [[a b] _] (+ a b)))
@@ -431,7 +431,7 @@
         ;; Three trailing args (input-fn + 2 fns) — not an accepted shape.
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"reg-sub-bad-args"
               (rf/reg-sub :bad (fn [_] [[:a]]) (fn [a _] a) (fn [x _] x))))
-        ;; A leading :<- with no query-vector.
+        ;; The retired `:<-` spelling, refused by name.
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"reg-sub-bad-args"
               (rf/reg-sub :bad2 :<- (fn [x _] x))))
         ;; rf2-d2841 — `:rf.error/reg-sub-bad-args` is a bare
@@ -563,9 +563,9 @@
     (rf/dispatch-sync [:seed-m1])
     (is (= 7 (rf/subscribe-once [:m1])))))
 
-(deftest meta-map-prefixed-static-chain-classifies-as-static
-  (testing "(reg-sub id meta-map :<- [...] computation-fn) — meta-map + :<- chain
-            classifies as :static, the chain intact"
+(deftest meta-map-with-literal-inputs-classifies-as-static
+  (testing "(reg-sub id {:doc ... :inputs [...]} computation-fn) — the doc and the
+            declared inputs coexist; the sub classifies :static, inputs intact"
     (rf/reg-sub :base (fn [db _] (:n db)))
     (rf/reg-sub :m2 {:doc "doubled" :inputs [[:base]]} (fn [[n] _] (* 2 n)))
     (let [m (sub-meta :m2)]

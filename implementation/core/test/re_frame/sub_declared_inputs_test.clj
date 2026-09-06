@@ -11,7 +11,7 @@
 
   Coverage:
     - parser: literal / fn / Var / `[]` accepted; malformed literals, an
-      explicit `nil`, and over-specification with `:<-` or a second trailing
+      explicit `nil`, and over-specification with the retired `:<-` or a second trailing
       fn all raise `:rf.error/reg-sub-bad-args` AT REGISTRATION
     - `:inputs` is a KNOWN registration key (no unknown-key warning) and is
       LIFTED, never stored twice — `handler-meta` carries the runtime-owned
@@ -29,7 +29,7 @@
       \":db → db; else → vector\"
     - `sub-topology` reports a literal declaration as `:static` with its edges
       and a producer as the `:parametric` sentinel
-    - TRANSITIONAL: `:<-` and the two-fn tail keep their exact prior semantics"
+    - the retired `:<-` chain and two-fn tail are refused at registration"
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.subs :as rf.subs]
@@ -142,7 +142,7 @@
            (reg-sub-error :x {:inputs nil} (fn [db _] db))))))
 
 (deftest inputs-cannot-be-combined-with-the-transitional-grammars
-  (testing "`:inputs` beside a `:<-` chain or a second trailing fn is over-specified"
+  (testing "`:inputs` beside the retired `:<-` chain or a second trailing fn is refused"
     (rf/reg-sub :a (fn [db _] (:a db)))
     (is (= :rf.error/reg-sub-bad-args
            (reg-sub-error :x {:inputs [[:a]]} :<- [:a] (fn [in _] in))))
@@ -301,7 +301,7 @@
           (is (= {:seen (get db up)} (:compute l))))))))
 
 (deftest a-declared-input-recomputes-on-an-upstream-change
-  (testing "the reactive node cascades exactly as a `:<-` node does"
+  (testing "the reactive node cascades exactly as any declared-input node does"
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/reg-sub :doubled {:inputs [[:n]]} (fn [[n] _] (* 2 n)))
     (rf/reg-event :seed  (fn [_ _] {:db {:n 5}}))
@@ -373,26 +373,90 @@
       (is (= {:input-kind :static :inputs []} (edge :zero)))
       (is (= {:input-kind :db :inputs []} (edge :a))))))
 
-;; ---- TRANSITIONAL: the retired grammars are byte-identical ----------------
+;; ---- the retired grammars are REFUSED at registration ---------------------
+;;
+;; rf2-kuky.50 deleted the v1 declared-input chain and the two-trailing-fn `input-fn`
+;; tail. Both now raise `:rf.error/reg-sub-bad-args` whose message names
+;; `:inputs` and the migration rule, so a call site the sweep missed fails
+;; LOUDLY at namespace load rather than registering with a delivery shape the
+;; runtime no longer has an arm for.
 
-(deftest the-arrow-chain-keeps-its-exact-prior-semantics
-  (testing "a single `:<-` still delivers the BARE value; ≥2 still deliver a vector"
+(defn- reg-sub-refusal
+  "Register `args` and return the refusal `:reason` string it raised, or
+  `::accepted` when the registration was (wrongly) accepted."
+  [& args]
+  (try (apply rf.subs/reg-sub args)
+       ::accepted
+       (catch clojure.lang.ExceptionInfo e
+         (:reason (ex-data e)))))
+
+(deftest the-retired-spellings-are-refused-naming-inputs-and-the-migration-rule
+  (testing "each retired shape raises reg-sub-bad-args, named and actionable"
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
-    (rf/reg-sub :bare  {:inputs [[:a]]}          (fn [[a] _] {:seen a}))
-    (rf/reg-sub :multi {:inputs [[:a] [:b]]} (fn [in _] {:seen in}))
+    (doseq [[label args]
+            [["a single declared input"
+              [:x/single :<- [:a] (fn [v _] v)]]
+             ["a multi declared-input chain"
+              [:x/multi  :<- [:a] :<- [:b] (fn [in _] in)]]
+             ["a leading input-fn (the two-fn tail)"
+              [:x/two-fn (fn [q] [[:a]]) (fn [in _] in)]]
+             ["`:inputs` combined with a declared-input chain"
+              [:x/mixed  {:inputs [[:a]]} :<- [:b] (fn [in _] in)]]]]
+      (is (= :rf.error/reg-sub-bad-args (apply reg-sub-error args))
+          (str label " is refused at registration"))
+      (let [reason (apply reg-sub-refusal args)]
+        (is (string? reason) (str label " carries a refusal message"))
+        (is (re-find #":inputs" (str reason))
+            (str "the refusal for " label " names `:inputs`"))
+        (is (re-find #"M-75" (str reason))
+            (str "the refusal for " label " names the migration rule")))
+      (is (nil? (rf.registrar/lookup :sub (first args)))
+          (str label " was never registered")))))
+
+;; ---- delivery agrees on all three paths, with the bare arms gone ----------
+
+(deftest declared-inputs-deliver-a-vector-at-zero-one-and-many
+  (testing "reactive / subscribe-once / compute-sub agree, and every declared
+            count arrives as a VECTOR — there is no bare-for-one arm left"
+    (rf/reg-sub :a (fn [db _] (:a db)))
+    (rf/reg-sub :b (fn [db _] (:b db)))
+    (rf/reg-sub :zero  {:inputs []}           (fn [in _] {:seen in}))
+    (rf/reg-sub :one   {:inputs [[:a]]}       (fn [in _] {:seen in}))
+    (rf/reg-sub :many  {:inputs [[:a] [:b]]}  (fn [in _] {:seen in}))
+    ;; the same counts through a PRODUCER declaration rather than a literal
+    (rf/reg-sub :one-p {:inputs (fn [_] [[:a]])}       (fn [in _] {:seen in}))
+    (rf/reg-sub :many-p {:inputs (fn [_] [[:a] [:b]])} (fn [in _] {:seen in}))
     (let [db {:a 1 :b 2}]
       (seed! db)
-      (is (= {:reactive {:seen 1} :once {:seen 1} :compute {:seen 1}}
-             (read-three-ways [:bare] db)))
-      (is (= {:reactive {:seen [1 2]} :once {:seen [1 2]} :compute {:seen [1 2]}}
-             (read-three-ways [:multi] db))))))
+      (doseq [[query-v expected] [[[:zero]   []]
+                                  [[:one]    [1]]
+                                  [[:many]   [1 2]]
+                                  [[:one-p]  [1]]
+                                  [[:many-p] [1 2]]]]
+        (is (= {:reactive {:seen expected}
+                :once     {:seen expected}
+                :compute  {:seen expected}}
+               (read-three-ways query-v db))
+            (str query-v " delivers " (pr-str expected) " on all three paths"))))))
 
-(deftest the-two-fn-tail-keeps-its-exact-prior-semantics
-  (testing "the two-fn parametric tail still delivers a vector at one input"
-    (rf/reg-sub :a (fn [db _] (:a db)))
-    (rf/reg-sub :tail {:inputs (fn [_] [[:a]])} (fn [in _] {:seen in}))
+(deftest single-source-readers-still-receive-their-container-value
+  (testing "the collapse is \"single-source kind → container; declared → vector\",
+            so `:db`, `:runtime-db` and `:frame-state` are untouched by it —
+            on all three read paths"
+    (rf.subs/reg-runtime-sub :rt/seen (fn [runtime-db _] {:seen runtime-db}))
+    (rf.subs/reg-frame-state-sub :fs/seen (fn [frame-state _] {:seen frame-state}))
+    (rf/reg-sub :db/seen (fn [db _] {:seen db}))
     (let [db {:a 1}]
       (seed! db)
-      (is (= {:reactive {:seen [1]} :once {:seen [1]} :compute {:seen [1]}}
-             (read-three-ways [:tail] db))))))
+      (is (= {:reactive {:seen db} :once {:seen db} :compute {:seen db}}
+             (read-three-ways [:db/seen] db))
+          "a layer-1 reader still receives the bare app-db value")
+      (let [rt (rf.frame/frame-runtime-db-value :rf/default)]
+        (is (= {:reactive {:seen rt} :once {:seen rt} :compute {:seen rt}}
+               (read-three-ways [:rt/seen] rt))
+            "a :runtime-db reader still receives the bare runtime-db value"))
+      (let [fs @(rf.frame/frame-state-container :rf/default)]
+        (is (= {:reactive {:seen fs} :once {:seen fs} :compute {:seen fs}}
+               (read-three-ways [:fs/seen] fs))
+            "a :frame-state reader still receives the whole frame-state value")))))

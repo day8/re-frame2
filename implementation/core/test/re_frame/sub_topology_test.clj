@@ -13,7 +13,7 @@
 
   `:input-kind` discriminates the input producer (`:db` / `:static` /
   `:parametric`); `:inputs` carries the kind-specific static edge set —
-  `[]` for `:db`, the literal `:<-` input QUERY-VECTORS (args preserved)
+  `[]` for `:db`, the literal declared input QUERY-VECTORS (args preserved)
   for `:static`, and the `:parametric` keyword sentinel for an
   `input-fn` sub (whose realized edges depend on the concrete outer
   query vector and are NOT statically enumerable — rf2-e3acps / the
@@ -25,12 +25,12 @@
   parametric two-level topology (registrar reports `:parametric`,
   realized edges live in the cache), and a declared self-reference
   cycle (which is allowed by registration — the topology surface
-  reports the static :<- chain regardless of whether the resulting sub
+  reports the static declared-input chain regardless of whether the resulting sub
   would resolve at runtime).
 
   ## Posture split (rf2-d2841)
 
-  The topology's SHAPE — `:input-kind` discrimination, the literal `:<-`
+  The topology's SHAPE — `:input-kind` discrimination, the literal `:inputs`
   query-vectors with their args, declaration order, the `:parametric`
   sentinel, registry add / clear / re-register semantics, and verbatim
   self-reference reporting — is production-real and is asserted WITHOUT a
@@ -92,10 +92,10 @@
       (is (= [] (:inputs (topo :n)))
           ":inputs is always present and is the empty vector for layer-1 subs"))))
 
-;; ---- :<- chain capture ---------------------------------------------------
+;; ---- declared-input chain capture ---------------------------------------------------
 
 (deftest single-input-layer-2-sub-reports-the-upstream-query-vector
-  (testing "a layer-2 sub with one :<- declares one upstream input QUERY-VECTOR"
+  (testing "a layer-2 sub with one declared input reports one upstream QUERY-VECTOR"
     (rf/reg-sub :n  (fn [db _] (:n db)))
     (rf/reg-sub :n2 {:inputs [[:n]]} (fn [[n] _] (* 2 n)))
     (let [topo (rf.subs/sub-topology)]
@@ -103,10 +103,10 @@
       (is (= :static (:input-kind (topo :n2))))
       (is (= [] (:inputs (topo :n))))
       (is (= [[:n]] (:inputs (topo :n2)))
-          ":static inputs are the literal :<- query-vectors (Spec 002 §registrar query API)"))))
+          ":static inputs are the literal `:inputs` query-vectors (Spec 002 §registrar query API)"))))
 
 (deftest multi-input-layer-2-sub-preserves-declaration-order
-  (testing "multi-input :<- chain order is preserved (matters for body fn arity)"
+  (testing "multi-input declared-input chain order is preserved (matters for body fn arity)"
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
     (rf/reg-sub :c (fn [db _] (:c db)))
@@ -129,7 +129,7 @@
 
 (deftest static-inputs-preserve-query-vector-args
   (testing ":static :inputs preserve per-input query-vector args (full query-vectors)"
-    ;; The registration form is `:<- [:upstream :some-arg]`; the static
+    ;; The registration form is `{:inputs [[:upstream :some-arg]]}`; the static
     ;; topology now reports the literal query-vector (args preserved),
     ;; per Spec 002 §The public registrar query API row + Spec 006
     ;; §Subscription topology (the rf2-e3acps reconciliation). Tools that
@@ -138,7 +138,7 @@
     (rf/reg-sub :downstream {:inputs [[:upstream :some-arg]]}
                 (fn [[u] _] (str u)))
     (is (= [[:upstream :some-arg]] (:inputs ((rf.subs/sub-topology) :downstream)))
-        "static inputs carry the full :<- query-vector, args and all")))
+        "static inputs carry the full declared query-vector, args and all")))
 
 ;; ---- parametric input-fn topology (rf2-e3acps) ---------------------------
 
@@ -250,7 +250,7 @@
     (is (= :db (:input-kind ((rf.subs/sub-topology) :a))))
     (is (= [] (:inputs ((rf.subs/sub-topology) :a))))
     ;; Re-register :a as a layer-2 sub composing :b. The topology
-    ;; reports the new :<- chain (last-write-wins per Spec 001
+    ;; reports the new declared-input chain (last-write-wins per Spec 001
     ;; §Hot-reload semantics).
     (rf/reg-sub :b (fn [db _] (:b db)))
     (rf/reg-sub :a {:inputs [[:b]]} (fn [[b] _] (str b)))
@@ -271,9 +271,9 @@
 ;; ---- self-reference / cycle handling -------------------------------------
 
 (deftest declared-self-reference-is-reported-verbatim
-  (testing "a sub declaring :<- [:itself] is reported with that input — no cycle detection at the topology layer"
+  (testing "a sub declaring itself as its own input is reported with that input — no cycle detection at the topology layer"
     ;; The topology surface is a literal projection of the registrar's
-    ;; :<- declarations. Cycle detection is a debugger / tool concern,
+    ;; declared inputs. Cycle detection is a debugger / tool concern,
     ;; not a property of the static topology query — the same way the
     ;; registrar accepts the registration without complaint. Keeping
     ;; sub-topology as a verbatim projection means tools can detect
@@ -282,7 +282,7 @@
     (rf/reg-sub :loop {:inputs [[:loop]]} (fn [[v] _] v))
     (is (= [[:loop]] (:inputs ((rf.subs/sub-topology) :loop)))))
 
-  (testing "a 2-node cycle :<- declarations are similarly verbatim"
+  (testing "a 2-node cycle declared inputs are similarly verbatim"
     (rf/reg-sub :a {:inputs [[:b]]} (fn [[b] _] b))
     (rf/reg-sub :b {:inputs [[:a]]} (fn [[a] _] a))
     (let [topo (rf.subs/sub-topology)]

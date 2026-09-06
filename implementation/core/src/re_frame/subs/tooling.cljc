@@ -44,7 +44,7 @@
 ;; §Subscription input producers) and `:inputs` carries the kind-specific
 ;; static edge set:
 ;;   :db          layer-1 / direct-app-db reader  →  :inputs []
-;;   :static      literal `:<-` query-vectors      →  :inputs [[:q1] [:q2 a] ...]
+;;   :static      literal `:inputs` query-vectors      →  :inputs [[:q1] [:q2 a] ...]
 ;;   :parametric  an `input-fn` (query-parametric) →  :inputs :parametric
 ;; The parametric edge set is NOT statically enumerable — it depends on the
 ;; concrete outer query vector, so the static surface reports the
@@ -66,16 +66,16 @@
 
   - `:input-kind` discriminates the sub's input producer (Spec 006
     §Subscription input producers): `:db` (layer-1 app-db reader),
-    `:static` (literal `:<-` chain), or `:parametric` (an `input-fn`
+    `:static` (literal declared-input chain), or `:parametric` (an `input-fn`
     that computes its input query-vectors from the outer query-v). It
     is always present.
   - `:inputs` is the kind-specific static edge set, always present:
       - `:db`         → `[]` (reads `app-db` directly; no upstream subs).
-      - `:static`     → the vector of literal `:<-` input query-vectors
+      - `:static`     → the vector of literal `:inputs` query-vectors
                         (`[[:items] [:filter]]`) in declaration order, so
                         downstream tools can reconstruct the chain shape
                         the body fn expects. The args are preserved
-                        (`:<- [:upstream :arg]` → `[:upstream :arg]`).
+                        (`{:inputs [[:upstream :arg]]}` → `[:upstream :arg]`).
       - `:parametric` → the keyword `:parametric`. The realized edge set
                         depends on the concrete outer query vector and is
                         therefore NOT statically enumerable. Realized
@@ -96,7 +96,7 @@
     (reduce-kv
       (fn [acc sub-id meta]
         (let [input-kind (:input-kind meta)
-              ;; `:static` reports the literal `:<-` input query-vectors
+              ;; `:static` reports the literal `:inputs` query-vectors
               ;; (args preserved); `:parametric` reports the `:parametric`
               ;; sentinel (the realized edge set is per-concrete-query-v
               ;; runtime state, not statically enumerable); `:db` and
@@ -137,7 +137,7 @@
                          `:parametric`), looked up from the registrar.
                          Layer-1 / direct-app-db readers are `:db`.
   - `:realized-inputs` — the REALIZED input query-vectors for THIS
-                         concrete cache entry — the literal `:<-` list for
+                         concrete cache entry — the literal `:inputs` list for
                          `:static`, and the `(input-fn query-v)` result for
                          `:parametric` (Spec 006 §Subscription input
                          producers; the EP §Tooling live cache-entry view).
@@ -166,7 +166,7 @@
                      meta       (get subs-meta sub-id)
                      ;; The cache entry's `:inputs` slot holds the realized
                      ;; input query-vectors for this concrete outer query-v
-                     ;; (the literal `:<-` list for `:static`, the
+                     ;; (the literal `:inputs` list for `:static`, the
                      ;; `(input-fn query-v)` result for `:parametric`) — see
                      ;; `re-frame.subs/compute-and-cache!`. Layer-1 readers
                      ;; carry `[]`.
@@ -186,7 +186,7 @@
 ;;
 ;; Per [Derivations.md] and the projected Malli shapes in
 ;; [Spec-Schemas §`:rf/derivation-node`]. Every subscription —
-;; `reg-sub` (layer-1 `:db`, static `:<-`, parametric input-fn),
+;; `reg-sub` (layer-1 `:db`, static literal `:inputs`, parametric input-fn),
 ;; `reg-runtime-sub`, `reg-frame-state-sub`, and each live sub-cache entry —
 ;; is an instance of the derivation/process algebra: a `:derivation`
 ;; (subscriptions and flows are derivations, never processes), whose output
@@ -234,7 +234,7 @@
     :frame-state → [[:frame-state []]] — the framework-internal whole
                                        frame-state reader (reads across both
                                        partitions; reserved for internals).
-    :static      → [[:sub q] ...]    — the literal `:<-` query-vectors, each
+    :static      → [[:sub q] ...]    — the literal `:inputs` query-vectors, each
                                        lowered to a `[:sub query-vector]`
                                        declared input in declaration order.
     :parametric  → :parametric       — the realized edge set depends on the
@@ -336,7 +336,7 @@
                      `[[:db []]]` for a layer-1 `:db` reader, `[[:runtime []]]`
                      for a framework `reg-runtime-sub`, `[[:frame-state []]]`
                      for a `reg-frame-state-sub`, the literal `[:sub q]`
-                     edges for a static `:<-` sub, or the `:parametric`
+                     edges for a static declared-input sub, or the `:parametric`
                      marker for an input-fn sub (whose realized edges are
                      per-concrete-query-v live state — the don't-execute
                      rule).
@@ -387,7 +387,7 @@
   - `:kind`        — `:derivation`.
   - `:source-form` — `{:kind :reg-sub :id <sub-id>}`.
   - `:inputs`      — the realized `[[:sub q] …]` edges for THIS entry (the
-                     literal `:<-` list for a static sub, the
+                     literal `:inputs` list for a static sub, the
                      `(input-fn query-v)` result for a parametric sub, `[]`
                      for a layer-1 / runtime-db / frame-state reader). Stored
                      on the entry at materialization, so the topology is
@@ -422,7 +422,7 @@
                      input-kind (or (:input-kind meta) :db)
                      ;; The cache entry's `:inputs` slot holds the realized
                      ;; input query-vectors for this concrete outer query-v
-                     ;; (the literal `:<-` list for `:static`, the
+                     ;; (the literal `:inputs` list for `:static`, the
                      ;; `(input-fn query-v)` result for `:parametric`,
                      ;; `[]` for a single-source reader) — see
                      ;; `re-frame.subs/compute-and-cache!`.

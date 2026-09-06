@@ -32,7 +32,7 @@
   render and the commit that owns it are two moments, and a first-mount
   read used to build a reaction in the first, drop it to zero on the way
   out, and rebuild it in the second — TWO constructions, and for a
-  layer-2+ sub a second walk of the whole `:<-` chain, on every cold
+  layer-2+ sub a second walk of the whole input chain, on every cold
   read. That was not a re-mount; it was ONE mount paying twice. The
   React-hook spine carries its render-phase +1 across that gap in a
   hook-scoped escrow so the commit can ADOPT the same reaction (Spec 006
@@ -307,23 +307,23 @@
 ;; :sub re-registers, every cached reaction whose query-id is that sub MUST
 ;; be disposed and evicted across every frame's cache — AND so must every
 ;; cached DOWNSTREAM sub that depends on it (directly or transitively) via
-;; `:<-`. Cached reactions hold the OLD body via closure (and downstream
+;; declared inputs. Cached reactions hold the OLD body via closure (and downstream
 ;; reactions hold the OLD input reaction); without invalidating the whole
-;; transitive dependent closure, a downstream slot like `[:sum] :<- [:a]`
+;; transitive dependent closure, a downstream slot like `[:sum]` over `[:a]`
 ;; keeps its stale input reaction and serves the old `:a` body's value.
 
 (defn- transitive-dependent-closure
   "Given a cache map `m` and a re-registered sub `id`, return the set of
   cache keys to evict: the re-registered sub's own slots PLUS every slot
-  that depends on it transitively through the `:<-` topology recorded in
+  that depends on it transitively through the declared-input topology recorded in
   each entry's `:inputs` (the vector of input query-vectors).
 
   A slot is a dependent iff any of its `:inputs` query-vectors either
-  (a) has head = `id` — a DIRECT `:<-` on the re-registered sub — or
+  (a) has head = `id` — a DIRECT declared input on the re-registered sub — or
   (b) equals a key already in the evict set — a TRANSITIVE dependency on
   an already-condemned slot. The fixpoint loop grows the set until no new
   key is added; it only ever ADDS keys not already present, so a cyclic
-  `:<-` graph cannot loop forever (each key is admitted at most once)."
+  declared-input graph cannot loop forever (each key is admitted at most once)."
   [m id]
   (let [;; Static index: cache-key → the seq of its input query-vectors.
         inputs-of  (fn [k] (:inputs (get m k)))
@@ -352,7 +352,7 @@
         ;; The swap-fn body is pure — it returns only the new cache map.
         ;; Reactions to dispose are read from the diff between `old` and
         ;; `new` AFTER the CAS commits (so a retried `swap!` can't fire
-        ;; dispose 2+ times). The condemned set is the transitive `:<-`
+        ;; dispose 2+ times). The condemned set is the transitive declared-input
         ;; dependent closure, recomputed inside the swap-fn against the
         ;; map the CAS actually sees (a retry recomputes against fresh m).
         (let [[old new] (swap-vals! cache
@@ -405,7 +405,7 @@
 
   Per rf2-awhtpc: the cache atom is reset to `{}` BEFORE any
   `rf.interop/dispose!` call, not after. A layer-2+ slot's on-dispose
-  callback releases its `:<-` input refs via `unsubscribe!`, which — if
+  callback releases its declared-input refs via `unsubscribe!`, which — if
   the input's slot were still present in the cache atom mid-walk — could
   drive its ref-count to 0 and fire `dispose-entry-now!`, re-emitting a
   SECOND `:rf.sub/dispose` (reason `:no-more-derefers`) for a slot this
@@ -493,7 +493,7 @@
   Per rf2-awhtpc: the cache atom is reset to `{}` BEFORE any
   `rf.interop/dispose!` call — same rationale as `clear-sub-cache!` above.
   Without pre-clearing, disposing a layer-2+ slot cascades (via its
-  on-dispose callback) into `unsubscribe!` on its `:<-` inputs; if an
+  on-dispose callback) into `unsubscribe!` on its declared inputs; if an
   input's slot were still live in the cache mid-walk, that could drive
   its ref-count to 0 and fire a SECOND `:rf.sub/dispose` (reason
   `:no-more-derefers`) for a slot this walk is about to visit with

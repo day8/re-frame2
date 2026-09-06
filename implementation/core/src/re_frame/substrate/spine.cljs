@@ -69,7 +69,7 @@
 ;; drives it AGAIN, and so on — N recomputes per app-db change instead of
 ;; one. Each redundant recompute re-runs the user's sub body and emits a
 ;; `:sub/run` trace, and a downstream layer-3 sub re-fires per redundant
-;; layer-2 notification, fanning the waste out across the whole `:<-`
+;; layer-2 notification, fanning the waste out across the whole declared-input
 ;; graph. (The spine's derived value is pull-based — `-deref` recomputes
 ;; fresh from current sources — so each recompute reads settled source
 ;; state and the final notified VALUE is correct; the defect is the
@@ -536,7 +536,7 @@
 ;; at construction time. `compute-fn` here is the core's memo wrapper —
 ;; it runs the user sub body and (in dev) emits `:rf.sub/run` via
 ;; `validate-and-trace`, and for a layer-2+ sub eagerly derefs the whole
-;; `:<-` input chain. Reagent (`ratom/make-reaction`, lazy until first
+;; declared input chain. Reagent (`ratom/make-reaction`, lazy until first
 ;; deref) and the plain-atom adapter (recompute-on-deref) both defer the
 ;; first body invocation to first read; the spine matches by seeding
 ;; `prev-state` with the `unset` sentinel rather than with `(recompute)`.
@@ -2594,7 +2594,7 @@
 ;; period. Microseconds later the commit-owned `subscribe-fn` misses that same
 ;; cache and BUILDS THE REACTION AGAIN. Every cold subscription read on this
 ;; spine therefore constructed two reactions and ran the user's sub body
-;; twice — for a layer-2+ sub, walking the whole `:<-` input chain twice —
+;; twice — for a layer-2+ sub, walking the whole input chain twice —
 ;; measured exactly at `bodyRuns = 2.00N` against Reagent's `1.00N`
 ;; (rf2-2rtt6.12) and priced at ≥ 20% of the mount red-zone in every round at
 ;; layers 1, 2 and 3 (rf2-2rtt6.15,

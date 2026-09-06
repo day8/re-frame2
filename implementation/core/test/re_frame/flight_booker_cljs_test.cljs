@@ -110,7 +110,7 @@
 
 (defn- sub
   "Compute a flight sub against the frame's current app-db snapshot. Every
-  flight sub is an app-db (layer-1/`:<-`) sub, so a bare app-db value suffices."
+  flight sub is an app-db (layer-1) sub, so a bare app-db value suffices."
   [f query-v]
   (rf/compute-sub query-v (rf/app-db-value f)))
 

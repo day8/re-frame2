@@ -358,7 +358,7 @@
 ;; during propagation — e.g., a layer-2 sub reading two layer-1 inputs
 ;; momentarily seeing "new A + old B" before the second input updates.
 ;; Per Spec 006 §Recompute on container replacement: layer-1 settles
-;; before layer-2 fires; the cascade respects the static :<- topology.
+;; before layer-2 fires; the cascade respects the static declared-input topology.
 ;; In the CLJS reference this is delegated to Reagent's reaction queue,
 ;; which schedules dependents in topological order. These tests pin
 ;; that property empirically against the diamond and chain shapes.
@@ -652,7 +652,7 @@
         "missing frame returns nil")))
 
 (deftest sub-cache-surfaces-static-realized-inputs
-  (testing "a :static :<- sub surfaces :input-kind :static + the literal realized edges"
+  (testing "a :static declared-input sub surfaces :input-kind :static + the literal realized edges"
     (rf/reg-event :seed2 (fn [{:keys [db]} _] {:db {:items [1 2 3] :filter :all}}))
     (rf/reg-sub :items  (fn [db _] (:items db)))
     (rf/reg-sub :filter (fn [db _] (:filter db)))
@@ -664,9 +664,9 @@
           snapshot (rf.subs.tooling/sub-cache-snapshot :rf/default)
           entry (get snapshot [:visible-items])]
       (is (= :static (:input-kind entry))
-          "a :<- sub is :input-kind :static")
+          "a declared-input sub is :input-kind :static")
       (is (= [[:items] [:filter]] (:realized-inputs entry))
-          "static realized inputs are the literal :<- query-vectors in order")
+          "static realized inputs are the literal `:inputs` query-vectors in order")
       (rf/unsubscribe [:visible-items]))))
 
 (deftest sub-cache-surfaces-parametric-realized-inputs
@@ -757,7 +757,7 @@
         "missing frame returns nil")))
 
 (deftest sub-cache-algebra-view-lowers-static-realized-edges
-  (testing "a static :<- entry lowers its literal realized inputs to [:sub q] edges"
+  (testing "a static declared-input entry lowers its literal realized inputs to [:sub q] edges"
     (rf/reg-event :seed-av2 (fn [{:keys [db]} _] {:db {:items [1 2 3] :filter :all}}))
     (rf/reg-sub :items  (fn [db _] (:items db)))
     (rf/reg-sub :filter (fn [db _] (:filter db)))
@@ -770,7 +770,7 @@
           node (get view [:visible-items])]
       (is (= :static (:input-kind node)))
       (is (= [[:sub [:items]] [:sub [:filter]]] (:inputs node))
-          "the static entry's realized edges are its literal :<- query-vectors, lowered to [:sub q]")
+          "the static entry's realized edges are its literal `:inputs` query-vectors, lowered to [:sub q]")
       (rf/unsubscribe [:visible-items]))))
 
 (deftest sub-cache-algebra-view-lowers-parametric-realized-edges

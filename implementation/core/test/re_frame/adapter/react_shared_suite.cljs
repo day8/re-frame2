@@ -5540,7 +5540,7 @@
 ;; render's balanced round trip built a reaction and then crossed the 1 → 0
 ;; disposal edge on the way out, and the commit-owned `subscribe-fn` missed the
 ;; same cache and built it again. Two constructions and two sub-body runs per
-;; cold read; at layer 2+ the whole `:<-` chain twice. The render phase now
+;; cold read; at layer 2+ the whole input chain twice. The render phase now
 ;; keeps its reference in escrow, so the commit's subscribe HITS and adopts.
 ;;
 ;; READ THIS ROW FOR EXACTLY WHAT IT MEASURES (rf2-2rtt6.25 audit of #7305;
@@ -6089,7 +6089,7 @@
 
 (defn assert-use-subscribe-abandoned-layer-2-render-cascades-at-the-horizon
   "rf2-2rtt6.25: an abandoned COLD render of a LAYER-2 sub leaves the parent
-  AND its `:<-` input held until the horizon, and both are gone one settle
+  AND its declared input held until the horizon, and both are gone one settle
   later — the ordinary disposal cascade, driven by the ordinary 1 → 0 edge,
   from the reaper rather than from an effect.
 
@@ -6126,7 +6126,7 @@
               (str "the abandoned render holds the layer-2 parent — observed "
                    (ref-count-of cache parent-k)))
           (is (= 1 (ref-count-of cache input-k))
-              (str "and the parent's build holds its `:<-` input exactly once, "
+              (str "and the parent's build holds its declared input exactly once, "
                    "however many times React replayed the render — a replay HITS "
                    "the parent and constructs no second input. Observed "
                    (ref-count-of cache input-k)))

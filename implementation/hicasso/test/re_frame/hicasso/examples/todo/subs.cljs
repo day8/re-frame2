@@ -5,7 +5,7 @@
   bottom reads `app-db`; nothing above it does. `h/sub` in a view reads
   the top.
 
-  The `:<-` chain rather than `reg-sub`'s two-fn form throughout, and for
+  The declared-input chain rather than `reg-sub`'s two-fn form throughout, and for
   the reason the slice authoring report records: the two-fn form puts a
   ONE-argument
   input fn beside a TWO-argument computation fn in the same form, the

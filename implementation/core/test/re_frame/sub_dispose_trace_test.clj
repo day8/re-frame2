@@ -313,7 +313,7 @@
           (rf/unregister-listener! :trace ::cache-clear))))))
 
 (deftest ^:requires-debug clear-sub-cache-emits-exactly-one-dispose-per-slot-for-layered-sub
-  (testing "clear-sub-cache! on a layered (:<- two inputs) sub: every cached
+  (testing "clear-sub-cache! on a layered (two declared inputs) sub: every cached
             slot (the sum + both inputs) gets EXACTLY ONE :rf.sub/dispose,
             reasoned :cache-clear — no double-emit from the on-dispose
             ref-count cascade racing the cache-clear walk (rf2-awhtpc)"
@@ -412,7 +412,7 @@
 
 ;; ---- per-input dispose-throw is surfaced + isolated (rf2-is8ov5) ----------
 ;;
-;; A layer-2+ reaction's disposal releases its `:<-` input refs by calling
+;; A layer-2+ reaction's disposal releases its declared-input refs by calling
 ;; `unsubscribe` once per input. Before rf2-is8ov5 a throw from ONE input's
 ;; release was caught and DISCARDED — the remaining inputs still released
 ;; (good) but the throw vanished with no trace, so a ref-count leak from a
@@ -435,7 +435,7 @@
 ;; released, the parent slot was still evicted — is the half that ships, and
 ;; it had never run under this posture.
 (deftest input-dispose-throw-is-surfaced-and-isolated
-  (testing "when ONE `:<-` input's unsubscribe throws during a layer-2
+  (testing "when ONE declared input's unsubscribe throws during a layer-2
             reaction's recursive disposal, a
             :rf.warning/sub-input-dispose-exception trace is emitted for
             the failing input AND the remaining inputs STILL release

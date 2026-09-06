@@ -91,14 +91,14 @@ const PORT = Number(process.env.COLDMOUNT_PORT || 8143);
 // One row, one page, one fresh heap. M1 is the primary witness; M2 is
 // DIAGNOSTIC per rf2-2rtt6.2's own grading and stays diagnostic here. The
 // layer ladder is the split that attributes the double-build clock between
-// the reaction allocation (layer 1, no `:<-` chain) and the per-hop input
+// the reaction allocation (layer 1, no declared-input chain) and the per-hop input
 // rebuild + re-deref (the L2−L1 / L3−L2 increments).
 const ALL_ROWS = [
   { id: 'M1L1', why: 'mount, 901 el / 300 boundaries, layer-1 subs — PRIMARY' },
-  { id: 'M1L2', why: 'the M1 mount through one :<- hop — PRIMARY (layer-2/3 coverage)' },
-  { id: 'M1L3', why: 'the M1 mount through two :<- hops — PRIMARY (layer-2/3 coverage)' },
+  { id: 'M1L2', why: 'the M1 mount through one declared-input hop — PRIMARY (layer-2/3 coverage)' },
+  { id: 'M1L3', why: 'the M1 mount through two declared-input hops — PRIMARY (layer-2/3 coverage)' },
   { id: 'M2L1', why: 'mount, 51 el / 12 fields, layer-1 — DIAGNOSTIC, clamp-quantised' },
-  { id: 'M2L2', why: 'the M2 form through one :<- hop — DIAGNOSTIC' },
+  { id: 'M2L2', why: 'the M2 form through one declared-input hop — DIAGNOSTIC' },
 ];
 
 // `COLDMOUNT_ONLY=M1L2` re-takes a subset over the SAME bundle and the same

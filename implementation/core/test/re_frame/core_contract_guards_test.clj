@@ -185,11 +185,13 @@
       (is (nil? (rf.registrar/lookup :sub :sub/malformed))
           "the malformed sub was never registered"))))
 
-(deftest reg-sub-rejects-a-dangling-arrow-without-a-vector
-  (testing "a `:<-` not followed by a vector falls through to the bad-args throw"
+(deftest reg-sub-rejects-a-retired-arrow-whatever-follows-it
+  (testing "a `:<-` is refused wherever it appears, well-formed or not"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #":rf.error/reg-sub-bad-args"
           (rf.subs/reg-sub :sub/dangling-arrow :<- :not-a-vector (fn [v _] v)))
-        ":<- with a non-vector neighbour is not a valid layer-2 chain")))
+        "a `:<-` with a non-vector neighbour is refused")
+    (is (nil? (rf.registrar/lookup :sub :sub/dangling-arrow))
+        "the refused registration was never installed")))
 
 (deftest reg-sub-accepts-the-three-valid-shapes
   (testing "the valid layer-1 / layer-2-single / layer-2-multi shapes parse cleanly"
@@ -205,4 +207,4 @@
                          (fn [[a b] _] [a b]))))
     (let [meta (rf.registrar/lookup :sub :sub/l2-multi)]
       (is (= [[:sub/l1] [:sub/l2-single]] (:input-signals meta))
-          "the :<- chain is parsed into :input-signals in order"))))
+          "the declared `:inputs` are lifted into :input-signals in order"))))

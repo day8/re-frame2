@@ -2,7 +2,7 @@
   "THE DERIVATION GRAPH — and the two reads the flagship experiment is
   about.
 
-  Layers, each a pure function of the one below, in the `:<-` chain form
+  Layers, each a pure function of the one below, in the declared-input chain form
   the two earlier witness applications settled on.
 
   ## [[::suggestions]] and [[::detail]] are PARAMETRIC, and that is the point

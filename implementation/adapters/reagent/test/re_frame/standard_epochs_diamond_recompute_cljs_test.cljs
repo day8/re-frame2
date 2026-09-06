@@ -19,9 +19,9 @@
 
          :diamond-root          (L1 — reads :views/diamond-root)
            /        \\
-    :diamond-a    :diamond-b    (L2 — each :<- root)
+    :diamond-a    :diamond-b    (L2 — each reads the root)
            \\        /
-         :diamond-c             (the JOINING sub :<- a,b)
+         :diamond-c             (the JOINING sub over a,b)
 
   The join sub `:diamond-c` increments a plain (non-ratom) counter each
   time its compute fn RUNS. Bump the root ONCE: the counter should rise by

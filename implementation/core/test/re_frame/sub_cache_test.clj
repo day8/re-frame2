@@ -90,21 +90,21 @@
 
     (let [r (rf/subscribe [:sum])]
       (is (= 5 @r))
-      ;; Layer-2 entry: inputs resolved to the :<- chain.
+      ;; Layer-2 entry: inputs resolved to the declared-input chain.
       (let [e (entry [:sum])]
         (is (= #{:reaction :inputs :ref-count} (set (keys e)))
             "entry key-set is exactly {:reaction :inputs :ref-count} — no
              :value / :on-dispose / :pending-dispose / :registered-at slot")
-        (is (= [[:a] [:b]] (:inputs e)) ":inputs holds the resolved :<- chain")
+        (is (= [[:a] [:b]] (:inputs e)) ":inputs holds the resolved declared-input chain")
         (is (= 1 (:ref-count e)))
         (is (some? (:reaction e)) "the reaction (derived container) is stored")
         (is (not (contains? e :value))
             "the value lives on the reaction (deref), never a stored slot"))
-      ;; Layer-1 entry: empty :<- chain.
+      ;; Layer-1 entry: empty declared-input chain.
       (let [e (entry [:a])]
         (is (= #{:reaction :inputs :ref-count} (set (keys e)))
             "layer-1 entry key-set is identical")
-        (is (= [] (:inputs e)) "layer-1 sub has no :<- inputs"))
+        (is (= [] (:inputs e)) "layer-1 sub has no declared inputs"))
       (rf/unsubscribe [:sum]))))
 
 ;; ---- synchronous disposal --------------------------------------------------
@@ -574,7 +574,7 @@
           "1 → 0 through the guarded release evicts the slot in-tick — the same
            disposal `unsubscribe` drives, not a second policy")
       (is (not (contains? (cache-keys) [:a]))
-          "and the on-dispose cascade released the `:<-` input, which had no
+          "and the on-dispose cascade released the declared input, which had no
            other reader"))))
 
 (deftest unsubscribe-if-reaction-no-ops-against-a-successor-entry
@@ -645,7 +645,7 @@
 ;; `subscribe` calls. These tests pin the symmetric invariant.
 
 (deftest layer-2-disposal-decrements-input-ref-counts
-  (testing "disposing a layer-2 sub decrements ref-counts on every :<- input"
+  (testing "disposing a layer-2 sub decrements ref-counts on every declared input"
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 2 :b 3}}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
@@ -802,7 +802,7 @@
 
 ;; ---- rf2-agpv2.2: input ref-count must not leak on the not-cached path ----
 ;;
-;; `compute-and-cache!` subscribes each layer-2+ `:<-` input (bumping its
+;; `compute-and-cache!` subscribes each layer-2+ declared input (bumping its
 ;; ref-count) BEFORE it re-resolves the frame to read `:sub-cache`. The
 ;; on-dispose that SYMMETRICALLY releases those inputs is wired only inside
 ;; `(when (and cache sub-meta) …)`. If the frame is destroyed (or its

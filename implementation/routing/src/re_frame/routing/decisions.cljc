@@ -93,7 +93,7 @@
   against the requested fragment) and `:can-enter` can branch on WHERE the
   user is heading (auth on the target route's `:tags`, entering a wizard
   step out of order, …). A guard that ignores the extra arg (the common
-  `:<- [:editor/dirty?]` shape) is unaffected — the arg rides in the query
+  `{:inputs [[:editor/dirty?]]}` shape) is unaffected — the arg rides in the query
   vector's tail.
 
   Returns `false` (reject) when:
