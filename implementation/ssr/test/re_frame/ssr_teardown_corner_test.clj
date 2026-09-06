@@ -28,13 +28,13 @@
   bundle that doesn't pull in re-frame.ssr.head); destroy still completes
   (test 4)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.ssr.error-listener :as error-listener]
-            [re-frame.ssr.install :as install]
-            [re-frame.ssr.request :as request]
-            [re-frame.ssr.response :as response]
-            [re-frame.ssr.test-fixture :as tf]))
+            [re-frame.ssr.error-listener :as rf.ssr.error-listener]
+            [re-frame.ssr.install :as rf.ssr.install]
+            [re-frame.ssr.request :as rf.ssr.request]
+            [re-frame.ssr.response :as rf.ssr.response]
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 ;; ===========================================================================
 ;; Composition — one destroy clears every side-channel
@@ -52,37 +52,37 @@
             there is no fourth head channel to clear.)"
     (let [fid :rf.test/composition-target]
       ;; Populate every side-channel slot for fid.
-      (request/set-request! fid {:uri "/comp" :request-method :get})
-      (response/swap-response! fid (fn [r] (assoc r :status 200)))
+      (rf.ssr.request/set-request! fid {:uri "/comp" :request-method :get})
+      (rf.ssr.response/swap-response! fid (fn [r] (assoc r :status 200)))
       ;; Plant a synthetic pending error trace.
-      (swap! error-listener/pending-error-traces
+      (swap! rf.ssr.error-listener/pending-error-traces
              update fid (fnil conj [])
              {:op-type :error :operation :rf.error/composition-probe})
       ;; Plant a hydration-payload install claim under the frame's id
       ;; (payload ids ARE frame ids, 004C §6).
-      (swap! install/installed-payloads
-             assoc fid (install/claim-record "digest-probe" :rf.test/root))
+      (swap! rf.ssr.install/installed-payloads
+             assoc fid (rf.ssr.install/claim-record "digest-probe" :rf.test/root))
 
-      (is (some? (request/get-request fid))
+      (is (some? (rf.ssr.request/get-request fid))
           "request-slot populated (sanity)")
-      (is (contains? @response/response-slots fid)
+      (is (contains? @rf.ssr.response/response-slots fid)
           "response-slot populated (sanity)")
-      (is (contains? @error-listener/pending-error-traces fid)
+      (is (contains? @rf.ssr.error-listener/pending-error-traces fid)
           "pending-error-traces populated (sanity)")
-      (is (some? (install/installed-payload fid))
+      (is (some? (rf.ssr.install/installed-payload fid))
           "payload claim populated (sanity)")
 
       ;; Drive the destroy hook directly — this is the single call the
       ;; spec contract pins as the load-bearing release point.
-      (request/on-frame-destroyed! fid)
+      (rf.ssr.request/on-frame-destroyed! fid)
 
-      (is (nil? (request/get-request fid))
+      (is (nil? (rf.ssr.request/get-request fid))
           "request-slot released by on-frame-destroyed!")
-      (is (not (contains? @response/response-slots fid))
+      (is (not (contains? @rf.ssr.response/response-slots fid))
           "response-slot released by on-frame-destroyed!")
-      (is (not (contains? @error-listener/pending-error-traces fid))
+      (is (not (contains? @rf.ssr.error-listener/pending-error-traces fid))
           "pending-error-traces released by on-frame-destroyed!")
-      (is (nil? (install/installed-payload fid))
+      (is (nil? (rf.ssr.install/installed-payload fid))
           "payload claim released by on-frame-destroyed!"))))
 
 ;; ===========================================================================
@@ -97,23 +97,23 @@
             twice (e.g. via a defensive try/destroy AND a finally
             destroy) MUST NOT throw or corrupt state."
     (let [fid :rf.test/idempotence-target]
-      (request/set-request! fid {:uri "/i" :request-method :get})
-      (response/swap-response! fid (fn [r] (assoc r :status 201)))
-      (swap! install/installed-payloads
-             assoc fid (install/claim-record "digest-idem" :rf.test/root))
+      (rf.ssr.request/set-request! fid {:uri "/i" :request-method :get})
+      (rf.ssr.response/swap-response! fid (fn [r] (assoc r :status 201)))
+      (swap! rf.ssr.install/installed-payloads
+             assoc fid (rf.ssr.install/claim-record "digest-idem" :rf.test/root))
 
       ;; First destroy releases everything.
-      (request/on-frame-destroyed! fid)
-      (is (nil? (request/get-request fid)))
-      (is (nil? (install/installed-payload fid)))
+      (rf.ssr.request/on-frame-destroyed! fid)
+      (is (nil? (rf.ssr.request/get-request fid)))
+      (is (nil? (rf.ssr.install/installed-payload fid)))
 
       ;; Second destroy MUST be a no-op — no throw, no spurious state
       ;; change, no extra trace emission.
-      (is (nil? (request/on-frame-destroyed! fid))
+      (is (nil? (rf.ssr.request/on-frame-destroyed! fid))
           "second destroy returns nil cleanly")
-      (is (nil? (request/get-request fid))
+      (is (nil? (rf.ssr.request/get-request fid))
           "request-slot still empty after second destroy")
-      (is (nil? (install/installed-payload fid))
+      (is (nil? (rf.ssr.install/installed-payload fid))
           "payload claim still released after second destroy"))))
 
 ;; ===========================================================================
@@ -132,30 +132,30 @@
           fid-b :rf.test/iso-frame-b]
       ;; Populate both frames identically.
       (doseq [fid [fid-a fid-b]]
-        (request/set-request! fid {:uri (str "/" (name fid))
+        (rf.ssr.request/set-request! fid {:uri (str "/" (name fid))
                                    :request-method :get})
-        (response/swap-response! fid (fn [r] (assoc r :status 200)))
-        (swap! error-listener/pending-error-traces
+        (rf.ssr.response/swap-response! fid (fn [r] (assoc r :status 200)))
+        (swap! rf.ssr.error-listener/pending-error-traces
                update fid (fnil conj [])
                {:op-type :error :operation :rf.error/iso-probe})
-        (swap! install/installed-payloads
-               assoc fid (install/claim-record "digest-iso" :rf.test/root)))
+        (swap! rf.ssr.install/installed-payloads
+               assoc fid (rf.ssr.install/claim-record "digest-iso" :rf.test/root)))
 
       ;; Destroy ONLY fid-a.
-      (request/on-frame-destroyed! fid-a)
+      (rf.ssr.request/on-frame-destroyed! fid-a)
 
       ;; fid-a cleared.
-      (is (nil? (request/get-request fid-a)))
-      (is (not (contains? @response/response-slots fid-a)))
-      (is (not (contains? @error-listener/pending-error-traces fid-a)))
-      (is (nil? (install/installed-payload fid-a)))
+      (is (nil? (rf.ssr.request/get-request fid-a)))
+      (is (not (contains? @rf.ssr.response/response-slots fid-a)))
+      (is (not (contains? @rf.ssr.error-listener/pending-error-traces fid-a)))
+      (is (nil? (rf.ssr.install/installed-payload fid-a)))
 
       ;; fid-b untouched.
-      (is (some? (request/get-request fid-b))
+      (is (some? (rf.ssr.request/get-request fid-b))
           "fid-b's request-slot survived fid-a's destroy")
-      (is (contains? @response/response-slots fid-b)
+      (is (contains? @rf.ssr.response/response-slots fid-b)
           "fid-b's response-slot survived fid-a's destroy")
-      (is (contains? @error-listener/pending-error-traces fid-b)
+      (is (contains? @rf.ssr.error-listener/pending-error-traces fid-b)
           "fid-b's pending-error-traces survived fid-a's destroy")
-      (is (some? (install/installed-payload fid-b))
+      (is (some? (rf.ssr.install/installed-payload fid-b))
           "fid-b's payload claim survived fid-a's destroy"))))

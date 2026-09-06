@@ -25,7 +25,7 @@
   inventory — never a bare token sweep."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [re-frame.api-manifest.gen :as gen]))
+            [re-frame.api-manifest.gen :as rf.api-manifest.gen]))
 
 ;; ---------------------------------------------------------------------------
 ;; Manifest indexing.
@@ -34,7 +34,7 @@
 (defn manifest-rows
   "The committed manifest's `:vars` vector (the resolution target)."
   []
-  (:vars (gen/read-committed-manifest)))
+  (:vars (rf.api-manifest.gen/read-committed-manifest)))
 
 ;; NB (rf2-6r9j.137): there is deliberately NO shared row index here. Each
 ;; check builds the projection its own contract needs — a bare-name set
@@ -58,7 +58,7 @@
 (defn repo-file
   "An `io/file` under the repo root for a repo-relative path segment seq."
   [& segs]
-  (apply io/file gen/repo-root segs))
+  (apply io/file rf.api-manifest.gen/repo-root segs))
 
 (defn markdown-files
   "Every `*.md` file under `dir` (an `io/file`), recursively, sorted by
@@ -80,7 +80,7 @@
   "`file` rendered relative to the repo root with forward slashes, for
    stable cross-platform reporting."
   [^java.io.File file]
-  (-> (.toPath (io/file gen/repo-root))
+  (-> (.toPath (io/file rf.api-manifest.gen/repo-root))
       (.relativize (.toPath file))
       str
       (str/replace "\\" "/")))

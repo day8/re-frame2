@@ -43,13 +43,13 @@
   exact bare bytes the production gate emits."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.source-coords :as source-coords]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.test-fixture :as tf]
-            [re-frame.views.jvm-source-coord-annotation :as jvm-annot]))
+            [re-frame.interop :as rf.interop]
+            [re-frame.source-coords :as rf.source-coords]
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
+            [re-frame.views.jvm-source-coord-annotation :as rf.views.jvm-source-coord-annotation]))
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 ;; ---- the canonical attribute-value shapes (shared spec) ------------------
 ;;
@@ -90,14 +90,14 @@
             the canonical <ns>:<sym>:<line>:<col> string — bytes match the
             literal the CLJS companion pins."
     (is (= expected-source-coord
-           (jvm-annot/format-source-coord fixture-id fixture-coords))
+           (rf.views.jvm-source-coord-annotation/format-source-coord fixture-id fixture-coords))
         "JVM data-rf2-source-coord value must match the canonical literal")))
 
 (deftest jvm-format-view-id-byte-identical-to-canonical
   (testing "rf2-8vi4q — the JVM `format-view-id` produces `(str id)`, the
             same `data-rf-view` value the CLJS host stamps. This is the
             attribute the SSR side previously never emitted."
-    (is (= expected-view-id (jvm-annot/format-view-id fixture-id))
+    (is (= expected-view-id (rf.views.jvm-source-coord-annotation/format-view-id fixture-id))
         "JVM data-rf-view value must match the canonical literal")))
 
 (deftest jvm-format-source-coord-degraded-shape-byte-identical
@@ -106,7 +106,7 @@
             CLJS helper's degraded shape. Per Spec 006 §Source-coord
             annotation."
     (is (= expected-source-coord-no-line-no-col
-           (jvm-annot/format-source-coord fixture-id fixture-coords-no-line-no-col))
+           (rf.views.jvm-source-coord-annotation/format-source-coord fixture-id fixture-coords-no-line-no-col))
         "JVM degraded source-coord must match the canonical degraded literal")))
 
 ;; ---- convergence: source-coords is the single cross-host owner (rf2-5q0jv) -
@@ -127,16 +127,16 @@
             owner emits the canonical literals and the JVM vars are the
             identical fn (not a re-derived copy that could drift)."
     (is (= expected-source-coord
-           (source-coords/format-source-coord fixture-id fixture-coords))
+           (rf.source-coords/format-source-coord fixture-id fixture-coords))
         "neutral owner must emit the canonical data-rf2-source-coord literal")
     (is (= expected-view-id
-           (source-coords/format-view-id fixture-id))
+           (rf.source-coords/format-view-id fixture-id))
         "neutral owner must emit the canonical data-rf-view literal")
-    (is (identical? source-coords/format-source-coord
-                    jvm-annot/format-source-coord)
+    (is (identical? rf.source-coords/format-source-coord
+                    rf.views.jvm-source-coord-annotation/format-source-coord)
         "JVM format-source-coord must be an alias of the neutral owner")
-    (is (identical? source-coords/format-view-id
-                    jvm-annot/format-view-id)
+    (is (identical? rf.source-coords/format-view-id
+                    rf.views.jvm-source-coord-annotation/format-view-id)
         "JVM format-view-id must be an alias of the neutral owner")))
 
 ;; ---- end-to-end byte parity: SSR-rendered HTML carries BOTH attributes ---
@@ -155,14 +155,14 @@
             root DOM element, and their values are exactly the shared
             formatters' output for the slot's stored coords."
     (rf/reg-view* fixture-id fixture-coords (fn [] [:p "body"]))
-    (let [html    (ssr/render-to-string [(rf/view fixture-id)] {})
+    (let [html    (rf.ssr/render-to-string [(rf/view fixture-id)] {})
           ;; The values the formatters produce for the coords actually
           ;; stored in the slot (the merge-coords result). Reading them off
           ;; the shared formatters keeps this test honest even if the fixture
           ;; coords are altered — it asserts the render used THE dialect, not
           ;; a hardcoded copy of it.
-          coord   (jvm-annot/format-source-coord fixture-id fixture-coords)
-          view-id (jvm-annot/format-view-id fixture-id)]
+          coord   (rf.views.jvm-source-coord-annotation/format-source-coord fixture-id fixture-coords)
+          view-id (rf.views.jvm-source-coord-annotation/format-view-id fixture-id)]
       ;; SEMANTIC, posture-independent (rf2-lwtlk): `(rf/view id)` resolves to
       ;; the registered view and the view renders its own root and body. The
       ;; gate can remove the attributes; it can never remove the element.
@@ -170,7 +170,7 @@
       (is (.endsWith html ">body</p>") (pr-str html))
 
       ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (.contains html (str "data-rf2-source-coord=\"" coord "\""))
             (str "server markup must carry the source-coord attribute; got: "
                  (pr-str html)))
@@ -187,7 +187,7 @@
       ;; wrapper is never installed, so the same callable head renders the
       ;; SAME element with neither attribute. Pinned by `=` rather than by a
       ;; `not contains?` pair, which would pass vacuously.
-      (when-not interop/debug-enabled?
+      (when-not rf.interop/debug-enabled?
         (is (= "<p>body</p>" html)
             (str "under the production gate the callable head must render the "
                  "bare root, both annotations elided; got: " (pr-str html)))))))

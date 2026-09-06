@@ -18,11 +18,11 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.ssr.ring :as ssr-ring]
-            [re-frame.ssr.ring.pipeline :as pipeline]
-            [re-frame.ssr.ring.test-support :as ts]))
+            [re-frame.ssr.ring :as rf.ssr.ring]
+            [re-frame.ssr.ring.pipeline :as rf.ssr.ring.pipeline]
+            [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]))
 
-(use-fixtures :each ts/reset-runtime)
+(use-fixtures :each rf.ssr.ring.test-support/reset-runtime)
 
 ;; ---- extraction helpers ---------------------------------------------------
 
@@ -93,7 +93,7 @@
             marker; no payload :rf/render-hash; head, __rf_payload, shell,
             status and headers are JVM-built; :root-view omitted without error"
     (register-app!)
-    (let [handler (ssr-ring/ssr-handler
+    (let [handler (rf.ssr.ring/ssr-handler
                     ;; No :root-view: with a custom renderer nothing reads it.
                     (assoc base-opts
                            :emit-hash? true
@@ -124,12 +124,12 @@
   (testing "rf2-8arzr.1 Acceptance 2 on the wire: status, Content-Type and
             the whole document are JVM-built around the renderer's body"
     (register-app!)
-    (let [handler (ssr-ring/ssr-handler
+    (let [handler (rf.ssr.ring/ssr-handler
                     (assoc base-opts :renderer fixed-renderer))
-          client  (ts/new-http-client)]
-      (ts/with-jetty [port handler]
+          client  (rf.ssr.ring.test-support/new-http-client)]
+      (rf.ssr.ring.test-support/with-jetty [port handler]
         (let [{:keys [status headers body]}
-              (ts/http-get client port "/seam" 10 :with-headers? true)
+              (rf.ssr.ring.test-support/http-get client port "/seam" 10 :with-headers? true)
               ct (first (content-type-of headers))]
           (is (= 200 status))
           (is (str/includes? (str ct) "text/html"))
@@ -147,10 +147,10 @@
   (testing "rf2-8arzr S1: with a custom :renderer, :root-view is optional and
             ignored — a supplied one is simply never read"
     (register-app!)
-    (let [without ((ssr-ring/ssr-handler
+    (let [without ((rf.ssr.ring/ssr-handler
                      (assoc base-opts :renderer fixed-renderer))
                    request)
-          with    ((ssr-ring/ssr-handler
+          with    ((rf.ssr.ring/ssr-handler
                      (assoc base-opts
                             :root-view [(rf/view :seam/root)]
                             :renderer  fixed-renderer))
@@ -164,13 +164,13 @@
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf\.error/ssr-ring-missing-root-view"
-          (ssr-ring/ssr-handler base-opts))))
+          (rf.ssr.ring/ssr-handler base-opts))))
   (testing "…an explicit-nil :renderer is absent, not custom: the default
             renderer will read :root-view, so it is still required"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf\.error/ssr-ring-missing-root-view"
-          (ssr-ring/ssr-handler (assoc base-opts :renderer nil))))))
+          (rf.ssr.ring/ssr-handler (assoc base-opts :renderer nil))))))
 
 ;; ===========================================================================
 ;; S1 — what the renderer is handed, and where it runs
@@ -183,7 +183,7 @@
             frame-relative read resolves without naming the frame"
     (register-app!)
     (let [seen    (atom nil)
-          handler (ssr-ring/ssr-handler
+          handler (rf.ssr.ring/ssr-handler
                     (assoc base-opts
                            :root-view [(rf/view :seam/root)]
                            :renderer
@@ -221,9 +221,9 @@
             marker and the payload hash still agree"
     (register-app!)
     (let [opts     (assoc base-opts :root-view (fn [] ((rf/view :seam/root))))
-          implicit ((ssr-ring/ssr-handler opts) request)
-          explicit ((ssr-ring/ssr-handler
-                      (assoc opts :renderer pipeline/local-renderer))
+          implicit ((rf.ssr.ring/ssr-handler opts) request)
+          explicit ((rf.ssr.ring/ssr-handler
+                      (assoc opts :renderer rf.ssr.ring.pipeline/local-renderer))
                     request)]
       (is (= (:status implicit) (:status explicit)))
       (is (= (:headers implicit) (:headers explicit)))
@@ -245,7 +245,7 @@
             :rf/render-hash; the wire marker is the renderer's own to stamp"
     (register-app!)
     (let [stamped "<div data-rf-render-hash=\"0badf00d\">stamped</div>"
-          handler (ssr-ring/ssr-handler
+          handler (rf.ssr.ring/ssr-handler
                     (assoc base-opts
                            :root-view [(rf/view :seam/root)]
                            :renderer  (fn [_] {:body-html   stamped
@@ -257,7 +257,7 @@
   (testing "…and a hash returned WITHOUT a marker in the body is not stamped
             by the pipeline: the payload carries it, the wire does not"
     (register-app!)
-    (let [handler (ssr-ring/ssr-handler
+    (let [handler (rf.ssr.ring/ssr-handler
                     (assoc base-opts
                            :root-view [(rf/view :seam/root)]
                            :renderer  (fn [_] {:body-html   "<div>bare</div>"
@@ -278,7 +278,7 @@
             ex-data naming the opt, the value and a recovery"
     (register-app!)
     (let [ex   (is (thrown? clojure.lang.ExceptionInfo
-                     (ssr-ring/stream-handler
+                     (rf.ssr.ring/stream-handler
                        (assoc base-opts
                               :root-view [(rf/view :seam/root)]
                               :renderer  fixed-renderer))))
@@ -298,7 +298,7 @@
             refuses rather than silently rendering nothing"
     (register-app!)
     (let [ex (is (thrown? clojure.lang.ExceptionInfo
-                   (ssr-ring/stream-handler
+                   (rf.ssr.ring/stream-handler
                      (assoc base-opts :renderer fixed-renderer))))]
       (is (= :rf.error/ssr-streaming-unsupported-opt
              (:rf.error/id (ex-data ex))))
@@ -310,7 +310,7 @@
     (doseq [opts [(assoc base-opts :root-view [(rf/view :seam/root)])
                   (assoc base-opts :root-view [(rf/view :seam/root)]
                                    :renderer nil)]]
-      (let [handler  (ssr-ring/stream-handler opts)
+      (let [handler  (rf.ssr.ring/stream-handler opts)
             response (handler request)
             body     (drain-stream (:body response))]
         (is (= 200 (:status response)))
@@ -326,7 +326,7 @@
             handles it — projected 500, the projector's public message, no
             hydration payload, no throwable detail on the wire"
     (register-app!)
-    (let [handler (ssr-ring/ssr-handler
+    (let [handler (rf.ssr.ring/ssr-handler
                     (assoc base-opts
                            :root-view [(rf/view :seam/root)]
                            :renderer

@@ -16,7 +16,7 @@
   contract."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.late-bind :as late-bind]
+            [re-frame.late-bind :as rf.late-bind]
             ;; Per rf2-t0hq the CLJS default validator routes through the
             ;; late-bind hook `:schemas/malli-validate`, published at load
             ;; time by the `re-frame.schemas.malli` adapter ns — which the
@@ -24,9 +24,9 @@
             ;; Ruling A). Requiring `re-frame.schemas` is therefore the
             ;; whole opt-in: there is no second require for an app to make,
             ;; and no "schemas loaded, adapter absent" posture to model.
-            [re-frame.schemas :as schemas]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support])
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support])
   ;; rf2-bhh8my: the shared trace recorder supersedes the per-test
   ;; register-listener!/unregister-listener! capture brackets. The macro
   ;; ships from the `#?(:clj ...)` arm of re-frame.test-support, so CLJS
@@ -49,8 +49,8 @@
 ;; snapshot still holds those entries, so the restore on the way out
 ;; leaves nine-states.core's schemas intact for downstream tests.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter            reagent-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter            rf.adapter.reagent/adapter
      :clear-app-schemas? true}))
 
 ;; ---- live dispatch fires app-db schema validation -------------------------
@@ -144,10 +144,10 @@
             require: the facade loads the Malli adapter (rf2-v96fh), so
             the hook is bound by the time any app code runs. We unbind it
             deliberately here and restore it in the `finally`."
-    (let [prior-v (late-bind/get-fn :schemas/malli-validate)
-          prior-e (late-bind/get-fn :schemas/malli-explain)]
-      (late-bind/set-fn! :schemas/malli-validate nil)
-      (late-bind/set-fn! :schemas/malli-explain  nil)
+    (let [prior-v (rf.late-bind/get-fn :schemas/malli-validate)
+          prior-e (rf.late-bind/get-fn :schemas/malli-explain)]
+      (rf.late-bind/set-fn! :schemas/malli-validate nil)
+      (rf.late-bind/set-fn! :schemas/malli-explain  nil)
       (try
         (rf/reg-app-schema [:n] :int)
         (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "definitely-not-an-int")}))
@@ -160,8 +160,8 @@
                malformed commit silently 'conforms' to the spec's
                defensive default"))
         (finally
-          (late-bind/set-fn! :schemas/malli-validate prior-v)
-          (late-bind/set-fn! :schemas/malli-explain  prior-e))))))
+          (rf.late-bind/set-fn! :schemas/malli-validate prior-v)
+          (rf.late-bind/set-fn! :schemas/malli-explain  prior-e))))))
 
 ;; ---- rf2-jwm4 — event-payload validation under Reagent -------------------
 ;;
@@ -319,7 +319,7 @@
             canonical wire form."
     (rf/reg-app-schema [:user]  [:map [:id :uuid]])
     (rf/reg-app-schema [:todos] [:vector :string])
-    (let [d (schemas/app-schemas-digest)]
+    (let [d (rf.schemas/app-schemas-digest)]
       (is (string? d)
           "digest returns a string")
       (is (re-matches #"sha256:[0-9a-f]{16}" d)
@@ -328,7 +328,7 @@
       ;; — produces the well-defined empty-set digest.
       (rf/make-frame {:id :test/empty-cljs})
       (is (= "sha256:e3b0c44298fc1c14"
-             (schemas/app-schemas-digest :test/empty-cljs))
+             (rf.schemas/app-schemas-digest :test/empty-cljs))
           "empty-set digest is byte-identical with the JVM path"))))
 
 ;; ---- rf2-froe — set-schema-validator! seam under CLJS ---------------------
@@ -340,7 +340,7 @@
             Locks the cross-substrate seam contract."
     (let [calls (atom 0)
           custom (fn [_s v] (swap! calls inc) (= v 42))]
-      (schemas/set-schema-validator! custom)
+      (rf.schemas/set-schema-validator! custom)
       (try
         (rf/reg-app-schema [:n] :int)
         (rf/reg-event :n/init  (fn [_ _] {:db {:n 42}}))
@@ -357,13 +357,13 @@
                 "the custom validator's falsey result fired the failure trace once
                  — for the :n/break commit; :n/init's value of 42 passed.")))
         (finally
-          (schemas/reset-schema-validator!))))))
+          (rf.schemas/reset-schema-validator!))))))
 
 (deftest nil-validator-disables-reagent-validation
   (testing "Per Spec 010 §Non-Malli validators (rf2-froe): nil validator
             disables every validation site under Reagent — including
             the live :db commit that would otherwise fire."
-    (schemas/set-schema-validator! nil)
+    (rf.schemas/set-schema-validator! nil)
     (try
       (rf/reg-app-schema [:n] :int)
       (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "definitely-not-an-int")}))
@@ -374,7 +374,7 @@
                             @traces))
             "no validation trace fires when the validator is nil"))
       (finally
-        (schemas/reset-schema-validator!)))))
+        (rf.schemas/reset-schema-validator!)))))
 
 ;; ---- rf2-r2uh — :rf.schema/at-boundary dev-mode no-op (rf2-84e9) ---------
 ;;
@@ -458,11 +458,11 @@
 (deftest humanizer-published-in-dev-cljs
   (testing "rf2-tiymn — under goog.DEBUG=true the adapter has published the
             humanizer, and an app-db failure carries :explain-humanized"
-    (is (fn? (late-bind/get-fn :schemas/humanize-explain!))
+    (is (fn? (rf.late-bind/get-fn :schemas/humanize-explain!))
         "the humanize hook is bound in a development build")
     (rf/reg-app-schema [:auth :token] [:string])
     (with-trace-recorder! [traces]
-      (schemas/validate-app-schema! {:auth {:token 42}} :auth/init-bad)
+      (rf.schemas/validate-app-schema! {:auth {:token 42}} :auth/init-bad)
       (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                              @traces))]
         (is (some? v) "a validation-failure trace fired")

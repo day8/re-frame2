@@ -28,18 +28,18 @@
   registrations, which would silently turn a dispatch into a no-op."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
             ;; Loading the machines artefact publishes the
             ;; `:machines/rearm-after-hydration!` hook the hydrate handler
             ;; gates on, and registers `:rf.machine/hydrate-rearm`.
             [re-frame.machines]
-            [re-frame.machines.timer :as timer]
-            [re-frame.router :as router]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.payload-policy :as payload-policy]))
+            [re-frame.machines.timer :as rf.machines.timer]
+            [re-frame.router :as rf.router]
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]))
 
-(use-fixtures :once (fn [f] (rf/init! ssr/adapter) (f)))
+(use-fixtures :once (fn [f] (rf/init! rf.ssr/adapter) (f)))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures
@@ -60,7 +60,7 @@
 (defn- inner
   "`frame-id`'s inner `:after` timer table, or `{}` when it holds none."
   [frame-id]
-  (get @timer/after-timers frame-id {}))
+  (get @rf.machines.timer/after-timers frame-id {}))
 
 (defn- fire!
   "Run a captured host-clock thunk to completion. The thunk dispatches the
@@ -69,7 +69,7 @@
   to an inline call is the established seam for observing an async drain
   deterministically on both hosts."
   [thunk]
-  (with-redefs [interop/next-tick (fn [f] (f) nil)]
+  (with-redefs [rf.interop/next-tick (fn [f] (f) nil)]
     (thunk)))
 
 (def ^:private waiting-machine
@@ -92,12 +92,12 @@
     (rf/dispatch-sync [machine-id [:go]] {:frame sfid})
     (is (empty? (inner sfid))
         "precondition: the SERVER armed no `:after` host timer")
-    (payload-policy/build-payload
+    (rf.ssr.payload-policy/build-payload
       nil
       (rf/app-db-value sfid)
       "server-hash-1"
-      {:runtime-db (payload-policy/project-runtime-db
-                     (frame/frame-runtime-db-value sfid) sfid)})))
+      {:runtime-db (rf.ssr.payload-policy/project-runtime-db
+                     (rf.frame/frame-runtime-db-value sfid) sfid)})))
 
 ;; ---------------------------------------------------------------------------
 ;; The seam works end to end
@@ -120,11 +120,11 @@
           "precondition: so did the per-decl-path epoch")
       (is (empty? (inner cfid)) "precondition: the client holds no timers yet")
 
-      (with-redefs [interop/schedule-after! (fn [t ms]
+      (with-redefs [rf.interop/schedule-after! (fn [t ms]
                                              (swap! thunks conj t)
                                              (swap! armed conj ms)
                                              ::handle)]
-        (router/dispatch-sync! [:rf/hydrate payload] {:frame cfid}))
+        (rf.router/dispatch-sync! [:rf/hydrate payload] {:frame cfid}))
 
       (let [table (inner cfid)]
         (is (= 1 (count table))
@@ -139,13 +139,13 @@
             "for the FULL declared delay; nothing on the wire records a
              schedule instant to compute a remainder from"))
 
-      (is (= :waiting (get-in (frame/frame-runtime-db-value cfid)
+      (is (= :waiting (get-in (rf.frame/frame-runtime-db-value cfid)
                               [:rf.runtime/machines :snapshots :ssrrearm/one :state])))
       (fire! (first @thunks))
-      (is (= :timeout (get-in (frame/frame-runtime-db-value cfid)
+      (is (= :timeout (get-in (rf.frame/frame-runtime-db-value cfid)
                               [:rf.runtime/machines :snapshots :ssrrearm/one :state]))
           "the hydrated timer FIRED and drove the declared transition")
-      (is (= 1 (get-in (frame/frame-runtime-db-value cfid)
+      (is (= 1 (get-in (rf.frame/frame-runtime-db-value cfid)
                        [:rf.runtime/machines :snapshots :ssrrearm/one :data :entries]))
           (str "and `:entry` still ran exactly once — the server's. The re-arm "
                "reconstructs host work; it does not replay history.")))))
@@ -159,9 +159,9 @@
             loopback / test-harness shape — starts no host clocks"
     (let [payload (server-render! :ssrrearm/srv)
           target  (fresh-frame! :server)]
-      (with-redefs [interop/schedule-after! (fn [_t _ms] ::handle)]
-        (router/dispatch-sync! [:rf/hydrate payload] {:frame target}))
-      (is (= :waiting (get-in (frame/frame-runtime-db-value target)
+      (with-redefs [rf.interop/schedule-after! (fn [_t _ms] ::handle)]
+        (rf.router/dispatch-sync! [:rf/hydrate payload] {:frame target}))
+      (is (= :waiting (get-in (rf.frame/frame-runtime-db-value target)
                               [:rf.runtime/machines :snapshots :ssrrearm/srv :state]))
           "the payload DID install — so the empty table below is the gate
            working, not the hydration failing")
@@ -173,24 +173,24 @@
             therefore arms nothing"
     (let [good (server-render! :ssrrearm/rej)
           cfid (fresh-frame! :client)]
-      (with-redefs [interop/schedule-after! (fn [_t _ms] ::handle)]
+      (with-redefs [rf.interop/schedule-after! (fn [_t _ms] ::handle)]
         ;; (a) malformed — a present-but-non-map `:rf/app-db` slice.
-        (router/dispatch-sync! [:rf/hydrate (assoc good :rf/app-db "not-a-map")]
+        (rf.router/dispatch-sync! [:rf/hydrate (assoc good :rf/app-db "not-a-map")]
                                {:frame cfid})
         (is (empty? (inner cfid)) "malformed payload: rejected, nothing armed")
-        (is (nil? (get-in (frame/frame-runtime-db-value cfid)
+        (is (nil? (get-in (rf.frame/frame-runtime-db-value cfid)
                           [:rf.runtime/machines :snapshots :ssrrearm/rej]))
             "and nothing installed either — the rejection is total")
 
         ;; (b) wrong frame — a payload stamped for a DIFFERENT frame id.
-        (router/dispatch-sync! [:rf/hydrate (assoc good :rf/frame-id :ssrrearm/somewhere-else)]
+        (rf.router/dispatch-sync! [:rf/hydrate (assoc good :rf/frame-id :ssrrearm/somewhere-else)]
                                {:frame cfid})
         (is (empty? (inner cfid)) "wrong-frame payload: rejected, nothing armed")
 
         ;; CONTROL — the same payload, unmangled, on the same frame DOES arm.
         ;; Without this the two assertions above would pass for a payload
         ;; that could never arm anything in the first place.
-        (router/dispatch-sync! [:rf/hydrate good] {:frame cfid})
+        (rf.router/dispatch-sync! [:rf/hydrate good] {:frame cfid})
         (is (= 1 (count (inner cfid)))
             "control: the well-formed payload arms, so the rejections above
              are about the rejection and not about the payload")))))
@@ -200,8 +200,8 @@
             there is no server-settled machine state to reconstruct from"
     (let [good (server-render! :ssrrearm/nort)
           cfid (fresh-frame! :client)]
-      (with-redefs [interop/schedule-after! (fn [_t _ms] ::handle)]
-        (router/dispatch-sync! [:rf/hydrate (dissoc good :rf/runtime-db)]
+      (with-redefs [rf.interop/schedule-after! (fn [_t _ms] ::handle)]
+        (rf.router/dispatch-sync! [:rf/hydrate (dissoc good :rf/runtime-db)]
                                {:frame cfid}))
       (is (empty? (inner cfid))
           "no runtime-db slice, no re-arm"))))

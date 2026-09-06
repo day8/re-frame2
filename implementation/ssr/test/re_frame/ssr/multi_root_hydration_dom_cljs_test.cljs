@@ -21,15 +21,15 @@
   actually asserts."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.boot :as boot]
-            [re-frame.ssr.install :as install]
-            [re-frame.ssr.manifest :as manifest]
-            [re-frame.ssr.payload-policy :as payload-policy]))
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.boot :as rf.ssr.boot]
+            [re-frame.ssr.install :as rf.ssr.install]
+            [re-frame.ssr.manifest :as rf.ssr.manifest]
+            [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]))
 
-(use-fixtures :once (fn [f] (rf/init! ssr/adapter) (f)))
+(use-fixtures :once (fn [f] (rf/init! rf.ssr/adapter) (f)))
 
-(use-fixtures :each (fn [f] (install/reset-installed-payloads!) (f)))
+(use-fixtures :each (fn [f] (rf.ssr.install/reset-installed-payloads!) (f)))
 
 (defn- browser? []
   (and (exists? js/document)
@@ -69,10 +69,10 @@
     (is (= :client (:platform (rf/frame-meta (fresh-frame!)))))))
 
 (defn- payload-for [db]
-  (payload-policy/build-payload nil db "server-hash-1" {}))
+  (rf.ssr.payload-policy/build-payload nil db "server-hash-1" {}))
 
 (defn- manifest-for [root-id]
-  {:rf.root/schema-version manifest/schema-version
+  {:rf.root/schema-version rf.ssr.manifest/schema-version
    :root-id                root-id
    :view-id                :app/root
    :element-locator        {:id (name root-id)}
@@ -92,7 +92,7 @@
           (apply str
                  (for [rid root-ids]
                    (str "<div id=\"" (name rid) "\">server markup</div>"
-                        (manifest/script-html (manifest-for rid))))))
+                        (rf.ssr.manifest/script-html (manifest-for rid))))))
     (.appendChild (.-body js/document) page)
     page))
 
@@ -113,7 +113,7 @@
           (doseq [rid [:page/shop :page/cart :page/nav]]
             (let [fid (fresh-frame!)
                   {:keys [root-id manifest]}
-                  (install/preflight! 'test {:payload    (payload-for {:count 7})
+                  (rf.ssr.install/preflight! 'test {:payload    (payload-for {:count 7})
                                              :payload-id fid
                                              :container  (container page rid)})]
               (is (= rid root-id)
@@ -133,7 +133,7 @@
         (.appendChild (.-body js/document) page)
         (try
           (let [fid  (fresh-frame!)
-                data (try (install/preflight!
+                data (try (rf.ssr.install/preflight!
                            'test {:payload    (payload-for {:count 7})
                                   :payload-id fid
                                   :container  (.querySelector page "#lonely")})
@@ -141,7 +141,7 @@
                           (catch :default e (ex-data e)))]
             (is (= :rf.error/root-manifest-invalid (:rf.error/id data)))
             (is (= :manifest (:missing data)))
-            (is (nil? (install/installed-payload fid))
+            (is (nil? (rf.ssr.install/installed-payload fid))
                 "preflight failed at step 1 — the payload was never claimed"))
           (finally (.remove page)))))))
 
@@ -158,7 +158,7 @@
         (.appendChild (.-body js/document) page)
         (try
           (is (= :rf.error/root-manifest-invalid
-                 (try (install/preflight!
+                 (try (rf.ssr.install/preflight!
                        'test {:payload    (payload-for {:count 7})
                               :payload-id (fresh-frame!)
                               :container  (.querySelector page "#shop")})
@@ -183,10 +183,10 @@
           (rf/reg-event ::bump (fn [{:keys [db]} _] {:db (update db :count inc)}))
           (let [payload (payload-for {:count 7})]
             ;; Root shop boots off the page.
-            (boot/hydrate! {:frame fid :payload payload
+            (rf.ssr.boot/hydrate! {:frame fid :payload payload
                             :container (container page :page/shop)})
             (is (= {:count 7} (rf/app-db-value fid)))
-            (is (= :page/shop (:installed-by (install/installed-payload fid)))
+            (is (= :page/shop (:installed-by (rf.ssr.install/installed-payload fid)))
                 "the installer was attributed from the DISCOVERED manifest —
                  no :root-id was passed in")
 
@@ -194,12 +194,12 @@
             (is (= {:count 8} (rf/app-db-value fid)))
 
             ;; Root cart boots second, off the same page.
-            (boot/hydrate! {:frame fid :payload payload
+            (rf.ssr.boot/hydrate! {:frame fid :payload payload
                             :container (container page :page/cart)})
             (is (= {:count 8} (rf/app-db-value fid))
                 "the second root found the payload live and did not re-seed —
                  the client mutation between the two boots survived")
-            (is (= :page/shop (:installed-by (install/installed-payload fid)))
+            (is (= :page/shop (:installed-by (rf.ssr.install/installed-payload fid)))
                 "root cart did not take over the claim"))
           (finally (.remove page)))))))
 
@@ -212,9 +212,9 @@
       (let [page (render-page! [:page/shop :page/cart])
             fid  (fresh-frame!)]
         (try
-          (boot/hydrate! {:frame fid :payload (payload-for {:count 7})
+          (rf.ssr.boot/hydrate! {:frame fid :payload (payload-for {:count 7})
                           :container (container page :page/shop)})
-          (let [data (try (boot/hydrate! {:frame fid
+          (let [data (try (rf.ssr.boot/hydrate! {:frame fid
                                           :payload (payload-for {:count 99})
                                           :container (container page :page/cart)})
                           nil

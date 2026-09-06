@@ -67,8 +67,8 @@
   directly, as the bundled Ring adapter does."
   (:require [clojure.data]
             [clojure.string]
-            [re-frame.error :as error]
-            [re-frame.frame :as frame]
+            [re-frame.error :as rf.error]
+            [re-frame.frame :as rf.frame]
             ;; rf2-j81hs — `re-frame.registrar` / `re-frame.interop` dropped
             ;; with the walker's keyword-view branch (registry lookup +
             ;; debug-gated source-coord injection). The shell walk no longer
@@ -78,12 +78,12 @@
             ;; require is acyclic: the component expands TO the marker this
             ;; walker consumes, and both sides read the slot path from one
             ;; source rather than repeating the literal.
-            [re-frame.ssr.suspense :as suspense]
-            [re-frame.ssr.emit :as emit]
-            [re-frame.ssr.html-helpers :as html]
-            [re-frame.ssr.payload-policy :as payload-policy]
-            [re-frame.ssr.streaming.constants :as wire]
-            [re-frame.trace :as trace]))
+            [re-frame.ssr.suspense :as rf.ssr.suspense]
+            [re-frame.ssr.emit :as rf.ssr.emit]
+            [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]
+            [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
+            [re-frame.ssr.streaming.constants :as rf.ssr.streaming.constants]
+            [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -108,8 +108,8 @@
   and open/close-tag wrapping live here once. The three public builders
   below are thin one-liners over this."
   [id markers body-html]
-  (str "<template " wire/attr-suspense-id "=\""
-       (html/escape-attr (str id))
+  (str "<template " rf.ssr.streaming.constants/attr-suspense-id "=\""
+       (rf.ssr.html-helpers/escape-attr (str id))
        "\" " markers ">"
        body-html
        "</template>"))
@@ -131,14 +131,14 @@
   therefore requires the client runtime to show fallbacks — non-JS clients
   see the shell structure without painted skeletons until the final payload."
   [id fallback-html]
-  (suspense-template id (str wire/attr-suspense-fallback "=\"1\"") fallback-html))
+  (suspense-template id (str rf.ssr.streaming.constants/attr-suspense-fallback "=\"1\"") fallback-html))
 
 (defn resolved-template
   "The resolved-subtree chunk shape — flushed when a continuation drains
   successfully. The client-side streaming runtime swaps the matching
   fallback placeholder for this resolved content in DOM."
   [id resolved-html]
-  (suspense-template id (str wire/attr-suspense-resolved "=\"1\"") resolved-html))
+  (suspense-template id (str rf.ssr.streaming.constants/attr-suspense-resolved "=\"1\"") resolved-html))
 
 (defn failed-template
   "The failed-continuation chunk shape — same wire shape as
@@ -147,8 +147,8 @@
   surfacing a 500. Per Spec 011 §Failure semantics — inline fallback."
   [id fallback-html]
   (suspense-template id
-                     (str wire/attr-suspense-resolved "=\"1\" "
-                          wire/attr-suspense-failed "=\"1\"")
+                     (str rf.ssr.streaming.constants/attr-suspense-resolved "=\"1\" "
+                          rf.ssr.streaming.constants/attr-suspense-failed "=\"1\"")
                      fallback-html))
 
 (defn hydrate-delta-script
@@ -156,8 +156,8 @@
   reads the EDN, then `(swap! app-db merge delta)`s. Per Spec 011
   §Hydration interleaving."
   [id delta-edn]
-  (str "<script " wire/attr-suspense-hydrate "=\""
-       (html/escape-attr (str id))
+  (str "<script " rf.ssr.streaming.constants/attr-suspense-hydrate "=\""
+       (rf.ssr.html-helpers/escape-attr (str id))
        "\" type=\"application/edn\">"
        ;; EDN-aware escape: `<` inside string
        ;; literals becomes `<` so a delta carrying `</script>` from
@@ -166,7 +166,7 @@
        ;; unchanged through the client's EDN reader. A `</` / `<!`
        ;; breakout in a token position fails loud. Same encoder as the
        ;; final-payload escape in payload-script-tag.
-       (html/escape-edn-script-body delta-edn)
+       (rf.ssr.html-helpers/escape-edn-script-body delta-edn)
        "</script>"))
 
 ;; ---- per-subtree hydration delta -----------------------------------------
@@ -252,14 +252,14 @@
   [delta frame-id {:as policy-opts}]
   (if-not (seq delta)
     {}
-    (let [allowed (payload-policy/apply-policy delta policy-opts)]
+    (let [allowed (rf.ssr.payload-policy/apply-policy delta policy-opts)]
       ;; An allowlist that drops every changed key yields an empty map — there
       ;; is nothing to project (and projecting `{}` against a fail-closed
       ;; unresolvable frame would redact the empty map to the scalar
       ;; `:rf/redacted` sentinel, which the host's `(seq …)` emit guard cannot
       ;; walk). Short-circuit to `{}` so the host emits no delta script.
       (if (seq allowed)
-        (payload-policy/project-app-db-egress allowed frame-id)
+        (rf.ssr.payload-policy/project-app-db-egress allowed frame-id)
         {}))))
 
 ;; ---- continuation registry (per-request, transient) -----------------------
@@ -321,7 +321,7 @@
     (when (seq duplicate-wire-ids)
       (doseq [duplicate-wire-id duplicate-wire-ids]
         (let [duplicate-group (continuations-by-wire-id duplicate-wire-id)]
-          (trace/emit-error! :rf.error/suspense-boundary-duplicate-id
+          (rf.trace/emit-error! :rf.error/suspense-boundary-duplicate-id
                              {:id       duplicate-wire-id
                               :raw-ids  (mapv :id duplicate-group)
                               :count    (count duplicate-group)
@@ -372,21 +372,21 @@
   parsed tag."
   [element continuation-accumulator]
   (let [head                  (first element)
-        [tag-name tag-attrs]  (emit/parse-tag-name head)
+        [tag-name tag-attrs]  (rf.ssr.emit/parse-tag-name head)
         [user-attrs children] (if (map? (second element))
                                 [(second element) (drop 2 element)]
                                 [{} (rest element)])
-        merged-attrs          (emit/merge-class-attrs tag-attrs user-attrs)
+        merged-attrs          (rf.ssr.emit/merge-class-attrs tag-attrs user-attrs)
         ;; Void + raw-text classification are case-insensitive, mirroring
         ;; the non-streaming emitter. A `[:BR]` admitted by
         ;; `validate-tag-name!` must be recognised as void here too, or the
         ;; shell walker emits a `<BR></BR>` open+close pair.
         normalised-tag-name   (clojure.string/lower-case tag-name)
-        void?                 (contains? emit/void-elements
+        void?                 (contains? rf.ssr.emit/void-elements
                                          (keyword normalised-tag-name))
-        raw-text?             (contains? html/raw-text-tags normalised-tag-name)]
+        raw-text?             (contains? rf.ssr.html-helpers/raw-text-tags normalised-tag-name)]
     (cond
-      void?     (str "<" tag-name (emit/attr-string merged-attrs) ">")
+      void?     (str "<" tag-name (rf.ssr.emit/attr-string merged-attrs) ">")
       ;; rf2-xbvzh — mirror the non-streaming emitter: an ordinary inline
       ;; `<script>`/`<style>` with STRING content is author content, emitted
       ;; VERBATIM with only the shared closing-sequence rewrite
@@ -394,12 +394,12 @@
       ;; S5 serialiser. Any structural child falls through to the standard
       ;; child walk (element children pass through inert).
       (and raw-text? (seq children) (every? string? children))
-      (str "<" tag-name (emit/attr-string merged-attrs) ">"
-           (html/escape-raw-text normalised-tag-name
+      (str "<" tag-name (rf.ssr.emit/attr-string merged-attrs) ">"
+           (rf.ssr.html-helpers/escape-raw-text normalised-tag-name
                                  (clojure.string/join children))
            "</" tag-name ">")
       :else
-      (str "<" tag-name (emit/attr-string merged-attrs) ">"
+      (str "<" tag-name (rf.ssr.emit/attr-string merged-attrs) ">"
            (walk-children children continuation-accumulator)
            "</" tag-name ">"))))
 
@@ -418,7 +418,7 @@
         children (vec (drop 2 element))
         child-count (count children)]
     (when-not (suspense-attrs? attrs)
-      (error/throw-error!
+      (rf.error/throw-error!
         :rf.error/suspense-boundary-invalid-attrs
         'rf.ssr/streaming
         (str ":rf/suspense-boundary requires an attrs map with both "
@@ -441,7 +441,7 @@
           ;; walk — fallbacks cannot nest suspense-boundaries (they
           ;; render synchronously inline). A `:rf/suspense-boundary`
           ;; INSIDE a fallback is a programmer error; we do not check.
-          fallback-html (emit/render-to-string fallback nil)]
+          fallback-html (rf.ssr.emit/render-to-string fallback nil)]
       (record-continuation! continuation-accumulator id subtree fallback)
       (fallback-template id fallback-html))))
 
@@ -479,14 +479,14 @@
         ;; as raw text. Delegate to the standard emitter so the single
         ;; `:rf.error/ssr-reagent-native-head` throw lives in one place.
         (= :> head)
-        (emit/emit-element element)
+        (rf.ssr.emit/emit-element element)
 
         ;; An unrecognised head in the reserved `:rf/*` scheme — delegate
         ;; to the standard emitter so the single
         ;; `:rf.error/invalid-hiccup-head` reserved-head throw lives in
         ;; one place, exactly as the `:>` branch above does (rf2-j81hs).
-        (emit/reserved-rf-head? head)
-        (emit/reject-reserved-rf-hiccup-head! element head)
+        (rf.ssr.emit/reserved-rf-head? head)
+        (rf.ssr.emit/reject-reserved-rf-hiccup-head! element head)
 
         ;; DOM / custom element — always recurse via `walk-dom-tag` so
         ;; nested suspense-boundaries are reachable. Per rf2-muasb the
@@ -525,7 +525,7 @@
     ;; (outer fn → inner render fn) identically to the sync emitter: the
     ;; inner fn is invoked once with the same args rather than left to
     ;; stringify its `.toString` as page text.
-    (walk-shell (emit/resolve-component-head (first element) (rest element))
+    (walk-shell (rf.ssr.emit/resolve-component-head (first element) (rest element))
                 continuation-accumulator)
 
     ;; rf2-y1jbaq — a vector reaching here (not a suspense boundary, not a
@@ -535,14 +535,14 @@
     ;; `(sequential? element)` and splice it as a child-seq, which silently drops
     ;; the bad head and could ride attacker-controlled child strings.
     (vector? element)
-    (emit/reject-invalid-hiccup-head! element)
+    (rf.ssr.emit/reject-invalid-hiccup-head! element)
 
     (sequential? element)
     (walk-children element continuation-accumulator)
 
     :else
     ;; Scalar / no-recursion-needed — delegate to the standard emitter.
-    (emit/emit-element element)))
+    (rf.ssr.emit/emit-element element)))
 
 ;; ---- public surface ------------------------------------------------------
 
@@ -568,7 +568,7 @@
   ;; walker's DOM-tag emissions and any inline fallback renders share
   ;; one cache for the whole shell pass. The cache lives only for the
   ;; duration of `render-shell`.
-  (binding [emit/*tag-name-cache* (volatile! {})]
+  (binding [rf.ssr.emit/*tag-name-cache* (volatile! {})]
     (let [continuation-accumulator (new-continuation-accumulator)
           shell-html               (walk-shell root-hiccup
                                                 continuation-accumulator)
@@ -618,7 +618,7 @@
   ;; walked with. Apps that need true async-resolution per-subtree wire
   ;; their fetches as initial-events-time fanout (the test below
   ;; demonstrates the pattern); see Spec 011 §Streaming SSR.
-  (let [before-db (frame/frame-app-db-value frame-id)]
+  (let [before-db (rf.frame/frame-app-db-value frame-id)]
     (try
       ;; Bind the per-render parse-tag-name memo (mirrors `render-shell`)
       ;; and drain the subtree through `walk-shell` so a nested boundary
@@ -626,12 +626,12 @@
       ;; emitter's `:rf/suspense-boundary` reject. `dedupe-continuations`
       ;; applies the same last-write-wins duplicate-id contract within
       ;; this continuation's nested registrations.
-      (binding [emit/*tag-name-cache* (volatile! {})]
+      (binding [rf.ssr.emit/*tag-name-cache* (volatile! {})]
         (let [continuation-accumulator (new-continuation-accumulator)
               resolved-html (walk-shell subtree continuation-accumulator)
               nested-continuations (dedupe-continuations
                                      @continuation-accumulator)
-              after-db      (frame/frame-app-db-value frame-id)
+              after-db      (rf.frame/frame-app-db-value frame-id)
               delta         (subtree-delta before-db after-db)]
           {:id            id
            :html          resolved-html
@@ -639,14 +639,14 @@
            :failed?       false
            :continuations nested-continuations}))
       (catch #?(:clj Throwable :cljs :default) render-throwable
-        (trace/emit-error! :rf.ssr/suspense-boundary-failed
+        (rf.trace/emit-error! :rf.ssr/suspense-boundary-failed
                            {:id        id
                             :frame     frame-id
                             :exception (#?(:clj .getMessage :cljs ex-message)
                                         render-throwable)
                             :recovery  :inline-fallback})
         (let [fallback-html (try
-                              (emit/render-to-string fallback nil)
+                              (rf.ssr.emit/render-to-string fallback nil)
                               (catch #?(:clj Throwable :cljs :default) _
                                 ;; Fallback render also threw — emit
                                 ;; an empty placeholder. The client-
@@ -678,7 +678,7 @@
   [projected policy-opts]
   (let [failed (:failed-boundaries policy-opts)]
     (if (seq failed)
-      (assoc-in (or projected {}) suspense/failed-boundaries-path (set failed))
+      (assoc-in (or projected {}) rf.ssr.suspense/failed-boundaries-path (set failed))
       projected)))
 
 (defn build-final-payload
@@ -748,21 +748,21 @@
         ;; frame between this capture and the projection; re-checking the
         ;; incarnation token below detects both, so classified state is never
         ;; serialized under an absent or SUBSTITUTED policy.
-        token      (frame/frame-incarnation-token frame-id)
-        app-db     (frame/frame-app-db-value frame-id)
+        token      (rf.frame/frame-incarnation-token frame-id)
+        app-db     (rf.frame/frame-app-db-value frame-id)
         ;; EP-0001 (rf2-30kzz2): project the live runtime-db value to the
         ;; serializable `:rf/runtime-db` slice (machine snapshots, route slice,
         ;; elision declarations, SSR metadata) so the streamed final payload
         ;; hydrates a coherent frame-state, symmetric with the non-streaming
         ;; path. Transient side channels are excluded by `project-runtime-db`.
-        runtime-db (frame/frame-runtime-db-value frame-id)
+        runtime-db (rf.frame/frame-runtime-db-value frame-id)
         ;; The captured state is coherent ONLY if the frame is STILL the same
         ;; live incarnation it was at capture. A nil pin (frame already gone) or
         ;; a changed token (destroyed / re-registered mid-assembly) fails closed.
         coherent?  (and (some? token)
-                        (identical? token (frame/frame-incarnation-token frame-id)))]
+                        (identical? token (rf.frame/frame-incarnation-token frame-id)))]
     (if coherent?
-      (payload-policy/build-payload
+      (rf.ssr.payload-policy/build-payload
        ;; WIRE :rf/frame-id — the stable client id from `:client-frame-id`, or
        ;; nil to omit (never the per-request projection gensym). rf2-lm2yzy.
        (:client-frame-id policy-opts)
@@ -772,8 +772,8 @@
        ;; with the non-streaming `re-frame.ssr.ring.payload/build-payload` so a
        ;; frame-sensitive child inside an allowlisted key never rides the final
        ;; `__rf_payload` raw.
-       (payload-policy/project-app-db-egress
-        (payload-policy/apply-policy app-db policy-opts)
+       (rf.ssr.payload-policy/project-app-db-egress
+        (rf.ssr.payload-policy/apply-policy app-db policy-opts)
         frame-id)
        render-hash
        ;; rf2-3fc89f.15 — project the runtime-db under the EXPLICIT carried
@@ -781,7 +781,7 @@
        ;; ambient one. A streaming build called outside `with-frame`, or under a
        ;; different ambient frame, otherwise serialized classified route / machine
        ;; / resource runtime state under nil / the wrong frame's policy.
-       (assoc policy-opts :runtime-db (-> (payload-policy/project-runtime-db runtime-db frame-id)
+       (assoc policy-opts :runtime-db (-> (rf.ssr.payload-policy/project-runtime-db runtime-db frame-id)
                                           (with-failed-boundaries policy-opts))))
       ;; rf2-j538f7.15 — the request frame was destroyed / re-registered between
       ;; state capture and projection: its classification authority is gone, so
@@ -789,7 +789,7 @@
       ;; policy. Fail closed — redact the whole app-db slice and omit the
       ;; runtime-db — while still stamping the requested target so the client sees
       ;; a well-formed, safe payload rather than a leak.
-      (payload-policy/build-payload
+      (rf.ssr.payload-policy/build-payload
        ;; WIRE :rf/frame-id — stable client id or nil to omit (rf2-lm2yzy).
        (:client-frame-id policy-opts)
        :rf/redacted

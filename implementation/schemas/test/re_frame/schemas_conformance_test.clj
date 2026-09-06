@@ -64,19 +64,19 @@
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
-            [re-frame.conformance :as conformance]
+            [re-frame.conformance :as rf.conformance]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
+            [re-frame.frame :as rf.frame]
             ;; Load-bearing beyond its alias: loading the facade is what
             ;; publishes the Malli validate/explain hooks (rf2-v96fh) and
             ;; binds core's `reg-app-schema` re-export through late-bind.
             ;; clj-kondo reports the ALIAS unused here; the require is not.
-            [re-frame.schemas :as schemas]
-            [re-frame.schemas.test-fixture :as tf]
-            [re-frame.subs :as subs]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
+            [re-frame.subs :as rf.subs]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.schemas.test-fixture/reset-runtime)
 
 ;; ---- fixture discovery ----------------------------------------------------
 
@@ -234,12 +234,12 @@
   via the substrate adapter plus the dispatch surface. Mirrors core's
   runner shape."
   []
-  {:read-db!  (fn [frame-id] (frame/frame-app-db-value frame-id))
+  {:read-db!  (fn [frame-id] (rf.frame/frame-app-db-value frame-id))
    ;; EP-0001 (rf2-adwcv6): write the app-db PARTITION via swap-frame-db! —
    ;; app-db-container is now a read-only projection over the one physical
    ;; frame-state container.
    :write-db! (fn [frame-id new-db]
-                (frame/swap-frame-db! frame-id (constantly new-db)))
+                (rf.frame/swap-frame-db! frame-id (constantly new-db)))
    :dispatch! (fn [event frame-id] (rf/dispatch event {:frame frame-id}))})
 
 ;; Handler-body realisation reuses the SHARED primitives owned by
@@ -291,7 +291,7 @@
               meta (get cofx-registry cofx-id {})]
           (if (:provided? meta)
             (rf/reg-cofx cofx-id meta)
-            (rf/reg-cofx cofx-id meta (conformance/realise-cofx-supplier body))))))
+            (rf/reg-cofx cofx-id meta (rf.conformance/realise-cofx-supplier body))))))
     ;; ---- events --------------------------------------------------------
     ;; Per Spec 010 §step 1 (rf2-jwm4): event meta carries :schema; the
     ;; runtime calls `:schemas/validate-event!` before the handler runs.
@@ -313,10 +313,10 @@
     ;; returned db into a `{:db …}` effect — same observable behaviour); an
     ;; event-fx body is already the single form and passes through.
     (doseq [[id steps] (:event hmap)]
-      (let [handler  (conformance/normalize-event-handler
-                       (conformance/realise-event-handler steps))
+      (let [handler  (rf.conformance/normalize-event-handler
+                       (rf.conformance/realise-event-handler steps))
             meta     (get event-meta id {})
-            ks       (conformance/collect-cofx-keys steps)
+            ks       (rf.conformance/collect-cofx-keys steps)
             cofx-ids (vec (mapcat (fn [k]
                                     (or (get cofx-by-key k)
                                         (when (contains? cofx-registry k) [k])))
@@ -331,14 +331,14 @@
     ;; Per Spec 010 §step 6 (rf2-wcam): sub meta carries :schema; the
     ;; runtime calls `:schemas/validate-sub!` after each compute.
     (doseq [[id steps] (:sub hmap)]
-      (let [{:keys [kind inputs body]} (conformance/realise-sub steps)
+      (let [{:keys [kind inputs body]} (rf.conformance/realise-sub steps)
             meta                       (get sub-meta id {})]
         (case kind
           :layer-1 (if (seq meta) (rf/reg-sub id meta body) (rf/reg-sub id body))
           ;; Use the fn-form `subs/reg-sub` — the public `rf/reg-sub`
           ;; is a JVM macro (Spec 001 §Source-coordinate capture); a
           ;; macro var isn't `apply`-able.
-          :layer-2 (apply subs/reg-sub id
+          :layer-2 (apply rf.subs/reg-sub id
                           (concat (when (seq meta) [meta])
                                   (interleave (repeat :<-) inputs)
                                   [body])))))
@@ -352,7 +352,7 @@
       (doseq [id all-ids]
         (let [body    (get fx-bodies id [[:noop]])
               meta    (get fx-registry id {})
-              handler (conformance/realise-fx-handler id body helpers)]
+              handler (rf.conformance/realise-fx-handler id body helpers)]
           (rf/reg-fx id (assoc meta :handler-fn handler) handler))))
     ;; NOTE: app-schemas are intentionally NOT registered here — see
     ;; `realise-app-schemas` below. Per rf2-wkxng / rf2-6m0se,
@@ -468,7 +468,7 @@
             ;; SYNCHRONOUSLY — the frame engine async-queues initial-events when
             ;; `*current-frame*` is bound (Spec 002 §make-frame from inside a
             ;; handler), which would land the seed AFTER the first dispatch.
-            _            (binding [frame/*current-frame* nil]
+            _            (binding [rf.frame/*current-frame* nil]
                            (rf/make-frame (assoc frame-config :id :rf/default)))
             dispatches   (or (:fixture/dispatches fixture) [])
             ;; EP-0017 `:expect-error` mismatches (rf2-hqwki4) — a context-assembly
@@ -482,14 +482,14 @@
               sub-checks
               (doall
                 (for [[query-v expected-val] (or (:sub-values expect) {})]
-                  (let [[frame-id qv] (conformance/resolve-sub :rf/default query-v)]
+                  (let [[frame-id qv] (rf.conformance/resolve-sub :rf/default query-v)]
                     {:query    query-v
                      :expected expected-val
                      :actual   (rf/subscribe-once qv {:frame frame-id})})))
-              trace-failures (conformance/check-trace-emissions
+              trace-failures (rf.conformance/check-trace-emissions
                                @traces (:trace-emissions expect))]
           {:fixture-id     fid
-           :passed?        (and (or (nil? expected-db) (conformance/submap? expected-db final-db))
+           :passed?        (and (or (nil? expected-db) (rf.conformance/submap? expected-db final-db))
                                 (every? #(= (:expected %) (:actual %)) sub-checks)
                                 (empty? trace-failures)
                                 (empty? @dispatch-error-failures))

@@ -26,11 +26,11 @@
   `:init-fn` seam (runs after adapter install, under the ambient
   `:rf/default` scope, before each test body)."
   (:require [ring.adapter.jetty :as jetty]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.error-listener :as error-listener]
-            [re-frame.ssr.request :as request]
-            [re-frame.ssr.response :as response]
-            [re-frame.test-support :as test-support])
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.error-listener :as rf.ssr.error-listener]
+            [re-frame.ssr.request :as rf.ssr.request]
+            [re-frame.ssr.response :as rf.ssr.response]
+            [re-frame.test-support :as rf.test-support])
   (:import [java.net URI]
            [java.net.http HttpClient HttpRequest HttpResponse$BodyHandlers]
            [java.time Duration]
@@ -72,9 +72,9 @@
      resolves through (`:routing/reg-route`, Spec 012) — resurrect. This
      restores them."
   []
-  (reset! request/request-slots {})
-  (reset! response/response-slots {})
-  (reset! error-listener/pending-error-traces {})
+  (reset! rf.ssr.request/request-slots {})
+  (reset! rf.ssr.response/response-slots {})
+  (reset! rf.ssr.error-listener/pending-error-traces {})
   (require 're-frame.routing  :reload)
   (require 're-frame.ssr      :reload)
   (require 're-frame.ssr.head :reload)
@@ -91,8 +91,8 @@
   test body under the same ambient `:rf/default` scope. Built once at
   ns-load so the registrar baseline is pinned to THIS suite's ns-load
   registrations for run-order independence."
-  (test-support/make-reset-runtime-fixture
-    {:adapter ssr/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.ssr/adapter
      :init-fn reset-ssr-runtime!}))
 
 (defn reset-runtime

@@ -19,8 +19,8 @@
   re-frame.ssr/adapter; this ns deliberately avoids
   re-frame.ssr.adapter so CLJS does not see a child-namespace /
   parent-var name clash."
-  (:require [re-frame.error :as error]
-            [re-frame.ssr.emit :as emit]))
+  (:require [re-frame.error :as rf.error]
+            [re-frame.ssr.emit :as rf.ssr.emit]))
 
 (defn- ssr-make-state-container [initial-value]
   (atom initial-value))
@@ -48,7 +48,7 @@
 (defn- ssr-render [_ _ _]
   ;; SSR uses render-to-string exclusively. Calling render on the SSR
   ;; adapter is a programmer error worth surfacing loudly.
-  (error/throw-error!
+  (rf.error/throw-error!
     :rf.error/render-on-headless-adapter
     'rf/render
     (str "render is not supported on the SSR adapter (it is headless — no "
@@ -84,6 +84,6 @@
    :subscribe-container       ssr-subscribe-container
    :make-derived-value        ssr-make-derived-value
    :render                    ssr-render
-   :render-to-string          emit/render-to-string
+   :render-to-string          rf.ssr.emit/render-to-string
    :register-context-provider ssr-register-context-provider
    :dispose-adapter!          ssr-dispose-adapter!})

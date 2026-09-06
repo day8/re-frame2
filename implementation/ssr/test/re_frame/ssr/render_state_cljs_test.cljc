@@ -43,16 +43,16 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
+            [re-frame.frame :as rf.frame]
             ;; Loading the machines artefact publishes the late-bound
             ;; `:machines/project-ssr-runtime-db` hook the projector applies
             ;; to snapshot `:data`.
             [re-frame.machines]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.render-state :as render-state]
-            [re-frame.subs :as subs]))
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.render-state :as rf.ssr.render-state]
+            [re-frame.subs :as rf.subs]))
 
-(use-fixtures :once (fn [f] (rf/init! ssr/adapter) (f)))
+(use-fixtures :once (fn [f] (rf/init! rf.ssr/adapter) (f)))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures
@@ -127,10 +127,10 @@
   snapshot's `:data :token` — the state a settled request frame carries."
   [mid]
   (let [sfid (fresh-frame! :server)]
-    (frame/replace-frame-state! sfid {frame/app-partition-key corpus-app-db})
+    (rf.frame/replace-frame-state! sfid {rf.frame/app-partition-key corpus-app-db})
     (rf/reg-machine mid auth-machine)
     (rf/dispatch-sync [mid [:login]] {:frame sfid})
-    (frame/swap-runtime-db! sfid merge
+    (rf.frame/swap-runtime-db! sfid merge
                             {:rf.runtime/routing {:current            route-slice
                                                   :pending-navigation {:to :route/next}}
                              :rf.runtime/ssr     {:hydration {:version 1}}
@@ -154,7 +154,7 @@
 (defn- round-trip
   "The wire, there and back: `serialize` then `deserialize`."
   [partitions]
-  (render-state/deserialize (render-state/serialize partitions)))
+  (rf.ssr.render-state/deserialize (rf.ssr.render-state/serialize partitions)))
 
 ;; ---------------------------------------------------------------------------
 ;; S3 — project: allowlists, classification, the projector's vocabulary
@@ -164,7 +164,7 @@
   (let [mid  (fresh-id "auth")
         sfid (settled-server-frame! mid)
         {app :rf/app-db rt :rf/runtime-db :as projected}
-        (render-state/project sfid full-policy)]
+        (rf.ssr.render-state/project sfid full-policy)]
     (testing "app-db: every allowlisted key, the classified path redacted"
       (is (= (set (keys corpus-app-db)) (set (keys app))))
       (is (= :rf/redacted (get-in app [:session :token]))
@@ -187,14 +187,14 @@
       (is (not (str/includes? (pr-str projected) "secret-session-token")))
       (is (not (str/includes? (pr-str projected) "secret-machine-token"))))
     (testing "an absent partition slot projects that partition as {}"
-      (is (= {} (:rf/runtime-db (render-state/project sfid {:render-state {:app-db [:todos]}}))))
-      (is (= {} (:rf/app-db (render-state/project sfid {:render-state {:runtime-db [:rf.runtime/ssr]}})))))
+      (is (= {} (:rf/runtime-db (rf.ssr.render-state/project sfid {:render-state {:app-db [:todos]}}))))
+      (is (= {} (:rf/app-db (rf.ssr.render-state/project sfid {:render-state {:runtime-db [:rf.runtime/ssr]}})))))
     (testing "the escape hatch is handed the live frame's id and replaces the allowlist step"
       (let [seen (atom nil)
-            out  (render-state/project
+            out  (rf.ssr.render-state/project
                    sfid {:render-state (fn [fid]
                                          (reset! seen fid)
-                                         {:rf/app-db (select-keys (frame/frame-app-db-value fid) [:todos])})})]
+                                         {:rf/app-db (select-keys (rf.frame/frame-app-db-value fid) [:todos])})})]
         (is (= sfid @seen))
         (is (= {:rf/app-db     {:todos (:todos corpus-app-db)}
                 :rf/runtime-db {}}
@@ -208,8 +208,8 @@
 (deftest round-trip-corpus-restores-both-partitions-identically
   (let [mid       (fresh-id "auth")
         sfid      (settled-server-frame! mid)
-        projected (render-state/project sfid full-policy)
-        wire      (render-state/serialize projected)]
+        projected (rf.ssr.render-state/project sfid full-policy)
+        wire      (rf.ssr.render-state/serialize projected)]
     (testing "the wire form is key text -> EDN text, per key, for both partitions"
       (is (= #{:rf/app-db :rf/runtime-db} (set (keys wire))))
       (is (every? (fn [[k v]] (and (string? k) (string? v)))
@@ -221,20 +221,20 @@
         (is (= projected read-back)))
       (let [cfid (fresh-frame! :server)]
         (testing "restore! seeds the fresh frame with both partitions in one write"
-          (is (empty? (frame/frame-app-db-value cfid))
+          (is (empty? (rf.frame/frame-app-db-value cfid))
               "precondition: the fresh frame ran no boot events")
-          (is (= #{frame/app-partition-key frame/runtime-partition-key}
-                 (render-state/restore! cfid read-back)))
-          (is (= (:rf/app-db projected) (frame/frame-app-db-value cfid)))
-          (is (= (:rf/runtime-db projected) (frame/frame-runtime-db-value cfid))
+          (is (= #{rf.frame/app-partition-key rf.frame/runtime-partition-key}
+                 (rf.ssr.render-state/restore! cfid read-back)))
+          (is (= (:rf/app-db projected) (rf.frame/frame-app-db-value cfid)))
+          (is (= (:rf/runtime-db projected) (rf.frame/frame-runtime-db-value cfid))
               "EXACTLY the projection: no hydration metadata, no elision registry, no re-arm"))
         (testing "framework and app subs on the fresh frame read the restored state"
-          (subs/reg-runtime-sub (fresh-id "machine-state") {:doc "test"}
+          (rf.subs/reg-runtime-sub (fresh-id "machine-state") {:doc "test"}
                                 (fn [rt [_ id]] (get-in rt [:rf.runtime/machines :snapshots id :state])))
           (let [machine-state (keyword "rf.ssrrs" (str "machine-state" @counter))
                 route-id      (fresh-id "route-id")
                 todo-count    (fresh-id "todo-count")]
-            (subs/reg-runtime-sub route-id {:doc "test"}
+            (rf.subs/reg-runtime-sub route-id {:doc "test"}
                                   (fn [rt _] (get-in rt [:rf.runtime/routing :current :route-id])))
             (rf/reg-sub todo-count (fn [db _] (count (:todos db))))
             (is (= :authed (rf/subscribe-once [machine-state mid] {:frame cfid}))
@@ -246,12 +246,12 @@
 (deftest deserialize-reads-an-absent-partition-as-empty-and-restore-installs-it
   (let [cfid (fresh-frame! :server)]
     (is (= {:rf/app-db {:a 1} :rf/runtime-db {}}
-           (render-state/deserialize {:rf/app-db {":a" "1"}})))
-    (is (= #{frame/app-partition-key}
-           (render-state/restore! cfid {:rf/app-db {:a 1}}))
+           (rf.ssr.render-state/deserialize {:rf/app-db {":a" "1"}})))
+    (is (= #{rf.frame/app-partition-key}
+           (rf.ssr.render-state/restore! cfid {:rf/app-db {:a 1}}))
         "only app-db changed — runtime-db was already {}")
-    (is (= {:a 1} (frame/frame-app-db-value cfid)))
-    (is (= {} (frame/frame-runtime-db-value cfid)))))
+    (is (= {:a 1} (rf.frame/frame-app-db-value cfid)))
+    (is (= {} (rf.frame/frame-runtime-db-value cfid)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Acceptance 2 — the negative fixture: unserialisable fails AT PROJECTION
@@ -262,8 +262,8 @@
 (deftest an-unserialisable-value-fails-at-projection-with-a-named-error
   (testing "a fn under an allowlisted app-db key (the allowlist path)"
     (let [sfid (fresh-frame! :server)]
-      (frame/replace-frame-state! sfid {frame/app-partition-key {:todos [] :on-click (fn [] :clicked)}})
-      (let [data (thrown-data #(render-state/project sfid {:render-state {:app-db [:todos :on-click]}}))]
+      (rf.frame/replace-frame-state! sfid {rf.frame/app-partition-key {:todos [] :on-click (fn [] :clicked)}})
+      (let [data (thrown-data #(rf.ssr.render-state/project sfid {:render-state {:app-db [:todos :on-click]}}))]
         (is (= :rf.error/ssr-render-state-invalid (:rf.error/id data)))
         (is (= :unserialisable (:invalid data)))
         (is (= :rf/app-db (:partition data)))
@@ -271,11 +271,11 @@
         (is (= :value (:half data))))
       ;; CONTROL — the same frame with the fn left off the allowlist projects.
       (is (= {:rf/app-db {:todos []} :rf/runtime-db {}}
-             (render-state/project sfid {:render-state {:app-db [:todos]}})))))
+             (rf.ssr.render-state/project sfid {:render-state {:app-db [:todos]}})))))
   (testing "a fn returned by the escape-hatch projector, in the runtime partition"
     (let [sfid (fresh-frame! :server)
           data (thrown-data
-                 #(render-state/project
+                 #(rf.ssr.render-state/project
                     sfid {:render-state (fn [_] {:rf/app-db     {}
                                                  :rf/runtime-db {:rf.runtime/custom (fn [] 1)}})}))]
       (is (= :rf.error/ssr-render-state-invalid (:rf.error/id data)))
@@ -285,16 +285,16 @@
   (testing "a record — map-shaped, not map-printing (it prints as a tagged literal)"
     (let [sfid (fresh-frame! :server)
           data (thrown-data
-                 #(render-state/project sfid {:render-state (fn [_] {:rf/app-db {:r (->Opaque 1)}})}))]
+                 #(rf.ssr.render-state/project sfid {:render-state (fn [_] {:rf/app-db {:r (->Opaque 1)}})}))]
       (is (= :rf.error/ssr-render-state-invalid (:rf.error/id data)))
       (is (= :r (:key data)))
       ;; CONTROL — converted explicitly, the same value rides.
       (is (= {:rf/app-db {:r {:x 1}} :rf/runtime-db {}}
-             (render-state/project sfid {:render-state (fn [_] {:rf/app-db {:r (into {} (->Opaque 1))}})})))))
+             (rf.ssr.render-state/project sfid {:render-state (fn [_] {:rf/app-db {:r (into {} (->Opaque 1))}})})))))
   (testing "an opaque top-level KEY — a string where a keyword must be"
     (let [sfid (fresh-frame! :server)
           data (thrown-data
-                 #(render-state/project sfid {:render-state (fn [_] {:rf/app-db {"todos" []}})}))]
+                 #(rf.ssr.render-state/project sfid {:render-state (fn [_] {:rf/app-db {"todos" []}})}))]
       (is (= :rf.error/ssr-render-state-invalid (:rf.error/id data)))
       (is (= :key (:half data)))
       (is (= "todos" (:key data))))))
@@ -307,24 +307,24 @@
   (let [sfid (fresh-frame! :server)
         view (fn [db]
                (str "<h1>" (get-in db [:user :name]) "</h1><ul>" (count (:todos db)) "</ul>"))]
-    (frame/replace-frame-state! sfid {frame/app-partition-key {:todos [{:id 1}]}})
+    (rf.frame/replace-frame-state! sfid {rf.frame/app-partition-key {:todos [{:id 1}]}})
     (testing "the allowlist names :user, which the frame never held"
-      (let [projected (render-state/project sfid {:render-state {:app-db [:todos :user]}})
+      (let [projected (rf.ssr.render-state/project sfid {:render-state {:app-db [:todos :user]}})
             cfid      (fresh-frame! :server)]
         (is (not (contains? (:rf/app-db projected) :user))
             "nothing to carry: no key, and no nil-valued key either")
-        (render-state/restore! cfid (round-trip projected))
-        (is (nil? (get-in (frame/frame-app-db-value cfid) [:user :name])))
-        (is (= (view (frame/frame-app-db-value sfid))
-               (view (frame/frame-app-db-value cfid)))
+        (rf.ssr.render-state/restore! cfid (round-trip projected))
+        (is (nil? (get-in (rf.frame/frame-app-db-value cfid) [:user :name])))
+        (is (= (view (rf.frame/frame-app-db-value sfid))
+               (view (rf.frame/frame-app-db-value cfid)))
             "and it is the same page the server would render — nil on both sides")))
     (testing "the allowlist OMITS :user, which the view reads — the operator's mistake, not a throw"
-      (frame/replace-frame-state! sfid {frame/app-partition-key {:todos [{:id 1}] :user {:name "Ada"}}})
-      (let [projected (render-state/project sfid {:render-state {:app-db [:todos]}})
+      (rf.frame/replace-frame-state! sfid {rf.frame/app-partition-key {:todos [{:id 1}] :user {:name "Ada"}}})
+      (let [projected (rf.ssr.render-state/project sfid {:render-state {:app-db [:todos]}})
             cfid      (fresh-frame! :server)]
-        (render-state/restore! cfid (round-trip projected))
-        (is (= "<h1>Ada</h1><ul>1</ul>" (view (frame/frame-app-db-value sfid))))
-        (is (= "<h1></h1><ul>1</ul>" (view (frame/frame-app-db-value cfid)))
+        (rf.ssr.render-state/restore! cfid (round-trip projected))
+        (is (= "<h1>Ada</h1><ul>1</ul>" (view (rf.frame/frame-app-db-value sfid))))
+        (is (= "<h1></h1><ul>1</ul>" (view (rf.frame/frame-app-db-value cfid)))
             "the honest wrong page: nil where :user should be, rendered without complaint")))))
 
 ;; ---------------------------------------------------------------------------
@@ -332,7 +332,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- policy-error [opts]
-  (thrown-data #(render-state/validate-policy-opts! opts)))
+  (thrown-data #(rf.ssr.render-state/validate-policy-opts! opts)))
 
 (deftest render-state-policy-is-fail-closed-and-distinct-from-payload
   (testing "absent / {} / a keyword / a :payload opt alone → missing, naming :render-state"
@@ -359,10 +359,10 @@
                   {:app-db '(:a :b) :runtime-db [:rf.runtime/machines]}
                   (fn [_] {})]]
       (let [opts {:render-state good :payload [:a]}]
-        (is (identical? opts (render-state/validate-policy-opts! opts))))))
+        (is (identical? opts (rf.ssr.render-state/validate-policy-opts! opts))))))
   (testing "project re-validates: the runtime arm fails the same way as the construction arm"
     (let [sfid (fresh-frame! :server)
-          data (thrown-data #(render-state/project sfid {:payload [:todos]}))]
+          data (thrown-data #(rf.ssr.render-state/project sfid {:payload [:todos]}))]
       (is (= :rf.error/ssr-missing-payload-policy (:rf.error/id data)))
       (is (= :render-state (:opt data))))))
 
@@ -375,21 +375,21 @@
     (let [sfid (fresh-frame! :server)]
       (doseq [bad [nil [] {:rf/app-db "not a map"} {:rf/app-db {} :rf/runtime-db nil}
                    {:rf/app-db {} :extra {}}]]
-        (let [data (thrown-data #(render-state/project sfid {:render-state (fn [_] bad)}))]
+        (let [data (thrown-data #(rf.ssr.render-state/project sfid {:render-state (fn [_] bad)}))]
           (is (= :rf.error/ssr-render-state-invalid (:rf.error/id data)) (pr-str bad))
           (is (= :envelope (:invalid data)) (pr-str bad))))))
   (testing "restore! refuses the same shapes and installs nothing"
     (let [cfid (fresh-frame! :server)]
-      (frame/replace-frame-state! cfid {frame/app-partition-key {:kept true}})
+      (rf.frame/replace-frame-state! cfid {rf.frame/app-partition-key {:kept true}})
       (doseq [bad [nil {:rf/app-db 1} {:rf/runtime-db [1 2]} {:rf/app-db {} :third {}}]]
-        (let [data (thrown-data #(render-state/restore! cfid bad))]
+        (let [data (thrown-data #(rf.ssr.render-state/restore! cfid bad))]
           (is (= :rf.error/ssr-render-state-invalid (:rf.error/id data)) (pr-str bad))
           (is (= :envelope (:invalid data)) (pr-str bad))))
-      (is (= {:kept true} (frame/frame-app-db-value cfid)) "nothing was installed")))
+      (is (= {:kept true} (rf.frame/frame-app-db-value cfid)) "nothing was installed")))
   (testing "a frame that is not live"
     (let [gone (fresh-frame! :server)]
       (rf/destroy-frame! gone)
       (is (= :rf.error/frame-destroyed
-             (:rf.error/id (thrown-data #(render-state/project gone {:render-state {:app-db [:a]}})))))
+             (:rf.error/id (thrown-data #(rf.ssr.render-state/project gone {:render-state {:app-db [:a]}})))))
       (is (= :rf.error/frame-destroyed
-             (:rf.error/id (thrown-data #(render-state/restore! gone {:rf/app-db {}}))))))))
+             (:rf.error/id (thrown-data #(rf.ssr.render-state/restore! gone {:rf/app-db {}}))))))))

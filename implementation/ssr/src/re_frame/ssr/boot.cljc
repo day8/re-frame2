@@ -9,18 +9,18 @@
 
   `read-server-payload` is CLJS-only and reads the pinned `__rf_payload`
   element. `hydrate!` is platform-neutral when given an explicit payload."
-  (:require [re-frame.error :as error]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.router :as router]
-            [re-frame.ssr.hydrate :as hydrate]
-            [re-frame.ssr.install :as install]
-            [re-frame.trace :as trace]
+  (:require [re-frame.error :as rf.error]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.router :as rf.router]
+            [re-frame.ssr.hydrate :as rf.ssr.hydrate]
+            [re-frame.ssr.install :as rf.ssr.install]
+            [re-frame.trace :as rf.trace]
             ;; `constants` + `cljs.reader` are only used by the CLJS-only
             ;; `read-server-payload` (DOM read); require them on CLJS so a
             ;; JVM lint of this `.cljc` doesn't flag them unused.
-            #?(:cljs [re-frame.ssr.constants :as constants])
+            #?(:cljs [re-frame.ssr.constants :as rf.ssr.constants])
             #?(:cljs [cljs.reader :as reader])))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -37,11 +37,11 @@
   error-emitter hook is absent."
   [where element-id reason]
   (when-let [dispatch-error-record!
-             (late-bind/get-fn :error-emit/dispatch-error-record)]
+             (rf.late-bind/get-fn :error-emit/dispatch-error-record)]
     (dispatch-error-record!
       {:error      :rf.error/malformed-hydration-payload
        :frame      nil
-       :time       (interop/now-ms)
+       :time       (rf.interop/now-ms)
        :where      where
        :failing-id :rf/hydrate
        :element-id element-id
@@ -81,7 +81,7 @@
      A host that overrode `:html-shell` with a custom payload id must
      read that id itself rather than calling this fn (the framework's
      bundled boot reads only the pinned id)."
-     ([] (read-server-payload constants/payload-script-id))
+     ([] (read-server-payload rf.ssr.constants/payload-script-id))
      ([element-id]
       (when-let [el (.getElementById js/document element-id)]
         (try
@@ -91,8 +91,8 @@
                               "did not parse as EDN; treating the "
                               "page as client-only (no hydration). "
                               (ex-message e))]
-              (when interop/debug-enabled?
-                (trace/emit-error! :rf.error/malformed-hydration-payload
+              (when rf.interop/debug-enabled?
+                (rf.trace/emit-error! :rf.error/malformed-hydration-payload
                                    {:where      'rf.ssr/read-server-payload
                                     :failing-id :rf/hydrate
                                     :element-id element-id
@@ -125,7 +125,7 @@
   (let [payload-frame-id (:rf/frame-id payload)]
     (when (and (some? payload-frame-id)
                (not= payload-frame-id target))
-      (let [ex   (error/thrown-ex-info
+      (let [ex   (rf.error/thrown-ex-info
                    :rf.error/hydration-frame-id-mismatch
                    'rf.ssr/hydrate!
                    (str "Hydration frame-id mismatch: the explicit "
@@ -140,8 +140,8 @@
                                :target-frame     target
                                :payload-frame-id payload-frame-id}})
             data (ex-data ex)]
-        (when interop/debug-enabled?
-          (trace/emit-error! :rf.error/hydration-frame-id-mismatch data))
+        (when rf.interop/debug-enabled?
+          (rf.trace/emit-error! :rf.error/hydration-frame-id-mismatch data))
         (throw ex)))))
 
 (defn hydrate!
@@ -318,11 +318,11 @@
         ;; The client hydration target is supplied explicitly. A nil stamp is an absent target,
         ;; not a request to synthesise `:rf/default`; surface the always-on
         ;; `:rf.error/no-frame-context`. Per Spec 002 §Frame target resolution.
-        frame   (frame/require-frame-stamp!
+        frame   (rf.frame/require-frame-stamp!
                   frame :rf.ssr/hydrate {:where 'rf.ssr/hydrate!})
         payload (or payload
                     #?(:cljs (read-server-payload
-                               (or element-id constants/payload-script-id))
+                               (or element-id rf.ssr.constants/payload-script-id))
                        :clj nil))]
     (when payload
       ;; The payload's `:rf/frame-id` is metadata and validation
@@ -346,7 +346,7 @@
       ;; ratified "later roots find it live and do not re-seed"). A
       ;; DIFFERENT payload under the same id throws before any install.
       (let [{:keys [decision claim]}
-            (install/preflight! 'rf.ssr/hydrate!
+            (rf.ssr.install/preflight! 'rf.ssr/hydrate!
                                 {:payload    payload
                                  :payload-id frame
                                  :root-id    root-id
@@ -398,10 +398,10 @@
           ;;
           ;; Unconditional, never `debug-enabled?`-gated: a root can fail in
           ;; production, so the claim must be released in production.
-          (let [incarnation (frame/frame-incarnation-token frame)]
-            (router/dispatch-sync! [:rf/hydrate payload] {:frame frame})
-            (if-not (frame/frame-incarnation-live? frame incarnation)
-              (install/release-claim! frame claim)
+          (let [incarnation (rf.frame/frame-incarnation-token frame)]
+            (rf.router/dispatch-sync! [:rf/hydrate payload] {:frame frame})
+            (if-not (rf.frame/frame-incarnation-live? frame incarnation)
+              (rf.ssr.install/release-claim! frame claim)
               ;; HOT PATH — post-render hash-mismatch detection. Symmetric with
               ;; the server's `:render-hash`-stamped `data-rf-render-hash` marker.
               ;; Runs only on a landed seed: verifying a client tree against a
@@ -419,7 +419,7 @@
               ;; `*current-frame*` for the one call; a `render-tree-fn` that establishes
               ;; its own scope (or ignores it — a plain-hiccup fn) is unaffected.
               (when render-tree-fn
-                (hydrate/verify-hydration! frame ((frame/bind-fn frame render-tree-fn)))))))))
+                (rf.ssr.hydrate/verify-hydration! frame ((rf.frame/bind-fn frame render-tree-fn)))))))))
     payload))
 
 ;; ---------------------------------------------------------------------------
@@ -463,17 +463,17 @@
                     (exception-message exception))
         record {:error     :rf.error/root-boot-failed
                 :frame     frame
-                :time      (interop/now-ms)
+                :time      (rf.interop/now-ms)
                 :where     where
                 :root-id   root-id
                 :phase     phase
                 :reason    reason
                 :exception exception
                 :recovery  :warned-and-continued}]
-    (when interop/debug-enabled?
-      (trace/emit-error! :rf.error/root-boot-failed (dissoc record :error :time)))
+    (when rf.interop/debug-enabled?
+      (rf.trace/emit-error! :rf.error/root-boot-failed (dissoc record :error :time)))
     (when-let [dispatch-error-record!
-               (late-bind/get-fn :error-emit/dispatch-error-record)]
+               (rf.late-bind/get-fn :error-emit/dispatch-error-record)]
       (dispatch-error-record! record)))
   nil)
 

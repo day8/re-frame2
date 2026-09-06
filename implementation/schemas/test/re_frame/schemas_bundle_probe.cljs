@@ -62,7 +62,7 @@
   `:schemas-bundle-control`, which is what makes the two figures
   subtractable."
   (:require [re-frame.core    :as rf]
-            [re-frame.schemas :as schemas]))
+            [re-frame.schemas :as rf.schemas]))
 
 (defn ^:export boot
   "Probe init-fn. Touches the schemas surface so DCE retains every
@@ -76,7 +76,7 @@
 
   Named `boot` (not `run!`) to avoid shadowing `cljs.core/run!`."
   []
-  (schemas/set-schema-validator! nil)
-  (schemas/reg-app-schema [:probe] [:int])
-  (schemas/app-schemas)
-  (schemas/app-schemas-digest))
+  (rf.schemas/set-schema-validator! nil)
+  (rf.schemas/reg-app-schema [:probe] [:int])
+  (rf.schemas/app-schemas)
+  (rf.schemas/app-schemas-digest))

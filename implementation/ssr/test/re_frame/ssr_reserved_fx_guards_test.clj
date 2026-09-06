@@ -66,21 +66,21 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [malli.core :as m]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.response :as response]
-            [re-frame.ssr.server-fx-schemas :as fx-schemas]
-            [re-frame.ssr.test-fixture :as tf]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.response :as rf.ssr.response]
+            [re-frame.ssr.server-fx-schemas :as rf.ssr.server-fx-schemas]
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures
 ;; ---------------------------------------------------------------------------
 
 (defn- server-frame []
-  (frame/make-anon-frame-record!
+  (rf.frame/make-anon-frame-record!
     {:platform :server
      :ssr      {:public-error-id   :rf.ssr/default-error-projector
                 :dev-error-detail? false}}))
@@ -113,12 +113,12 @@
     (rf/reg-event ::attempt (fn [_ [_ fx]] {:fx [fx sibling-fx]}))
     (try
       (rf/dispatch-sync [::attempt fx-vec] {:frame f})
-      (let [raw      (ssr/peek-response f)
-            bookkept (response/response-of f)]
+      (let [raw      (rf.ssr/peek-response f)
+            bookkept (rf.ssr.response/response-of f)]
         {:frame    f
          :raw      raw
          :bookkept bookkept
-         :response (ssr/get-response f)
+         :response (rf.ssr/get-response f)
          :records  @seen})
       (finally
         (rf/unregister-listener! :errors id)))))
@@ -154,156 +154,156 @@
 (def ^:private acceptance-corpus
   [;; ---- :rf.server/set-status ------------------------------------------
    ["set-status 200"           :rf.server/set-status
-    fx-schemas/set-status-args 200                                  true]
+    rf.ssr.server-fx-schemas/set-status-args 200                                  true]
    ["set-status 404"           :rf.server/set-status
-    fx-schemas/set-status-args 404                                  true]
+    rf.ssr.server-fx-schemas/set-status-args 404                                  true]
    ["set-status 599 (top)"     :rf.server/set-status
-    fx-schemas/set-status-args 599                                  true]
+    rf.ssr.server-fx-schemas/set-status-args 599                                  true]
    ["set-status 100 (bottom)"  :rf.server/set-status
-    fx-schemas/set-status-args 100                                  true]
+    rf.ssr.server-fx-schemas/set-status-args 100                                  true]
    ["set-status string"        :rf.server/set-status
-    fx-schemas/set-status-args "not-an-int"                         false]
+    rf.ssr.server-fx-schemas/set-status-args "not-an-int"                         false]
    ["set-status below range"   :rf.server/set-status
-    fx-schemas/set-status-args 99                                   false]
+    rf.ssr.server-fx-schemas/set-status-args 99                                   false]
    ["set-status above range"   :rf.server/set-status
-    fx-schemas/set-status-args 600                                  false]
+    rf.ssr.server-fx-schemas/set-status-args 600                                  false]
    ["set-status nil"           :rf.server/set-status
-    fx-schemas/set-status-args nil                                  false]
+    rf.ssr.server-fx-schemas/set-status-args nil                                  false]
 
    ;; ---- :rf.server/set-header -------------------------------------------
    ["set-header well-formed"   :rf.server/set-header
-    fx-schemas/set-header-args {:name "X-Foo" :value "bar"}          true]
+    rf.ssr.server-fx-schemas/set-header-args {:name "X-Foo" :value "bar"}          true]
    ["set-header no :value"     :rf.server/set-header
-    fx-schemas/set-header-args {:name "X-Foo"}                       false]
+    rf.ssr.server-fx-schemas/set-header-args {:name "X-Foo"}                       false]
    ["set-header int :value"    :rf.server/set-header
-    fx-schemas/set-header-args {:name "X-Foo" :value 42}             false]
+    rf.ssr.server-fx-schemas/set-header-args {:name "X-Foo" :value 42}             false]
    ["set-header symbol :name"  :rf.server/set-header
-    fx-schemas/set-header-args {:name 'x-foo :value "bar"}           false]
+    rf.ssr.server-fx-schemas/set-header-args {:name 'x-foo :value "bar"}           false]
 
    ;; ---- :rf.server/append-header ----------------------------------------
    ["append-header well-formed" :rf.server/append-header
-    fx-schemas/append-header-args {:name "Vary" :value "Accept"}     true]
+    rf.ssr.server-fx-schemas/append-header-args {:name "Vary" :value "Accept"}     true]
    ["append-header int :value"  :rf.server/append-header
-    fx-schemas/append-header-args {:name "Vary" :value 42}           false]
+    rf.ssr.server-fx-schemas/append-header-args {:name "Vary" :value 42}           false]
 
    ;; ---- :rf.server/set-cookie -------------------------------------------
    ["set-cookie minimal"       :rf.server/set-cookie
-    fx-schemas/set-cookie-args {:name "session" :value "abc"}        true]
+    rf.ssr.server-fx-schemas/set-cookie-args {:name "session" :value "abc"}        true]
    ["set-cookie canonical"     :rf.server/set-cookie
-    fx-schemas/set-cookie-args {:name "session" :value "abc"
+    rf.ssr.server-fx-schemas/set-cookie-args {:name "session" :value "abc"
                                 :max-age 3600 :same-site :lax
                                 :secure true :http-only true
                                 :path "/" :domain "example.com"}     true]
    ["set-cookie string attrs (documented ingress tolerance)"
     :rf.server/set-cookie
-    fx-schemas/set-cookie-args {:name "session" :value "abc"
+    rf.ssr.server-fx-schemas/set-cookie-args {:name "session" :value "abc"
                                 :max-age "3600" :expires "1700000000000"
                                 :same-site "Strict"}                 true]
    ["set-cookie no :value"     :rf.server/set-cookie
-    fx-schemas/set-cookie-args {:name "session"}                     false]
+    rf.ssr.server-fx-schemas/set-cookie-args {:name "session"}                     false]
    ["set-cookie int :value"    :rf.server/set-cookie
-    fx-schemas/set-cookie-args {:name "session" :value 42}           false]
+    rf.ssr.server-fx-schemas/set-cookie-args {:name "session" :value 42}           false]
    ["set-cookie bogus :same-site keyword" :rf.server/set-cookie
-    fx-schemas/set-cookie-args {:name "s" :value "v" :same-site :bogus} false]
+    rf.ssr.server-fx-schemas/set-cookie-args {:name "s" :value "v" :same-site :bogus} false]
    ["set-cookie non-boolean :secure" :rf.server/set-cookie
-    fx-schemas/set-cookie-args {:name "s" :value "v" :secure "yes"}  false]
+    rf.ssr.server-fx-schemas/set-cookie-args {:name "s" :value "v" :secure "yes"}  false]
 
    ;; ---- :rf.server/delete-cookie ----------------------------------------
    ["delete-cookie well-formed" :rf.server/delete-cookie
-    fx-schemas/delete-cookie-args {:name "stale" :path "/"}          true]
+    rf.ssr.server-fx-schemas/delete-cookie-args {:name "stale" :path "/"}          true]
    ["delete-cookie no :name"    :rf.server/delete-cookie
-    fx-schemas/delete-cookie-args {:path "/"}                        false]
+    rf.ssr.server-fx-schemas/delete-cookie-args {:path "/"}                        false]
    ["delete-cookie int :path"   :rf.server/delete-cookie
-    fx-schemas/delete-cookie-args {:name "stale" :path 42}           false]
+    rf.ssr.server-fx-schemas/delete-cookie-args {:name "stale" :path 42}           false]
 
    ;; ---- :rf.server/redirect ---------------------------------------------
    ["redirect well-formed"     :rf.server/redirect
-    fx-schemas/redirect-args {:location "/dashboard" :status 302}    true]
+    rf.ssr.server-fx-schemas/redirect-args {:location "/dashboard" :status 302}    true]
    ;; The documented no-target graceful path: NOT a structural error, so both
    ;; halves must ACCEPT it and let the adapter's warn→3xx take over.
    ["redirect no target"       :rf.server/redirect
-    fx-schemas/redirect-args {:status 302}                           true]
+    rf.ssr.server-fx-schemas/redirect-args {:status 302}                           true]
    ["redirect non-int :status" :rf.server/redirect
-    fx-schemas/redirect-args {:location "/x" :status "oops"}         false]
+    rf.ssr.server-fx-schemas/redirect-args {:location "/x" :status "oops"}         false]
    ["redirect keyword :location" :rf.server/redirect
-    fx-schemas/redirect-args {:location :dashboard}                  false]
+    rf.ssr.server-fx-schemas/redirect-args {:location :dashboard}                  false]
 
    ;; ---- :rf.server/safe-redirect ----------------------------------------
    ["safe-redirect well-formed" :rf.server/safe-redirect
-    fx-schemas/safe-redirect-args {:location "/dashboard"
+    rf.ssr.server-fx-schemas/safe-redirect-args {:location "/dashboard"
                                    :status 302
                                    :relative-only? true
                                    :allow ["app.example.com"]}       true]
    ["safe-redirect no :location" :rf.server/safe-redirect
-    fx-schemas/safe-redirect-args {:status 302}                      false]
+    rf.ssr.server-fx-schemas/safe-redirect-args {:status 302}                      false]
    ["safe-redirect non-int :status" :rf.server/safe-redirect
-    fx-schemas/safe-redirect-args {:location "/ok" :status "not-int"} false]
+    rf.ssr.server-fx-schemas/safe-redirect-args {:location "/ok" :status "not-int"} false]
    ["safe-redirect scalar :allow" :rf.server/safe-redirect
-    fx-schemas/safe-redirect-args {:location "/ok"
+    rf.ssr.server-fx-schemas/safe-redirect-args {:location "/ok"
                                    :allow "app.example.com"}         false]
    ["safe-redirect non-boolean :relative-only?" :rf.server/safe-redirect
-    fx-schemas/safe-redirect-args {:location "/ok" :relative-only? "yes"} false]
+    rf.ssr.server-fx-schemas/safe-redirect-args {:location "/ok" :relative-only? "yes"} false]
 
    ;; ---- AUDIT (a): every optional key, explicitly nil — ACCEPTED by both --
    ;; `{:path nil}` and `{}` say the same thing in Clojure, and code that
    ;; builds a cookie from an options map writes the first meaning the second.
    ["set-cookie nil :path"      :rf.server/set-cookie
-    fx-schemas/set-cookie-args {:name "s" :value "v" :path nil}      true]
+    rf.ssr.server-fx-schemas/set-cookie-args {:name "s" :value "v" :path nil}      true]
    ["set-cookie nil :domain"    :rf.server/set-cookie
-    fx-schemas/set-cookie-args {:name "s" :value "v" :domain nil}    true]
+    rf.ssr.server-fx-schemas/set-cookie-args {:name "s" :value "v" :domain nil}    true]
    ["set-cookie nil :max-age"   :rf.server/set-cookie
-    fx-schemas/set-cookie-args {:name "s" :value "v" :max-age nil}   true]
+    rf.ssr.server-fx-schemas/set-cookie-args {:name "s" :value "v" :max-age nil}   true]
    ["set-cookie nil :expires"   :rf.server/set-cookie
-    fx-schemas/set-cookie-args {:name "s" :value "v" :expires nil}   true]
+    rf.ssr.server-fx-schemas/set-cookie-args {:name "s" :value "v" :expires nil}   true]
    ["set-cookie nil :same-site" :rf.server/set-cookie
-    fx-schemas/set-cookie-args {:name "s" :value "v" :same-site nil} true]
+    rf.ssr.server-fx-schemas/set-cookie-args {:name "s" :value "v" :same-site nil} true]
    ["set-cookie nil :secure"    :rf.server/set-cookie
-    fx-schemas/set-cookie-args {:name "s" :value "v" :secure nil}    true]
+    rf.ssr.server-fx-schemas/set-cookie-args {:name "s" :value "v" :secure nil}    true]
    ["set-cookie nil :http-only" :rf.server/set-cookie
-    fx-schemas/set-cookie-args {:name "s" :value "v" :http-only nil} true]
+    rf.ssr.server-fx-schemas/set-cookie-args {:name "s" :value "v" :http-only nil} true]
    ["set-cookie every optional nil at once" :rf.server/set-cookie
-    fx-schemas/set-cookie-args {:name "s" :value "v"
+    rf.ssr.server-fx-schemas/set-cookie-args {:name "s" :value "v"
                                 :path nil :domain nil :max-age nil
                                 :expires nil :same-site nil
                                 :secure nil :http-only nil}          true]
    ["delete-cookie nil :path"   :rf.server/delete-cookie
-    fx-schemas/delete-cookie-args {:name "stale" :path nil}          true]
+    rf.ssr.server-fx-schemas/delete-cookie-args {:name "stale" :path nil}          true]
    ["delete-cookie nil :domain" :rf.server/delete-cookie
-    fx-schemas/delete-cookie-args {:name "stale" :domain nil}        true]
+    rf.ssr.server-fx-schemas/delete-cookie-args {:name "stale" :domain nil}        true]
    ["redirect nil :status"      :rf.server/redirect
-    fx-schemas/redirect-args {:location "/x" :status nil}            true]
+    rf.ssr.server-fx-schemas/redirect-args {:location "/x" :status nil}            true]
    ;; The no-target path spelled with an explicit nil rather than by omission.
    ["redirect nil :location"    :rf.server/redirect
-    fx-schemas/redirect-args {:location nil :status 302}             true]
+    rf.ssr.server-fx-schemas/redirect-args {:location nil :status 302}             true]
    ["safe-redirect nil :status" :rf.server/safe-redirect
-    fx-schemas/safe-redirect-args {:location "/ok" :status nil}      true]
+    rf.ssr.server-fx-schemas/safe-redirect-args {:location "/ok" :status nil}      true]
    ["safe-redirect nil :relative-only?" :rf.server/safe-redirect
-    fx-schemas/safe-redirect-args {:location "/ok" :relative-only? nil} true]
+    rf.ssr.server-fx-schemas/safe-redirect-args {:location "/ok" :relative-only? nil} true]
    ["safe-redirect nil :allow"  :rf.server/safe-redirect
-    fx-schemas/safe-redirect-args {:location "/ok" :allow nil}       true]
+    rf.ssr.server-fx-schemas/safe-redirect-args {:location "/ok" :allow nil}       true]
    ["safe-redirect every optional nil at once" :rf.server/safe-redirect
-    fx-schemas/safe-redirect-args {:location "/ok" :status nil
+    rf.ssr.server-fx-schemas/safe-redirect-args {:location "/ok" :status nil
                                    :relative-only? nil :allow nil}   true]
 
    ;; A REQUIRED key is not an optional one: nil is the violation it looks
    ;; like. These are the control rows for AUDIT (a) — without them `[:maybe …]`
    ;; on the optional slots could have been read as nil-tolerance at large.
    ["set-cookie nil :value (required)" :rf.server/set-cookie
-    fx-schemas/set-cookie-args {:name "s" :value nil}                false]
+    rf.ssr.server-fx-schemas/set-cookie-args {:name "s" :value nil}                false]
    ["set-cookie nil :name (required)"  :rf.server/set-cookie
-    fx-schemas/set-cookie-args {:name nil :value "v"}                false]
+    rf.ssr.server-fx-schemas/set-cookie-args {:name nil :value "v"}                false]
    ["set-header nil :value (required)" :rf.server/set-header
-    fx-schemas/set-header-args {:name "X-Foo" :value nil}            false]
+    rf.ssr.server-fx-schemas/set-header-args {:name "X-Foo" :value nil}            false]
    ["safe-redirect nil :location (required)" :rf.server/safe-redirect
-    fx-schemas/safe-redirect-args {:location nil}                    false]
+    rf.ssr.server-fx-schemas/safe-redirect-args {:location nil}                    false]
 
    ;; ---- AUDIT (b): a cookie `:name` is the published `:string` ---------
    ["set-cookie keyword :name"  :rf.server/set-cookie
-    fx-schemas/set-cookie-args {:name :csrf :value "v"}              false]
+    rf.ssr.server-fx-schemas/set-cookie-args {:name :csrf :value "v"}              false]
    ["set-cookie symbol :name"   :rf.server/set-cookie
-    fx-schemas/set-cookie-args {:name 'tracker :value "v"}           false]
+    rf.ssr.server-fx-schemas/set-cookie-args {:name 'tracker :value "v"}           false]
    ["delete-cookie keyword :name" :rf.server/delete-cookie
-    fx-schemas/delete-cookie-args {:name :stale :path "/"}           false]])
+    rf.ssr.server-fx-schemas/delete-cookie-args {:name :stale :path "/"}           false]])
 
 ;; ===========================================================================
 ;; (1) THE DEFECT — the four measured malformations, closed under BOTH postures
@@ -421,7 +421,7 @@
               [:rf.server/delete-cookie {:name "stale" :path "/"}]]}))
     (let [f (server-frame)]
       (rf/dispatch-sync [::good] {:frame f})
-      (let [raw (ssr/peek-response f)]
+      (let [raw (rf.ssr/peek-response f)]
         (is (= 201 (:status raw)) "set-status landed")
         (is (some (fn [[k _]] (= "Cache-Control" k)) (:headers raw))
             "set-header landed")
@@ -448,7 +448,7 @@
                                         :expires   "1700000000000"
                                         :same-site "Strict"}]]}))
       (rf/dispatch-sync [::tolerant] {:frame f})
-      (is (= 1 (count (:cookies (ssr/peek-response f))))
+      (is (= 1 (count (:cookies (rf.ssr/peek-response f))))
           "the string-attr cookie still lands at the fx boundary")))
 
   (testing "rf2-dtpfv: `:rf.server/redirect`'s documented NO-TARGET graceful
@@ -460,7 +460,7 @@
       (rf/reg-event ::no-target
         (fn [_ _] {:fx [[:rf.server/redirect {:status 302}]]}))
       (rf/dispatch-sync [::no-target] {:frame f})
-      (is (= {:status 302} (:redirect (ssr/peek-response f)))
+      (is (= {:status 302} (:redirect (rf.ssr/peek-response f)))
           "the target-less redirect passed the guard and set :redirect")))
 
   (testing "rf2-dtpfv taxonomy: an untrusted-INPUT policy rejection stays the
@@ -550,7 +550,7 @@
           {:fx [[:rf.server/set-cookie    {:name "session" :value "abc"}]
                 [:rf.server/delete-cookie {:name "stale" :path "/"}]]}))
       (rf/dispatch-sync [::named] {:frame f})
-      (let [cookies (:cookies (ssr/peek-response f))]
+      (let [cookies (:cookies (rf.ssr/peek-response f))]
         (is (= 2 (count cookies)) "both string-named cookies landed")
         (is (every? string? (map :name cookies))
             "and every :name on the accumulator is a string")))))
@@ -568,7 +568,7 @@
   [fx-id args {:keys [raw bookkept]}]
   (case fx-id
     :rf.server/set-status
-    (boolean (seq (get bookkept response/status-writes-key)))
+    (boolean (seq (get bookkept rf.ssr.response/status-writes-key)))
 
     (:rf.server/set-header :rf.server/append-header)
     (boolean (some (fn [[k _]] (= (:name args) k)) (:headers raw)))
@@ -613,7 +613,7 @@
 ;; ===========================================================================
 
 (deftest the-production-diagnostic-is-always-on
-  (when-not interop/debug-enabled?
+  (when-not rf.interop/debug-enabled?
     (testing "rf2-dtpfv: in a release build the guard's throw is contained by
               `re-frame.fx`, which fans an ALWAYS-ON
               `:rf.error/fx-handler-exception` — so the defect is visible to
@@ -632,7 +632,7 @@
              status")))))
 
 (deftest the-dev-diagnostic-is-the-richer-schema-failure
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
     (testing "rf2-dtpfv: with schemas live in a dev build the Spec 010 step-5
               boundary rejects FIRST, so the guard never runs and the
               programmer gets the richer `:where :fx-args` diagnostic with the
@@ -655,7 +655,7 @@
                          @traces))
             (str "a :where :fx-args schema failure named the fx; saw: "
                  (pr-str (mapv (comp :failing-id :tags) @traces))))
-        (is (= 200 (:status (ssr/peek-response f)))
+        (is (= 200 (:status (rf.ssr/peek-response f)))
             "the fx was skipped and the app's status is untouched — the dev
              recovery is `:skipped`, not a 500")))))
 
@@ -689,7 +689,7 @@
       (try
         (rf/dispatch-sync [::user-attempt] {:frame f})
         (finally (rf/unregister-listener! :trace tag)))
-      (if interop/debug-enabled?
+      (if rf.interop/debug-enabled?
         (do (is (empty? @ran)
                 "dev: the user fx was SKIPPED — its handler never ran")
             (is (seq @traces)
@@ -748,31 +748,31 @@
    ;; cookie `:value` is LEGAL and never reaches the guard, so the token is
    ;; routed through `:status` and the boolean `:secure` instead.
    ["status — a SHORT token (under the old 24-char head, so returned verbatim)"
-    response/set-status-fx (subs sentinel 0 16)]
+    rf.ssr.response/set-status-fx (subs sentinel 0 16)]
    ["status — a long token whose first 24 chars ARE the sentinel"
-    response/set-status-fx (str sentinel "-tail-0123456789")]
+    rf.ssr.response/set-status-fx (str sentinel "-tail-0123456789")]
    ["cookie :secure — a raw token where a boolean was published"
-    response/set-cookie-fx {:name "session" :value "v" :secure (str sentinel "-x")}]
+    rf.ssr.response/set-cookie-fx {:name "session" :value "v" :secure (str sentinel "-x")}]
    ;; Non-string values in the session-token slot itself.
    ["cookie :value — a keyword, which the old head bounded not at all"
-    response/set-cookie-fx {:name "session" :value (keyword sentinel)}]
+    rf.ssr.response/set-cookie-fx {:name "session" :value (keyword sentinel)}]
    ["cookie :value — a number that IS the secret"
-    response/set-cookie-fx {:name "session" :value 4111111111111111}]
+    rf.ssr.response/set-cookie-fx {:name "session" :value 4111111111111111}]
    ["cookie :value — a MAP, whose keys the old `:keys` leg reproduced"
-    response/set-cookie-fx {:name "session" :value {sentinel "v" (keyword sentinel) 2}}]
+    rf.ssr.response/set-cookie-fx {:name "session" :value {sentinel "v" (keyword sentinel) 2}}]
    ["header :value — a map with sentinel-bearing keys"
-    response/set-header-fx {:name "X-Auth" :value {sentinel "v"}}]
+    rf.ssr.response/set-header-fx {:name "X-Auth" :value {sentinel "v"}}]
    ["header :value — a vector carrying the token"
-    response/set-header-fx {:name "X-Auth" :value [sentinel]}]
+    rf.ssr.response/set-header-fx {:name "X-Auth" :value [sentinel]}]
    ["header :value — an attacker-sized map (the old `:keys` leg grew unbounded)"
-    response/set-header-fx {:name "X-Auth"
+    rf.ssr.response/set-header-fx {:name "X-Auth"
                             :value (into {} (map (fn [i] [(str sentinel "-" i) i]))
                                          (range 500))}]
    ;; The args value is not a map at all — `validate-args-map!`'s own leg.
    ["args map — a bare token string where a map was required"
-    response/set-cookie-fx (str sentinel "-not-a-map")]
+    rf.ssr.response/set-cookie-fx (str sentinel "-not-a-map")]
    ["args map — a token-bearing vector where a map was required"
-    response/set-header-fx [sentinel]]])
+    rf.ssr.response/set-header-fx [sentinel]]])
 
 (deftest a-rejection-carries-no-fragment-of-the-value-it-rejected
   (doseq [[label handler-fn args] token-bearing-malformations]
@@ -792,7 +792,7 @@
             argument failed ride explicitly trusted ex-data slots the emit
             site controls — never a guess recovered from the value — and the
             shape summary still answers 'what did I actually get?'"
-    (let [e    (rejection-of response/set-cookie-fx
+    (let [e    (rejection-of rf.ssr.response/set-cookie-fx
                              {:name "session" :value {sentinel "v"}})
           data (ex-data e)]
       (is (= :rf.server/set-cookie (:fx-id data)) "the trusted fx-id slot")
@@ -807,9 +807,9 @@
             map's key set, so an attacker-sized value inflated a message
             headed for an SSR host log. The summary is now fixed-size, so the
             message length no longer tracks the input's"
-    (let [small (ex-message (rejection-of response/set-header-fx
+    (let [small (ex-message (rejection-of rf.ssr.response/set-header-fx
                                           {:name "X-Auth" :value {:a 1}}))
-          huge  (ex-message (rejection-of response/set-header-fx
+          huge  (ex-message (rejection-of rf.ssr.response/set-header-fx
                                           {:name "X-Auth"
                                            :value (into {} (map (fn [i]
                                                                   [(str sentinel "-" i) i]))

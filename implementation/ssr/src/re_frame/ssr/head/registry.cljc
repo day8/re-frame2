@@ -15,10 +15,10 @@
   Reading a head is a pure read: the model a caller wants is the value
   `render-head` / `active-head` returned. There is no side-channel
   register, so there is nothing to clear on frame teardown."
-  (:require [re-frame.error :as error]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.source-coords :as source-coords]))
+  (:require [re-frame.error :as rf.error]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.source-coords :as rf.source-coords]))
 
 ;; ---- reg-head -------------------------------------------------------------
 
@@ -46,8 +46,8 @@
   ([id head-fn]
    (reg-head id {} head-fn))
   ([id metadata head-fn]
-   (registrar/register! :head id
-                        (assoc (source-coords/merge-coords metadata)
+   (rf.registrar/register! :head id
+                        (assoc (rf.source-coords/merge-coords metadata)
                                :handler-fn head-fn))
    id))
 
@@ -71,7 +71,7 @@
   too produced two `<meta charset>` tags in the non-streaming default
   document."
   [frame-id]
-  (let [doc (when frame-id (:doc (frame/frame-meta frame-id)))]
+  (let [doc (when frame-id (:doc (rf.frame/frame-meta frame-id)))]
     {:title (or doc "")
      :meta  [{:name "viewport" :content "width=device-width, initial-scale=1"}]}))
 
@@ -83,7 +83,7 @@
   never been written resolves to nil."
   [frame-id]
   (when frame-id
-    (let [runtime-db (frame/frame-runtime-db-value frame-id)]
+    (let [runtime-db (rf.frame/frame-runtime-db-value frame-id)]
       (when runtime-db
         (get-in runtime-db [:rf.runtime/routing :current])))))
 
@@ -98,7 +98,7 @@
   `:rf.error/no-frame-context` (no `:rf/default`-against-absence
   rendering). Per Spec 002 §Frame target resolution."
   [head-id {:keys [frame] :as opts}]
-  (let [frame    (frame/require-frame-stamp!
+  (let [frame    (rf.frame/require-frame-stamp!
                    frame :rf.ssr/render-head
                    {:where 'rf/render-head :event-id head-id})
         route    (if (contains? opts :route)
@@ -108,9 +108,9 @@
         ;; (rf2-afdlyr realm collapse: the realm substrate is a single default
         ;; realm, whose registrar IS the process-global table, so the former
         ;; per-frame realm-registrar binding was always the no-op default path).
-        head-registration (registrar/lookup :head head-id)]
+        head-registration (rf.registrar/lookup :head head-id)]
     (when-not head-registration
-      (error/throw-error!
+      (rf.error/throw-error!
         :rf.error/no-such-head
         'rf/active-head
         (str "No head registered under " head-id
@@ -121,7 +121,7 @@
     (let [head-fn (:handler-fn head-registration)
           ;; `frame` is a required non-nil stamp here (require-frame-stamp!
           ;; above), so the app-db read is unconditional.
-          app-db     (frame/frame-app-db-value frame)
+          app-db     (rf.frame/frame-app-db-value frame)
           head-model (head-fn app-db route)]
       head-model)))
 
@@ -173,7 +173,7 @@
   default path)."
   [route]
   (when-let [route-id (:route-id route)]
-    (when-let [route-meta (registrar/lookup :route route-id)]
+    (when-let [route-meta (rf.registrar/lookup :route route-id)]
       (:head route-meta))))
 
 (defn active-head
@@ -194,7 +194,7 @@
 
   Returns the resolved head-model. Per Spec 011 §`render-head`."
   [frame-id]
-  (let [frame-id (frame/require-frame-stamp!
+  (let [frame-id (rf.frame/require-frame-stamp!
                    frame-id :rf.ssr/active-head
                    {:where 'rf/active-head})
         route    (frame-current-route frame-id)

@@ -40,17 +40,17 @@
       this surface a production server ever experiences."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.fx :as fx]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.registrar :as registrar]
-            [re-frame.ssr.payload-policy :as payload-policy]
-            [re-frame.ssr.test-fixture :as tf]
+            [re-frame.frame :as rf.frame]
+            [re-frame.fx :as rf.fx]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
 ;; Shared reset fixture lives in `re-frame.ssr.test-fixture` (rf2-i3qc0).
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 ;; ---- helpers --------------------------------------------------------------
 
@@ -75,7 +75,7 @@
             production per Spec 001 §Production elision contract) and it is
             what decides whether the fx runs at all."
     (doseq [id [:rf.ssr/check-version :rf.ssr/check-schema-digest]]
-      (let [meta (registrar/lookup :fx id)]
+      (let [meta (rf.registrar/lookup :fx id)]
         (is (some? meta) (str id " resolves in the :fx registry"))
         (is (fn? (:handler-fn meta)) (str id " carries a :handler-fn"))
         (is (= #{:client} (:platforms meta))
@@ -91,7 +91,7 @@
     (let [ran (atom [])]
       ;; A marker fx queued AFTER both checks. If a mismatching check threw,
       ;; or aborted the drain, this never runs.
-      (fx/reg-fx ::after-checks
+      (rf.fx/reg-fx ::after-checks
                  {:platforms #{:client}}
                  (fn [_ v] (swap! ran conj v)))
       (rf/reg-event ::probe-best-effort
@@ -103,10 +103,10 @@
                                               :actual   "sha256:bbbb"}]
                 [::after-checks :marker]]}))
 
-      (let [f (frame/make-anon-frame-record! {:platform :client})]
+      (let [f (rf.frame/make-anon-frame-record! {:platform :client})]
         (is (nil? (rf/dispatch-sync [::probe-best-effort] {:frame f}))
             "a double mismatch does not throw out of dispatch-sync")
-        (is (true? (:probe/handler-ran (frame/frame-app-db-value f)))
+        (is (true? (:probe/handler-ran (rf.frame/frame-app-db-value f)))
             "the handler's :db write committed alongside the failing checks")
         (is (= [:marker] @ran)
             "the effect queued AFTER both mismatching checks still ran —
@@ -131,13 +131,13 @@
         ;; check-version probes compare integers, not semver strings.
         {:fx [[:rf.ssr/check-version {:expected 1 :actual 1}]]}))
 
-    (let [f (frame/make-anon-frame-record! {:platform :client})]
+    (let [f (rf.frame/make-anon-frame-record! {:platform :client})]
       (with-trace-recorder! [traces]
         (rf/dispatch-sync [::probe-check-version-match] {:frame f})
         ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). BOTH of
         ;; these are negatives over the trace ring, and both pass vacuously
         ;; under the gate, where the ring is empty whatever the fx did.
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (empty? (traces-of @traces :rf.ssr/version-mismatch))
               "matching version → no mismatch trace")
           (is (empty? (traces-of @traces :rf.ssr/compatibility-check-skipped))
@@ -150,14 +150,14 @@
       (fn [_ _]
         {:fx [[:rf.ssr/check-version {:expected 1 :actual 2}]]}))
 
-    (let [f (frame/make-anon-frame-record! {:platform :client})]
+    (let [f (rf.frame/make-anon-frame-record! {:platform :client})]
       (with-trace-recorder! [traces]
         (rf/dispatch-sync [::probe-check-version-mismatch] {:frame f})
         ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). The trace
         ;; is this fx's ONLY output; its production behaviour — do not throw,
         ;; do not halt the drain — is pinned by
         ;; `compatibility-checks-are-best-effort-and-never-halt-the-drain`.
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (let [hits (traces-of @traces :rf.ssr/version-mismatch)]
             (is (= 1 (count hits))
                 (str "expected one :rf.ssr/version-mismatch trace; saw: "
@@ -191,12 +191,12 @@
                {:expected "sha256:deadbeefcafef00d"
                 :actual   "sha256:deadbeefcafef00d"}]]}))
 
-    (let [f (frame/make-anon-frame-record! {:platform :client})]
+    (let [f (rf.frame/make-anon-frame-record! {:platform :client})]
       (with-trace-recorder! [traces]
         (rf/dispatch-sync [::probe-check-digest-match] {:frame f})
         ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Vacuous
         ;; under the gate — both are negatives over an empty ring.
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (empty? (traces-of @traces :rf.ssr/schema-digest-mismatch))
               "matching digest → no mismatch trace")
           (is (empty? (traces-of @traces :rf.ssr/compatibility-check-skipped))
@@ -211,11 +211,11 @@
                {:expected "sha256:deadbeefcafef00d"
                 :actual   "sha256:0000000000000000"}]]}))
 
-    (let [f (frame/make-anon-frame-record! {:platform :client})]
+    (let [f (rf.frame/make-anon-frame-record! {:platform :client})]
       (with-trace-recorder! [traces]
         (rf/dispatch-sync [::probe-check-digest-mismatch] {:frame f})
         ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring).
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (let [hits (traces-of @traces :rf.ssr/schema-digest-mismatch)]
             (is (= 1 (count hits))
                 (str "expected one :rf.ssr/schema-digest-mismatch trace; saw: "
@@ -254,14 +254,14 @@
     (rf/reg-event ::probe-check-version-scalar-matches
       {:platforms #{:client}}
       (fn [_ _]
-        {:fx [[:rf.ssr/check-version payload-policy/pattern-protocol-version]]}))
+        {:fx [[:rf.ssr/check-version rf.ssr.payload-policy/pattern-protocol-version]]}))
 
-    (let [f (frame/make-anon-frame-record! {:platform :client})]
+    (let [f (rf.frame/make-anon-frame-record! {:platform :client})]
       (with-trace-recorder! [traces]
         (rf/dispatch-sync [::probe-check-version-scalar-matches] {:frame f})
         ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). Vacuous
         ;; under the gate — both are negatives over an empty ring.
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (empty? (traces-of @traces :rf.ssr/compatibility-check-skipped))
               "version scalar resolves via the SSR constant → never skipped")
           (is (empty? (traces-of @traces :rf.ssr/version-mismatch))
@@ -273,17 +273,17 @@
     ;; SSR artefact's compiled-in constant. A scalar (server value) that
     ;; differs from it is genuine skew and emits :rf.ssr/version-mismatch,
     ;; proving the SSR constant is the "actual" the comparison runs against.
-    (let [server-version (inc payload-policy/pattern-protocol-version)]
+    (let [server-version (inc rf.ssr.payload-policy/pattern-protocol-version)]
       (rf/reg-event ::probe-check-version-scalar-differs
         {:platforms #{:client}}
         (fn [_ _]
           {:fx [[:rf.ssr/check-version server-version]]}))
 
-      (let [f (frame/make-anon-frame-record! {:platform :client})]
+      (let [f (rf.frame/make-anon-frame-record! {:platform :client})]
         (with-trace-recorder! [traces]
           (rf/dispatch-sync [::probe-check-version-scalar-differs] {:frame f})
           ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring).
-          (when interop/debug-enabled?
+          (when rf.interop/debug-enabled?
             (let [hits (traces-of @traces :rf.ssr/version-mismatch)]
               (is (empty? (traces-of @traces :rf.ssr/compatibility-check-skipped))
                   "version scalar resolves via the SSR constant → never skipped")
@@ -294,7 +294,7 @@
                 (let [ev (first hits)]
                   (is (= server-version (-> ev :tags :expected))
                       "scalar arg is :expected (server side)")
-                  (is (= payload-policy/pattern-protocol-version (-> ev :tags :actual))
+                  (is (= rf.ssr.payload-policy/pattern-protocol-version (-> ev :tags :actual))
                       ":actual sourced from the SSR-owned pattern-protocol constant"))))))))))
 
 (deftest check-schema-digest-scalar-with-no-hook-emits-skipped
@@ -302,19 +302,19 @@
     ;; Test deps pull `re-frame.schemas` onto the classpath so its ns-load
     ;; registers `:schemas/app-schemas-digest`; explicitly clear the hook
     ;; for this test so we can pin the missing-hook path. Restore on exit.
-    (let [prior-hook (late-bind/get-fn :schemas/app-schemas-digest)]
-      (swap! late-bind/hooks dissoc :schemas/app-schemas-digest)
+    (let [prior-hook (rf.late-bind/get-fn :schemas/app-schemas-digest)]
+      (swap! rf.late-bind/hooks dissoc :schemas/app-schemas-digest)
       (try
         (rf/reg-event ::probe-check-digest-scalar-no-hook
           {:platforms #{:client}}
           (fn [_ _]
             {:fx [[:rf.ssr/check-schema-digest "sha256:deadbeefcafef00d"]]}))
 
-        (let [f (frame/make-anon-frame-record! {:platform :client})]
+        (let [f (rf.frame/make-anon-frame-record! {:platform :client})]
           (with-trace-recorder! [traces]
             (rf/dispatch-sync [::probe-check-digest-scalar-no-hook] {:frame f})
             ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring).
-            (when interop/debug-enabled?
+            (when rf.interop/debug-enabled?
               (let [hits (traces-of @traces :rf.ssr/compatibility-check-skipped)]
                 (is (= 1 (count hits)))
                 (when (seq hits)
@@ -324,4 +324,4 @@
                     (is (= :skipped                    (:recovery ev)))))))))
         (finally
           (when prior-hook
-            (late-bind/set-fn! :schemas/app-schemas-digest prior-hook)))))))
+            (rf.late-bind/set-fn! :schemas/app-schemas-digest prior-hook)))))))

@@ -56,8 +56,8 @@
   only) is treated as a non-var row and skipped."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [re-frame.api-manifest.gen :as gen]
-            [re-frame.api-manifest.projection :as projection]))
+            [re-frame.api-manifest.gen :as rf.api-manifest.gen]
+            [re-frame.api-manifest.projection :as rf.api-manifest.projection]))
 
 (def ^:private min-var-rows
   "Non-vacuous extracted-row floor for the spec/API.md projection
@@ -70,7 +70,7 @@
    same calibration the secondary projection floors use (rf2-utvst)."
   150)
 
-(def ^:private api-md-file (delay (io/file gen/repo-root "spec" "API.md")))
+(def ^:private api-md-file (delay (io/file rf.api-manifest.gen/repo-root "spec" "API.md")))
 
 (def ^:private tier-tokens
   "The closed Tier vocabulary, longest-first so `internal-public` is
@@ -297,7 +297,7 @@
    an empty problem list with a collapsed extraction would otherwise report
    a vacuous OK."
   [extracted]
-  (projection/vacuity-floor-problem "spec/API.md" extracted min-var-rows))
+  (rf.api-manifest.projection/vacuity-floor-problem "spec/API.md" extracted min-var-rows))
 
 (defn read-api-md-lines
   "Read spec/API.md as `[[line-no line-text] ...]` (1-based). Shared by
@@ -314,11 +314,11 @@
    every API.md var-row resolves to a manifest row with a MATCHING tier;
    false (with a printed report) on any mismatch."
   []
-  (let [manifest   (gen/read-committed-manifest)
+  (let [manifest   (rf.api-manifest.gen/read-committed-manifest)
         rows       (:vars manifest)
         ;; API.md var-rows the sidecar marks as knowingly-unmanifested
         ;; (post-v1-lib surfaces the reference impl does not yet ship).
-        known-unmanifested (set (:api-md-known-unmanifested (gen/read-sidecar)))
+        known-unmanifested (set (:api-md-known-unmanifested (rf.api-manifest.gen/read-sidecar)))
         api-rows   (parse-api-md-var-rows)
         extracted  (count api-rows)
         ;; Non-vacuous floor (rf2-4ka7c2.2): if extraction has collapsed
@@ -339,9 +339,9 @@
         ;; same API.md prose, all on the same retirement-marker discipline.
         ;; These fire only on retired keyword forms, not prose phrasing.
         kw-probs   (concat
-                     (projection/ep0017-keyword-drift-problems "spec/API.md" api-md-lines)
-                     (projection/ep0011-reply-vocab-drift-problems "spec/API.md" api-md-lines)
-                     (projection/ep0015-privacy-vocab-drift-problems "spec/API.md" api-md-lines))]
+                     (rf.api-manifest.projection/ep0017-keyword-drift-problems "spec/API.md" api-md-lines)
+                     (rf.api-manifest.projection/ep0011-reply-vocab-drift-problems "spec/API.md" api-md-lines)
+                     (rf.api-manifest.projection/ep0015-privacy-vocab-drift-problems "spec/API.md" api-md-lines))]
     (cond
       ;; Vacuity-floor violation: extraction collapsed — refuse a green.
       floor

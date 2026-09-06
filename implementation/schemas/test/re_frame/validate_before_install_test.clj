@@ -37,13 +37,13 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.walk :as walk]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.schemas.storage :as storage]
-            [re-frame.schemas.test-fixture :as tf]
+            [re-frame.frame :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.schemas.storage :as rf.schemas.storage]
+            [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.schemas.test-fixture/reset-runtime)
 
 (defn- seed-int-schema!
   "Register the canonical [:n]→[:int] app-schema + seed/ok/break events
@@ -89,7 +89,7 @@
             frame-state container — no forward write, no restore write
             (the retired pair performed two)"
     (seed-int-schema!)
-    (let [container (frame/frame-state-container :rf/default)
+    (let [container (rf.frame/frame-state-container :rf/default)
           writes    (atom [])]
       (is (some? container) "precondition: the frame-state container resolves")
       (add-watch container ::write-probe
@@ -194,10 +194,10 @@
             unchanged, no change traces, outcome :rolled-back — the
             retired treat-as-pass fail-OPEN arm is gone"
     (seed-int-schema!)
-    (let [original (late-bind/get-fn :schemas/validate-app-schema!)
+    (let [original (rf.late-bind/get-fn :schemas/validate-app-schema!)
           records  (atom [])]
       (try
-        (late-bind/set-fn! :schemas/validate-app-schema!
+        (rf.late-bind/set-fn! :schemas/validate-app-schema!
                            (fn [_db _event-id _frame _continue?]
                              (throw (ex-info "validator machinery exploded" {}))))
         (rf/register-listener! :events ::throw-probe
@@ -225,7 +225,7 @@
           (is (= :rolled-back (:outcome rec))
               "outcome :rolled-back — the reject reaches off-box shippers"))
         (finally
-          (late-bind/set-fn! :schemas/validate-app-schema! original))))))
+          (rf.late-bind/set-fn! :schemas/validate-app-schema! original))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 6. Success path: exactly one validation pass, one commit, one forward emit.
@@ -236,10 +236,10 @@
             (pre-install; there is no post-commit second pass) and emits
             exactly one forward db-changed + one frame-state-changed"
     (seed-int-schema!)
-    (let [original (late-bind/get-fn :schemas/validate-app-schema!)
+    (let [original (rf.late-bind/get-fn :schemas/validate-app-schema!)
           calls    (atom 0)]
       (try
-        (late-bind/set-fn! :schemas/validate-app-schema!
+        (rf.late-bind/set-fn! :schemas/validate-app-schema!
                            (fn [db event-id frame-id continue?]
                              (swap! calls inc)
                              (original db event-id frame-id continue?)))
@@ -254,7 +254,7 @@
             (is (= 1 (count (filter #{:rf.event/frame-state-changed} ops)))
                 "exactly one frame-state-changed")))
         (finally
-          (late-bind/set-fn! :schemas/validate-app-schema! original))))))
+          (rf.late-bind/set-fn! :schemas/validate-app-schema! original))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 7. JVM registry-generation race — one snapshot per candidate.
@@ -271,16 +271,16 @@
     ;; Build the two whole-registry generation values.
     (rf/reg-app-schema [:a] [:int])
     (rf/reg-app-schema [:b] [:int])
-    (let [gen-pass (storage/snapshot-schemas-by-frame)]
-      (storage/clear-schemas-by-frame!)
+    (let [gen-pass (rf.schemas.storage/snapshot-schemas-by-frame)]
+      (rf.schemas.storage/clear-schemas-by-frame!)
       (rf/reg-app-schema [:a] [:string])
       (rf/reg-app-schema [:b] [:string])
-      (let [gen-fail (storage/snapshot-schemas-by-frame)
+      (let [gen-fail (rf.schemas.storage/snapshot-schemas-by-frame)
             stop?    (atom false)
             flipper  (future
                        (loop [pass? true]
                          (when-not @stop?
-                           (storage/restore-schemas-by-frame!
+                           (rf.schemas.storage/restore-schemas-by-frame!
                              (if pass? gen-pass gen-fail))
                            (recur (not pass?)))))]
         (try
@@ -296,4 +296,4 @@
           (finally
             (reset! stop? true)
             @flipper
-            (storage/restore-schemas-by-frame! gen-pass)))))))
+            (rf.schemas.storage/restore-schemas-by-frame! gen-pass)))))))

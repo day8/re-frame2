@@ -93,13 +93,13 @@
   This namespace is CLJS-only and host-opted-in: it reaches into the DOM and
   installs a `MutationObserver`."
   (:require [cljs.reader :as reader]
-            [re-frame.frame :as frame]
-            [re-frame.ssr.constants :as constants]
+            [re-frame.frame :as rf.frame]
+            [re-frame.ssr.constants :as rf.ssr.constants]
             ;; The suspense component's render-time failed-boundary record.
             ;; `suspense` depends on core only, never on this ns.
-            [re-frame.ssr.suspense :as suspense]
-            [re-frame.ssr.streaming.constants :as wire]
-            [re-frame.trace :as trace]))
+            [re-frame.ssr.suspense :as rf.ssr.suspense]
+            [re-frame.ssr.streaming.constants :as rf.ssr.streaming.constants]
+            [re-frame.trace :as rf.trace]))
 
 ;; ---- wire-shape constants (the attribute names the server stamps) ---------
 ;;
@@ -112,11 +112,11 @@
 ;; shared source rather than a comment. Aliased here so the call sites read
 ;; the same as before.
 
-(def ^:private attr-suspense-id        wire/attr-suspense-id)
-(def ^:private attr-suspense-fallback  wire/attr-suspense-fallback)
-(def ^:private attr-suspense-resolved  wire/attr-suspense-resolved)
-(def ^:private attr-suspense-failed    wire/attr-suspense-failed)
-(def ^:private attr-suspense-hydrate   wire/attr-suspense-hydrate)
+(def ^:private attr-suspense-id        rf.ssr.streaming.constants/attr-suspense-id)
+(def ^:private attr-suspense-fallback  rf.ssr.streaming.constants/attr-suspense-fallback)
+(def ^:private attr-suspense-resolved  rf.ssr.streaming.constants/attr-suspense-resolved)
+(def ^:private attr-suspense-failed    rf.ssr.streaming.constants/attr-suspense-failed)
+(def ^:private attr-suspense-hydrate   rf.ssr.streaming.constants/attr-suspense-hydrate)
 
 ;; The client-owned LIVE mount element. The server emits the fallback
 ;; wrapped in a `<template>`, whose content is INERT by the HTML spec
@@ -130,8 +130,8 @@
 ;; expressed over the server's `<template>`-marker protocol. Client-owned
 ;; but pinned in the shared `wire` ns alongside the server-emitted
 ;; attributes.
-(def ^:private attr-suspense-mount     wire/attr-suspense-mount)
-(def ^:private mount-tag               wire/mount-tag)
+(def ^:private attr-suspense-mount     rf.ssr.streaming.constants/attr-suspense-mount)
+(def ^:private mount-tag               rf.ssr.streaming.constants/mount-tag)
 
 ;; ---- id parsing ------------------------------------------------------------
 
@@ -314,7 +314,7 @@
   canonical replace."
   [frame-id delta]
   (when (and (map? delta) (seq delta))
-    (frame/swap-frame-db! frame-id
+    (rf.frame/swap-frame-db! frame-id
                           (fn [app-db]
                             (into app-db delta)))))
 
@@ -330,7 +330,7 @@
   merged in to carry the branch-specific field (`:exception` for the reader
   throw, `:malformed-value-type` for a non-map parse)."
   [frame-id wire-id-string reason extra]
-  (trace/emit-error! :rf.ssr/suspense-boundary-failed
+  (rf.trace/emit-error! :rf.ssr/suspense-boundary-failed
                      (merge {:id       (read-boundary-id wire-id-string)
                              :frame    frame-id
                              :where    'rf.ssr/streaming-client
@@ -393,7 +393,7 @@
   sibling of `malformed-delta!`'s `:skipped-delta` and the swap-time
   `:inline-fallback`."
   [frame-id wire-id-string]
-  (trace/emit-error! :rf.ssr/suspense-boundary-failed
+  (rf.trace/emit-error! :rf.ssr/suspense-boundary-failed
                      {:id       (read-boundary-id wire-id-string)
                       :frame    frame-id
                       :where    'rf.ssr/streaming-client
@@ -557,7 +557,7 @@
         ;; by `apply-ready-deltas!` at the sweep level so it survives arriving
         ;; in a later observer batch than this template (rf2-x76af2.35).
         (when (and failed? swapped?)
-          (trace/emit-error! :rf.ssr/suspense-boundary-failed
+          (rf.trace/emit-error! :rf.ssr/suspense-boundary-failed
                              {:id        (read-boundary-id wire-id-string)
                               :frame     frame-id
                               :where     'rf.ssr/streaming-client
@@ -697,7 +697,7 @@
     ;; Publish the failed set BEFORE unwrapping / readiness: the
     ;; `boundary` component reads it during the hydration render that
     ;; `on-ready` triggers, so it has to be in place by then.
-    (suspense/record-failed-boundaries! (:failed report))
+    (rf.ssr.suspense/record-failed-boundaries! (:failed report))
     (unwrap-mounts! root)
     (stop!)
     (when (compare-and-set! ready? false true)
@@ -787,12 +787,12 @@
      ;; closed on, never a synthesised `:rf/default`. `payload-id` defaults
      ;; to the pinned `constants/payload-script-id` (main).
      :or   {root       (when (exists? js/document) js/document)
-            payload-id constants/payload-script-id}}]
+            payload-id rf.ssr.constants/payload-script-id}}]
    ;; The streaming delta-merge target is supplied explicitly via `:frame`.
    ;; A nil stamp is an absent target,
    ;; not a request to synthesise `:rf/default`; surface the always-on
    ;; `:rf.error/no-frame-context`. Per Spec 002 §Frame target resolution.
-   (let [frame-id (frame/require-frame-stamp!
+   (let [frame-id (rf.frame/require-frame-stamp!
                     frame :rf.ssr/streaming-install
                     {:where 'rf.ssr.streaming.client/install!})]
      ;; No DOM (a non-browser runtime / a host calling install! too early)

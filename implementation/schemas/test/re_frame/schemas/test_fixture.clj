@@ -64,28 +64,28 @@
   `make-frame` so its `:initial-events` cascade still fires synchronously — see
   `schemas_conformance_test`.)"
   (:require [re-frame.core :as rf]
-            [re-frame.flows :as flows]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.flows :as rf.flows]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (defn reset-runtime
   "The canonical `:each` fixture for schemas-artefact JVM tests."
   [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (schemas/reset-schema-validator!)
-  (schemas/clear-validator-unavailable-warned!)
-  (schemas/clear-walker-opaque-warned!)
-  (schemas/clear-edn-print-cache!)
-  (schemas/clear-sensitive-paths-cache!)
-  (registrar/clear-warning-caches!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf.schemas/reset-schema-validator!)
+  (rf.schemas/clear-validator-unavailable-warned!)
+  (rf.schemas/clear-walker-opaque-warned!)
+  (rf.schemas/clear-edn-print-cache!)
+  (rf.schemas/clear-sensitive-paths-cache!)
+  (rf.registrar/clear-warning-caches!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   ;; EP-0002 (rf2-5q7um6): establish an explicit :rf/default scope for the
   ;; body so ambient reg-app-schema calls carry a frame stamp.
-  (frame/ensure-default-frame!)
-  (binding [frame/*current-frame* :rf/default]
+  (rf.frame/ensure-default-frame!)
+  (binding [rf.frame/*current-frame* :rf/default]
     (test-fn)))

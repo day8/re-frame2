@@ -85,8 +85,8 @@
   Absence of a recorded outcome — a plain client mount, a non-streamed
   page, no frame scope at all — means the body renders. That is the
   ordinary case and it fails soft by construction."
-  (:require [re-frame.error :as error]
-            [re-frame.frame :as frame]))
+  (:require [re-frame.error :as rf.error]
+            [re-frame.frame :as rf.frame]))
 
 ;; ---- reserved runtime-db slot ---------------------------------------------
 
@@ -112,7 +112,7 @@
   For consumers that HAVE a frame — host code, tools, tests, server-side
   assertions. The component cannot use this; see below."
   [frame-id]
-  (or (get-in (frame/frame-runtime-db-value frame-id) failed-boundaries-path)
+  (or (get-in (rf.frame/frame-runtime-db-value frame-id) failed-boundaries-path)
       #{}))
 
 ;; ---- the render-time record ------------------------------------------------
@@ -179,7 +179,7 @@
   ;; mistake reads identically whichever host catches it first. A
   ;; client-only app would otherwise discover a missing `:fallback` only
   ;; when its server build ran.
-  (error/throw-error!
+  (rf.error/throw-error!
     :rf.error/suspense-boundary-invalid-attrs
     'rf.ssr/boundary
     (str "boundary requires an attrs map with both :id and :fallback; "

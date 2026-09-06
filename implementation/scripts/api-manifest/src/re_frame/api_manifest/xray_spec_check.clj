@@ -47,8 +47,8 @@
   renamed to an unmanifested namespace, or a panel namespace is removed
   from the manifest while the spec still names it — the keystone allowlist
   discipline applied to the live panel + mount surface."
-  (:require [re-frame.api-manifest.gen :as gen]
-            [re-frame.api-manifest.projection :as proj]))
+  (:require [re-frame.api-manifest.gen :as rf.api-manifest.gen]
+            [re-frame.api-manifest.projection :as rf.api-manifest.projection]))
 
 (def ^:private xray-ns-prefix "day8.re-frame2-xray.")
 
@@ -113,14 +113,14 @@
 
 (defn check!
   []
-  (let [rows            (proj/manifest-rows)
-        sidecar         (gen/read-sidecar)
+  (let [rows            (rf.api-manifest.projection/manifest-rows)
+        sidecar         (rf.api-manifest.gen/read-sidecar)
         qualified-allow (set (map vec (:xray-spec-known-unmanifested-qualified sidecar)))
         bare-allow      (set (:xray-spec-known-unmanifested sidecar))
-        file            (proj/repo-file "tools" "xray" "spec" "API.md")
-        rel             (proj/repo-relative file)
-        lines           (proj/numbered-lines file)
-        qualified-refs  (distinct (proj/qualified-symbol-references xray-ns-prefix lines))
+        file            (rf.api-manifest.projection/repo-file "tools" "xray" "spec" "API.md")
+        rel             (rf.api-manifest.projection/repo-relative file)
+        lines           (rf.api-manifest.projection/numbered-lines file)
+        qualified-refs  (distinct (rf.api-manifest.projection/qualified-symbol-references xray-ns-prefix lines))
         bare-refs       (distinct (mount-references lines))
         problems        (reconcile {:rows            rows
                                     :qualified-refs  qualified-refs
@@ -128,7 +128,7 @@
                                     :qualified-allow qualified-allow
                                     :bare-allow      bare-allow
                                     :rel             rel})]
-    (proj/report-with-floor! "tools/xray/spec/API.md"
+    (rf.api-manifest.projection/report-with-floor! "tools/xray/spec/API.md"
                              (+ (count qualified-refs) (count bare-refs))
                              min-references
                              problems)))

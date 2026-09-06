@@ -75,25 +75,25 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.privacy.url :as url-egress]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.egress :as egress]
-            [re-frame.ssr.test-fixture :as tf]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.privacy.url :as rf.privacy.url]
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.egress :as rf.ssr.egress]
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
 ;; NOTE the fixture does NOT clear the always-on error-listener registry.
 ;; `re-frame.ssr` installs its own `::error-projection` listener there at
 ;; ns-load time, and (5) below is precisely a claim about what that listener
 ;; does with these categories. Each test unregisters only the shipper
 ;; stand-in it registered.
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures
 ;; ---------------------------------------------------------------------------
 
 (defn- server-frame []
-  (frame/make-anon-frame-record!
+  (rf.frame/make-anon-frame-record!
     {:platform :server
      :ssr      {:public-error-id   :rf.ssr/default-error-projector
                 :dev-error-detail? false}}))
@@ -120,7 +120,7 @@
     (rf/unregister-listener! :errors id)
     {:frame    f
      :records  @seen
-     :response (ssr/flush-response! f)}))
+     :response (rf.ssr/flush-response! f)}))
 
 (defn- safe-redirect-records [records]
   (filter #(str/starts-with? (name (:error %)) "safe-redirect-") records))
@@ -408,16 +408,16 @@
             Read the two together and the EP-0015 relationship is the point:
             the dev operator sees their own process in full detail, and the
             production record is a strict projection of it."
-    (is (nil? (url-egress/redact-url-carriers nil)))
-    (is (= 42 (url-egress/redact-url-carriers 42)))
-    (is (= "" (url-egress/redact-url-carriers "")))
-    (is (= "/plain/path" (url-egress/redact-url-carriers "/plain/path"))
+    (is (nil? (rf.privacy.url/redact-url-carriers nil)))
+    (is (= 42 (rf.privacy.url/redact-url-carriers 42)))
+    (is (= "" (rf.privacy.url/redact-url-carriers "")))
+    (is (= "/plain/path" (rf.privacy.url/redact-url-carriers "/plain/path"))
         "a bare path is not a carrier this policy targets")
-    (is (= "javascript:alert(1)" (url-egress/redact-url-carriers "javascript:alert(1)"))
+    (is (= "javascript:alert(1)" (rf.privacy.url/redact-url-carriers "javascript:alert(1)"))
         "the attack string itself survives intact when it carries no
          query / fragment — the common case, and the one a responder needs")
     (is (= "/x?a=rf/redacted&flag#rf/redacted"
-           (url-egress/redact-url-carriers "/x?a=1&flag#frag"))
+           (rf.privacy.url/redact-url-carriers "/x?a=1&flag#frag"))
         "values redacted, keys kept, value-less flag key kept, fragment whole")))
 
 ;; ===========================================================================
@@ -563,16 +563,16 @@
             over a set the framework owns."
     (let [classes (into #{}
                         (map (fn [scheme]
-                               (egress/safe-redirect-scheme-class scheme)))
+                               (rf.ssr.egress/safe-redirect-scheme-class scheme)))
                         ["javascript" "DATA" "vbscript" "http" "https"
                          "mailto" "ftp" "file" "tel" "s3cr3t-probe-token"
                          (apply str (repeat 5000 "z"))])]
       (is (= #{:javascript :data :vbscript :http :https :other} classes)
           "every scheme the gate can meet lands in the six-member vocabulary")
-      (is (nil? (egress/safe-redirect-scheme-class nil))
+      (is (nil? (rf.ssr.egress/safe-redirect-scheme-class nil))
           "no scheme to classify yields nil, so the slot is omitted rather
            than carried as nil")
-      (is (= :other (egress/safe-redirect-scheme-class
+      (is (= :other (rf.ssr.egress/safe-redirect-scheme-class
                       (apply str (repeat 50000 "q"))))
           "an oversized scheme is classified without being copied"))))
 
@@ -585,13 +585,13 @@
             is that failure, made loud."
     (let [gate-schemes (into (deref #'re-frame.ssr.response/rejected-schemes)
                              (deref #'re-frame.ssr.response/allowed-schemes))]
-      (is (= gate-schemes (set (keys egress/scheme-classes)))
+      (is (= gate-schemes (set (keys rf.ssr.egress/scheme-classes)))
           "the class map's domain IS the gate's closed vocabulary")
       (is (= (into #{} (map keyword) gate-schemes)
-             (set (vals egress/scheme-classes)))
+             (set (vals rf.ssr.egress/scheme-classes)))
           "and each maps to the keyword of its own name — no re-spelling, so
            a reader of the sink and a reader of the gate use one word")
-      (is (not (contains? (set (vals egress/scheme-classes)) :other))
+      (is (not (contains? (set (vals rf.ssr.egress/scheme-classes)) :other))
           ":other is the fallback for everything OUTSIDE the vocabulary; a
            scheme mapping TO it would make the fallback ambiguous"))))
 
@@ -696,11 +696,11 @@
             a routing-free host would take the unbound branch and ship the raw
             URL."
     (is (= "/cb?code=rf/redacted#rf/redacted"
-           (url-egress/redact-url-carriers "/cb?code=secret#access_token=leak"))
+           (rf.privacy.url/redact-url-carriers "/cb?code=secret#access_token=leak"))
         "the scrub runs here, on ssr's classpath, with nothing routing-shaped
          loaded on its behalf")
     (is (= "/cb?code=rf/redacted#rf/redacted"
-           (:location (url-egress/redact-url-tag
+           (:location (rf.privacy.url/redact-url-tag
                         {:location "/cb?code=secret#access_token=leak"}
                         :location)))
         "and the `:location` slot the rejection arms build reaches it")))
@@ -723,10 +723,10 @@
             built FROM its slot set rather than filtered down to it, so an
             unrecognised tag has no path into the record even in principle."
     (is (= #{:frame :recovery :reason :scheme-class}
-           egress/safe-redirect-record-slots)
+           rf.ssr.egress/safe-redirect-record-slots)
         "the closed set, unchanged by the consolidation")
     (is (= {:scheme-class :https}
-           (egress/safe-redirect-record-tags
+           (rf.ssr.egress/safe-redirect-record-tags
              {:scheme    "https"
               :host      "evil.example.com"
               :location  "https://alice:pw@evil.example.com/reset/tok-abc"

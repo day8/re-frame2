@@ -16,7 +16,7 @@
   `:sensitive?` flag (the parameterised walker serves both flags so
   pinning one suffices to lock the structural recognition)."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.schemas :as schemas]))
+            [re-frame.schemas :as rf.schemas]))
 
 ;; ---- dispatch-bearing combinators ----------------------------------------
 ;;
@@ -33,7 +33,7 @@
   (testing ":orn — a branch's :sensitive? on its slot-props claims the
             parent path (mirrors :multi behaviour)"
     (is (= {[:value] {:sensitive? true :source :schema}}
-           (schemas/extract-sensitive-paths-from-schema
+           (rf.schemas/extract-sensitive-paths-from-schema
              [:orn
               [:secret {:sensitive? true} :string]
               [:public :string]]
@@ -44,7 +44,7 @@
             descends at the parent path (the dispatch value is not a
             path segment)"
     (is (= {[:value :token] {:sensitive? true :source :schema}}
-           (schemas/extract-sensitive-paths-from-schema
+           (rf.schemas/extract-sensitive-paths-from-schema
              [:orn
               [:authed [:map [:token {:sensitive? true} :string]]]
               [:anon   [:map [:guest :string]]]]
@@ -54,7 +54,7 @@
   (testing ":altn — a :sensitive? slot inside an alt branch descends at
             the parent path"
     (is (= {[:doc :ssn] {:sensitive? true :source :schema}}
-           (schemas/extract-sensitive-paths-from-schema
+           (rf.schemas/extract-sensitive-paths-from-schema
              [:altn
               [:full [:map [:ssn {:sensitive? true} :string]]]
               [:abbr [:map [:initials :string]]]]
@@ -74,7 +74,7 @@
 (deftest set-descends-at-parent-path
   (testing ":set — inner :sensitive? slot claims the :set's path"
     (is (= {[:tokens] {:sensitive? true :source :schema}}
-           (schemas/extract-sensitive-paths-from-schema
+           (rf.schemas/extract-sensitive-paths-from-schema
              [:set [:string {:sensitive? true}]]
              [:tokens])))))
 
@@ -82,7 +82,7 @@
   (testing ":sequential — inner :sensitive? slot claims the :sequential's
             path"
     (is (= {[:audit-log] {:sensitive? true :source :schema}}
-           (schemas/extract-sensitive-paths-from-schema
+           (rf.schemas/extract-sensitive-paths-from-schema
              [:sequential [:string {:sensitive? true}]]
              [:audit-log])))))
 
@@ -99,7 +99,7 @@
             sensitive claims `(conj base i)`, NOT the shared base-path"
     ;; element 1 is the sensitive :string → claims [:ev 1], not [:ev].
     (is (= {[:ev 1] {:sensitive? true :source :schema}}
-           (schemas/extract-sensitive-paths-from-schema
+           (rf.schemas/extract-sensitive-paths-from-schema
              [:cat :string [:string {:sensitive? true}]]
              [:ev])))))
 
@@ -109,7 +109,7 @@
             entry-level sensitive claims `(conj base i)`, not base"
     ;; entry 0 (:head) is sensitive → claims [:row 0], not [:row].
     (is (= {[:row 0] {:sensitive? true :source :schema}}
-           (schemas/extract-sensitive-paths-from-schema
+           (rf.schemas/extract-sensitive-paths-from-schema
              [:catn
               [:head {:sensitive? true} :string]
               [:tail :string]]
@@ -118,7 +118,7 @@
 (deftest and-descends-at-parent-path
   (testing ":and — every child descends at the parent path"
     (is (= {[:slot] {:sensitive? true :source :schema}}
-           (schemas/extract-sensitive-paths-from-schema
+           (rf.schemas/extract-sensitive-paths-from-schema
              [:and :string [:string {:sensitive? true}]]
              [:slot])))))
 
@@ -126,7 +126,7 @@
   (testing ":not — single-child positional; inner sensitive descends at
             the parent path"
     (is (= {[:slot] {:sensitive? true :source :schema}}
-           (schemas/extract-sensitive-paths-from-schema
+           (rf.schemas/extract-sensitive-paths-from-schema
              [:not [:string {:sensitive? true}]]
              [:slot])))))
 
@@ -141,16 +141,16 @@
   (testing "an opaque schema value (not a vector form) yields no
             declarations — the walker doesn't try to peer inside"
     ;; A symbol — not a Malli vector form, not a keyword.
-    (is (= {} (schemas/extract-sensitive-paths-from-schema 'malli/AnyMap [])))
+    (is (= {} (rf.schemas/extract-sensitive-paths-from-schema 'malli/AnyMap [])))
     ;; A fn — also opaque.
-    (is (= {} (schemas/extract-sensitive-paths-from-schema (fn [_] true) [])))))
+    (is (= {} (rf.schemas/extract-sensitive-paths-from-schema (fn [_] true) [])))))
 
 (deftest empty-vector-form-tolerated
   (testing "an empty vector (degenerate schema form) does not blow up;
             it yields no declarations"
-    (is (= {} (schemas/extract-sensitive-paths-from-schema [] [])))))
+    (is (= {} (rf.schemas/extract-sensitive-paths-from-schema [] [])))))
 
 (deftest single-element-vector-form-tolerated
   (testing "a single-element vector form (no props, no children) does
             not blow up; it yields no declarations"
-    (is (= {} (schemas/extract-sensitive-paths-from-schema [:string] [])))))
+    (is (= {} (rf.schemas/extract-sensitive-paths-from-schema [:string] [])))))

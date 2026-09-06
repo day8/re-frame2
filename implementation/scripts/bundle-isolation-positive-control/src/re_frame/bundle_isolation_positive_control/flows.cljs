@@ -1,7 +1,7 @@
 (ns re-frame.bundle-isolation-positive-control.flows
-  (:require [re-frame.flows.registry :as registry]
-            [re-frame.flows.topo :as topo]))
+  (:require [re-frame.flows.registry :as rf.flows.registry]
+            [re-frame.flows.topo :as rf.flows.topo]))
 
 (defn ^:export run []
   (aset js/globalThis "__rf2BundleIsolationFlows"
-        #js [registry/reg-flow topo/topo-sort]))
+        #js [rf.flows.registry/reg-flow rf.flows.topo/topo-sort]))

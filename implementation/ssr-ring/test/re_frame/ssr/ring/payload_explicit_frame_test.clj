@@ -24,12 +24,12 @@
   raw."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.frame :as frame]
-            [re-frame.ssr.ring.payload :as payload]
-            [re-frame.ssr.ring.test-support :as ts]))
+            [re-frame.elision :as rf.elision]
+            [re-frame.frame :as rf.frame]
+            [re-frame.ssr.ring.payload :as rf.ssr.ring.payload]
+            [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]))
 
-(use-fixtures :each ts/reset-runtime)
+(use-fixtures :each rf.ssr.ring.test-support/reset-runtime)
 
 (def ^:private server-frame :review/ssr-ring-target)
 (def ^:private ambient-frame :review/other-ambient)
@@ -44,7 +44,7 @@
   a projection run under B would leak the raw token."
   []
   (-> {}
-      (elision/apply-classification-effects
+      (rf.elision/apply-classification-effects
         {:sensitive [[:rf.runtime/routing :current :query :token]]
          :large     [[:rf.runtime/routing :current :params :payload]]})
       (assoc :rf.runtime/routing
@@ -62,15 +62,15 @@
   ;; consults B's empty registry and the token would ride verbatim.
   (rf/make-frame {:id ambient-frame :doc      "rf2-f02diw mismatched ambient frame B (no classifications)"
                   :platform :server})
-  (frame/swap-runtime-db! server-frame (constantly (frame-a-runtime-db))))
+  (rf.frame/swap-runtime-db! server-frame (constantly (frame-a-runtime-db))))
 
 (defn- build-a
   "Call the non-streaming Ring wrapper for frame A, reading A's live runtime-db
   value and handing it in as the wrapper's `runtime-db` arg. app-db is empty so
   the test isolates the runtime-db route projection."
   []
-  (payload/build-payload
-    server-frame {} (frame/frame-runtime-db-value server-frame) "hash"
+  (rf.ssr.ring.payload/build-payload
+    server-frame {} (rf.frame/frame-runtime-db-value server-frame) "hash"
     {:payload :rf.ssr.payload/whole-app-db}))
 
 (defn- assert-frame-a-redacts [payload where]
@@ -100,7 +100,7 @@
             the pre-clean-break one-arity wrapper resolve-current-frame → nil,
             project-routing-egress fails OPEN, and the token would ride raw."
     (setup-frames!)
-    (let [payload (binding [frame/*current-frame* nil] (build-a))]
+    (let [payload (binding [rf.frame/*current-frame* nil] (build-a))]
       (assert-frame-a-redacts payload "outside with-frame"))))
 
 (deftest build-payload-explicit-frame-wins-over-ambient
@@ -109,7 +109,7 @@
             explicit target rather than borrowing the ambient scope (rf2-f02diw).
             Under B's empty registry the token would otherwise ride raw."
     (setup-frames!)
-    (is (= ambient-frame (rf/with-frame ambient-frame (frame/resolve-current-frame)))
+    (is (= ambient-frame (rf/with-frame ambient-frame (rf.frame/resolve-current-frame)))
         "sanity: the ambient frame inside the body is B, not A")
     (let [payload (rf/with-frame ambient-frame (build-a))]
       (assert-frame-a-redacts payload "mismatched ambient B"))))
@@ -130,11 +130,11 @@
             :params blob / app-db secret rides. Mirrors the streaming builder's
             teardown-race fail-closed."
     (setup-frames!)
-    (let [runtime-db (frame/frame-runtime-db-value server-frame)
+    (let [runtime-db (rf.frame/frame-runtime-db-value server-frame)
           app-db     {:secret "app-db-secret" :public "ok"}]
       ;; Teardown race: the request frame is gone before the wrapper projects.
       (rf/destroy-frame! server-frame)
-      (let [payload (payload/build-payload
+      (let [payload (rf.ssr.ring.payload/build-payload
                       server-frame app-db runtime-db "hash"
                       {:payload :rf.ssr.payload/whole-app-db})]
         ;; rf2-lm2yzy — wire :rf/frame-id decoupled from the (dead) projection

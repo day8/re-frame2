@@ -29,7 +29,7 @@
   the façade artefact-missing/safe-default contract no longer applies)."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.core :as rf]
-            [re-frame.late-bind :as late-bind]
+            [re-frame.late-bind :as rf.late-bind]
             ;; Loading schemas registers its late-bind hooks. The
             ;; `with-hook-as-nil` helper below re-establishes the absent
             ;; state by flipping the hook value at runtime; restoration
@@ -40,12 +40,12 @@
   "Run `f` with the named late-bind hook set to nil. Restores the
   original value after `f` returns or throws."
   [hook-key f]
-  (let [original (late-bind/get-fn hook-key)]
+  (let [original (rf.late-bind/get-fn hook-key)]
     (try
-      (late-bind/set-fn! hook-key nil)
+      (rf.late-bind/set-fn! hook-key nil)
       (f)
       (finally
-        (late-bind/set-fn! hook-key original)))))
+        (rf.late-bind/set-fn! hook-key original)))))
 
 (deftest reg-app-schema-raises-when-schemas-artefact-missing
   (testing "rf/reg-app-schema (macro) raises :rf.error/schemas-artefact-missing when the :schemas/reg-app-schema hook is nil"

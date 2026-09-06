@@ -37,7 +37,7 @@
   (:require [cljs.analyzer.api :as ana-api]
             [cljs.env :as env]
             [clojure.edn :as edn]
-            [re-frame.build.spec-resource :as spec-resource]))
+            [re-frame.build.spec-resource :as rf.build.spec-resource]))
 
 (defn- kind-of
   "Derive the manifest `:kind` for a CLJS analyzer var-info map. Mirrors
@@ -112,7 +112,7 @@
 (defn- read-sidecar
   "The parsed sidecar, read in the macro-expansion environment `env`."
   [env]
-  (edn/read-string (spec-resource/slurp-resource env sidecar-resource)))
+  (edn/read-string (rf.build.spec-resource/slurp-resource env sidecar-resource)))
 
 (defmacro emit-cljs-only-rows
   "Expand to a literal vector of the sidecar's `:cljs-only` manifest rows

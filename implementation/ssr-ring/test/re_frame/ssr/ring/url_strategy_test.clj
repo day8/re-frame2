@@ -32,11 +32,11 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.routing :as routing]
-            [re-frame.ssr.ring :as ssr-ring]
-            [re-frame.ssr.ring.test-support :as ts]))
+            [re-frame.routing :as rf.routing]
+            [re-frame.ssr.ring :as rf.ssr.ring]
+            [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]))
 
-(use-fixtures :each ts/reset-runtime)
+(use-fixtures :each rf.ssr.ring.test-support/reset-runtime)
 
 (defn- register-linked-app!
   "One route, one no-op server init event, one root view whose only
@@ -50,7 +50,7 @@
       [:div.page [rf/route-link {:to :route/active} "Active"]])))
 
 (defn- based-strategy []
-  (routing/with-base-path routing/history-url-strategy "/realworld"))
+  (rf.routing/with-base-path rf.routing/history-url-strategy "/realworld"))
 
 (defn- handler-opts [& {:as extra}]
   (merge {:initial-events [[:init/url-strategy]]
@@ -71,7 +71,7 @@
 (deftest ssr-handler-declared-url-strategy-reaches-the-request-frame
   (register-linked-app!)
   (let [strategy (based-strategy)
-        handler  (ssr-ring/ssr-handler (handler-opts :url-strategy strategy))
+        handler  (rf.ssr.ring/ssr-handler (handler-opts :url-strategy strategy))
         response (handler {:uri "/" :request-method :get})]
     (testing "the wire body carries the based href"
       (is (= 200 (:status response)))
@@ -94,7 +94,7 @@
 
 (deftest stream-handler-declared-url-strategy-reaches-the-request-frame
   (register-linked-app!)
-  (let [handler  (ssr-ring/stream-handler
+  (let [handler  (rf.ssr.ring/stream-handler
                    (handler-opts :url-strategy (based-strategy)))
         response (handler {:uri "/" :request-method :get})
         body     (with-open [in ^java.io.InputStream (:body response)]
@@ -107,7 +107,7 @@
 
 (deftest omitted-url-strategy-keeps-the-default-path-form
   (register-linked-app!)
-  (let [handler  (ssr-ring/ssr-handler (handler-opts))
+  (let [handler  (rf.ssr.ring/ssr-handler (handler-opts))
         response (handler {:uri "/" :request-method :get})]
     (is (= 200 (:status response)))
     (is (str/includes? (:body response) "href=\"/active\"")
@@ -142,7 +142,7 @@
   (let [bad       {:encode "not-callable"}
         client-ex (client-door-ex bad)
         captured  (atom nil)
-        handler   (ssr-ring/ssr-handler
+        handler   (rf.ssr.ring/ssr-handler
                     (handler-opts :url-strategy bad
                                   :on-error     (capturing-on-error captured)))
         response  (handler {:uri "/" :request-method :get})]
@@ -165,7 +165,7 @@
 (deftest explicit-nil-url-strategy-is-a-declaration-and-fails
   (register-linked-app!)
   (let [captured (atom nil)
-        handler  (ssr-ring/ssr-handler
+        handler  (rf.ssr.ring/ssr-handler
                    (handler-opts :url-strategy nil
                                  :on-error     (capturing-on-error captured)))
         response (handler {:uri "/" :request-method :get})]

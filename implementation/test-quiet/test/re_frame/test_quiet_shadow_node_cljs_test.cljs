@@ -48,8 +48,8 @@
   ;; anyway because shadow-node is the :node-test build's :main.
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
-            [re-frame.test-quiet.shadow-node-cli :as cli]
-            [re-frame.test-quiet.warn-buffer :as wb]))
+            [re-frame.test-quiet.shadow-node-cli :as rf.test-quiet.shadow-node-cli]
+            [re-frame.test-quiet.warn-buffer :as rf.test-quiet.warn-buffer]))
 
 ;; ----------------------------------------------------------------------
 ;; --test= selection / flag parsing.
@@ -57,27 +57,27 @@
 (deftest parse-args-test-selection
   (testing "--test= splits on comma into symbols"
     (is (= {:test-syms '[my.ns]}
-           (cli/parse-args ["--test=my.ns"]))
+           (rf.test-quiet.shadow-node-cli/parse-args ["--test=my.ns"]))
         "a single simple symbol selects a whole namespace")
     (is (= {:test-syms '[my.ns other.ns]}
-           (cli/parse-args ["--test=my.ns,other.ns"]))
+           (rf.test-quiet.shadow-node-cli/parse-args ["--test=my.ns,other.ns"]))
         "comma-separated values become multiple symbols")
     (is (= {:test-syms '[my.ns/a-test]}
-           (cli/parse-args ["--test=my.ns/a-test"]))
+           (rf.test-quiet.shadow-node-cli/parse-args ["--test=my.ns/a-test"]))
         "a qualified symbol selects a single var")
     (is (= {:test-syms '[my.ns my.ns/a-test]}
-           (cli/parse-args ["--test=my.ns,my.ns/a-test"]))
+           (rf.test-quiet.shadow-node-cli/parse-args ["--test=my.ns,my.ns/a-test"]))
         "ns and fqn selectors coexist")
     (is (= {:test-syms '[a b c d]}
-           (cli/parse-args ["--test=a,b" "--test=c,d"]))
+           (rf.test-quiet.shadow-node-cli/parse-args ["--test=a,b" "--test=c,d"]))
         "repeated --test= flags accumulate into one list")))
 
 (deftest parse-args-flags
   (testing "--list and --help set their flags and default an empty test-syms"
-    (is (= {:test-syms [] :list true} (cli/parse-args ["--list"])))
-    (is (= {:test-syms [] :help true} (cli/parse-args ["--help"]))))
+    (is (= {:test-syms [] :list true} (rf.test-quiet.shadow-node-cli/parse-args ["--list"])))
+    (is (= {:test-syms [] :help true} (rf.test-quiet.shadow-node-cli/parse-args ["--help"]))))
   (testing "no args yields the run-all default (empty test-syms, no flags)"
-    (is (= {:test-syms []} (cli/parse-args []))))
+    (is (= {:test-syms []} (rf.test-quiet.shadow-node-cli/parse-args []))))
   (testing "unknown args are collected (not printed); the pure parser does not abort"
     ;; The pure parser must NOT print on an unknown arg — it collects
     ;; them into `:unknown-args` and the real CLI path (`execute-cli`)
@@ -87,12 +87,12 @@
     ;; `(println \"Unknown arg: ...\")` here would leak a non-summary line
     ;; into every consolidated `npm run test:cljs` run.
     (is (= {:test-syms '[ok.ns] :unknown-args ["--bogus"]}
-           (cli/parse-args ["--bogus" "--test=ok.ns"]))
+           (rf.test-quiet.shadow-node-cli/parse-args ["--bogus" "--test=ok.ns"]))
         "an unknown flag is collected; later valid flags still parse")
     (is (= {:test-syms '[ok.ns] :unknown-args ["--bogus" "--nope"]}
-           (cli/parse-args ["--bogus" "--test=ok.ns" "--nope"]))
+           (rf.test-quiet.shadow-node-cli/parse-args ["--bogus" "--test=ok.ns" "--nope"]))
         "multiple unknown flags accumulate in input order")
-    (is (not (contains? (cli/parse-args ["--test=ok.ns"]) :unknown-args))
+    (is (not (contains? (rf.test-quiet.shadow-node-cli/parse-args ["--test=ok.ns"]) :unknown-args))
         "a clean arg set carries no :unknown-args key at all")))
 
 ;; ----------------------------------------------------------------------
@@ -115,7 +115,7 @@
     ;; underlying vector).
     (let [capacity 4
           buffer   (reduce (fn [current-buffer entry]
-                             (wb/bound-conj current-buffer [entry] capacity))
+                             (rf.test-quiet.warn-buffer/bound-conj current-buffer [entry] capacity))
                            []
                            (range 1000))]
       (is (= capacity (count buffer))
@@ -130,7 +130,7 @@
           "the trimmed ring is a materialised PersistentVector, not a view")))
   (testing "below the cap the ring is a plain growing vector (no trim, no Subvec)"
     (let [buffer (reduce (fn [current-buffer entry]
-                           (wb/bound-conj current-buffer [entry] 10))
+                           (rf.test-quiet.warn-buffer/bound-conj current-buffer [entry] 10))
                          []
                          (range 3))]
       (is (= [[0] [1] [2]] buffer))
@@ -141,10 +141,10 @@
     ;; so a regression that dropped the materialisation (or the cap) is caught
     ;; against the production constant, not just a synthetic tiny cap.
     (let [buffer (reduce (fn [current-buffer entry]
-                           (wb/bound-conj current-buffer [entry]))
+                           (rf.test-quiet.warn-buffer/bound-conj current-buffer [entry]))
                          []
-                         (range (* 4 wb/warn-buffer-cap)))]
-      (is (= wb/warn-buffer-cap (count buffer))
+                         (range (* 4 rf.test-quiet.warn-buffer/warn-buffer-cap)))]
+      (is (= rf.test-quiet.warn-buffer/warn-buffer-cap (count buffer))
           "the ring stays capped at the production warn-buffer-cap")
       (is (not (instance? cljs.core/Subvec buffer))
           "the production-cap ring must not degrade into a retaining Subvec"))))
@@ -174,7 +174,7 @@
                      (fake-var 'my.ns 'b-test)
                      (fake-var 'other.ns 'c-test)]
         select-syms (fn [test-selectors]
-                      (->> (cli/select-matching-test-vars test-selectors
+                      (->> (rf.test-quiet.shadow-node-cli/select-matching-test-vars test-selectors
                                                           test-vars)
                            (map (fn [test-var]
                                   (let [{test-namespace :ns test-name :name}
@@ -208,7 +208,7 @@
                (mapv (fn [test-var]
                        (let [{test-namespace :ns test-name :name} (meta test-var)]
                          (symbol (str test-namespace) (str test-name))))
-                     (cli/select-matching-test-vars many-syms many-vars)))
+                     (rf.test-quiet.shadow-node-cli/select-matching-test-vars many-syms many-vars)))
             "nine qualified selectors must select all nine of their vars")))))
 
 ;; ----------------------------------------------------------------------
@@ -231,19 +231,19 @@
         all-vars  [a-test b-test]]
     (testing "a fully-matched selection has no unmatched selectors -> runs (no exit)"
       ;; ns selector matches: my.ns has matched vars.
-      (is (= '() (cli/unmatched-selectors '[my.ns] all-vars)))
+      (is (= '() (rf.test-quiet.shadow-node-cli/unmatched-selectors '[my.ns] all-vars)))
       ;; fqn selector matches: my.ns/a-test is in the matched set.
-      (is (= '() (cli/unmatched-selectors '[my.ns/a-test] [a-test]))))
+      (is (= '() (rf.test-quiet.shadow-node-cli/unmatched-selectors '[my.ns/a-test] [a-test]))))
     (testing "--test=missing.ns (absent namespace) is reported unmatched -> guard exits nonzero"
       ;; A typo'd namespace produces a non-empty unmatched set, which the
       ;; process-level branch rejects.
-      (let [unmatched (cli/unmatched-selectors '[missing.ns] [])]
+      (let [unmatched (rf.test-quiet.shadow-node-cli/unmatched-selectors '[missing.ns] [])]
         (is (= '[missing.ns] unmatched)
             "an absent namespace selector matches nothing -> unmatched")
         (is (seq unmatched)
             "non-empty unmatched -> execute-cli takes the exit-1 branch, NOT run-test-vars")))
     (testing "--test=missing.ns/a-test (absent var) is reported unmatched -> guard exits nonzero"
-      (let [unmatched (cli/unmatched-selectors '[missing.ns/a-test] [])]
+      (let [unmatched (rf.test-quiet.shadow-node-cli/unmatched-selectors '[missing.ns/a-test] [])]
         (is (= '[missing.ns/a-test] unmatched)
             "an absent fully-qualified selector matches nothing -> unmatched")
         (is (seq unmatched)
@@ -254,11 +254,11 @@
       ;; OTHER matched vars. This is the subtle false-green: the matched-var
       ;; set is non-empty (a-test/b-test), but the SELECTOR matched nothing.
       (is (= '[my.ns/c-test]
-             (cli/unmatched-selectors '[my.ns/c-test] all-vars))
+             (rf.test-quiet.shadow-node-cli/unmatched-selectors '[my.ns/c-test] all-vars))
           "a qualified selector for an absent var is unmatched even when its ns has other matches"))
     (testing "a mix of matched + unmatched reports only the unmatched, in input order"
       (is (= '[gone.ns missing.ns/x]
-             (cli/unmatched-selectors '[my.ns gone.ns my.ns/a-test missing.ns/x]
+             (rf.test-quiet.shadow-node-cli/unmatched-selectors '[my.ns gone.ns my.ns/a-test missing.ns/x]
                                       [a-test]))
           "matched selectors drop out; unmatched ones survive in order"))))
 
@@ -282,21 +282,21 @@
   (testing "an unset or blank RF2_MIN_TESTS resolves to the default floor"
     ;; Default 1, not 0: the bound that can never go stale, since no build
     ;; legitimately ships zero tests.
-    (is (= 1 cli/default-min-tests))
-    (is (= cli/default-min-tests (cli/parse-min-tests nil)))
-    (is (= cli/default-min-tests (cli/parse-min-tests "")))
-    (is (= cli/default-min-tests (cli/parse-min-tests "   "))))
+    (is (= 1 rf.test-quiet.shadow-node-cli/default-min-tests))
+    (is (= rf.test-quiet.shadow-node-cli/default-min-tests (rf.test-quiet.shadow-node-cli/parse-min-tests nil)))
+    (is (= rf.test-quiet.shadow-node-cli/default-min-tests (rf.test-quiet.shadow-node-cli/parse-min-tests "")))
+    (is (= rf.test-quiet.shadow-node-cli/default-min-tests (rf.test-quiet.shadow-node-cli/parse-min-tests "   "))))
   (testing "a non-negative integer is honoured, with surrounding whitespace trimmed"
-    (is (= 0 (cli/parse-min-tests "0")) "0 explicitly disables the floor")
-    (is (= 1 (cli/parse-min-tests "1")))
-    (is (= 3000 (cli/parse-min-tests "3000")))
-    (is (= 3000 (cli/parse-min-tests " 3000 "))))
+    (is (= 0 (rf.test-quiet.shadow-node-cli/parse-min-tests "0")) "0 explicitly disables the floor")
+    (is (= 1 (rf.test-quiet.shadow-node-cli/parse-min-tests "1")))
+    (is (= 3000 (rf.test-quiet.shadow-node-cli/parse-min-tests "3000")))
+    (is (= 3000 (rf.test-quiet.shadow-node-cli/parse-min-tests " 3000 "))))
   (testing "a malformed value is ::invalid, never a silent fall back to the default"
     ;; The whole point of the gate is catching silent non-execution; a typo'd
     ;; floor quietly disabling it would be the same bug in a new place.
     (doseq [bad ["1O" "abc" "1.5" "-1" "1e3x" "٣"]]
       (is (= :re-frame.test-quiet.shadow-node-cli/invalid
-             (cli/parse-min-tests bad))
+             (rf.test-quiet.shadow-node-cli/parse-min-tests bad))
           (str (pr-str bad) " must be rejected, not coerced")))))
 
 ;; ----------------------------------------------------------------------

@@ -13,15 +13,15 @@
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.privacy :as privacy]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as ts]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.privacy :as rf.privacy]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; The fixture supplies the default frame required by dispatch and egress.
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter}))
 
 (def ^:private secret "S3CR3T-rf2-nk2h6m-DO-NOT-LEAK")
 
@@ -38,10 +38,10 @@
         {:db        (assoc-in db [:auth :token] secret)
          :sensitive [[:auth :token]]}))
     (rf/dispatch-sync [:auth/login])
-    (is (= secret (get-in (frame/frame-app-db-value :rf/default) [:auth :token]))
+    (is (= secret (get-in (rf.frame/frame-app-db-value :rf/default) [:auth :token]))
         "classification does not alter app-db")
-    (let [wire (rf/elide-wire-value (frame/frame-app-db-value :rf/default))]
-      (is (= privacy/redacted-sentinel (get-in wire [:auth :token]))
+    (let [wire (rf/elide-wire-value (rf.frame/frame-app-db-value :rf/default))]
+      (is (= rf.privacy/redacted-sentinel (get-in wire [:auth :token]))
           "the classified path projects :rf/redacted at egress")
       (is (not (contains-secret? wire))
           "the raw secret does not survive anywhere in the projected value"))))
@@ -57,8 +57,8 @@
                         (assoc-in [:ui :rendered-token] secret))
          :sensitive [[:auth :token]]}))
     (rf/dispatch-sync [:auth/login-and-copy])
-    (let [wire (rf/elide-wire-value (frame/frame-app-db-value :rf/default))]
-      (is (= privacy/redacted-sentinel (get-in wire [:auth :token]))
+    (let [wire (rf/elide-wire-value (rf.frame/frame-app-db-value :rf/default))]
+      (is (= rf.privacy/redacted-sentinel (get-in wire [:auth :token]))
           "the classified path is redacted")
       (is (= secret (get-in wire [:ui :rendered-token]))
           "the unclassified copy remains visible because values are not tracked")
@@ -72,7 +72,7 @@
       (fn [{:keys [db]} _]
         {:db (assoc-in db [:auth :token] secret)}))
     (rf/dispatch-sync [:auth/login-unclassified])
-    (let [wire (rf/elide-wire-value (frame/frame-app-db-value :rf/default))]
+    (let [wire (rf/elide-wire-value (rf.frame/frame-app-db-value :rf/default))]
       (is (= secret (get-in wire [:auth :token]))
           "the unclassified path ships raw — fail-open on omission")
       (is (contains-secret? wire)))))
@@ -86,7 +86,7 @@
             UNCHANGED — positional indices are not path-addressable, so the
             path-based redactor cannot reach them (KNOWN fail-open limitation)"
     (let [positional-event [:auth/login "alice" secret]
-          redacted         (privacy/redact-event positional-event [[:token]])]
+          redacted         (rf.privacy/redact-event positional-event [[:token]])]
       (is (= positional-event redacted)
           "the positional-arg event passes through redact-event unchanged")
       (is (= secret (nth redacted 2))
@@ -100,8 +100,8 @@
             authorial remediation: carry sensitive args in the arg-map and
             classify the path"
     (let [map-event [:auth/login {:user "alice" :token secret}]
-          redacted  (privacy/redact-event map-event [[:token]])]
-      (is (= privacy/redacted-sentinel (get-in redacted [1 :token]))
+          redacted  (rf.privacy/redact-event map-event [[:token]])]
+      (is (= rf.privacy/redacted-sentinel (get-in redacted [1 :token]))
           "the classified arg-map path redacts to :rf/redacted")
       (is (not (contains-secret? redacted))
           "no raw secret survives when the secret rides a classified arg-map

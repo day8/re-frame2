@@ -45,8 +45,8 @@
   See the `re-frame.schemas` namespace docstring for the bundle boundary."
   (:require [malli.core]
             [malli.error]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]))
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -61,8 +61,8 @@
 ;; can register their own default validator pair without changing this
 ;; namespace.
 
-(late-bind/set-fn! :schemas/malli-validate  malli.core/validate)
-(late-bind/set-fn! :schemas/malli-explain   malli.core/explain)
+(rf.late-bind/set-fn! :schemas/malli-validate  malli.core/validate)
+(rf.late-bind/set-fn! :schemas/malli-explain   malli.core/explain)
 
 ;; Development only. `re-frame.schemas.validate` reads
 ;; `:schemas/humanize-explain!` solely inside its
@@ -71,5 +71,5 @@
 ;; `malli.error` for nothing. Same gate here: `:advanced` +
 ;; `goog.DEBUG=false` folds the form away and `malli.error` leaves the
 ;; bundle. Consumers use the same hook regardless of validator adapter.
-(when interop/debug-enabled?
-  (late-bind/set-fn! :schemas/humanize-explain! malli.error/humanize))
+(when rf.interop/debug-enabled?
+  (rf.late-bind/set-fn! :schemas/humanize-explain! malli.error/humanize))

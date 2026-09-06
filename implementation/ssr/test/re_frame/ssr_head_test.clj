@@ -34,15 +34,15 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.registrar :as registrar]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.head :as head]
-            [re-frame.ssr.test-fixture :as tf]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.head :as rf.ssr.head]
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
 ;; Shared reset fixture lives in `re-frame.ssr.test-fixture` (rf2-i3qc0).
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 ;; ===========================================================================
 ;; reg-head — registry kind :head with handler-fn
@@ -53,7 +53,7 @@
             with the head-fn under :handler-fn"
     (let [head-fn (fn [_db _route] {:title "Hello"})]
       (rf/reg-head :head/static head-fn)
-      (let [meta (registrar/lookup :head :head/static)]
+      (let [meta (rf.registrar/lookup :head :head/static)]
         (is (some? meta) "registry slot exists")
         (is (= head-fn (:handler-fn meta))
             "the head-fn is stored under :handler-fn")))))
@@ -68,7 +68,7 @@
     (rf/reg-head :head/with-meta
                  {:doc "Article-page head model"}
                  (fn [_db _route] {:title "x"}))
-    (let [m (registrar/lookup :head :head/with-meta)]
+    (let [m (rf.registrar/lookup :head :head/with-meta)]
       ;; SEMANTIC, posture-independent (rf2-lwtlk): the 3-arity is above all a
       ;; REGISTRATION arity — the extra metadata argument must not displace
       ;; the head-fn, and the slot must be usable.
@@ -82,14 +82,14 @@
       ;; pure-documentation key, dropped by
       ;; `registrar/strip-pure-documentation` under the production gate per
       ;; Spec 001 §Production elision contract.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= "Article-page head model" (:doc m))
             ":doc metadata is preserved on the registry slot"))
 
       ;; rf2-lwtlk — the REAL-gate arm: the elision itself, witnessed on a JVM
       ;; actually started with `-Dre-frame.debug=false` rather than through a
       ;; `with-redefs` rebind that a load-time gate cannot see (rf2-9c2jf).
-      (when-not interop/debug-enabled?
+      (when-not rf.interop/debug-enabled?
         (is (nil? (:doc m))
             ":doc is elided from the registry slot in production builds
              (Spec 001 §Production elision contract)")))))
@@ -100,7 +100,7 @@
           second-fn (fn [_ _] {:title "second"})]
       (rf/reg-head :head/redo first-fn)
       (rf/reg-head :head/redo second-fn)
-      (is (= second-fn (:handler-fn (registrar/lookup :head :head/redo)))
+      (is (= second-fn (:handler-fn (rf.registrar/lookup :head :head/redo)))
           "second registration wins"))))
 
 ;; ===========================================================================
@@ -115,7 +115,7 @@
                    (let [{:keys [title summary]} (get-in db [:articles (:id params)])]
                      {:title title
                       :meta  [{:name "description" :content summary}]})))
-    (let [f (frame/make-anon-frame-record!
+    (let [f (rf.frame/make-anon-frame-record!
               {:doc       "head test frame"
                :platform  :server
                :initial-events [[:set-test-state]]})]
@@ -138,14 +138,14 @@
   (testing "(render-head head-id frame-id) is sugar for (render-head head-id
             {:frame frame-id})"
     (rf/reg-head :head/simple (fn [_ _] {:title "bare"}))
-    (let [f (frame/make-anon-frame-record! {:doc "shorthand frame" :platform :server})]
+    (let [f (rf.frame/make-anon-frame-record! {:doc "shorthand frame" :platform :server})]
       (is (= {:title "bare"} (rf/render-head :head/simple f))))))
 
 (deftest render-head-accepts-explicit-route-override
   (testing ":route opt overrides the slice read from app-db — useful for
             tools that want a hypothetical-route preview"
     (rf/reg-head :head/echo (fn [_ route] {:title (str (:route-id route))}))
-    (let [f (frame/make-anon-frame-record! {:doc "explicit-route frame" :platform :server})]
+    (let [f (rf.frame/make-anon-frame-record! {:doc "explicit-route frame" :platform :server})]
       (is (= ":route/explicit"
              (:title (rf/render-head :head/echo
                                      {:frame f
@@ -153,7 +153,7 @@
 
 (deftest render-head-raises-on-unregistered-id
   (testing "render-head against an unknown id throws :rf.error/no-such-head"
-    (let [f (frame/make-anon-frame-record! {:doc "missing-head frame" :platform :server})]
+    (let [f (rf.frame/make-anon-frame-record! {:doc "missing-head frame" :platform :server})]
       (try
         (rf/render-head :head/nope {:frame f})
         (is false "expected exception")
@@ -169,7 +169,7 @@
             and the second call's return is the second head's model"
     (rf/reg-head :head/a (fn [_ _] {:title "A"}))
     (rf/reg-head :head/b (fn [_ _] {:title "B"}))
-    (let [f (frame/make-anon-frame-record! {:doc "render-head frame" :platform :server})]
+    (let [f (rf.frame/make-anon-frame-record! {:doc "render-head frame" :platform :server})]
       (is (= {:title "A"} (rf/render-head :head/a {:frame f}))
           "the first call returns the first head's model")
       (is (= {:title "B"} (rf/render-head :head/b {:frame f}))
@@ -190,7 +190,7 @@
     (rf/reg-route :route/article
                   {:doc  "Article page"
                    :head :head/article} "/articles/:id")
-    (let [f (frame/make-anon-frame-record! {:doc "active-route frame" :platform :server})]
+    (let [f (rf.frame/make-anon-frame-record! {:doc "active-route frame" :platform :server})]
       (rf/dispatch-sync
         [::seed-route] {:frame f})
       ;; The test sub-handler isn't registered; instead seed the runtime-db
@@ -209,7 +209,7 @@
   (testing "no :head on the route → default-head fires (viewport only)"
     (rf/reg-route :route/no-head
                   {:doc  "Bare route"} "/")
-    (let [f (frame/make-anon-frame-record! {:doc "Default-head probe" :platform :server})]
+    (let [f (rf.frame/make-anon-frame-record! {:doc "Default-head probe" :platform :server})]
       (rf/reg-event ::seed-route-no-head
                        (fn [{rt :rf.db/runtime} _]
                          {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :route/no-head})}))
@@ -225,7 +225,7 @@
 
 (deftest active-head-uses-default-when-no-route-at-all
   (testing "no route slice (e.g. a frame that hasn't routed yet) → default"
-    (let [f (frame/make-anon-frame-record! {:doc "Bare" :platform :server})
+    (let [f (rf.frame/make-anon-frame-record! {:doc "Bare" :platform :server})
           model (rf/active-head f)]
       (is (= "Bare" (:title model)))
       (is (seq (:meta model))))))
@@ -569,7 +569,7 @@
     (rf/reg-route :route/article
                   {:doc  "Article page"
                    :head :head/article} "/articles/:id")
-    (let [f (frame/make-anon-frame-record! {:doc "article frame" :platform :server})]
+    (let [f (rf.frame/make-anon-frame-record! {:doc "article frame" :platform :server})]
       (rf/dispatch-sync [:seed-article] {:frame f})
       (let [model (rf/active-head f)
             html  (rf/head-model->html model)]
@@ -612,7 +612,7 @@
                      (fn [{rt :rf.db/runtime} _]
                        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
                                                  {:route-id :route/article-fr :params {:id "1"}})}))
-    (let [f (frame/make-anon-frame-record! {:platform :server})]
+    (let [f (rf.frame/make-anon-frame-record! {:platform :server})]
       (rf/dispatch-sync [:seed-fr] {:frame f})
       (let [model (rf/active-head f)]
         (is (= "Article — fr-FR" (:title model)))

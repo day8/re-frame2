@@ -62,10 +62,10 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.error-listener :as error-listener]
-            [re-frame.ssr.test-fixture :as tf]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.error-listener :as rf.ssr.error-listener]
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
 ;; NOTE the fixture does NOT clear the always-on error-listener registry.
 ;; `re-frame.ssr` installs its own `::error-projection` listener there at
@@ -73,7 +73,7 @@
 ;; this suite exercises; wiping the registry would silently disarm every 400
 ;; assertion below into a vacuous 200. Each test unregisters only the shipper
 ;; stand-in it registered.
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures
@@ -113,7 +113,7 @@
   unless a test names its own)."
   ([] (server-frame :rf.ssr/default-error-projector))
   ([projector-id]
-   (frame/make-anon-frame-record!
+   (rf.frame/make-anon-frame-record!
      {:platform :server
       :ssr      {:public-error-id   projector-id
                  :dev-error-detail? false}})))
@@ -156,7 +156,7 @@
             `-Dre-frame.debug=false` — a malformed request body answered with
             a success code."
     (let [{:keys [frame]} (ingest! bad-payload)
-          {:keys [response public-error]} (ssr/flush-response-result! frame)]
+          {:keys [response public-error]} (rf.ssr/flush-response-result! frame)]
       (is (= 400 (:status response))
           "the drain projects the boundary rejection onto :status — 400, not
            a silent 200 over a handler that never ran")
@@ -177,7 +177,7 @@
             conforming payload ships no record, keeps the 200, and — the part
             that proves the pipeline really ran — lands the handler's write."
     (let [{:keys [frame records]} (ingest! good-payload)
-          {:keys [response public-error]} (ssr/flush-response-result! frame)]
+          {:keys [response public-error]} (rf.ssr/flush-response-result! frame)]
       (is (empty? (boundary-records records))
           "no boundary record on the happy path")
       (is (= 200 (:status response))
@@ -236,17 +236,17 @@
             through too — the arm is opt-in on the discriminator (fail-safe),
             symmetric with the `:kind`-gated 404."
     (is (= {:status 400 :code :bad-request :message "Invalid input" :retryable? false}
-           (ssr/default-error-projector-fn
+           (rf.ssr/default-error-projector-fn
              {:operation :rf.error/schema-validation-failure
               :tags      {:where :event :source :boundary}}))
         ":where :event → 400")
-    (is (= ssr/fallback-public-error
-           (ssr/default-error-projector-fn
+    (is (= rf.ssr/fallback-public-error
+           (rf.ssr/default-error-projector-fn
              {:operation :rf.error/schema-validation-failure
               :tags      {:where :fx-args}}))
         ":where :fx-args (a server-side surface) → the locked 500")
-    (is (= ssr/fallback-public-error
-           (ssr/default-error-projector-fn
+    (is (= rf.ssr/fallback-public-error
+           (rf.ssr/default-error-projector-fn
              {:operation :rf.error/schema-validation-failure :tags {}}))
         "no :where → 500; the 400 arm never fires on an unclassified failure")))
 
@@ -313,9 +313,9 @@
           accepted (server-frame)]
       (rf/dispatch-sync [:api/ingest bad-payload]  {:frame refused})
       (rf/dispatch-sync [:api/ingest good-payload] {:frame accepted})
-      (is (= 400 (:status (ssr/flush-response! refused)))
+      (is (= 400 (:status (rf.ssr/flush-response! refused)))
           "the frame that refused carries the 400")
-      (is (= 200 (:status (ssr/flush-response! accepted)))
+      (is (= 200 (:status (rf.ssr/flush-response! accepted)))
           "its concurrent sibling, which conformed, is untouched"))))
 
 (deftest a-client-frame-rejection-stamps-no-status
@@ -325,12 +325,12 @@
             is no request to fail."
     (register-ingest!)
     (let [seen     (capture-always-on! ::client)
-          client-f (frame/make-anon-frame-record! {:platform :client})]
+          client-f (rf.frame/make-anon-frame-record! {:platform :client})]
       (rf/dispatch-sync [:api/ingest bad-payload] {:frame client-f})
       (rf/unregister-listener! :errors ::client)
       (is (= [:rf.error/schema-validation-failure] (mapv :error @seen))
           "the always-on record still fans")
-      (is (= 200 (:status (ssr/get-response client-f)))
+      (is (= 200 (:status (rf.ssr/get-response client-f)))
           "but no status is stamped: a client frame has no HTTP response"))))
 
 ;; ===========================================================================
@@ -354,8 +354,8 @@
     (register-ingest!)
     (let [f (server-frame)]
       (rf/dispatch-sync [:api/ingest bad-payload] {:frame f})
-      (let [buffered (get @error-listener/pending-error-traces
-                          (frame/frame-address f))]
+      (let [buffered (get @rf.ssr.error-listener/pending-error-traces
+                          (rf.frame/frame-address f))]
         (is (seq buffered)
             "the rejection buffered for projection — non-vacuity for the
              agreement assertion below, and the load-bearing half under the
@@ -364,7 +364,7 @@
                (set (map :operation buffered)))
             "every buffered entry is the boundary category")
         (is (= #{400}
-               (set (map #(:status (ssr/default-error-projector-fn %)) buffered)))
+               (set (map #(:status (rf.ssr/default-error-projector-fn %)) buffered)))
             "and every one of them projects 400, so last-write-wins cannot
              pick a different status in one posture than the other")))))
 
@@ -376,14 +376,14 @@
     (register-ingest!)
     (let [f (server-frame)]
       (rf/dispatch-sync [:api/ingest bad-payload] {:frame f})
-      (let [first-flush (ssr/flush-response-result! f)]
+      (let [first-flush (rf.ssr/flush-response-result! f)]
         (is (= 400 (:status (:response first-flush))))
         (is (some? (:public-error first-flush))
             "the first drain is the one that projected")
-        (is (empty? (get @error-listener/pending-error-traces
-                         (frame/frame-address f)))
+        (is (empty? (get @rf.ssr.error-listener/pending-error-traces
+                         (rf.frame/frame-address f)))
             "and it consumed the entire buffer in a single pass"))
-      (let [second-flush (ssr/flush-response-result! f)]
+      (let [second-flush (rf.ssr/flush-response-result! f)]
         (is (nil? (:public-error second-flush))
             "the second drain finds nothing to project")
         (is (= 400 (:status (:response second-flush)))

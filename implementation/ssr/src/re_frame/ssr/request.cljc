@@ -10,10 +10,10 @@
   The slots live outside app-db so concurrent frames remain isolated and host
   request data cannot enter the hydration payload. Frame teardown clears the
   request, response and pending-error side channels."
-  (:require [re-frame.frame :as frame]
-            [re-frame.ssr.error-listener :as error-listener]
-            [re-frame.ssr.install :as install]
-            [re-frame.ssr.response :as response]))
+  (:require [re-frame.frame :as rf.frame]
+            [re-frame.ssr.error-listener :as rf.ssr.error-listener]
+            [re-frame.ssr.install :as rf.ssr.install]
+            [re-frame.ssr.response :as rf.ssr.response]))
 
 (defonce
   ^{:doc "Per-frame storage for the active HTTP request. Keys are
@@ -38,7 +38,7 @@
   Returns `frame-id`."
   [frame-id request]
   ;; All SSR side channels use the process-local frame address.
-  (swap! request-slots assoc (frame/frame-address frame-id) request)
+  (swap! request-slots assoc (rf.frame/frame-address frame-id) request)
   frame-id)
 
 (defn get-request
@@ -51,7 +51,7 @@
   Public read surface — host adapters and tools may inspect the active
   request via this fn."
   [frame-id]
-  (get @request-slots (frame/frame-address frame-id)))
+  (get @request-slots (rf.frame/frame-address frame-id)))
 
 (defn clear-request!
   "Clear the per-frame request slot. Host adapters call this after
@@ -60,7 +60,7 @@
 
   Returns `frame-id`."
   [frame-id]
-  (swap! request-slots dissoc (frame/frame-address frame-id))
+  (swap! request-slots dissoc (rf.frame/frame-address frame-id))
   frame-id)
 
 ;; ---- per-request frame teardown -------------------------------------------
@@ -94,15 +94,15 @@
   the model), so the head namespace keeps no per-frame bookkeeping and
   there is nothing here to release on its behalf."
   [frame-id]
-  (error-listener/clear-pending-error-traces! frame-id)
+  (rf.ssr.error-listener/clear-pending-error-traces! frame-id)
   (clear-request! frame-id)
-  (response/clear-response! frame-id)
+  (rf.ssr.response/clear-response! frame-id)
   ;; S5 — release this frame's hydration-payload install claim. Payload ids
   ;; ARE frame ids (004C §6), so a destroyed frame's claim must go with it:
   ;; a frame later re-created under the same id would otherwise meet a
   ;; phantom `:rf.error/frame-payload-conflict` raised by a lifetime that
   ;; no longer exists.
-  (install/release-payload! frame-id)
+  (rf.ssr.install/release-payload! frame-id)
   nil)
 
 (defn request-cofx
@@ -125,4 +125,4 @@
   `set-request!` the slot for the target frame first (the visible seam),
   before dispatch."
   []
-  (get-request frame/*current-frame*))
+  (get-request rf.frame/*current-frame*))

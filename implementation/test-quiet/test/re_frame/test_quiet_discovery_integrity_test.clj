@@ -35,7 +35,7 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [clojure.tools.namespace.find :as ns-find]
-            [re-frame.test-quiet.runner :as runner]))
+            [re-frame.test-quiet.runner :as rf.test-quiet.runner]))
 
 ;; ----------------------------------------------------------------------
 ;; Fixtures
@@ -87,19 +87,19 @@
   (testing "the guard reads `-d` with cognitect's own option spec and
             default, so there is no second reading to disagree with the
             first"
-    (is (= #{"test"} (runner/discovery-dirs []))
+    (is (= #{"test"} (rf.test-quiet.runner/discovery-dirs []))
         "no -d means cognitect's `(or (:dir options) #{\"test\"})`")
-    (is (= #{"test" "extra"} (runner/discovery-dirs ["-d" "test" "-d" "extra"]))
+    (is (= #{"test" "extra"} (rf.test-quiet.runner/discovery-dirs ["-d" "test" "-d" "extra"]))
         "-d accumulates, exactly as cognitect's :assoc-fn does")
-    (is (= #{"other"} (runner/discovery-dirs ["--dir=other"]))
+    (is (= #{"other"} (rf.test-quiet.runner/discovery-dirs ["--dir=other"]))
         "the long form with = is the same option")
-    (is (= #{"test"} (runner/discovery-dirs ["-n" "some.ns-test" "-e" ":slow"]))
+    (is (= #{"test"} (rf.test-quiet.runner/discovery-dirs ["-n" "some.ns-test" "-e" ":slow"]))
         "selectors narrow what RUNS, never what must be discoverable"))
 
   (testing "unparseable args stand the guard down: cognitect owns its parse
             diagnostics and exits before discovery, so there is nothing yet
             to guard"
-    (is (nil? (runner/discovery-dirs ["--no-such-flag"])))))
+    (is (nil? (rf.test-quiet.runner/discovery-dirs ["--no-such-flag"])))))
 
 ;; ----------------------------------------------------------------------
 ;; The rule
@@ -118,7 +118,7 @@
                    " left to notice. Discovered: " (pr-str discovered)))))
 
       (testing "THE GUARD: it is named, and only it"
-        (let [defects (runner/discovery-defects [(.getPath dir)])]
+        (let [defects (rf.test-quiet.runner/discovery-defects [(.getPath dir)])]
           (is (= ["unreadable_test.clj"] (defect-paths defects)))
           (is (str/includes? (complaint-for defects "unreadable_test.clj")
                              "the reader cannot read it")
@@ -146,7 +146,7 @@
             "and nothing lives there"))
 
       (testing "THE GUARD: named, with the path its declaration resolves to"
-        (let [defects (runner/discovery-defects [(.getPath dir)])]
+        (let [defects (rf.test-quiet.runner/discovery-defects [(.getPath dir)])]
           (is (= ["mislabelled_test.clj"] (defect-paths defects)))
           (is (str/includes? (complaint-for defects "mislabelled_test.clj")
                              "probe/elsewhere_test.clj")
@@ -169,7 +169,7 @@
       (testing "THE GUARD: two files cannot both spell one namespace,
                 because their paths differ"
         (is (= ["shadow_test.clj"]
-               (defect-paths (runner/discovery-defects [(.getPath dir)]))))))))
+               (defect-paths (rf.test-quiet.runner/discovery-defects [(.getPath dir)]))))))))
 
 (def ^:private duplicate-body
   (str "  (:require [clojure.test :refer [deftest is]]))\n"
@@ -191,7 +191,7 @@
             "one namespace, two files, two entries in the discovered seq"))
 
       (testing "THE GUARD: both files are named, each pointing at the other"
-        (let [defects (runner/discovery-defects [(.getPath dir)])]
+        (let [defects (rf.test-quiet.runner/discovery-defects [(.getPath dir)])]
           (is (= ["duplicate_test.clj" "duplicate_test.cljc"]
                  (defect-paths defects))
               "every colliding file is named, not just one of them")
@@ -218,10 +218,10 @@
 
           (testing "THE GUARD: uniqueness is global to the selected roots"
             (is (= ["duplicate_test.clj" "duplicate_test.clj"]
-                   (defect-paths (runner/discovery-defects
+                   (defect-paths (rf.test-quiet.runner/discovery-defects
                                    [(.getPath a) (.getPath b)])))
                 "both copies are named")
-            (is (= [] (runner/discovery-defects [(.getPath a)]))
+            (is (= [] (rf.test-quiet.runner/discovery-defects [(.getPath a)]))
                 "and either root ALONE is clean: the defect is the pairing,
                  so a single-root lane must not be reddened by it")))))))
 
@@ -233,7 +233,7 @@
     (with-tree {"probe/good_test.clj" well-formed}
       (fn [dir]
         (let [p (.getPath dir)]
-          (is (= [] (runner/discovery-defects [p (str p "/.")]))))))))
+          (is (= [] (rf.test-quiet.runner/discovery-defects [p (str p "/.")]))))))))
 
 (deftest a-well-formed-tree-has-nothing-to-say
   (testing "silent on success: the rule is a refusal, not a report"
@@ -245,13 +245,13 @@
                 "probe/not_a_test.clj"
                 (str "(ns probe.not-a-test)\n")}
       (fn [dir]
-        (is (= [] (runner/discovery-defects [(.getPath dir)]))
+        (is (= [] (rf.test-quiet.runner/discovery-defects [(.getPath dir)]))
             "nested paths, and a file the `-test` selector will skip, are
              both ordinary"))))
 
   (testing "a directory that does not exist contributes nothing, exactly as
             it does to cognitect"
-    (is (= [] (runner/discovery-defects ["no-such-directory-anywhere"]))))
+    (is (= [] (rf.test-quiet.runner/discovery-defects ["no-such-directory-anywhere"]))))
 
   (testing "and this artefact's own test tree is clean"
-    (is (= [] (runner/discovery-defects ["test"])))))
+    (is (= [] (rf.test-quiet.runner/discovery-defects ["test"])))))

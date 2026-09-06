@@ -33,16 +33,16 @@
             ;; classpath (the artefact deps on metosin/malli).
             [malli.core :as m]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
+            [re-frame.frame :as rf.frame]
             ;; Load-bearing beyond its alias: loading the facade is what
             ;; publishes the Malli validate/explain hooks (rf2-v96fh) and
             ;; binds core's `reg-app-schema` re-export through late-bind.
             ;; clj-kondo reports the ALIAS unused here; the require is not.
-            [re-frame.schemas :as schemas]
-            [re-frame.schemas.test-fixture :as tf]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.schemas.test-fixture/reset-runtime)
 
 (defn- set-app-db!
   "Set the live app-db value for `frame-id` (defaults to :rf/default).
@@ -51,7 +51,7 @@
   frame-state container."
   ([db] (set-app-db! :rf/default db))
   ([frame-id db]
-   (frame/swap-frame-db! frame-id (constantly db))))
+   (rf.frame/swap-frame-db! frame-id (constantly db))))
 
 (defn- capture
   "Run `body-fn` collecting trace events whose `:operation` is
@@ -148,7 +148,7 @@
   `nil` rejects every value, `:needs-int` accepts only integers, any other
   token accepts."
   []
-  (schemas/set-schema-validator!
+  (rf.schemas/set-schema-validator!
     (fn [schema value]
       (cond
         (nil? schema)         false

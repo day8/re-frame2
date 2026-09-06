@@ -20,10 +20,10 @@
   ;; `impl.codec` rather than the public door: the sentinels live in that
   ;; namespace's function bodies, and naming the exact fns is what keeps the
   ;; control honest under DCE.
-  (:require [re-frame.hicasso.impl.codec :as codec]))
+  (:require [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]))
 
 (defn ^:export run []
   (aset js/globalThis "__rf2BundleIsolationHicasso"
-        #js [codec/mark-boundary!
-             codec/boundary-head?
-             codec/vector-kind]))
+        #js [rf.hicasso.impl.codec/mark-boundary!
+             rf.hicasso.impl.codec/boundary-head?
+             rf.hicasso.impl.codec/vector-kind]))

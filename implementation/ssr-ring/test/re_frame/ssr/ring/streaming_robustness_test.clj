@@ -80,15 +80,15 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.ssr.ring :as ssr-ring]
-            [re-frame.ssr.ring.streaming :as streaming]
-            [re-frame.ssr.ring.test-support :as ts])
+            [re-frame.interop :as rf.interop]
+            [re-frame.ssr.ring :as rf.ssr.ring]
+            [re-frame.ssr.ring.streaming :as rf.ssr.ring.streaming]
+            [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support])
   (:import [java.io InputStream IOException
                     PipedInputStream PipedOutputStream]
            [java.net.http HttpResponse$BodyHandlers]))
 
-(use-fixtures :each ts/reset-runtime)
+(use-fixtures :each rf.ssr.ring.test-support/reset-runtime)
 
 ;; ===========================================================================
 ;; Shared test scaffolding — handlers, view registrations, helpers
@@ -147,7 +147,7 @@
   rf2-fun38: returns the leaked-thread vec on timeout (does not throw) so
   the assertion can name the offenders."
   [timeout-ms]
-  (ts/await-no-streaming-threads! timeout-ms leak-poll-ms))
+  (rf.ssr.ring.test-support/await-no-streaming-threads! timeout-ms leak-poll-ms))
 
 ;; ===========================================================================
 ;; Test 1 — broken pipe on .write absorbed by the writer's catch arm
@@ -210,7 +210,7 @@
                     :shell-html    "<div></div>"
                     :continuations []}
           result   (try
-                     (@#'streaming/run-streaming-writer!
+                     (@#'rf.ssr.ring.streaming/run-streaming-writer!
                        pipe-out :no-such-frame rendered {:root-view [:div]})
                      ::returned-normally
                      (catch Throwable t
@@ -261,13 +261,13 @@
 (deftest client-disconnect-mid-stream-cleans-up
   (testing "abrupt client disconnect → writer terminates cleanly, no orphan daemon thread"
     (register-baseline-handlers!)
-    (let [handler (ssr-ring/stream-handler
+    (let [handler (rf.ssr.ring/stream-handler
                     {:initial-events [[:rf.test.server/init]]
                      :root-view [(rf/view :test/root)]
                      :payload :rf.ssr.payload/whole-app-db})]
-      (ts/with-jetty [port handler]
-        (let [client   (ts/new-http-client)
-              req      (ts/http-get-request port "/" read-timeout-secs)
+      (rf.ssr.ring.test-support/with-jetty [port handler]
+        (let [client   (rf.ssr.ring.test-support/new-http-client)
+              req      (rf.ssr.ring.test-support/http-get-request port "/" read-timeout-secs)
               response (.send client req (HttpResponse$BodyHandlers/ofInputStream))
               ;; Read a small prefix so we know the writer thread has
               ;; flushed the shell chunk. We don't care WHAT we read,
@@ -340,13 +340,13 @@
     (let [throwing-root  (fn root-view-fn []
                            (throw (ex-info ":rf.test/intentional-root-view-throw"
                                            {:reason "shell-render fail-closed probe"})))
-          handler        (ssr-ring/stream-handler
+          handler        (rf.ssr.ring/stream-handler
                            {:initial-events [[:rf.test.server/init-min]]
                             :root-view throwing-root
                             :payload :rf.ssr.payload/whole-app-db})]
-      (ts/with-jetty [port handler]
-        (let [client   (ts/new-http-client)
-              req      (ts/http-get-request port "/" read-timeout-secs)
+      (rf.ssr.ring.test-support/with-jetty [port handler]
+        (let [client   (rf.ssr.ring.test-support/new-http-client)
+              req      (rf.ssr.ring.test-support/http-get-request port "/" read-timeout-secs)
               response (.send client req (HttpResponse$BodyHandlers/ofString))
               status   (.statusCode response)
               body     (.body response)]
@@ -409,7 +409,7 @@
          [:rf/suspense-boundary
           {:id :test/parker :fallback [:p "loading"]}
           [(rf/view :test/parking-section)]]])
-      (let [handler  (ssr-ring/stream-handler
+      (let [handler  (rf.ssr.ring/stream-handler
                        {:initial-events [[:rf.test.server/init]]
                         :root-view [(rf/view :test/parking-root)]
                         :payload :rf.ssr.payload/whole-app-db})
@@ -418,7 +418,7 @@
         (try
           (is (.await latch 5 java.util.concurrent.TimeUnit/SECONDS)
               "the writer thread reached the parking-section continuation")
-          (reset! observed (ts/live-streaming-threads))
+          (reset! observed (rf.ssr.ring.test-support/live-streaming-threads))
           (finally
             (.countDown release)
             @drain))
@@ -426,7 +426,7 @@
             "at least one rf2-ssr-streaming-* daemon thread was alive
              while the writer was mid-render")
         (let [names (map (fn [^Thread t] (.getName t)) @observed)]
-          (is (every? #(.startsWith ^String % ts/daemon-thread-name-prefix) names)
+          (is (every? #(.startsWith ^String % rf.ssr.ring.test-support/daemon-thread-name-prefix) names)
               (str "every captured thread name starts with the
                    `rf2-ssr-streaming-` prefix — captured names: "
                    (vec names))))
@@ -515,7 +515,7 @@
       (into [:div]
             (for [i (range 4000)]
               ^{:key i} [:p (str "row-" i "-padding-padding-padding")])))
-    (let [handler   (ssr-ring/stream-handler
+    (let [handler   (rf.ssr.ring/stream-handler
                       {:initial-events [[:rf.test.server/init-bad-cookie]]
                        :root-view [(rf/view :test/big-root)]
                        :payload :rf.ssr.payload/whole-app-db})
@@ -589,7 +589,7 @@
     (rf/reg-event :rf.test.server/init-min
       {:platforms #{:server}}
       (fn [_ _] {:db {}}))
-    (let [handler (ssr-ring/stream-handler
+    (let [handler (rf.ssr.ring/stream-handler
                     {:initial-events [[:rf.test.server/init-min]]
                      :root-view [(rf/view :test/uses-throwing-sub)]
                      :ssr       {:public-error-id   :rf.ssr/default-error-projector
@@ -600,10 +600,10 @@
       ;; request) thread, which is where rf2-r06pc now runs the shell
       ;; render + the post-shell re-read — so the buffered 500 is observed
       ;; and committed before the response is returned to Jetty.
-      (with-redefs [interop/debug-enabled? false]
-        (ts/with-jetty [port handler]
-          (let [client (ts/new-http-client)
-                {:keys [status]} (ts/http-get client port "/" read-timeout-secs)]
+      (with-redefs [rf.interop/debug-enabled? false]
+        (rf.ssr.ring.test-support/with-jetty [port handler]
+          (let [client (rf.ssr.ring.test-support/new-http-client)
+                {:keys [status]} (rf.ssr.ring.test-support/http-get client port "/" read-timeout-secs)]
             (is (= 500 status)
                 "render-time sub-throw fail-closed 500 rides the full
                  Jetty round-trip — never a silent 200 (rf2-r06pc)")))))))
@@ -654,13 +654,13 @@
         {:id :wire/outer :fallback [:p "wire outer loading"]}
         [(rf/view :test/wire-outer)]]
        [:footer "End"]])
-    (let [handler (ssr-ring/stream-handler
+    (let [handler (rf.ssr.ring/stream-handler
                     {:initial-events [[:rf.test.server/init-nested]]
                      :root-view [(rf/view :test/wire-nested-root)]
                      :payload :rf.ssr.payload/whole-app-db})]
-      (ts/with-jetty [port handler]
-        (let [client (ts/new-http-client)
-              {:keys [status body]} (ts/http-get client port "/" read-timeout-secs)
+      (rf.ssr.ring.test-support/with-jetty [port handler]
+        (let [client (rf.ssr.ring.test-support/new-http-client)
+              {:keys [status body]} (rf.ssr.ring.test-support/http-get client port "/" read-timeout-secs)
               idx-outer-resolved (str/index-of body "data-rf2-suspense-id=\":wire/outer\" data-rf2-suspense-resolved=\"1\"")
               idx-inner-resolved (str/index-of body "data-rf2-suspense-id=\":wire/inner\" data-rf2-suspense-resolved=\"1\"")
               idx-inner-body     (str/index-of body "WIRE_INNER_BODY")

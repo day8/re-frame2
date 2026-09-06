@@ -21,7 +21,7 @@
   precise privacy declarations.
   The traversal is parameterized by flag key so both supported flags share the
   same operator and path semantics."
-  (:require [re-frame.schemas.cache :as cache]))
+  (:require [re-frame.schemas.cache :as rf.schemas.cache]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -290,7 +290,7 @@
 ;; The sensitive-path walk is memoized for boot-time schema reuse and
 ;; clearable by fixtures that generate many distinct schemas.
 (let [[memo clear!]
-      (cache/clearable-memo
+      (rf.schemas.cache/clearable-memo
         (fn [schema base-path]
           (walk-flagged-schema :sensitive? schema base-path {})))]
 

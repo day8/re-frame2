@@ -42,8 +42,8 @@
   (:require
     [clojure.string :as str]
     [re-frame.test-quiet]
-    [re-frame.test-quiet.shadow-node-cli :as cli]
-    [re-frame.test-quiet.warn-buffer :as wb]
+    [re-frame.test-quiet.shadow-node-cli :as rf.test-quiet.shadow-node-cli]
+    [re-frame.test-quiet.warn-buffer :as rf.test-quiet.warn-buffer]
     [shadow.test.env :as env]
     [shadow.test :as st]
     [cljs.test :as ct]))
@@ -67,7 +67,7 @@
   window into a fresh vector — so discarded warnings are not retained via
   a shared `subvec` backing."
   [warning-args]
-  (swap! warn-buffer wb/bound-conj warning-args))
+  (swap! warn-buffer rf.test-quiet.warn-buffer/bound-conj warning-args))
 
 (defn- replay-buffered-warnings!
   "Replay the buffered warnings to stderr, prefixed so they are
@@ -190,7 +190,7 @@
   and that copy drifted silently for as long as it existed (rf2-6r9j.76).
   What stays here is the registry lookup the cycle actually forces."
   [test-selectors]
-  (cli/select-matching-test-vars test-selectors (env/get-test-vars)))
+  (rf.test-quiet.shadow-node-cli/select-matching-test-vars test-selectors (env/get-test-vars)))
 
 (def ^:private min-tests-env-var
   "Environment variable naming this lane's test-count floor. ONE name across
@@ -204,7 +204,7 @@
 (defn- resolve-min-tests
   "`cli/parse-min-tests` over the live `process.env`, or `::cli/invalid`."
   []
-  (cli/parse-min-tests
+  (rf.test-quiet.shadow-node-cli/parse-min-tests
     (when (exists? js/process)
       (unchecked-get js/process.env min-tests-env-var))))
 
@@ -220,12 +220,12 @@
   malformed floor (configuration), 1 an under-floor lane (red)."
   [min-tests discovered-test-count]
   (cond
-    (= ::cli/invalid min-tests)
+    (= ::rf.test-quiet.shadow-node-cli/invalid min-tests)
     (do (println (str "ERROR: " min-tests-env-var " is not a non-negative"
                       " integer."))
         (println (str "  " min-tests-env-var " is the minimum number of tests"
                       " this build must run; leave it unset for the default"
-                      " of " cli/default-min-tests "."))
+                      " of " rf.test-quiet.shadow-node-cli/default-min-tests "."))
         (js/process.exit 2)
         true)
 
@@ -275,7 +275,7 @@
 
       (seq test-selectors)
       (let [matched-test-vars    (find-matching-test-vars test-selectors)
-            unmatched-selectors (cli/unmatched-selectors test-selectors
+            unmatched-selectors (rf.test-quiet.shadow-node-cli/unmatched-selectors test-selectors
                                                          matched-test-vars)]
         ;; A `--test=` selection that matches no test var must not be a
         ;; false green: `run-test-vars` over an empty set reports a 0-test
@@ -303,5 +303,5 @@
   (reset-test-data!)
   (if env/UI-DRIVEN
     (js/console.log "Waiting for UI ...")
-    (let [cli-options (cli/parse-args args)]
+    (let [cli-options (rf.test-quiet.shadow-node-cli/parse-args args)]
       (execute-cli cli-options))))

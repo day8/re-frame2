@@ -28,7 +28,7 @@
   row below could pass on an acyclic fixture and prove nothing."
   (:require ["react" :as react]
             [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.ssr.hash :as h]))
+            [re-frame.ssr.hash :as rf.ssr.hash]))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures — one hand-built cycle, one real React 19 context
@@ -102,7 +102,7 @@
                         [:div {:ctx provider} "x"]]
                        ["a cycle reached through a JS array"
                         #js [(self-referential-object)]]]]
-      (let [o (outcome #(h/render-tree-hash v))]
+      (let [o (outcome #(rf.ssr.hash/render-tree-hash v))]
         (is (hex-hash? (:hash o))
             (str label " must hash to 8 lowercase hex chars; got "
                  (pr-str o)))))))
@@ -118,26 +118,26 @@
            print `#js {:f #object[f]}`, smuggling a JS function's `.name`
            — which the `:advanced` compiler renames — back into the hash
            the fn branch exists to keep identity out of."
-    (is (= "#js{}" (h/canonical-edn #js {"a" 1 "b" "two"})))
-    (is (= "#js{}" (h/canonical-edn #js {})))
-    (is (= "#js{}" (h/canonical-edn #js {"f" (fn [] 1)}))
+    (is (= "#js{}" (rf.ssr.hash/canonical-edn #js {"a" 1 "b" "two"})))
+    (is (= "#js{}" (rf.ssr.hash/canonical-edn #js {})))
+    (is (= "#js{}" (rf.ssr.hash/canonical-edn #js {"f" (fn [] 1)}))
         "no #object[<munged name>] survives the crossing")
-    (is (= "#js[]" (h/canonical-edn #js [1 2 3])))
-    (is (= "#js[]" (h/canonical-edn #js [])))
-    (is (= "#js{}" (h/canonical-edn provider)))))
+    (is (= "#js[]" (rf.ssr.hash/canonical-edn #js [1 2 3])))
+    (is (= "#js[]" (rf.ssr.hash/canonical-edn #js [])))
+    (is (= "#js{}" (rf.ssr.hash/canonical-edn provider)))))
 
 (deftest the-form-around-a-foreign-value-still-hashes
   (testing "The token collapses the FOREIGN value and nothing else — the
            props and children of a provider-headed form go on
            discriminating, which is what keeps the hash a hash rather than
            a constant."
-    (let [dark  (h/render-tree-hash [provider {:value "dark"} [:p "x"]])
-          light (h/render-tree-hash [provider {:value "light"} [:p "x"]])
-          other (h/render-tree-hash [provider {:value "dark"} [:p "y"]])]
+    (let [dark  (rf.ssr.hash/render-tree-hash [provider {:value "dark"} [:p "x"]])
+          light (rf.ssr.hash/render-tree-hash [provider {:value "light"} [:p "x"]])
+          other (rf.ssr.hash/render-tree-hash [provider {:value "dark"} [:p "y"]])]
       (is (not= dark light) "a different prop is a different hash")
       (is (not= dark other) "a different child is a different hash")
       (is (= "[#js{} {:value \"dark\"} [:p \"x\"]]"
-             (h/canonical-edn [provider {:value "dark"} [:p "x"]]))))))
+             (rf.ssr.hash/canonical-edn [provider {:value "dark"} [:p "x"]]))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The predicates, bounded
@@ -149,12 +149,12 @@
            foreign value can take is bounded and recurses into nothing,
            so it keeps the serialisation it has always had — this row is
            what stops the foreign branch from quietly widening."
-    (is (= "#inst \"1970-01-01T00:00:00.000-00:00\"" (h/canonical-edn (js/Date. 0))))
-    (is (= "#\"ab+c\"" (h/canonical-edn #"ab+c")))
-    (is (= "#fn[]" (h/canonical-edn (fn [_] nil)))
+    (is (= "#inst \"1970-01-01T00:00:00.000-00:00\"" (rf.ssr.hash/canonical-edn (js/Date. 0))))
+    (is (= "#\"ab+c\"" (rf.ssr.hash/canonical-edn #"ab+c")))
+    (is (= "#fn[]" (rf.ssr.hash/canonical-edn (fn [_] nil)))
         "and a raw fn still takes the fn branch, ahead of either of these")
     (is (= "[:div {:class \"x\"} [:p \"hi\"]]"
-           (h/canonical-edn [:div {:class "x"} [:p "hi"]]))
+           (rf.ssr.hash/canonical-edn [:div {:class "x"} [:p "hi"]]))
         "ordinary CLJS data is untouched — the parity fixtures at
          re-frame.ssr.hash-parity-fixtures are the full statement of
          that, pinned on both runtimes")))

@@ -17,11 +17,11 @@
   carrying a `:sensitive :app-db` declaration."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.privacy :as privacy]
-            [re-frame.ssr.ring.payload :as payload]
-            [re-frame.ssr.ring.test-support :as ts]))
+            [re-frame.privacy :as rf.privacy]
+            [re-frame.ssr.ring.payload :as rf.ssr.ring.payload]
+            [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]))
 
-(use-fixtures :each ts/reset-runtime)
+(use-fixtures :each rf.ssr.ring.test-support/reset-runtime)
 
 (def ^:private server-frame :rf.bt9kct/server)
 
@@ -56,10 +56,10 @@
             projection; the public sibling (:user) rides verbatim; unlisted
             keys (:public / :secrets) are omitted by the allowlist"
     (reg-sensitive-frame!)
-    (let [out    (payload/build-payload server-frame app-db "h1"
+    (let [out    (rf.ssr.ring.payload/build-payload server-frame app-db "h1"
                                         {:payload [:session :public]})
           db     (:rf/app-db out)]
-      (is (= privacy/redacted-sentinel (get-in db [:session :token]))
+      (is (= rf.privacy/redacted-sentinel (get-in db [:session :token]))
           "the frame-sensitive nested :token is redacted on the hydration wire")
       (is (= "alice" (get-in db [:session :user]))
           "the public sibling rides verbatim")
@@ -75,10 +75,10 @@
             but STILL projects frame-sensitive children — the raw token never
             rides even when the whole app-db is opted in"
     (reg-sensitive-frame!)
-    (let [out (payload/build-payload server-frame app-db "h1"
+    (let [out (rf.ssr.ring.payload/build-payload server-frame app-db "h1"
                                      {:payload :rf.ssr.payload/whole-app-db})
           db  (:rf/app-db out)]
-      (is (= privacy/redacted-sentinel (get-in db [:session :token]))
+      (is (= rf.privacy/redacted-sentinel (get-in db [:session :token]))
           "whole-app-db still redacts the frame-sensitive :token")
       (is (= "alice" (get-in db [:session :user])))
       (is (= "internal-only" (get-in db [:secrets :api-key]))
@@ -92,9 +92,9 @@
             elision policy) fails CLOSED — the whole app-db slice redacts to
             the :rf/redacted sentinel rather than ship under no policy"
     ;; deliberately do NOT register :rf.bt9kct/ghost
-    (let [out (payload/build-payload :rf.bt9kct/ghost app-db "h1"
+    (let [out (rf.ssr.ring.payload/build-payload :rf.bt9kct/ghost app-db "h1"
                                      {:payload [:session]})]
-      (is (= privacy/redacted-sentinel (:rf/app-db out))
+      (is (= rf.privacy/redacted-sentinel (:rf/app-db out))
           "an unresolvable frame redacts the whole slice (fail-closed)")
       (is (not (.contains (pr-str out) "secret-jwt"))
           "no raw value escapes under a missing frame policy"))))
@@ -104,7 +104,7 @@
             allowlisted slice verbatim (the projection is a precise
             classification walk, not a blanket scrub)"
     (rf/make-frame {:id :rf.bt9kct/plain :platform :server})
-    (let [out (payload/build-payload :rf.bt9kct/plain app-db "h1"
+    (let [out (rf.ssr.ring.payload/build-payload :rf.bt9kct/plain app-db "h1"
                                      {:payload [:session]})
           db  (:rf/app-db out)]
       (is (= {:token "secret-jwt" :user "alice"} (:session db))

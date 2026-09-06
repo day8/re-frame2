@@ -109,10 +109,10 @@
   should be — the honest wrong page, and the operator's allowlist mistake
   rather than a framework failure. The framework cannot tell a key the
   render needs from one it merely could read; only the allowlist says."
-  (:require [re-frame.error :as error]
-            [re-frame.frame :as frame]
-            [re-frame.ssr.manifest :as manifest]
-            [re-frame.ssr.payload-policy :as payload-policy]
+  (:require [re-frame.error :as rf.error]
+            [re-frame.frame :as rf.frame]
+            [re-frame.ssr.manifest :as rf.ssr.manifest]
+            [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
             #?(:clj  [clojure.edn :as edn]
                :cljs [cljs.reader :as reader])))
 
@@ -160,7 +160,7 @@
   `:render-state` allowlist is the same class of fault one wire over, and
   `:opt :render-state` in the ex-data carries the distinction."
   [reason render-state]
-  (error/throw-error!
+  (rf.error/throw-error!
     :rf.error/ssr-malformed-payload-allowlist where
     (str "ssr-handler :render-state — " reason ".")
     {:recovery :declare-payload-policy
@@ -218,7 +218,7 @@
     :else
     ;; The payload family's missing-policy id, reused — see
     ;; `throw-malformed-policy!`.
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/ssr-missing-payload-policy where
       (str "ssr-handler requires an explicit render-state policy for a "
            "non-local renderer: pass :render-state {:app-db [<top-level "
@@ -233,7 +233,7 @@
 ;; ---- the envelope, validated ----------------------------------------------
 
 (defn- throw-malformed-partitions! [reason partitions]
-  (error/throw-error!
+  (rf.error/throw-error!
     :rf.error/ssr-render-state-invalid where
     (str "render state must be {:rf/app-db <map> :rf/runtime-db <map>}; " reason ".")
     {:recovery :return-the-two-partition-envelope
@@ -275,9 +275,9 @@
   [partitions]
   (doseq [[partition slice] partitions
           [k v] slice]
-    (let [bad-key? (or (not (keyword? k)) (not (manifest/edn-carryable? k)))]
-      (when (or bad-key? (not (manifest/edn-carryable? v)))
-        (error/throw-error!
+    (let [bad-key? (or (not (keyword? k)) (not (rf.ssr.manifest/edn-carryable? k)))]
+      (when (or bad-key? (not (rf.ssr.manifest/edn-carryable? v)))
+        (rf.error/throw-error!
           :rf.error/ssr-render-state-invalid where
           (str "render state " partition " entry " (pr-str k) " has a "
                (if bad-key? "KEY" "value")
@@ -305,8 +305,8 @@
 ;; one. Recorded on the `:rf.error/frame-destroyed` row of Spec 009
 ;; §Error contract (rf2-t6yr) — do not "fix" this to recover.
 (defn- require-live-frame! [frame-id]
-  (when-not (frame/frame frame-id)
-    (error/throw-error!
+  (when-not (rf.frame/frame frame-id)
+    (rf.error/throw-error!
       :rf.error/frame-destroyed where
       (str "render state needs a LIVE frame; " (pr-str frame-id)
            " is not registered (destroyed, or never made).")
@@ -317,12 +317,12 @@
 
 (defn- allowlist-project
   [frame-id {app-keys :app-db rt-keys :runtime-db}]
-  (let [app-db     (frame/frame-app-db-value frame-id)
-        runtime-db (frame/frame-runtime-db-value frame-id)
+  (let [app-db     (rf.frame/frame-app-db-value frame-id)
+        runtime-db (rf.frame/frame-runtime-db-value frame-id)
         app-slice  (if (seq app-keys)
                      ;; Allowlist FIRST, then the frame-scoped egress walk over
                      ;; the survivors, exactly as the payload builder orders it.
-                     (payload-policy/project-app-db-egress
+                     (rf.ssr.payload-policy/project-app-db-egress
                        (select-keys app-db app-keys) frame-id)
                      {})
         rt-slice   (if (seq rt-keys)
@@ -334,7 +334,7 @@
                        ;; lets a late-bound extension (resources) win for a key
                        ;; it projected.
                        (merge (apply dissoc selected projector-owned-runtime-keys)
-                              (payload-policy/project-runtime-db selected frame-id)))
+                              (rf.ssr.payload-policy/project-runtime-db selected frame-id)))
                      {})]
     {:rf/app-db app-slice :rf/runtime-db rt-slice}))
 
@@ -422,9 +422,9 @@
   [frame-id partitions]
   (let [{app :rf/app-db rt :rf/runtime-db} (normalise-partitions! partitions)]
     (require-live-frame! frame-id)
-    (or (frame/replace-frame-state! frame-id
-                                    {frame/app-partition-key     app
-                                     frame/runtime-partition-key rt})
+    (or (rf.frame/replace-frame-state! frame-id
+                                    {rf.frame/app-partition-key     app
+                                     rf.frame/runtime-partition-key rt})
         ;; `replace-frame-state!` answers nil only for a frame that vanished
         ;; between the liveness check and the write.
         (require-live-frame! frame-id))))

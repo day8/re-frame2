@@ -20,8 +20,8 @@
   would otherwise allow header-splitting via `\\r\\n` injection. Cookie
   `:name` carries a separate RFC 6265 §4.1.1 token-grammar gate."
   (:require [clojure.string :as str]
-            [re-frame.error :as error]
-            [re-frame.ssr.http-validation :as http-validation])
+            [re-frame.error :as rf.error]
+            [re-frame.ssr.http-validation :as rf.ssr.http-validation])
   (:import [java.net URLEncoder]
            [java.nio.charset StandardCharsets]
            [java.time Instant ZoneOffset ZonedDateTime]
@@ -56,8 +56,8 @@
 (defn- validate-cookie-attribute!
   [attribute-key attribute-value]
   (let [wire-value (str attribute-value)]
-    (when (http-validation/contains-cookie-attr-injection-char? wire-value)
-      (error/throw-error!
+    (when (rf.ssr.http-validation/contains-cookie-attr-injection-char? wire-value)
+      (rf.error/throw-error!
         :rf.error/cookie-invalid-attribute
         'rf.ssr/cookie->set-cookie-header
         (str "cookie attribute " attribute-key
@@ -79,7 +79,7 @@
   ;; cookie-name error instead of leaking a ClassCastException.
   (when-not (or (string? cookie-name)
                 (instance? clojure.lang.Named cookie-name))
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/cookie-invalid-name
       'rf.ssr/cookie->set-cookie-header
       (str "cookie :name must be a string or a keyword/symbol; got a "
@@ -90,9 +90,9 @@
        :extra    {:name cookie-name
                   :type (.getName (class cookie-name))}}))
   (let [wire-name (clojure.core/name cookie-name)]
-    (if (http-validation/valid-token-name? wire-name)
+    (if (rf.ssr.http-validation/valid-token-name? wire-name)
       wire-name
-      (error/throw-error!
+      (rf.error/throw-error!
         :rf.error/cookie-invalid-name
         'rf.ssr/cookie->set-cookie-header
         (str "cookie :name violates RFC 6265 §4.1.1"
@@ -139,7 +139,7 @@
   [{:keys [name value max-age secure http-only same-site path domain expires]
     :as cookie}]
   (when (nil? name)
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/cookie-missing-name
       'rf.ssr/cookie->set-cookie-header
       "cookie map must carry :name; add a :name key to the cookie map."
@@ -154,7 +154,7 @@
     ;; `:rf.error/cookie-invalid-expires` so the misuse surfaces with the
     ;; cookie's actual shape attached.
     (when (and (some? expires) (not (integer? expires)))
-      (error/throw-error!
+      (rf.error/throw-error!
         :rf.error/cookie-invalid-expires
         'rf.ssr/cookie->set-cookie-header
         (str ":expires must be an epoch-millis long; got "

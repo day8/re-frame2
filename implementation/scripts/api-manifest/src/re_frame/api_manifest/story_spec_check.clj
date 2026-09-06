@@ -34,8 +34,8 @@
   rf2-i6kh dropped the exemptions and gave all five real `:cljs-only` rows,
   which this check resolves like any other var-row. A facade var missing from
   the manifest is a row to add, never a name to silence here."
-  (:require [re-frame.api-manifest.gen :as gen]
-            [re-frame.api-manifest.projection :as proj]))
+  (:require [re-frame.api-manifest.gen :as rf.api-manifest.gen]
+            [re-frame.api-manifest.projection :as rf.api-manifest.projection]))
 
 (def ^:private story-ns "re-frame.story")
 
@@ -50,19 +50,19 @@
 
 (defn check!
   []
-  (let [rows       (proj/manifest-rows)
-        story-vars (set (map :var (proj/rows-in-ns rows story-ns)))
-        allow      (set (:story-spec-known-unmanifested (gen/read-sidecar)))
-        file       (proj/repo-file "tools" "story" "spec" "API.md")
-        rel        (proj/repo-relative file)
-        var-rows   (proj/table-var-rows (proj/numbered-lines file))
+  (let [rows       (rf.api-manifest.projection/manifest-rows)
+        story-vars (set (map :var (rf.api-manifest.projection/rows-in-ns rows story-ns)))
+        allow      (set (:story-spec-known-unmanifested (rf.api-manifest.gen/read-sidecar)))
+        file       (rf.api-manifest.projection/repo-file "tools" "story" "spec" "API.md")
+        rel        (rf.api-manifest.projection/repo-relative file)
+        var-rows   (rf.api-manifest.projection/table-var-rows (rf.api-manifest.projection/numbered-lines file))
         problems   (keep (fn [{:keys [var line]}]
                            (when-not (or (contains? story-vars var)
                                          (contains? allow var))
                              {:file rel :line line :raw var
                               :detail "no re-frame.story manifest row"}))
                          var-rows)]
-    (proj/report-with-floor! "tools/story/spec/API.md"
+    (rf.api-manifest.projection/report-with-floor! "tools/story/spec/API.md"
                              (count var-rows) min-var-rows problems)))
 
 (defn -main [& _]

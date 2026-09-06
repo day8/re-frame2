@@ -58,9 +58,9 @@
   react-dom byte-parity corpus (004B §Emission is pure) is a separate S5
   leaf; only the conversion-table rows the seam actually needs ship here."
   (:require [clojure.string :as str]
-            [re-frame.error :as error]
-            [re-frame.ssr.hash :as hash]
-            [re-frame.ssr.html-helpers :as html]))
+            [re-frame.error :as rf.error]
+            [re-frame.ssr.hash :as rf.ssr.hash]
+            [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]))
 
 ;; ---------------------------------------------------------------------------
 ;; Version gate — the headline. Validated FIRST, before any emission.
@@ -84,11 +84,11 @@
   (let [tree-version (:rf.ui/tree-version tree)]
     (when-not (and (integer? tree-version)
                    (contains? supported-tree-versions tree-version))
-      (error/throw-error!
+      (rf.error/throw-error!
         :rf.error/ssr-ui-tree-version-unsupported
         'rf.ssr/emit-ui-tree
         (str "re-frame.ssr/emit-ui-tree requires a root :rf.ui/tree-version in "
-             (pr-str supported-tree-versions) " — got " (error/pr-form tree-version)
+             (pr-str supported-tree-versions) " — got " (rf.error/pr-form tree-version)
              ". The serialiser validates the version FIRST, before any emission, so "
              "a future-version or corrupt tree never emits plausible markup. This is "
              "an OPERATIONAL deploy-skew condition (the server is too old for the tree "
@@ -100,7 +100,7 @@
          ;; rf2-9s68n — `tree-version` is read straight off a caller-supplied tree, so
          ;; it crosses `error/safe-form` on the ex-data side exactly as
          ;; it crosses `error/pr-form` on the message side above.
-         :extra    {:got (error/safe-form tree-version)
+         :extra    {:got (rf.error/safe-form tree-version)
                     :supported supported-tree-versions}}))))
 
 ;; ---------------------------------------------------------------------------
@@ -476,16 +476,16 @@
   "HTML boolean attributes: true -> presence (attr=\"\"), false/absent ->
   omitted. Tracks react-dom 19.2.0; keyed by the hyphen-collapsed
   lowercase author name."
-  html/boolean-attrs)
+  rf.ssr.html-helpers/boolean-attrs)
 
 (def booleanish-attrs
   "true/false -> \"true\"/\"false\", never omitted. Tracks react-dom 19.2.0."
-  html/booleanish-attrs)
+  rf.ssr.html-helpers/booleanish-attrs)
 
 (def overloaded-boolean-attrs
   "true -> bare presence, false -> omitted, other values stringify.
   Tracks react-dom 19.2.0."
-  html/overloaded-boolean-attrs)
+  rf.ssr.html-helpers/overloaded-boolean-attrs)
 
 (def property-only-attrs
   "Names React never serialises to markup on NON-custom elements. Tracks
@@ -593,7 +593,7 @@
   [value]
   (cond
     (string? value)                          value
-    (number? value)                          (hash/canonical-number value)
+    (number? value)                          (rf.ssr.hash/canonical-number value)
     (or (keyword? value) (symbol? value))    (name value)
     :else                                    (str value)))
 
@@ -649,7 +649,7 @@
 
       (contains? boolean-attrs collapsed-name)
       ;; presence/absence; presence serialises as attr="".
-      (when (html/presence-value-truthy? attribute-value)
+      (when (rf.ssr.html-helpers/presence-value-truthy? attribute-value)
         [(dom-attr-name attribute-name) ""])
 
       (boolean? attribute-value)
@@ -742,11 +742,11 @@
   string is built before it arrives here. `path` is framework-built —
   `:children` keywords and integers — so it needs no crossing."
   [reason path extra]
-  (error/throw-error!
+  (rf.error/throw-error!
     :rf.error/ui-tree-malformed
     'rf.ssr/emit-ui-tree
     (str reason " (at tree path " (pr-str path) ")")
-    {:extra (assoc (error/safe-form extra) :path path)}))
+    {:extra (assoc (rf.error/safe-form extra) :path path)}))
 
 (declare emit-node mark-selected selected-values)
 
@@ -783,7 +783,7 @@
   [tag-lc children path]
   (cond
     (every? string? children)
-    (html/escape-raw-text tag-lc (str/join children))
+    (rf.ssr.html-helpers/escape-raw-text tag-lc (str/join children))
 
     (and (= 1 (count children))
          (map? (first children))
@@ -795,7 +795,7 @@
       (str "a <" tag-lc "> raw-text element takes EITHER string content OR a "
            "single trusted-markup (:html) child — never a structural, mixed, or "
            "multi-child body (which the raw-text fast path would otherwise "
-           "stringify into the element): " (error/pr-form children))
+           "stringify into the element): " (rf.error/pr-form children))
       path {:value children})))
 
 (defn- transparent-wrapper?
@@ -853,7 +853,7 @@
           (str "a <textarea> takes its content from EITHER :value / "
                ":default-value OR a single text child, never both — "
                "react-dom/server 19.2 rejects a textarea given a value AND a "
-               "child: " (error/pr-form child))
+               "child: " (rf.error/pr-form child))
           child-path {:value raw-children}))
 
       (> (count effective-child-entries) 1)
@@ -863,7 +863,7 @@
                (count effective-child-entries)
                " reached it after splicing — react-dom/server 19.2 rejects a "
                "textarea with more than one child: "
-               (error/pr-form (mapv first effective-child-entries)))
+               (rf.error/pr-form (mapv first effective-child-entries)))
           second-child-path {:value raw-children}))
 
       (= 1 (count effective-child-entries))
@@ -875,7 +875,7 @@
                  "react-dom/server 19.2 rejects dangerouslySetInnerHTML on a "
                  "textarea (its content is value/defaultValue or a text child); "
                  "supply the text via :value or a string child: "
-                 (error/pr-form child))
+                 (rf.error/pr-form child))
             child-path {:value raw-children})
 
           (and (map? child) (contains? child :tag))
@@ -883,7 +883,7 @@
             (str "a <textarea> takes a single TEXT child, not a structural "
                  "element — react-dom/server 19.2 renders an element child as "
                  "\"[object Object]\"; supply the text via :value or a string "
-                 "child: " (error/pr-form child))
+                 "child: " (rf.error/pr-form child))
             child-path {:value raw-children}))))))
 
 (defn- emit-element
@@ -897,7 +897,7 @@
         tag-name            (name tag)
         normalised-tag-name (str/lower-case tag-name)
         void?               (contains? void-tags (keyword normalised-tag-name))
-        raw-text?           (contains? html/raw-text-tags normalised-tag-name)
+        raw-text?           (contains? rf.ssr.html-helpers/raw-text-tags normalised-tag-name)
         property-props      (if (custom-element-tag? tag)
                               (set (or (:rf.ui/property-props element) #{}))
                               #{})
@@ -1023,7 +1023,7 @@
                " — every map node is EXACTLY ONE of :tag (element), :view-id "
                "(view boundary), :html (trusted markup), or a fragment (none of "
                "these, splicing its :children); an ambiguous map must not be "
-               "interpreted by branch order: " (error/pr-form node))
+               "interpreted by branch order: " (rf.error/pr-form node))
           path {:value node :got discriminators})
 
         (= 1 (count discriminators))
@@ -1035,7 +1035,7 @@
                        trusted-html
                        (malformed-node!
                          (str "a trusted-HTML node's :html is not a string: "
-                              (error/pr-form node))
+                              (rf.error/pr-form node))
                          path {:value node})))
           ;; view boundary erases — its children splice into the stream.
           :view-id (emit-children (:children node) path))
@@ -1050,12 +1050,12 @@
           (str "a tree node carries no node discriminator — every map node is "
                "an element (:tag), a view boundary (:view-id), trusted markup "
                "(:html), or a fragment (:children); a map with none is not a "
-               "renderable tree node: " (error/pr-form node))
+               "renderable tree node: " (rf.error/pr-form node))
           path {:value node :got []})))
 
     :else
     (malformed-node!
-      (str "malformed tree node in re-frame.ssr/emit-ui-tree: " (error/pr-form node))
+      (str "malformed tree node in re-frame.ssr/emit-ui-tree: " (rf.error/pr-form node))
       path {:value node})))
 
 ;; ---------------------------------------------------------------------------

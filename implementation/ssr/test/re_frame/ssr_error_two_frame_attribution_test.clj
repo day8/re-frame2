@@ -69,13 +69,13 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
-            [re-frame.interop :as interop]
-            [re-frame.schemas :as schemas]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.test-fixture :as tf]))
+            [re-frame.fx :as rf.fx]
+            [re-frame.interop :as rf.interop]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 ;; ---------------------------------------------------------------------------
 ;; Stub validator — interpret a `:params` schema as a Clojure predicate
@@ -84,7 +84,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- with-stub-validator []
-  (let [snap     (schemas/snapshot-schema-fns)
+  (let [snap     (rf.schemas/snapshot-schema-fns)
         ;; rf2-ps05ug: the stub is process-global, so while installed EVERY
         ;; schema-validating boundary uses it — including the routing
         ;; recordable allocation cofx, whose `:schema` is a real Malli VECTOR
@@ -103,8 +103,8 @@
         explain  (fn [schema value]
                    (when (fn? schema)
                      {:reason :stub-explainer :value value}))]
-    (schemas/set-schema-fns! {:validate validate :explain explain})
-    (fn [] (schemas/restore-schema-fns! snap))))
+    (rf.schemas/set-schema-fns! {:validate validate :explain explain})
+    (fn [] (rf.schemas/restore-schema-fns! snap))))
 
 (def ^:private frame-a :ssr/req-a)
 (def ^:private frame-b :ssr/req-b)
@@ -119,7 +119,7 @@
                            (str/starts-with? (or id "") "a"))} "/articles/:id")
   ;; Server-platform push-url so the navigate fx assembly resolves on a
   ;; `:platform :server` frame (no-op sink — the reject path never pushes).
-  (fx/reg-fx :rf.nav/push-url
+  (rf.fx/reg-fx :rf.nav/push-url
              {:platforms #{:server :client}}
              (fn [_ _url] nil)))
 
@@ -152,7 +152,7 @@
     ;; (Spec 010 §Production builds): under the gate the params validate
     ;; vacuously, nothing is rejected, and both frames would sit at 200. The
     ;; production-posture pin for this same contract is test (4).
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (let [restore (with-stub-validator)]
         (try
           (register-routes-and-fx!)
@@ -165,11 +165,11 @@
             (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "zoo"}}]
                               {:frame fa})
 
-            (is (= 400 (:status (ssr/get-response fa)))
+            (is (= 400 (:status (rf.ssr/get-response fa)))
                 "frame-a's navigate-reject is projected to 400 on frame-a's
                  response — the `:frame` stamp routed the trace to the
                  emitting frame even with a sibling server frame live")
-            (is (= 200 (:status (ssr/get-response fb)))
+            (is (= 200 (:status (rf.ssr/get-response fb)))
                 "frame-b's response stays at the default 200 (Spec 011
                  §Status defaults) — the error did not bleed onto the
                  sibling. The removed single-frame fallback would have
@@ -189,7 +189,7 @@
             (not a fixed/first-registered server frame)."
     ;; rf2-lwtlk — DEV ARM, same reason as test (1). Test (4) mirrors this
     ;; symmetry check on the always-on axis.
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (let [restore (with-stub-validator)]
         (try
           (register-routes-and-fx!)
@@ -197,9 +197,9 @@
                 fb (make-server-frame frame-b)]
             (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "zoo"}}]
                               {:frame fb})
-            (is (= 400 (:status (ssr/get-response fb)))
+            (is (= 400 (:status (rf.ssr/get-response fb)))
                 "frame-b (the emitting frame) gets the projected 400")
-            (is (= 200 (:status (ssr/get-response fa)))
+            (is (= 200 (:status (rf.ssr/get-response fa)))
                 "frame-a stays at the default 200 — clean"))
           (finally (restore)))))))
 
@@ -223,7 +223,7 @@
     ;; the assertions read the DEV trace bus, whose subject here (epoch /
     ;; Xray capture) is dev tooling. Nothing about this test has a
     ;; production counterpart, and that is correct rather than a gap.
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (let [restore (with-stub-validator)
             traces  (atom [])]
         (try
@@ -272,15 +272,15 @@
     (let [fa (make-server-frame frame-a)
           fb (make-server-frame frame-b)]
       (rf/dispatch-sync [:boom/throw] {:frame fa})
-      (is (= 500 (:status (ssr/get-response fa)))
+      (is (= 500 (:status (rf.ssr/get-response fa)))
           "frame-a's handler exception is projected to 500 on frame-a's
            response — the always-on record carried the emitting frame")
-      (is (= 200 (:status (ssr/get-response fb)))
+      (is (= 200 (:status (rf.ssr/get-response fb)))
           "frame-b's response stays at the default 200 — no bleed onto the
            concurrent sibling")
 
       (rf/dispatch-sync [:boom/throw] {:frame fb})
-      (is (= 500 (:status (ssr/get-response fb)))
+      (is (= 500 (:status (rf.ssr/get-response fb)))
           "and the mirror: frame-b now carries its OWN 500, so attribution
            follows the emitting frame in both directions rather than a
            fixed / first-registered server frame"))))

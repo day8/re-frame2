@@ -43,18 +43,18 @@
   (:require [clojure.set]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.ssr.ring :as ssr-ring]
-            [re-frame.ssr.ring.lifecycle :as lifecycle]
-            [re-frame.ssr.ring.pipeline :as pipeline]
-            [re-frame.ssr.ring.streaming :as streaming]
-            [re-frame.ssr.ring.test-support :as ts]
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.ssr.ring :as rf.ssr.ring]
+            [re-frame.ssr.ring.lifecycle :as rf.ssr.ring.lifecycle]
+            [re-frame.ssr.ring.pipeline :as rf.ssr.ring.pipeline]
+            [re-frame.ssr.ring.streaming :as rf.ssr.ring.streaming]
+            [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]
             [re-frame.test-support :refer [with-trace-recorder!]])
   (:import [java.io InputStream OutputStream PipedInputStream PipedOutputStream]))
 
-(use-fixtures :each ts/reset-runtime)
+(use-fixtures :each rf.ssr.ring.test-support/reset-runtime)
 
 ;; ===========================================================================
 ;; The trace emit itself — the gap streaming_robustness_test left open.
@@ -78,7 +78,7 @@
       ;; pre-broken pipe → IOException → the catch arm runs and emits
       ;; the trace.
       (with-trace-recorder! [captured]
-        (@#'streaming/run-streaming-writer!
+        (@#'rf.ssr.ring.streaming/run-streaming-writer!
           pipe-out :no-such-frame
           {:head-html "" :html-attrs nil :body-attrs nil
            :shell-html "<div></div>" :continuations []}
@@ -135,12 +135,12 @@
       (fn [_ _] {:db {}}))
     (let [throwing-root (fn [] (throw (ex-info "shell-render teardown probe"
                                                {:reason :rf2-u91hb})))
-          handler  (ssr-ring/stream-handler
+          handler  (rf.ssr.ring/stream-handler
                      {:initial-events [[:rf.test.writer/init]]
                       :root-view throwing-root
                       :payload :rf.ssr.payload/whole-app-db})
           ;; Frame ids BEFORE the request — baseline.
-          baseline-fids (disj (frame/frame-ids) :rf/default)
+          baseline-fids (disj (rf.frame/frame-ids) :rf/default)
           response (handler {:uri "/" :request-method :get})]
       ;; rf2-r06pc — the shell render threw on the request thread, so the
       ;; response is the projected non-200 error page (an ordinary String
@@ -152,7 +152,7 @@
       (is (not (instance? InputStream (:body response)))
           "no streamed InputStream body — the chunked response was never
            committed (the shell render failed before the head commit)")
-      (let [end-fids (disj (frame/frame-ids) :rf/default)
+      (let [end-fids (disj (rf.frame/frame-ids) :rf/default)
             leaked   (clojure.set/difference end-fids baseline-fids)]
         (is (empty? leaked)
             (str "the per-request frame MUST be destroyed even though
@@ -203,7 +203,7 @@
   "Register a real per-request server frame for `opts` and return its
   frame-id. The `:initial-events` event seeds the app-db the views read."
   [opts]
-  (let [{:keys [frame-id]} (pipeline/setup-request-frame! opts {:uri "/" :request-method :get})]
+  (let [{:keys [frame-id]} (rf.ssr.ring.pipeline/setup-request-frame! opts {:uri "/" :request-method :get})]
     frame-id))
 
 (defn- capture-writer-failure
@@ -212,7 +212,7 @@
   nil). `rendered` is a genuine `render-streaming-shell!` result."
   [frame-id rendered opts throw-at-write]
   (with-trace-recorder! [captured]
-    (@#'streaming/run-streaming-writer!
+    (@#'rf.ssr.ring.streaming/run-streaming-writer!
       (throw-on-nth-write-stream throw-at-write) frame-id rendered opts)
     (->> @captured
          (filterv #(= :rf.error/ssr-streaming-writer-failed (:operation %)))
@@ -236,9 +236,9 @@
           ;;   1 shell-prefix, 2 shell-html, 3 final-payload, 4 suffix.
           mk       (fn [throw-at]
                      (let [fid      (setup-streaming-frame! opts)
-                           rendered (#'streaming/render-streaming-shell! fid opts)
+                           rendered (#'rf.ssr.ring.streaming/render-streaming-shell! fid opts)
                            ev       (capture-writer-failure fid rendered opts throw-at)]
-                       (lifecycle/destroy-frame-quietly! fid)
+                       (rf.ssr.ring.lifecycle/destroy-frame-quietly! fid)
                        ev))
           prefix-ev (mk 1)
           final-ev  (mk 3)
@@ -287,14 +287,14 @@
                     :emit-hash? true
                     :payload :rf.ssr.payload/whole-app-db}
           fid      (setup-streaming-frame! opts)
-          rendered (#'streaming/render-streaming-shell! fid opts)]
+          rendered (#'rf.ssr.ring.streaming/render-streaming-shell! fid opts)]
       ;; With one boundary the write order is:
       ;;   1 shell-prefix, 2 shell-html, 3 continuation-template, ...
       ;; Throw on write 3 to hit the continuation-template phase.
       (is (seq (:continuations rendered))
           "the rendered shell registered the suspense continuation")
       (let [ev (capture-writer-failure fid rendered opts 3)]
-        (lifecycle/destroy-frame-quietly! fid)
+        (rf.ssr.ring.lifecycle/destroy-frame-quietly! fid)
         (is (= :continuation-template (-> ev :tags :phase))
             "throw on the boundary's template write → :phase :continuation-template")
         (is (= :rf.test.phase/the-boundary (-> ev :tags :boundary-id))
@@ -318,7 +318,7 @@
             trace, which is elided under debug-off). NON-PROJECTING: the
             chunked 200 is already on the wire, so there is no status to
             flip — pure off-box telemetry."
-    (error-emit/clear-error-listeners!)
+    (rf.error-emit/clear-error-listeners!)
     (let [pipe-in  (PipedInputStream. 1024)
           pipe-out (PipedOutputStream. pipe-in)
           _        (.close pipe-in) ;; pre-broken pipe — every write throws
@@ -326,13 +326,13 @@
       (rf/register-listener! :errors
         ::hhutya-writer-recorder
         (fn [record] (swap! seen conj record)))
-      (with-redefs [interop/debug-enabled? false]
-        (@#'streaming/run-streaming-writer!
+      (with-redefs [rf.interop/debug-enabled? false]
+        (@#'rf.ssr.ring.streaming/run-streaming-writer!
           pipe-out :no-such-frame
           {:head-html "" :html-attrs nil :body-attrs nil
            :shell-html "<div></div>" :continuations []}
           {:root-view [:div]}))
-      (error-emit/clear-error-listeners!)
+      (rf.error-emit/clear-error-listeners!)
       (let [hits (filterv #(= :rf.error/ssr-streaming-writer-failed (:error %))
                           @seen)]
         (is (= 1 (count hits))

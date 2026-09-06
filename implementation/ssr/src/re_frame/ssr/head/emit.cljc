@@ -21,8 +21,8 @@
   ;; inside `ld-json-string`'s `:clj` arm (the hand-rolled JSON emitter and
   ;; its two fail-fast gates). CLJS goes through `js/JSON.stringify`.
   (:require #?@(:clj [[clojure.string :as str]
-                      [re-frame.error :as error]])
-            [re-frame.ssr.html-helpers :as html]))
+                      [re-frame.error :as rf.error]])
+            [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]))
 
 ;; Reflection warnings guard the hand-rolled JVM JSON emitter.
 ;; The JVM-side `ld-json-string` is hand-rolled JSON emission; the
@@ -34,18 +34,18 @@
 
 (defn- emit-title [title]
   (when (and title (not= "" title))
-    (str "<title>" (html/escape-html title) "</title>")))
+    (str "<title>" (rf.ssr.html-helpers/escape-html title) "</title>")))
 
 (defn- emit-meta-tag [attrs]
-  (str "<meta" (html/attr-string attrs) ">"))
+  (str "<meta" (rf.ssr.html-helpers/attr-string attrs) ">"))
 
 (defn- emit-link-tag [attrs]
-  (str "<link" (html/attr-string attrs) ">"))
+  (str "<link" (rf.ssr.html-helpers/attr-string attrs) ">"))
 
 (defn- emit-script-tag [attrs]
   ;; `attr-string` already iterates the whole map in declaration order;
   ;; pass `attrs` straight through.
-  (str "<script" (html/attr-string attrs) "></script>"))
+  (str "<script" (rf.ssr.html-helpers/attr-string attrs) "></script>"))
 
 (defn- ld-json-string
   "Serialise a JSON-LD object map to its `<script type=\"application/ld+json\">`
@@ -68,7 +68,7 @@
   literal escape for `<`, so the payload round-trips unchanged."
   [value]
   #?(:cljs (-> (js/JSON.stringify (clj->js value))
-               html/escape-script-body-string)
+               rf.ssr.html-helpers/escape-script-body-string)
      :clj  (letfn [(emit-number [number]
                      ;; `(str v)` produces non-JSON for two
                      ;; numeric shapes the JVM admits but JSON.parse rejects:
@@ -82,7 +82,7 @@
                        (and (or (instance? Double number)
                                 (instance? Float number))
                             (not (Double/isFinite (double number))))
-                       (error/throw-error!
+                       (rf.error/throw-error!
                          :rf.error/invalid-json-ld-number
                          'rf.ssr.head/emit
                          (str "JSON-LD number " (pr-str number)
@@ -133,7 +133,7 @@
                               ;; Escape `<` so user-controlled
                               ;; string contents can't close the
                               ;; surrounding <script>.
-                              html/escape-script-body-string)
+                              rf.ssr.html-helpers/escape-script-body-string)
                           "\""))
                    (emit-key [map-key]
                      ;; JSON object keys must be quoted
@@ -152,7 +152,7 @@
                                               (str key-namespace "/" (name map-key))
                                               (name map-key)))
                        (nil? map-key)
-                       (error/throw-error!
+                       (rf.error/throw-error!
                          :rf.error/invalid-json-ld-key
                          'rf.ssr.head/emit
                          (str "JSON-LD object key is nil"

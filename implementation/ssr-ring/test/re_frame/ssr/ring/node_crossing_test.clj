@@ -35,9 +35,9 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.ssr.ring :as ssr-ring]
-            [re-frame.ssr.ring.node :as node]
-            [re-frame.ssr.ring.test-support :as ts])
+            [re-frame.ssr.ring :as rf.ssr.ring]
+            [re-frame.ssr.ring.node :as rf.ssr.ring.node]
+            [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support])
   (:import [java.net InetSocketAddress ServerSocket URI]
            [java.net.http HttpClient HttpRequest HttpResponse$BodyHandlers]
            [java.time Duration]
@@ -129,11 +129,11 @@
         (stop-sidecar! s)))))
 
 (use-fixtures :once with-sidecar)
-(use-fixtures :each ts/reset-runtime)
+(use-fixtures :each rf.ssr.ring.test-support/reset-runtime)
 
 ;; ---- /health ----------------------------------------------------------------
 
-(def ^:private ^HttpClient probe-client (ts/new-http-client))
+(def ^:private ^HttpClient probe-client (rf.ssr.ring.test-support/new-http-client))
 
 (defn- health
   "The sidecar's `/health` body, parsed."
@@ -182,7 +182,7 @@
 (defn- node-renderer
   [url & {:keys [timeout-ms render-state build-id]
           :or   {timeout-ms 1000 build-id "crossing-build-1"}}]
-  (node/renderer {:endpoint     url
+  (rf.ssr.ring.node/renderer {:endpoint     url
                   :entry        "app/root"
                   :args         {:root :crossing}
                   :build-id     build-id
@@ -195,7 +195,7 @@
   NARROWER than the render-state policy (c), and an `:error-view` that
   stamps a marker no success page carries."
   [renderer & {:keys [delay-ms]}]
-  (ssr-ring/ssr-handler
+  (rf.ssr.ring/ssr-handler
     {:initial-events [[:rf.test.crossing/init {:delay-ms delay-ms}]]
      :payload        [:heading]
      :renderer       renderer
@@ -461,14 +461,14 @@
   {:entry "app/root" :build-id "b1" :render-state {:app-db [:heading]}})
 
 (defn- construction-error [opts]
-  (try (node/renderer opts) nil
+  (try (rf.ssr.ring.node/renderer opts) nil
        (catch clojure.lang.ExceptionInfo e (ex-data e))))
 
 (deftest the-node-renderer-validates-its-opts-at-construction
   (testing "the defaults: endpoint, deadline, admission budget, and the derived timeout"
-    (is (fn? (node/renderer good-opts)) "entry + build-id + render-state suffice")
+    (is (fn? (rf.ssr.ring.node/renderer good-opts)) "entry + build-id + render-state suffice")
     (is (= (+ 1000 250 500)
-           (node/http-timeout-ms {:timeout-ms 1000 :admission-ms 250}))
+           (rf.ssr.ring.node/http-timeout-ms {:timeout-ms 1000 :admission-ms 250}))
         "the explicit per-request HTTP timeout = timeoutMs + admission + wire margin"))
   (testing "each required opt fails closed with :rf.error/ssr-node-renderer-opt-invalid naming it"
     (doseq [[opt opts] [[:entry    (dissoc good-opts :entry)]
@@ -486,9 +486,9 @@
         (is (= opt (:opt data)) (pr-str opt))
         (is (keyword? (:recovery data))))))
   (testing "a non-loopback endpoint is NOT refused (S7 — trust the programmer)"
-    (is (fn? (node/renderer (assoc good-opts :endpoint "https://render.internal:8148")))))
+    (is (fn? (rf.ssr.ring.node/renderer (assoc good-opts :endpoint "https://render.internal:8148")))))
   (testing ":args is optional; nil is a value and rides"
-    (is (fn? (node/renderer (assoc good-opts :args nil)))))
+    (is (fn? (rf.ssr.ring.node/renderer (assoc good-opts :args nil)))))
   (testing ":render-state is required — the payload family's missing-policy id, with :opt :render-state"
     (let [data (construction-error (dissoc good-opts :render-state))]
       (is (= :rf.error/ssr-missing-payload-policy (:rf.error/id data)))
@@ -497,4 +497,4 @@
       (is (= :rf.error/ssr-malformed-payload-allowlist (:rf.error/id data)))
       (is (= :render-state (:opt data)))))
   (testing "the escape-hatch projector constructs"
-    (is (fn? (node/renderer (assoc good-opts :render-state (fn [_] {:rf/app-db {}})))))))
+    (is (fn? (rf.ssr.ring.node/renderer (assoc good-opts :render-state (fn [_] {:rf/app-db {}})))))))

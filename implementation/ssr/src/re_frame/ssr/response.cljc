@@ -48,14 +48,14 @@
   Frame teardown releases the response slot together with the other SSR side
   channels."
   (:require [clojure.string]
-            [re-frame.error :as error]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.privacy.url :as url-egress]
-            [re-frame.ssr.egress :as egress]
-            [re-frame.ssr.http-validation :as http-validation]
-            [re-frame.trace :as trace])
+            [re-frame.error :as rf.error]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.privacy.url :as rf.privacy.url]
+            [re-frame.ssr.egress :as rf.ssr.egress]
+            [re-frame.ssr.http-validation :as rf.ssr.http-validation]
+            [re-frame.trace :as rf.trace])
   #?(:clj (:import [java.net URI URISyntaxException])))
 
 (defonce
@@ -198,18 +198,18 @@
   identifier travels through an explicitly trusted field; the summary is
   never asked to guess that an app-supplied value is structural."
   [fx-id arg-key value expected]
-  (error/throw-error!
+  (rf.error/throw-error!
     :rf.error/server-fx-args-invalid
     'rf.ssr/response
     (str fx-id " " arg-key " must be " expected "; got "
-         (pr-str (error/diag-value-summary value))
+         (pr-str (rf.error/diag-value-summary value))
          ". Fix the fx args map at the dispatch site — the reserved"
          " :rf.server/* fx guard their own args in every build, so this"
          " rejection does not depend on -Dre-frame.debug.")
     {:recovery :supply-a-well-formed-fx-argument
      :extra    {:fx-id    fx-id
                 :key      arg-key
-                :value    (error/diag-value-summary value)
+                :value    (rf.error/diag-value-summary value)
                 :expected expected}}))
 
 (defn- validate-args-map!
@@ -329,8 +329,8 @@
   deprecated; no CTLs allowed in `field-content`."
   [header-name value]
   (let [header-value (str value)]
-    (when (http-validation/contains-injection-char? header-value)
-      (error/throw-error!
+    (when (rf.ssr.http-validation/contains-injection-char? header-value)
+      (rf.error/throw-error!
         :rf.error/header-invalid-value
         'rf.ssr/response
         (str "header " (pr-str header-name)
@@ -361,8 +361,8 @@
   the caller-untrusted path."
   [location]
   (let [location-string (str location)]
-    (when (http-validation/contains-injection-char? location-string)
-      (error/throw-error!
+    (when (rf.ssr.http-validation/contains-injection-char? location-string)
+      (rf.error/throw-error!
         :rf.error/redirect-invalid-location
         'rf.ssr/response
         (str "redirect :location contains CR/LF/NUL"
@@ -394,8 +394,8 @@
   whitespace, or separators. Same gate as the cookie-name validator."
   [header-name]
   (let [header-name-string (str header-name)]
-    (when-not (http-validation/valid-token-name? header-name-string)
-      (error/throw-error!
+    (when-not (rf.ssr.http-validation/valid-token-name? header-name-string)
+      (rf.error/throw-error!
         :rf.error/header-invalid-name
         'rf.ssr/response
         (str "header :name " (pr-str header-name-string)
@@ -421,7 +421,7 @@
   not a `Named` at all — is the case `(name cookie-name)` cannot survive."
   [cookie-name]
   (when (nil? cookie-name)
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/cookie-invalid-name
       'rf.ssr/response
       "cookie :name is required; supply a non-nil :name on the cookie map."
@@ -443,7 +443,7 @@
   (when-not (or (string? cookie-name)
                 #?(:clj  (instance? clojure.lang.Named cookie-name)
                    :cljs (or (keyword? cookie-name) (symbol? cookie-name))))
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/cookie-invalid-name
       'rf.ssr/response
       (str "cookie :name must be a string or a keyword/symbol; got "
@@ -454,8 +454,8 @@
        :extra    {:name cookie-name}}))
   (let [cookie-name-string (#?(:clj clojure.core/name :cljs cljs.core/name)
                             cookie-name)]
-    (when-not (http-validation/valid-token-name? cookie-name-string)
-      (error/throw-error!
+    (when-not (rf.ssr.http-validation/valid-token-name? cookie-name-string)
+      (rf.error/throw-error!
         :rf.error/cookie-invalid-name
         'rf.ssr/response
         (str "cookie :name " (pr-str cookie-name-string)
@@ -514,11 +514,11 @@
         ;; reject the `;` cookie-attribute delimiter.
         value-attribute? (= attribute-key :value)
         invalid? (if value-attribute?
-                   (http-validation/contains-injection-char? serialised-value)
-                   (http-validation/contains-cookie-attr-injection-char?
+                   (rf.ssr.http-validation/contains-injection-char? serialised-value)
+                   (rf.ssr.http-validation/contains-cookie-attr-injection-char?
                      serialised-value))]
     (when invalid?
-      (error/throw-error!
+      (rf.error/throw-error!
         :rf.error/cookie-invalid-attribute
         'rf.ssr/response
         (str "cookie attribute " attribute-key " " (pr-str serialised-value)
@@ -601,7 +601,7 @@
   on the process-local frame address — O(small-map) swap, no app-db
   ping-pong. `frame-address` is the bare process-local frame id."
   [frame-id update-fn]
-  (let [frame-address (frame/frame-address frame-id)
+  (let [frame-address (rf.frame/frame-address frame-id)
         updated-response (-> (swap! response-slots
                                     update frame-address
                                     #(update-fn (ensure-response %)))
@@ -611,7 +611,7 @@
 (defn response-of
   "Read the current response accumulator (with defaults applied)."
   [frame-id]
-  (ensure-response (get @response-slots (frame/frame-address frame-id))))
+  (ensure-response (get @response-slots (rf.frame/frame-address frame-id))))
 
 (defn clear-response!
   "Drop `frame-id`'s response slot. Called from
@@ -619,7 +619,7 @@
   `:ssr/on-frame-destroyed` late-bind hook. Idempotent — tolerates a frame-id
   with no slot."
   [frame-id]
-  (swap! response-slots dissoc (frame/frame-address frame-id))
+  (swap! response-slots dissoc (rf.frame/frame-address frame-id))
   frame-id)
 
 ;; ---- header helpers ------------------------------------------------------
@@ -670,7 +670,7 @@
   [response writes-key warning-id final-key frame-id]
   (let [writes (get response writes-key)]
     (when (and response (> (count writes) 1))
-      (trace/emit! :warning warning-id
+      (rf.trace/emit! :warning warning-id
                    {:writes   writes
                     final-key (last writes)
                     :frame    frame-id
@@ -807,7 +807,7 @@
   (let [retired-keys (filterv #(contains? redirect-map %)
                               retired-redirect-target-keys)]
     (when (seq retired-keys)
-      (error/throw-error!
+      (rf.error/throw-error!
         :rf.error/redirect-retired-target-key
         'rf.ssr/response
         (str "redirect target key(s) " (pr-str retired-keys)
@@ -1037,7 +1037,7 @@
   `:reason` is a framework enum, and `:recovery` is fixed."
   [tags]
   (-> (merge {:recovery :no-recovery} tags)
-      (url-egress/redact-url-tag :location)))
+      (rf.privacy.url/redact-url-tag :location)))
 
 (defn- dispatch-safe-redirect-record!
   "Fan the rejected redirect out on the ALWAYS-ON error axis (rf2-6jqa8) —
@@ -1092,11 +1092,11 @@
   no host at all, leaving no value in it that the caller chose."
   [operation tags]
   (when-let [dispatch-error-record!
-             (late-bind/get-fn :error-emit/dispatch-error-record)]
+             (rf.late-bind/get-fn :error-emit/dispatch-error-record)]
     (dispatch-error-record!
-      (assoc (egress/safe-redirect-record-tags tags)
+      (assoc (rf.ssr.egress/safe-redirect-record-tags tags)
              :error operation
-             :time  (interop/now-ms))))
+             :time  (rf.interop/now-ms))))
   nil)
 
 (defn- emit-safe-redirect-error!
@@ -1112,7 +1112,7 @@
   [operation tags]
   (let [tags (safe-redirect-tags tags)]
     (dispatch-safe-redirect-record! operation tags)
-    (trace/emit-error! operation tags))
+    (rf.trace/emit-error! operation tags))
   nil)
 
 (defn safe-redirect-fx

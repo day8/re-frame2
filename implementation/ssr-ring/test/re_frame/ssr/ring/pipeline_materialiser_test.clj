@@ -44,12 +44,12 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.ssr.ring :as ssr-ring]
-            [re-frame.ssr.ring.headers :as headers]
-            [re-frame.ssr.ring.pipeline :as pipeline]
-            [re-frame.ssr.ring.test-support :as ts]))
+            [re-frame.ssr.ring :as rf.ssr.ring]
+            [re-frame.ssr.ring.headers :as rf.ssr.ring.headers]
+            [re-frame.ssr.ring.pipeline :as rf.ssr.ring.pipeline]
+            [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]))
 
-(use-fixtures :each ts/reset-runtime)
+(use-fixtures :each rf.ssr.ring.test-support/reset-runtime)
 
 ;; ===========================================================================
 ;; ssr-response->ring-response — redirect target resolution (:location only)
@@ -66,7 +66,7 @@
 (deftest redirect-resolves-location-key
   (testing "a redirect map keyed by :location emits a Location header"
     (let [resp {:redirect {:status 302 :location "/by-location"}}
-          ring (pipeline/ssr-response->ring-response resp nil)]
+          ring (rf.ssr.ring.pipeline/ssr-response->ring-response resp nil)]
       (is (= 302 (:status ring)))
       (is (= "/by-location" (get (:headers ring) "Location")))
       (is (= "" (:body ring)) "redirect has no body"))))
@@ -78,7 +78,7 @@
             The runtime rejects :url loudly before this point; the adapter's
             last-line behaviour must NOT silently resolve the retired key."
     (let [resp {:redirect {:status 303 :url "/by-url"}}
-          ring (pipeline/ssr-response->ring-response resp nil)]
+          ring (rf.ssr.ring.pipeline/ssr-response->ring-response resp nil)]
       (is (= 303 (:status ring)) "the redirect map's :status still rides through")
       (is (nil? (get (:headers ring) "Location"))
           ":url is NOT resolved as the Location target — retired spelling"))))
@@ -87,7 +87,7 @@
   (testing "rf2-vngir: a redirect map carrying ONLY the retired :to spelling
             (NOT :location) likewise emits no Location header"
     (let [resp {:redirect {:status 307 :to "/by-to"}}
-          ring (pipeline/ssr-response->ring-response resp nil)]
+          ring (rf.ssr.ring.pipeline/ssr-response->ring-response resp nil)]
       (is (= 307 (:status ring)))
       (is (nil? (get (:headers ring) "Location"))
           ":to is NOT resolved as the Location target — retired spelling"))))
@@ -97,7 +97,7 @@
             keys, ONLY :location is resolved (the retired keys are inert at
             the materialiser — :location is the canonical target)"
     (is (= "/loc"
-           (get (:headers (pipeline/ssr-response->ring-response
+           (get (:headers (rf.ssr.ring.pipeline/ssr-response->ring-response
                             {:redirect {:status 302
                                         :location "/loc" :url "/url" :to "/to"}}
                             nil))
@@ -108,7 +108,7 @@
   (testing "rf2-ynjts.14: a redirect map with a target but no :status
             defaults to 302 (the materialiser's `(or redirect-status
             status 302)` fallback)"
-    (let [ring (pipeline/ssr-response->ring-response
+    (let [ring (rf.ssr.ring.pipeline/ssr-response->ring-response
                  {:redirect {:location "/x"}} nil)]
       (is (= 302 (:status ring))
           "absent redirect :status → 302 default")
@@ -120,7 +120,7 @@
             tolerance — the warning-trace branch is pinned end-to-end by
             ring_test/handler-redirect-no-target-warns; here we pin the
             materialiser's header-omission half directly)"
-    (let [ring (pipeline/ssr-response->ring-response
+    (let [ring (rf.ssr.ring.pipeline/ssr-response->ring-response
                  {:redirect {:status 302}} nil)]
       (is (= 302 (:status ring)) "status still emitted (no target to invent)")
       (is (nil? (get (:headers ring) "Location"))
@@ -134,7 +134,7 @@
 (deftest body-response-defaults-status-200
   (testing "rf2-ynjts.14: a non-redirect response with no :status defaults
             to 200 and carries the supplied body verbatim"
-    (let [ring (pipeline/ssr-response->ring-response
+    (let [ring (rf.ssr.ring.pipeline/ssr-response->ring-response
                  {:headers [["Content-Type" "text/html"]]}
                  "<p>hi</p>")]
       (is (= 200 (:status ring)) "absent :status → 200 default")
@@ -143,7 +143,7 @@
 (deftest body-response-nil-body-becomes-empty-string
   (testing "rf2-ynjts.14: a nil body materialises to the empty string, not
             nil (Ring bodies must be writable — `(or body \"\")`)"
-    (let [ring (pipeline/ssr-response->ring-response
+    (let [ring (rf.ssr.ring.pipeline/ssr-response->ring-response
                  {:status 204 :headers []} nil)]
       (is (= 204 (:status ring)))
       (is (= "" (:body ring)) "nil body → empty string"))))
@@ -170,32 +170,32 @@
             `:rf.server/set-status \"404\"` leaves on the accumulator) does
             NOT reach the wire as a non-int — the materialiser fails closed
             to a valid 500 Ring response"
-    (let [ring (pipeline/ssr-response->ring-response
+    (let [ring (rf.ssr.ring.pipeline/ssr-response->ring-response
                  {:status "404" :headers [["Content-Type" "text/html"]]}
                  "<p>x</p>")]
       (is (integer? (:status ring))
           "the Ring :status is an integer regardless of accumulator garbage")
       (is (= 500 (:status ring)) "a non-int status fails closed to 500")))
   (testing "rf2-v0qbng: a non-integer redirect :status also fails closed"
-    (let [ring (pipeline/ssr-response->ring-response
+    (let [ring (rf.ssr.ring.pipeline/ssr-response->ring-response
                  {:redirect {:status "302" :location "/ok"}} nil)]
       (is (integer? (:status ring)) "redirect :status is an integer")
       (is (= 500 (:status ring)) "non-int redirect status → 500")))
   (testing "rf2-v0qbng: a float status (200.0) is not a valid Ring int → 500"
-    (is (= 500 (:status (pipeline/ssr-response->ring-response
+    (is (= 500 (:status (rf.ssr.ring.pipeline/ssr-response->ring-response
                           {:status 200.0 :headers []} "x"))))))
 
 (deftest integer-status-passes-through-unchanged
   (testing "rf2-v0qbng: a genuine integer status is untouched by the
             fail-closed guard (no false-positive coercion)"
-    (is (= 201 (:status (pipeline/ssr-response->ring-response
+    (is (= 201 (:status (rf.ssr.ring.pipeline/ssr-response->ring-response
                           {:status 201 :headers []} "x"))))
-    (is (= 302 (:status (pipeline/ssr-response->ring-response
+    (is (= 302 (:status (rf.ssr.ring.pipeline/ssr-response->ring-response
                           {:redirect {:status 302 :location "/x"}} nil))))
-    (is (= 200 (:status (pipeline/ssr-response->ring-response
+    (is (= 200 (:status (rf.ssr.ring.pipeline/ssr-response->ring-response
                           {:headers []} "x")))
         "absent status still defaults to 200")
-    (is (= 302 (:status (pipeline/ssr-response->ring-response
+    (is (= 302 (:status (rf.ssr.ring.pipeline/ssr-response->ring-response
                           {:redirect {:location "/x"}} nil)))
         "absent redirect status still defaults to 302")))
 
@@ -231,7 +231,7 @@
             fail-closed-to-500 recovery; the response still fails closed to 500"
     (let [warnings (collect-non-integer-status-warnings
                      (fn []
-                       (let [ring (pipeline/ssr-response->ring-response
+                       (let [ring (rf.ssr.ring.pipeline/ssr-response->ring-response
                                     {:status "404"
                                      :headers [["Content-Type" "text/html"]]}
                                     "<p>x</p>")]
@@ -266,7 +266,7 @@
             `status-rewrite-always-on-test/one-rewrite-fans-exactly-one-record`."
     (let [warnings (collect-non-integer-status-warnings
                      (fn []
-                       (let [ring (pipeline/ssr-response->ring-response
+                       (let [ring (rf.ssr.ring.pipeline/ssr-response->ring-response
                                     {:redirect {:status "302"}} nil)]
                          (is (= 500 (:status ring))
                              "the redirect arm still fails closed to 500"))))]
@@ -279,9 +279,9 @@
             defect-only diagnostic, not a per-request emission"
     (let [warnings (collect-non-integer-status-warnings
                      (fn []
-                       (pipeline/ssr-response->ring-response
+                       (rf.ssr.ring.pipeline/ssr-response->ring-response
                          {:status 200 :headers []} "x")
-                       (pipeline/ssr-response->ring-response
+                       (rf.ssr.ring.pipeline/ssr-response->ring-response
                          {:headers []} "x")))]  ;; absent status → 200 default
       (is (= [] warnings)
           "no warning for a valid integer status or an absent (defaulted) one"))))
@@ -291,7 +291,7 @@
             soft-passed `:rf.server/set-header {:name \"X-Count\" :value 5}`
             leaves) is coerced to a string in the emitted Ring header map —
             the value is never a raw scalar on the wire"
-    (let [ring (pipeline/ssr-response->ring-response
+    (let [ring (rf.ssr.ring.pipeline/ssr-response->ring-response
                  {:status 200 :headers [["X-Count" 5]
                                         ["X-Flag" true]
                                         ["X-Kw" :enabled]]}
@@ -310,7 +310,7 @@
             caller-trusted and `(str loc)` passes its shape gate, so a raw
             scalar can reach the accumulator) is coerced to a string in the
             emitted Location header"
-    (let [ring (pipeline/ssr-response->ring-response
+    (let [ring (rf.ssr.ring.pipeline/ssr-response->ring-response
                  {:redirect {:status 302 :location 5}} nil)
           loc  (get (:headers ring) "Location")]
       (is (= 302 (:status ring)))
@@ -327,7 +327,7 @@
 (deftest content-type-override-sets-when-pairs-carry-none
   (testing "rf2-nncni3: pairs that declare no Content-Type get the override
             value set (with no existing Content-Type, override = assoc)"
-    (let [result (headers/headers->ring-map+content-type-override
+    (let [result (rf.ssr.ring.headers/headers->ring-map+content-type-override
                    [["X-Custom" "v"]]
                    "text/html; charset=utf-8")]
       (is (= "text/html; charset=utf-8" (get result "Content-Type"))
@@ -338,14 +338,14 @@
   (testing "rf2-nncni3: a nil `content-type` arg is NO override — the folded
             map flows verbatim, so the runtime seed / app-set Content-Type
             stays in control (the redirect path passes nil)"
-    (let [result (headers/headers->ring-map+content-type-override
+    (let [result (rf.ssr.ring.headers/headers->ring-map+content-type-override
                    [["X-Custom" "v"]]
                    nil)]
       (is (not (contains? result "Content-Type"))
           "no Content-Type key when the override is nil and pairs carry none")
       (is (= "v" (get result "X-Custom"))))
     (testing "a nil override preserves a caller-supplied Content-Type verbatim"
-      (let [result (headers/headers->ring-map+content-type-override
+      (let [result (rf.ssr.ring.headers/headers->ring-map+content-type-override
                      [["content-type" "application/json"]]
                      nil)]
         (is (= "application/json" (get result "content-type"))
@@ -354,7 +354,7 @@
 (deftest empty-pairs-with-nil-override-yields-empty-map
   (testing "rf2-nncni3: empty pairs + nil override → empty header map (no
             spurious keys)"
-    (is (= {} (headers/headers->ring-map+content-type-override [] nil)))))
+    (is (= {} (rf.ssr.ring.headers/headers->ring-map+content-type-override [] nil)))))
 
 ;; ===========================================================================
 ;; merge-pair-into-header-map — repeated names collapse into a vector
@@ -369,15 +369,15 @@
 (deftest single-value-header-stays-scalar
   (testing "rf2-ynjts.14: a name seen once stays a scalar string (nil arm)"
     (is (= {"Vary" "Accept"}
-           (headers/merge-pair-into-header-map {} ["Vary" "Accept"])))))
+           (rf.ssr.ring.headers/merge-pair-into-header-map {} ["Vary" "Accept"])))))
 
 (deftest second-value-promotes-to-vector
   (testing "rf2-ynjts.14: a name seen twice promotes scalar → 2-vector
             (string arm)"
     (is (= {"Vary" ["Accept" "Cookie"]}
            (-> {}
-               (headers/merge-pair-into-header-map ["Vary" "Accept"])
-               (headers/merge-pair-into-header-map ["Vary" "Cookie"]))))))
+               (rf.ssr.ring.headers/merge-pair-into-header-map ["Vary" "Accept"])
+               (rf.ssr.ring.headers/merge-pair-into-header-map ["Vary" "Cookie"]))))))
 
 (deftest third-value-conjs-onto-vector-preserving-order
   (testing "rf2-ynjts.14: a name seen three+ times conjs onto the vector,
@@ -385,9 +385,9 @@
             load-bearing multi-valued-header round-trip)"
     (is (= {"Link" ["a" "b" "c"]}
            (-> {}
-               (headers/merge-pair-into-header-map ["Link" "a"])
-               (headers/merge-pair-into-header-map ["Link" "b"])
-               (headers/merge-pair-into-header-map ["Link" "c"]))))))
+               (rf.ssr.ring.headers/merge-pair-into-header-map ["Link" "a"])
+               (rf.ssr.ring.headers/merge-pair-into-header-map ["Link" "b"])
+               (rf.ssr.ring.headers/merge-pair-into-header-map ["Link" "c"]))))))
 
 (deftest repeated-non-string-value-coerced-and-does-not-wipe-header-map
   (testing "rf2-v0qbng (was rf2-5t8mr.14): a repeated header name whose value
@@ -400,10 +400,10 @@
             value is a vector OF STRINGS, never of raw scalars"
     (is (= {"X-Count" ["5" "6"]}
            (-> {}
-               (headers/merge-pair-into-header-map ["X-Count" 5])
-               (headers/merge-pair-into-header-map ["X-Count" 6])))
+               (rf.ssr.ring.headers/merge-pair-into-header-map ["X-Count" 5])
+               (rf.ssr.ring.headers/merge-pair-into-header-map ["X-Count" 6])))
         "two non-string values under one name collapse to a vector of strings")
-    (let [result (headers/headers->ring-map+content-type-override
+    (let [result (rf.ssr.ring.headers/headers->ring-map+content-type-override
                    [["X-Count" 5]
                     ["X-Count" 6]
                     ["X-Other" "keep"]]
@@ -436,14 +436,14 @@
             in declaration order (the case-insensitive fold)"
     (is (= {"Vary" ["Accept" "Origin"]}
            (-> {}
-               (headers/merge-pair-into-header-map ["Vary" "Accept"])
-               (headers/merge-pair-into-header-map ["vary" "Origin"])))
+               (rf.ssr.ring.headers/merge-pair-into-header-map ["Vary" "Accept"])
+               (rf.ssr.ring.headers/merge-pair-into-header-map ["vary" "Origin"])))
         "second-seen lower-case `vary` folds under the first-seen `Vary` key")
     (is (= {"Vary" ["Accept" "Origin" "Accept-Encoding"]}
            (-> {}
-               (headers/merge-pair-into-header-map ["Vary" "Accept"])
-               (headers/merge-pair-into-header-map ["vary" "Origin"])
-               (headers/merge-pair-into-header-map ["VARY" "Accept-Encoding"])))
+               (rf.ssr.ring.headers/merge-pair-into-header-map ["Vary" "Accept"])
+               (rf.ssr.ring.headers/merge-pair-into-header-map ["vary" "Origin"])
+               (rf.ssr.ring.headers/merge-pair-into-header-map ["VARY" "Accept-Encoding"])))
         "three casings collapse to one key; values stay in declaration order")))
 
 (deftest mixed-case-fold-retains-first-seen-spelling-not-latest
@@ -451,8 +451,8 @@
             later case variant does NOT rename the key"
     (is (= ["Origin" "Accept"]
            (get (-> {}
-                    (headers/merge-pair-into-header-map ["vary" "Origin"])
-                    (headers/merge-pair-into-header-map ["Vary" "Accept"]))
+                    (rf.ssr.ring.headers/merge-pair-into-header-map ["vary" "Origin"])
+                    (rf.ssr.ring.headers/merge-pair-into-header-map ["Vary" "Accept"]))
                 "vary"))
         "first-seen lower-case `vary` is the stable emitted key")))
 
@@ -460,7 +460,7 @@
   (testing "rf2-3fc89f.16 (accept #2): mixed-case Content-Type with a nil
             handler override collapses to exactly one logical key carrying
             both values in order (vector semantics follow append-header)"
-    (let [result (headers/headers->ring-map+content-type-override
+    (let [result (rf.ssr.ring.headers/headers->ring-map+content-type-override
                    [["content-type" "text/html"]
                     ["Content-Type" "application/json"]]
                    nil)
@@ -474,7 +474,7 @@
 (deftest mixed-case-content-type-with-override-strips-every-casing
   (testing "rf2-3fc89f.16 (accept #2): a non-nil override still strips every
             prior spelling and emits one canonical `Content-Type` scalar"
-    (let [result (headers/headers->ring-map+content-type-override
+    (let [result (rf.ssr.ring.headers/headers->ring-map+content-type-override
                    [["content-type" "text/html"]
                     ["Content-Type" "application/json"]]
                    "text/xml; charset=utf-8")
@@ -489,7 +489,7 @@
   (testing "rf2-3fc89f.16 (accept #3): structured cookies appended to a
             pre-existing differently-cased Set-Cookie entry yield ONE logical
             key preserving every value in order"
-    (let [result (headers/append-set-cookies
+    (let [result (rf.ssr.ring.headers/append-set-cookies
                    {"set-cookie" "pre=1"}
                    [{:name "session" :value "abc"}
                     {:name "theme" :value "dark"}])
@@ -508,12 +508,12 @@
   (testing "rf2-3fc89f.16: the case-insensitive fold leaves same-case
             singleton/scalar/vector behaviour exactly as before"
     (is (= {"Vary" "Accept"}
-           (headers/merge-pair-into-header-map {} ["Vary" "Accept"]))
+           (rf.ssr.ring.headers/merge-pair-into-header-map {} ["Vary" "Accept"]))
         "a singleton stays a scalar")
     (is (= {"Vary" ["Accept" "Cookie"]}
            (-> {}
-               (headers/merge-pair-into-header-map ["Vary" "Accept"])
-               (headers/merge-pair-into-header-map ["Vary" "Cookie"])))
+               (rf.ssr.ring.headers/merge-pair-into-header-map ["Vary" "Accept"])
+               (rf.ssr.ring.headers/merge-pair-into-header-map ["Vary" "Cookie"])))
         "same-case repeats still promote to an ordered vector")))
 
 ;; ===========================================================================
@@ -547,7 +547,7 @@
             fail-closed coercion — the wire value is always a string)"
     (let [warnings (collect-non-string-header-warnings
                      (fn []
-                       (let [result (headers/merge-pair-into-header-map
+                       (let [result (rf.ssr.ring.headers/merge-pair-into-header-map
                                       {} ["X-Count" 5])]
                          (is (= {"X-Count" "5"} result)
                              "the non-string value folds in coerced to a string"))))]
@@ -565,10 +565,10 @@
             path) emits NO warning"
     (let [warnings (collect-non-string-header-warnings
                      (fn []
-                       (headers/merge-pair-into-header-map {} ["X-Custom" "v"])
+                       (rf.ssr.ring.headers/merge-pair-into-header-map {} ["X-Custom" "v"])
                        (-> {}
-                           (headers/merge-pair-into-header-map ["Vary" "Accept"])
-                           (headers/merge-pair-into-header-map ["Vary" "Cookie"]))))]
+                           (rf.ssr.ring.headers/merge-pair-into-header-map ["Vary" "Accept"])
+                           (rf.ssr.ring.headers/merge-pair-into-header-map ["Vary" "Cookie"]))))]
       (is (= [] warnings)
           "no non-string-header-value warning for string-valued headers"))))
 
@@ -576,7 +576,7 @@
   (testing "rf2-ynjts.14: the full fold collapses repeated names into a
             vector AND keeps singletons scalar in one pass — the contract
             the materialiser relies on for multi-valued headers"
-    (let [result (headers/headers->ring-map+content-type-override
+    (let [result (rf.ssr.ring.headers/headers->ring-map+content-type-override
                    [["Set-Cookie" "a=1"]
                     ["Set-Cookie" "b=2"]
                     ["X-One" "only"]]
@@ -593,7 +593,7 @@
 (deftest append-set-cookies-folds-multiple-into-vector
   (testing "rf2-ynjts.14: two structured cookies fold into a 2-vector under
             Set-Cookie, each serialised per RFC 6265"
-    (let [result (headers/append-set-cookies
+    (let [result (rf.ssr.ring.headers/append-set-cookies
                    {}
                    [{:name "session" :value "abc"}
                     {:name "theme" :value "dark"}])
@@ -605,7 +605,7 @@
 
 (deftest append-set-cookies-empty-is-noop
   (testing "rf2-ynjts.14: no cookies → header map unchanged"
-    (is (= {"X" "y"} (headers/append-set-cookies {"X" "y"} [])))))
+    (is (= {"X" "y"} (rf.ssr.ring.headers/append-set-cookies {"X" "y"} [])))))
 
 ;; ===========================================================================
 ;; ssr-middleware — DEFAULT :match? (matches every GET; non-GET falls through)
@@ -626,7 +626,7 @@
     (let [wrapped-called (atom false)
           wrapped        (fn [_req] (reset! wrapped-called true)
                            {:status 204 :headers {} :body ""})
-          app ((ssr-ring/ssr-middleware
+          app ((rf.ssr.ring/ssr-middleware
                  {:initial-events      [[:init/mw-blank]]
                   :root-view      [(rf/view :pages/mw-blank)]
                   :payload :rf.ssr.payload/whole-app-db})
@@ -644,7 +644,7 @@
     (let [wrapped-called (atom false)
           wrapped        (fn [_req] (reset! wrapped-called true)
                            {:status 201 :headers {} :body "from wrapped"})
-          app ((ssr-ring/ssr-middleware
+          app ((rf.ssr.ring/ssr-middleware
                  {:initial-events      [[:init/mw-blank]]
                   :root-view      [(rf/view :pages/mw-blank)]
                   :payload :rf.ssr.payload/whole-app-db})

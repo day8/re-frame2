@@ -19,11 +19,11 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.ssr.render-state :as render-state]
-            [re-frame.ssr.test-fixture :as tf]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.ssr.render-state :as rf.ssr.render-state]
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 (defn- thrown-data [f]
   (try (f) nil
@@ -45,11 +45,11 @@
   (let [sfid (server-frame! :rf.ssrrs/server-route)]
     (rf/dispatch-sync [:rf.route/handle-url-change "/article?token=secret-query-token&tab=x"]
                       {:frame sfid})
-    (let [live (get-in (frame/frame-runtime-db-value sfid) [:rf.runtime/routing :current])]
+    (let [live (get-in (rf.frame/frame-runtime-db-value sfid) [:rf.runtime/routing :current])]
       (is (= :route/article (:route-id live)) "precondition: the navigation settled")
       (is (= "secret-query-token" (get-in live [:query :token]))
           "precondition: the live frame holds the raw query on the server"))
-    (let [projected (render-state/project sfid {:render-state {:runtime-db [:rf.runtime/routing]}})
+    (let [projected (rf.ssr.render-state/project sfid {:render-state {:runtime-db [:rf.runtime/routing]}})
           current   (get-in projected [:rf/runtime-db :rf.runtime/routing :current])]
       (is (= :route/article (:route-id current)))
       (is (= :rf/redacted (get-in current [:query :token]))
@@ -59,7 +59,7 @@
           "only the durable :current slice rides")
       (is (not (str/includes? (pr-str projected) "secret-query-token")))
       (let [cfid (server-frame! :rf.ssrrs/fresh-route)]
-        (render-state/restore! cfid (render-state/deserialize (render-state/serialize projected)))
+        (rf.ssr.render-state/restore! cfid (rf.ssr.render-state/deserialize (rf.ssr.render-state/serialize projected)))
         (is (= current (rf/subscribe-once [:rf/route] {:frame cfid}))
             "the routing artefact's own [:rf/route] sub reads the restored slice on the fresh frame")))))
 
@@ -78,14 +78,14 @@
                               ["a float"              (float 0.1)               0.1]
                               ["an integer past 2^53" 9007199254740993          9007199254740991]
                               ["an atom"              (atom 1)                  1]]]
-      (frame/replace-frame-state! sfid {frame/app-partition-key {:value bad}})
-      (let [data (thrown-data #(render-state/project sfid {:render-state {:app-db [:value]}}))]
+      (rf.frame/replace-frame-state! sfid {rf.frame/app-partition-key {:value bad}})
+      (let [data (thrown-data #(rf.ssr.render-state/project sfid {:render-state {:app-db [:value]}}))]
         (is (= :rf.error/ssr-render-state-invalid (:rf.error/id data)) label)
         (is (= :unserialisable (:invalid data)) label)
         (is (= :value (:key data)) label)
         (is (= :value (:half data)) label))
       ;; CONTROL — the in-domain twin under the same key rides and round-trips.
-      (frame/replace-frame-state! sfid {frame/app-partition-key {:value good}})
-      (let [projected (render-state/project sfid {:render-state {:app-db [:value]}})]
+      (rf.frame/replace-frame-state! sfid {rf.frame/app-partition-key {:value good}})
+      (let [projected (rf.ssr.render-state/project sfid {:render-state {:app-db [:value]}})]
         (is (= {:rf/app-db {:value good} :rf/runtime-db {}} projected) label)
-        (is (= projected (render-state/deserialize (render-state/serialize projected))) label)))))
+        (is (= projected (rf.ssr.render-state/deserialize (rf.ssr.render-state/serialize projected))) label)))))

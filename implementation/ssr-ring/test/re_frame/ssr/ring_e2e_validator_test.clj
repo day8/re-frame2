@@ -83,13 +83,13 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.ssr.ring :as ssr-ring]
-            [re-frame.ssr.ring.test-support :as ts]))
+            [re-frame.ssr.ring :as rf.ssr.ring]
+            [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]))
 
 ;; rf2-i3qc0 / rf2-09iktm — canonical reset-runtime fixture; same shape as
 ;; `ring_test.clj`. Each test starts from a reset registrar with the SSR
 ;; adapter installed so the per-test registrations don't bleed.
-(use-fixtures :each ts/reset-runtime)
+(use-fixtures :each rf.ssr.ring.test-support/reset-runtime)
 
 ;; The NUL byte as a one-char string. Defined once here so the wire-
 ;; scan helper below reads as obvious set membership.
@@ -113,7 +113,7 @@
   (preserved verbatim so the CRLF scan reads every value), via the shared
   `ts/http-get` helper with a per-call client."
   [port path]
-  (ts/http-get (ts/new-http-client) port path read-timeout-secs
+  (rf.ssr.ring.test-support/http-get (rf.ssr.ring.test-support/new-http-client) port path read-timeout-secs
                :with-headers? true))
 
 (defn- any-header-contains-crlf?
@@ -164,11 +164,11 @@
     (rf/reg-view* :pages/bad-tag
                   (fn [] [(keyword "has space")]))
 
-    (let [handler (ssr-ring/ssr-handler
+    (let [handler (rf.ssr.ring/ssr-handler
                     {:initial-events [[:init/ok-bad-tag]]
                      :root-view [(rf/view :pages/bad-tag)]
                      :payload :rf.ssr.payload/whole-app-db})]
-      (ts/with-jetty [port handler]
+      (rf.ssr.ring.test-support/with-jetty [port handler]
         (let [{:keys [status body headers]} (http-get port "/")]
           (is (= 500 status)
               "tag-name validator throw surfaces as 500 on the wire —
@@ -219,11 +219,11 @@
       (fn [_ _] {}))
     (rf/reg-view* :pages/render-throw
                   (fn [] [(keyword "render throw")]))
-    (let [handler-a (ssr-ring/ssr-handler
+    (let [handler-a (rf.ssr.ring/ssr-handler
                       {:initial-events [[:init/ok-render-throw]]
                        :root-view [(rf/view :pages/render-throw)]
                        :payload :rf.ssr.payload/whole-app-db})]
-      (ts/with-jetty [port handler-a]
+      (rf.ssr.ring.test-support/with-jetty [port handler-a]
         (let [{status-a :status body-a :body} (http-get port "/")]
           (is (= 500 status-a))
           ;; Path B: drain-time throw via CRLF cookie value (separate
@@ -237,11 +237,11 @@
                       :value "abc\r\nbad"}]]}))
           (rf/reg-view* :pages/drain-throw
                         (fn [] [:div "drain-throw page renders"]))
-          (let [handler-b (ssr-ring/ssr-handler
+          (let [handler-b (rf.ssr.ring/ssr-handler
                             {:initial-events [[:init/drain-throw]]
                              :root-view [(rf/view :pages/drain-throw)]
                              :payload :rf.ssr.payload/whole-app-db})]
-            (ts/with-jetty [port-b handler-b]
+            (rf.ssr.ring.test-support/with-jetty [port-b handler-b]
               (let [{status-b :status body-b :body} (http-get port-b "/")]
                 (is (= 500 status-b))
                 (is (= status-a status-b)
@@ -304,11 +304,11 @@
     (rf/reg-view* :pages/bad-cookie-page
                   (fn [] [:div.page "rendered after projection"]))
 
-    (let [handler (ssr-ring/ssr-handler
+    (let [handler (rf.ssr.ring/ssr-handler
                     {:initial-events [[:init/bad-cookie]]
                      :root-view [(rf/view :pages/bad-cookie-page)]
                      :payload :rf.ssr.payload/whole-app-db})]
-      (ts/with-jetty [port handler]
+      (rf.ssr.ring.test-support/with-jetty [port handler]
         (let [{:keys [status headers]} (http-get port "/")]
           (is (= 500 status)
               "validator's `:rf.error/cookie-invalid-attribute` trace flowed
@@ -350,11 +350,11 @@
     (rf/reg-view* :pages/bad-header-page
                   (fn [] [:div.page "rendered after projection"]))
 
-    (let [handler (ssr-ring/ssr-handler
+    (let [handler (rf.ssr.ring/ssr-handler
                     {:initial-events [[:init/bad-header]]
                      :root-view [(rf/view :pages/bad-header-page)]
                      :payload :rf.ssr.payload/whole-app-db})]
-      (ts/with-jetty [port handler]
+      (rf.ssr.ring.test-support/with-jetty [port handler]
         (let [{:keys [status headers]} (http-get port "/")]
           (is (= 500 status)
               "validator's `:rf.error/header-invalid-value` trace flowed
@@ -402,7 +402,7 @@
                        [:h1 t]
                        [:p "Bytes-on-wire e2e proof."]])))
 
-    (let [handler (ssr-ring/ssr-handler
+    (let [handler (rf.ssr.ring/ssr-handler
                     {:initial-events [[:init/ok]]
                      ;; rf2-q1b96 — the RESOLVING root-view form. The
                      ;; data-rf-render-hash assertion below is what forces
@@ -410,7 +410,7 @@
                      ;; bytes but carries no hash on either channel.
                      :root-view (fn [] ((rf/view :pages/greeting)))
                      :payload :rf.ssr.payload/whole-app-db})]
-      (ts/with-jetty [port handler]
+      (rf.ssr.ring.test-support/with-jetty [port handler]
         (let [{:keys [status body headers]} (http-get port "/")]
           (is (= 200 status))
           (let [ct (or (first (get headers "content-type"))

@@ -45,7 +45,7 @@
   the JVM-only `re-frame.ssr-emit-test`."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [re-frame.ssr.emit :as emit]))
+            [re-frame.ssr.emit :as rf.ssr.emit]))
 
 ;; ---------------------------------------------------------------------------
 ;; Outcome helper
@@ -73,7 +73,7 @@
   failure."
   [el]
   (try
-    (emit/emit-element el)
+    (rf.ssr.emit/emit-element el)
     (catch #?(:clj Throwable :cljs :default) e
       (if (arity-rejection? e)
         ::arity-rejected

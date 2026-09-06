@@ -19,7 +19,7 @@
   (`re-frame.ssr.streaming/build-final-payload`). This namespace owns
   only the non-streaming wrapper: project the handed-in `app-db` +
   runtime-db, then assemble."
-  (:require [re-frame.ssr.payload-policy :as payload-policy]))
+  (:require [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]))
 
 (set! *warn-on-reflection* true)
 
@@ -71,15 +71,15 @@
   ([frame-id app-db render-hash policy-opts]
    (build-payload frame-id app-db nil render-hash policy-opts))
   ([frame-id app-db runtime-db render-hash {:as policy-opts}]
-   (payload-policy/build-payload
+   (rf.ssr.payload-policy/build-payload
     ;; WIRE :rf/frame-id — the stable, ahead-of-time client id, or nil to omit
     ;; (never the per-request projection gensym). Decoupled per rf2-lm2yzy.
     (:client-frame-id policy-opts)
     ;; Apply the allowlist before the frame-scoped hydration-egress projection,
     ;; so classified values inside the surviving slice are still elided. The
     ;; projection target is the REAL per-request frame-id.
-    (payload-policy/project-app-db-egress
-     (payload-policy/apply-policy app-db policy-opts)
+    (rf.ssr.payload-policy/project-app-db-egress
+     (rf.ssr.payload-policy/apply-policy app-db policy-opts)
      frame-id)
     render-hash
     ;; rf2-f02diw — project the runtime-db under the EXPLICIT carried `frame-id`
@@ -90,4 +90,4 @@
     ;; route / machine / resource runtime state under the right frame's policy.
     ;; The host's request-frame binding stays a correctness convenience for other
     ;; code, never the projector's target authority (finishing the clean break).
-    (assoc policy-opts :runtime-db (payload-policy/project-runtime-db runtime-db frame-id)))))
+    (assoc policy-opts :runtime-db (rf.ssr.payload-policy/project-runtime-db runtime-db frame-id)))))

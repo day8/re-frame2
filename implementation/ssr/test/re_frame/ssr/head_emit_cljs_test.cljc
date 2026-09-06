@@ -22,13 +22,13 @@
   so the test pins the contract a consumer actually sees."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [re-frame.ssr.head.emit :as head-emit]))
+            [re-frame.ssr.head.emit :as rf.ssr.head.emit]))
 
 (deftest ld-json-string-serialises-structured-map
   (testing "rf2-usio0 — the CLJS JSON-LD path serialises a structured map
             and rides the <script type=\"application/ld+json\"> envelope
             (the JSON.stringify branch, on Node)."
-    (let [html (head-emit/head-model->html
+    (let [html (rf.ssr.head.emit/head-model->html
                  {:json-ld [{"@context" "https://schema.org"
                              "@type"    "Article"
                              "headline" "Hello"}]})]
@@ -47,7 +47,7 @@
             `<script type=\"application/ld+json\">` envelope. This is the
             security-critical assertion the CLJS branch lacked."
     (let [hostile "</script><script>alert(document.cookie)</script>"
-          html    (head-emit/head-model->html
+          html    (rf.ssr.head.emit/head-model->html
                     {:json-ld [{"@context" "https://schema.org"
                                 "@type"    "Article"
                                 "headline" hostile}]})]
@@ -65,7 +65,7 @@
             escaped on the CLJS path (the escape walks the whole
             stringified payload, keys included)."
     (let [hostile-key "</script>"
-          html        (head-emit/head-model->html
+          html        (rf.ssr.head.emit/head-model->html
                         {:json-ld [{hostile-key "value"}]})]
       (is (not (str/includes? html "</script>\":"))
           "</script> as a key cannot close the envelope")
@@ -83,7 +83,7 @@
             covers the JVM short-escape + \\u00XX table; this is the
             cross-branch parity guard.)"
     (let [headline (str "line1" \newline "line2" \tab "tab" \return "cr")
-          html     (head-emit/head-model->html
+          html     (rf.ssr.head.emit/head-model->html
                      {:json-ld [{"@type" "Article" "headline" headline}]})]
       (is (str/includes? html "\\n") "newline escaped on this runtime")
       (is (str/includes? html "\\t") "tab escaped on this runtime")

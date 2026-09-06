@@ -8,8 +8,8 @@
   reads is the operator's explicit raw-egress opt-in."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
-            [re-frame.mcp-base.sensitive :as sens]
-            [re-frame.security.gen :as gen]))
+            [re-frame.mcp-base.sensitive :as rf.mcp-base.sensitive]
+            [re-frame.security.gen :as rf.security.gen]))
 
 ;; These property tests intentionally drive thousands of malformed
 ;; `:sensitive?` stamps through `sens/strip-sensitive` / `scrub-snapshot` /
@@ -24,29 +24,29 @@
   stringified slots. The sentinel is a unique long literal, so a substring
   scan cannot be satisfied by an unrelated value."
   [x]
-  (gen/contains-string? x sentinel))
+  (rf.security.gen/contains-string? x sentinel))
 
 (def ^:private gen-clean-event
   "A non-sensitive trace event - no :sensitive? stamp (or explicit false)."
-  (gen/gen-fmap
+  (rf.security.gen/gen-fmap
     (fn [[op stamp]]
       (cond-> {:operation op :tags {:k "public-data"}}
         (= stamp :false) (assoc :sensitive? false)))
     (fn [rng]
-      (let [[op rng1]    (gen/rand-nth rng [:event/run-start :event/db-changed
+      (let [[op rng1]    (rf.security.gen/rand-nth rng [:event/run-start :event/db-changed
                                             :sub/recompute :fx/run])
-            [stamp rng2] (gen/rand-nth rng1 [:absent :false])]
+            [stamp rng2] (rf.security.gen/rand-nth rng1 [:absent :false])]
         [[op stamp] rng2]))))
 
 (def ^:private gen-sensitive-event
   "A sensitive event carrying the sentinel in a value slot AND the literal
   top-level :sensitive? true stamp."
-  (gen/gen-fmap
+  (rf.security.gen/gen-fmap
     (fn [op]
       {:operation op
        :sensitive? true
        :tags {:value sentinel :received [sentinel]}})
-    (gen/gen-elem [:event/run-start :sub/recompute :fx/run])))
+    (rf.security.gen/gen-elem [:event/run-start :sub/recompute :fx/run])))
 
 (def ^:private malformed-stamps
   ;; Truthy non-booleans indicate contract drift and fail closed.
@@ -55,34 +55,34 @@
 (def ^:private gen-malformed-sensitive-event
   "A sensitive event whose :sensitive? stamp is a truthy NON-boolean
   (contract drift). The fail-closed posture must still drop it."
-  (gen/gen-fmap
+  (rf.security.gen/gen-fmap
     (fn [[op stamp]]
       {:operation op :sensitive? stamp :tags {:value sentinel}})
     (fn [rng]
-      (let [[op rng1]    (gen/rand-nth rng [:event/run-start :sub/recompute])
-            [stamp rng2] (gen/rand-nth rng1 malformed-stamps)]
+      (let [[op rng1]    (rf.security.gen/rand-nth rng [:event/run-start :sub/recompute])
+            [stamp rng2] (rf.security.gen/rand-nth rng1 malformed-stamps)]
         [[op stamp] rng2]))))
 
 (def ^:private gen-event
-  (gen/gen-one-of gen-clean-event gen-sensitive-event gen-malformed-sensitive-event))
+  (rf.security.gen/gen-one-of gen-clean-event gen-sensitive-event gen-malformed-sensitive-event))
 
 (def ^:private gen-event-vec
   "A vector of 0..12 mixed events."
-  (gen/gen-vec (gen/gen-int 0 13) gen-event))
+  (rf.security.gen/gen-vec (rf.security.gen/gen-int 0 13) gen-event))
 
 (deftest allow-sensitive-disabled-strips-every-sensitive-event
   (testing "with sensitive reads disabled, strip-sensitive drops every
             :sensitive?-stamped (and malformed-truthy) event across 400
             generated mixed event vectors; the sentinel never survives"
-    (let [result (gen/for-all
+    (let [result (rf.security.gen/for-all
                    gen-event-vec 400 23
                    (fn [events]
-                     (sens/reset-malformed-count!)
-                     (let [[kept _dropped] (sens/strip-sensitive events false)]
+                     (rf.mcp-base.sensitive/reset-malformed-count!)
+                     (let [[kept _dropped] (rf.mcp-base.sensitive/strip-sensitive events false)]
                        ;; Check both content and classification: stripping a
                        ;; stamp alone must not hide a secondary-slot leak.
                        (and (not-any? contains-sentinel? kept)
-                            (not-any? sens/sensitive-event? kept)))))]
+                            (not-any? rf.mcp-base.sensitive/sensitive-event? kept)))))]
       (is (nil? result)
           (str "a sensitive event survived the allow-sensitive-disabled egress: "
                (pr-str (when result (dissoc result :threw))))))))
@@ -93,12 +93,12 @@
     (let [survivor       {:operation :sub/recompute
                           :tags {:value "public-data"
                                  :received [sentinel]}}
-          [kept dropped] (sens/strip-sensitive [survivor] false)]
+          [kept dropped] (rf.mcp-base.sensitive/strip-sensitive [survivor] false)]
       (is (= [survivor] kept))
       (is (zero? dropped))
       (is (not-any? #(= sentinel (-> % :tags :value)) kept)
           "a primary-slot check is blind to :received")
-      (is (not-any? sens/sensitive-event? kept)
+      (is (not-any? rf.mcp-base.sensitive/sensitive-event? kept)
           "classification alone is blind because the survivor is not stamped")
       (is (some contains-sentinel? kept)
           "the deep scan catches the sentinel in :tags :received")
@@ -108,22 +108,22 @@
   (testing "a malformed truthy stamp is dropped and increments the
             observability counter exactly once"
     (doseq [stamp malformed-stamps]
-      (sens/reset-malformed-count!)
+      (rf.mcp-base.sensitive/reset-malformed-count!)
       (let [ev {:operation :x :sensitive? stamp :tags {:value sentinel}}
-            [kept dropped] (sens/strip-sensitive [ev] false)]
+            [kept dropped] (rf.mcp-base.sensitive/strip-sensitive [ev] false)]
         (is (= [] kept) (str "malformed stamp " (pr-str stamp) " was NOT dropped"))
         (is (= 1 dropped))
-        (is (= 1 (sens/malformed-count))
+        (is (= 1 (rf.mcp-base.sensitive/malformed-count))
             (str "malformed stamp " (pr-str stamp)
                  " must bump the counter exactly once per event"))))))
 
 (deftest allow-sensitive-enabled-opt-in-passes-through-verbatim
   (testing "with include? true (operator opted in via --allow-sensitive-reads),
             strip-sensitive is identity - the opt-in is the sole control point"
-    (let [result (gen/for-all
+    (let [result (rf.security.gen/for-all
                    gen-event-vec 200 29
                    (fn [events]
-                     (let [[kept dropped] (sens/strip-sensitive events true)]
+                     (let [[kept dropped] (rf.mcp-base.sensitive/strip-sensitive events true)]
                        (and (= events kept) (zero? dropped)))))]
       (is (nil? result) (str "opt-in egress altered the events: " (pr-str result))))))
 
@@ -141,7 +141,7 @@
 (def ^:private gen-snapshot
   "A snapshot map: 1..4 frame-keyed entries."
   (fn [rng]
-    (let [[n rng1] ((gen/gen-int 1 5) rng)]
+    (let [[n rng1] ((rf.security.gen/gen-int 1 5) rng)]
       (loop [i 0, rng rng1, acc {}]
         (if (< i n)
           (let [[frame rng'] (gen-frame rng)]
@@ -157,7 +157,7 @@
           (when (map? fm)
             (let [slices (concat (:traces fm) (:epochs fm))]
               (or (some contains-sentinel? slices)
-                  (some sens/sensitive-event? slices)))))
+                  (some rf.mcp-base.sensitive/sensitive-event? slices)))))
         scrubbed))
 
 (deftest allow-sensitive-disabled-scrub-snapshot-leaves-no-sensitive-event
@@ -165,11 +165,11 @@
             events from every frame's
             :traces/:epochs across 300 generated multi-frame snapshots;
             :app-db is left untouched"
-    (let [result (gen/for-all
+    (let [result (rf.security.gen/for-all
                    gen-snapshot 300 31
                    (fn [snap]
-                     (sens/reset-malformed-count!)
-                     (let [[scrubbed _dropped] (sens/scrub-snapshot snap false)]
+                     (rf.mcp-base.sensitive/reset-malformed-count!)
+                     (let [[scrubbed _dropped] (rf.mcp-base.sensitive/scrub-snapshot snap false)]
                        (and (not (snapshot-leaks-sentinel? scrubbed))
                             ;; :app-db must survive verbatim (read-time
                             ;; scrubbing is trace/epoch-only by design).
@@ -192,7 +192,7 @@
                                           :tags {:value "public-data"}}]
                                 :epochs []
                                 :app-db {:public "kept"}}}]
-      (is (not (some sens/sensitive-event? (-> leaked :frame-0 :traces)))
+      (is (not (some rf.mcp-base.sensitive/sensitive-event? (-> leaked :frame-0 :traces)))
           "classification alone is blind because the survivor is not stamped")
       (is (snapshot-leaks-sentinel? leaked)
           "deep scan flags the sentinel in a frame's :tags :received")
@@ -202,9 +202,9 @@
 (deftest malformed-stamp-corpus-fail-closed
   (testing "each truthy non-boolean stamp classifies as sensitive"
     (doseq [stamp malformed-stamps]
-      (is (true? (sens/sensitive-event? {:sensitive? stamp}))
+      (is (true? (rf.mcp-base.sensitive/sensitive-event? {:sensitive? stamp}))
           (str "stamp " (pr-str stamp) " must classify as sensitive (drop)")))
     (testing "explicit false / nil / absent pass (non-sensitive)"
-      (is (false? (sens/sensitive-event? {:sensitive? false})))
-      (is (false? (sens/sensitive-event? {:sensitive? nil})))
-      (is (false? (sens/sensitive-event? {:operation :x}))))))
+      (is (false? (rf.mcp-base.sensitive/sensitive-event? {:sensitive? false})))
+      (is (false? (rf.mcp-base.sensitive/sensitive-event? {:sensitive? nil})))
+      (is (false? (rf.mcp-base.sensitive/sensitive-event? {:operation :x}))))))

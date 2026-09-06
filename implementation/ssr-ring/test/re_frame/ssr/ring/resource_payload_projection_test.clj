@@ -41,13 +41,13 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.resources.state :as state]
-            [re-frame.ssr.ring.lifecycle :as lifecycle]
-            [re-frame.ssr.ring.pipeline :as pipeline]
-            [re-frame.ssr.ring.shell :as shell]
-            [re-frame.ssr.ring.test-support :as ts]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.resources.state :as rf.resources.state]
+            [re-frame.ssr.ring.lifecycle :as rf.ssr.ring.lifecycle]
+            [re-frame.ssr.ring.pipeline :as rf.ssr.ring.pipeline]
+            [re-frame.ssr.ring.shell :as rf.ssr.ring.shell]
+            [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]
             ;; load-bearing side-effecting requires: register the :resource +
             ;; :resource-scope registrar kinds, the schemas walker hooks, and
             ;; (crucially) the `:ssr/extend-runtime-db-projection` late-bind
@@ -56,7 +56,7 @@
             [re-frame.resources.ssr]
             [re-frame.schemas]))
 
-(use-fixtures :each ts/reset-runtime)
+(use-fixtures :each rf.ssr.ring.test-support/reset-runtime)
 
 ;; ---------------------------------------------------------------------------
 ;; App: a `{:from-db}` session-scoped feed resource.
@@ -77,8 +77,8 @@
   supplied per frame by the caller via a commit-plane `:sensitive` effect run
   through `:initial-events` at frame construction."
   [owner-sensitive?]
-  (registrar/clear-kind! :resource-scope)
-  (registrar/clear-kind! :resource)
+  (rf.registrar/clear-kind! :resource-scope)
+  (rf.registrar/clear-kind! :resource)
   ;; resolver reading the FRAME-SENSITIVE viewer-identity path. EP-0025: this no
   ;; longer propagates sensitivity to the resource (no inheritance arm).
   (rf/reg-resource-scope :p026f5/session
@@ -101,9 +101,9 @@
   byte `key-id`; the kind-preserving scoped-key vector rides inside the
   entry per rf2-9e0tyq)."
   [username page data]
-  (let [sk (state/scoped-resource-key [:rf.scope/session {:username username}]
+  (let [sk (rf.resources.state/scoped-resource-key [:rf.scope/session {:username username}]
                                       :p026f5/feed {:page page})]
-    [sk (merge (state/empty-entry :p026f5/feed sk)
+    [sk (merge (rf.resources.state/empty-entry :p026f5/feed sk)
                {:status :loaded :data data :loaded-at 1000 :stale-at 9.0e15})]))
 
 (defn- seed-feed-runtime-db!
@@ -117,9 +117,9 @@
   paths."
   [frame-id username page data]
   (let [[sk entry] (loaded-feed-entry username page data)]
-    (frame/swap-runtime-db!
+    (rf.frame/swap-runtime-db!
       frame-id
-      assoc state/resources-key {:entries     {(state/key-id sk) entry}
+      assoc rf.resources.state/resources-key {:entries     {(rf.resources.state/key-id sk) entry}
                                  :tag-index   {}
                                  :owner-index {}})))
 
@@ -171,11 +171,11 @@
         (let [opts     {:initial-events nil
                         :root-view  [(rf/view :p026f5/root)]
                         :emit-hash? true
-                        :html-shell shell/default-html-shell
+                        :html-shell rf.ssr.ring.shell/default-html-shell
                         ;; whole-app-db so the test isolates the runtime-db
                         ;; resource projection, not the app-db allowlist.
                         :payload    :rf.ssr.payload/whole-app-db}
-              resp     (#'pipeline/build-full-response* fid opts)
+              resp     (#'rf.ssr.ring.pipeline/build-full-response* fid opts)
               body     (:body resp)
               payload  (payload-edn body)
               entries  (get-in payload [:rf/runtime-db
@@ -194,7 +194,7 @@
             (is (= sk wk)
                 "EP-0025: the wire key rides verbatim (no inheritance redaction)")))
         (finally
-          (lifecycle/destroy-frame-quietly! fid))))))
+          (rf.ssr.ring.lifecycle/destroy-frame-quietly! fid))))))
 
 ;; ===========================================================================
 ;; Confirm-by-revert: a resource declared :sensitive? is still governed by its
@@ -225,9 +225,9 @@
         (let [opts     {:initial-events nil
                         :root-view  [(rf/view :p026f5/root)]
                         :emit-hash? true
-                        :html-shell shell/default-html-shell
+                        :html-shell rf.ssr.ring.shell/default-html-shell
                         :payload    :rf.ssr.payload/whole-app-db}
-              resp     (#'pipeline/build-full-response* fid opts)
+              resp     (#'rf.ssr.ring.pipeline/build-full-response* fid opts)
               body     (:body resp)
               payload  (payload-edn body)
               entries  (get-in payload [:rf/runtime-db
@@ -256,7 +256,7 @@
                                   "rf/redacted"))
               "rf2-4bjep: no redaction token rides the runtime-db slice either"))
         (finally
-          (lifecycle/destroy-frame-quietly! fid))))))
+          (rf.ssr.ring.lifecycle/destroy-frame-quietly! fid))))))
 
 ;; ===========================================================================
 ;; A NON-sensitive resource still serializes verbatim — the in-frame
@@ -269,8 +269,8 @@
             NON-sensitive input serializes its data + scope verbatim in the
             non-streaming payload — the in-frame projection does not
             over-redact (the inheritance arm only fires for sensitive inputs)."
-    (registrar/clear-kind! :resource-scope)
-    (registrar/clear-kind! :resource)
+    (rf.registrar/clear-kind! :resource-scope)
+    (rf.registrar/clear-kind! :resource)
     (rf/reg-resource-scope :p026f5/locale
       {:inputs {:locale [:db [:i18n :locale]]}}
       (fn [{:keys [locale]} _]
@@ -289,21 +289,21 @@
       (rf/make-frame {:id fid :platform       :server
                       :initial-events [[:p026f5/classify-2]]})
       (try
-        (let [sk    (state/scoped-resource-key [:rf.scope/locale {:locale :en}]
+        (let [sk    (rf.resources.state/scoped-resource-key [:rf.scope/locale {:locale :en}]
                                                :p026f5/prefs {})
-              entry (merge (state/empty-entry :p026f5/prefs sk)
+              entry (merge (rf.resources.state/empty-entry :p026f5/prefs sk)
                            {:status :loaded :data {:theme "dark"}
                             :loaded-at 1000 :stale-at 9.0e15})]
           ;; swap (not replace) to preserve the frame's elision registry.
-          (frame/swap-runtime-db!
-            fid assoc state/resources-key {:entries     {(state/key-id sk) entry}
+          (rf.frame/swap-runtime-db!
+            fid assoc rf.resources.state/resources-key {:entries     {(rf.resources.state/key-id sk) entry}
                                            :tag-index   {} :owner-index {}})
           (let [opts    {:initial-events nil
                          :root-view  [(rf/view :p026f5/root2)]
                          :emit-hash? true
-                         :html-shell shell/default-html-shell
+                         :html-shell rf.ssr.ring.shell/default-html-shell
                          :payload    :rf.ssr.payload/whole-app-db}
-                resp    (#'pipeline/build-full-response* fid opts)
+                resp    (#'rf.ssr.ring.pipeline/build-full-response* fid opts)
                 payload (payload-edn (:body resp))
                 we      (val (first (get-in payload [:rf/runtime-db
                                                      :rf.runtime/resources
@@ -313,4 +313,4 @@
             (is (= sk (:resource/key we))
                 "rf2-p026f5: the wire key rides verbatim (no redaction)")))
         (finally
-          (lifecycle/destroy-frame-quietly! fid))))))
+          (rf.ssr.ring.lifecycle/destroy-frame-quietly! fid))))))

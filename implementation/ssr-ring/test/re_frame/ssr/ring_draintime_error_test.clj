@@ -82,10 +82,10 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
-            [re-frame.schemas :as schemas]
-            [re-frame.ssr.ring :as ssr-ring]
-            [re-frame.ssr.ring.test-support :as ts])
+            [re-frame.fx :as rf.fx]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.ssr.ring :as rf.ssr.ring]
+            [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support])
   (:import [java.util.concurrent CountDownLatch]
            [java.util.concurrent.atomic AtomicLong]))
 
@@ -95,7 +95,7 @@
 ;; `:rf.route/handle-url-change`, `:rf.route/navigate`, the
 ;; `:rf.server/request` cofx, and the always-on error-emit-projection-
 ;; listener are all live between tests.
-(use-fixtures :each ts/reset-runtime)
+(use-fixtures :each rf.ssr.ring.test-support/reset-runtime)
 
 ;; ===========================================================================
 ;; Jetty + java.net.http harness
@@ -114,7 +114,7 @@
   "Issue a real HTTP GET and return `{:status :body}` observed on the
   wire (this suite's 30s read-timeout pinned via the shared helper)."
   [client port path]
-  (ts/http-get client port path read-timeout-secs))
+  (rf.ssr.ring.test-support/http-get client port path read-timeout-secs))
 
 ;; ===========================================================================
 ;; Stub validator — interpret a `:params` schema as a Clojure predicate
@@ -124,7 +124,7 @@
 ;; ===========================================================================
 
 (defn- with-stub-validator []
-  (let [snap     (schemas/snapshot-schema-fns)
+  (let [snap     (rf.schemas/snapshot-schema-fns)
         ;; rf2-ps05ug: the stub is process-global, so while installed EVERY
         ;; schema-validating boundary uses it — including the routing
         ;; recordable allocation cofx, whose `:schema` is a real Malli VECTOR
@@ -143,8 +143,8 @@
         explain  (fn [schema value]
                    (when (fn? schema)
                      {:reason :stub-explainer :value value}))]
-    (schemas/set-schema-fns! {:validate validate :explain explain})
-    (fn [] (schemas/restore-schema-fns! snap))))
+    (rf.schemas/set-schema-fns! {:validate validate :explain explain})
+    (fn [] (rf.schemas/restore-schema-fns! snap))))
 
 ;; ===========================================================================
 ;; Test 1 — drain-time :rf.error/no-such-handler → projected 404 on the wire
@@ -187,7 +187,7 @@
     (rf/reg-view* :pages/not-found
       (fn [] [:div.not-found "Not found page renders"]))
 
-    (let [handler (ssr-ring/ssr-handler
+    (let [handler (rf.ssr.ring/ssr-handler
                     {:initial-events [[:init/route-to-missing]]
                      :root-view [(rf/view :pages/not-found)]
                      :ssr       {:public-error-id   :rf.ssr/default-error-projector
@@ -214,8 +214,8 @@
 
       (testing "bytes-on-the-wire through Jetty — a real HTTP server
                 preserves the projected 404 status"
-        (ts/with-jetty [port handler]
-          (let [client (ts/new-http-client)
+        (rf.ssr.ring.test-support/with-jetty [port handler]
+          (let [client (rf.ssr.ring.test-support/new-http-client)
                 {:keys [status body]} (http-get client port "/no-such-page")]
             (is (= 404 status)
                 "the projected 404 survives the full Jetty round-trip")
@@ -257,7 +257,7 @@
         ;; ns) — the stub must REPLACE that source-store slot, not sit beside
         ;; it as a cross-namespace duplicate that fails the request frame's
         ;; default-image assembly loud (rf2-h1vqa4; :rf.error/image-duplicate-id).
-        (fx/reg-fx :rf.nav/push-url
+        (rf.fx/reg-fx :rf.nav/push-url
                    {:platforms #{:server :client}}
                    (fn [_ _url] nil))
         (rf/reg-event :init/navigate-bad-param
@@ -270,7 +270,7 @@
         (rf/reg-view* :pages/article
           (fn [] [:div.article "Article page renders"]))
 
-        (let [handler (ssr-ring/ssr-handler
+        (let [handler (rf.ssr.ring/ssr-handler
                         {:initial-events [[:init/navigate-bad-param]]
                          :root-view [(rf/view :pages/article)]
                          :ssr       {:public-error-id   :rf.ssr/default-error-projector
@@ -289,8 +289,8 @@
                    a projected 5xx diverts to the projected-error arm")))
 
           (testing "bytes-on-the-wire through Jetty — 400 survives the round-trip"
-            (ts/with-jetty [port handler]
-              (let [client (ts/new-http-client)
+            (rf.ssr.ring.test-support/with-jetty [port handler]
+              (let [client (rf.ssr.ring.test-support/new-http-client)
                     {:keys [status body]} (http-get client port "/articles/zoo")]
                 (is (= 400 status)
                     "drain-time :schema-validation-failure → default
@@ -334,14 +334,14 @@
     (rf/reg-view* :pages/concurrent-root
       (fn [] [:main "concurrent root"]))
 
-    (let [handler (ssr-ring/ssr-handler
+    (let [handler (rf.ssr.ring/ssr-handler
                     {:initial-events [[:init/route-from-uri]]
                      :root-view [(rf/view :pages/concurrent-root)]
                      :ssr       {:public-error-id   :rf.ssr/default-error-projector
                                  :dev-error-detail? false}
                      :payload :rf.ssr.payload/whole-app-db})]
-      (ts/with-jetty [port handler]
-        (let [client       (ts/new-http-client)
+      (rf.ssr.ring.test-support/with-jetty [port handler]
+        (let [client       (rf.ssr.ring.test-support/new-http-client)
               n-threads     8
               n-per-thread  10
               latch         (CountDownLatch. 1)

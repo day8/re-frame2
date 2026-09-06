@@ -16,8 +16,8 @@
   adapter in its own ns-form."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
-            [re-frame.schemas :as schemas]
-            [re-frame.schemas.walker-literal-operand-fixtures :as fx]))
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas.walker-literal-operand-fixtures :as rf.schemas.walker-literal-operand-fixtures]))
 
 ;; ---- pure walker: shared cross-host corpus (parity anchor) ----------------
 
@@ -25,22 +25,22 @@
   (testing "rf2-3fc89f.12 — literal/config operands and their structural forms
             are walkable, so schema-has-opaque-child? is FALSE on CLJS too
             (byte-identical classification with the JVM half)"
-    (doseq [s fx/not-opaque-forms]
-      (is (false? (schemas/schema-has-opaque-child? s))
+    (doseq [s rf.schemas.walker-literal-operand-fixtures/not-opaque-forms]
+      (is (false? (rf.schemas/schema-has-opaque-child? s))
           (str "literal/walkable form must NOT be opaque: " (pr-str s))))))
 
 (deftest cljs-nested-compiled-values-still-fail-closed
   (testing "rf2-3fc89f.12 — a nested compiled m/schema value in a real
             child-schema position still fails closed (true) on CLJS"
-    (doseq [s fx/opaque-forms]
-      (is (true? (schemas/schema-has-opaque-child? s))
+    (doseq [s rf.schemas.walker-literal-operand-fixtures/opaque-forms]
+      (is (true? (rf.schemas/schema-has-opaque-child? s))
           (str "nested compiled value must fail closed: " (pr-str s))))))
 
 (deftest cljs-unknown-operator-shapes-fail-closed
   (testing "rf2-3fc89f.12 — an unclassified operator shape fails closed (true)
             on CLJS"
-    (doseq [s fx/unknown-op-forms]
-      (is (true? (schemas/schema-has-opaque-child? s))
+    (doseq [s rf.schemas.walker-literal-operand-fixtures/unknown-op-forms]
+      (is (true? (rf.schemas/schema-has-opaque-child? s))
           (str "unknown operator shape must fail closed: " (pr-str s))))))
 
 ;; ---- always-on redact-validation-tags (host-agnostic egress parity) -------
@@ -53,7 +53,7 @@
                       [:cat [:= :demo/e] [:enum 1 2]]
                       [:= 42]
                       [:enum "a" "b"]]]
-        (let [out (schemas/redact-validation-tags schema tags)]
+        (let [out (rf.schemas/redact-validation-tags schema tags)]
           (is (= tags out)
               (str "non-sensitive literal schema rides verbatim: " (pr-str schema)))
           (is (not (contains? out :sensitive?))
@@ -66,8 +66,8 @@
           ;; an explicit vector-form sensitive slot + the shared opaque corpus
           ;; (every entry nests a compiled child, so the redactor fails closed)
           schemas [[:cat [:= :demo/e] [:map [:pw {:sensitive? true} :string]]]]]
-      (doseq [schema (concat schemas fx/opaque-forms)]
-        (let [out (schemas/redact-validation-tags schema tags)]
+      (doseq [schema (concat schemas rf.schemas.walker-literal-operand-fixtures/opaque-forms)]
+        (let [out (rf.schemas/redact-validation-tags schema tags)]
           (is (true? (:sensitive? out))
               (str "sensitive/opaque schema is stamped: " (pr-str schema)))
           (is (= :rf/redacted (:value out))

@@ -6,14 +6,14 @@
   carries an unsigned 32-bit state on both hosts."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
-            [re-frame.security.gen :as gen]))
+            [re-frame.security.gen :as rf.security.gen]))
 
 (defn- draws
   "Thread the PRNG from `seed`, drawing `n` ints in [0,bound)."
   [seed bound n]
-  (loop [rng (gen/make-rng seed), i 0, acc []]
+  (loop [rng (rf.security.gen/make-rng seed), i 0, acc []]
     (if (< i n)
-      (let [[v rng'] (gen/next-int rng bound)]
+      (let [[v rng'] (rf.security.gen/next-int rng bound)]
         (recur rng' (inc i) (conj acc v)))
       acc)))
 
@@ -29,14 +29,14 @@
 
 (deftest sample-and-for-all-reproduce-from-seed
   (testing "the documented `(seed, g, n)` reproducibility holds on this runtime"
-    (let [g (gen/gen-int 0 1000)]
+    (let [g (rf.security.gen/gen-int 0 1000)]
       ;; The second assertion ensures the seed participates in the draw.
-      (is (= (gen/sample g 20 7) (gen/sample g 20 7)))
-      (is (not= (gen/sample g 20 7) (gen/sample g 20 8))))
+      (is (= (rf.security.gen/sample g 20 7) (rf.security.gen/sample g 20 7)))
+      (is (not= (rf.security.gen/sample g 20 7) (rf.security.gen/sample g 20 8))))
     ;; Re-drawing through the reported index must reproduce the counterexample.
-    (let [g    (gen/gen-int 0 1000)
-          {:keys [fail index seed]} (gen/for-all g 50 99 (fn [n] (< n 5)))]
+    (let [g    (rf.security.gen/gen-int 0 1000)
+          {:keys [fail index seed]} (rf.security.gen/for-all g 50 99 (fn [n] (< n 5)))]
       (is (some? fail) "a [0,1000) draw should exceed 5 within 50 draws")
       (is (= 99 seed))
-      (is (= fail (last (gen/sample g (inc index) seed)))
+      (is (= fail (last (rf.security.gen/sample g (inc index) seed)))
           "the reported seed/index must reproduce the failing draw exactly"))))

@@ -17,14 +17,14 @@
   `(registrar/clear-all!)` re-installs them. This namespace exports
   the handler fns only."
   (:require [clojure.string :as str]
-            [re-frame.error :as error]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.projection :as projection]
-            [re-frame.ssr.hash :as hash]
-            [re-frame.ssr.payload-policy :as payload-policy]
-            [re-frame.trace :as trace]))
+            [re-frame.error :as rf.error]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.projection :as rf.projection]
+            [re-frame.ssr.hash :as rf.ssr.hash]
+            [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
+            [re-frame.trace :as rf.trace]))
 
 (defn- client-platform?
   "Resolve the active platform for `frame-id` and answer whether
@@ -36,8 +36,8 @@
   the fx's own `:platforms #{:client}` gate would otherwise emit a
   `:rf.fx/skipped-on-platform` warning per check."
   [frame-id]
-  (let [resolved (or (some-> frame-id frame/frame :config :platform)
-                     (interop/active-platform))]
+  (let [resolved (or (some-> frame-id rf.frame/frame :config :platform)
+                     (rf.interop/active-platform))]
     (= :client resolved)))
 
 (declare hydrate-event-handler*)
@@ -187,8 +187,8 @@
                :failing-id :rf/hydrate
                :reason     reason
                :recovery   :no-recovery}]
-     (when interop/debug-enabled?
-       (trace/emit-error! error-id (merge base extra)))
+     (when rf.interop/debug-enabled?
+       (rf.trace/emit-error! error-id (merge base extra)))
      ;; The frame-scoped shape guard rides the always-on axis alongside the
      ;; development trace.
      ;; UNGATED. Union record shape via the late-bind hook. (The PRE-FRAME
@@ -200,9 +200,9 @@
      ;; deserialised payload value never fans out to a corpus listener raw.
      ;; Fail-closed on an unresolvable / frameless frame (whole-value redact).
      (when-let [dispatch-error-record!
-                (late-bind/get-fn :error-emit/dispatch-error-record)]
+                (rf.late-bind/get-fn :error-emit/dispatch-error-record)]
        (let [safe-extra  (when (seq extra)
-                           (projection/project-egress
+                           (rf.projection/project-egress
                              extra
                              {:frame             frame
                               :rf.egress/profile :rf.egress/off-box-observability}))
@@ -221,7 +221,7 @@
                            reason)]
          (dispatch-error-record!
            (merge {:error  error-id
-                   :time   (interop/now-ms)}
+                   :time   (rf.interop/now-ms)}
                   base
                   {:reason safe-reason}
                   safe-extra)))))))
@@ -399,7 +399,7 @@
                    ;; return before this handler and so arm nothing either.
                    (and client?
                         (some? payload-runtime-db)
-                        (some? (late-bind/get-fn :machines/rearm-after-hydration!)))
+                        (some? (rf.late-bind/get-fn :machines/rearm-after-hydration!)))
                    (conj [:rf.machine/hydrate-rearm {}]))}
       ;; Install the runtime-db partition when EITHER a server-settled
       ;; runtime-db slice rode the payload OR hydration metadata was produced.
@@ -424,7 +424,7 @@
                ;; symmetric COUNTERPART of `:ssr/extend-runtime-db-projection`
                ;; (the server projection hook in `project-runtime-db`).
                (if-let [reconcile-runtime-db
-                        (late-bind/get-fn :resources/hydrate-runtime-db)]
+                        (rf.late-bind/get-fn :resources/hydrate-runtime-db)]
                  (reconcile-runtime-db hydration-runtime-db frame-id)
                  hydration-runtime-db))))))
 
@@ -486,7 +486,7 @@
   source of truth, so a scalar `:rf.ssr/check-version` on a matching build
   compares equal (no host wiring, and it never resolves to nil)."
   []
-  payload-policy/pattern-protocol-version)
+  rf.ssr.payload-policy/pattern-protocol-version)
 
 (defn- schema-digest-lookup
   "Look up the active frame's `app-schemas-digest`. Sourced via the
@@ -495,7 +495,7 @@
   in builds where schemas is absent the lookup returns nil and the
   check emits `:rf.ssr/compatibility-check-skipped`."
   []
-  (when-let [f (late-bind/get-fn :schemas/app-schemas-digest)]
+  (when-let [f (rf.late-bind/get-fn :schemas/app-schemas-digest)]
     (f)))
 
 (defn check-version-fx
@@ -511,7 +511,7 @@
       (nil? expected) nil                              ;; nothing to check
 
       (not= expected actual)
-      (trace/emit! :warning :rf.ssr/version-mismatch
+      (rf.trace/emit! :warning :rf.ssr/version-mismatch
                    {:expected expected
                     :actual   actual
                     :frame    frame
@@ -533,7 +533,7 @@
       (nil? expected) nil                              ;; nothing to check
 
       (nil? actual)
-      (trace/emit! :warning :rf.ssr/compatibility-check-skipped
+      (rf.trace/emit! :warning :rf.ssr/compatibility-check-skipped
                    {:check    :rf.ssr/check-schema-digest
                     :expected expected
                     :reason   "No schema digest available for comparison (schemas artefact not on classpath, or :schemas/app-schemas-digest hook absent)."
@@ -541,7 +541,7 @@
                     :recovery :skipped})
 
       (not= expected actual)
-      (trace/emit! :warning :rf.ssr/schema-digest-mismatch
+      (rf.trace/emit! :warning :rf.ssr/schema-digest-mismatch
                    {:expected expected
                     :actual   actual
                     :frame    frame
@@ -560,7 +560,7 @@
   win, at the cost of silent mismatches. Absence of the key (the common
   case) leaves detection ON."
   [frame-id]
-  (let [configured-value (get-in (frame/frame-meta frame-id)
+  (let [configured-value (get-in (rf.frame/frame-meta frame-id)
                                  [:ssr :detect-mismatch?])]
     (if (some? configured-value) (boolean configured-value) true)))
 
@@ -571,7 +571,7 @@
   a thrown structured exception (dev/CI fail-fast). Any other value falls
   back to `:warn`."
   [frame-id]
-  (let [configured-value (get-in (frame/frame-meta frame-id) [:ssr :on-mismatch])]
+  (let [configured-value (get-in (rf.frame/frame-meta frame-id) [:ssr :on-mismatch])]
     (if (= :hard-error configured-value) :hard-error :warn)))
 
 (defn verify-hydration!
@@ -610,13 +610,13 @@
      ;; SSR hydration metadata is durable runtime-db
      ;; state at `[:rf.runtime/ssr :hydration]` — read it off the runtime-db
      ;; partition.
-     (let [runtime-db (frame/frame-runtime-db-value frame-id)
+     (let [runtime-db (rf.frame/frame-runtime-db-value frame-id)
            server-hash (or server-hash
                            (get-in runtime-db
                                    [:rf.runtime/ssr :hydration :server-hash]))
            client-hash (cond
                          (string? tree-or-hash) tree-or-hash
-                         tree-or-hash           (hash/render-tree-hash tree-or-hash))]
+                         tree-or-hash           (rf.ssr.hash/render-tree-hash tree-or-hash))]
        (when (and server-hash client-hash (not= server-hash client-hash))
          (let [hard-error? (= :hard-error (mismatch-policy frame-id))
                recovery (if hard-error? :hard-error :warned-and-replaced)
@@ -642,7 +642,7 @@
                                       :recovery    recovery}
                                first-diff-path
                                (assoc :first-diff-path first-diff-path))
-               emit-error! (late-bind/get-fn :trace/emit-error!)]
+               emit-error! (rf.late-bind/get-fn :trace/emit-error!)]
            ;; Always emit the trace (monitoring integrations rely on it),
            ;; THEN escalate in strict mode. The thrown ex-info carries the
            ;; same structured payload so a CI run sees the full diff.
@@ -655,4 +655,4 @@
              ;; the sentence, TRAILING the [:rf.ssr/hydration-mismatch] token)
              ;; in ONE call, instead of re-deriving error/human-message inline.
              ;; The payload IS the ex-data verbatim (one map, throw + trace agree).
-             (throw (error/ex-info-from-data mismatch-data)))))))))
+             (throw (rf.error/ex-info-from-data mismatch-data)))))))))

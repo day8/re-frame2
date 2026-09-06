@@ -33,12 +33,12 @@
   same substrate."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.test-fixture :as tf]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 (deftest ssr-error-projector-fires-under-production-hardening-rf2-fb598
   (testing "Spec 011 §Server error projection holds when
@@ -60,14 +60,14 @@
     (rf/reg-event :rf/server-init
       (fn [_ _] {}))
 
-    (with-redefs [interop/debug-enabled? false]
-      (let [f (frame/make-anon-frame-record!
+    (with-redefs [rf.interop/debug-enabled? false]
+      (let [f (rf.frame/make-anon-frame-record!
                 {:platform  :server
                  :initial-events [[:rf/server-init]]
                  :ssr       {:public-error-id   :rf.ssr/default-error-projector
                              :dev-error-detail? false}})
             _ (rf/dispatch-sync [:load/article] {:frame f})
-            response (ssr/get-response f)]
+            response (rf.ssr/get-response f)]
         (is (= 500 (:status response))
             "Spec 011 §Server error projection — the default projector
              stamps :status 500 on :rf/response even with the dev trace
@@ -82,7 +82,7 @@
             framework-private id used by both substrate installs). A
             tight error-record delivered through the substrate routes
             to the SSR projector buffer and stamps the response."
-    (let [f (frame/make-anon-frame-record!
+    (let [f (rf.frame/make-anon-frame-record!
               {:platform :server
                :ssr      {:public-error-id   :rf.ssr/default-error-projector
                           :dev-error-detail? false}})]
@@ -94,7 +94,7 @@
       (let [dispatch-on-error!
             (requiring-resolve 're-frame.error-emit/dispatch-on-error!)
             ex (ex-info "boom" {})]
-        (with-redefs [interop/debug-enabled? false]
+        (with-redefs [rf.interop/debug-enabled? false]
           (dispatch-on-error!
             :rf.error/handler-exception
             [:boom]                            ;; event
@@ -103,7 +103,7 @@
             ex                                 ;; exception
             0                                  ;; elapsed-ms
             (System/currentTimeMillis))        ;; time
-          (is (= 500 (:status (ssr/get-response f)))
+          (is (= 500 (:status (rf.ssr/get-response f)))
               "The framework's own error-emit listener
                (`::error-projection`) routed the record to the buffer,
                flush-response! drained it, and the default projector

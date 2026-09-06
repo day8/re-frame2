@@ -17,8 +17,8 @@
     * a file-scoped removed name is silenced ONLY in its approved file(s),
       and RED elsewhere (mirroring :doc-guide-known-unmanifested-scoped)."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.api-manifest.doc-api-check :as c]
-            [re-frame.api-manifest.gen :as gen]))
+            [re-frame.api-manifest.doc-api-check :as rf.api-manifest.doc-api-check]
+            [re-frame.api-manifest.gen :as rf.api-manifest.gen]))
 
 (def ^:private manifest-vars
   ;; A small synthetic stand-in spanning several namespaces, exercising the
@@ -30,7 +30,7 @@
   {"reg-sub-raw" #{"migration/from-re-frame-v1/README.md"}})
 
 (defn- problems-for [references]
-  (c/reconcile {:references references
+  (rf.api-manifest.doc-api-check/reconcile {:references references
                 :manifest-vars manifest-vars
                 :scoped-allow scoped-allow}))
 
@@ -75,14 +75,14 @@
             reconcile against the committed manifest with zero problems
             (the CI contract — #4887/#4888 cleaned these trees + this PR
             corrected the residual path/unwrap drift the gate surfaced)"
-    (is (true? (c/check!))
+    (is (true? (rf.api-manifest.doc-api-check/check!))
         "live drift: a human-doc API-reference tree names a removed/renamed public surface")))
 
 (deftest scoped-allowlist-sidecar-key-is-present-and-a-map
   (testing "the committed sidecar carries the file-scoped allowlist key as a
             map (empty today; the tombstone uses bare-backtick names, not
             call-position forms, so no entry is needed)"
-    (let [scoped (:doc-api-known-unmanifested-scoped (gen/read-sidecar))]
+    (let [scoped (:doc-api-known-unmanifested-scoped (rf.api-manifest.gen/read-sidecar))]
       (is (map? scoped)
           "the scoped allowlist must be a {name -> #{files}} map"))))
 
@@ -100,7 +100,7 @@
 (deftest coverage-clean-when-every-eligible-var-has-a-member
   (testing "a namespace with a page whose member set covers every eligible var
             (bare or ns-qualified, both reduced to the bare name) reconciles clean"
-    (is (empty? (c/coverage-problems
+    (is (empty? (rf.api-manifest.doc-api-check/coverage-problems
                   {:eligible-rows cov-rows
                    :members {"re-frame.ui"      #{"defview" "sub"}
                              "re-frame.ui.test" #{"render" "find"}}
@@ -109,7 +109,7 @@
 (deftest coverage-flags-a-namespace-with-no-page
   (testing "an eligible namespace ABSENT from the members map (no docs/api page)
             yields ONE :page-missing problem that subsumes its members"
-    (let [probs (c/coverage-problems
+    (let [probs (rf.api-manifest.doc-api-check/coverage-problems
                   {:eligible-rows cov-rows
                    :members {"re-frame.ui" #{"defview" "sub"}} ; ui.test page absent
                    :exempt #{}})]
@@ -118,7 +118,7 @@
 (deftest coverage-flags-a-member-whose-heading-was-removed
   (testing "deleting a member's heading (an eligible var not in its page's member
             set) turns the check RED — the teeth proof"
-    (let [probs (c/coverage-problems
+    (let [probs (rf.api-manifest.doc-api-check/coverage-problems
                   {:eligible-rows cov-rows
                    :members {"re-frame.ui"      #{"defview"} ; `sub` heading removed
                              "re-frame.ui.test" #{"render" "find"}}
@@ -128,7 +128,7 @@
 (deftest coverage-exempt-silences-a-facade-pointer-member
   (testing "an explicit :doc-api-coverage-exempt [namespace var] pair silences a
             member that is intentionally documented only as a facade pointer"
-    (is (empty? (c/coverage-problems
+    (is (empty? (rf.api-manifest.doc-api-check/coverage-problems
                   {:eligible-rows cov-rows
                    :members {"re-frame.ui"      #{"defview"}
                              "re-frame.ui.test" #{"render" "find"}}
@@ -138,12 +138,12 @@
   (testing "the committed manifest reconciles against docs/api/ with full page +
             member coverage (the CI contract — every eligible var has a page and
             a member heading)"
-    (is (true? (c/check-coverage!))
+    (is (true? (rf.api-manifest.doc-api-check/check-coverage!))
         "live coverage drift: an eligible manifest var has no docs/api page or member heading")))
 
 (deftest coverage-exempt-sidecar-key-defaults-empty
   (testing "the coverage-exempt sidecar key, when present, is a collection of
             [namespace var] pairs (absent today → the checker defaults to #{})"
-    (let [exempt (:doc-api-coverage-exempt (gen/read-sidecar))]
+    (let [exempt (:doc-api-coverage-exempt (rf.api-manifest.gen/read-sidecar))]
       (is (or (nil? exempt) (coll? exempt))
           "the coverage-exempt allowlist must be a collection of [ns var] pairs (or absent)"))))

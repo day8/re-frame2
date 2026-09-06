@@ -115,9 +115,9 @@
   transport to secure."
   (:require [clojure.data.json :as json]
             [clojure.string :as str]
-            [re-frame.error :as error]
-            [re-frame.ssr.manifest :as manifest]
-            [re-frame.ssr.render-state :as render-state])
+            [re-frame.error :as rf.error]
+            [re-frame.ssr.manifest :as rf.ssr.manifest]
+            [re-frame.ssr.render-state :as rf.ssr.render-state])
   (:import [java.io IOException]
            [java.net URI URISyntaxException]
            [java.net.http HttpClient HttpClient$Version HttpConnectTimeoutException
@@ -165,7 +165,7 @@
 ;; ---- construction validation ----------------------------------------------
 
 (defn- throw-opt-invalid! [option-key received reason]
-  (error/throw-error!
+  (rf.error/throw-error!
     :rf.error/ssr-node-renderer-opt-invalid error-origin
     (str "re-frame.ssr.ring.node/renderer " option-key " " reason ".")
     {:recovery :correct-the-renderer-opt
@@ -222,7 +222,7 @@
   (endpoint-uri endpoint)
   (require-non-empty-string! :entry entry)
   (require-non-empty-string! :build-id build-id)
-  (when (and (contains? opts :args) (not (manifest/edn-carryable? args)))
+  (when (and (contains? opts :args) (not (rf.ssr.manifest/edn-carryable? args)))
     (throw-opt-invalid! :args args
                         (str "must be EDN the sidecar's safe reader reads back "
                              "EQUAL — no fn, host object, record, ratio, "
@@ -230,7 +230,7 @@
                              "or #uuid")))
   (require-integer! :timeout-ms timeout-ms 1)
   (require-integer! :admission-ms admission-ms 0)
-  (render-state/validate-policy-opts! opts)
+  (rf.ssr.render-state/validate-policy-opts! opts)
   opts)
 
 (defn http-timeout-ms
@@ -258,7 +258,7 @@
   field names, both partitions as per-key EDN text. `args` rides only when
   the caller gave one (the protocol makes it optional)."
   [{:keys [entry args build-id timeout-ms] :as opts} frame-id partitions]
-  (let [serialized-partitions (render-state/serialize partitions)]
+  (let [serialized-partitions (rf.ssr.render-state/serialize partitions)]
     (cond-> {"protocol"  1
              "entry"     entry
              "state"     (:rf/app-db serialized-partitions)
@@ -278,7 +278,7 @@
       (.build)))
 
 (defn- throw-unreachable! [{:keys [endpoint]} ^Throwable cause]
-  (error/throw-error!
+  (rf.error/throw-error!
     :rf.error/ssr-node-unreachable error-origin
     (str "the Node render sidecar at " endpoint " gave no HTTP answer ("
          (.getName (class cause)) "). Start the sidecar (re-frame2-ssr-node "
@@ -289,7 +289,7 @@
                 :ex-message (.getMessage cause)}}))
 
 (defn- throw-deadline! [{:keys [timeout-ms] :as opts} observed-by]
-  (error/throw-error!
+  (rf.error/throw-error!
     :rf.error/ssr-node-deadline error-origin
     (str "the Node render did not finish within its " timeout-ms " ms deadline "
          "(observed by the " (name observed-by) "). Raise :timeout-ms, or make "
@@ -300,7 +300,7 @@
                 :http-timeout-ms (http-timeout-ms opts)}}))
 
 (defn- throw-refused! [{:keys [endpoint]} status refusal message detail]
-  (error/throw-error!
+  (rf.error/throw-error!
     :rf.error/ssr-node-refused error-origin
     (str "the Node render sidecar at " endpoint " refused the render (HTTP "
          status (when refusal (str ", " refusal)) ")"
@@ -317,7 +317,7 @@
   the answer named none. The two causes read differently to an operator, so
   the sentence names which one it is; the id and the ex-data slots are one."
   [{:keys [build-id endpoint]} serving]
-  (error/throw-error!
+  (rf.error/throw-error!
     :rf.error/ssr-node-build-skew error-origin
     (str "the Node render sidecar at " endpoint " answered 200 "
          (if serving
@@ -416,7 +416,7 @@
                                (endpoint-uri (:endpoint validated-opts)))
         client               (build-client transport-timeout-ms)]
     (fn node-renderer [{:keys [frame-id]}]
-      (let [partitions   (render-state/project frame-id validated-opts)
+      (let [partitions   (rf.ssr.render-state/project frame-id validated-opts)
             request-json (json/write-str
                            (request-body validated-opts frame-id partitions)
                            :escape-slash false)

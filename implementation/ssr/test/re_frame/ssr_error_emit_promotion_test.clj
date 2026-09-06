@@ -40,21 +40,21 @@
   there does not flip the wire — the rf2-hhutya conformance leg."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.interop :as interop]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.boot :as boot]
-            [re-frame.ssr.error-listener :as error-listener]
-            [re-frame.ssr.error-projector :as error-projector]
-            [re-frame.ssr.test-fixture :as tf]
-            [re-frame.subs :as subs]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.interop :as rf.interop]
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.boot :as rf.ssr.boot]
+            [re-frame.ssr.error-listener :as rf.ssr.error-listener]
+            [re-frame.ssr.error-projector :as rf.ssr.error-projector]
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
+            [re-frame.subs :as rf.subs]))
 
 (use-fixtures :each
   (fn [t]
-    (tf/reset-runtime
+    (rf.ssr.test-fixture/reset-runtime
       (fn []
-        (error-emit/clear-error-listeners!)
+        (rf.error-emit/clear-error-listeners!)
         (t)))))
 
 (def ^:private server-frame :ssr/promotion-acceptance-frame)
@@ -105,7 +105,7 @@
   (rf/reg-sub :count (fn [db _] (or (:count db) 0)))
   (rf/reg-sub :title (fn [db _] (or (:title db) "untitled")))
   ;; EP-0001 (rf2-vzld77): hydration metadata is durable runtime-db state.
-  (subs/reg-runtime-sub :hydrated?
+  (rf.subs/reg-runtime-sub :hydrated?
     (fn [rt _] (boolean (get-in rt [:rf.runtime/ssr :hydration])))))
 
 ;; ===========================================================================
@@ -121,8 +121,8 @@
             is the projector's 500, unchanged by promotion."
     (let [fid  (make-server-frame)
           seen (capture-always-on!)]
-      (with-redefs [interop/debug-enabled? false]
-        (let [public-error (error-listener/project-render-exception!
+      (with-redefs [rf.interop/debug-enabled? false]
+        (let [public-error (rf.ssr.error-listener/project-render-exception!
                              fid (ex-info "render boom" {}))]
           ;; (A) off-box record reached the listener
           (is (some #{:rf.error/ssr-render-failed} @seen)
@@ -130,7 +130,7 @@
           ;; (B) wire-unchanged — the direct projection stamps 5xx
           (is (= 500 (:status public-error))
               "project-render-exception! returned the projector's 500")
-          (is (= 500 (:status (ssr/get-response fid)))
+          (is (= 500 (:status (rf.ssr/get-response fid)))
               "the response status is the projector's 500 — promotion did
                NOT double-stamp or re-project (the buffered duplicate was
                cleared)")
@@ -152,8 +152,8 @@
       (rf/make-frame {:id server-frame :platform :server
                       :ssr      {:public-error-id   :test/throwing-projector
                                  :dev-error-detail? false}})
-      (with-redefs [interop/debug-enabled? false]
-        (let [public-error (error-projector/project-error
+      (with-redefs [rf.interop/debug-enabled? false]
+        (let [public-error (rf.ssr.error-projector/project-error
                             fid {:op-type   :error
                                  :operation :rf.error/ssr-render-failed
                                  :tags      {:frame fid}})]
@@ -168,7 +168,7 @@
               "the fallback locked generic-500 public-error shipped — the
                projector's throw did not bypass the boundary")
           ;; the always-on record was NOT buffered for re-projection
-          (is (empty? (get @error-listener/pending-error-traces fid))
+          (is (empty? (get @rf.ssr.error-listener/pending-error-traces fid))
               "NON-PROJECTING + re-entry guard: the sanitised record was
                NOT buffered (the projection listener skips it), so it cannot
                re-enter the projector it reports on"))))))
@@ -184,12 +184,12 @@
       (rf/register-listener! :errors
         ::acceptance-recorder
         (fn [record] (swap! seen-records conj record)))
-      (with-redefs [interop/debug-enabled? false]
+      (with-redefs [rf.interop/debug-enabled? false]
         ;; Drive the FRAMELESS always-on emit exactly as
         ;; boot/read-server-payload's catch arm does (the JVM path has no
         ;; DOM, so we exercise the record shape the late-bind hook fans;
         ;; the CLJS DOM read is covered by ssr_hydration_test).
-        (boot/dispatch-malformed-hydration-frameless!
+        (rf.ssr.boot/dispatch-malformed-hydration-frameless!
           'rf.ssr/read-server-payload
           "__rf_payload"
           "the __rf_payload hydration script did not parse as EDN")
@@ -204,8 +204,8 @@
                EP-0002 resolution-6 frameless precedent")
           ;; WIRE-UNCHANGED: a frameless record never routes to a server
           ;; frame's projector (no status to move).
-          (error-listener/error-emit-projection-listener rec)
-          (is (empty? @error-listener/pending-error-traces)
+          (rf.ssr.error-listener/error-emit-projection-listener rec)
+          (is (empty? @rf.ssr.error-listener/pending-error-traces)
               "a frameless record is not buffered for any frame's
                projection — no status moved"))))))
 
@@ -239,13 +239,13 @@
                           :rf/runtime-db [:runtime :is :a :vector]}]]
       (let [seen-records (capture-records!)]
         (register-hydration-handlers!)
-        (let [client-frame (frame/make-anon-frame-record! {:doc "ep0008-hguive client frame"
+        (let [client-frame (rf.frame/make-anon-frame-record! {:doc "ep0008-hguive client frame"
                                            :platform :client})]
           ;; Seed a recognisable pre-hydration client slice so we can prove
           ;; the rejection left both partitions untouched (fail-closed).
           (rf/dispatch-sync [::set-title "pre-hydration"] {:frame client-frame})
           (rf/dispatch-sync [::inc]                       {:frame client-frame}) ;; 0 → 1
-          (with-redefs [interop/debug-enabled? false]
+          (with-redefs [rf.interop/debug-enabled? false]
             (rf/dispatch-sync [:rf/hydrate bad-payload] {:frame client-frame}))
 
           ;; (A) the FRAMEFUL always-on record reached the off-box listener
@@ -309,16 +309,16 @@
         (rf/make-frame {:id fid :platform :server
                         :ssr      {:public-error-id   :rf.ssr/default-error-projector
                                    :dev-error-detail? false}})
-        (with-redefs [interop/debug-enabled? false]
-          (error-listener/error-emit-projection-listener
+        (with-redefs [rf.interop/debug-enabled? false]
+          (rf.ssr.error-listener/error-emit-projection-listener
             {:error     cat
              :frame     fid
              :time      0
              :exception (ex-info "synthetic" {})
              :recovery  :no-recovery})
-          (is (empty? (get @error-listener/pending-error-traces fid))
+          (is (empty? (get @rf.ssr.error-listener/pending-error-traces fid))
               (str cat ": NON-PROJECTING — not buffered on the always-on axis"))
-          (is (= 200 (:status (ssr/get-response fid)))
+          (is (= 200 (:status (rf.ssr/get-response fid)))
               (str cat ": status stays 200 — the always-on record did not
                    flip the wire")))))))
 
@@ -330,15 +330,15 @@
             no-op, and that the projection-eligible promotion still drives
             the status under production hardening."
     (let [fid (make-server-frame)]
-      (with-redefs [interop/debug-enabled? false]
-        (error-listener/error-emit-projection-listener
+      (with-redefs [rf.interop/debug-enabled? false]
+        (rf.ssr.error-listener/error-emit-projection-listener
           {:error     :rf.error/ssr-render-failed
            :frame     fid
            :time      0
            :exception (ex-info "render boom" {})
            :recovery  :projected-to-public-error})
-        (is (seq (get @error-listener/pending-error-traces fid))
+        (is (seq (get @rf.ssr.error-listener/pending-error-traces fid))
             "ssr-render-failed IS buffered on the always-on axis")
-        (is (= 500 (:status (ssr/get-response fid)))
+        (is (= 500 (:status (rf.ssr/get-response fid)))
             "and projects a 5xx — the projection-eligible promotion drives
              the status under debug-off")))))

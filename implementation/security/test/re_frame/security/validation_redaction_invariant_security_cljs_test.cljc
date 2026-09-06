@@ -56,12 +56,12 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
+            [re-frame.frame :as rf.frame]
             ;; Publishes the Malli late-bind validate/explain hooks; without
             ;; it the default validator soft-passes and no failure fires.
             [re-frame.schemas.malli]
-            [re-frame.schemas :as schemas]
-            [re-frame.machines.data-validation :as machine-data]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.machines.data-validation :as rf.machines.data-validation]
             ;; rf2-g1a4ho — the two PRODUCTION-PATH drivers below register a
             ;; flow / a sub-override and drive the real drain + subscribe
             ;; cascades end-to-end. Requiring `re-frame.flows` publishes the
@@ -76,11 +76,11 @@
             ;; is a CLJS-only dev surface). Scoping the require to `:cljs`
             ;; keeps the JVM branch honest rather than carrying a require no
             ;; `:clj` form reads.
-            #?(:cljs [re-frame.late-bind :as late-bind])
-            [re-frame.substrate.plain-atom :as plain-atom]
-            #?(:clj  [re-frame.test-support :as test-support :refer [with-trace-recorder!]]
-               :cljs [re-frame.test-support :as test-support :refer-macros [with-trace-recorder!]])
-            [re-frame.security.gen :as gen]))
+            #?(:cljs [re-frame.late-bind :as rf.late-bind])
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            #?(:clj  [re-frame.test-support :as rf.test-support :refer [with-trace-recorder!]]
+               :cljs [re-frame.test-support :as rf.test-support :refer-macros [with-trace-recorder!]])
+            [re-frame.security.gen :as rf.security.gen]))
 
 ;; Reset per-test so app-schema registrations don't bleed across cases.
 ;;
@@ -95,10 +95,10 @@
 ;; side-table — no registered frame / container needed (so no adapter, and
 ;; not `ensure-default-frame!`, which would require one).
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
+  (rf.test-support/make-reset-runtime-fixture
     {:clear-app-schemas? true})
   (fn [test-fn]
-    (binding [frame/*current-frame* :rf/default]
+    (binding [rf.frame/*current-frame* :rf/default]
       (test-fn))))
 
 ;; ---------------------------------------------------------------------------
@@ -113,7 +113,7 @@
   stringified form). Thin wrapper over the shared `gen/contains-string?`
   (rf2-n5bkm7), which matches the sentinel as a substring."
   [x]
-  (gen/contains-string? x sentinel))
+  (rf.security.gen/contains-string? x sentinel))
 
 ;; ---------------------------------------------------------------------------
 ;; Trace capture — register a listener, run `f`, return the single
@@ -127,7 +127,7 @@
   [op f]
   (with-trace-recorder! [traces]
     (f)
-    #?(:clj (schemas/clear-sensitive-paths-cache!))
+    #?(:clj (rf.schemas/clear-sensitive-paths-cache!))
     (first (filter #(= op (:operation %)) @traces))))
 
 (defn- capture-failure
@@ -217,7 +217,7 @@
   (testing "rf2-a5kzs#1 — :where :event (validate-event!) redacts the
             sensitive payload"
     (let [trace (capture-failure
-                  #(schemas/validate-event!
+                  #(rf.schemas/validate-event!
                      :auth/login failing-sensitive-event
                      {:schema sensitive-event-schema}))]
       (assert-no-leak ":where :event" trace)
@@ -236,7 +236,7 @@
   (testing ":where :fx-args (validate-fx!) redacts the sensitive fx args (incl.
             the per-surface :rf.fx/args slot)"
     (let [trace (capture-failure
-                  #(schemas/validate-fx!
+                  #(rf.schemas/validate-fx!
                      :fx/secret :some/event failing-sensitive-value
                      {:schema sensitive-map-schema}))]
       (assert-no-leak ":where :fx-args" trace)
@@ -247,7 +247,7 @@
   (testing ":where :sub-return (validate-sub!) redacts the sensitive return
             value (incl. the per-surface :rf.sub/query-v lookup key)"
     (let [trace (capture-failure
-                  #(schemas/validate-sub!
+                  #(rf.schemas/validate-sub!
                      :sub/secret [:sub/secret sentinel] failing-sensitive-value
                      {:schema sensitive-map-schema}))]
       (assert-no-leak ":where :sub-return" trace)
@@ -259,7 +259,7 @@
             post-commit slice"
     (rf/reg-app-schema [:root] sensitive-map-schema)
     (let [trace (capture-failure
-                  #(schemas/validate-app-schema!
+                  #(rf.schemas/validate-app-schema!
                      {:root failing-sensitive-value} :root/bad))]
       (assert-no-leak ":where :app-db" trace)
       (is (= :rf/redacted (-> trace :tags :value)) ":value redacted")
@@ -270,7 +270,7 @@
             redacts the sensitive :data map. Pre-fix this emitted :value /
             :received / :explain verbatim."
     (let [trace (capture-failure
-                  #(machine-data/validate-snapshot-data!
+                  #(rf.machines.data-validation/validate-snapshot-data!
                      :my/machine {:data failing-sensitive-value}
                      sensitive-map-schema :macrostep))]
       (assert-no-leak ":where :machine-data" trace)
@@ -297,7 +297,7 @@
             value-bearing slot) redacts under the root check and the conforming
             sibling never egresses"
     (let [trace (capture-failure
-                  #(schemas/validate-event!
+                  #(rf.schemas/validate-event!
                      :auth/profile failing-sibling-event
                      {:schema sibling-sensitive-event-schema}))]
       (assert-no-leak ":where :event (conforming sibling)" trace)
@@ -315,7 +315,7 @@
             to a non-sensitive failing :count; the whole fx args redact (incl.
             :rf.fx/args)"
     (let [trace (capture-failure
-                  #(schemas/validate-fx!
+                  #(rf.schemas/validate-fx!
                      :fx/effect :some/event failing-sibling-value
                      {:schema sibling-sensitive-map-schema}))]
       (assert-no-leak ":where :fx-args (conforming sibling)" trace)
@@ -327,7 +327,7 @@
             next to a non-sensitive failing :count; the whole return value
             redacts"
     (let [trace (capture-failure
-                  #(schemas/validate-sub!
+                  #(rf.schemas/validate-sub!
                      :sub/view [:sub/view] failing-sibling-value
                      {:schema sibling-sensitive-map-schema}))]
       (assert-no-leak ":where :sub-return (conforming sibling)" trace)
@@ -343,7 +343,7 @@
             root check, so the conforming sibling never egresses"
     (rf/reg-app-schema [:root] sibling-sensitive-map-schema)
     (let [trace (capture-failure
-                  #(schemas/validate-app-schema!
+                  #(rf.schemas/validate-app-schema!
                      {:root failing-sibling-value} :root/bad))]
       (assert-no-leak ":where :app-db (conforming sibling)" trace)
       ;; The narrowed :value is the failing non-sensitive :count leaf, verbatim.
@@ -357,7 +357,7 @@
             next to a non-sensitive failing :count in the :data map; the whole
             :data redacts via the shared seam (root check)"
     (let [trace (capture-failure
-                  #(machine-data/validate-snapshot-data!
+                  #(rf.machines.data-validation/validate-snapshot-data!
                      :my/machine {:data failing-sibling-value}
                      sibling-sensitive-map-schema :macrostep))]
       (assert-no-leak ":where :machine-data (conforming sibling)" trace)
@@ -425,8 +425,8 @@
   fixture's boundary does not already cover, and every caller wraps its
   whole test body in exactly one `with-runtime*`."
   [thunk]
-  (rf/init! plain-atom/adapter)
-  (frame/ensure-default-frame!)
+  (rf/init! rf.substrate.plain-atom/adapter)
+  (rf.frame/ensure-default-frame!)
   (thunk))
 
 (deftest flow-output-production-path-redacts-sensitive
@@ -625,7 +625,7 @@
                        (fn [_db _] {:secret "ok"}))
            ;; Publish the override resolver the Story carriage would publish:
            ;; an exact-query-vector HIT returns `[value]`.
-           (late-bind/set-fn! :subs/resolve-sub-override
+           (rf.late-bind/set-fn! :subs/resolve-sub-override
              (fn [query-v]
                (when (= query-v [:sub/secret])
                  [failing-sensitive-value])))
@@ -640,7 +640,7 @@
                (is (= :rf/redacted (-> trace :tags :rf.sub/query-v))
                    ":rf.sub/query-v redacted"))
              (finally
-               (late-bind/set-fn! :subs/resolve-sub-override nil))))))))
+               (rf.late-bind/set-fn! :subs/resolve-sub-override nil))))))))
 
 ;; SUPPLEMENTARY (rf2-g1a4ho) — the handcrafted tag-shape tests below now
 ;; backstop the production-path drivers above: they exercise the shared seam
@@ -661,7 +661,7 @@
                  :value          failing-sensitive-value
                  :explain        {:value failing-sensitive-value}
                  :recovery       :replaced-with-default}
-          out   (schemas/redact-validation-tags sensitive-map-schema tags)]
+          out   (rf.schemas/redact-validation-tags sensitive-map-schema tags)]
       (is (true? (:sensitive? out)) ":sensitive? stamped")
       (is (= :rf/redacted (:value out)) ":value redacted")
       (is (= :rf/redacted (:received out)) ":received redacted")
@@ -682,7 +682,7 @@
                  :value      failing-sensitive-value
                  :explain    {:value failing-sensitive-value}
                  :recovery   :no-recovery}
-          out   (schemas/redact-validation-tags sensitive-map-schema tags)]
+          out   (rf.schemas/redact-validation-tags sensitive-map-schema tags)]
       (is (true? (:sensitive? out)) ":sensitive? stamped")
       (is (= :rf/redacted (:value out)) ":value redacted")
       (is (= :rf/redacted (:explain out)) ":explain redacted")
@@ -703,7 +703,7 @@
 ;; `:map-of-key`-before-`:tuple` order below is this suite's historical draw
 ;; order, preserved deliberately - see the shared block comment on the drift.
 (def ^:private gen-nested-sensitive
-  (gen/nested-sensitive-generator
+  (rf.security.gen/nested-sensitive-generator
     sentinel
     [:map :vector :sequential :map-of :map-of-key :tuple :set :and :or :multi :orn]
     5))
@@ -718,16 +718,16 @@
         [;; :where :event — the payload schema is the generated shape, the
          ;; event wraps it under a :cat (the rf2-a5kzs#1 shape).
          (capture-failure
-           #(schemas/validate-event! :gen/id event-value {:schema event-schema}))
+           #(rf.schemas/validate-event! :gen/id event-value {:schema event-schema}))
          ;; :where :fx-args
          (capture-failure
-           #(schemas/validate-fx! :gen/fx :gen/ev value {:schema schema}))
+           #(rf.schemas/validate-fx! :gen/fx :gen/ev value {:schema schema}))
          ;; :where :sub-return
          (capture-failure
-           #(schemas/validate-sub! :gen/sub [:gen/sub sentinel] value {:schema schema}))
+           #(rf.schemas/validate-sub! :gen/sub [:gen/sub sentinel] value {:schema schema}))
          ;; :where :machine-data
          (capture-failure
-           #(machine-data/validate-snapshot-data!
+           #(rf.machines.data-validation/validate-snapshot-data!
               :gen/machine {:data value} schema :macrostep))]]
     (every? (fn [trace]
               (and (some? trace)
@@ -740,7 +740,7 @@
             :sensitive? slot, EVERY callable validation kind (event /
             fx / sub-return / machine-data) redacts the sentinel and stamps
             :sensitive?. One escaped kind/shape = one leak."
-    (let [result (gen/for-all
+    (let [result (rf.security.gen/for-all
                    gen-nested-sensitive 120 17
                    all-kinds-redact?)]
       (is (nil? result)
@@ -759,11 +759,11 @@
     (let [plain-schema [:map [:n :int]]
           plain-value  {:n "not-an-int"}
           event-trace  (capture-failure
-                         #(schemas/validate-event!
+                         #(rf.schemas/validate-event!
                             :plain/ev [:plain/ev plain-value]
                             {:schema [:cat [:= :plain/ev] plain-schema]}))
           machine-trace (capture-failure
-                          #(machine-data/validate-snapshot-data!
+                          #(rf.machines.data-validation/validate-snapshot-data!
                              :plain/machine {:data plain-value} plain-schema :macrostep))]
       (is (some? event-trace))
       (is (not (contains? (:tags event-trace) :sensitive?))

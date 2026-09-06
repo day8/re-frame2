@@ -35,14 +35,14 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
+            [re-frame.frame :as rf.frame]
             ;; Publishes the Malli late-bind validate/explain hooks; without
             ;; it the default validator soft-passes and no failure fires.
             [re-frame.schemas.malli]
-            [re-frame.schemas :as schemas]
-            #?(:clj  [re-frame.test-support :as test-support :refer [with-trace-recorder!]]
-               :cljs [re-frame.test-support :as test-support :refer-macros [with-trace-recorder!]])
-            [re-frame.security.gen :as gen]))
+            [re-frame.schemas :as rf.schemas]
+            #?(:clj  [re-frame.test-support :as rf.test-support :refer [with-trace-recorder!]]
+               :cljs [re-frame.test-support :as rf.test-support :refer-macros [with-trace-recorder!]])
+            [re-frame.security.gen :as rf.security.gen]))
 
 ;; Reset per-test so app-schema registrations don't bleed across cases.
 ;; No adapter needed - `validate-app-schema!` is called directly (not via
@@ -64,10 +64,10 @@
 ;; installed adapter, which this adapter-less validate-direct suite has not
 ;; got (it would raise `:rf.error/no-adapter-installed`).
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
+  (rf.test-support/make-reset-runtime-fixture
     {:clear-app-schemas? true})
   (fn [test-fn]
-    (binding [frame/*current-frame* :rf/default]
+    (binding [rf.frame/*current-frame* :rf/default]
       (test-fn))))
 
 ;; ---------------------------------------------------------------------------
@@ -84,7 +84,7 @@
   wrapper over the shared `gen/contains-string?` (rf2-n5bkm7), which
   matches the sentinel as a substring."
   [x]
-  (gen/contains-string? x sentinel))
+  (rf.security.gen/contains-string? x sentinel))
 
 ;; ---------------------------------------------------------------------------
 ;; Recursive generator - build [schema db] where a :sensitive? scalar slot
@@ -102,7 +102,7 @@
 (def ^:private gen-nested-sensitive
   "Draw a `[schema db-value]` with a sentinel-bearing :sensitive? slot at a
   random 1..6-deep collection/map nesting."
-  (gen/nested-sensitive-generator
+  (rf.security.gen/nested-sensitive-generator
     sentinel
     [:map :vector :sequential :map-of :tuple :map-of-key :set :and :or :multi :orn]
     6))
@@ -116,8 +116,8 @@
   [schema db]
   (rf/reg-app-schema [:root] schema)
   (with-trace-recorder! [traces]
-    (schemas/validate-app-schema! {:root db} :root/bad)
-    #?(:clj (schemas/clear-sensitive-paths-cache!))
+    (rf.schemas/validate-app-schema! {:root db} :root/bad)
+    #?(:clj (rf.schemas/clear-sensitive-paths-cache!))
     (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                    @traces))))
 
@@ -128,7 +128,7 @@
 (deftest sensitive-sentinel-never-leaks-at-arbitrary-nesting
   (testing "rf2-g5auo - a :sensitive? slot at ANY generated collection/map
             nesting depth redacts: the sentinel never appears in the trace"
-    (let [result (gen/for-all
+    (let [result (rf.security.gen/for-all
                    gen-nested-sensitive 300 11
                    (fn [[schema db]]
                      (let [v (failure-trace schema db)]

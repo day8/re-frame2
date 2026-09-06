@@ -55,13 +55,13 @@
   proved could ever be positive."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.error-listener :as error-listener]
-            [re-frame.ssr.test-fixture :as tf]
-            [re-frame.trace :as trace]))
+            [re-frame.interop :as rf.interop]
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.error-listener :as rf.ssr.error-listener]
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
+            [re-frame.trace :as rf.trace]))
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 (def ^:private server-frame :ssr/head-no-project-frame)
 
@@ -94,16 +94,16 @@
       ;; the listener ripped out: a negative over a bus that emitted
       ;; nothing. The production counterpart is test (3), which calls the
       ;; always-on listener directly and is posture-independent.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         ;; Stamp the frame exactly as resolve-head's catch arm does.
-        (trace/emit-error! :rf.error/ssr-head-resolution-failed
+        (rf.trace/emit-error! :rf.error/ssr-head-resolution-failed
                            {:frame     fid
                             :exception (ex-info "synthetic head failure" {:reason :test})
                             :recovery  :no-recovery})
-        (is (empty? (get @error-listener/pending-error-traces fid))
+        (is (empty? (get @rf.ssr.error-listener/pending-error-traces fid))
             "the head trace was SKIPPED — not buffered into
              pending-error-traces (so a later get-response can't project it)")
-        (is (= 200 (:status (ssr/get-response fid)))
+        (is (= 200 (:status (rf.ssr/get-response fid)))
             "status stays 200 — the head failure degraded gracefully; the
              default projector (→ 500) never ran for this category")))))
 
@@ -126,14 +126,14 @@
       ;; production-elided (Spec 010 §Production builds), so no production
       ;; reject exists for this control to observe. The always-on control
       ;; is test (4).
-      (when interop/debug-enabled?
-        (trace/emit-error! :rf.error/schema-validation-failure
+      (when rf.interop/debug-enabled?
+        (rf.trace/emit-error! :rf.error/schema-validation-failure
                            {:frame     fid
                             :exception (ex-info "schema boom" {})
                             :recovery  :no-recovery})
-        (is (seq (get @error-listener/pending-error-traces fid))
+        (is (seq (get @rf.ssr.error-listener/pending-error-traces fid))
             "a non-degradation category IS buffered for projection")
-        (is (not= 200 (:status (ssr/get-response fid)))
+        (is (not= 200 (:status (rf.ssr/get-response fid)))
             "and it projects a non-200 — the listener is doing real work;
              the head-category skip in (1) is therefore meaningful")))))
 
@@ -166,7 +166,7 @@
       ;; the property is false for real; that is the evidence.
       ;;
       ;; The error-emit record shape per `error-emit/dispatch-on-error!`.
-      (error-listener/error-emit-projection-listener
+      (rf.ssr.error-listener/error-emit-projection-listener
         {:error      :rf.error/ssr-head-resolution-failed
          :event      nil
          :event-id   nil
@@ -174,10 +174,10 @@
          :time       0
          :exception  (ex-info "synthetic head failure" {})
          :elapsed-ms 0})
-      (is (empty? (get @error-listener/pending-error-traces fid))
+      (is (empty? (get @rf.ssr.error-listener/pending-error-traces fid))
           "the always-on listener also skips the head category — not
            buffered")
-      (is (= 200 (:status (ssr/get-response fid)))
+      (is (= 200 (:status (rf.ssr/get-response fid)))
           "status stays 200 on the production substrate too"))))
 
 ;; ===========================================================================
@@ -198,7 +198,7 @@
             it really does reach production (via `dispatch-on-error!`), so
             this control has a live producer in the posture that ships."
     (let [fid (make-server-frame)]
-      (error-listener/error-emit-projection-listener
+      (rf.ssr.error-listener/error-emit-projection-listener
         {:error      :rf.error/handler-exception
          :event      [:load/article]
          :event-id   :load/article
@@ -206,9 +206,9 @@
          :time       0
          :exception  (ex-info "handler boom" {})
          :elapsed-ms 0})
-      (is (seq (get @error-listener/pending-error-traces fid))
+      (is (seq (get @rf.ssr.error-listener/pending-error-traces fid))
           "a non-degradation category IS buffered by the always-on listener")
-      (is (= 500 (:status (ssr/get-response fid)))
+      (is (= 500 (:status (rf.ssr/get-response fid)))
           "and it projects the default projector's generic 500 — the
            always-on listener is doing real work in this posture, so the
            head-category skip in (3) is a targeted skip and not a listener

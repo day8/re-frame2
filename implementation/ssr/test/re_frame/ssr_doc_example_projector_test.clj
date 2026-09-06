@@ -48,16 +48,16 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.test-fixture :as tf]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
 ;; The fixture must NOT clear the always-on error-listener registry:
 ;; `re-frame.ssr` installs its `::error-projection` listener at ns-load
 ;; time and that listener IS the production status-projection path these
 ;; assertions exercise. Wiping it would turn every 404 below into a
 ;; vacuous 200. Same note as `re-frame.ssr-route-miss-404-production-test`.
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 ;; ---------------------------------------------------------------------------
 ;; Reading the documented example out of the page
@@ -125,7 +125,7 @@
 
 (defn- server-frame-using-the-documented-projector []
   (rf/reg-error-projector :app/public-error @documented-projector-fn)
-  (frame/make-anon-frame-record!
+  (rf.frame/make-anon-frame-record!
     {:platform :server
      :ssr      {:public-error-id   :app/public-error
                 :dev-error-detail? false}}))
@@ -143,7 +143,7 @@
     (register-routes!)
     (let [f (server-frame-using-the-documented-projector)]
       (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"] {:frame f})
-      (let [{:keys [response public-error]} (ssr/flush-response-result! f)]
+      (let [{:keys [response public-error]} (rf.ssr/flush-response-result! f)]
         (is (= 404 (:status response))
             "the documented projector's 404 reached the response accumulator")
         (is (= :not-found (:code public-error))
@@ -152,7 +152,7 @@
             "the example's own message proves the four-key shape passed
              conformance — a non-conforming return would have been replaced
              by fallback-public-error's \"Something went wrong\"")
-        (is (= ssr/public-error-keys (set (keys public-error)))
+        (is (= rf.ssr/public-error-keys (set (keys public-error)))
             "exactly the four locked keys, none extra (:dev-error-detail?
              is false, so the runtime appended no :details)")))))
 
@@ -170,7 +170,7 @@
     (register-routes!)
     (let [f (server-frame-using-the-documented-projector)]
       (rf/dispatch-sync [:never/registered] {:frame f})
-      (is (= 500 (:status (ssr/flush-response! f)))
+      (is (= 500 (:status (rf.ssr/flush-response! f)))
           "an unregistered EVENT dispatch is a server defect — generic 500"))
     (let [project @documented-projector-fn]
       (is (= 404 (:status (project {:operation :rf.error/no-such-handler
@@ -201,10 +201,10 @@
                       second
                       edn/read-string)]
       (is (some? claimed) "the example still carries a `;; =>` result comment")
-      (is (= ssr/public-error-keys (set (keys claimed)))
+      (is (= rf.ssr/public-error-keys (set (keys claimed)))
           "the documented result names exactly the four locked keys")
       (is (= claimed
-             (ssr/default-error-projector-fn {:operation :rf.error/no-such-handler
+             (rf.ssr/default-error-projector-fn {:operation :rf.error/no-such-handler
                                               :tags      {:kind :route}}))
           "and it is byte-for-byte what the default projector returns for the
            route miss the example describes"))))

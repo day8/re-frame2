@@ -11,13 +11,13 @@
   The corpus is pure vector-form data (no compiled schemas), so it loads
   identically under `:node-test`."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.schemas.walker :as walker]
-            [re-frame.schemas.walker-sanitize-path-fixtures :as sanitize-fx]))
+            [re-frame.schemas.walker :as rf.schemas.walker]
+            [re-frame.schemas.walker-sanitize-path-fixtures :as rf.schemas.walker-sanitize-path-fixtures]))
 
 (deftest cljs-sanitize-closed-map-extra-key-shared-corpus
   (testing "rf2-j538f7.13 — the shared sanitize-sensitive-path corpus holds on
             CLJS (closed-map extra keys scrub; declared locators survive;
             prior set / :map-of / ambiguous-tail behaviour unchanged)"
-    (doseq [{:keys [desc schema in expected]} sanitize-fx/cases]
-      (is (= expected (walker/sanitize-sensitive-path schema in))
+    (doseq [{:keys [desc schema in expected]} rf.schemas.walker-sanitize-path-fixtures/cases]
+      (is (= expected (rf.schemas.walker/sanitize-sensitive-path schema in))
           desc))))

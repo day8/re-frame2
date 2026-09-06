@@ -89,11 +89,11 @@
     `re-frame.ssr.ring.payload/build-payload`     - non-streaming SSR
     `re-frame.ssr.streaming/build-final-payload`  - streaming SSR"
   (:refer-clojure :exclude [resolve])
-  (:require [re-frame.error :as error]
-            [re-frame.frame :as frame]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.projection :as projection]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.error :as rf.error]
+            [re-frame.frame :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.projection :as rf.projection]
+            [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -210,7 +210,7 @@
     ;; missing-policy bucket where a `select-keys` would otherwise ship a
     ;; wrong/empty slice (rf2-hzttr finding 2).
     (malformed-allowlist? payload)
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/ssr-malformed-payload-allowlist
       'rf.ssr/payload-policy
       (str "ssr-handler :payload allowlist must be a "
@@ -230,7 +230,7 @@
     ;; `:rf.ssr.payload/whole-db`) doesn't silently land in the
     ;; missing-policy bucket.
     (keyword? payload)
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/ssr-unknown-payload-policy
       'rf.ssr/payload-policy
       (str "ssr-handler :payload keyword must be "
@@ -242,7 +242,7 @@
                   :recognised #{whole-app-db-policy}}})
 
     :else
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/ssr-missing-payload-policy
       'rf.ssr/payload-policy
       (str "ssr-handler requires an explicit hydration-"
@@ -320,7 +320,7 @@
   runs against that frame's real declarations; a nil `frame-id` is the same
   fail-closed case (no frame policy ⇒ whole-value redaction)."
   [db-slice frame-id]
-  (projection/project-egress
+  (rf.projection/project-egress
     db-slice
     {:frame             frame-id
      :rf.egress/profile :rf.egress/ssr-hydration}))
@@ -401,7 +401,7 @@
     ;; closed (redacts whole) under a destroyed / re-registered / unresolvable
     ;; one — no longer routed around (the former verbatim else-branch was the
     ;; rf2-j538f7.15 leak).
-    (projection/project-egress
+    (rf.projection/project-egress
       slice
       {:frame             frame-id
        :path              [:rf.runtime/routing]
@@ -540,7 +540,7 @@
    ;; Convenience: project under the AMBIENT scope frame. Correct only when the
    ;; call site is inside the frame's own `with-frame` (ambient == the target).
    ;; The security-critical builders pass the explicit target (rf2-3fc89f.15).
-   (project-runtime-db runtime-db (frame/resolve-current-frame)))
+   (project-runtime-db runtime-db (rf.frame/resolve-current-frame)))
   ([runtime-db frame-id]
    (when (map? runtime-db)
     (let [;; rf2-j538f7.15 — an EXPLICIT `frame-id` that no longer resolves to a
@@ -557,8 +557,8 @@
           ;; is omitted. A nil `frame-id` is the frameless / ambient-nil
           ;; convenience (no frame policy to lose) and stays precise, matching the
           ;; established one-arity contract.
-          stale-target?    (and (some? frame-id) (nil? (frame/frame frame-id)))
-          project-machines (late-bind/get-fn :machines/project-ssr-runtime-db)
+          stale-target?    (and (some? frame-id) (nil? (rf.frame/frame frame-id)))
+          project-machines (rf.late-bind/get-fn :machines/project-ssr-runtime-db)
           machines-slice   (when (contains? runtime-db :rf.runtime/machines)
                              (cond
                                stale-target?    :rf/redacted
@@ -601,7 +601,7 @@
           ;; durable `:entries` of `:rf.runtime/resources` (the
           ;; `:tag-index` / `:owner-index` are recomputable-from-entries
           ;; and need not ride the wire — Spec 016 §Restore and replay).
-          slice (if-let [extend-fn (late-bind/get-fn :ssr/extend-runtime-db-projection)]
+          slice (if-let [extend-fn (rf.late-bind/get-fn :ssr/extend-runtime-db-projection)]
                   ;; The extension hook (resources) takes the EXPLICIT target as a
                   ;; second parameter (rf2-f02diw — finishing the clean break: the
                   ;; hook is re-signatured `[runtime-db frame-id]`), so it projects
@@ -666,7 +666,7 @@
     (do
       ;; `trace/emit!` self-gates on `interop/debug-enabled?` (production
       ;; CLJS bundles DCE the body), so no outer guard is needed here.
-      (trace/emit! :warning :rf.ssr/invalid-version
+      (rf.trace/emit! :warning :rf.ssr/invalid-version
                    {:value    v
                     :reason   (str "Hydration :rf/version must be an integer "
                                    "pattern-protocol version (per Spec-Schemas "

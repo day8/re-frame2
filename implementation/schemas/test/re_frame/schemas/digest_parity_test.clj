@@ -26,7 +26,7 @@
   `compute-digest`, so per-fixture assertions are runtime-agnostic."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.schemas.digest]
-            [re-frame.schemas.digest-parity-fixtures :as fixtures]))
+            [re-frame.schemas.digest-parity-fixtures :as rf.schemas.digest-parity-fixtures]))
 
 ;; ---- pinned-literal vectors -----------------------------------------------
 ;;
@@ -40,8 +40,8 @@
             hashes to its pinned `\"sha256:\" + 16-hex` literal under
             the JVM digest pipeline. Byte-identity with the CLJS-side
             literal is what locks the cross-runtime invariant."
-    (doseq [{:keys [label input expected rationale]} fixtures/all-fixtures]
-      (let [actual (fixtures/compute-digest input)]
+    (doseq [{:keys [label input expected rationale]} rf.schemas.digest-parity-fixtures/all-fixtures]
+      (let [actual (rf.schemas.digest-parity-fixtures/compute-digest input)]
         (is (= expected actual)
             (str "JVM digest for fixture " (pr-str label) " — "
                  rationale
@@ -59,9 +59,9 @@
             independence (paths, props) and metadata stripping — every
             fixture pair MUST produce byte-identical digests under
             the JVM pipeline."
-    (doseq [{:keys [label input-a input-b rationale]} fixtures/invariant-pairs]
-      (let [da (fixtures/compute-digest input-a)
-            db (fixtures/compute-digest input-b)]
+    (doseq [{:keys [label input-a input-b rationale]} rf.schemas.digest-parity-fixtures/invariant-pairs]
+      (let [da (rf.schemas.digest-parity-fixtures/compute-digest input-a)
+            db (rf.schemas.digest-parity-fixtures/compute-digest input-b)]
         (is (= da db)
             (str "JVM invariant pair " (pr-str label) " — "
                  rationale
@@ -82,7 +82,7 @@
             collisions) but it would mean the corpus failed to
             discriminate between the schema sets, defeating the
             point of pinning."
-    (let [literals (mapv :expected fixtures/all-fixtures)]
+    (let [literals (mapv :expected rf.schemas.digest-parity-fixtures/all-fixtures)]
       (is (= (count literals) (count (set literals)))
           (str "Fixture literals must be pairwise distinct — got "
                (pr-str literals))))))

@@ -9,15 +9,15 @@
 
   This façade exposes the non-streaming handler and middleware, the streaming
   handler, the default shell, and cookie serialization."
-  (:require [re-frame.error :as error]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.ring.cookie :as cookie]
-            [re-frame.ssr.ring.lifecycle :as lifecycle]
-            [re-frame.ssr.ring.pipeline :as pipeline]
-            [re-frame.ssr.ring.shell :as shell]
+  (:require [re-frame.error :as rf.error]
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.ring.cookie :as rf.ssr.ring.cookie]
+            [re-frame.ssr.ring.lifecycle :as rf.ssr.ring.lifecycle]
+            [re-frame.ssr.ring.pipeline :as rf.ssr.ring.pipeline]
+            [re-frame.ssr.ring.shell :as rf.ssr.ring.shell]
             ;; Loaded eagerly for the façade; only stream-handler requests
             ;; create writer threads.
-            [re-frame.ssr.ring.streaming :as streaming]))
+            [re-frame.ssr.ring.streaming :as rf.ssr.ring.streaming]))
 
 (set! *warn-on-reflection* true)
 
@@ -39,7 +39,7 @@
   [src-sym]
   (when-not (resolve src-sym)
     ;; Author error at namespace load; retain the canonical structured shape.
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/ssr-ring-import-fn-unresolved
       'rf.ssr.ring/import-fn
       (str "import-fn cannot resolve the source var " src-sym
@@ -55,13 +55,13 @@
                                  [:doc :arglists :added :deprecated]))
        (var ~exported-sym))))
 
-(import-fn cookie/cookie->set-cookie-header)
-(import-fn shell/default-html-shell)
+(import-fn rf.ssr.ring.cookie/cookie->set-cookie-header)
+(import-fn rf.ssr.ring.shell/default-html-shell)
 
 ;; Chunked-HTTP counterpart of `ssr-handler`.
-(import-fn streaming/stream-handler)
-(import-fn streaming/default-streaming-prefix)
-(import-fn streaming/default-streaming-suffix)
+(import-fn rf.ssr.ring.streaming/stream-handler)
+(import-fn rf.ssr.ring.streaming/default-streaming-prefix)
+(import-fn rf.ssr.ring.streaming/default-streaming-suffix)
 
 ;; ---- handler defaults + re-exported construction helpers ------------------
 ;;
@@ -73,9 +73,9 @@
 ;; authored `:doc` so REPL `doc` works at the façade, but it is correctly
 ;; excluded from the fn-arglists api-manifest check (data var, like
 ;; `handler-defaults`).
-(def default-on-error lifecycle/default-on-error)
+(def default-on-error rf.ssr.ring.lifecycle/default-on-error)
 (alter-meta! #'default-on-error assoc
-             :doc (-> #'lifecycle/default-on-error meta :doc))
+             :doc (-> #'rf.ssr.ring.lifecycle/default-on-error meta :doc))
 
 (def handler-defaults
   "Default `ssr-handler` opts merged under caller-supplied opts at
@@ -94,7 +94,7 @@
   explicit Content-Type — in control. So the on-the-wire default is
   unchanged."
   {:emit-hash? true
-   :html-shell shell/default-html-shell})
+   :html-shell rf.ssr.ring.shell/default-html-shell})
 
 ;; ---- ssr-handler ----------------------------------------------------------
 
@@ -281,7 +281,7 @@
                              :html-shell     ssr-ring-app/shell}))
     (jetty/run-jetty handler {:port 3000 :join? false})"
   [raw-opts]
-  (lifecycle/validate-construction-opts! raw-opts)
+  (rf.ssr.ring.lifecycle/validate-construction-opts! raw-opts)
   ;; Merge defaults once at construction time so the pipeline helpers
   ;; (`setup-request-frame!`, `build-full-response`) can destructure
   ;; without re-stating the `:or` map. Caller-supplied values win.
@@ -289,11 +289,11 @@
   ;; Resolve `:on-error` separately so handler-defaults stays orthogonal to
   ;; the caller-or-locked-default precedence.
   (let [opts        (-> (merge handler-defaults raw-opts)
-                        (assoc :on-error (lifecycle/resolve-on-error raw-opts)))
+                        (assoc :on-error (rf.ssr.ring.lifecycle/resolve-on-error raw-opts)))
         {:keys [on-error]} opts]
     (fn ring-handler [request]
       (let [{:keys [frame-id frame short-circuit]}
-            (pipeline/setup-request-frame! opts request)]
+            (rf.ssr.ring.pipeline/setup-request-frame! opts request)]
         (if short-circuit
           short-circuit
           (try
@@ -301,20 +301,20 @@
             ;; status/headers/cookies/redirect AND the projected `:public-error`
             ;; (one drain), so the handler classifies the drain-time outcome
             ;; without re-inferring projection from `(:status resp)`.
-            (let [{:keys [response public-error]} (ssr/flush-response-result! frame-id)]
+            (let [{:keys [response public-error]} (rf.ssr/flush-response-result! frame-id)]
               (cond
                 ;; Redirect precedence FIRST (Spec 011 §Redirect precedence) —
                 ;; a pending projection is ignored while a redirect stands.
                 (some? (:redirect response))
-                (pipeline/ssr-response->ring-response response nil)
+                (rf.ssr.ring.pipeline/ssr-response->ring-response response nil)
 
                 ;; A projected 5xx discovered during the drain (a handler/fx
                 ;; exception, a custom 5xx projection) — the app-db is in an
                 ;; arbitrary partial state, so DISCARD the root body + payload
                 ;; and ship the projected-error arm (Spec 011 §Drain-time error
                 ;; classification, rf2-oytx7j).
-                (pipeline/projected-5xx? public-error)
-                (pipeline/materialise-projected-error frame-id response public-error opts)
+                (rf.ssr.ring.pipeline/projected-5xx? public-error)
+                (rf.ssr.ring.pipeline/materialise-projected-error frame-id response public-error opts)
 
                 ;; A projected 4xx (routing miss / bad client input) or no
                 ;; projection keeps the app's OWN body: the root view renders
@@ -322,15 +322,15 @@
                 ;; hydrates into a working SPA. A post-render recovered-to-nil
                 ;; 5xx is caught inside `build-full-response`.
                 :else
-                (pipeline/build-full-response frame-id opts)))
+                (rf.ssr.ring.pipeline/build-full-response frame-id opts)))
             (catch Throwable t
               ;; A failing caller hook falls back to the locked response.
-              (lifecycle/safe-on-error on-error request t))
+              (rf.ssr.ring.lifecycle/safe-on-error on-error request t))
             (finally
               ;; Frame teardown also clears its per-request side channels.
               ;; Destroy the VALUE (incarnation-EXACT, rf2-moftbs); the keyword
               ;; `frame-id` names the frame on any failure trace.
-              (lifecycle/destroy-frame-quietly! frame frame-id))))))))
+              (rf.ssr.ring.lifecycle/destroy-frame-quietly! frame frame-id))))))))
 
 ;; ---- ssr-middleware -------------------------------------------------------
 
