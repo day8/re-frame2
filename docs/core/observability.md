@@ -376,10 +376,11 @@ only care about successful drains filter on `(= :ok (:outcome record))` at the t
 the callback — and remember `restore-epoch!` refuses anything that isn't `:ok`.
 
 (If you've read the Tool-Pair contract or the pair MCP code you'll also have met
-`register-epoch-listener!` / `unregister-epoch-listener!`. Those are just named
-aliases for the `:epoch` stream of `register-listener!` — same machinery, same
-semantics. Use whichever reads better at the call site; the stream-keyword form keeps
-the four observation feeds under one verb.)
+`re-frame.epoch/register-epoch-listener!` / `unregister-epoch-listener!`. Those are
+an **implementation seam** — the late-bind target the `:epoch` stream reaches — not a
+second spelling for you to choose between. App and tool code alike attaches with
+`(rf/register-listener! :epoch …)`, which keeps every observation feed under one
+verb.)
 
 The remaining two streams — `:events` and `:errors` — are different in kind: they're
 the **always-on** integration hooks that survive into production. That's the whole
@@ -423,10 +424,72 @@ handler exception in production reaches Sentry or Datadog *knowing what the user
 doing*, instead of arriving as a bare `window.onerror`. (A sibling substrate emits one
 record per processed event, for throughput-and-latency dashboards.)
 
-These two always-on substrates are the `:events` and `:errors` streams of the same
-`register-listener!` verb — same shape, but they are *not* elided. Their records are
-intentionally tight, because they cross into production where the rich dev tags don't
-exist:
+### Consuming production telemetry: declare a sink
+
+The normal route is frame-owned. A frame declares a sink in its `:observability`
+config — `:errors` for error records, `:handled-events` for the per-event metrics
+stream — and you register the concrete fn with `rf/register-observability-sink!`:
+
+```clojure
+;; frame config declares which sink id handles errors / events,
+;; under what egress profile:
+(rf/make-frame
+  {:id :app
+   :observability {:errors         [{:sink :my-app/sentry
+                                     :rf.egress/profile :rf.egress/off-box-observability}]
+                   :handled-events [{:sink :my-app/metrics}]}})
+
+;; you register the concrete sink fn against that id:
+(rf/register-observability-sink!
+  :my-app/sentry
+  (fn [record]                 ;; already projected through the frame's
+    (sentry/capture record)))  ;; privacy classification — no scrubbing needed here
+```
+
+The `:rf.egress/profile` says *how far the data is allowed to travel* —
+`:rf.egress/off-box-observability` is the profile for a hosted back-end, and it
+governs how aggressively the runtime projects the record before your sink sees it. The
+runtime hands your sink records *already projected* through the frame's privacy
+classification, so a sensitive field arrives redacted before your code sees it —
+that's the difference from a `:trace` listener, which hands you everything in the
+clear and trusts you to gate.
+
+Which app-db paths count as sensitive isn't guessed — a handler classifies them as it
+writes, returning a `:sensitive` effect alongside its `:db` (the
+[data classification](glossary.md#data-classification) model):
+
+```clojure
+(rf/reg-event :app/login-succeeded
+  (fn [_ [_ token]]
+    {:db        (assoc-in {} [:auth :token] token)
+     :sensitive [[:auth :token]]}))   ;; this path is sensitive; redact it on egress
+```
+
+The wiring recipe is
+[report errors in production](how-to/report-errors-in-production.md); what counts as
+an error, and how the framework recovers, is [errors](errors.md).
+
+??? info "Coming from the Sentry / Datadog SDKs?"
+
+    The mental split is: the dev trace wire is rich and elided, while the production
+    error substrate is narrow and always-on. Don't reach for `register-listener!`'s
+    `:trace` stream to feed a hosted monitor — it works in dev and hears *nothing* in
+    production, because the emit sites it would listen to no longer exist. **For
+    production telemetry, you want a sink, not a trace listener.** The sink is also
+    the one that redacts for you, which a raw stream listener never does.
+
+### Advanced: the corpus-wide listener streams
+
+There is a second door onto the same two substrates, and it is a different *kind* of
+thing rather than a different flavour of the sink. `(rf/register-listener! :events …)`
+and `(rf/register-listener! :errors …)` are **independent corpus observation**: one
+fan-out per process, across every frame, delivered regardless of any frame's policy —
+including frameless records that no frame sink can reach — and always **unprojected**.
+Reach for that seat when you genuinely need a single cross-frame hook, and accept that
+the trust boundary is then yours.
+
+Either door carries the same record shapes, and they are intentionally tight, because
+they cross into production where the rich dev tags don't exist:
 
 ```clojure
 ;; :events — one record per processed event, after the run settles:
@@ -478,67 +541,13 @@ fan-out — a large value becomes `:rf.size/large-elided`, a sensitive one
 error record rides raw, deliberately, because off-box shippers need the host throwable
 and its stack.)
 
-### Consuming production telemetry: declare a sink
-
-You consume both streams by declaring a sink in your frame's `:observability` config
-and registering it with `rf/register-observability-sink!`:
-
-```clojure
-;; frame config declares which sink id handles errors / events,
-;; under what egress profile:
-(rf/make-frame
-  {:id :app
-   :observability {:errors         [{:sink :my-app/sentry
-                                     :rf.egress/profile :rf.egress/off-box-observability}]
-                   :handled-events [{:sink :my-app/metrics}]}})
-
-;; you register the concrete sink fn against that id:
-(rf/register-observability-sink!
-  :my-app/sentry
-  (fn [record]                 ;; already projected through the frame's
-    (sentry/capture record)))  ;; privacy classification — no scrubbing needed here
-```
-
-The `:rf.egress/profile` says *how far the data is allowed to travel* —
-`:rf.egress/off-box-observability` is the profile for a hosted back-end, and it
-governs how aggressively the runtime projects the record before your sink sees it. The
-runtime hands your sink records *already projected* through the frame's privacy
-classification, so a sensitive field arrives redacted before your code sees it —
-that's the difference from a `:trace` listener, which hands you everything in the
-clear and trusts you to gate.
-
-Which app-db paths count as sensitive isn't guessed — a handler classifies them as it
-writes, returning a `:sensitive` effect alongside its `:db` (the
-[data classification](glossary.md#data-classification) model):
-
-```clojure
-(rf/reg-event :app/login-succeeded
-  (fn [_ [_ token]]
-    {:db        (assoc-in {} [:auth :token] token)
-     :sensitive [[:auth :token]]}))   ;; this path is sensitive; redact it on egress
-```
-
-The wiring recipe is
-[report errors in production](how-to/report-errors-in-production.md); what counts as
-an error, and how the framework recovers, is [errors](errors.md).
-
-??? info "Coming from the Sentry / Datadog SDKs?"
-
-    The mental split is: the dev trace wire is rich and elided, while the production
-    error substrate is narrow and always-on. Don't reach for `register-listener!`'s
-    `:trace` stream to feed a hosted monitor — it works in dev and hears *nothing* in
-    production, because the emit sites it would listen to no longer exist. **For
-    production telemetry, you want a sink, not a trace listener.** The sink is also
-    the one that redacts for you, which a raw stream listener never does.
-
-Which route, then — sink or raw `:errors` stream? The frame-owned
-`:observability :errors` sink is the normal production error route, and it's the safe
-one — projected per-frame before you see it. The raw `:errors` stream of
-`register-listener!` is the advanced corpus-wide alternative: one fan-out across
-*every* frame, delivering an *unprojected* record (the `:event` is elided but the
-`:exception` rides raw and no frame egress policy applies). Reach for it only when
-you genuinely need a single cross-frame hook or a record the sink route can't carry —
-and accept that you're then responsible for the trust boundary yourself.
+One thing not to read into the split: the raw `:exception`. It is tempting to take the
+corpus-wide stream as "the one that keeps the throwable" — it isn't. A sink keeps the
+throwable too under the default `:rf.egress/off-box-observability` profile; only
+`:rf.egress/public-error` drops it. What the corpus-wide seat alone carries is a
+frameless record, a record whose owning frame is already gone, and the
+producer-attribution slots (`:failing-id`, `:reason`, `:source-coord`) the sink route
+does not pass through.
 
 Want timing in production, too? There's a third production-survivable surface besides
 `:events` and `:errors`: a Performance API channel, off by default, that brackets the

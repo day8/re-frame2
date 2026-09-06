@@ -953,19 +953,25 @@ Two surfaces stacked. The first is **dev-only**: a trace bus that emits one rich
     (fn [trace-event]
       (js/console.log (:op-type trace-event) (:operation trace-event))))
 
-  ;; Always-on: one record per processed event → a hosted metrics back-end.
-  (rf/register-listener! :events :my-app.monitors/datadog
-    (fn [{:keys [event-id frame outcome elapsed-ms]}]
-      (datadog/timing "rf.event.elapsed_ms" elapsed-ms
-                      {:event (str event-id) :frame (str frame) :outcome (str outcome)})))
+  ;; Always-on, corpus-wide: one record per processed event, every frame.
+  ;; A test-kit capture — the whole corpus in one seat, unprojected.
+  (rf/register-listener! :events :my-app.test/outcomes
+    (fn [{:keys [event-id frame outcome]}]
+      (swap! seen conj [frame event-id outcome])))
 
-  ;; Always-on production error monitoring — the payload is a union; branch on (:error record).
-  (rf/register-listener! :errors :my-app.monitors/sentry
+  ;; Always-on, corpus-wide: a cross-frame audit tap. The payload is a union;
+  ;; branch on (:error record). Delivered regardless of any frame's policy —
+  ;; including frameless records no frame sink can reach.
+  (rf/register-listener! :errors :my-app.audit/tap
     (fn [record]
-      (if-let [ex (:exception record)]
-        (Sentry/captureException ex)
-        (Sentry/captureMessage (str (:error record))))))
+      (audit/record! (select-keys record [:error :frame :event-id :failing-id]))))
   ```
+- **Production note**: for shipping telemetry off-box, the frame-owned
+  [`register-observability-sink!`](#register-observability-sink) seam is the normal
+  route — records arrive already projected under the owning frame's classification.
+  The `:events` / `:errors` streams here are the ADVANCED corpus-wide hook: one
+  unprojected fan-out per process, for independent corpus observation. See
+  [Report errors in production](../core/how-to/report-errors-in-production.md).
 
 ### `unregister-listener!`
 
