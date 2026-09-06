@@ -46,9 +46,8 @@ Two copies of one truth is two chances to disagree. Derive it, live:
   (fn [db _] (:value db)))
 
 ;; the new idea: a subscription whose input is ANOTHER subscription
-(rf/reg-sub :parity
-  :<- [:value]
-  (fn [n _] (if (odd? n) :odd :even)))
+(rf/reg-sub :parity {:inputs [[:value]]}
+  (fn [[n] _] (if (odd? n) :odd :even)))
 
 (rf/reg-view parity-counter []
   [:div
@@ -61,7 +60,7 @@ Two copies of one truth is two chances to disagree. Derive it, live:
 ```
 
 You just built a two-cell spreadsheet. `:value` is a cell. `:parity` is a formula
-over it. That `:<-` line declares the dependency, and because the framework *knows*
+over it. That `:inputs` line declares the dependency, and because the framework *knows*
 the dependency, `:parity` recomputes only when `:value` changes, and anything
 watching `:parity` re-renders only when the *answer* changes.
 
@@ -152,7 +151,7 @@ The graph has layers, and a sub's layer is decided entirely by what it reads:
 - **Layer 1 — extractors.** Read app-db directly. Their one job: pluck out a raw
   slice. No computation. They re-run on every app-db change (to check whether
   their slice moved — the next section explains why that's cheap).
-- **Layer 2 — derivations.** Read other subs, via `:<-`. Sort, filter, join,
+- **Layer 2 — derivations.** Read other subs, declared under `:inputs`. Sort, filter, join,
   shape. They re-run when an input's value changes by `=`.
 - **Layer 3 and up — compositions.** Subs over subs over subs. Same rule.
 
@@ -167,29 +166,26 @@ Here's a three-layer chain from a shopping cart:
   (fn [db _] (:cart/category-filter db)))
 
 ;; Layer 2 — reads :cart/items (a sub), never app-db.
-(rf/reg-sub :cart/by-price
-  :<- [:cart/items]
-  (fn [items _]
+(rf/reg-sub :cart/by-price {:inputs [[:cart/items]]}
+  (fn [[items] _]
     (sort-by :price #(compare %2 %1) items)))
 
 ;; Layer 3 — composes two subs.
-(rf/reg-sub :cart/visible
-  :<- [:cart/by-price]
-  :<- [:cart/category-filter]
+(rf/reg-sub :cart/visible {:inputs [[:cart/by-price] [:cart/category-filter]]}
   (fn [[items category] _]
     (if category
       (filterv #(= category (:category %)) items)
       items)))
 ```
 
-Read `:<-` as "this sub's input comes from". Notice what changed between layers:
+Read `:inputs` as "this sub's inputs come from". Notice what changed between layers:
 `:cart/by-price` does **not** take `db`. It takes the already-extracted value that
-`:cart/items` produced. One arrow delivers its input as a bare value; two or more
-deliver a vector, destructured above as `[items category]`. That's the only
-wrinkle in the syntax. Once you've seen it, you've seen it.
+`:cart/items` produced. Declared inputs always arrive as a **vector**, in the order
+you listed them — `[items]` for one, `[items category]` for two — so adding a
+second input never reshapes the body you already wrote.
 
-The *shape of the registration* is the *shape of the graph*. `(fn [db _] ...)` is
-an extractor by construction. `:<-` is a composer by construction. The framework
+The *shape of the registration* is the *shape of the graph*. `(fn [db _] ...)` with
+no `:inputs` is an extractor by construction. `:inputs` makes a composer. The framework
 can read the registry and know your entire topology as data — which is exactly how
 [Xray](glossary.md#xray) draws your subscription graph without executing a single
 computation function (`re-frame.subs.tooling/sub-topology` is a literal read of the
@@ -236,7 +232,7 @@ extractors tiny — put the work in layer 2.** An extractor fires on every app-d
 change; it must be cheap. A `get`, a `get-in`, nothing more. Put a `sort-by` inside
 an extractor and that sort runs on every keystroke in every unrelated form — you've
 placed expensive work *in front of* the gate instead of behind it. Move it into a
-`:<-` sub and it runs only when its slice actually changes. Same code, dramatically
+layer-2 sub and it runs only when its slice actually changes. Same code, dramatically
 less work. When a view is mysteriously slow, "is there computation in a layer-1
 sub?" is the first question [Find and fix a slow view](how-to/fix-a-slow-view.md)
 asks — because the answer is so often yes.
@@ -273,13 +269,11 @@ few times:
 (rf/reg-sub :cart/currency (fn [db _query] (:cart/currency db)))
 
 ;; Layer 2 — one derivation per branch.
-(rf/reg-sub :cart/count-label
-  :<- [:cart/count]
-  (fn [n _query] (str n " item(s) in cart")))
+(rf/reg-sub :cart/count-label {:inputs [[:cart/count]]}
+  (fn [[n] _query] (str n " item(s) in cart")))
 
-(rf/reg-sub :cart/currency-label
-  :<- [:cart/currency]
-  (fn [c _query] (str "prices shown in " c)))
+(rf/reg-sub :cart/currency-label {:inputs [[:cart/currency]]}
+  (fn [[c] _query] (str "prices shown in " c)))
 
 (rf/reg-view cart-summary []
   [:div
@@ -312,7 +306,7 @@ re-render's trigger while `:cart/currency-label` sits beside it, unmarked.
 You can:
 
 - keep facts in app-db and **derive** conclusions in named subs;
-- build a layered graph with extractors (`(fn [db _] …)`) and `:<-` composers;
+- build a layered graph with extractors (`(fn [db _] …)`) and `:inputs` composers;
 - rely on the `=` gate so unchanged slices stop propagation;
 - avoid cache fragmentation (stable query-vector args);
 - recover from a missing sub (`:rf.error/no-such-sub` → `nil`).
@@ -327,21 +321,21 @@ That is enough for real screens. The sections below are optional depth.
 
 Subscriptions take arguments — `@(rf/subscribe [:article/page article-id])` — and
 sometimes the *arguments* decide which upstream subs you need. An article page
-needs *that* article, *that* article's comments, and the current viewer. `:<-`
-can't express this: it lists query vectors literally at registration time, and
-`article-id` doesn't exist yet.
+needs *that* article, *that* article's comments, and the current viewer. A literal
+`:inputs` vector can't express this: it lists query vectors at registration time,
+and `article-id` doesn't exist yet.
 
-For that case, `reg-sub` takes **two functions** — an *input function* and the
-computation function:
+For that case, give `:inputs` a **function** instead of a vector — an *input
+function*, which the runtime calls with the outer query vector:
 
 ```clojure
 (rf/reg-sub
   :article/page
-  ;; input-fn: outer query vector -> a vector of input query vectors
-  (fn [[_ article-id]]
-    [[:article/by-id article-id]
-     [:comments/for-article article-id]
-     [:viewer/current]])
+  ;; :inputs as a producer: outer query vector -> a vector of input query vectors
+  {:inputs (fn [[_ article-id]]
+             [[:article/by-id article-id]
+              [:comments/for-article article-id]
+              [:viewer/current]])}
   ;; computation-fn: the resolved input values (same order), plus the query vector
   (fn [[article comments viewer] [_ article-id]]
     {:id        article-id
@@ -351,14 +345,14 @@ computation function:
 ```
 
 The input function answers *what does this sub depend on?* The computation function
-answers *what does it compute?* The resolved input values arrive as a vector, in
-the order the input function listed them — always a vector in this form, even for
-a single input.
+answers *what does it compute?* Nothing about the body changes — the resolved input
+values arrive as a vector, in declaration order, exactly as they do for a literal
+`:inputs`.
 
-The choice between the two forms is sharp. **Use `:<-` for static inputs; reach for
-an input function only when the upstream query vectors need values from the outer
-query vector.** `:<-` is exactly a constant input function with the boilerplate
-removed — and its edges are statically drawable, which the tooling repays.
+The choice between the two forms is sharp. **Write the literal vector whenever the
+edges don't depend on the outer query vector; reach for a function only when they
+do.** A literal is exactly a constant input function with the boilerplate removed —
+and its edges are statically drawable, which the tooling repays.
 
 Notes, in descending order of how often each one bites:
 
@@ -423,9 +417,9 @@ Any `reg-sub` may carry an optional metadata map right after the id — declarat
 (rf/reg-sub :user/initials
   {:doc    "The current user's initials, for the avatar badge."
    :schema [:maybe :string]
-   :tags   #{:user}}
-  :<- [:user/name]
-  (fn [name _]
+   :tags   #{:user}
+   :inputs [[:user/name]]}
+  (fn [[name] _]
     (->> (clojure.string/split (or name "") #"\s+")
          (map first)
          (clojure.string/join))))
@@ -468,7 +462,7 @@ declaration is rejected at registration with `:rf.error/bad-classification`.
 A layer-1/2/3 computation is a pure function of `(inputs, query-v)`. So you don't
 need a reactive runtime — or a DOM, or a browser — to test what a subscription
 *computes*. `rf/compute-sub` runs a sub's body against an app-db **value**,
-resolving the whole `:<-` chain for you, JVM-runnable, no live cache. The recipe,
+resolving the whole declared dependency graph for you, JVM-runnable, no live cache. The recipe,
 both styles, gotchas included: [Test a subscription](testing/subscriptions.md).
 
 ## Lifecycle: a Sub Exists Only While Something Watches
