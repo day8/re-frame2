@@ -74,19 +74,22 @@ A build *may* carry two adapters on its classpath, but `init!` installs exactly 
 | Substrate | Coordinate | View library |
 |---|---|---|
 | Reagent | `day8/re-frame2-reagent` | `reagent` (hiccup) |
-| UIx | `day8/re-frame2-uix` | `com.pitch/uix.core` (UIx 2 publishes as Maven 1.x) |
+| UIx | `day8/re-frame2-uix` | `com.pitch/uix.core` **and** `com.pitch/uix.dom` (UIx 2 publishes as Maven 1.x) |
 | reagent-slim | `day8/reagent-slim` | `reagent2` (ships inside it) |
 
-One view-library coordinate is the whole of it. `day8/re-frame2-uix` depends on `com.pitch/uix.core` — the adapter's own source needs it — and deliberately does *not* depend on `com.pitch/uix.dom`, because a headless or server-side UIx consumer should not pay for a DOM renderer. Your app does not need it either: the adapter publishes its own root door (Step 4), and the React Root behind it is minted by the shared spine through `react-dom/client`.
+UIx is the one row that names two view-library coordinates, and it is worth a sentence because the adapter will not supply the second for you. `day8/re-frame2-uix` depends on `com.pitch/uix.core` — the adapter's own source needs it — but it deliberately does *not* depend on `com.pitch/uix.dom`, because owning a React root is the application's call, not the adapter's, and a headless or server-side UIx consumer should not pay for a DOM renderer. Name both, at the same version:
 
 ```clojure
 ;; deps.edn for a UIx app — the complete recipe.
 {:deps {day8/re-frame2     {:mvn/version "<latest>"}   ; core
         day8/re-frame2-uix {:mvn/version "<latest>"}   ; the UIx adapter
-        com.pitch/uix.core {:mvn/version "1.4.4"}}}    ; defui / $ / hooks
+        com.pitch/uix.core {:mvn/version "1.4.4"}      ; defui / $ / hooks
+        com.pitch/uix.dom  {:mvn/version "1.4.4"}}}    ; create-root / render-root
 ```
 
-`<latest>` is the released `day8/re-frame2` version (every re-frame2 artefact ships in lockstep at that one version); the `com.pitch` coordinate is third-party and carries its own version. Add `com.pitch/uix.dom` — pinned at the same version as `uix.core` — only when you write component tests that drive a root by hand, the recipe [Testing views](../testing/views.md) shows.
+`<latest>` is the released `day8/re-frame2` version (every re-frame2 artefact ships in lockstep at that one version); the two `com.pitch` coordinates are third-party and carry their own version, which must match each other.
+
+`uix.dom` is what you need whenever you drive a React root **yourself** — the worked examples do, and so does the component-test recipe in [Testing views](../testing/views.md). The mount in Step 4 does not: the adapter publishes its own root door, and the React Root behind it is minted by the shared spine through `react-dom/client`.
 
 !!! note "Coordinates are not published yet"
 
