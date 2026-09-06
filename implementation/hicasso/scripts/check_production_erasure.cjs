@@ -257,7 +257,7 @@ const CONTROLS = [
   {
     control: 're-frame.hicasso.consumer-app/app',
     source: 'test/re_frame/hicasso/consumer_app.cljs',
-    premise: '(h/defview app',
+    premise: '(rf.hicasso/defview app',
     proves:
       'the release entry\'s `h/defview` really compiled — `mint-view!` stamps ' +
       'this name as the boundary\'s `displayName` and as its `:render` measure ' +
