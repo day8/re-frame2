@@ -18,8 +18,7 @@
       (rf/make-frame {:id :app/main}
         {:observability
          {:handled-events [{:sink :my-app.sinks/datadog
-                            :rf.egress/profile :rf.egress/off-box-observability
-                            :opts {:service \"checkout-spa\" :env \"prod\"}}]
+                            :rf.egress/profile :rf.egress/off-box-observability}]
           :errors         [{:sink :my-app.sinks/sentry
                             :rf.egress/profile :rf.egress/off-box-observability}]}})
 

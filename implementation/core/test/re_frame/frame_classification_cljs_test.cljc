@@ -105,8 +105,7 @@
 (deftest valid-observability-retained-on-config
   (testing "well-formed :observability rides the frame config"
     (rf/make-frame {:id :app/full :observability {:handled-events [{:sink :my-app.sinks/datadog
-                                                      :rf.egress/profile :rf.egress/off-box-observability
-                                                      :opts {:service "checkout-spa"}}]
+                                                      :rf.egress/profile :rf.egress/off-box-observability}]
                                     :errors         [{:sink :my-app.sinks/sentry}]}})
     (let [meta (rf/frame-meta :app/full)]
       (is (= :my-app.sinks/datadog
@@ -153,7 +152,7 @@
 (deftest fail-loud-on-bad-observability-entry
   (testing "an :observability entry without a :sink keyword fails loudly"
     (let [data (bad-classification-ex
-                 #(rf/make-frame {:id :app/bad4 :observability {:handled-events [{:opts {:service "x"}}]}}))]
+                 #(rf/make-frame {:id :app/bad4 :observability {:handled-events [{:service "x"}]}}))]
       (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
       (is (= [:observability :handled-events :sink] (:bad-key data))))))
 
@@ -186,23 +185,36 @@
            (get-in (rf/frame-meta :app/good-profile)
                    [:observability :handled-events 0 :sink])))))
 
-(deftest fail-loud-on-bad-observability-opts
-  ;; rf2-t55hxg.13 — `:opts`, when present, is the sink's option bag and
-  ;; must be a map (or nil). A non-map :opts is malformed — fail at make-frame
-  ;; rather than handing junk to the sink at fire time.
-  (testing "an :observability entry with non-map :opts fails loudly"
+(deftest fail-loud-on-unknown-sink-entry-key
+  ;; rf2-kuky.17 — the sink entry is a CLOSED map: `:sink` plus the optional
+  ;; `:rf.egress/profile`, and nothing else. `route-stream!` reads exactly
+  ;; those two keys, so any other key would be accept-and-drop. Fail at
+  ;; make-frame with the offending key named, exactly as an unknown profile
+  ;; does. (The retired `:opts` vendor bag is one such key: vendor
+  ;; configuration is closed over by the registered sink fn.)
+  (testing "an :observability entry carrying the retired :opts bag fails loudly"
     (let [data (bad-classification-ex
                  #(rf/make-frame {:id :app/bad-opts :observability
                                   {:handled-events [{:sink :my-app.sinks/datadog
-                                                     :opts "not-a-map"}]}}))]
+                                                     :opts {}}]}}))]
       (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
       (is (= [:observability :handled-events :opts] (:bad-key data)))
-      (is (= "not-a-map" (:bad-value data)))))
-  (testing "nil :opts and an omitted :opts are both accepted"
-    (rf/make-frame {:id :app/nil-opts :observability {:handled-events [{:sink :my-app.sinks/datadog :opts nil}]
+      (is (= #{:sink :rf.egress/profile} (:valid data))
+          "the error carries the closed sink-entry key set")))
+  (testing "any other unknown entry key fails loudly, naming the key"
+    (let [data (bad-classification-ex
+                 #(rf/make-frame {:id :app/bad-vendor :observability
+                                  {:errors [{:sink :my-app.sinks/sentry
+                                             :vendor 1}]}}))]
+      (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
+      (is (= [:observability :errors :vendor] (:bad-key data)))))
+  (testing "the two-key entry — and the bare :sink entry — still register"
+    (rf/make-frame {:id :app/closed-entry
+                    :observability {:handled-events [{:sink :my-app.sinks/datadog
+                                                      :rf.egress/profile :rf.egress/public-error}]
                                     :errors         [{:sink :my-app.sinks/sentry}]}})
     (is (= :my-app.sinks/datadog
-           (get-in (rf/frame-meta :app/nil-opts)
+           (get-in (rf/frame-meta :app/closed-entry)
                    [:observability :handled-events 0 :sink])))))
 
 (deftest no-policy-keys-is-a-no-op

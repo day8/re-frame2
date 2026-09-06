@@ -489,8 +489,15 @@ including frameless records that no frame sink can reach — and always **unproj
 Reach for that seat when you genuinely need a single cross-frame hook, and accept that
 the trust boundary is then yours.
 
-Either door carries the same record shapes, and they are intentionally tight, because
-they cross into production where the rich dev tags don't exist:
+The corpus records below are intentionally tight, because they cross into production
+where the rich dev tags don't exist. They are **not** the shapes a sink receives:
+projection is a different record, not the same record with fields blanked out. On the
+sink route the dispatch result is spelled `:status` rather than `:outcome`, the
+`:event` args slot is dropped entirely under the off-box default, every non-summary
+slot is lifted onto a `:tags` tree, and the producer-attribution slots (`:failing-id`,
+the human `:reason`, the `:source-coord` definition site) are not carried at all. Read
+the shapes here as the *corpus* door's, and
+[report errors in production](how-to/report-errors-in-production.md) for the sink's:
 
 ```clojure
 ;; :events — one record per processed event, after the run settles:

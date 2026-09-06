@@ -74,8 +74,7 @@
       ;; [:auth :token] sensitive (so the projector has policy to apply).
       (rf/make-frame {:id :obs/main :observability
                       {:handled-events [{:sink :test.sinks/datadog
-                                         :rf.egress/profile :rf.egress/off-box-observability
-                                         :opts {:service "checkout-spa"}}]}})
+                                         :rf.egress/profile :rf.egress/off-box-observability}]}})
       ;; EP-0025: classify [:auth :token] sensitive via the commit-plane
       ;; effect path (the durable frame annotation is removed) so the
       ;; projector has policy to apply.

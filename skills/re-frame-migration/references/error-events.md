@@ -41,7 +41,7 @@ The closed catalogue at [Spec 009 §Error event catalogue](https://github.com/da
 
 v1's process-wide `reg-event-error-handler` is **dropped**. There is **no app-steering error-recovery policy** in v2 — recovery is framework-owned (the **typed per-category default**: frame-destroyed recovers + emits, sub-exception returns `nil`, handler-exception fails loud without crashing the app). Earlier v2 drafts documented a per-frame `:on-error` recovery policy as the replacement; that policy was **REMOVED** (its return value was never read or applied, and errors are not generically recoverable by an app policy). When migrating v1 code that registered a process-wide error handler:
 
-- **Observability** → register a corpus-wide error-emit listener — `(register-listener! :errors <id> f)` (always-on; survives production builds). It receives the tight record per `:rf.error/*` event; forward it to your monitor.
+- **Observability** → the **normal** replacement is the frame's `:observability` sink: declare `{:errors [{:sink <id>}]}` on the frame and register the concrete fn with `register-observability-sink!`, and the runtime hands it an already-projected record. The **advanced** alternative is the corpus-wide error-emit listener, `(register-listener! :errors <id> f)` — one unprojected fan-out per process, for a deliberately cross-frame seat. Both are always-on and survive production builds; forward either to your monitor.
 - **Genuine recovery** for *expected* failures → handle at the source (managed-HTTP `:retry`, optional-read fallback). To re-run a failed event, dispatch a fresh one; the runtime never re-runs the failing handler.
 
 A v1 error-handler that returned a substitute value or swallowed an error has **no v2 equivalent** — drop the steering and rely on the framework's typed default, moving any genuine recovery to the source.
@@ -54,7 +54,10 @@ Listener registration is **one stream-parameterized verb** — `(register-listen
 - **`(register-listener! :errors <id> f)`** — the **always-on** error-emit listener. Survives `:advanced` + `goog.DEBUG=false` (and JVM `-Dre-frame.debug=false`). Its payload is an **error-keyed union of several record shapes**: the per-event error record (`{:error :event :event-id :frame :time :exception :elapsed-ms}`, post-elision, one per promoted `:rf.error/*`); the frame-teardown report (`{:error :rf.error/frame-teardown-failed :frame :hook-failures :reason :recovery :time}`, one bounded record per destroy whose cleanup hooks threw — EP-0008); and the EP-0008-promoted **non-event SSR records** (`:rf.error/ssr-render-failed`, `:rf.error/ssr-streaming-writer-failed`, `:rf.error/malformed-hydration-payload`, `:rf.error/ssr-head-resolution-failed`, `:rf.error/sanitised-on-projection`, `:rf.error/ssr-ring-error-view-failed` — each carrying `:frame` + category-specific slots, some with `:frame nil` and none with `:event`). The teardown report and the SSR records carry no `:event` / `:event-id` / `:exception`, so a listener **must branch on `(:error record)`** rather than assuming the per-event shape (a listener that destructures `:event-id` / `:exception` off every record NPEs on a non-event one). This is the correct surface for production Sentry / Honeybadger / Datadog forwarding (per [API.md §Error-emit](https://github.com/day8/re-frame2/blob/main/spec/API.md#error-emit-always-on-production-survivable)).
 
 ```clojure
-;; Production error egress — always-on. (the :errors stream, NOT :trace)
+;; Production error egress, ADVANCED corpus-wide seat — always-on.
+;; (the :errors stream, NOT :trace). The NORMAL production route is the
+;; frame :observability sink; reach for this one only when you genuinely
+;; want a single unprojected fan-out across every frame.
 ;; Branch on (:error record): a teardown report carries no :exception.
 (rf/register-listener! :errors
   :audit/sentry

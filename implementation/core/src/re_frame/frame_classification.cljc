@@ -10,8 +10,7 @@
         {:id :app/main
          :observability
          {:handled-events [{:sink :my-app.sinks/datadog
-                            :rf.egress/profile :rf.egress/off-box-observability
-                            :opts {:service \"checkout-spa\"}}]
+                            :rf.egress/profile :rf.egress/off-box-observability}]
           :errors         [{:sink :my-app.sinks/sentry
                             :rf.egress/profile :rf.egress/off-box-observability}]}
 
@@ -81,7 +80,7 @@
   ## Keyword namespacing (EP-0015 §2)
 
   The frame-local grammar keys (`:observability`, `:handled-events`,
-  `:errors`, `:sink`, `:opts`) stay BARE — a frame record-config map is a
+  `:errors`, `:sink`) stay BARE — a frame record-config map is a
   framework-owned grammar. The cross-surface egress key `:rf.egress/profile`
   is namespaced (it means the same thing across `project-egress`, sink
   policy, MCP, SSR, and tool options). User/library-owned sink ids
@@ -143,11 +142,12 @@
 ;; ---- observability sink-policy validation --------------------------------
 ;;
 ;; `:observability {:handled-events [<entry>...] :errors [<entry>...]}`.
-;; Each entry is a map naming a `:sink` (a keyword sink id) and optionally
-;; an `:rf.egress/profile` (a member of the closed EP-0015 §10 profile
-;; enum) and an `:opts` map. This slice validates the SHAPE; routing
-;; records through the sinks is the EP-0015 observability slice. An unknown
-;; top-level `:observability` key fails loudly.
+;; Each entry is a CLOSED map naming a `:sink` (a keyword sink id) and
+;; optionally an `:rf.egress/profile` (a member of the closed EP-0015 §10
+;; profile enum) — and nothing else. This slice validates the SHAPE;
+;; routing records through the sinks is the EP-0015 observability slice.
+;; An unknown top-level `:observability` key, and an unknown key on an
+;; ENTRY, both fail loudly.
 
 ;; ---- retired top-level frame key rejection (EP-0025 clean break) ---------
 ;;
@@ -204,6 +204,10 @@
 
 (def ^:private observability-keys #{:handled-events :errors})
 
+;; The CLOSED sink-entry grammar. `route-stream!` reads exactly these two
+;; keys, so they are exactly the two an entry may carry.
+(def ^:private sink-entry-keys #{:sink :rf.egress/profile})
+
 (defn- validate-sink-entry!
   [frame-id stream entry]
   (when-not (map? entry)
@@ -237,18 +241,22 @@
                   :bad-value profile
                   :valid    rf.projection/profiles
                   :bad-entry entry})))))
-  ;; `:opts`, when present, must be a map (the sink's keyword-keyed option
-  ;; bag). A non-map `:opts` is a malformed entry — fail loudly at
-  ;; registration rather than handing junk to the sink at fire time.
-  (when (contains? entry :opts)
-    (let [opts (:opts entry)]
-      (when-not (or (nil? opts) (map? opts))
+  ;; The entry map is CLOSED: `:sink` plus the optional `:rf.egress/profile`,
+  ;; and nothing else. A sink's vendor configuration is the registered sink
+  ;; fn's own business (it closes over it); per-frame branching reads the
+  ;; projected record's `:frame` slot. Anything else here would be
+  ;; accept-and-drop — the routing seam reads only these two keys — so an
+  ;; unrecognised key fails loudly at registration, exactly as an unknown
+  ;; profile does.
+  (let [unknown (remove #(contains? sink-entry-keys %) (keys entry))]
+    (when (seq unknown)
+      (let [k (first unknown)]
         (throw (classification-error
                  frame-id
-                 (str ":observability " stream " entry :opts, when present, "
-                      "must be a map")
-                 {:bad-key [:observability stream :opts]
-                  :bad-value opts
+                 (str ":observability " stream " entry has unknown key " k
+                      "; a sink entry carries only " sink-entry-keys)
+                 {:bad-key   [:observability stream k]
+                  :valid     sink-entry-keys
                   :bad-entry entry}))))))
 
 (defn- validate-observability!

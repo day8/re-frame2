@@ -160,7 +160,9 @@ This is the family where the sink's shape differs from the raw record, so it is 
  :time          1718900000000}
 ```
 
-On the way to a sink, every slot that is not a canonical summary key (`:frame`, `:error`, `:event-id`, `:elapsed-ms`, `:time`, `:correlation`) is lifted onto a `:tags` map, so the projector walks and redacts it under the frame's classification — an app value folded into `:reason`, an exception's `ex-data`, all of it. **So your sink reads `(get-in record [:tags :hook-failures])`, not `(:hook-failures record)`.** The same lift applies to the SSR categories below.
+On the way to a sink, every slot that is not a canonical summary key (`:frame`, `:error`, `:event-id`, `:elapsed-ms`, `:time`, `:correlation`) is lifted onto a `:tags` map, so the projector walks it under the frame's classification and redacts the paths you declared — an app value folded into `:reason` among them. **So your sink reads `(get-in record [:tags :hook-failures])`, not `(:hook-failures record)`.** The same lift applies to the SSR categories below.
+
+One limit of that walk is worth knowing before you ship the sample below. The walker redacts by **declared path**; a *throwable* is an opaque host value it cannot see inside, so it passes through unchanged wherever it sits. Each `:hook-failures` entry carries its own nested `:exception`, and that nested throwable — message and `ex-data` included — is **not** sanitised by classification. The example extracts only `ex-message`; if a teardown hook's throwable can carry a secret, treat that string the way you would the top-level exception in §5.
 
 Give it its own arm in front of the catch-all. (`case` dispatches on the value of `(:error record)`; the first arm matches the teardown category, and the final arm — with no key in front of it — is the default, reusing the §3 logic verbatim.)
 
@@ -207,11 +209,11 @@ Give it its own arm in front of the catch-all. (`case` dispatches on the value o
 The `:rf.egress/profile` on each `:observability` entry is the one slot that is easy to get wrong, and it decides exactly one interesting thing: whether your sink sees the host throwable.
 
 - **`:rf.egress/off-box-observability`** — the default, and what you get if you omit the key. It redacts sensitive paths and elides large ones, but **walks the `:exception` through**. That's hosted monitoring, where the stack is the point.
-- **`:rf.egress/public-error`** — *drops* the throwable entirely. Reach for it when the record's destination is less trusted than your APM.
+- **`:rf.egress/public-error`** — *drops* the record's top-level `:exception` entirely. Reach for it when the record's destination is less trusted than your APM.
 
 So if the whole reason you reached for a frame sink was to strip the host exception, you must say `:rf.egress/profile :rf.egress/public-error` explicitly — leaving the profile off keeps the exception. (An unknown profile is rejected fail-closed with `:rf.error/unknown-egress-profile`, so a typo can't silently downgrade the boundary.)
 
-One honest caveat about the default. The projector walks the exception as it walks any other slot, and an opaque host throwable is a value whose provenance it cannot prove — so a secret that landed in an exception *message* or in `ex-data` is not redacted by classification. If that worries you for a given frame, `:rf.egress/public-error` is the answer, and it is total.
+One honest caveat about the default. The projector walks the exception as it walks any other slot, and an opaque host throwable is a value whose provenance it cannot prove — so a secret that landed in an exception *message* or in `ex-data` is not redacted by classification. `:rf.egress/public-error` is the answer for that, with one boundary worth naming precisely: it drops the record's **top-level** `:exception` outright, and only that one. A throwable nested inside the `:tags` tree — the per-step `:exception` on each `:hook-failures` entry in §4 — is walked like any other value and survives the profile, because the walker cannot see inside an opaque throwable to redact it and no declared path replaces the slot that contains it. So the profile is total for the record's own throwable, and not a blanket scrub of every throwable the record transitively holds.
 
 It is also worth being precise about what is still running in production, because the line isn't obvious from outside. ([Observability](../observability.md) is the full account of what [elision](../glossary.md#elide) removes and spares; here's the short version a monitor needs.)
 
@@ -263,13 +265,17 @@ Crash reporting is the error route's job. Its sibling, the **`:handled-events`**
 
 (when (and config/production? (not ^boolean interop/debug-enabled?))
   (rf/register-observability-sink! :app.sinks/metrics
-    (fn [{:keys [event-id frame outcome elapsed-ms]}]
+    (fn [{:keys [event-id frame status elapsed-ms]}]
       ;; ship one timing/throughput point per processed event
       (metrics/timing! "rf.event" elapsed-ms
-        {:event-id (str event-id) :frame (str frame) :outcome (name outcome)}))))
+        {:event-id (str event-id) :frame (str frame) :status (name status)}))))
 ```
 
-The `:outcome` slot earns its keep, because it reports the dispatch result across **every** way a run can fail — so a dispatch that aborted is never mis-reported to your APM as a clean `:ok`. It takes one of five values:
+!!! warning "The slot is `:status` on a sink, `:outcome` on the corpus listener"
+
+    Same value, two spellings, one per door. A projected `:rf.observe/handled-event` record — the one your sink receives — carries the dispatch result under **`:status`**. The corpus-wide `register-listener! :events` record (§8) carries the identical keyword under **`:outcome`**. Destructuring `outcome` in a sink fn binds `nil`, and `(name nil)` throws; there is no `:outcome` slot to read there.
+
+The `:status` slot earns its keep, because it reports the dispatch result across **every** way a run can fail — so a dispatch that aborted is never mis-reported to your APM as a clean `:ok`. It takes one of five values:
 
 - `:ok` — clean settle: `:db` [committed](../glossary.md#commit), flows ran, `:fx` walked.
 - `:error` — the interceptor chain (handler or interceptor) threw; the run halted before any `:db` commit.
@@ -281,11 +287,11 @@ The `:outcome` slot earns its keep, because it reports the dispatch result acros
 
     The handled-event stream survives the production gate, but app-db schema validation does not. `reg-app-schema` is a development-time assertion: a production build registers your schemas and never checks them, so nothing is left to reject a candidate and `:rolled-back` has no producer. A dispatch whose `:db` violates a registered schema installs anyway and reports `:ok`. Do not read a quiet `:rolled-back` metric as evidence that no schema was violated — in production it is quiet by construction. If you need a real production check, put the invariant in the handler, or validate untrusted input with the `:rf.schema/at-boundary` interceptor.
 
-    That interceptor is the complement of everything in the paragraph above, and the two are worth holding side by side because they are easy to conflate. Its check is ungated, and so is its **report**: a refused payload settles `:outcome :rejected` on the handled-event stream and fans one `:rf.error/schema-validation-failure` record (`:source :boundary`) onto the error route. Both surfaces on this page see it, in a release build, with no wiring of your own. So a spike of `:rejected` on your dashboard is a real one, and it is the outcome to alert on — a flat `:rolled-back` line, in the same build, means nothing at all.
+    That interceptor is the complement of everything in the paragraph above, and the two are worth holding side by side because they are easy to conflate. Its check is ungated, and so is its **report**: a refused payload settles `:status :rejected` on your handled-event sink and fans one `:rf.error/schema-validation-failure` record (`:source :boundary`) onto the error route. Both surfaces on this page see it, in a release build, with no wiring of your own. So a spike of `:rejected` on your dashboard is a real one, and it is the value to alert on — a flat `:rolled-back` line, in the same build, means nothing at all.
 
     The boundary record is deliberately **structural only**. Its key set is closed: `:error`, `:where`, `:source`, `:event-id`, `:failing-id`, `:schema-id`, `:frame`, `:recovery`, `:time` — and nothing derived from the payload. No event vector, no offending value, no Malli explanation, not even the interpolated `:reason` the development trace carries. That is *stricter* than the redaction applied elsewhere on this page rather than weaker, and the reason is worth internalising: a validation failure's natural detail is the value that failed, and at a boundary that value is attacker-controlled or user-private by definition, so it can carry secrets under keys your declared schema never anticipated — precisely the keys no schema-aware redactor can be trusted to have seen. Omitting the slot is the only policy that holds. You can therefore count refusals, attribute each to a frame and an event id, and alert on the rate; to *diagnose* one you read the dev trace, or branch in your own handler code. See [Validate with schemas](validate-with-schemas.md#in-production-what-goes-what-stays).
 
-The two pair naturally: `:handled-events` tells you *something is wrong* (a spike of `:error` or `:rejected` outcomes on your dashboard); `:errors` tells you *what* (the throwable and its stack, ready for the issue tracker — or, for a boundary rejection, the event and schema ids that name the refused ingress).
+The two pair naturally: `:handled-events` tells you *something is wrong* (a spike of `:error` or `:rejected` on your dashboard); `:errors` tells you *what* (the throwable and its stack, ready for the issue tracker — or, for a boundary rejection, the event and schema ids that name the refused ingress).
 
 ??? info "Coming from TanStack Query?"
 
