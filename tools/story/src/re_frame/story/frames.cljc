@@ -78,14 +78,7 @@
             [re-frame.story.loaders    :as rf.story.loaders]
             [re-frame.story.predicates :as rf.story.predicates]
             [re-frame.story.registrar  :as rf.story.registrar]
-            [re-frame.story.runtime-image :as rf.story.runtime-image]
-            ;; Trace-listener pattern for the teardown
-            ;; exception-projection path: re-frame's interceptor chain
-            ;; catches handler exceptions internally and emits
-            ;; `:rf.error/handler-exception` trace events rather than
-            ;; re-throwing (per `runtime/capture-phase-errors` —
-            ;; the same listener pattern is used here for phase-teardown).
-            [re-frame.trace.tooling    :as rf.trace.tooling]))
+            [re-frame.story.runtime-image :as rf.story.runtime-image]))
 
 ;; ---- fx-override-stub registration ---------------------------------------
 ;;
@@ -211,6 +204,12 @@
 
 ;; ---- :frame-setup decorator application ---------------------------------
 
+;; Why a trace listener rather than a try/catch: re-frame's interceptor
+;; chain catches handler exceptions internally and emits
+;; `:rf.error/handler-exception` trace events rather than re-throwing (per
+;; `runtime/capture-phase-errors`), so the exception-projection path for
+;; setup and teardown phases has to read them off the trace stream.
+
 (defonce ^:private setup-capture-counter (atom 0))
 
 (defn- with-setup-trace-listener
@@ -222,9 +221,9 @@
   [listener body-fn]
   (let [cb-id (keyword "re-frame.story.frames"
                        (str "setup-capture-" (swap! setup-capture-counter inc)))]
-    (rf.trace.tooling/register-listener! cb-id listener)
+    (rf/register-listener! :trace cb-id listener)
     (try (body-fn)
-      (finally (rf.trace.tooling/unregister-listener! cb-id)))))
+      (finally (rf/unregister-listener! :trace cb-id)))))
 
 (defn- apply-frame-setup!
   "Walk the resolved `:frame-setup` decorators and execute their
@@ -326,9 +325,9 @@
   (let [cb-id (keyword "re-frame.story.frames"
                        (str "teardown-capture-"
                             (swap! teardown-capture-counter inc)))]
-    (rf.trace.tooling/register-listener! cb-id listener)
+    (rf/register-listener! :trace cb-id listener)
     (try (body-fn)
-      (finally (rf.trace.tooling/unregister-listener! cb-id)))))
+      (finally (rf/unregister-listener! :trace cb-id)))))
 
 (defn- apply-frame-teardown!
   "Walk the resolved `:frame-setup` decorators IN REVERSE-DECLARATION

@@ -70,14 +70,6 @@
             [re-frame.subs.tooling :as rf.subs.tooling]
             [re-frame.schemas :as rf.schemas]
             [re-frame.machines :as rf.machines]
-            ;; register-listener! / trace-buffer (and the rest of
-            ;; the listener + ring-buffer surface) live in
-            ;; re-frame.trace.tooling, not re-frame.trace. CLJS deliberately
-            ;; omits `rf/<name>` aliases for these so production counter
-            ;; bundles DCE the tooling sibling wholesale; this preload is
-            ;; dev-only, so requiring the tooling ns directly here is
-            ;; bundle-isolation-safe.
-            [re-frame.trace.tooling :as rf.trace.tooling]
             ;; `flush-render!` (the SYNCHRONOUS render-commit contract fn,
             ;; Spec 006 §`flush-render!`) lives in
             ;; re-frame.substrate.adapter, not re-frame.core. It resolves
@@ -1436,7 +1428,7 @@
    re-registration replaces the same listener id, and
    `last-trace-event-id` keeps working through it."
   []
-  (rf.trace.tooling/register-listener! :re-frame2-pair on-trace-event))
+  (rf/register-listener! :trace :re-frame2-pair on-trace-event))
 
 (defn last-trace-event-id
   "Last trace event id observed by the skill's listener. Useful as a

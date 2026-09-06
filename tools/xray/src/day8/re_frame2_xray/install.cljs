@@ -13,10 +13,16 @@
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
-            ;; Listener registration uses each stream's home namespace so
-            ;; the dev-only tooling surface remains independently elidable.
-            [re-frame.trace.tooling :as rf.trace.tooling]
-            [re-frame.epoch :as rf.epoch]
+            ;; Compile-time anchor. Both collectors attach through the
+            ;; `rf/register-listener!` facade, so no home-namespace alias
+            ;; is needed; this bare require exists to LOAD the epoch
+            ;; PRODUCER on every startup path. The facade reaches that
+            ;; producer through a late-bind hook an unloaded namespace
+            ;; never populates, so manual `core/init!` startup (which
+            ;; requires this namespace but not `preload`) would otherwise
+            ;; register a silent no-op. `preload.cljs` uses the same
+            ;; bare-require shape.
+            [re-frame.epoch]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.mount :as mount]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
@@ -25,7 +31,7 @@
 
 (defonce ^:private trace-cb-registered?
   ;; Idempotency sentinel for the trace-callback registration. Cf.
-  ;; `re-frame.trace/register-listener!`: passing the same id twice
+  ;; `rf/register-listener!`: passing the same id twice
   ;; replaces the callback. The replacement is harmless but emits a
   ;; warning trace on every reload that pollutes the dev console;
   ;; this sentinel suppresses re-registration on `:after-load`.
@@ -43,8 +49,8 @@
   it directly without `#'`-piercing into private vars."
   []
   (when (compare-and-set! trace-cb-registered? false true)
-    (rf.trace.tooling/register-listener! :rf.xray/trace-collector
-                                      trace-collector/collect-trace!))
+    (rf/register-listener! :trace :rf.xray/trace-collector
+                           trace-collector/collect-trace!))
   nil)
 
 ;; ---- task-coalesced epoch pump (rf2-chs7) --------------------------------
@@ -160,7 +166,7 @@
   Idempotent via the `epoch-cb-registered?` sentinel."
   []
   (when (compare-and-set! epoch-cb-registered? false true)
-    (rf.epoch/register-epoch-listener! :rf.xray/epoch-collector
+    (rf/register-listener! :epoch :rf.xray/epoch-collector
       (fn [record]
         (note-epoch-recorded! (:frame record)))))
   nil)

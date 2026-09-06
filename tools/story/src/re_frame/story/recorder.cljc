@@ -121,13 +121,11 @@
   - `append-assertion`        — pure: state → state with assertion appended.
   - `insert-assertion!`       — impure entrypoint for the picker UI."
   (:require [clojure.string :as str]
+            [re-frame.core :as rf]
             [re-frame.story.config :as rf.story.config]
             [re-frame.story.late-bind :as rf.story.late-bind]
             [re-frame.story.predicates :as rf.story.predicates]
-            [re-frame.story.review-dialog :as rf.story.review-dialog]
-            ;; The listener surface lives in `re-frame.trace.tooling`
-            ;; (production-DCE split).
-            [re-frame.trace.tooling :as rf.trace.tooling]))
+            [re-frame.story.review-dialog :as rf.story.review-dialog]))
 
 ;; ---------------------------------------------------------------------------
 ;; Pure: recordable event predicate
@@ -1020,12 +1018,12 @@
   tests directly."
   []
   (when rf.story.config/enabled?
-    (rf.trace.tooling/register-listener! listener-id trace-listener)
+    (rf/register-listener! :trace listener-id trace-listener)
     nil))
 
 (defn remove-trace-listener!
   "Tear down the recorder's trace-bus listener. Idempotent."
   []
   (when rf.story.config/enabled?
-    (rf.trace.tooling/unregister-listener! listener-id)
+    (rf/unregister-listener! :trace listener-id)
     nil))
