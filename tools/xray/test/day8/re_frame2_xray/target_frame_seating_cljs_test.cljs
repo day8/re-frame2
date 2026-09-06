@@ -48,7 +48,16 @@
      `mount/ensure-seated!`, not `mount/ensure-xray-frame!`. The latter also
      runs the run-once first-mount hook fan-out, whose whole job is to harvest
      the rings the user filled before opening Xray; firing it from a setter
-     would spend that one run on an empty boot-time ring.
+     would spend that one run on an empty boot-time ring. It ALSO pins the
+     other half of that split: deferring the fan-out means the fan-out then
+     lands on a frame the host has already targeted, so first-open discovery
+     must not overwrite the explicit target it finds there.
+  6. `first-open-discovery-yields-…` is the same contract with a COMPETING
+     candidate: an explicit target survives even when the ring offers a
+     focusable bundle from a different frame.
+  7. `first-open-discovery-selects-…` is (6)'s control — same ring, same
+     entry point, no explicit target — proving the preservation in (5)/(6) is
+     a deference to the host and not a disabled discovery policy.
 
   Node-test (`npm run test:cljs`) — no DOM needed, because the whole point is
   that nothing mounts."
@@ -59,7 +68,8 @@
             [day8.re-frame2-xray.core :as core]
             [day8.re-frame2-xray.mount :as mount]
             [day8.re-frame2-xray.registry :as registry]
-            [day8.re-frame2-xray.test-support :as xray-test-support]))
+            [day8.re-frame2-xray.test-support :as xray-test-support]
+            [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 ;; `mount/teardown!` clears BOTH the mount state and the `boot-on-runtime-
 ;; ready!` run-once latch, which `mount/reset-for-test!` (the `seeded-frame-ids`
@@ -103,6 +113,51 @@
   []
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/clear-reset-flash])))
+
+(defn- xray-read [query]
+  (rf/with-frame :rf/xray (rf/subscribe-once query)))
+
+(defn- focus-frame
+  "The `[:focus :frame]` axis, read through the spine's raw `:rf.xray/focus-
+  slot` sub. `:rf.xray/set-target-frame` writes this in lockstep with
+  `:target-frame` (rf2-ulpp8), so a survival claim about one is only half a
+  claim: the axes encode the same gesture and both have to hold."
+  []
+  (:frame (xray-read [:rf.xray/focus-slot])))
+
+(def ^:private main-epochs
+  "Stand-in for the framework's per-frame epoch ring on `:app/main`. Non-empty
+  on purpose: `:rf.xray/set-target-frame` re-seeds `:epoch-history` from
+  `(rf/epoch-history target)`, so a target silently reset to nil leaves the
+  slot `[]` — a discriminating value the empty ring could not supply."
+  [{:epoch-id      :e-main-1
+    :frame         :app/main
+    :db-before     {}
+    :db-after      {:ready? true}
+    :trigger-event [:app/boot]
+    :event-id      :app/boot
+    :trace-events  []}])
+
+(defn- stub-epoch-history
+  "`rf/epoch-history` narrowed to the frames these deftests name. In production
+  the framework's ring already carries these records; stubbing keeps the
+  assertion about Xray's seeding, not about the ring."
+  [frame-id]
+  (case frame-id
+    :app/main main-epochs
+    []))
+
+(defn- pre-mount-dispatch-event
+  "A trace event the projection groups into a focusable event-bundle for
+  `frame-id` — the shape `event/dispatched` emits. Seeded into the ring so
+  first-open discovery has a candidate to find."
+  [id dispatch-id frame-id event-id]
+  {:id        id
+   :op-type   :rf.event
+   :operation :rf.event/dispatched
+   :tags      {:rf.trace/dispatch-id dispatch-id
+               :frame                frame-id
+               :rf.event/v           [event-id]}})
 
 ;; ---- (1) control — the emission is real on an unseated frame -------------
 
@@ -207,14 +262,89 @@
             setter would snapshot an empty ring at boot and then skip, leaving
             a later first open with no pre-open history to show. So after the
             facade has seated the frame, `ensure-xray-frame!` must still have
-            its hooks to run."
+            its hooks to run.
+
+            Deferring the fan-out is only half a contract, and the other half
+            is asserted below: because the hooks now run AFTER the host has
+            targeted a frame, first-open discovery meets an explicit target
+            that was not there before rf2-88f1. It must defer to it. On a cold
+            ring `spine/focusable-head-frame-id` finds no candidate and the
+            discovery seed is `defaults/default-target-frame` = nil, which
+            `:rf.xray/set-target-frame` writes as a RESET — dissoc'ing
+            `:target-frame`, clearing `[:focus :frame]` and emptying
+            `:epoch-history`. The host's boot intent would be gone at first
+            open, silently, with no error to read."
     (registry/register-xray-handlers!)
     (config/set-auto-open! false)
-    (core/set-target-frame! :app/main)
-    (is (some? (rf.frame/frame :rf/xray))
-        "the facade seated the frame")
-    (is (not (contains? (seeded-frame-ids) :rf/xray))
-        "but did NOT mark it seeded — the first-mount hooks are still pending")
-    (mount/ensure-xray-frame!)
-    (is (contains? (seeded-frame-ids) :rf/xray)
-        "and first open still gets its one hook fan-out")))
+    (with-redefs [rf/epoch-history stub-epoch-history]
+      (core/set-target-frame! :app/main)
+      (is (some? (rf.frame/frame :rf/xray))
+          "the facade seated the frame")
+      (is (not (contains? (seeded-frame-ids) :rf/xray))
+          "but did NOT mark it seeded — the first-mount hooks are still pending")
+      (flush-xray-queue!)
+      (is (= :app/main (core/target-frame))
+          "precondition: the host's explicit pre-open target has landed")
+      (mount/ensure-xray-frame!)
+      (is (contains? (seeded-frame-ids) :rf/xray)
+          "and first open still gets its one hook fan-out")
+      (is (= :app/main (core/target-frame))
+          "the explicit pre-open target SURVIVES first open — discovery on an
+           empty ring must not reset a target the host already chose")
+      (is (= :app/main (focus-frame))
+          "and so does the `[:focus :frame]` axis the reducer moves with it —
+           a surviving `:target-frame` beside a cleared focus slot would leave
+           the L2 list unfiltered against the frame the panels name")
+      (is (= main-epochs (xray-read [:rf.xray/epoch-history]))
+          "and `:epoch-history` still reads the target's ring rather than the
+           `[]` a reset to nil leaves behind"))))
+
+;; ---- (6) the same contract against a COMPETING discovery candidate -------
+
+(deftest first-open-discovery-yields-to-an-explicit-target
+  (testing "rf2-88f1 — the empty-ring case above resets the target to nil; a
+            ring that DOES carry a focusable bundle reaches the same loss by
+            the other road, replacing the host's target with whichever frame
+            happens to head the pre-open trace. Deftest (7) is this deftest
+            with the explicit target removed and everything else identical,
+            so the pair pins deference rather than a disabled policy."
+    (registry/register-xray-handlers!)
+    (config/set-auto-open! false)
+    (with-redefs [rf/epoch-history stub-epoch-history]
+      (trace-collector/seed-trace-for-test!
+        (pre-mount-dispatch-event 1 100 :other/frame :other/event))
+      (core/set-target-frame! :app/main)
+      (flush-xray-queue!)
+      (is (= :app/main (core/target-frame))
+          "precondition: the host targeted `:app/main` before first open")
+      (mount/ensure-xray-frame!)
+      (is (= :app/main (core/target-frame))
+          "the host's target outranks the discovered head bundle's frame")
+      (is (= :app/main (focus-frame))
+          "on the focus axis too")
+      (is (= main-epochs (xray-read [:rf.xray/epoch-history]))
+          "and the epoch history stays keyed on the surviving target"))))
+
+;; ---- (7) the control — discovery still runs when nothing was chosen ------
+
+(deftest first-open-discovery-selects-when-no-explicit-target
+  (testing "rf2-88f1 control — same ring and same entry point as deftest (6),
+            with no pre-open `set-target-frame!`. The mount-time discovery
+            policy (EP-0002's operator-present tier) still resolves the head
+            focusable bundle's frame, so the preservation above is a deference
+            to an explicit host choice and NOT a first-open seed that stopped
+            writing."
+    (registry/register-xray-handlers!)
+    (config/set-auto-open! false)
+    (with-redefs [rf/epoch-history stub-epoch-history]
+      (trace-collector/seed-trace-for-test!
+        (pre-mount-dispatch-event 1 100 :other/frame :other/event))
+      (mount/ensure-seated!)
+      (is (nil? (core/target-frame))
+          "precondition: nothing has chosen a target")
+      (mount/ensure-xray-frame!)
+      (is (= :other/frame (core/target-frame))
+          "discovery selects the head focusable bundle's frame, as it did
+           before rf2-88f1")
+      (is (= :other/frame (focus-frame))
+          "aligning the focus axis with it"))))
