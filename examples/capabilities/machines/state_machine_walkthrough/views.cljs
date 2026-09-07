@@ -39,8 +39,8 @@
                   line touches exactly zero views
                   (docs/machines/glossary.md#state-tag)."}
           login-form []
-  (let [busy?   @(rf/subscribe [:rf.machine/has-tag? :walkthrough.login/flow :auth/busy])
-        locked? @(rf/subscribe [:rf.machine/has-tag? :walkthrough.login/flow :auth/locked])
+  (let [busy?   @(subscribe [:rf.machine/has-tag? :walkthrough.login/flow :auth/busy])
+        locked? @(subscribe [:rf.machine/has-tag? :walkthrough.login/flow :auth/locked])
         draft   @(subscribe [:walkthrough.login/draft])
         err     @(subscribe [:walkthrough.login/error])]
     [:form.login-form
@@ -99,7 +99,7 @@
    [:p "Too many failed attempts. Contact support to unlock."]])
 
 (rf/reg-view root-view []
-  (let [locked? @(rf/subscribe [:rf.machine/has-tag? :walkthrough.login/flow :auth/locked])]
+  (let [locked? @(subscribe [:rf.machine/has-tag? :walkthrough.login/flow :auth/locked])]
     [:div.app
      [:h1 "State-machines walkthrough — login lockout"]
      [status-banner]
