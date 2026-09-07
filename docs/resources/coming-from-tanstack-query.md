@@ -225,7 +225,7 @@ The two whole-view-model reads are `@(rf/subscribe [:rf/resource query])` and `@
 
 !!! note "The whole `rf/` resource API is the optional Resources artefact"
 
-    — late-bound by `day8/re-frame2-resources`, absent from an app that never requires it. The introspection accessors (`rf/resource-meta`, `rf/resource-state`, `rf/resources`) are the tool/test projection lane, not an app-read API; a view that reaches for them instead of a subscription is a category error (they take a one-shot snapshot and never re-render).
+    — late-bound by `day8/re-frame2-resources`, absent from an app that never requires it. The introspection accessors (`rf/resource-meta`, `rf/resource-state`) are the tool/test projection lane, not an app-read API; a view that reaches for them instead of a subscription is a category error (they take a one-shot snapshot and never re-render).
 
 Three command names earn a sentence each, because a query-library reader reaches for them and the mapping isn't obvious:
 
