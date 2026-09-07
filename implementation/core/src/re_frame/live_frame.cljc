@@ -149,9 +149,22 @@
             [re-frame.interop        :as rf.interop]
             [re-frame.error          :as rf.error]
             [re-frame.late-bind      :as rf.late-bind]
+            ;; rf2-4lp1 — the targeted subscription refresh at a generation
+            ;; change (§Subscription refresh at a generation change, below).
+            ;; `re-frame.subs.cache` requires `re-frame.frame`, so the frame ns
+            ;; cannot reach the cache; this ns sits ABOVE both. The edge adds NO
+            ;; transitive dependency — `subs.cache`'s whole require closure
+            ;; (frame, interop, late-bind, registrar, trace) is a subset of the
+            ;; one this ns already carries.
+            [re-frame.subs.cache     :as rf.subs.cache]
             [re-frame.trace          :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
+
+;; rf2-4lp1: `make-frame` fires the generation-change subscription refresh,
+;; whose definition sits beside `generation-diff` — the fn it is built on —
+;; several hundred lines below it.
+(declare invalidate-subs-for-generation-change!)
 
 ;; ===========================================================================
 ;; The frame VALUE + the ONE registry (EP-0024 §One live frame registry,
@@ -1062,16 +1075,37 @@
        ;; nothing and a FAILED re-construction still preserves the OLD row — and
        ;; because the restore runs while this attempt still OWNS the id, the row
        ;; it restores is still the row it displaced.
-       (rf.frame/call-with-frame-construction-claim!
-         runnable-id :construction
-         (fn []
-           (let [[had-pool-row? prior-pool]
-                 (record-frame-generation-pool! runnable-id descriptors)]
-             (try
-               (rf.frame/upsert-frame! runnable-id record-config token-box)
-               (catch #?(:clj Throwable :cljs :default) e
-                 (restore-frame-generation-pool! runnable-id had-pool-row? prior-pool)
-                 (throw e))))))
+       ;; rf2-4lp1 — the generation this call DISPLACES, read INSIDE the per-id
+       ;; construction claim so it is exactly what `upsert-frame!` is about to
+       ;; replace: nil on a first creation (nothing cached yet), the previous
+       ;; sealed generation on the same-id re-construction path that IS image
+       ;; hot-reload. Reading it outside the claim would race the reprojection
+       ;; writer. The refresh itself fires AFTER the commit — a construction
+       ;; that throws rolls the record back, and evicting against a generation
+       ;; that was never installed would churn a cache for nothing.
+       (let [displaced-generation (volatile! nil)]
+         (rf.frame/call-with-frame-construction-claim!
+           runnable-id :construction
+           (fn []
+             (let [[had-pool-row? prior-pool]
+                   (record-frame-generation-pool! runnable-id descriptors)]
+               (vreset! displaced-generation
+                        (rf.frame/frame-generation runnable-id))
+               (try
+                 (rf.frame/upsert-frame! runnable-id record-config token-box)
+                 (catch #?(:clj Throwable :cljs :default) e
+                   (restore-frame-generation-pool! runnable-id had-pool-row? prior-pool)
+                   (throw e))))))
+         ;; Refresh the frame's cached subscriptions against what actually
+         ;; landed on the record (`frame-generation` re-read, not the local
+         ;; `generation` value) — the `:initial-events` cascade inside
+         ;; `upsert-frame!` can flush a pending reprojection that swaps a
+         ;; different generation on, and the diff must be against the one the
+         ;; next subscribe will resolve through.
+         (invalidate-subs-for-generation-change!
+           runnable-id
+           @displaced-generation
+           (rf.frame/frame-generation runnable-id)))
        ;; rf2-djkr0 — THE INVARIANT: a PARTIALLY-CONSTRUCTED frame is never
        ;; observable as live, so a registration that lands while a frame is
        ;; mid-construction is never lost.
@@ -1199,6 +1233,81 @@
      :changed  changed
      :retained retained}))
 
+;; ---- subscription refresh at a generation change (rf2-4lp1) ---------------
+;;
+;; EP-0023 §Hot Reload preserves "subscription state that remains valid" and
+;; explicitly permits TARGETED invalidation for changed registrations; EP-0024
+;; §Duplicate id policy makes same-id construction refresh configuration and
+;; generation while durable state — the `:sub-cache` atom among it — survives.
+;; Preserving the cache is right; preserving its CONTENTS wholesale was not.
+;;
+;; A cached reaction closes over the `:handler-fn` and input topology resolved
+;; from the descriptor that was current WHEN IT WAS BUILT. `subscribe-in-frame`'s
+;; hit branch bumps the ref-count and hands that reaction back without ever
+;; comparing it against the frame's CURRENT generation, so after a generation
+;; swap an already-materialised query kept running the old body — image
+;; replacement (and Story behaviour replacement) appeared not to take effect
+;; until the caller knew to call `clear-sub-cache!` by hand, which is exactly
+;; the ceremony §Hot Reload says a reload must not require.
+;;
+;; A generation change fires NO `register!`, so `re-frame.subs.cache`'s
+;; registrar replacement hook cannot see it. This is the other half of that
+;; same hook, driven from the registry that DOES move: the diff between the two
+;; sealed generations. `generation-diff` (above) already names it exactly —
+;; `:changed` / `:added` / `:removed` `[kind id]` pairs — and, crucially,
+;; `:retained` names the registrations that are byte-identical across the swap
+;; (an unchanged sub merely selected by a different image composition), which
+;; is what keeps this TARGETED rather than a cache clear: retained slots keep
+;; their reaction identity and their ref-counts.
+;;
+;; `:added` is load-bearing, not defensive. A parent sub declaring an input
+;; that is not registered yet resolves that input to a nil-yielding reaction
+;; whose MISS is deliberately not cached (rf2-l9u5) — but the PARENT is cached,
+;; holding that nil-yielding reaction by closure. First-registering the missing
+;; input reprojects the frame's generation, and the parent is reached through
+;; its declared `:inputs` head even though the added id has no slot of its own.
+;;
+;; WHY HERE AND NOT IN `re-frame.frame`. `re-frame.subs.cache` requires
+;; `re-frame.frame`, so the frame ns cannot statically reach the cache (the
+;; same constraint that puts `:subs/dispose-frame-sub-caches!` in the late-bind
+;; directory). This ns sits ABOVE both — it already requires `rf.frame`, and
+;; `rf.subs.cache`'s whole require closure is a subset of the one this ns
+;; already carries, so the edge adds no transitive dependency — and it is the
+;; ns that owns `generation-diff`. It is also the ns through which BOTH
+;; generation writers pass: `swap-frame-generation!` below (the automatic
+;; `reg-*` reprojection path) and `make-frame`'s `upsert-frame!` call (the
+;; explicit same-id re-construction path). `rf.frame/set-generation!` has no
+;; other production caller.
+
+(defn- invalidate-subs-for-generation-change!
+  "Refresh frame `id`'s cached subscriptions against a generation swap from
+  `old-generation` to `new-generation`.
+
+  Evicts + disposes exactly the cache slots whose `:sub` registration DIFFERS
+  between the two generations — `:changed`, `:added` and `:removed` — plus
+  their transitive declared-input dependent closure, via
+  `rf.subs.cache/invalidate-frame-subs!`. `:retained` subs are left alone, so
+  a swap that moves one registration does not churn the rest of the frame's
+  cache, and other frames are never touched (the generation is per-record).
+
+  A no-op when there was no previous generation (frame CREATION — there is no
+  cache yet), when the generations are `=` (the reprojection path already
+  guards this, and a rolled-back construction restores the old value), or when
+  no `:sub` moved (an `:event`-only image edit leaves every reaction valid).
+  Returns nil."
+  [id old-generation new-generation]
+  (when (and (some? old-generation)
+             (not= old-generation new-generation))
+    (let [{:keys [added changed removed]} (generation-diff old-generation
+                                                          new-generation)
+          sub-ids (into #{}
+                        (comp (filter (fn [[kind _id]] (= :sub kind)))
+                              (map second))
+                        (concat added changed removed))]
+      (when (seq sub-ids)
+        (rf.subs.cache/invalidate-frame-subs! id sub-ids))))
+  nil)
+
 ;; ---- the in-place generation swap (PRESERVES FRAME MEMORY) -----------------
 ;;
 ;; Shared by the automatic `reg-*` reprojection path below. The explicit
@@ -1214,9 +1323,18 @@
   registry; the EP-0023 §Hot Reload contract — \"Hot reload must not be
   implemented by tearing down and recreating the frame\"). The generation lives
   on the ONE record, so an `:id`-bearing frame and any holder of its frame value
-  observe the swap through the same record. Returns nil."
+  observe the swap through the same record. Returns nil.
+
+  rf2-4lp1: the swap is followed by the TARGETED subscription refresh — frame
+  memory continuing across a reload does not mean a cached reaction built
+  against the OLD generation's descriptor continues with it. Read the old
+  generation off the record here rather than trusting a caller's snapshot, so
+  the diff is against what the swap actually displaced."
   [id new-generation]
-  (rf.frame/set-generation! id new-generation))
+  (let [old-generation (rf.frame/frame-generation id)]
+    (rf.frame/set-generation! id new-generation)
+    (invalidate-subs-for-generation-change! id old-generation new-generation))
+  nil)
 
 ;; ---- reload-images! — RETIRED (rf2-lxwpob) ---------------------------------
 ;;

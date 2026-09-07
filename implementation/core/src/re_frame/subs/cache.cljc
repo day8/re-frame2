@@ -311,31 +311,54 @@
 ;; reactions hold the OLD input reaction); without invalidating the whole
 ;; transitive dependent closure, a downstream slot like `[:sum]` over `[:a]`
 ;; keeps its stale input reaction and serves the old `:a` body's value.
+;;
+;; rf2-4lp1 — THE REGISTRAR IS NOT THE ONLY REGISTRY A SUB'S DEFINITION CAN
+;; MOVE IN. An image-loaded frame resolves `(kind, id)` through its OWN sealed
+;; generation (EP-0023), so a same-id `make-frame` re-construction or a
+;; source-store reprojection changes what `[:some-sub]` MEANS in that frame
+;; without any `register!` call firing — the replacement hook below never
+;; runs, and the cache (durable frame state, deliberately preserved across the
+;; swap) kept serving the previous generation's body until the caller thought
+;; to `clear-sub-cache!` by hand. Both triggers are one event seen from two
+;; registries, so both funnel through the ONE primitive below
+;; (`invalidate-frame-subs!`); the generation-side trigger lives in
+;; `re-frame.live-frame`, which owns `generation-diff` and can therefore name
+;; exactly the sub-ids that moved.
 
 (defn- transitive-dependent-closure
-  "Given a cache map `m` and a re-registered sub `id`, return the set of
-  cache keys to evict: the re-registered sub's own slots PLUS every slot
-  that depends on it transitively through the declared-input topology recorded in
-  each entry's `:inputs` (the vector of input query-vectors).
+  "Given a cache map `m` and a SET of affected sub `ids`, return the set of
+  cache keys to evict: those subs' own slots PLUS every slot that depends on
+  them transitively through the declared-input topology recorded in each
+  entry's `:inputs` (the vector of input query-vectors).
 
   A slot is a dependent iff any of its `:inputs` query-vectors either
-  (a) has head = `id` — a DIRECT declared input on the re-registered sub — or
+  (a) has head IN `ids` — a DIRECT declared input on an affected sub — or
   (b) equals a key already in the evict set — a TRANSITIVE dependency on
   an already-condemned slot. The fixpoint loop grows the set until no new
   key is added; it only ever ADDS keys not already present, so a cyclic
-  declared-input graph cannot loop forever (each key is admitted at most once)."
-  [m id]
+  declared-input graph cannot loop forever (each key is admitted at most once).
+
+  Clause (a) is what reaches a cached PARENT whose declared input has NO slot
+  of its own — the input was unregistered when the parent was built, so the
+  miss was deliberately not cached (rf2-l9u5) while the parent WAS, holding
+  the nil-yielding input reaction by closure. `ids` is a SET rather than one
+  id (rf2-4lp1) because a frame-generation change condemns a whole BATCH of
+  sub-ids at once — `:added` / `:changed` / `:removed` between two
+  generations — and running the fixpoint once over the batch is not the same
+  as running it per-id: a chain condemned through two different ids
+  converges in one pass."
+  [m ids]
   (let [;; Static index: cache-key → the seq of its input query-vectors.
         inputs-of  (fn [k] (:inputs (get m k)))
         depends-on (fn [k condemned]
-                     ;; k depends on the re-registration iff one of its
-                     ;; inputs targets `id` directly or a condemned slot.
+                     ;; k depends on the change iff one of its inputs targets
+                     ;; an affected id directly or a condemned slot.
                      (boolean
                        (some (fn [input-q]
-                               (or (= id (first input-q))
+                               (or (contains? ids (first input-q))
                                    (contains? condemned input-q)))
                              (inputs-of k))))
-        seed       (into #{} (filter #(= id (first %))) (keys m))]
+        seed       (into #{} (filter #(contains? ids (first %))) (keys m))]
     (loop [condemned seed]
       (let [next-set (into condemned
                            (filter #(depends-on % condemned))
@@ -344,44 +367,73 @@
           condemned
           (recur next-set))))))
 
+(defn invalidate-frame-subs!
+  "Evict + dispose every slot in frame `frame-id`'s sub-cache whose sub-id is
+  in `sub-ids`, PLUS their transitive declared-input dependent closure. The
+  cache ATOM is preserved (durable frame state survives); every slot outside
+  the closure keeps its reaction identity and its ref-count.
+
+  The ONE per-frame invalidation primitive, shared by the two eviction
+  triggers that mean \"this sub's definition moved under a live cache\":
+
+    * `reg-sub` REPLACEMENT — `invalidate-sub-on-replace!` below, over every
+      frame, with a one-element `sub-ids` (Spec 001 §Hot-reload semantics);
+    * a frame's resolved image GENERATION changing — `re-frame.live-frame`'s
+      `invalidate-subs-for-generation-change!`, over the ONE frame that moved,
+      with the `:sub` ids the two generations differ on (rf2-4lp1, EP-0023
+      §Hot Reload).
+
+  Both are the SAME event seen from two registries, so both emit
+  `:rf.sub/dispose` with the closed-enum `:rf.sub/reason :hot-reload` (Spec
+  009 §subs/cache.cljc) and bind the intrinsic `*disposal-cause* :hot-reload`
+  (→ `:hmr`, \"the node WILL rebuild\") rather than minting a second spelling
+  for one meaning.
+
+  Returns the vector of evicted cache keys (empty when nothing matched)."
+  [frame-id sub-ids]
+  (if-let [cache (and (seq sub-ids) (:sub-cache (rf.frame/frame frame-id)))]
+    ;; The swap-fn body is pure — it returns only the new cache map.
+    ;; Reactions to dispose are read from the diff between `old` and
+    ;; `new` AFTER the CAS commits (so a retried `swap!` can't fire
+    ;; dispose 2+ times). The condemned set is the transitive declared-input
+    ;; dependent closure, recomputed inside the swap-fn against the
+    ;; map the CAS actually sees (a retry recomputes against fresh m).
+    (let [ids       (set sub-ids)
+          [old new] (swap-vals! cache
+                                (fn [m]
+                                  (apply dissoc m
+                                         (transitive-dependent-closure m ids))))
+          ;; The keys actually evicted by THIS swap are those present
+          ;; in `old` but absent in `new`. A concurrent evictor that
+          ;; won the CAS race would have removed its keys before our
+          ;; swap saw them, so the diff names ONLY the keys we own.
+          evicted-keys (filterv #(not (contains? new %))
+                                (keys old))]
+      ;; Emit dispose per evicted key BEFORE running the
+      ;; per-reaction `rf.interop/dispose!` teardown. The reason
+      ;; `:hot-reload` discriminates this path from sync 1 → 0 fires
+      ;; (`:no-more-derefers`) and explicit `clear-sub-cache!`
+      ;; (`:cache-clear`).
+      (doseq [k evicted-keys]
+        (emit-dispose! frame-id k :hot-reload))
+      ;; Tag the observation port's synchronous node-disposed notifications
+      ;; with the INTRINSIC :hot-reload cause (→ :hmr) so a former owner is
+      ;; told the node WILL rebuild (re-acquire), not that it is gone
+      ;; (rf2-r8jmdb). Nested `dispose-entry-now!` cascades (a downstream
+      ;; input losing its last derefer) correctly shadow this to :disposed.
+      (binding [*disposal-cause* :hot-reload]
+        (doseq [k evicted-keys]
+          (when-let [r (get-in old [k :reaction])]
+            (try (rf.interop/dispose! r)
+                 (catch #?(:clj Throwable :cljs :default) _ nil)))))
+      evicted-keys)
+    []))
+
 (defn- invalidate-sub-on-replace!
   [{:keys [kind id]}]
   (when (= kind :sub)
     (doseq [frame-id (rf.frame/frame-ids)]
-      (when-let [cache (:sub-cache (rf.frame/frame frame-id))]
-        ;; The swap-fn body is pure — it returns only the new cache map.
-        ;; Reactions to dispose are read from the diff between `old` and
-        ;; `new` AFTER the CAS commits (so a retried `swap!` can't fire
-        ;; dispose 2+ times). The condemned set is the transitive declared-input
-        ;; dependent closure, recomputed inside the swap-fn against the
-        ;; map the CAS actually sees (a retry recomputes against fresh m).
-        (let [[old new] (swap-vals! cache
-                                    (fn [m]
-                                      (apply dissoc m
-                                             (transitive-dependent-closure m id))))
-              ;; The keys actually evicted by THIS swap are those present
-              ;; in `old` but absent in `new`. A concurrent evictor that
-              ;; won the CAS race would have removed its keys before our
-              ;; swap saw them, so the diff names ONLY the keys we own.
-              evicted-keys (filterv #(not (contains? new %))
-                                    (keys old))]
-          ;; Emit dispose per evicted key BEFORE running the
-          ;; per-reaction `rf.interop/dispose!` teardown. The reason
-          ;; `:hot-reload` discriminates this path from sync 1 → 0 fires
-          ;; (`:no-more-derefers`) and explicit `clear-sub-cache!`
-          ;; (`:cache-clear`).
-          (doseq [k evicted-keys]
-            (emit-dispose! frame-id k :hot-reload))
-          ;; Tag the observation port's synchronous node-disposed notifications
-          ;; with the INTRINSIC :hot-reload cause (→ :hmr) so a former owner is
-          ;; told the node WILL rebuild (re-acquire), not that it is gone
-          ;; (rf2-r8jmdb). Nested `dispose-entry-now!` cascades (a downstream
-          ;; input losing its last derefer) correctly shadow this to :disposed.
-          (binding [*disposal-cause* :hot-reload]
-            (doseq [k evicted-keys]
-              (when-let [r (get-in old [k :reaction])]
-                (try (rf.interop/dispose! r)
-                     (catch #?(:clj Throwable :cljs :default) _ nil))))))))))
+      (invalidate-frame-subs! frame-id #{id}))))
 
 (defonce ^:private _hot-reload-hook
   (do (rf.registrar/add-replacement-hook! invalidate-sub-on-replace!)
