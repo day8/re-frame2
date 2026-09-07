@@ -87,6 +87,16 @@
 
 ;; ---- helpers --------------------------------------------------------------
 
+(defn- entries-table
+  "The frame's whole live resource-instance table, read at its reserved
+  runtime-db path (Spec 016 §Introspection) — the whole-table read that
+  replaced the retired `rf/resources` bundle."
+  ([] (entries-table :rf/default))
+  ([frame-id]
+   (or (get-in (:rf.db/runtime (rf/frame-state-value frame-id))
+               (rf.resources.state/entries-path))
+       {})))
+
 (defn- runtime-db
   ([] (runtime-db :rf/default))
   ([frame-id] (:rf.db/runtime (rf/frame-state-value frame-id))))
@@ -1336,12 +1346,13 @@
                                               :params {:slug "one"} :owner [:app :intro 1]}])
       (rf/dispatch-sync [:rf.resource/ensure {:resource :intro/article :scope :rf.scope/global
                                               :params {:slug "two"} :owner [:app :intro 2]}])
-      (let [{:keys [resource-ids entries]} (re-frame.resources/resources {:frame :rf/default})]
+      (let [resource-ids (keys (rf/registrations {:source :store :kind :resource}))
+            entries      (entries-table :rf/default)]
         (testing "the static registry still lists the registered id"
           (is (contains? (set resource-ids) :intro/article)))
         (testing "entry keys are the CEDN-1 byte key-id STRINGS (collapse-proof)"
           (is (= #{(rf.resources.state/key-id k1) (rf.resources.state/key-id k2)} (set (keys entries)))
-              "the public accessor keys by the byte key-id, matching internal storage")
+              "the runtime entries table keys by the byte key-id")
           (is (every? string? (keys entries))
               "every entry key is the byte key-id string")
           (is (contains? entries (rf.resources.state/key-id k1))
@@ -1373,11 +1384,12 @@
                 "internal runtime storage remains byte-keyed (string key-ids)")))))))
 
 (deftest resources-introspection-keeps-cedn-distinct-scoped-keys-distinct
-  (testing "rf2-ka2nkx ADVERSARIAL: `(resources {:frame f})` preserves ONE
-            returned entry per byte-keyed runtime entry when two entries have
-            CEDN-distinct but Clojure-= scoped-key vectors (vector params vs
-            list params). The former vector-rekey `assoc`'d one entry OVER the
-            other (the `=`-collapse), reporting ONE entry for TWO live ones"
+  (testing "rf2-ka2nkx ADVERSARIAL: the reserved-path read of the live
+            entries table keeps ONE entry per byte-keyed runtime entry when two
+            entries have CEDN-distinct but Clojure-= scoped-key vectors (vector
+            params vs list params). A vector-rekeying accessor `assoc`'d one
+            entry OVER the other (the `=`-collapse), reporting ONE entry for
+            TWO live ones"
     (rf/reg-resource :intro/article (article-spec) article-spec-request)
     (let [kv (rf.resources.state/scoped-resource-key :rf.scope/global :intro/article {:xs [1 2 3]})
           kl (rf.resources.state/scoped-resource-key :rf.scope/global :intro/article {:xs '(1 2 3)})
@@ -1391,7 +1403,7 @@
         (fn [rdb] (-> (or rdb {})
                       (assoc-in (rf.resources.state/entry-path kv) ev)
                       (assoc-in (rf.resources.state/entry-path kl) el))))
-      (let [{:keys [entries]} (re-frame.resources/resources {:frame :rf/default})]
+      (let [entries (entries-table :rf/default)]
         (is (= 2 (count entries))
             "TWO distinct returned entries — no =-collapse onto one map key")
         (is (= #{(rf.resources.state/key-id kv) (rf.resources.state/key-id kl)} (set (keys entries)))
@@ -1404,13 +1416,17 @@
           (is (seq? (-> (get entries (rf.resources.state/key-id kl)) :resource/key (nth 2) :xs))
               "list-params entry preserves list kind on :resource/key"))))))
 
-(deftest resources-introspection-without-frame-returns-empty-entries
-  (testing "rf2-jtlq7l — `(resources)` (no frame) still returns
-            `{:resource-ids [...] :entries {}}` (no ambient fallback)"
+(deftest resources-static-registry-read-is-frameless
+  (testing "rf2-kuky.85 — the static half is the frameless `{:source :store}`
+            registry query; the live half is the reserved runtime-db path read,
+            which needs a frame. There is no ambient-frame fallback and no
+            bundle returning both"
     (rf/reg-resource :introf/article (article-spec) article-spec-request)
-    (let [{:keys [resource-ids entries]} (re-frame.resources/resources)]
-      (is (contains? (set resource-ids) :introf/article))
-      (is (= {} entries) "frameless call yields an empty entries map"))))
+    (is (contains? (set (keys (rf/registrations {:source :store :kind :resource})))
+                   :introf/article)
+        "the store-sourced registry query carries no frame at all")
+    (is (= {} (entries-table :rf/nonexistent))
+        "an unknown frame's live entries table reads empty, never an ambient frame's")))
 
 ;; ===========================================================================
 ;; 18. param canonicalization is total over mixed EDN key types (rf2-ptz7z8)

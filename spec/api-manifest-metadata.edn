@@ -986,16 +986,13 @@
   ["re-frame.core" "resource-state"]      {:tier :advanced :owner "016" :status "v1 (optional capability)"
                                           :action :keep
                                           :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. A live-state read that accompanies reg-resource."}
-  ["re-frame.core" "resources"]           {:tier :advanced :owner "016" :status "v1 (optional capability)"
-                                          :action :keep
-                                          :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. The registry enumeration that accompanies reg-resource."}
   ;; Mutations — the causal-write counterpart of the resource registration
   ;; surface (rf2-dwme29, Spec 016 §Deferred slices / EP-0003 §Mutations, the
   ;; first public-beta gate). Same optional-artefact wrapper posture as
   ;; reg-resource (delegate through the late-bind table; clean
   ;; :rf.error/resources-artefact-missing when the artefact is absent).
   ;; Registration (`reg-mutation`) + registration-lifecycle (`clear-mutation`)
-  ;; + introspection (`mutation-meta` / `mutation-state` / `mutations`).
+  ;; + introspection (`mutation-meta` / `mutation-state`).
   ["re-frame.core" "reg-mutation"]        {:tier :advanced :owner "016" :status "v1 (optional capability)"
                                           :action :keep
                                           :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. Mutations are the causal-write counterpart of the resource registration surface (Spec 016, EP-0003 Mutations) and share its wrapper posture exactly."}
@@ -1005,9 +1002,6 @@
   ["re-frame.core" "mutation-state"]      {:tier :advanced :owner "016" :status "v1 (optional capability)"
                                           :action :keep
                                           :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. A live-state read that accompanies reg-mutation."}
-  ["re-frame.core" "mutations"]           {:tier :advanced :owner "016" :status "v1 (optional capability)"
-                                          :action :keep
-                                          :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. The registry enumeration that accompanies reg-mutation."}
   ;; The `sub-mutation` / `sub-resource` reactive-read sugar fns were REMOVED
   ;; (rf2-il99l3, reversing rf2-2cmcas): a resource / mutation state read is
   ;; the `[:rf/resource <query>]` / `[:rf/mutation {:instance …}]`
@@ -1811,12 +1805,10 @@
   ;; (a) Facade-mirrored — resources.
   ["re-frame.resources" "reg-resource"]         {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ["re-frame.resources" "resource-meta"]        {:tier :advanced :owner "016" :status "v1 (optional capability)"}
-  ["re-frame.resources" "resources"]            {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ["re-frame.resources" "resource-state"]       {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ;; (a) Facade-mirrored — mutations (Spec 016 §Mutations).
   ["re-frame.resources" "reg-mutation"]         {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ["re-frame.resources" "mutation-meta"]        {:tier :advanced :owner "016" :status "v1 (optional capability)"}
-  ["re-frame.resources" "mutations"]            {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ["re-frame.resources" "mutation-state"]       {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ;; (a) Facade-mirrored — named resource-scope resolvers (Spec 016 §Named
   ;; resource-scope resolvers). `resolve-resource-scope` is PURE over the

@@ -100,6 +100,14 @@
   ([frame-id instance-id]
    (get-in (runtime-db frame-id) (rf.resources.mutation-runtime/instance-path instance-id))))
 
+(defn- instances
+  "The frame's whole live mutation-INSTANCE table, read at its reserved
+  runtime-db path (Spec 016 §Mutations) — the whole-table read that
+  replaced the retired `rf/mutations` bundle."
+  ([] (instances :rf/default))
+  ([frame-id]
+   (or (get-in (runtime-db frame-id) (rf.resources.mutation-runtime/instances-path)) {})))
+
 (defn- entry
   ([scoped-key] (entry :rf/default scoped-key))
   ([frame-id scoped-key]
@@ -209,7 +217,7 @@
 (deftest reg-mutation-registers-and-introspects
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (testing "the registered spec is introspectable"
-    (is (= (vec [:m/save]) (filter #{:m/save} (:mutation-ids (rf/mutations)))))
+    (is (= (vec [:m/save]) (filter #{:m/save} (keys (rf/registrations {:source :store :kind :mutation})))))
     (is (fn? (:request (rf/mutation-meta :m/save))))
     (is (fn? (:invalidates (rf/mutation-meta :m/save)))))
   (testing "clear-mutation removes the registration"
@@ -486,7 +494,7 @@
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"}}])
   (testing "EP-0003 §Mutations — a generated instance id is used when the
             caller supplies none"
-    (let [insts (:instances (rf/mutations {:frame :rf/default}))]
+    (let [insts (instances :rf/default)]
       (is (= 1 (count insts)))
       (is (= :pending (:status (val (first insts))))))))
 
@@ -1486,7 +1494,7 @@
   (testing "nothing was lowered to transport (fail-closed BEFORE the write)"
     (is (nil? @last-managed-args)))
   (testing "no instance row was written"
-    (is (empty? (:instances (rf/mutations {:frame :rf/default}))))))
+    (is (empty? (instances :rf/default)))))
 
 (deftest validate-instance-id-accepts-scalars-and-vectors
   ;; rf2-e8wj5t — valid scalar / vector instance ids pass (they ARE
@@ -1537,7 +1545,7 @@
                            {:mutation :m/save :params {:slug "l"} :instance il}])
         (let [args-l (last @all-args)]
           (testing "TWO distinct instance rows exist (no =-collapse onto one)"
-            (is (= 2 (count (:instances (rf/mutations {:frame :rf/default})))))
+            (is (= 2 (count (instances :rf/default))))
             (is (= :pending (:status (instance iv))))
             (is (= :pending (:status (instance il))))
             (is (= iv (:instance/id (instance iv))) "vector row keeps its vector id")
@@ -1570,7 +1578,7 @@
                          {:mutation :m/save :params {:slug "v"} :instance iv}])
       (rf/dispatch-sync [:rf.mutation/execute
                          {:mutation :m/save :params {:slug "l"} :instance il}])
-      (is (= 2 (count (:instances (rf/mutations {:frame :rf/default})))) "two rows")
+      (is (= 2 (count (instances :rf/default))) "two rows")
       (rf/dispatch-sync [:rf.mutation/clear {:instance iv}])
       (testing "only the vector row was cleared; the list row survives intact"
         (is (nil? (instance iv)) "the vector row is gone")

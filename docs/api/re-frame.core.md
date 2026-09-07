@@ -1537,16 +1537,6 @@ Resources are an optional capability (cached server-state reads plus mutations) 
 - **Signature**: `(resource-state {:resource … :scope … :params … :frame …}) → entry or nil`
 - Tool/test lane: a resource instance's durable runtime entry at an explicit frame (resolves the scoped key as a subscription would). Full contract in [re-frame.resources.md](re-frame.resources.md).
 
-#### `resources`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (resources)
-  (resources {:frame …})
-  ```
-- Tool/test lane: resource introspection for a frame — the static registry plus, with `:frame`, the live per-frame instance entries. Full contract in [re-frame.resources.md](re-frame.resources.md).
-
 #### `mutation-meta`
 
 - **Kind**: function
@@ -1558,16 +1548,6 @@ Resources are an optional capability (cached server-state reads plus mutations) 
 - **Kind**: function
 - **Signature**: `(mutation-state {:instance … :frame …}) → row or nil`
 - Tool/test lane: a mutation **instance**'s durable runtime row (`{:status :result :error …}`) at an explicit frame. Full contract in [re-frame.resources.md](re-frame.resources.md).
-
-#### `mutations`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (mutations)
-  (mutations {:frame …})
-  ```
-- Tool/test lane: mutation introspection for a frame — the registered ids plus, with `:frame`, the live per-frame instance table. Full contract in [re-frame.resources.md](re-frame.resources.md).
 
 ## See also
 

@@ -143,45 +143,6 @@
 (def scope-resolver-meta    rf.resources.scope-registry/scope-resolver-meta)
 (def scope-resolver-ids     rf.resources.scope-registry/scope-resolver-ids)
 
-(defn resources
-  "Return resource introspection for a frame target (Spec 016
-  §Introspection). Returns `{:resource-ids [...] :entries {…}}` — the
-  static registry (every registered resource id) plus, when `:frame` is
-  supplied, the live per-frame resource-instance entries map
-  (`{<key-id> <entry>}`). Without `:frame` only the static
-  registry is returned; there is no ambient frame fallback.
-
-  The `:entries` map is keyed on the CEDN-1 byte `key-id` STRING (the SAME
-  key the internal runtime storage, the SSR wire, and the reverse indexes
-  use — `rf.resources.state/entries-path`, `rf.resources.state/key-id`); each entry carries its
-  kind-preserving public scoped-resource-key VECTOR
-  `[canonical-scope resource-id canonical-params]` under `:resource/key`.
-  Callers that need to destructure
-  `[scope resource-id params]`, filter by scope/resource, or compare
-  against scoped keys read each entry's `:resource/key`; the byte string
-  map key is purely an opaque distinct identity.
-
-  WHY the map key is the byte string, NOT the scoped-key vector: Clojure
-  map keys compare by `=`, and `=` is COARSER than the CEDN-1 byte identity
-  for SEQUENTIAL params — `(= [scope rid {:xs [1 2 3]}] [scope rid {:xs '(1 2 3)}])`
-  is TRUE while their `canonical-bytes` differ (`v[…]` vs `l(…)`). Rekeying
-  the byte-keyed runtime map onto the `=`-colliding vector would `assoc`
-  one CEDN-distinct entry OVER the other, so the public read could report
-  ONE entry for TWO live cache entries. Keying on the byte
-  `key-id` string (which compares by content, the exact CEDN-1 identity)
-  keeps every live entry distinct. Internal storage stays byte-keyed."
-  ([] {:resource-ids (resource-ids) :entries {}})
-  ([{:keys [frame]}]
-   {:resource-ids (resource-ids)
-    :entries      (if frame
-                    (let [entries (get-in (rf.frame/frame-runtime-db-value frame)
-                                          (rf.resources.state/entries-path))]
-                      ;; Preserve the byte-keyed map: re-keying on scoped-key
-                      ;; vectors can collapse CEDN-distinct sequential params
-                      ;; that compare equal under Clojure `=`.
-                      (or entries {}))
-                    {})}))
-
 (defn resource-state
   "Return a resource instance's durable runtime ENTRY for an explicit
   `:frame` introspection target `{:resource :scope :params :frame}` (Spec
@@ -221,25 +182,6 @@
                      opts (rf.frame/frame-app-db-value frame))
         runtime-db (rf.frame/frame-runtime-db-value frame)]
     (get-in runtime-db (rf.resources.state/entry-path scoped-key))))
-
-(defn mutations
-  "Return mutation introspection for a frame target (Spec 016 §Mutations /
-  Xray). Returns `{:mutation-ids [...] :instances {…}}` — the static
-  registry (every registered mutation id) plus, when `:frame` is supplied,
-  the live per-frame mutation-INSTANCE map. That map is keyed on each
-  instance id's CEDN-1 byte `key-id` (`{<key-id> <instance>}`), NOT the raw
-  instance id — each instance carries its
-  kind-preserving id alongside under `:instance/id`. Xray groups instances
-  under their registered `:mutation/id` while showing each separately.
-  Without `:frame` only the static registry is returned (no ambient frame
-  fallback)."
-  ([] {:mutation-ids (mutation-ids) :instances {}})
-  ([{:keys [frame]}]
-   {:mutation-ids (mutation-ids)
-    :instances    (if frame
-                    (or (get-in (rf.frame/frame-runtime-db-value frame)
-                                (rf.resources.mutation-runtime/instances-path)) {})
-                    {})}))
 
 (defn mutation-state
   "Return a mutation INSTANCE's durable runtime row for an explicit
@@ -722,16 +664,14 @@
    :resources/clear-resource rf.resources.registry/clear-resource
    :resources/resource-meta  resource-meta
    :resources/resource-state resource-state
-   :resources/resources      resources
    ;; Mutation registration + introspection, published through the same
    ;; late-bind table so `re-frame.core`'s `reg-mutation` / `clear-mutation`
-   ;; / `mutation-meta` / `mutation-state` / `mutations` wrappers reach the
+   ;; / `mutation-meta` / `mutation-state` wrappers reach the
    ;; producing impl without a static :require.
    :resources/reg-mutation   reg-mutation
    :resources/clear-mutation rf.resources.mutation-registry/clear-mutation
    :resources/mutation-meta  mutation-meta
    :resources/mutation-state mutation-state
-   :resources/mutations      mutations
    ;; Named resource-scope resolvers, published through the same late-bind
    ;; table so
    ;; `re-frame.core`'s `reg-resource-scope` / `clear-resource-scope` /

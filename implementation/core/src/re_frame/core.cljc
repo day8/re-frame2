@@ -1699,12 +1699,6 @@
   Implementation ships in `day8/re-frame2-resources`."}
   resource-state  rf.core-resources/resource-state)
 
-(def ^{:doc "Return resource introspection for a frame target `{:frame …}`
-  — the registered resources and the live per-frame resource-instance
-  table. Per Spec 016 §Introspection. Implementation ships in
-  `day8/re-frame2-resources`."}
-  resources       rf.core-resources/resources)
-
 ;; Mutations (rf2-dwme29, EP-0003 §Mutations — first public-beta gate).
 ;; `reg-mutation` is a macro (above, for source-coord capture) + a CLJS
 ;; fn-alias; the non-registration surface is plain re-exports below.
@@ -1720,12 +1714,6 @@
   `nil`. Per EP-0002 the frame is carried explicitly. Per EP-0003
   §Mutations. Implementation ships in `day8/re-frame2-resources`."}
   mutation-state  rf.core-resources/mutation-state)
-
-(def ^{:doc "Return mutation introspection for a frame target `{:frame …}`
-  — the registered mutation ids and the live per-frame mutation-instance
-  table (keyed by instance id). Per EP-0003 §Mutations. Implementation ships
-  in `day8/re-frame2-resources`."}
-  mutations       rf.core-resources/mutations)
 
 ;; Named resource-scope resolvers (rf2-hls77w, EP-0016 D3). `reg-resource-scope`
 ;; is a macro (above, for source-coord capture) + a CLJS fn-alias; the

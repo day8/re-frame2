@@ -63,16 +63,6 @@
   {:hook :resources/resource-state :artefact resources-artefact :on-absent :throw}
   ([opts] :delegate))
 
-(defwrapper resources
-  "Per Spec 016 §Introspection. Return resource introspection for a frame
-  target `{:frame …}` — the registered resources and (with the runtime
-  slice) the live per-frame resource-instance table. Late-bound via
-  `:resources/resources`."
-  {:hook :resources/resources :artefact resources-artefact :on-absent :throw
-   :arglists '([] [opts])}
-  ([]     :delegate)
-  ([opts] :delegate))
-
 ;; ---- Mutations (rf2-dwme29, EP-0003 §Mutations — first public-beta gate) --
 
 (defwrapper reg-mutation
@@ -120,19 +110,6 @@
   explicit-frame target `{:instance … :frame …}`, or nil. Per EP-0002 the
   frame is carried explicitly. Late-bound via `:resources/mutation-state`."
   {:hook :resources/mutation-state :artefact resources-artefact :on-absent :throw}
-  ([opts] :delegate))
-
-(defwrapper mutations
-  "Per Spec 016 §Deferred slices / EP-0003 §Mutations. Return mutation
-  introspection for a frame target `{:frame …}` — the registered mutation
-  ids and the live per-frame mutation-instance table (keyed on each
-  instance id's CEDN-1 byte `key-id` per rf2-8iciw8, not the raw instance
-  id; each instance carries its id under `:instance/id`. Xray groups
-  instances under their registered mutation id). Without `:frame` only the
-  static registry is returned. Late-bound via `:resources/mutations`."
-  {:hook :resources/mutations :artefact resources-artefact :on-absent :throw
-   :arglists '([] [opts])}
-  ([]     :delegate)
   ([opts] :delegate))
 
 ;; ---- Named resource-scope resolvers (rf2-hls77w, EP-0016 D3 slice 2) ------

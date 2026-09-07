@@ -742,10 +742,12 @@ This is a **causal-command continuation keyed on acceptance of the attempt** —
 ```clojure
 (rf/resource-meta :article/by-slug)                                  ;; registration projection: the registered spec
 (rf/resource-state {:resource … :scope … :params … :frame :app/main}) ;; runtime projection: one entry, explicit frame
-(rf/resources      {:frame :app/main})                                ;; registry + live entries for a frame
+(keys (rf/registrations {:source :store :kind :resource}))            ;; registry enumeration: every registered id
+(keys (rf/registrations {:source :store :kind :mutation}))            ;; the same, for mutations
+(get-in (rf/frame-state-value :app/main) [:rf.db/runtime :rf.runtime/resources :entries]) ;; whole live entries table
 ```
 
-These direct functions are the **tool/test projection lane**, not an app-read API. `resource-meta` projects the **registration** (the registered spec), while `resource-state` / `resources` project **runtime state** (the live cache entries) at an explicit frame — the same runtime state the `[:rf.resource/*]` subscriptions derive, read here without a reactive subscription context. Their callers are Xray, unit tests, and SSR/serialization plumbing. **App views MUST use the passive subscription lane** ([§Subscriptions](#subscriptions-passive)) — these functions take a one-shot, non-reactive snapshot and do not re-render on change, so reaching for them in a view is a category error (registering vs. projecting vs. subscribing are three different jobs; see the [lane table](#public-api)).
+These direct reads are the **tool/test projection lane**, not an app-read API. `resource-meta` projects the **registration** (the registered spec) and `rf/registrations` enumerates the registry; `resource-state` and the reserved-path read project **runtime state** (the live cache entries) at an explicit frame — the same runtime state the `[:rf.resource/*]` subscriptions derive, read here without a reactive subscription context. Their callers are Xray, unit tests, and SSR/serialization plumbing. **App views MUST use the passive subscription lane** ([§Subscriptions](#subscriptions-passive)) — these functions take a one-shot, non-reactive snapshot and do not re-render on change, so reaching for them in a view is a category error (registering vs. projecting vs. subscribing are three different jobs; see the [lane table](#public-api)).
 
 `:frame` is an explicit, app-registered frame id (`:app/main` is illustrative). Per [EP-0002](../docs/EP/EP-0002-frame-target-resolution.md) there is no ambient `:rf/default` fallback: the frame target is carried explicitly, and a frameless introspection call with no resolvable context fails closed rather than silently inspecting the wrong frame.
 

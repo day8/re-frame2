@@ -29,7 +29,7 @@
   `resource-meta` / `resource-ids` introspection seams; the LIVE view reads
   the per-frame `:rf.runtime/resources` entries + `:rf.runtime/work-ledger`
   records through the existing `rf.frame/frame-runtime-db-value` read seam (the
-  same seam `re-frame.resources/resources` + the SSR drain read).
+  same seam the SSR drain read uses).
 
   Per [Derivations.md](../../../../../../spec/Derivations.md) §Resources
   expose process nodes and the projected Malli
@@ -518,7 +518,7 @@
   when concrete (Derivations §Fact identity). Pure data over the frame's
   `:rf.runtime/resources` `:entries` + `:rf.runtime/work-ledger` records,
   read READ-ONLY through `rf.frame/frame-runtime-db-value` (the same read seam
-  `re-frame.resources/resources` + the SSR drain use) — never touching the
+  the SSR drain uses) — never touching the
   runtime write-path.
 
   Per-entry node (the static fixed classifications hold — `:kind :process`,
