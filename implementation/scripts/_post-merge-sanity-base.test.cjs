@@ -72,6 +72,8 @@ const REPO_ROOT = path.resolve(IMPL_ROOT, '..');
 const WORKFLOW = path.join(REPO_ROOT, '.github', 'workflows', 'post-merge-workflow-sanity.yml');
 const JOB_ID = 'dispatch-affected-workflows';
 const STEP_NAME = 'Identify changed workflow files';
+const DISPATCH_STEP_NAME =
+  'Dispatch each affected workflow (excluding release + self + push-triggered)';
 
 // The workflow file the fixture's push edits. Any name would do; this one is
 // the canary's real subject — a cron-only workflow whose edits are otherwise
@@ -92,6 +94,12 @@ function dispatchJob() {
 function identifyStep() {
   const step = dispatchJob().steps.find((s) => s.name === STEP_NAME);
   assert.notEqual(step, undefined, `step "${STEP_NAME}" not found in ${JOB_ID}`);
+  return step;
+}
+
+function dispatchStep() {
+  const step = dispatchJob().steps.find((s) => s.name === DISPATCH_STEP_NAME);
+  assert.notEqual(step, undefined, `step "${DISPATCH_STEP_NAME}" not found in ${JOB_ID}`);
   return step;
 }
 
@@ -399,6 +407,341 @@ test('the diff cannot swallow its own failure (rf2-8oh5)', () => {
     /basename \{\}\s*\|\|\s*true/,
     '`|| true` on the diff pipeline converts a git failure into "no workflow ' +
       'files changed" and swallows pipefail with it (rf2-8oh5)',
+  );
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// THE DISPATCH STEP (rf2-amh0)
+// ════════════════════════════════════════════════════════════════════════════
+//
+// THE DEFECT, and it is the sibling of the one above. The step whose entire
+// purpose is to dispatch passed `${{ github.sha }}` as `--ref`. The Actions
+// "create a workflow dispatch event" endpoint resolves `ref` in the REF
+// namespace, so a 40-character commit id cannot resolve and the call returns
+// HTTP 422 "No ref found for: <sha>". Then:
+//
+//     gh workflow run "$f" --ref "…" || {
+//       echo "WARN: gh workflow run failed for $f (non-fatal)"
+//     }
+//
+// swallowed it, and the step exited 0. Measured across the 155 runs whose logs
+// were still readable (2026-06-08 → 2026-09-05): 26 runs reached a dispatch, 27
+// attempts, 27 HTTP 422s, ZERO successes — and all 26 runs concluded `success`.
+// A canary green for 78 days having never once dispatched anything.
+//
+// WHY THESE ARMS, ON TOP OF THE FIX ITSELF. The repair landed in 68b39d396a,
+// but nothing pinned it: the six arms above pin the base resolution and say
+// nothing about the dispatch, so re-introducing either half — the sha, or the
+// swallow — would have gone green on every gate in the repository. The live
+// acceptance this defect really wants (a real merge editing a dispatchable,
+// non-excluded workflow) cannot be manufactured without spending the nightly
+// matrix, so it stays where it is; what IS provable here, locally and cheaply,
+// is that a failing dispatch now reds the step where it used to pass. That is
+// this section.
+//
+// ARM D1 IS THE CONTROL AND IT IS THE POINT, exactly as ARM 1 is above. It runs
+// the PRE-FIX dispatch body, frozen as a string constant, against a `gh` that
+// fails the way the real one did, and asserts the old bug: exit 0 over an HTTP
+// 422. Delete ARM D1 and ARM D2 stops proving anything, because a stub that
+// never failed would look identical.
+
+// THE PRE-FIX DISPATCH BODY, frozen — the bytes of 68b39d396a^ with exactly two
+// substitutions, both orthogonal to the defect and both applied identically to
+// the shipped body in `dispatchBody()` below, so the two arms differ only in
+// what they are testing:
+//
+//   `${{ steps.changed.outputs.files }}` → `$CHANGED_FILES`
+//   `${{ github.sha }}`                  → `$PUSH_SHA`
+//
+// This harness cannot evaluate an Actions expression. The first substitution is
+// the loop's input either way; the second is how the sha ARRIVES, not that it
+// is a sha — the fixture supplies a real 40-hex commit id, which is what makes
+// D1's 422 the genuine failure rather than a stubbed one.
+const LEGACY_DISPATCH_BODY = `set -euo pipefail
+EXCLUDE=(
+  "post-merge-workflow-sanity.yml"
+  "test.yml"
+)
+is_excluded() {
+  local f="$1"
+  for ex in "\${EXCLUDE[@]}"; do
+    if [ "$f" = "$ex" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+for f in $CHANGED_FILES; do
+  if is_excluded "$f"; then
+    echo "skip (excluded): $f"
+    continue
+  fi
+  if ! grep -q '^\\s*workflow_dispatch:' ".github/workflows/$f"; then
+    echo "skip (no workflow_dispatch trigger): $f"
+    continue
+  fi
+  echo "dispatching: $f"
+  gh workflow run "$f" --ref "$PUSH_SHA" || {
+    echo "WARN: gh workflow run failed for $f (non-fatal)"
+  }
+done
+`;
+
+// The one Actions expression the shipped dispatch body still carries. It is
+// deliberately unquoted there — the word split is load-bearing — so it cannot
+// move to `env:` the way DISPATCH_REF did.
+const FILES_EXPRESSION = '${{ steps.changed.outputs.files }}';
+
+// The shipped body, with the SAME substitution D1 uses. The count is asserted
+// rather than assumed: a substitution that silently matched nothing would leave
+// the loop iterating over a literal and every arm below would pass vacuously —
+// the no-op-plant failure, reached through a test harness instead of a patch.
+function dispatchBody() {
+  const raw = dispatchStep().run;
+  const occurrences = raw.split(FILES_EXPRESSION).length - 1;
+  assert.equal(
+    occurrences,
+    1,
+    `expected exactly one ${FILES_EXPRESSION} in the dispatch body to substitute, ` +
+      `found ${occurrences} — the substitution below would be a silent no-op`,
+  );
+  return raw.split(FILES_EXPRESSION).join('$CHANGED_FILES');
+}
+
+// A `gh` that records every call and fails the targets it is told to. Defined as
+// a shell FUNCTION prepended to the body rather than an executable on PATH: a
+// function shadows PATH lookup unconditionally, which sidesteps the exec-bit and
+// extension rules that differ between this box and the Linux runner.
+const GH_STUB = `gh() {
+  printf '%s\\n' "$*" >> "$GH_CALLS"
+  case " \${GH_FAIL_FOR:-} " in
+    *" $3 "*)
+      echo "could not create workflow dispatch event: HTTP 422: No ref found for: $5" >&2
+      return 1
+      ;;
+  esac
+  return 0
+}
+`;
+
+// A checkout holding just the workflow files the loop reads. `expensive-tests`
+// is the canary's real and only non-excluded dispatchable target; `no-trigger`
+// exercises the guard that must still skip rather than dispatch.
+function withDispatchFixture(body) {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-sanity-dispatch-'));
+  try {
+    const checkoutRoot = path.join(tmp, 'checkout');
+    writeFileP(
+      checkoutRoot,
+      '.github/workflows/expensive-tests.yml',
+      'name: expensive\non:\n  workflow_dispatch:\n  schedule:\n    - cron: "17 15 * * *"\n',
+    );
+    writeFileP(
+      checkoutRoot,
+      '.github/workflows/other-cron.yml',
+      'name: other\non:\n  workflow_dispatch:\n',
+    );
+    writeFileP(checkoutRoot, '.github/workflows/no-trigger.yml', 'name: nt\non:\n  schedule: []\n');
+    writeFileP(checkoutRoot, '.github/workflows/test.yml', 'name: test\non:\n  push:\n');
+
+    let runCount = 0;
+    const handle = {
+      checkoutRoot,
+      // Run a dispatch body against the fixture, returning its exit status, its
+      // combined output, and every `gh` invocation it made.
+      run: (script, { files, ref, failFor = '' }) => {
+        const env = { ...process.env };
+        for (const key of Object.keys(env)) {
+          if (key.startsWith('GIT_')) delete env[key];
+        }
+        runCount += 1;
+        const callFile = path.join(tmp, `gh-calls-${runCount}.txt`);
+        fs.writeFileSync(callFile, '');
+        env.GH_CALLS = callFile.replace(/\\/g, '/');
+        env.GH_FAIL_FOR = failFor;
+        env.CHANGED_FILES = files;
+        env.DISPATCH_REF = ref;
+        env.PUSH_SHA = ref;
+
+        const proc = spawnSync('bash', ['-s'], {
+          cwd: checkoutRoot,
+          env,
+          input: `${GH_STUB}${script}`,
+          encoding: 'utf8',
+        });
+        assert.equal(proc.error, undefined, `failed to spawn bash: ${proc.error}`);
+        return {
+          status: proc.status,
+          output: `${proc.stdout}${proc.stderr}`,
+          ghCalls: fs
+            .readFileSync(callFile, 'utf8')
+            .split('\n')
+            .filter((l) => l.trim() !== ''),
+        };
+      },
+    };
+    body(handle);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+// A real 40-hex commit id, the shape `github.sha` always has and the shape the
+// dispatch endpoint cannot resolve.
+const A_COMMIT_SHA = '73ac28b7af7fbdce3d8a07cacb3e030cb1aa191f';
+
+// ── ARM D1 — the defect, frozen as the control ──────────────────────────────
+
+test('ARM D1 (CONTROL): the pre-fix dispatch body exits 0 over an HTTP 422 (rf2-amh0)', () => {
+  withDispatchFixture((h) => {
+    const r = h.run(LEGACY_DISPATCH_BODY, {
+      files: 'expensive-tests.yml',
+      ref: A_COMMIT_SHA,
+      failFor: 'expensive-tests.yml',
+    });
+    assert.equal(
+      r.status,
+      0,
+      'the pre-fix body EXITED 0 — that is the defect: `|| { echo WARN; }` swallowed ' +
+        `the 422 and the step passed. Got ${r.status}\n${r.output}`,
+    );
+    assert.match(
+      r.output,
+      /No ref found for: 73ac28b7af/,
+      'the fixture must reproduce the measured failure; if this stops matching, ' +
+        'ARM D2 has lost its control',
+    );
+    assert.match(r.output, /WARN: gh workflow run failed/, 'and swallowed it as non-fatal');
+    assert.doesNotMatch(
+      r.output,
+      /::error::/,
+      'the pre-fix body raised no annotation either — the failure was invisible ' +
+        'without opening the log',
+    );
+  });
+});
+
+// ── ARM D2 — the fix: a failed dispatch REDS ────────────────────────────────
+
+test('ARM D2: the shipped dispatch step reds when the dispatch fails (rf2-amh0)', () => {
+  withDispatchFixture((h) => {
+    const r = h.run(dispatchBody(), {
+      files: 'expensive-tests.yml',
+      ref: 'main',
+      failFor: 'expensive-tests.yml',
+    });
+    assert.notEqual(
+      r.status,
+      0,
+      'a canary that cannot dispatch must FAIL. A green meaning "we tried" reads to ' +
+        `every reader as "it ran", and is how this survived 78 days\n${r.output}`,
+    );
+    assert.match(
+      r.output,
+      /::error::post-merge workflow sanity could not dispatch expensive-tests\.yml/,
+      'and must say so where a reader sees it without opening the log',
+    );
+    assert.doesNotMatch(
+      r.output,
+      /^dispatched: /m,
+      'it must not claim a dispatch it did not make',
+    );
+  });
+});
+
+// ── ARM D3 — the fix: the ref is a BRANCH NAME, and success is provable ─────
+
+test('ARM D3: a successful dispatch forwards the branch ref verbatim and says so (rf2-amh0)', () => {
+  withDispatchFixture((h) => {
+    const r = h.run(dispatchBody(), { files: 'expensive-tests.yml', ref: 'main' });
+    assert.equal(r.status, 0, `a clean dispatch must pass, got ${r.status}\n${r.output}`);
+    assert.deepEqual(
+      r.ghCalls,
+      ['workflow run expensive-tests.yml --ref main'],
+      'exactly one dispatch, at the ref it was given — a BRANCH name. `--ref` ' +
+        'resolves in the ref namespace, so a commit id 422s and always did',
+    );
+    assert.match(
+      r.output,
+      /^dispatched: expensive-tests\.yml \(ref main\)$/m,
+      'a success must be provable from the log whatever `gh` prints for itself',
+    );
+  });
+});
+
+// ── ARM D4 — one bad target cannot hide the others ──────────────────────────
+
+test('ARM D4: a failing dispatch still attempts the rest, then reds once (rf2-amh0)', () => {
+  withDispatchFixture((h) => {
+    const r = h.run(dispatchBody(), {
+      files: 'expensive-tests.yml other-cron.yml no-trigger.yml test.yml missing.yml',
+      ref: 'main',
+      failFor: 'expensive-tests.yml',
+    });
+    assert.notEqual(r.status, 0, `the failure must red the step\n${r.output}`);
+    assert.deepEqual(
+      r.ghCalls,
+      ['workflow run expensive-tests.yml --ref main', 'workflow run other-cron.yml --ref main'],
+      'failures are counted rather than aborting the loop, so one bad workflow ' +
+        'cannot hide the fate of the others',
+    );
+    assert.match(r.output, /^skip \(no workflow_dispatch trigger\): no-trigger\.yml$/m);
+    assert.match(r.output, /^skip \(excluded\): test\.yml$/m);
+    assert.match(
+      r.output,
+      /^skip \(deleted in this push\): missing\.yml$/m,
+      'a workflow deleted in the same push is skipped EXPLICITLY, not as a side ' +
+        'effect of grep failing to open it',
+    );
+  });
+});
+
+// ── the structural half ─────────────────────────────────────────────────────
+
+test('the dispatch ref is a BRANCH ref, through env:, and never a commit id (rf2-amh0)', () => {
+  const step = dispatchStep();
+  assert.equal(
+    step.env && step.env.DISPATCH_REF,
+    '${{ github.ref_name }}',
+    'the ref must be github.ref_name — the branch this event is on. `main` as a ' +
+      'literal would be wrong under workflow_dispatch, and github.sha cannot ' +
+      'resolve in the ref namespace at all (rf2-amh0)',
+  );
+  // MATCH THE EXPRESSION, NOT THE WORD. A bare `github.sha` is not the defect —
+  // the step's own comment names it to explain why it is wrong, and names it
+  // UNWRAPPED on purpose, because Actions substitutes expressions everywhere in
+  // a `run:` body, comments included. A test that grepped for the word would
+  // fail on the documentation of the fix. What can never come back is the
+  // EXPRESSION, in the run body or in any env value.
+  const whole = `${JSON.stringify(step.env)}\n${step.run}`;
+  assert.doesNotMatch(
+    whole,
+    /\$\{\{[^}]*github\.sha[^}]*\}\}/,
+    'a 40-character commit id is not a ref: the dispatch endpoint resolves `ref` ' +
+      'in the ref namespace and returns HTTP 422 "No ref found for: <sha>". The ' +
+      'merge commit was never dispatchable (rf2-amh0)',
+  );
+  assert.match(
+    step.run,
+    /gh workflow run "\$f" --ref "\$DISPATCH_REF"/,
+    'and the dispatch must use it',
+  );
+});
+
+test('the dispatch cannot swallow its own failure (rf2-amh0)', () => {
+  // The byte-sequence that turned 27 consecutive HTTP 422s into 26 green runs.
+  assert.doesNotMatch(
+    dispatchStep().run,
+    /gh workflow run[^\n]*\|\|/,
+    '`||` after `gh workflow run` converts a failed dispatch into a passing step. ' +
+      'This canary GATES NOTHING, so a red costs one visible failure and blocks ' +
+      'nobody — whereas a green that means "we tried" is how a dispatcher that had ' +
+      'never once succeeded survived 78 days (rf2-amh0)',
+  );
+  assert.match(
+    dispatchStep().run,
+    /exit 1/,
+    'and the counted failures must red the step at the end of the loop',
   );
 });
 
