@@ -157,10 +157,19 @@
   {:resource :linearlite/board :scope :rf.scope/global :params {}})
 
 (def ^:private board-query
-  "What the view's `[:rf.resource/data …]` sub reads. Same board identity
-   (resource + scope + params) the route ensured under and the writes patch —
-   read and write naming the same place is the whole trick."
-  {:resource :linearlite/board :scope :rf.scope/global :params {}})
+  "What the view's `[:rf.resource/data …]` sub reads. Same board identity the
+   route ensured under and the writes patch — read and write naming the same
+   place is the whole trick.
+
+   Note what is NOT here: a `:scope`. The registration declared it once
+   (`:scope :rf.scope/global`, above) and the subscription INHERITS it — that is
+   the rule everywhere. A use-site `:scope` is an OVERRIDE, for a site that
+   genuinely reads under a different principal, never a required repetition.
+   (`board-key` above does still carry one, and for a different reason: on a
+   mutation's exact `:optimistic` / `:patches` target an omitted `:scope` means
+   `:rf.scope/same` — the MUTATION's resolved scope — not the resource
+   registration's policy.)"
+  {:resource :linearlite/board :params {}})
 
 ;; A counter for client-minted ids. The moment an optimistic card appears it
 ;; needs a stable React key, but the server hasn't named the issue yet — so we

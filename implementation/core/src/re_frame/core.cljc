@@ -349,8 +349,9 @@
   scope resolver under `scope-id`. Per rf2-bqstzr the 3-slot grammar is
   `(reg-resource-scope scope-id metadata resolve-fn)`: the `:resolve` fn is the
   value slot, `metadata` carries the declared `:inputs` map `{name [:db
-  <rf-path>]}` (+ optional `:doc`). Omit `:inputs` for the whole-db sugar (the
-  resolver reads the db). Implementation ships in `day8/re-frame2-resources`;
+  <rf-path>]}` (+ optional `:doc`). `:inputs` is REQUIRED; read the whole db by
+  declaring it on the root path (`{:inputs {:db [:db []]}}`).
+  Implementation ships in `day8/re-frame2-resources`;
   require `re-frame.resources` at boot. See
   `re-frame.core-resources/reg-resource-scope` and spec/API.md §Resources."}
        reg-resource-scope rf.core-resources/reg-resource-scope)
@@ -618,16 +619,16 @@
        clear-scope. Per rf2-bqstzr the canonical 3-slot grammar is
        `(reg-resource-scope scope-id metadata resolve-fn)`: the `:resolve` fn is
        the third VALUE slot, and `metadata` carries the declared `:inputs` map
-       `{name [:db <rf-path>]}` (plus optional `:doc`). Omitting `:inputs` (the
-       2-arg `(reg-resource-scope scope-id resolve-fn)` sugar) selects the
-       whole-db form — the resolver reads the db as its first arg. The shipped
-       input source is `[:db <rf-path>]`; `[:runtime …]` is reserved. A nil
+       `{name [:db <rf-path>]}` (plus optional `:doc`). `:inputs` is REQUIRED and
+       the resolver's first arg is ALWAYS the resolved inputs map; read the whole
+       db by declaring it on the root path (`{:inputs {:db [:db []]}}`). The
+       shipped input source is `[:db <rf-path>]`; `[:runtime …]` is reserved. A nil
        resolve result is FAIL-CLOSED. Referenced via `{:from-db <scope-id>}`.
        Captures source-coords (Spec 001) at this call site. Implementation ships
        in `day8/re-frame2-resources` (rf2-hls77w); apps must add the artefact and
        require `re-frame.resources` at boot. See
        `re-frame.core-resources/reg-resource-scope` for the full signature."
-       {:arglists '([scope-id metadata resolve-fn] [scope-id resolve-fn])})
+       {:arglists '([scope-id metadata resolve-fn])})
 
      (rf.core-reg-macros/defreg-macro reg-app-schema rf.core-schemas/reg-app-schema
        "Register a Malli schema at a path inside app-db (frame-scoped

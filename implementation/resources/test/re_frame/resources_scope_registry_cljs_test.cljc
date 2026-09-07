@@ -17,8 +17,10 @@
     5. the `resolve-resource-scope` resolver helper resolves against a given db
        and FAILS CLOSED on nil (no implicit global), throws on an
        unregistered id;
-    6. whole-db fn sugar lowers to an explicit whole-db input (`:whole-db?
-       true`, the resolver sees the whole db);
+    6. the whole-db read is an ordinary root-path input (`{:db [:db []]}`) and
+       `:whole-db?` is DERIVED from the declaration, never authored; `:inputs`
+       is REQUIRED and the retired 2-arity / `:doc`-only spellings are rejected
+       loudly (rf2-kuky.34);
     7. the `{:from-db id}` reference resolver (use-time resolution + nil
        fail-closed);
     8. a resolved scope routes through the shared concrete-scope
@@ -29,13 +31,26 @@
    [re-frame.core :as rf]
    [re-frame.registrar :as rf.registrar]
    [re-frame.resources :as rf.resources]
-   [re-frame.resources.scope-registry :as rf.resources.scope-registry]))
+   [re-frame.resources.scope-registry :as rf.resources.scope-registry]
+   [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
 (use-fixtures :each
   {:before (fn [] (rf.registrar/clear-kind! :resource-scope))
    :after  (fn [] (rf.registrar/clear-kind! :resource-scope))})
+
+(defn- record-scope-resolved!
+  "Run `body-fn` with a trace listener attached, returning every
+  `:rf.resource/scope-resolved` row it emitted."
+  [body-fn]
+  (let [seen (atom [])
+        k    ::scope-resolved-recorder]
+    (rf.trace.tooling/register-listener!
+      k (fn [ev] (when (= :rf.resource/scope-resolved (:operation ev))
+                   (swap! seen conj ev))))
+    (try (body-fn) (finally (rf.trace.tooling/unregister-listener! k)))
+    @seen))
 
 ;; rf2-bqstzr — the canonical declared-inputs resolver split into the 3-slot
 ;; grammar's metadata middle slot (`session-meta`: `:doc` + `:inputs`) and the
@@ -90,10 +105,6 @@
           (rf.resources/reg-resource-scope :s/no-resolve
                                         {:inputs {:x [:db [:x]]}}
                                         "not a fn"))))
-  (testing "a non-map non-fn value slot throws (2-arg sugar, value not a fn)"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"invalid-resource-scope-spec"
-          (rf.resources/reg-resource-scope :s/bad "not a resolver"))))
   (testing "a non-map metadata slot throws"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"invalid-resource-scope-spec"
@@ -182,25 +193,94 @@
           (rf.resources/resolve-resource-scope {} :s/typo)))))
 
 ;; ===========================================================================
-;; 5. Whole-db function sugar (explicit-cost)
+;; 5. The whole-db read is a root-path input; :whole-db? is DERIVED
 ;; ===========================================================================
 
-(deftest whole-db-fn-sugar-lowers-to-explicit-whole-db-input
-  (testing "a bare (fn [db ctx] …) registers and is marked :whole-db? true"
-    (rf.resources/reg-resource-scope :s/sugar
-                                  (fn [db _ctx]
+(deftest whole-db-is-a-declared-root-path-input
+  ;; rf2-kuky.34 — there is no bare-fn sugar and no first-arg meaning-shift.
+  ;; Reading the whole db is spelled `{:inputs {:db [:db []]}}`, and the
+  ;; `:whole-db?` cost mark tooling reads (EP-0015 disposition 8) is DERIVED
+  ;; from that declaration rather than authored by a second registration mode.
+  (testing "a root-path input registers, and the resolver's first arg is still
+            the inputs map"
+    (rf.resources/reg-resource-scope :s/whole-db
+                                  {:inputs {:db [:db []]}}
+                                  (fn [{:keys [db]} _ctx]
                                     (when-let [u (get-in db [:auth :user :username])]
                                       [:rf.scope/session {:username u}])))
-    (let [m (rf.resources/scope-resolver-meta :s/sugar)]
+    (let [m (rf.resources/scope-resolver-meta :s/whole-db)]
       (is (true? (:whole-db? m)))
-      ;; the synthetic explicit whole-db input — the root [:db []] path, so
-      ;; tooling sees the cost on both axes (EP-0015 disposition 8)
       (is (= {:db [:db []]} (:inputs m)))))
-  (testing "the sugar resolves against the whole db at use time"
+  (testing "it resolves against the whole db at use time and fails closed on nil"
     (is (= [:rf.scope/session {:username "jake"}]
            (rf.resources/resolve-resource-scope {:auth {:user {:username "jake"}}}
-                                             :s/sugar)))
-    (is (nil? (rf.resources/resolve-resource-scope {} :s/sugar)))))
+                                             :s/whole-db)))
+    (is (nil? (rf.resources/resolve-resource-scope {} :s/whole-db))))
+  (testing "a MIXED declaration — one root input beside a narrow one — derives
+            :whole-db? true"
+    (rf.resources/reg-resource-scope :s/mixed
+                                  {:inputs {:db   [:db []]
+                                            :user [:db [:auth :user]]}}
+                                  (fn [_inputs _ctx] nil))
+    (is (true? (:whole-db? (rf.resources/scope-resolver-meta :s/mixed)))))
+  (testing "a NARROW declaration derives :whole-db? false"
+    (rf.resources/reg-resource-scope :s/narrow session-meta session-resolve)
+    (is (false? (:whole-db? (rf.resources/scope-resolver-meta :s/narrow)))))
+  (testing "the DERIVED :whole-db? true rides the :rf.resource/scope-resolved
+            trace row (the traced causal boundary, not the pure read)"
+    (rf.resources/reg-resource-scope :s/whole-db-traced
+                                  {:inputs {:db [:db []]}}
+                                  (fn [{:keys [db]} _ctx]
+                                    (when-let [u (get-in db [:auth :user :username])]
+                                      [:rf.scope/session {:username u}])))
+    (let [rows (record-scope-resolved!
+                 (fn []
+                   (rf.resources.scope-registry/resolve-scope*
+                     :s/whole-db-traced
+                     (rf.resources/scope-resolver-meta :s/whole-db-traced)
+                     {:auth {:user {:username "jake"}}}
+                     'rf/resolve-resource-scope)))
+          row  (some (fn [ev] (when (= :s/whole-db-traced (:resource-id (:tags ev)))
+                                (:tags ev)))
+                     rows)]
+      (is (some? row) "a scope-resolved row was emitted")
+      (is (true? (:whole-db? row)))
+      (is (= [:db] (:inputs row)) "the declared input NAME, not a synthetic one"))))
+
+(deftest inputs-is-required
+  ;; rf2-kuky.34 — the `:doc`-only metadata variant and the retired 2-arity
+  ;; spelling are both gone; each is a loud registration error.
+  (testing ":doc-only metadata (no :inputs) is a loud registration error naming
+            :inputs"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"invalid-resource-scope-spec"
+          (rf.resources/reg-resource-scope :s/doc-only
+                                        {:doc "Whole-db, documented."}
+                                        (fn [_inputs _ctx] nil))))
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #":inputs"
+          (rf.resources/reg-resource-scope :s/doc-only
+                                        {:doc "Whole-db, documented."}
+                                        (fn [_inputs _ctx] nil))))
+    (is (nil? (rf.resources/scope-resolver-meta :s/doc-only))))
+  (testing "an EMPTY metadata map is the same error"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"invalid-resource-scope-spec"
+          (rf.resources/reg-resource-scope :s/empty-meta {} (fn [_inputs _ctx] nil)))))
+  (testing "the retired 2-arity spelling is rejected loudly on both hosts"
+    ;; `apply` defeats any host-side STATIC arity check so both hosts exercise
+    ;; the same call. CLJS does not arity-check a single-arity fn at runtime
+    ;; either: the resolver lands in the metadata slot and the
+    ;; metadata-must-be-a-map guard catches it, naming the MIDDLE slot. On the
+    ;; JVM the arity check fires first.
+    #?(:cljs (is (thrown-with-msg?
+                   js/Error #"metadata \(the MIDDLE slot\) must be a map"
+                   (apply rf.resources/reg-resource-scope
+                          [:s/two-arity (fn [_db _ctx] nil)])))
+       :clj  (is (thrown? Throwable
+                          (apply rf.resources/reg-resource-scope
+                                 [:s/two-arity (fn [_db _ctx] nil)]))))
+    (is (nil? (rf.resources/scope-resolver-meta :s/two-arity)))))
 
 ;; ===========================================================================
 ;; 6. {:from-db id} reference resolution (use-time, nil fail-closed)
@@ -247,9 +327,11 @@
                                            (assoc session-meta :rf.egress/output-sensitivity claim)
                                            session-resolve)))
       (is (nil? (:output-sensitivity (rf.resources/scope-resolver-meta :s/claim))))))
-  (testing "the whole-db fn sugar carries no :output-sensitivity"
-    (rf.resources/reg-resource-scope :s/sugar-claim (fn [_db _ctx] nil))
-    (is (nil? (:output-sensitivity (rf.resources/scope-resolver-meta :s/sugar-claim)))))
+  (testing "a whole-db (root-path input) resolver carries no :output-sensitivity"
+    (rf.resources/reg-resource-scope :s/whole-db-claim
+                                  {:inputs {:db [:db []]}}
+                                  (fn [_inputs _ctx] nil))
+    (is (nil? (:output-sensitivity (rf.resources/scope-resolver-meta :s/whole-db-claim)))))
   (testing "a value that was a fail-closed enum typo is now silently ignored —
             no :rf.error/invalid-resource-scope-spec throw"
     (is (= :s/was-typo-claim
@@ -275,21 +357,10 @@
       (is (= {:username [:db [:auth :user :username]]} (:inputs m)))
       (is (identical? session-resolve (:resolve m)))
       (is (false? (:whole-db? m)))))
+  ;; rf2-kuky.34 — the 3-slot grammar is now the ONLY arity. The retired
+  ;; 2-arity and `:doc`-only spellings are pinned as loud registration errors
+  ;; by `inputs-is-required` above.
   (testing "the resolver first arg is the resolved inputs map"
     (is (= [:rf.scope/session {:username "jake"}]
            (rf.resources/resolve-resource-scope {:auth {:user {:username "jake"}}}
-                                             :s/three-slot))))
-  (testing "the 2-arg sugar (no metadata) selects the whole-db form"
-    (rf.resources/reg-resource-scope :s/two-slot
-                                  (fn [db _ctx]
-                                    (when-let [u (get-in db [:auth :user :username])]
-                                      [:rf.scope/session {:username u}])))
-    (is (true? (:whole-db? (rf.resources/scope-resolver-meta :s/two-slot))))
-    (is (= [:rf.scope/session {:username "jake"}]
-           (rf.resources/resolve-resource-scope {:auth {:user {:username "jake"}}}
-                                             :s/two-slot))))
-  (testing ":doc-only metadata (no :inputs) still selects the whole-db form"
-    (rf.resources/reg-resource-scope :s/doc-only
-                                  {:doc "Whole-db, documented."}
-                                  (fn [db _ctx] (get-in db [:tenant])))
-    (is (true? (:whole-db? (rf.resources/scope-resolver-meta :s/doc-only))))))
+                                             :s/three-slot)))))

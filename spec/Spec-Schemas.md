@@ -3331,9 +3331,10 @@ The EP-0016 action-wave **public input forms** — named scope resolvers (D3), p
 
 (def ResourceScopeResolver
   ;; A reg-resource-scope spec (the :resource-scope registrar kind). The
-  ;; declared-input PRIMARY form; the whole-db fn sugar (fn [db ctx] …) is
-  ;; accepted at the registrar but lowers to an explicit whole-db dependency
-  ;; (tooling-marked). :resolve is invoked (resolve-fn inputs nil) — ctx is
+  ;; declared-input form is the ONLY form: :inputs is REQUIRED and the
+  ;; resolver's first arg is always the inputs map. Reading the whole db is
+  ;; an ordinary root-path input {:db [:db []]}, from which the tooling-marked
+  ;; :whole-db? is DERIVED. :resolve is invoked (resolve-fn inputs nil) — ctx is
   ;; RESERVED, currently literal nil. A nil result is fail-closed at a
   ;; scope-requiring site. Per [016 §Named resource-scope resolvers].
   [:map

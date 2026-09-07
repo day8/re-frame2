@@ -123,17 +123,16 @@
   the canonical 3-slot grammar is `(reg-resource-scope scope-id metadata
   resolve-fn)`: the `:resolve` fn is the value slot, and `metadata` carries the
   declared `:inputs` map `{name [:db <rf-path>]}` (+ optional `:doc`). The
-  `:resolve` first arg is the resolved inputs map. Omit `:inputs` (the 2-arg
-  `(reg-resource-scope scope-id resolve-fn)` sugar) for the whole-db form — the
-  resolver reads the db as its first arg (an explicit, tooling-marked whole-db
-  dependency). The shipped input source is `[:db <rf-path>]`; `[:runtime …]`
+  `:resolve` first arg is ALWAYS the resolved inputs map. `:inputs` is
+  REQUIRED — to read the whole db, declare it on the root path
+  (`{:inputs {:db [:db []]}}`); tooling's `:whole-db?` mark is derived from
+  that declaration. The shipped input source is `[:db <rf-path>]`; `[:runtime …]`
   is reserved and rejected loudly. A `nil` resolve result is FAIL-CLOSED at
   every scope-requiring site (never an implicit global). Referenced via
   `{:from-db <scope-id>}`. Late-bound via `:resources/reg-resource-scope`."
   {:hook :resources/reg-resource-scope :artefact resources-artefact :on-absent :throw
-   :arglists '([scope-id metadata resolve-fn] [scope-id resolve-fn])
+   :arglists '([scope-id metadata resolve-fn])
    :ex-data {:scope-id scope-id}}
-  ([scope-id resolve-fn]          :delegate)
   ([scope-id metadata resolve-fn] :delegate))
 
 (defwrapper clear-resource-scope

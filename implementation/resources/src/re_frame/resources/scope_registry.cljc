@@ -42,9 +42,10 @@
 
   ### Reading the whole db — name it as an input (no first-arg meaning-shift)
 
-  When a resolver genuinely needs the whole db, declare it as an explicit
-  named input and read it off the inputs map — the resolver's first arg STAYS
-  the inputs map:
+  There is no bare-fn sugar and no first-arg meaning-shift: `:inputs` is
+  REQUIRED and the resolver's first arg is ALWAYS the inputs map. When a
+  resolver genuinely needs the whole db, declare it as an explicit named
+  input on the ROOT path and read it off the inputs map:
 
       (rf/reg-resource-scope :realworld/session
         {:inputs {:db [:db []]}}
@@ -52,23 +53,11 @@
           (when-let [u (get-in db [:auth :user :username])]
             [:rf.scope/session {:username u}])))
 
-  ## Whole-db function sugar — the ONE documented explicit alternative
-
-      (rf/reg-resource-scope :realworld/session
-        (fn [db _ctx] (when-let [u (get-in db [:auth :user :username])]
-                        [:rf.scope/session {:username u}])))
-
-  This bare-fn form is the SINGLE explicit alternative to the canonical
-  inputs-map grammar (rf2-wvh95f F3). It is NOT a peer and it carries a
-  DELIBERATE, documented first-arg meaning-shift: in this form ALONE the
-  resolver's first arg is the **whole db**, not the inputs map. Prefer the
-  canonical inputs-map grammar (above) — including for the whole-db case via
-  the explicit `{:inputs {:db [:db []]} …}` declaration — so a resolver author
-  reads ONE stable first-arg meaning everywhere; reach for the bare-fn sugar
-  only as the explicit, cost-marked exception. It lowers to the SAME canonical
-  stored shape (`:whole-db? true` + a synthetic `:inputs {:db [:db []]}`,
-  marking the whole-db cost on both axes — narrow re-resolution AND
-  sensitivity-inheritance precision, EP-0015 disposition 8).
+  `:whole-db?` on the stored spec is DERIVED from that declaration — true iff
+  some declared input targets the root path `[:db []]` — never authored. It
+  marks the whole-db cost on both axes (narrow re-resolution AND
+  sensitivity-inheritance precision, EP-0015 disposition 8) for tooling, and
+  it says exactly what the declaration already says.
 
   ## No derived-sensitivity propagation (EP-0025)
 
@@ -204,8 +193,9 @@
                {:scope-id scope-id :input input-name :source head}))
 
       ;; A `:db` target must be a CONCRETE sequential `:rf/path`. nil is NOT
-      ;; the root path — the root is the explicit `[]` (the whole-db sugar
-      ;; lowers to `[:db []]`). A nil here is an accidental absent path and
+      ;; the root path — the root is the explicit `[]`, which is how the
+      ;; whole-db read is spelled and what `:whole-db?` is derived from. A
+      ;; nil here is an accidental absent path and
       ;; fails closed rather than silently targeting the whole db (EP-0012
       ;; rf2-w9x5fv item 1: explicit root, no silent nil→root).
       (not (sequential? raw-path))
@@ -248,9 +238,8 @@
 (defn- canonical-spec
   "Normalize the 3-slot `(reg-resource-scope scope-id metadata resolve-fn)`
   registration into the canonical STORED spec map. Per Spec 016 §The
-  `{:inputs …}` metadata + resolver-fn grammar + §Whole-db function sugar
-  (rf2-wvh95f F3, brought into the canonical 3-slot registration grammar by
-  rf2-bqstzr).
+  `{:inputs …}` metadata + resolver-fn grammar (rf2-wvh95f F3, brought into
+  the canonical 3-slot registration grammar by rf2-bqstzr).
 
   The `:resolve` fn is the THIRD slot (the resolver HANDLER); the middle
   `metadata` slot carries the reflection-config keys (`:inputs`, `:doc`). This
@@ -258,24 +247,18 @@
   `:request` handler from the metadata slot — here `:inputs` shapes the
   `:resolve` handler.
 
-  - **Declared-inputs form** — `metadata` CARRIES an `:inputs` key
-    (`{:inputs {name [:db path]} :doc …}`). Validates every declared input
-    descriptor and stores `{:inputs <canonical> :resolve <fn> :whole-db? false
-    :doc …}`. The `:resolve` first arg is ALWAYS the resolved inputs map (the
-    one stable Name-over-place meaning).
-  - **Whole-db sugar** — `metadata` has NO `:inputs` key (an empty metadata map,
-    the 2-arg `(reg-resource-scope scope-id resolve-fn)` sugar, or a
-    `{:doc …}`-only metadata). The resolver reads the whole db as its first arg
-    — the ONE documented explicit alternative (rf2-wvh95f F3). It lowers to the
-    SAME canonical stored shape: a synthetic `:inputs {:db [:db []]}` (the root
-    path), `:whole-db? true`, and the user fn WRAPPED so the STORED `:resolve`
-    is still called with the canonical `(inputs ctx)` arity — the wrapper reads
-    `db` off the inputs map and forwards `(user-fn db ctx)`. So the stored
-    resolver's first-arg meaning is uniform (inputs map) even for the sugar;
-    only the USER's fn sees the whole db as its first arg (the deliberate,
-    documented exception). Tooling reads `:whole-db?` to mark the cost on both
-    axes (EP-0015 disposition 8). The `:inputs` KEY presence — not the value
-    fn's shape — selects the form, so both slots are simple positionals.
+  There is ONE form. `metadata` MUST be a map carrying an `:inputs` map
+  (`{:inputs {name [:db path]} :doc …}`); a missing `:inputs` is a loud
+  `:rf.error/invalid-resource-scope-spec`. Validates every declared input
+  descriptor and stores `{:inputs <canonical> :resolve <fn> :whole-db? <bool>
+  :doc …}`. The `:resolve` first arg is ALWAYS the resolved inputs map — the
+  one stable Name-over-place meaning, with no per-form exception.
+
+  `:whole-db?` is DERIVED, never authored: true iff some declared input
+  descriptor targets the ROOT path (the explicit `[]`, exactly as
+  `validate-input-descriptor!` defines it — nil is never the root). Tooling
+  reads it to mark the whole-db cost on both axes (EP-0015 disposition 8);
+  reading the whole db is spelled `{:inputs {:db [:db []]}}`.
 
   EP-0025 (rf2-71dr8t): there is NO `:rf.egress/output-sensitivity` claim — all
   sensitivity propagation is removed. A `:rf.egress/output-sensitivity` key on a
@@ -313,36 +296,44 @@
              :rf.error/invalid-resource-scope-spec
              'rf/reg-resource-scope
              (str "resource-scope " scope-id "'s resolver (the THIRD slot) must "
-                  "be a fn, got " (pr-str (type resolve-fn)) ". The primary form "
-                  "is (reg-resource-scope " scope-id " {:inputs {name [:db path]}} "
-                  "(fn [inputs ctx] -> scope|nil)); the whole-db sugar omits "
-                  ":inputs and reads the db (fn [db ctx] …). Per Spec 016 §The "
-                  ":inputs grammar / §Whole-db function sugar.")
+                  "be a fn, got " (pr-str (type resolve-fn)) ". The grammar is "
+                  "(reg-resource-scope " scope-id " {:inputs {name [:db path]}} "
+                  "(fn [inputs ctx] -> scope|nil)). Per Spec 016 §The "
+                  ":inputs grammar.")
              {:scope-id scope-id :value resolve-fn})))
+  (when-not (contains? metadata :inputs)
+    (throw (registration-error
+             :rf.error/invalid-resource-scope-spec
+             'rf/reg-resource-scope
+             (str "resource-scope " scope-id "'s metadata (the MIDDLE slot) "
+                  "declares no `:inputs`. `:inputs` is REQUIRED: the grammar is "
+                  "(reg-resource-scope " scope-id " {:inputs {name [:db path]}} "
+                  "(fn [inputs ctx] -> scope|nil)), and the resolver's first "
+                  "arg is ALWAYS the resolved inputs map. To read the whole db, "
+                  "declare it as an input on the root path: "
+                  "{:inputs {:db [:db []]}}. Per Spec 016 §The :inputs grammar.")
+             {:scope-id scope-id :metadata metadata})))
   (let [{:keys [inputs doc]} metadata]
-    (if (contains? metadata :inputs)
-      ;; declared-inputs form — `:inputs` present shapes the resolver
-      (do
-        (when-not (map? inputs)
-          (throw (registration-error
-                   :rf.error/invalid-resource-scope-spec
-                   'rf/reg-resource-scope
-                   (str "resource-scope " scope-id " has a non-map `:inputs` "
-                        (pr-str inputs) ". `:inputs` is a map {name [:db path]}. "
-                        "Per Spec 016 §The :inputs grammar.")
-                   {:scope-id scope-id :inputs inputs})))
-        {:inputs    (reduce-kv
+    (when-not (map? inputs)
+      (throw (registration-error
+               :rf.error/invalid-resource-scope-spec
+               'rf/reg-resource-scope
+               (str "resource-scope " scope-id " has a non-map `:inputs` "
+                    (pr-str inputs) ". `:inputs` is a map {name [:db path]}. "
+                    "Per Spec 016 §The :inputs grammar.")
+               {:scope-id scope-id :inputs inputs})))
+    (let [canonical (reduce-kv
                       (fn [acc input-name descriptor]
                         (assoc acc input-name
                                (validate-input-descriptor! scope-id input-name descriptor)))
-                      {} inputs)
-         :resolve   resolve-fn
-         :whole-db? false
-         :doc       doc})
-      ;; whole-db sugar — no `:inputs` declared; the resolver reads the whole db
-      {:inputs    {:db [:db []]}
-       :resolve   (fn [{:keys [db]} ctx] (resolve-fn db ctx))
-       :whole-db? true
+                      {} inputs)]
+      {:inputs    canonical
+       :resolve   resolve-fn
+       ;; DERIVED, never authored: the whole-db cost mark is true iff some
+       ;; declared input targets the ROOT path — the explicit `[]`, exactly as
+       ;; `validate-input-descriptor!` defines it (nil is never the root).
+       :whole-db? (boolean (some (fn [[_ path]] (= [] (vec path)))
+                                 (vals canonical)))
        :doc       doc})))
 
 ;; ---- reg-resource-scope / clear-resource-scope ---------------------------
@@ -363,10 +354,10 @@
   handler from the metadata slot). The `:resolve` first arg is ALWAYS the
   resolved inputs map (the stable Name-over-place meaning, rf2-wvh95f F3).
 
-  The whole-db sugar OMITS `:inputs` from the metadata — the 2-arg
-  `(reg-resource-scope scope-id (fn [db ctx] …))` or a `:doc`-only metadata:
-  the resolver reads the whole db as its first arg (the ONE documented explicit
-  alternative, the deliberate cost-marked exception; tooling reads `:whole-db?`).
+  `:inputs` is REQUIRED — there is ONE arity and one callback contract. To read
+  the whole db, declare it as an input on the root path
+  (`{:inputs {:db [:db []]}}`); tooling's `:whole-db?` mark is DERIVED from that
+  declaration rather than authored.
 
   Validates the declared inputs (only `[:db <rf-path>]` ships; `[:runtime …]` is
   reserved and rejected loudly), requires a fn resolver in the value slot, and
@@ -378,8 +369,7 @@
   registration so the resolver appears in the Xray resource lifecycle
   timeline alongside resources. Returns `scope-id` per the `reg-*`
   return-value convention ([Conventions §reg-* return-value convention])."
-  ([scope-id resolve-fn] (reg-resource-scope scope-id {} resolve-fn))
-  ([scope-id metadata resolve-fn]
+  [scope-id metadata resolve-fn]
   (let [spec     (canonical-spec scope-id metadata resolve-fn)
         previous (rf.registrar/lookup scope-kind scope-id)]
     (rf.registrar/register!
@@ -395,7 +385,7 @@
                     :kind        :resource-scope
                     :inputs      (vec (keys (:inputs spec)))
                     :whole-db?   (:whole-db? spec)}))
-    scope-id)))
+    scope-id))
 
 (defn clear-resource-scope
   "Remove a registered resource-scope resolver (a registration-lifecycle
