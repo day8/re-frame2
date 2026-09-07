@@ -81,6 +81,37 @@
      #(let [db (rf/app-db-value :rf/default)] (when (pred db) db))
      {:timeout-ms timeout-ms :label "http-interceptors reply"})))
 
+;; ---- TEST ISOLATION: await the RESPONSE, never just the request ------------
+;;
+;; Every test below drives a REAL in-process HTTP round trip, and the reply
+;; tail (`middleware/run-after-then-dispatch!`) resolves the `:after` chain
+;; from the LIVE per-frame interceptor registry at RESPONSE time rather than
+;; from a chain captured when the request was issued (rf2-v3f6). A test that
+;; returns while its own response is still in flight therefore leaks that
+;; response into whichever test runs next: the leaked `:after` walk fires the
+;; NEXT test's interceptors and pollutes its observations. Test order is
+;; `ns-interns` hash order, so which pair collides moves whenever a test is
+;; added or deleted — the leak presents as an unrelated test flaking.
+;;
+;; Two request-side waits look sufficient and are NOT:
+;;   * polling until the `:before` fns have fired — they run synchronously
+;;     inside `dispatch-sync`, so `poll-until`'s first probe succeeds before
+;;     the round trip has even begun; and
+;;   * polling a latch the server handler sets — the handler sets it BEFORE
+;;     `write-response!`.
+;;
+;; The sufficient wait is the REPLY landing in app-db: the reply is dispatched
+;; only after `run-after-chain!` has returned for that request. So every test
+;; that starts a server sends its request with a `:reply-to` and awaits the
+;; reply before it asserts and before `stop-server!`.
+;;
+;; Measured before this rule was applied (2026-09-08): under a request-side
+;; wait the response had not completed by `stop-server!` in 20/20 runs of
+;; `clear-then-reg-appends-to-end-of-chain` and 10/10 of
+;; `re-registering-id-replaces-slot`; running either immediately before
+;; `after-less-interceptors-are-transparent` corrupted that test's `:after`
+;; order in 2 of 20 pairs. With the response-side wait, 0 of 20.
+
 ;; ---- 1. single interceptor transforms the outgoing request ----------------
 
 (deftest single-interceptor-transforms-request
@@ -225,26 +256,22 @@
 (deftest interceptor-is-frame-scoped
   (testing "an interceptor registered on frame A does not transform frame B's requests"
     ;; The two "seen-on-*" atoms hold the X-Marker header value the server
-    ;; observed; the two "hit-*" atoms are independent "the request landed"
-    ;; latches. We need the latter because :other-frame's request is *expected*
-    ;; to carry a nil header, so we cannot use header-value-is-non-nil as a
-    ;; readiness signal for that branch.
+    ;; observed. Readiness is each frame's REPLY landing in its own app-db —
+    ;; header values are NOT a valid readiness signal here, because
+    ;; :other-frame's request is *expected* to carry a nil header, which is
+    ;; indistinguishable from "request has not yet landed" (rf2-fun38).
     (let [seen-on-default (atom nil)
           seen-on-other   (atom nil)
-          hit-default     (atom false)
-          hit-other       (atom false)
           {:keys [port] :as srv}
           (start-server!
             (fn [^HttpExchange ex]
               (let [path (.getPath (.getRequestURI ex))]
                 (cond
                   (.startsWith path "/from-default")
-                  (do (reset! seen-on-default (header-of ex "X-Marker"))
-                      (reset! hit-default true))
+                  (reset! seen-on-default (header-of ex "X-Marker"))
 
                   (.startsWith path "/from-other")
-                  (do (reset! seen-on-other (header-of ex "X-Marker"))
-                      (reset! hit-other true)))
+                  (reset! seen-on-other (header-of ex "X-Marker")))
                 (write-response! ex 200 "application/json" "{}"))))]
       (try
         (rf/make-frame {:id :other-frame :doc "alt frame"})
@@ -253,28 +280,35 @@
           {:frame  :rf/default
            :before (fn [ctx]
                      (assoc-in ctx [:request :headers "X-Marker"] "default-only"))})
-        ;; Two events — one on each frame — both fire :rf.http/managed.
+        ;; Two events — one on each frame — both fire :rf.http/managed, each
+        ;; carrying a :reply-to so the response side is observable (see the
+        ;; §TEST ISOLATION note above).
         (rf/reg-event :load-default
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request {:url (str "http://127.0.0.1:" port "/from-default")}
-                    :decode  :json
-                    :on-success nil}]]}))
+          (fn [{:keys [db]} [_ msg reply]]
+            (if reply
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:reply-to [:load-default msg]
+                      :request  {:url (str "http://127.0.0.1:" port "/from-default")}
+                      :decode   :json}]]})))
         (rf/reg-event :load-other
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request {:url (str "http://127.0.0.1:" port "/from-other")}
-                    :decode  :json
-                    :on-success nil}]]}))
+          (fn [{:keys [db]} [_ msg reply]]
+            (if reply
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:reply-to [:load-other msg]
+                      :request  {:url (str "http://127.0.0.1:" port "/from-other")}
+                      :decode   :json}]]})))
         (rf/dispatch-sync [:load-default])
         (rf/dispatch-sync [:load-other] {:frame :other-frame})
-        ;; Wait for both server hits using the dedicated readiness latches.
-        ;; Header values are NOT a valid readiness signal here — the
-        ;; :other-frame request is expected to carry a nil header, which is
-        ;; indistinguishable from "request has not yet landed" (rf2-fun38).
+        ;; Await BOTH replies. A server-side "the request landed" latch is set
+        ;; BEFORE `write-response!`, so returning on one leaves this test's own
+        ;; responses in flight past `stop-server!`, to be walked against the
+        ;; NEXT test's interceptor chain (rf2-v3f6).
         (rf.test-support/poll-until
-          #(and @hit-default @hit-other)
-          {:timeout-ms 5000 :label "both server hits landed"})
+          #(and (some? (:reply (rf/app-db-value :rf/default)))
+                (some? (:reply (rf/app-db-value :other-frame))))
+          {:timeout-ms 5000 :label "both frames' replies landed"})
         (is (= "default-only" @seen-on-default)
             "default-frame request carried the interceptor's header")
         (is (nil? @seen-on-other)
@@ -573,16 +607,20 @@
         ;; Replace :a — should keep its position (first), not append.
         (rf/reg-http-interceptor :a {:before (fn [ctx] (swap! order conj :a-v2) ctx)})
         (rf/reg-event :load
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request {:url (str "http://127.0.0.1:" port "/x")}
-                    :decode  :json
-                    :on-success nil}]]}))
+          (fn [{:keys [db]} [_ msg reply]]
+            (if reply
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:reply-to [:load msg]
+                      :request  {:url (str "http://127.0.0.1:" port "/x")}
+                      :decode   :json}]]})))
         (rf/dispatch-sync [:load])
-        ;; Wait for both :before fns to fire (rf2-fun38).
-        (rf.test-support/poll-until
-          #(= 2 (count @order))
-          {:label "both interceptors in chain fired"})
+        ;; Await the REPLY, not the `:before` count (§TEST ISOLATION above):
+        ;; both `:before` fns fire synchronously inside `dispatch-sync`, so an
+        ;; `@order`-count poll is satisfied while the round trip is still in
+        ;; flight and this test tears down over its own live response. The
+        ;; reply landing implies the whole chain ran.
+        (await-reply! #(some? (:reply %)) 5000)
         (is (= [:a-v2 :b] @order)
             "replaced :a's :before fired in :a's original position; no duplicate")
         (finally (stop-server! srv))))))
@@ -628,16 +666,20 @@
               "after clear-then-reg, :a moved to the end (was first; now last)"))
 
         (rf/reg-event :kg5nw/load
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request    {:url (str "http://127.0.0.1:" port "/x")}
-                    :decode     :json
-                    :on-success nil}]]}))
+          (fn [{:keys [db]} [_ msg reply]]
+            (if reply
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:reply-to [:kg5nw/load msg]
+                      :request  {:url (str "http://127.0.0.1:" port "/x")}
+                      :decode   :json}]]})))
         (rf/dispatch-sync [:kg5nw/load])
-        ;; Wait for all three :before fns to fire (rf2-fun38).
-        (rf.test-support/poll-until
-          #(= 3 (count @order))
-          {:label "all post-clear-then-reg interceptors fired"})
+        ;; Await the REPLY, not the `:before` count (§TEST ISOLATION above):
+        ;; all three `:before` fns fire synchronously inside `dispatch-sync`,
+        ;; so an `@order`-count poll is satisfied while the round trip is still
+        ;; in flight and this test tears down over its own live response. The
+        ;; reply landing implies the whole chain ran.
+        (await-reply! #(some? (:reply %)) 5000)
         (is (= [:b :c :a-fresh] @order)
             "interceptors fired in the post-clear-then-reg order: :b, :c, :a (re-registered)")
         (finally (stop-server! srv))))))
