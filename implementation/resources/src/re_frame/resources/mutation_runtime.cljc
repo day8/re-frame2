@@ -540,19 +540,84 @@
      :before       before
      :forward      forward}))
 
+(def live-work-keys
+  "The entry keys a rollback NEVER restores from its recorded `:before`
+  snapshot: the entry's LIVE read-work and OWNERSHIP facts (rf2-veef).
+
+  An optimistic apply writes an entry's PAYLOAD and FRESHNESS and nothing else
+  — `apply-optimistic-patch` touches `:data` / `:status` / `:error` /
+  `:refresh-error` / `:loaded-at` / `:stale-at` / `:invalidated-at` / `:tags` /
+  `:revision`. It never starts a read and never attaches an owner. So these
+  five keys were never part of what a rollback is undoing; they describe
+  whichever read is in flight NOW and whoever is watching the entry NOW.
+
+  Restoring them wholesale ORPHANED a refetch started while the mutation was
+  pending. `entry-start-load` deliberately does not bump `:revision` (EP-0019
+  Open Issue 5 — a read START must not false-conflict), so the settle saw an
+  UNMOVED revision, chose `:restore`, and put back the pre-read `:generation` /
+  `:current-work`; `reply-handlers/live-slot-for-reply` then suppressed that
+  read's own valid reply, and the owner the load had attached was dropped (and
+  reindexed away with it). Keeping them is not a weakening of the conflict
+  rule: no AUTHORITATIVE data landed, so the rollback of the optimistic
+  payload is still exact — only the facts the rollback never owned survive it.
+
+  This is the same intent as `state/attach-owner`'s revision bump (rf2-cxwuhl),
+  reached structurally rather than through the conflict check: that bump
+  protects a STANDALONE attach, while a load-time attach rides
+  `entry-start-load`, which cannot bump."
+  [:generation :current-work :request-id :attempt :active-owners])
+
+(defn reconcile-restored-entry
+  "PURE: the entry a `:restore` disposition seats — the recorded `:before`
+  snapshot carrying the LIVE entry's `live-work-keys` (rf2-veef), with a
+  `:status` coherent with them.
+
+  When the preserved `:current-work` is still in flight, the entry's status is
+  that read's (`:fetching` over usable restored data, `:loading` without any),
+  never the snapshot's terminal `:loaded` / `:error` / `:idle` — a status
+  contradicting a live read would render as settled while its reply is still
+  coming. With no live entry, or an entry whose work facts match the snapshot's
+  (the ordinary no-concurrent-work rollback), this is `before` UNCHANGED: the
+  apply never wrote these keys, so copying them back is a no-op."
+  [before current]
+  (if (nil? current)
+    before
+    (let [reconciled (merge before (select-keys current live-work-keys))]
+      (cond-> reconciled
+        (some? (:current-work reconciled))
+        (assoc :status (rf.resources.state/next-status
+                         (:status reconciled) :start-load
+                         (rf.resources.state/has-data? reconciled)))))))
+
 (defn restore-before
   "PURE: apply ONE `:restore` rollback disposition to the cache `runtime-db` —
-  restore the recorded `:before` entry verbatim at its scoped key (structural-
-  shared; the snapshot was captured by reference), or REMOVE the entry (dissoc by
-  the byte `key-id`) when `:before` is the `absent-snapshot` sentinel (the apply
-  had seeded an absent key — rollback restores the absence). Pure
+  restore the recorded `:before` entry at its scoped key (structural-shared; the
+  snapshot was captured by reference), or REMOVE the entry (dissoc by the byte
+  `key-id`) when `:before` is the `absent-snapshot` sentinel (the apply had
+  seeded an absent key — rollback restores the absence). Pure
   `(runtime-db, disposition) -> runtime-db'`. The caller recomputes the reverse
   indexes after the whole settle pass (a restore may re-create / drop entries +
-  tags). Per EP-0019 Decision 3 (restore the exact entry that existed)."
+  tags). Per EP-0019 Decision 3 (restore the exact entry that existed).
+
+  rf2-veef: \"the exact entry that existed\" is the entry's PAYLOAD, not its
+  live read-work and ownership — `reconcile-restored-entry` carries those
+  forward off the current entry. The `:absent` arm answers the same question
+  from the other side: dropping the entry would orphan a read started on that
+  key just as surely, so a seed rolled back UNDER a live read leaves the empty
+  pre-seed entry carrying that read rather than dissoc'ing it. With no read in
+  flight the absence is restored exactly as before."
   [runtime-db {scoped-key :resource/key :keys [before]}]
-  (if (= before absent-snapshot)
-    (update-in runtime-db (rf.resources.state/entries-path) dissoc (rf.resources.state/key-id scoped-key))
-    (assoc-in runtime-db (rf.resources.state/entry-path scoped-key) before)))
+  (let [entry-path (rf.resources.state/entry-path scoped-key)
+        current    (get-in runtime-db entry-path)]
+    (if (= before absent-snapshot)
+      (if (some? (:current-work current))
+        (assoc-in runtime-db entry-path
+                  (reconcile-restored-entry
+                    (rf.resources.state/empty-entry (:resource/id current) scoped-key)
+                    current))
+        (update-in runtime-db (rf.resources.state/entries-path)
+                   dissoc (rf.resources.state/key-id scoped-key)))
+      (assoc-in runtime-db entry-path (reconcile-restored-entry before current)))))
 
 (defn dangle-rollback-optimistic
   "PURE: roll back a restored PENDING optimistic mutation INSTANCE's recorded
