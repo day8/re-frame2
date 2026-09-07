@@ -790,8 +790,21 @@
                   (rf.ssr.html-helpers/escape-raw-text normalised-tag-name
                                         (clojure.string/join children))
                   "</" tag-name ">")
+             ;; rf2-s7l5 — a `<pre>`/`<listing>`/`<textarea>` whose body is a
+             ;; SINGLE string beginning with LF gets the one compensating LF
+             ;; react-dom/server 19.2 emits, because the HTML parser eats the
+             ;; first LF after those start tags. Without it `[:pre "\ncode"]`
+             ;; reached the DOM as "code" — one authored character lost, and a
+             ;; text hydration mismatch against the client's rendering of the
+             ;; same `.cljc` view. The roster and the rule are shared with the
+             ;; streaming walker and the S5 serialiser
+             ;; (`html/leading-newline-compensation`); `""` for every other
+             ;; tag and body shape, so this is inert on the common path.
              :else
              (str "<" tag-name (attr-string attrs) ">"
+                  (rf.ssr.html-helpers/leading-newline-compensation
+                    normalised-tag-name
+                    (rf.ssr.html-helpers/sole-string-child children))
                   (emit-children children)
                   "</" tag-name ">")))
 
