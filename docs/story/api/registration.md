@@ -237,11 +237,11 @@ Layer 1 of the five-layer args precedence chain (global → story → mode → v
   ```
 - **Description**: Register a decorator AND opt it into the global stack in one call. Symmetric to the host calling `reg-decorator` + `configure! {:rf.story/global-decorators [...]}` in sequence; preferred when the decorator is exclusively a global-stack member. Earliest-registered-first; re-registering the same id REPLACES the entry in place (same position in the global vector) so hot-reload doesn't reshuffle the stack order.
 
-### `unreg-global-decorator!`
+### `clear-global-decorator`
 
 - **Signature**:
   ```clojure
-  (unreg-global-decorator! id) → nil
+  (clear-global-decorator id) → nil
   ```
 - **Description**: Remove `id` from the global-decorators vector. The decorator's registration body is NOT unregistered — call `unregister!` for that. Idempotent.
 

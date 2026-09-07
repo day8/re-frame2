@@ -2116,9 +2116,9 @@
   ["re-frame.story" "reg-global-decorator"]          {:tier :tooling :owner "007" :status "post-v1 lib"
                                                      :action :keep
                                                      :justification "Registers a decorator applied to every variant -- a project-setup call that belongs beside the `reg-*` family the user has already imported."}
-  ["re-frame.story" "unreg-global-decorator!"]       {:tier :tooling :owner "007" :status "post-v1 lib"
+  ["re-frame.story" "clear-global-decorator"]        {:tier :tooling :owner "007" :status "post-v1 lib"
                                                      :action :keep
-                                                     :justification "The teardown half of `reg-global-decorator`. The lifecycle-verb law pairs register and unregister, so they share a door."}
+                                                     :justification "The teardown half of `reg-global-decorator`. The lifecycle-verb law makes `clear-*` the symmetric inverse of `reg-*`, so they share a door; no bang, per Naming bucket 1, matching the twin."}
   ["re-frame.story" "global-decorators"]             {:tier :tooling :owner "007" :status "post-v1 lib"
                                                      :action :keep
                                                      :justification "Reads the installed global decorators -- the inspection third of that pair, called from the shell and from fixtures asserting a known starting state."}

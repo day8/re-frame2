@@ -265,7 +265,7 @@ All under `re-frame.story`.
 | Fn | Signature | Purpose |
 |---|---|---|
 | `reg-global-decorator` | `(reg-global-decorator id body)` / `(reg-global-decorator id body ref-args)` | Register a decorator body (delegates to `reg-decorator*`) AND append a `[id & ref-args]` reference to the global stack. Re-registering the same id REPLACES the entry in place so a hot-reload of the body doesn't reshuffle order. Returns the decorator id. |
-| `unreg-global-decorator!` | `(unreg-global-decorator! id)` | Remove `id` from the global-decorators vector (the registered decorator body is left intact — call `unregister!` for that). Idempotent. |
+| `clear-global-decorator` | `(clear-global-decorator id)` | Remove `id` from the global-decorators vector (the registered decorator body is left intact — call `unregister!` for that). Idempotent. `clear-*` per Conventions §Lifecycle-verb law — the roster's symmetric inverse of `reg-*`, no bang (§Naming bucket 1), matching the `reg-global-decorator` twin; rf2-kuky.71 retired the `unreg-*` spelling. |
 | `global-decorators` | `(global-decorators)` | Return the current ordered ref vector (`[[decorator-id & args] ...]`), earliest-registered first. |
 
 `configure!`'s `:rf.story/global-decorators` key (above) is the
