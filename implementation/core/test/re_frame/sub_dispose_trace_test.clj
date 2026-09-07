@@ -457,6 +457,16 @@
           ;; so the parent itself releases normally; the parent's dispose
           ;; callback then hits the redefed per-input releases.
           real-unsub @#'rf.subs/unsubscribe
+          ;; rf2-1frc — the per-input release is no longer the address-only
+          ;; `unsubscribe`: it is the IDENTITY-GUARDED
+          ;; `unsubscribe-if-reaction`, carrying the concrete input reaction
+          ;; the parent's build acquired. The mechanism this test pins (a
+          ;; throwing input release is surfaced as a dev breadcrumb and does
+          ;; NOT abort the walk) is unchanged; only which var the walk calls
+          ;; moved, so the redef below moves with it. Redefing `unsubscribe`
+          ;; alone would leave the walk untouched and every assertion here
+          ;; would read a trace that was never emitted.
+          real-unsub-if @#'rf.subs/unsubscribe-if-reaction
           cache      (:sub-cache (rf.frame/frame :rf/default))]
       (try
         ;; Hold the layer-2 sub (which subscribes both inputs, bumping their
@@ -468,12 +478,12 @@
           ;; Make the FIRST input's (`[:sub/a]`) release throw; every other
           ;; query-v (the parent's own trigger goes through `real-unsub`
           ;; directly, and `[:sub/b]` here) delegates to the real fn.
-          (with-redefs [rf.subs/unsubscribe
-                        (fn [frame-id query-v]
+          (with-redefs [rf.subs/unsubscribe-if-reaction
+                        (fn [frame-id query-v reaction]
                           (if (= query-v [:sub/a])
                             (throw (ex-info "boom: custom adapter -dispose threw"
                                             {:query-v query-v}))
-                            (real-unsub frame-id query-v)))]
+                            (real-unsub-if frame-id query-v reaction)))]
             ;; Trigger the parent's 1 → 0 dispose via the captured original,
             ;; so the PARENT disposes (its on-dispose callback runs the
             ;; per-input release walk against the redefed `rf.subs/unsubscribe`).
