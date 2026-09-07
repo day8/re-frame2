@@ -15,9 +15,20 @@
   | the id | `(keyword \"<ns>\" \"<sym>\")` — `reg-view`'s own derivation |
   | `:ns` / `:file` / `:line` / `:column` | the coordinate, at the top level, where `reg-view` puts it |
   | `:doc` | the author's docstring, when they wrote one |
-  | `:hicasso/component` | the minted head, `identical?` to what the `def` binds |
-  | `:executable-key` | `:hicasso/component` — where this entry's executable identity lives, so the registrar's `:different-fn?` tells a real reload from an idempotent one |
-  | `:handler-fn` | **absent** |
+  | `:handler-fn` | the minted head, `identical?` to what the `def` binds |
+  | `:executable-key` | **absent** — `:handler-fn` is already where the registrar looks by default |
+
+  ## The head rides `:handler-fn`, which is the whole of rf2-kuky.60
+
+  It used to ride a private `:hicasso/component`, with `:executable-key`
+  pointing the registrar at it and `:handler-fn` deliberately absent, so
+  `(rf/view id)` answered nil for a Hicasso view and every consumer needed
+  a second descriptor shape. `re-frame.views/view-head` returns a `:view`
+  slot it did not itself build EXACTLY AS STORED — no `compose-view`, no
+  `:adapter/wrap-view`, no componentise — so publishing the head under
+  the ordinary key costs the boundary nothing and buys one answer on every
+  substrate. The rows below assert both halves: that `rf/view` now answers
+  the head, and that it is still the untouched `def` value.
 
   ## The peer registration is the point of comparison, not decoration
 
@@ -144,27 +155,40 @@
     (is (nil? (:doc (slot ::undocumented-row))))))
 
 ;; ---------------------------------------------------------------------------
-;; The head, and the `:handler-fn` that is not there
+;; The head, and the `rf/view` answer it makes possible
 ;; ---------------------------------------------------------------------------
 
 (deftest the-entry-carries-the-minted-head-itself
-  (testing "`:hicasso/component` is the very value the `def` binds — nothing
+  (testing "`:handler-fn` is the very value the `def` binds — nothing
             wrapped it on the way into the registrar"
-    (is (identical? aliased-row (:hicasso/component (slot ::aliased-row))))
-    (is (fn? (:hicasso/component (slot ::aliased-row))))))
+    (is (identical? aliased-row (:handler-fn (slot ::aliased-row))))
+    (is (fn? (:handler-fn (slot ::aliased-row)))))
 
-(deftest the-entry-has-no-handler-fn-and-rf-view-answers-nil
-  (testing "a Hicasso boundary is a React component, not a hiccup-returning
-            render fn, so the slot has no `:handler-fn` and `rf/view`'s
-            contract stays honest by answering nil"
-    (is (not (contains? (slot ::aliased-row) :handler-fn)))
-    (is (nil? (rf/view ::aliased-row))))
+  (testing "and the private key it used to ride is gone, so no consumer can
+            still be reading it"
+    (is (not (contains? (slot ::aliased-row) :hicasso/component)))
+    (is (not (contains? (slot ::aliased-row) :executable-key)))))
 
-  (testing "the peer is the control: `rf/view` resolves perfectly well in
-            this process, so the nil above is the ENTRY's shape and not a
-            broken lookup"
+(deftest rf-view-answers-the-boundary-and-answers-it-untouched
+  (testing "`(rf/view id)` resolves a Hicasso view the way it resolves a
+            Reagent or a UIx one — one lookup, every substrate"
+    (is (some? (rf/view ::aliased-row))))
+
+  (testing "and what comes back is `identical?` to the `def` value.
+            `view-head` returns a slot this namespace did not build exactly
+            as stored, so nothing composed, wrapped or componentised a
+            boundary that already IS a React component"
+    (is (identical? aliased-row (rf/view ::aliased-row))))
+
+  (testing "the peer is the control: an ordinary `reg-view` in this same
+            process resolves too, so the answer above is this entry's shape
+            and not an accident of the lookup"
     (is (some? (:handler-fn (slot ::core-peer))))
-    (is (some? (rf/view ::core-peer)))))
+    (is (some? (rf/view ::core-peer))))
+
+  (testing "an id nothing registered still answers nil — the lookup
+            discriminates, it does not answer everything"
+    (is (nil? (rf/view ::nothing-registered-under-this-id)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The adapter-timing witness (constraint 3)
@@ -175,20 +199,23 @@
             when its namespace loads before `rf/init!`"
     (is (nil? (rf/current-adapter))))
 
-  (testing "the absence of `:handler-fn` IS the proof the adapter path was
-            never entered: `re-frame.views/reg-view*` is the only route to
-            `apply-adapter-wrap-view`, and it ALWAYS stores the wrapper it
-            builds under that key. A slot without one was never near it"
-    (is (not (contains? (slot ::aliased-row) :handler-fn))))
+  (testing "IDENTITY is the proof the adapter path was never entered, and it
+            is a stronger one than the absent key it replaces.
+            `re-frame.views/reg-view*` is the only route to
+            `apply-adapter-wrap-view`, and it never stores the head it was
+            given — it stores a WRAPPER built around it. A `:handler-fn`
+            that is `identical?` to the raw `def` value was therefore never
+            near that path, whatever key it sits under"
+    (is (identical? aliased-row (:handler-fn (slot ::aliased-row)))))
 
   (testing "and a registration made HERE, with no adapter installed, is
             whole — same id, same coord keys, same untouched head"
-    (let [head #(:hicasso/component (slot ::aliased-row))
+    (let [head #(:handler-fn (slot ::aliased-row))
           before (head)]
       (rf.hicasso.impl.collector/publish-view-alias!
         ::aliased-row (select-keys (slot ::aliased-row) coord-keys) before)
       (is (identical? before (head)))
-      (is (not (contains? (slot ::aliased-row) :handler-fn))))))
+      (is (identical? before (rf/view ::aliased-row))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Hot reload — the registrar's own replacement, and nothing added for it
@@ -211,12 +238,14 @@
       (is (= before (count (rf/registrations :view)))))
 
     (testing "and it is the FRESH head that is reachable, so a story
-              resolving late picks up the reloaded view"
-      (is (identical? reloaded (:hicasso/component (slot ::aliased-row)))))
+              resolving late picks up the reloaded view — through
+              `rf/view` as well as through the slot"
+      (is (identical? reloaded (:handler-fn (slot ::aliased-row))))
+      (is (identical? reloaded (rf/view ::aliased-row))))
 
-    (testing "the shape is unchanged across the reload — still no
-              `:handler-fn`, still the coordinate"
-      (is (not (contains? (slot ::aliased-row) :handler-fn)))
+    (testing "the shape is unchanged across the reload — still the ordinary
+              key, still no `:executable-key`, still the coordinate"
+      (is (not (contains? (slot ::aliased-row) :executable-key)))
       (is (= coords (select-keys (slot ::aliased-row) coord-keys))))))
 
 ;; ---------------------------------------------------------------------------
@@ -225,13 +254,19 @@
 ;;
 ;; Replacing the entry is half the contract; the other half is what
 ;; `register!` says about the replacement, and the row above never looked.
-;; `:different-fn?` is derived by default from `:handler-fn`, and this entry
-;; has none by design — so the default derivation compares nil with nil and
-;; calls a real component rotation idempotent. A hot-reload consumer branching
-;; on the tag would decline to refresh on every Hicasso view edit. The slot
-;; names `:hicasso/component` as its executable identity under
-;; `:executable-key`, and `re-frame.registrar/executable-identity` reads the
-;; key the registration named.
+;; `:different-fn?` is derived from `re-frame.registrar/executable-identity`,
+;; which reads `(get metadata (get metadata :executable-key :handler-fn))` —
+;; so the DEFAULT is `:handler-fn`, and an entry publishing its head there
+;; needs no `:executable-key` at all to be compared correctly.
+;;
+;; That is the second thing rf2-kuky.60 bought, and it is worth stating
+;; because it used to cut the other way. While the head rode a private
+;; `:hicasso/component` with no `:handler-fn`, the default derivation
+;; compared nil with nil and called a real component rotation idempotent;
+;; `:executable-key` existed to point the registrar back at the private
+;; slot. Publishing under the ordinary key makes the default correct, so
+;; the indirection is no longer load-bearing HERE — the rows below assert
+;; the discrimination survived losing it.
 ;;
 ;; The HOOK is the seam asserted here rather than the trace bus, and it
 ;; covers both surfaces: `register!` binds `different?` ONCE and hands the
@@ -266,13 +301,17 @@
 
 (deftest a-reloaded-head-is-reported-as-a-real-change-not-an-idempotent-reload
   (let [coords (select-keys (slot ::aliased-row) coord-keys)
-        head   #(:hicasso/component (slot ::aliased-row))]
+        head   #(:handler-fn (slot ::aliased-row))]
 
-    (testing "the slot names where its executable identity lives, which is
-              what lets the registrar tell the two cases apart without
-              learning anything about Hicasso"
-      (is (= :hicasso/component (:executable-key (slot ::aliased-row))))
-      (is (contains? (slot ::aliased-row) (:executable-key (slot ::aliased-row)))))
+    (testing "the entry names no `:executable-key`, and does not need to:
+              the registrar's derivation already defaults to `:handler-fn`,
+              which is where the head now lives. The registrar tells the two
+              cases apart without learning anything about Hicasso — and now
+              without Hicasso telling it anything either. The two rows below
+              are the proof that the default derivation actually bites; this
+              one only records that nothing is pointing it anywhere"
+      (is (not (contains? (slot ::aliased-row) :executable-key)))
+      (is (fn? (head))))
 
     (testing "a save that changes the boundary's body mints a NEW head, and
               the replacement is reported as a real change — the tag a
