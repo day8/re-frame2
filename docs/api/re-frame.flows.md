@@ -15,7 +15,7 @@ Outputs are always written to `app-db`.
 
 See [Flows: derived values your handlers can read](../core/flows.md) for the conceptual companion.
 
-> **Note** — `reg-flow` is also exported from the `re-frame.core` facade, so the examples below register with `rf/reg-flow` (the conventional call site). `clear-flow`, the introspection accessors, and the test-support resets are called on the `flows` alias. The full `reg-flow` contract lives here.
+> **Note** — `reg-flow` is also exported from the `re-frame.core` facade, so the examples below register with `rf/reg-flow` (the conventional call site). Its inverse is the facade's kind-keyed `(rf/clear :flow id)`: `re-frame.flows` carries **no** `clear-flow` re-export (rf2-kuky.80). The introspection accessors and the test-support resets are called on the `flows` alias. The full `reg-flow` contract lives here.
 
 ## Registering and clearing flows
 
@@ -52,19 +52,19 @@ See [Flows: derived values your handlers can read](../core/flows.md) for the con
   ;; => :cart/subtotal
   ```
 
-### `clear-flow`
+### Clearing a flow
 
-- **Kind**: function
 - **Signature**:
   ```clojure
-  (clear-flow id)
-  (clear-flow id opts)
+  (rf/clear :flow id)
+  (rf/clear :flow id {:frame target})
   ```
-- **Description**: Deregister the flow from the named frame and `dissoc-in` its `:output-path` from that frame's `app-db` only. Returns `nil`.
+- **Description**: Deregister the flow from the named frame and `dissoc-in` its `:output-path` from that frame's `app-db` only. Returns `id`.
 
+  - There is **no** `clear-flow` name: it was never a `re-frame.core` facade export, and `re-frame.flows` dropped its own re-export — `:flow` is one of the kinds the one kind-keyed registrar inverse dispatches (see [`clear`](re-frame.core.md#clear)). `re-frame.flows.registry/clear-flow` survives as the late-bind hook target that dispatch routes to, and `:rf.fx/clear-flow` (below) survives as an fx-id keyword; neither is a public call by that name (rf2-kuky.80).
   - Leaf-only removal: an emptied parent map is left in place.
   - Sibling frames' state is preserved.
-  - The frame resolves from the `opts` `:frame` key (a frame-id keyword), else the surrounding scope. With no scope and no `:frame`, it raises `:rf.error/no-frame-context`.
+  - The frame resolves from the opts `:frame` key (a frame-id keyword or a live frame value), else the surrounding scope. With no scope and no `:frame`, it raises `:rf.error/no-frame-context`. The opts map is **exact** — sole key `:frame` — and a near-miss such as `{:fram :session}` raises `:rf.error/registrar-clear-bad-request` before any frame is resolved, rather than silently clearing the ambient frame's flow.
   - A no-op when `id` is not registered against the frame.
   - Called outside an event drain, it **settles before it returns**: any flow that declared the cleared flow's `:output-path` as an input has already recomputed against its absence, so the returned-to code never sees a dependent still publishing a value derived from the removed slot. You do not dispatch a follow-up event. A dependent's `:derive` throwing during that settle propagates `:rf.error/flow-eval-exception` to the caller; the deregistration and vacation stand. Called from inside a handler or a `:rf.fx/*` effect, the current drain's flow pass performs the settle instead — the boundary is the same either way.
 - **Example**:
@@ -135,7 +135,7 @@ Two reserved fx-ids register or clear a flow at runtime from inside an event han
 | `[:rf.fx/reg-flow [flow-id metadata derive-fn]]` | the 3-slot triple (same shape as `reg-flow`) | v1 | Register a flow at runtime via `:fx`. The dispatching frame threads through as the `:frame` metadata key. |
 | `[:rf.fx/clear-flow id]` | flow id | v1 | Clear a registered flow at runtime via `:fx`. |
 
-The arguments mirror `reg-flow` / `clear-flow` exactly: the same 3-slot triple, the same flow id. (An fx body's return value is not observable.) When the flows artefact is not on the classpath, both effects no-op.
+The arguments mirror `reg-flow` and `(rf/clear :flow id)` exactly: the same 3-slot triple, the same flow id. `:rf.fx/clear-flow` is an fx-id **keyword**, not a var — there is no `clear-flow` fn name behind it to call directly (rf2-kuky.80). (An fx body's return value is not observable.) When the flows artefact is not on the classpath, both effects no-op.
 
 ```clojure
 ;; Clear a runtime-registered flow from inside a handler — e.g. disengaging a

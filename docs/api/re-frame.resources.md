@@ -101,14 +101,13 @@ There is no `[:rf.scope/global]` fallthrough.
 
 See [Guide ch.27 §Scope](../resources/concepts.md).
 
-### `clear-resource`
+### Clearing a resource
 
-- **Kind**: function (post-v1 lib)
 - **Signature**:
   ```clojure
-  (clear-resource resource-id)
+  (rf/clear :resource resource-id)
   ```
-- **Description**: Remove a registered resource. Returns `resource-id`.
+- **Description**: Remove a registered resource. Returns `resource-id`. There is **no** `clear-resource` name — not on `re-frame.resources` and not on the `re-frame.core` facade; `:resource` is one of the kinds the one kind-keyed registrar inverse dispatches (see [`clear`](re-frame.core.md#clear)). `re-frame.resources.registry/clear-resource` survives as the late-bind hook target that dispatch routes to — artefact-internal plumbing, not a public call (rf2-kuky.80).
   - A **registration-lifecycle** operation, NOT cache invalidation. For data lifecycle use `:rf.resource/invalidate-tags` / `:rf.resource/remove` / `:rf.resource/clear-scope`.
   - Also disposes the resource-runtime state for the id in each affected frame. That disposal:
     - releases owner indexes
@@ -188,14 +187,13 @@ A mutation is the causal-WRITE counterpart of a resource: a named write to remot
 
 The inverse is runtime-recorded: the author supplies no `:rollback` registration key. The runtime snapshots each touched entry (with its `:revision`) on the instance row's `:patch-summary` `:rollback` slot and settles via the commit/rollback/reconcile protocol. An optimistic plan combined with `:invalidate-timing :before-request` is contradictory and rejected at registration with `:rf.error/mutation-optimistic-before-request`.
 
-### `clear-mutation`
+### Clearing a mutation
 
-- **Kind**: function (post-v1 lib)
 - **Signature**:
   ```clojure
-  (clear-mutation mutation-id)
+  (rf/clear :mutation mutation-id)
   ```
-- **Description**: Remove a registered mutation. Returns `mutation-id`. A **registration-lifecycle** operation, NOT a form-error reset. For the causal runtime-instance reset use the `[:rf.mutation/clear …]` event.
+- **Description**: Remove a registered mutation. Returns `mutation-id`. A **registration-lifecycle** operation, NOT a form-error reset. For the causal runtime-instance reset use the `[:rf.mutation/clear …]` event. There is **no** `clear-mutation` name — not on `re-frame.resources` and not on the `re-frame.core` facade; `:mutation` is one of the kinds the one kind-keyed registrar inverse dispatches (see [`clear`](re-frame.core.md#clear)). `re-frame.resources.mutation-registry/clear-mutation` survives as the late-bind hook target that dispatch routes to — artefact-internal plumbing, not a public call (rf2-kuky.80).
 
 ```clojure
 ;; deregister a mutation (registration-lifecycle — NOT the runtime-instance reset)
@@ -240,14 +238,13 @@ A resource (or payload, or route) references a named resolver as `{:from-db <sco
 ;; referenced from a resource / payload / route as {:from-db :realworld/session}
 ```
 
-### `clear-resource-scope`
+### Clearing a resource-scope resolver
 
-- **Kind**: function (post-v1 lib)
 - **Signature**:
   ```clojure
-  (clear-resource-scope scope-id)
+  (rf/clear :resource-scope scope-id)
   ```
-- **Description**: Remove a registered resource-scope resolver. This is a **registration-lifecycle** removal — the `clear-` counterpart of `reg-resource-scope`. A resolver holds no per-frame runtime state (it is a pure derivation consulted at use time), so nothing is disposed beyond the registrar entry. When the id is not registered, the call is a no-op that returns `scope-id`.
+- **Description**: Remove a registered resource-scope resolver. This is a **registration-lifecycle** removal — the registrar inverse of `reg-resource-scope`. A resolver holds no per-frame runtime state (it is a pure derivation consulted at use time), so nothing is disposed beyond the registrar entry. When the id is not registered, the call is a no-op that returns `scope-id`. There is **no** `clear-resource-scope` name — not on `re-frame.resources` and not on the `re-frame.core` facade; `:resource-scope` is one of the kinds the one kind-keyed registrar inverse dispatches (see [`clear`](re-frame.core.md#clear)). `re-frame.resources.scope-registry/clear-resource-scope` survives as the late-bind hook target that dispatch routes to — artefact-internal plumbing, not a public call (rf2-kuky.80).
 
 ```clojure
 ;; deregister a named scope resolver (registration-lifecycle — e.g. on hot-reload / teardown)
@@ -758,7 +755,7 @@ Status invariants:
 
 - **Kind**: event
 - **Payload**: `{:instance …}` (clear one instance) or `{:mutation …}` (clear every instance of a mutation id)
-- **Description**: The **causal** reset of runtime mutation-instance state. It clears the addressed row(s) and best-effort aborts in-flight work; the work row settles `:cancelled`. Distinct from `clear-mutation`, which removes the *registration*.
+- **Description**: The **causal** reset of runtime mutation-instance state. It clears the addressed row(s) and best-effort aborts in-flight work; the work row settles `:cancelled`. Distinct from `(rf/clear :mutation mutation-id)`, which removes the *registration*.
 
 ```clojure
 ;; reset one runtime instance's row (e.g. in a completion continuation)
