@@ -3,7 +3,7 @@
 
   Both tools build a CLJS form that calls into the preloaded runtime,
   and into NOTHING ELSE: `re-frame2-pair.runtime/registrar-describe` /
-  `registrar-list` for the fourteen registrar kinds,
+  `registrar-list` for the twelve registrar kinds,
   `frame-registrar-describe` / `frame-registrar-list` for the
   frame-targeted reads, and `machine-describe` / `machines-list` for the
   virtual `:machine` kind. Live end-to-end coverage runs against a
@@ -95,8 +95,8 @@
             "kind + id are both required")
         (is (contains? properties :kind))
         (is (contains? properties :id))
-        (is (= #{"event" "sub" "fx" "cofx" "interceptor" "view" "frame"
-                 "route" "flow" "head" "error-projector"
+        (is (= #{"event" "sub" "fx" "cofx" "interceptor" "view"
+                 "route" "head" "error-projector"
                  "resource" "mutation" "resource-scope" "machine"}
                (set (:enum (:kind properties))))
             "kind enum lists every supported kind (incl. the EP-0016 resources kinds + the EP-0022 :interceptor kind)")))))
@@ -122,8 +122,8 @@
         (is (= #{"kind"} (set required))
             "kind is the only required arg")
         (is (contains? properties :kind))
-        (is (= #{"event" "sub" "fx" "cofx" "interceptor" "view" "frame"
-                 "route" "flow" "head" "error-projector"
+        (is (= #{"event" "sub" "fx" "cofx" "interceptor" "view"
+                 "route" "head" "error-projector"
                  "resource" "mutation" "resource-scope" "machine"}
                (set (:enum (:kind properties)))))))))
 
@@ -215,6 +215,70 @@
                    (let [edn (extract-edn result)]
                      (is (= :invalid-kind (:reason edn))))
                    (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; The two RESERVED-BUT-EMPTY registrar slots — `flow` and `frame` (rf2-zhef).
+;;
+;; `re-frame.registrar/kinds` reserves both, but nothing is ever written to
+;; either: flows live in `re-frame.flows` (`flows-snapshot` / `flow-meta-at`)
+;; and frames in `rf/frame-ids` / `rf/frame-meta`. The framework made querying
+;; them LOUD in rf2-kuky.30 — `(rf/registrations {:source :store :kind :flow})`
+;; throws `:rf.error/registrar-kind-not-queryable` — and the preload's
+;; `registrar-list` / `registrar-describe` do not catch, so while the tool kept
+;; both on its enum a caller's `list-handlers {kind "flow"}` propagated a
+;; framework throw instead of the tool's own structured envelope.
+;;
+;; The narrowing is the fix: both leave `registrar-kinds`, `parse-kind` returns
+;; nil for them, and the EXISTING `:invalid-kind` + kinds-hint envelope answers.
+;; No second refusal path exists to maintain.
+;; ---------------------------------------------------------------------------
+
+(deftest handler-meta-refuses-reserved-empty-kinds
+  (testing "handler-meta refuses `flow` / `frame` with the structured envelope"
+    (async done
+      (-> (js/Promise.all
+            (into-array
+              (for [k ["flow" "frame"]]
+                (-> (hm/handler-meta-tool nil (args-js {:kind k :id ":anything"}))
+                    (.then (fn [result]
+                             (is (is-error? result)
+                                 (str "kind=" k " is refused, not queried"))
+                             (let [edn (extract-edn result)]
+                               (is (= :invalid-kind (:reason edn))
+                                   (str "kind=" k " surfaces :invalid-kind"))
+                               (is (= k (:kind edn))
+                                   "the raw kind rides back on the envelope")
+                               (is (not (str/includes? (str (:hint edn)) k))
+                                   (str "the kinds hint no longer advertises " k)))))))))
+          (.then (fn [_] (done)))))))
+
+(deftest list-handlers-refuses-reserved-empty-kinds
+  (testing "list-handlers refuses `flow` / `frame` with the structured envelope"
+    (async done
+      (-> (js/Promise.all
+            (into-array
+              (for [k ["flow" "frame"]]
+                (-> (hm/list-handlers-tool nil (args-js {:kind k}))
+                    (.then (fn [result]
+                             (is (is-error? result)
+                                 (str "kind=" k " is refused, not queried"))
+                             (let [edn (extract-edn result)]
+                               (is (= :invalid-kind (:reason edn))
+                                   (str "kind=" k " surfaces :invalid-kind"))
+                               (is (= k (:kind edn))
+                                   "the raw kind rides back on the envelope"))))))))
+          (.then (fn [_] (done)))))))
+
+(deftest kind-enum-omits-the-reserved-empty-slots
+  (testing "neither descriptor advertises `flow` or `frame` as a kind"
+    (doseq [tool-name ["handler-meta" "list-handlers"]]
+      (let [enum (-> (find-descriptor tool-name) :inputSchema :properties :kind :enum set)]
+        (is (not (contains? enum "flow"))
+            (str tool-name " must not offer a kind it cannot query"))
+        (is (not (contains? enum "frame"))
+            (str tool-name " must not offer a kind it cannot query"))
+        (is (contains? enum "event")
+            (str tool-name " still offers the real registrar kinds"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Name + descriptor kind-vocab consistency.

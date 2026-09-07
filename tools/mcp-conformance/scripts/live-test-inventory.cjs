@@ -38,6 +38,16 @@ const LIVE_TESTS = [
     name: 'live EP-0018 event-metadata conformance (unified reg-event shape)',
     sentinel: 'RE-FRAME2-PAIR-MCP LIVE EVENT-METADATA CONFORMANCE GREEN',
   },
+  {
+    // The one live case that EVALUATES a generated form and reads the
+    // resulting app-db back (rf2-olqo). Boots its own server with
+    // --allow-writes and restores the fixture boot db at teardown; ordered
+    // LAST so an injection cannot reach a sibling even if teardown is skipped
+    // by an earlier throw.
+    basename: 'live-re-frame2-pair-replace-app-db.cjs',
+    name: 'live replace-app-db data-versus-evaluation conformance (rt-quote, both arities)',
+    sentinel: 'RE-FRAME2-PAIR-MCP LIVE REPLACE-APP-DB CONFORMANCE GREEN',
+  },
 ];
 
 module.exports = { LIVE_TESTS };
