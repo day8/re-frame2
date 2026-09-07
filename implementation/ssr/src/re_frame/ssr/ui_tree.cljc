@@ -519,10 +519,13 @@
 
 (def newline-eating-tags
   "The HTML elements whose parser DROPS one leading LF immediately after the
-  start tag — `<pre>`, `<listing>`, `<textarea>`. react-dom/server 19.2
-  compensates by prefixing one extra LF so content that begins with a newline
-  survives the parse round-trip."
-  #{"pre" "listing" "textarea"})
+  start tag — `<pre>`, `<listing>`, `<textarea>`.
+
+  rf2-s7l5 — the roster itself now lives ONCE, in
+  `re-frame.ssr.html-helpers`, alongside the rule that reads it: both hiccup
+  emitters need the same set, and a second copy here is how the raw-text rule
+  drifted before rf2-xbvzh hoisted it. This is the alias, not a copy."
+  rf.ssr.html-helpers/newline-eating-tags)
 
 (def trusted-html-newline-eating-tags
   "The newline-eating elements whose SOLE trusted-markup (`{:html s}`) child
@@ -562,22 +565,18 @@
   "-> the compensating LF (`\"\\n\"`) react-dom/server 19.2 prefixes inside a
   newline-eating element (`newline-eating-tags`), or `\"\"` when none is owed.
 
-  HTML parsing eats the FIRST LF immediately after `<pre>`/`<listing>`/
-  `<textarea>` (the newline-eating elements). So a tree whose textarea value, pre
-  text, or sole trusted-markup (`:html`) body begins with LF would, without
-  compensation, parse to a DOM carrying one FEWER newline than authored — an S5
-  hydration/correctness gap. React prefixes exactly one LF, but ONLY when the
-  element's content is a SINGLE STRING body (its `typeof … === 'string'` guard,
-  applied to a string child AND to `dangerouslySetInnerHTML.__html`): multiple or
-  element children are left untouched, because the parser's newline-eating still
-  applies but React does not doctor a multi-child body."
+  The S5 arm of the shared rule: `sole-newline-content` is the STRUCTURAL
+  lever (it recognises a lone text child, a textarea `:value`, AND — under
+  `<pre>`/`<listing>` — a sole trusted-markup `{:html s}` child, React's
+  `dangerouslySetInnerHTML.__html`), and the decision itself is
+  `re-frame.ssr.html-helpers/leading-newline-compensation`, shared with both
+  hiccup emitters (rf2-s7l5). The hiccup paths carry their own, simpler lever
+  (`html/sole-string-child`) because hiccup has no `{:html s}` child and no
+  textarea `:value` node — the tree-space distinction stays here."
   [tag-lc content]
-  (if (and (contains? newline-eating-tags tag-lc)
-           (let [content-string (sole-newline-content tag-lc content)]
-             (and (some? content-string)
-                  (str/starts-with? content-string "\n"))))
-    "\n"
-    ""))
+  (rf.ssr.html-helpers/leading-newline-compensation
+    tag-lc
+    (sole-newline-content tag-lc content)))
 
 ;; ---------------------------------------------------------------------------
 ;; Attribute value serialisation (the value half of the table).

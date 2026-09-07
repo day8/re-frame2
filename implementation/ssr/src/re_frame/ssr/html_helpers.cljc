@@ -23,6 +23,17 @@
                                     hiccup emitters (`emit` /
                                     `streaming`), so every SSR path emits
                                     byte-identical raw-text.
+    - `newline-eating-tags` /
+      `sole-string-child` /
+      `leading-newline-compensation`
+                                 — the HTML elements (`<pre>` / `<listing>` /
+                                    `<textarea>`) whose parser eats one
+                                    leading LF, and the compensating LF
+                                    react-dom/server 19.2 prefixes for a
+                                    single-string body. ONE roster and ONE
+                                    rule for the S5 serialiser
+                                    (`re-frame.ssr.ui-tree`) and both hiccup
+                                    emitters (`emit` / `streaming`).
     - `escape-script-body-string`— escape `<` as `\\u003c` for strings
                                     dropped inside `<script>` bodies. JSON bodies
                                     only — every `<` is in a string.
@@ -131,6 +142,68 @@
                           (fn [[_ prefix s-char suffix]]
                             (str prefix (if (= s-char "s") "\\73 " "\\53 ") suffix)))
     s))
+
+;; ---------------------------------------------------------------------------
+;; Newline-eating elements — leading-LF compensation (rf2-z05di, rf2-s7l5)
+;;
+;; The single shared home for the leading-LF rule, hoisted from
+;; `re-frame.ssr.ui-tree` per rf2-s7l5 for exactly the reason rf2-xbvzh
+;; hoisted the raw-text rule: the S5 structural serialiser had the rule and
+;; the two HICCUP emitters (`emit` / `streaming`) did not, so the SAME author
+;; content serialised to DIFFERENT bytes depending on which SSR path rendered
+;; it — and the hiccup paths' bytes lost a character at parse time. ONE roster
+;; and ONE rule, read by all three paths.
+;; ---------------------------------------------------------------------------
+
+(def newline-eating-tags
+  "The HTML elements whose parser DROPS one leading LF immediately after the
+  start tag — `<pre>`, `<listing>`, `<textarea>`. react-dom/server 19.2
+  compensates by prefixing one extra LF so content that begins with a newline
+  survives the parse round-trip."
+  #{"pre" "listing" "textarea"})
+
+(defn sole-string-child
+  "The single STRING body of a hiccup element's `children`, or nil.
+
+  React's leading-LF doctoring applies only when the element's `children` IS a
+  string (`typeof children === 'string'`) — one text child and nothing else. A
+  multi-child body, an element child, or an empty body is left untouched, and
+  this returns nil for each. The hiccup lever for
+  `leading-newline-compensation`; the structural serialiser has its own richer
+  lever (it must also recognise a sole trusted-markup `{:html s}` child and a
+  textarea `:value`) and feeds this same rule."
+  [children]
+  (let [content (seq children)]
+    (when (and content (nil? (next content)) (string? (first content)))
+      (first content))))
+
+(defn leading-newline-compensation
+  "-> the compensating LF (`\"\\n\"`) react-dom/server 19.2 prefixes inside a
+  newline-eating element (`newline-eating-tags`), or `\"\"` when none is owed.
+  `tag-lc` is the LOWER-CASED tag name; `content-string` is the element's sole
+  string body, or nil when it has none.
+
+  HTML parsing eats the FIRST LF immediately after `<pre>` / `<listing>` /
+  `<textarea>` (the newline-eating elements). So markup whose textarea value,
+  pre text, or sole trusted-markup (`:html`) body begins with LF would, without
+  compensation, parse to a DOM carrying one FEWER newline than authored — an S5
+  hydration/correctness gap, and on the hiccup paths a silent loss of an
+  authored character relative to the client's Reagent/React rendering of the
+  same `.cljc` view. React prefixes exactly one LF, but ONLY for a SINGLE
+  STRING body: multiple or element children are left untouched, because the
+  parser's newline-eating still applies but React does not doctor a multi-child
+  body. Passing nil for `content-string` is how a caller says \"not a single
+  string body\", and yields `\"\"`.
+
+  Only a leading LF triggers it. A leading CR (`\\r`) does not — the tokenizer
+  eats an LF, and `\\r\\n` normalisation happens earlier in the input stream
+  pass, so react-dom/server compensates neither."
+  [tag-lc content-string]
+  (if (and (contains? newline-eating-tags tag-lc)
+           (string? content-string)
+           (str/starts-with? content-string "\n"))
+    "\n"
+    ""))
 
 (defn escape-script-body-string
   "Escape a string that will be emitted raw inside a `<script>…</script>`

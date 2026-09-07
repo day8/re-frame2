@@ -398,8 +398,17 @@
            (rf.ssr.html-helpers/escape-raw-text normalised-tag-name
                                  (clojure.string/join children))
            "</" tag-name ">")
+      ;; rf2-s7l5 — mirror the non-streaming emitter's leading-LF
+      ;; compensation for `<pre>`/`<listing>`/`<textarea>` with a SINGLE
+      ;; string body, so progressive shell/continuation markup preserves an
+      ;; authored initial newline exactly as `render-to-string` does. ONE
+      ;; roster and ONE rule (`html/leading-newline-compensation`), shared
+      ;; with the sync emitter and the S5 serialiser.
       :else
       (str "<" tag-name (rf.ssr.emit/attr-string merged-attrs) ">"
+           (rf.ssr.html-helpers/leading-newline-compensation
+             normalised-tag-name
+             (rf.ssr.html-helpers/sole-string-child children))
            (walk-children children continuation-accumulator)
            "</" tag-name ">"))))
 
