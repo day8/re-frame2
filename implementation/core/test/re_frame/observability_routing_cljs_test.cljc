@@ -41,6 +41,7 @@
             [re-frame.event-emit :as rf.event-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.observability :as rf.observability]
+            [re-frame.source-coords :as rf.source-coords]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
@@ -299,6 +300,16 @@
                     {:frame        :obs/attr
                      :interceptors [:kuky65/boom-after]}
                     (fn [{:keys [db]} _] {:db (assoc db :x 1)}))
+      ;; NON-NIL SOURCE-COORD CONTROL. `(= (:source-coord c) (:source-coord r))`
+      ;; alone passes vacuously when BOTH are nil, so the producer-present leg
+      ;; would prove nothing. Plant a known coord in the always-on error-coord
+      ;; registry the producer resolves from (`error-emit/error-source-coord` ->
+      ;; `source-coords/error-coords-for [:event id]`) AFTER the registration,
+      ;; so the slot is unambiguously non-nil on both routes and the equality
+      ;; below is an equality of VALUES rather than of two absences.
+      (rf.source-coords/remember-error-coords!
+        :event :kuky65/with-throwing-interceptor
+        {:ns 'kuky65.attr :file "test/kuky65/attr.cljc" :line 4242})
       (rf/dispatch-sync [:kuky65/with-throwing-interceptor] {:frame :obs/attr})
       (let [r (some (fn [x] (when (= :rf.error/interceptor-exception (:error x)) x))
                     @seen)
@@ -311,17 +322,120 @@
         (is (= :kuky65/boom-after (:failing-id r))
             ":failing-id names the failing INTERCEPTOR on the sink route too,
              distinct from :event-id")
+        (is (not= (:event-id r) (:failing-id r))
+            "the whole point of producer attribution: the failing component id is
+             DISTINCT from the event id")
         (is (= (:failing-id c) (:failing-id r))
             "the sink route carries the SAME :failing-id the corpus record does")
+        (is (= {:ns 'kuky65.attr :file "test/kuky65/attr.cljc" :line 4242}
+               (:source-coord r))
+            "the PLANTED, NON-NIL producer source-coord reaches the sink verbatim
+             — not a nil == nil agreement")
         (is (= (:source-coord c) (:source-coord r))
-            ":source-coord agrees with the corpus record (absent on both when the
-             producer had none)")
+            ":source-coord agrees with the corpus record, both non-nil")
         ;; `:reason` is the TREE slot: it rides :tags, where the projector walks
         ;; it under frame classification.
         (is (string? (get-in r [:tags :reason]))
             ":reason rides the :tags tree slot, not a public summary slot")
         (is (nil? (:reason r))
             ":reason is NOT lifted onto the summary surface")))))
+
+(deftest error-sink-record-carries-coeffect-supplier-attribution
+  (testing "rf2-kuky.65: a throwing COEFFECT SUPPLIER — the other category whose
+            failing component is distinct from the dispatched event — delivers a
+            projected :rf.observe/error to the frame-owned sink whose :failing-id
+            names the SUPPLIER, distinct from the :event-id. The interceptor legs
+            above cover one category only; a cofx supplier reaches the sink by a
+            different producer (`cofx/emit-coeffect-exception!` via
+            `emit-error-both!`), so it is its own regression."
+    (let [seen   (atom [])
+          corpus (atom [])]
+      (rf/register-listener! :errors :test/corpus-cofx
+                             (fn [record] (swap! corpus conj record)))
+      (rf/register-observability-sink! :test.sinks/cofx-attribution
+                                       (fn [record] (swap! seen conj record)))
+      (rf/make-frame {:id :obs/cofx :observability
+                      {:errors [{:sink :test.sinks/cofx-attribution
+                                 :rf.egress/profile :rf.egress/off-box-observability}]}})
+      ;; A REAL registered supplier that throws at context assembly, behind a
+      ;; DECLARED `:rf.cofx/requires` — not a hand-built record.
+      (rf/reg-cofx :kuky65/boom-cofx
+                   (fn [] (throw (ex-info "cofx supplier boom" {}))))
+      (rf/reg-event :kuky65/needs-boom-cofx
+                    {:frame             :obs/cofx
+                     :rf.cofx/requires  [:kuky65/boom-cofx]}
+                    (fn [{:keys [db]} _] {:db db}))
+      (rf.source-coords/remember-error-coords!
+        :event :kuky65/needs-boom-cofx
+        {:ns 'kuky65.cofx :file "test/kuky65/cofx.cljc" :line 77})
+      (try (rf/dispatch-sync [:kuky65/needs-boom-cofx] {:frame :obs/cofx})
+           (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ nil))
+      (let [r (some (fn [x] (when (= :rf.error/coeffect-exception (:error x)) x))
+                    @seen)
+            c (some (fn [x] (when (= :rf.error/coeffect-exception (:error x)) x))
+                    @corpus)]
+        (is (some? c) "the corpus-wide listener received the cofx record (the control)")
+        (is (some? r) "the frame-owned :errors sink received the cofx record")
+        (is (= :kuky65/needs-boom-cofx (:event-id r))
+            ":event-id carries the EVENT id, as it does on the corpus record")
+        (is (= :kuky65/boom-cofx (:failing-id r))
+            ":failing-id names the failing COEFFECT SUPPLIER on the sink route")
+        (is (not= (:event-id r) (:failing-id r))
+            "SUPPLIER id is DISTINCT from the EVENT id — the distinction is the
+             whole point of producer attribution, and no egress profile can
+             restore what the record never carried")
+        (is (= (:failing-id c) (:failing-id r))
+            "the sink route carries the SAME :failing-id the corpus record does")
+        (is (= {:ns 'kuky65.cofx :file "test/kuky65/cofx.cljc" :line 77}
+               (:source-coord r))
+            "the planted NON-NIL source-coord reaches the sink on the cofx route too")
+        (is (string? (get-in r [:tags :reason]))
+            "the supplier's interpolating :reason rides the :tags TREE slot")
+        (is (nil? (:reason r))
+            ":reason is NOT lifted onto the summary surface on this route either")))))
+
+(deftest classified-reason-redacts-whole-slot-while-attribution-survives
+  (testing "rf2-kuky.65: `:reason` rides :tags precisely so a frame CAN reach it.
+            With [:reason] CLASSIFIED sensitive the projector redacts that slot
+            WHOLE (:rf/redacted — the interpolated supplier message goes with it)
+            while the structural :failing-id and :source-coord survive beside it.
+            That pair is the actual contract; asserting only that a string sits
+            under :tags cannot fail for the right reason. The DEFAULT (nothing
+            classified) is pinned by the two tests above — this is the classified
+            arm, and the two together are the whole of the claim."
+    (let [seen (atom [])]
+      (rf/register-observability-sink! :test.sinks/classified-reason
+                                       (fn [record] (swap! seen conj record)))
+      (rf/make-frame {:id :obs/reason :observability
+                      {:errors [{:sink :test.sinks/classified-reason
+                                 :rf.egress/profile :rf.egress/off-box-observability}]}})
+      ;; The frame classifies [:reason] — the path the :tags tree slot is walked
+      ;; against — via the same commit-plane effect path an app would use.
+      (rf.frame/swap-runtime-db! :obs/reason
+        (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[:reason]]})))
+      (rf/reg-cofx :kuky65/classified-boom-cofx
+                   (fn [] (throw (ex-info "supplier leaked hunter2 into its message" {}))))
+      (rf/reg-event :kuky65/classified-reason-event
+                    {:frame            :obs/reason
+                     :rf.cofx/requires [:kuky65/classified-boom-cofx]}
+                    (fn [{:keys [db]} _] {:db db}))
+      (rf.source-coords/remember-error-coords!
+        :event :kuky65/classified-reason-event
+        {:ns 'kuky65.reason :file "test/kuky65/reason.cljc" :line 11})
+      (try (rf/dispatch-sync [:kuky65/classified-reason-event] {:frame :obs/reason})
+           (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ nil))
+      (let [r (some (fn [x] (when (= :rf.error/coeffect-exception (:error x)) x))
+                    @seen)]
+        (is (some? r) "the frame-owned :errors sink received the record")
+        (is (redacted? (get-in r [:tags :reason]))
+            "a CLASSIFIED [:reason] redacts WHOLE-SLOT to :rf/redacted — the
+             interpolated supplier message does not egress")
+        (is (= :kuky65/classified-boom-cofx (:failing-id r))
+            "the structural :failing-id SURVIVES beside the redacted :reason —
+             redacting the prose does not cost the diagnosis")
+        (is (= {:ns 'kuky65.reason :file "test/kuky65/reason.cljc" :line 11}
+               (:source-coord r))
+            "the structural :source-coord survives beside it too")))))
 
 (deftest error-sink-attribution-survives-public-error-profile
   (testing "rf2-kuky.65 + rf2-z1332c: under :rf.egress/public-error the

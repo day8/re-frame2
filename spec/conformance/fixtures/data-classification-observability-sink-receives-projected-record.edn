@@ -89,6 +89,16 @@
     ;; :rf.egress/public-error — the profile that DROPS :exception. `:reason` is
     ;; NOT a summary slot: it is prose that interpolates app values, so it rides
     ;; the :tags tree slot and is walked under frame classification.
+    ;;
+    ;; This call pins the UNCLASSIFIED arm — the DEFAULT, where the walker
+    ;; deliberately passes the slot through (the split is a sound default, not a
+    ;; fail-closed property: see Spec 015 §Frame-owned observability sink
+    ;; policy). The CLASSIFIED arm — a frame classifying [:reason] redacts that
+    ;; slot WHOLE to :rf/redacted while :failing-id / :source-coord survive
+    ;; beside it — needs a DIFFERENT frame classification from the [:auth :token]
+    ;; this fixture's single scope frame declares, so it is pinned by
+    ;; `re-frame.observability-routing-cljs-test` alongside the runtime-wiring
+    ;; leg above. The two arms together are the whole of the claim.
   {:call              :project-egress
    :frame             :obs/main
    :rf.egress/profile :rf.egress/public-error
