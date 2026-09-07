@@ -15,11 +15,16 @@
   (Schemas Describe Shape, Not Public Egress Policy): schemas describe
   shape and validation, NOT durable app-db egress policy — a
   `reg-app-schema` `{:sensitive? true}` / `{:large? true}` slot prop is
-  not a route into this registry. Schema `:sensitive?`
-  drives schema-validation-failure-trace redaction (the schema's own
-  egress product — `re-frame.schemas`), and machine `[:schemas :data]` per-slot
-  props classify machine `:data` (EP-0005; the root `:data-schema` slot that EP
-  named is retired per EP-0029 A3). There are no
+  not a route into this registry. A schema's per-slot `:sensitive?` /
+  `:large?` props drive schema-VALIDATION-FAILURE-trace redaction only (the
+  schema's own egress product — `re-frame.schemas`), and that is the whole of
+  what they do on a machine `[:schemas :data]` schema too: the machine schema
+  VALIDATES `:data`, it does not classify it. Durable machine `:data` egress
+  classification is machine-owned and projection-relative — top-level
+  `:sensitive` / `:large` on the `reg-machine` spec
+  (`re-frame.machines.classification`), lowered per actor instance INTO this
+  registry under `:source :machine` (Spec 015 §State machines; the root
+  `:data-schema` slot EP-0005 named is retired per EP-0029 A3). There are no
   imperative large-path APIs.
 
   EP-0001: the elision declaration registry is DURABLE,
@@ -534,10 +539,13 @@
 ;; commit-plane classification effects — a `reg-event` returns `:sensitive` /
 ;; `:large` alongside `:db`, written `:source :effect` at the commit point.
 ;; Schemas describe shape, not durable app-db egress policy. Schema
-;; `:sensitive?` drives
-;; schema-validation-failure-trace redaction (`re-frame.schemas`), and
-;; machine `[:schemas :data]` props classify machine `:data` (EP-0005) —
-;; both consult the schema directly, not this registry.
+;; `:sensitive?` drives schema-validation-failure-trace redaction
+;; (`re-frame.schemas`) — that consumer reads the schema directly, not this
+;; registry. A machine `[:schemas :data]` schema is no exception: it VALIDATES
+;; `:data` and its per-slot props redact only that validator's own failure
+;; trace. Durable machine `:data` DOES ride this registry — via top-level
+;; `:sensitive` / `:large` on the `reg-machine` spec, lowered per actor
+;; instance under `:source :machine` (Spec 015 §State machines).
 
 (defn clear-warning-cache!
   []
