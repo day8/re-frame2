@@ -591,6 +591,35 @@
                       ;; `re-frame.performance/enabled?=false` the bracket DCEs
                       ;; and the form collapses to the bare `(apply render-fn
                       ;; args)` call.
+                      ;;
+                      ;; `apply` HERE IS LOAD-BEARING — do not rewrite it as a
+                      ;; direct call, and do not reach for `(.apply render-fn
+                      ;; nil …)` (rf2-xccd). The DIRECT Form-3 shape that
+                      ;; `re-frame.core/reg-view*` advertises — a `create-class`
+                      ;; result handed straight in, with no outer callable —
+                      ;; arrives here AS `render-fn`, because a class is `fn?`
+                      ;; and nothing upstream discriminates the registered
+                      ;; INPUT. It mounts correctly regardless, and only
+                      ;; because of how `cljs.core/apply` binds `this`:
+                      ;; a Reagent-family constructor carries no
+                      ;; `cljs$lang$applyTo`, so `apply` bottoms out in
+                      ;; `(.apply f f …)` — `this` is the CONSTRUCTOR OBJECT.
+                      ;; Both supported constructors are `(React.Component.call
+                      ;; this props …) … this`, so calling one as a plain
+                      ;; function stamps a few fields onto the class object and
+                      ;; RETURNS THE CLASS. `out` is therefore a `reagent-class?`
+                      ;; value, which the annotation walk below passes through
+                      ;; untouched and the substrate's own render-result branch
+                      ;; then mounts as `[klass & args]` (stock Reagent:
+                      ;; `reagent.impl.component/wrap-render`; reagent-slim:
+                      ;; `reagent2.impl.component/form-2-inner-fn` →
+                      ;; `class-mounting-render-fn`). Bind `this` to anything
+                      ;; else and the constructor either throws or mutates the
+                      ;; global object and returns it, and the shape breaks on
+                      ;; every substrate at once. The output-side discrimination
+                      ;; in `views/source-coord-annotation` is thus SUFFICIENT
+                      ;; rather than "too late"; no input-side special case is
+                      ;; wanted here.
                       (let [out        (rf.performance/mark-and-measure :render id
                                          (apply render-fn args))
                             elapsed-ms (when rf.interop/debug-enabled?
