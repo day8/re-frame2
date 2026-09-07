@@ -397,8 +397,10 @@ A view reads the merged list and dispatches the causal `[:rf.resource/load-more 
 
 These direct functions are the tool/test projection lane, not an app-read API:
 
-- `resource-meta` / `mutation-meta` project the **registration** (the registered spec).
-- `resource-state` / `resources` / `mutation-state` / `mutations` project **runtime state** (the live entries) as a one-shot, non-reactive snapshot at an explicit frame.
+- `resource-meta` / `mutation-meta` project the **registration** (the registered spec), and `rf/registrations` enumerates the registry.
+- `resource-state` / `mutation-state` project **runtime state** (one live entry, one live instance) as a one-shot, non-reactive snapshot at an explicit frame; the **whole** live table is the reserved runtime-db path read off `rf/frame-state-value` ([§Enumerating the whole live table](#enumerating-the-whole-live-table)).
+
+There is no bundled read returning both the registry and the live table: `resources` and `mutations` were deleted by rf2-kuky.85, and the three reads below are the replacement.
 
 They serve Xray, unit tests, and SSR serialization — contexts with no reactive subscription. App views read runtime state through the passive [`:rf.resource/*` / `:rf.mutation/*` subscriptions](#resource-subscriptions-passive), never through these functions — they do not re-render on change. Registering a handler, dispatching a cause, projecting a snapshot, and subscribing are four distinct jobs; see [The model — three lanes](../resources/concepts.md#three-lanes--registering-causing-projecting).
 
@@ -499,6 +501,47 @@ They serve Xray, unit tests, and SSR serialization — contexts with no reactive
 (re-frame.resources/mutation-ids)
 ;; => [:article/save]
 ```
+
+### Enumerating the whole live table
+
+The registry, the whole live table, and one entry are **three different reads**. The registry answers
+*what is registered* and takes no frame; the live tables are runtime-db state and are read at an explicit
+frame through the reserved paths ([§Cache home](#cache-home)); `resource-state` / `mutation-state` narrow
+to one target.
+
+```clojure
+;; 1. REGISTRY — every registered id, no frame.
+(keys (rf/registrations {:source :store :kind :resource}))  ;; => (:article/by-slug :feed/timeline)
+(keys (rf/registrations {:source :store :kind :mutation}))  ;; => (:article/save)
+
+;; 2. WHOLE LIVE TABLE — the reserved runtime-db path off the frame-state projection.
+(get-in (rf/frame-state-value :app/main) [:rf.db/runtime :rf.runtime/resources :entries])
+;; => {<key-id> {:resource/id :article/by-slug
+;;               :resource/key [:rf.scope/global :article/by-slug {:slug "welcome"}]
+;;               :data … :error … :generation … :current-work …}
+;;     …}
+(get-in (rf/frame-state-value :app/main) [:rf.db/runtime :rf.runtime/mutations])
+;; => {<instance-id> {:mutation/id :article/save :instance/id :form/save-1
+;;                    :status … :result … :error … :generation …}
+;;     …}
+
+;; 3. ONE ENTRY / ONE INSTANCE — the narrowed reads documented above.
+(rf/resource-state {:resource :article/by-slug :scope :rf.scope/global
+                    :params {:slug "welcome"} :frame :app/main})
+(rf/mutation-state {:instance :form/save-1 :frame :app/main})
+```
+
+**Read each table as it is keyed.** `:entries` is keyed by the entry's CEDN-1 byte `key-id`
+([§Resource identity](../../spec/016-Resources.md#resource-identity)) — the entry's human-readable
+`[scope resource-id params]` tuple rides the row as `:resource/key`, and re-keying the table onto it can
+collapse distinct entries. `:rf.runtime/mutations` is keyed by mutation **instance** id (`:instance/id`),
+never by mutation id, so concurrent submissions of the same mutation stay distinct; re-keying onto
+`:mutation/id` collapses them.
+
+Both subtrees are allocated **lazily**: `:rf.runtime/resources` is absent until the first resource write,
+and `:rf.runtime/mutations` is absent in an app that registers no mutation, so either read can return
+`nil`. `nil` here means *the subtree has not been allocated*, not *no such frame* — an unknown or
+destroyed frame makes `rf/frame-state-value` itself return `nil`.
 
 Xray exposes the same shapes, plus:
 
