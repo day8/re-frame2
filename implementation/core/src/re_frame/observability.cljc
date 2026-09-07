@@ -254,8 +254,16 @@
 
   Every OTHER attribution slot — `:reason`, and anything a future category
   lifts — is NOT a summary slot. It rides the `:tags` tree-key so the projector
-  walks it under frame classification, which is both the fail-CLOSED default
-  for a slot nobody has classified and the rule the non-event
+  walks it under frame classification. That is a sound DEFAULT, NOT a
+  fail-closed safety property, and the difference matters: the path walker
+  deliberately passes an UNCLASSIFIED slot through, and being PATH-based it
+  cannot redact a secret a producer interpolated into a scalar `:reason` merely
+  because `[:auth :token]` was classified elsewhere (value-matching / taint is
+  exactly what EP-0025 removed). What `:tags` buys is REACH: a frame that
+  classifies `[:reason]` redacts that slot WHOLE to `:rf/redacted` while the
+  structural identifiers above survive beside it — and a future category's
+  attribution slot lands on the walked side by default rather than on the
+  production-surviving summary surface. It is also the rule the non-event
   [[route-error-record!]] route already applies. `:reason` in particular is
   free-form prose that INTERPOLATES app values: the coeffect categories fold
   the thrown exception's own message into it (`cofx/emit-missing-required-cofx!`
