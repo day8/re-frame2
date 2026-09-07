@@ -223,6 +223,18 @@
       (:rf.http/origin-event args-map)
       [:rf.http/managed]))
 
+(def reply-address-keys
+  "The three authoring keys that address a `:rf.http/managed` reply, per Spec
+  014 §Reply addressing: the unified `:reply-to` and the split `:on-success` /
+  `:on-failure` sugar.
+
+  They are alternate ADDRESSING forms for one reply, never alternate contracts
+  — every rule that binds one binds all three. One def rather than three
+  literals, so a rule cannot be written for a subset by accident: that is
+  exactly how rf2-uc7d shipped, with `re-frame.http.privacy` classifying the
+  two split keys and silently skipping the unified one."
+  [:reply-to :on-success :on-failure])
+
 (declare build-reply-event)
 
 (defn dispatch-reply-via-late-bind!
