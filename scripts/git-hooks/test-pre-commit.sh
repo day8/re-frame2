@@ -2337,6 +2337,91 @@ case "$out" in
   *) fail "(10p) FALSE POSITIVE: an empty PR body was refused ($out)"; cat "$AERR" >&2 ;;
 esac
 
+# 10q: PROSE ABOUT THE TRAILERS IS NOT A TRAILER (rf2-uo5f).
+#
+# THE BUG THIS PINS. Rule 3 was a bare SUBSTRING test and rule 4 a bare PREFIX
+# test, so a line that merely NAMED the forbidden shapes was refused as though
+# it carried one. That is not a corner: every dispatch brief in this project
+# tells the worker to decline the trailers, and a worker naturally writes that
+# declaration into its pull request body. Measured on PR #9330, whose body line
+# 98 read, at column 0, "No Co-Authored-By: Claude and no Generated with
+# [Claude Code] trailer, ..." — the sentence in which it stated COMPLIANCE is
+# what turned the PR red. Worse, the red could not be cleared: test.yml sources
+# the body from the frozen event payload, so a re-run re-reads the old text for
+# ever and only a new event (a push, or a close/reopen) can clear it.
+#
+# WHAT ACTUALLY DISCRIMINATES, and why this is not the "detect a negative
+# assertion" heuristic rf2-uo5f rejected as fragile and defeatable: a REAL
+# trailer is a line that IS the attribution, and prose is a line that MENTIONS
+# it. That is a structural test with no sentiment in it. `git interpret-
+# trailers` recognises a trailer only as a whole line, and GitHub links a
+# co-author only from a whole line, so attribution spliced into the middle of a
+# sentence is not attribution — it is a quotation, and quotations were always
+# meant to be legal.
+#
+# BOTH DIRECTIONS, IN ONE BODY. The second loop feeds the offending trailer
+# AND the compliance sentence together, so a detector that had merely been
+# widened until the false positive went away fails it. That pairing is the
+# whole point: a guard that stops refusing real trailers is worse than the bug.
+
+# The sentence that reded #9330, and two more of the same class — one naming
+# the marker mid-sentence, one naming the session URL and then continuing.
+PROSE_COMPLIANCE='No Co-Authored-By: Claude and no Generated with [Claude Code] trailer, in the commit message or in this description.'
+PROSE_MARKER_NAMED='The harness wanted a Generated with [Claude Code] marker here; it was declined per CLAUDE.md.'
+PROSE_URL_NAMED="$TRAILER_SESSION_URL is the bare URL the harness writes, and this body does not carry one."
+
+for t in "$PROSE_COMPLIANCE" "$PROSE_MARKER_NAMED" "$PROSE_URL_NAMED"; do
+  key=$(printf '%s' "$t" | cut -c1-40)
+  out=$(printf 'Fixes the thing.\n\n%s\n' "$t" | run_attr_body)
+  case "$out" in
+    EXIT=0)
+      if [ ! -s "$AERR" ]; then
+        pass "(10q) a PR body that NAMES the trailers is permitted: $key..."
+      else
+        fail "(10q) permitted, but it produced diagnostics: $key..."; cat "$AERR" >&2
+      fi
+      ;;
+    *) fail "(10q) FALSE POSITIVE: prose about the trailers reds the PR: $key... ($out)"
+       cat "$AERR" >&2 ;;
+  esac
+done
+
+# The paired half, and the one that proves the guard was not disarmed: the SAME
+# compliance sentence, now beside a trailer the body really does carry.
+for t in "$TRAILER_GENWITH" "$TRAILER_SESSION_URL" "$TRAILER_COAUTHOR" "$TRAILER_SESSION"; do
+  key=$(printf '%s' "$t" | cut -c1-32)
+  out=$(printf 'Fixes the thing.\n\n%s\n\n%s\n' "$PROSE_COMPLIANCE" "$t" | run_attr_body)
+  case "$out" in
+    EXIT=0) fail "(10q) DISARMED: a body CARRYING a real trailer was allowed: $key..." ;;
+    *)
+      if grep -Fq "$t" "$AERR"; then
+        pass "(10q) a body that CARRIES one is still refused, and quotes it: $key..."
+      else
+        fail "(10q) refused, but the diagnostic never quoted the trailer: $key..."
+        cat "$AERR" >&2
+      fi
+      ;;
+  esac
+done
+
+# The same discrimination at the DETECTOR, so the local commit-msg hook — which
+# never sees a PR body — inherits it too. A commit message may explain the rule
+# it is enforcing without being refused by it.
+out=$(printf 'docs(gates): record the attribution rule\n\n%s\n' "$PROSE_COMPLIANCE" \
+  | run_attr_lib 2>"$AERR") || true
+case "$out" in
+  *EXIT=0*) pass "(10q) a commit message NAMING the trailers is permitted" ;;
+  *) fail "(10q) FALSE POSITIVE: a commit message about the rule was refused ($out)"
+     cat "$AERR" >&2 ;;
+esac
+
+out=$(printf 'docs(gates): record the attribution rule\n\n%s\n\n%s\n' \
+  "$PROSE_COMPLIANCE" "$TRAILER_GENWITH" | run_attr_lib 2>"$AERR") || true
+case "$out" in
+  *EXIT=1*) pass "(10q) a commit message that CARRIES the marker is still refused" ;;
+  *) fail "(10q) DISARMED: a commit message carrying the marker was allowed ($out)" ;;
+esac
+
 git -C "$AREPO" checkout -q main >/dev/null 2>&1 || true
 rm -rf "$ABOX"
 rm -f "$AERR"
