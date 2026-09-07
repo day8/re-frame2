@@ -246,10 +246,31 @@
   (EP-0015). A no-op (returns `event` unchanged) when the hook is unbound or the
   handler declared none. This is the EVENT-owner pass that precedes the
   FRAME-policy `walk-slot`: event args are registration-owned (the handler's
-  `:sensitive`), not app-db-owned (the frame's classification)."
-  [event]
+  `:sensitive`), not app-db-owned (the frame's classification).
+
+  rf2-ifzi: the hook resolves the event's marks through
+  `registrar/handler-meta`, which reads the AMBIENT generation. Run it inside
+  the RECORD OWNER's resolution scope whenever the projection resolved one
+  (`:frame` in `elision-opts` — the same owner the leaf walker is seeded with),
+  so an image-local event declaration answers for its own record. Without it a
+  DEFERRED projection — a recorder that retained an error record and projects
+  it once dispatch has returned, or any direct caller naming an explicit target
+  — resolved the declaration in whatever universe happened to be bound and
+  shipped a declared-sensitive payload RAW.
+
+  An explicit `nil` owner binds nothing: the ambient resolution is unchanged
+  and the subsequent frame-policy `walk-slot` still fails closed on the whole
+  slot. The seam is late-bound (`:live-frame/call-with-frame-resolution`) —
+  this ns depends on nothing but `elision` / `error` / `late-bind` — and its
+  absence is inert."
+  [event elision-opts]
   (if-let [redact (rf.late-bind/get-fn-cached :classification/redact-event-by-registration)]
-    (redact event)
+    (let [owner      (:frame elision-opts)
+          with-owner (when (some? owner)
+                       (rf.late-bind/get-fn-cached :live-frame/call-with-frame-resolution))]
+      (if with-owner
+        (with-owner owner #(redact event))
+        (redact event)))
     event))
 
 (defn- project-event-slot
@@ -259,7 +280,7 @@
   walk."
   [event elision-opts]
   (-> event
-      redact-event-by-registration
+      (redact-event-by-registration elision-opts)
       (walk-slot elision-opts)))
 
 ;; ---- handled-event record (`:rf.observe/handled-event`) ------------------
