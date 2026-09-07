@@ -521,7 +521,7 @@
 ;; not projectable topology, viz-STRICTER by necessity, or bounded complexity;
 ;; pinned in the parity test's divergence set so a future change that
 ;; accidentally aligns/diverges them is caught):
-;;   - guard / action / `:on-spawn` keyword REF resolution (needs the machine
+;;   - guard / action keyword REF resolution (needs the machine
 ;;     registry — runtime wiring, not projectable topology);
 ;;   - a non-parallel root `:after` (the engine rejects it as unschedulable;
 ;;     the viz still PROJECTS it as a machine-root anchor);
@@ -540,7 +540,7 @@
   carry their own key-sets and are skipped by the node-key check."
   #{:type :deep? :default-target :regions :region-order
     :initial :states :data :schemas :internal-events
-    :guards :actions :on-spawn-actions
+    :guards :actions
     :entry :exit
     :spawn :spawn-all
     :always :after :choice :timeout :on-timeout :on :on-done
@@ -556,7 +556,7 @@
   "Closed BARE key vocabulary a single `:spawn` spec may declare — mirror of the
   engine's `validation/known-spawn-spec-keys` (the retired `:timeout-ms` slot is
   excluded from the unknown-key scan so it never surfaces as an unknown key)."
-  #{:machine-id :definition :data :id-prefix :on-spawn :on-done :on-error
+  #{:machine-id :definition :data :id-prefix :on-done :on-error
     :start :fixed-actor-id :system-id :timeout :on-timeout
     :id :source-coords :source-code})
 

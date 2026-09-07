@@ -66,7 +66,7 @@
    `:spawn`-bearing state's path — here `[:active]`. So the id is simply
    `(get-in data [:rf/spawned [:active]])`, and `socket-id` (below) reads it.
    This is re-frame2's spelling of XState v5's `spawn(...)`-into-`context`
-   capture — no `:on-spawn` self-dispatch, no side-channel atom.
+   capture — no spawn callback, no side-channel atom.
    See docs/machines/actors.md#recording-the-spawned-id and
    docs/machines/glossary.md#spawn.
 

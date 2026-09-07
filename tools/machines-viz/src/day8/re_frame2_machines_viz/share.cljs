@@ -194,7 +194,7 @@
 ;;
 ;;   - every `:states`-tree map node (state-node / transition map / `:spawn`
 ;;     map) carries `:source-coords {:ns … :file "…/login.cljs" :line … :column …}`;
-;;   - `:guards` / `:actions` / `:on-spawn-actions` entries are
+;;   - `:guards` / `:actions` entries are
 ;;     `{<id> {:fn <compiled-fn> :source-coords … :source-code "(fn …)"}}`;
 ;;   - inline `:guard` / `:action` / `:entry` / `:exit` slots may hold a LIVE
 ;;     fn value.
@@ -214,7 +214,7 @@
 
 (def ^:private source-debug-keys
   "Reference-site debug fields the macro co-locates inside `:states` /
-  `:guards` / `:actions` / `:on-spawn-actions` (Spec 005 §Source-coord
+  `:guards` / `:actions` (Spec 005 §Source-coord
   stamping). Stripped wholesale from a share payload."
   #{:source-coords :source-code})
 
@@ -249,8 +249,8 @@
                     ;; Drop reference-site source/debug fields entirely.
                     (contains? source-debug-keys k) nil
                     ;; rf2-07gg7h — drop the EXECUTABLE fn off a co-located
-                    ;; `{:fn <fn> …}` entry (the `:guards`/`:actions`/
-                    ;; `:on-spawn-actions` slot form): the entry's KEY already
+                    ;; `{:fn <fn> …}` entry (the `:guards` / `:actions`
+                    ;; slot form): the entry's KEY already
                     ;; carries the name the topology references; the body is
                     ;; lossy by contract. Gate on `(fn? v)` so a topology key
                     ;; that HAPPENS to be named `:fn` (a state id, event id,
@@ -429,7 +429,7 @@
   metadata-stripped AND structurally sanitised here (rf2-m285a): a
   macro-stamped spec carries `:source-coords` / `:source-code` and
   executable `:fn` values as ordinary DATA inside `:states` / `:guards` /
-  `:actions` / `:on-spawn-actions` — `strip-meta` (metadata only) does not
+  `:actions` — `strip-meta` (metadata only) does not
   reach them, so `sanitise-definition` recursively drops the source/debug
   fields + executable fns (local-filesystem paths must not leak per
   Principles §No session data in shares, and a live fn would make Transit

@@ -412,8 +412,8 @@
 ;; ---------------------------------------------------------------------------
 ;; rf2-m285a — macro-stamped DATA (not metadata) sanitisation. A reg-machine
 ;; macro co-locates `:source-coords` / `:source-code` + executable `:fn`
-;; values as ordinary DATA inside `:states` / `:guards` / `:actions` /
-;; `:on-spawn-actions` (Spec 005 §Source-coord stamping). `strip-meta` (which
+;; values as ordinary DATA inside `:states` / `:guards` / `:actions`
+;; (Spec 005 §Source-coord stamping). `strip-meta` (which
 ;; touches Clojure METADATA only) does NOT reach them, so the share encoder
 ;; leaked local-filesystem paths + source snippets and could fail to encode a
 ;; live `:fn`. `sanitise-definition` strips them structurally.

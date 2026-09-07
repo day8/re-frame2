@@ -132,8 +132,7 @@ Each phase uses `:spawn` to spawn the async work; transitions on success or fail
     :configuring
     {:entry  :set-phase
      :spawn {:machine-id :http/get
-              :data       {:url "/config"}
-              :on-spawn   (fn [{:keys [data id]}] (assoc data :pending id))}
+              :data       {:url "/config"}}
      :on     {:succeeded {:target :authenticating
                           :action :record-config}
               :failed    {:target :fatal-error
@@ -149,8 +148,7 @@ Each phase uses `:spawn` to spawn the async work; transitions on success or fail
               ;; The :data fn receives the parent's context map; read its
               ;; :data from the :snapshot slot (per 005 §Declarative :spawn).
               :data       (fn [{:keys [snapshot]}]
-                            {:auth-url (-> snapshot :data :config :auth-url)})
-              :on-spawn   (fn [{:keys [data id]}] (assoc data :pending id))}
+                            {:auth-url (-> snapshot :data :config :auth-url)})}
      :on     {:succeeded {:target :loading-profile}
               :failed    [{:target :retrying-auth
                            :guard  :under-retry-limit?
@@ -168,8 +166,7 @@ Each phase uses `:spawn` to spawn the async work; transitions on success or fail
               ;; hardcoding it — the boot machine threads host config in
               ;; via the spawn-spec :data fn.
               :data       (fn [{:keys [snapshot]}]
-                            {:url (-> snapshot :data :config :profile-url)})
-              :on-spawn   (fn [{:keys [data id]}] (assoc data :pending id))}
+                            {:url (-> snapshot :data :config :profile-url)})}
      :on     {:succeeded {:target :hydrating
                           :action :record-user}
               :failed    {:target :profile-failed

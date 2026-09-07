@@ -142,7 +142,6 @@ Supply `:machine-id` or `:definition`, not both.
 | `:id-prefix` | base for the allocated id (`:websocket/socket#0`); defaults to `:machine-id`. Ids are counters, never `gensym` |
 | `:system-id` | stable role name for lookup and messaging |
 | `:start` | first event sent to the newborn |
-| `:on-spawn` | advisory hook; **its return is dropped** (see [Recording the spawned id](#recording-the-spawned-id)) |
 | `:on-done` | data-fold when the child reaches a successful final state |
 | `:on-error` | transition when the child reaches an error final state or fails |
 | `:timeout` / `:on-timeout` | wall-clock deadline on this child's lifetime; lowers onto the state's `:after` |
@@ -224,18 +223,7 @@ and dispatch to it:
 
 ## Recording the spawned id
 
-`:on-spawn` is an observation hook. The runtime calls
-`(fn [{:keys [data id]}] …)` and **drops the return**. Writing the id back
-into `:data` records nothing, and a dev build emits
-`:rf.warning/on-spawn-return-ignored`.
-
-```clojure
-;; Don't do this
-:on-spawn (fn [{:keys [data id]}]
-            (assoc data :child-id id))
-```
-
-On every declarative `:spawn` / `:spawn-all`, the runtime already writes the
+On every declarative `:spawn` / `:spawn-all`, the runtime writes the
 new id into the **parent's** `:data` under `:rf/spawned`, keyed by the
 `:spawn`-bearing state's path:
 
@@ -480,7 +468,7 @@ N separate `:spawn`s, not a non-cancelling join.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Parent `:data` never gets the child id; `:rf.warning/on-spawn-return-ignored` | `:on-spawn` return is dropped | Read `(get-in data [:rf/spawned invoke-path])`, or use `:system-id` |
+| Parent `:data` never gets the child id | the spawn was hand-emitted from an action's `:fx`, so it carries no declarative invoke-id to key `:rf/spawned` under | Give it a `:system-id` and resolve by name, or use a declarative `:spawn` |
 | No snapshot, no id; `:rf.error/machine-spawn-unregistered-type` | `:machine-id` is not registered and there is no `:definition` | Register the child type first |
 | Registration throws `:rf.error/spawn-timeout-ms-removed` | `:timeout-ms` on `:spawn` / `:spawn-all` | Use `:timeout` / `:on-timeout`, or `:after` on the parent state |
 | Registration throws `:rf.error/machine-spawn-all-bad-shape` on `:join` | `:join` was `{:n n}`, a predicate, or another non-enum | `:join` is only `:all` or `:any`. Quorum is `:after` / `:always` + `:done-guard` |

@@ -2807,15 +2807,15 @@
 
 (defn- named-element-key
   "Decompose a `cascade-row-source-key` tuple `k` into `[slot id]` when it
-  names a co-located guard / action / on-spawn-action element (`[:guards
-  <id>]` / `[:actions <id>]` / `[:on-spawn-actions <id>]`), else nil. Per
+  names a co-located guard / action element (`[:guards <id>]` /
+  `[:actions <id>]`), else nil. Per
   rf2-npvsx the source-coords + source-code for these live ON the element
   entry (`{:fn .. :source-coords .. :source-code ..}`); reference-site
   `[:states ...]` keys resolve through the `:source-coords` co-located on
   the nearest enclosing `:states`-tree map node instead (rf2-vqja2)."
   [k]
   (when (and (vector? k) (= 2 (count k))
-             (contains? #{:guards :actions :on-spawn-actions} (first k)))
+             (contains? #{:guards :actions} (first k)))
     k))
 
 (defn- cascade-row-coord
