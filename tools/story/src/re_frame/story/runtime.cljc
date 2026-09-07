@@ -40,6 +40,10 @@
             [re-frame.story.frames    :as rf.story.frames]
             [re-frame.story.identity  :as rf.story.identity]
             [re-frame.story.loaders   :as rf.story.loaders]
+            ;; rf2-shx4 — realizes the compiled `:network` fixture (installs
+            ;; the frame-scoped route map the plan's lowered `:fx-overrides`
+            ;; redirect points at) before either run path allocates its frame.
+            [re-frame.story.network   :as rf.story.network]
             [re-frame.story.plan      :as rf.story.plan]
             [re-frame.story.play      :as rf.story.play]
             [re-frame.story.play.evidence :as rf.story.play.evidence]
@@ -866,8 +870,19 @@
   classification through the same allocation boundary."
   [{:keys [variant-id decorator-stack plan] :as ctx}]
   (ensure-fresh-frame! variant-id)
+  ;; rf2-shx4 — realize the compiled `:network` fixture BEFORE allocation, so
+  ;; the route map is live before any `:frame-setup` `:init`, loader, `:setup`
+  ;; or script effect can issue a managed request. `lower-network` is pure: it
+  ;; emits the `{:rf.http/managed :rf.http/managed-test-stub}` redirect but
+  ;; registers nothing, so without this the variant reached the REAL transport.
+  (rf.story.network/install-for-frame! variant-id (get-in plan [:world :network]))
   (rf.story.frames/allocate! variant-id decorator-stack
-                     (select-keys (:world plan) [:sensitive :large]))
+                     (select-keys (:world plan) [:sensitive :large])
+                     ;; …and carry the plan's lowered frame `:fx-overrides`
+                     ;; (the redirect above) onto the frame — the registered
+                     ;; path dropped it entirely; `allocate-inline!` already
+                     ;; merged it.
+                     (get-in plan [:world :frame :fx-overrides]))
   (swap! rf.story.play/pending-exceptions assoc variant-id [])
   (rf.story.config/reset-redacted-failures! variant-id)
   (rf.story.play/install-trace-listener! variant-id)
@@ -1620,6 +1635,11 @@
   and an equivalent registered variant project the same-shaped tape (and
   therefore the same run-hash)."
   [{:keys [variant-id plan decorator-stack] :as ctx}]
+  ;; rf2-shx4 — the inline path already TRANSFERRED the lowered redirect but
+  ;; installed no route map, so `:rf.http/managed-test-stub` was an
+  ;; unregistered fx id. Realize the fixture first, same ordering as
+  ;; `run-phase-0!`.
+  (rf.story.network/install-for-frame! variant-id (get-in plan [:world :network]))
   (rf.story.frames/allocate-inline! variant-id
                            decorator-stack
                            (get-in plan [:world :frame :fx-overrides])
