@@ -240,10 +240,9 @@
     :policy                 the normalised `{:replace? :scroll}` caller
                             policy (`{}` when none)
     :bypass-leave?          the public boolean leave escape (OI-3)
-    :url-driven?            true for `:rf.route/transitioned` /
-                            `:rf.route/handle-url-change` — doors whose
-                            host URL has ALREADY moved, so a rejection must
-                            restore the address bar by REPLACE
+    :url-driven?            true for `:rf.route/handle-url-change` — the
+                            door whose host URL has ALREADY moved, so a
+                            rejection must restore the address bar by REPLACE
     :pending-nav-allocation the recordable `{:id \"pn-N\" :counter N}`
                             allocation delivered by the
                             `:rf.route/pending-nav-allocation` cofx
@@ -402,19 +401,21 @@
   the façade so a `:reload` re-wires it on a fresh registrar. Declares only
   the recordable `:rf.route/pending-nav-allocation` cofx — its only
   allocation is a pending-nav id minted on a leave block (it never mints a
-  nav-token; the forward push synthesises `:rf.route/transitioned`, which
-  mints its own).
+  nav-token; the forward push synthesises `:rf.route/handle-url-change`,
+  which mints its own).
 
   The door runs the pipeline in order: classify the transition (stage 3) —
   an exact no-op terminates here, evaluating NEITHER guard and pushing
   NOTHING — then decide leave and entry (stages 4-5) BEFORE the address bar
   moves, so a rejected link click never adds a history entry. On an allowed
-  transition it pushes the URL and synthesises `:rf.route/transitioned`,
-  which owns the commit; the synthesised event carries the runtime-internal
-  `:rf.route/decided?` rider on its trailing opts map, so an allowed link
-  click does not decide the same target twice (Spec 012 §The request
-  grammar). The rider is NOT part of the published `:rf.route/navigate`
-  request roster — that roster is closed with no exemption."
+  transition it pushes the URL and synthesises `:rf.route/handle-url-change`,
+  which owns the commit; the synthesised event carries TWO runtime-internal
+  riders on its trailing opts map — `:rf.route/cause :link`, which names the
+  navigation cause and thereby fixes the default scroll strategy at `:top`,
+  and `:rf.route/decided? true`, so an allowed link click does not decide the
+  same target twice (Spec 012 §The request grammar). Neither rider is part of
+  the published `:rf.route/navigate` request roster — that roster is closed
+  with no exemption."
   [{frame :rf.frame/id rdb :rf.db/runtime
     pending-nav-allocation :rf.route/pending-nav-allocation}
    [_ {:keys [url replace? bypass-leave?] :as request}]]
@@ -452,12 +453,16 @@
               ;; Spec 012 §URL changes are events, route-link clicks call
               ;; `.preventDefault` and dispatch `:rf.route/url-requested`, so
               ;; the browser's URL has NOT updated: this door pushes it and
-              ;; hands the slice write to `:rf.route/transitioned`.
+              ;; hands the slice write to `:rf.route/handle-url-change`,
+              ;; riding `:rf.route/cause :link` so the commit door resolves
+              ;; the link cause (and with it the `:top` scroll default)
+              ;; rather than the rider-free `:initial` fallback.
               {:fx [(if replace?
                       [:rf.nav/replace-url app-url]
                       [:rf.nav/push-url    app-url])
-                    [:dispatch [:rf.route/transitioned app-url
-                                {:rf.route/decided? true}]]]}))))))
+                    [:dispatch [:rf.route/handle-url-change app-url
+                                {:rf.route/cause    :link
+                                 :rf.route/decided? true}]]]}))))))
 
 (defn continue-handler
   "`:rf.route/continue` event handler — the leave-only resume. Registered by

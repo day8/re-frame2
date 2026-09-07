@@ -129,7 +129,7 @@
      (let [browser-window (when (exists? js/window) js/window)
            decode-url (:decode url-strategy)
            install-listener! (:install-listener! url-strategy)
-           ;; EP-0037 R0b: `:rf.route/handle-url-change` stands for three
+           ;; EP-0037 R0b: `:rf.route/handle-url-change` stands for four
            ;; doors, so the listener names WHICH one it is via the
            ;; runtime-internal `:rf.route/cause` rider on the event's trailing
            ;; opts map (the sibling of `:rf.route/decided?`). Both dispatches

@@ -1769,7 +1769,7 @@
             has-db?     (contains? effects :db)
             ;; EP-0001 §535-551: a runtime-db write also lands as
             ;; a pending `:rf.db/runtime` effect (e.g. a pure
-            ;; `:rf.route/transitioned` returns `{:rf.db/runtime …}` and NO
+            ;; `:rf.route/handle-url-change` returns `{:rf.db/runtime …}` and NO
             ;; `:db`). The flow transform must observe the SETTLED pending
             ;; runtime-db so a flow reading a `[:rf.db/runtime …]`-qualified
             ;; input recomputes — the dual-partition TRIGGER (§542-544) keys on

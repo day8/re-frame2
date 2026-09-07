@@ -2,7 +2,7 @@
 ;;
 ;; The PROGRAMMATIC door (`:rf.route/navigate`) honours the fragment-only
 ;; short-circuit identically to the URL-driven door (`route-fragment-change.edn`
-;; drives `:rf.route/transitioned`). A programmatic navigation whose resolved
+;; drives `:rf.route/handle-url-change`). A programmatic navigation whose resolved
 ;; target differs from the current slice ONLY in its `#fragment` (same
 ;; :route-id / :params / :query) updates :fragment and emits
 ;; :rf.route/fragment-changed WITHOUT re-firing :on-match, allocating a new

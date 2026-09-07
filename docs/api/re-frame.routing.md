@@ -159,7 +159,7 @@ The URL ↔ route mapping is a prism. `match-url` reads a URL into route data. `
   ```
 - **Description**: `true` when any percent-encoded portion of `url` is malformed — a non-empty path segment, a query key or value, or the `#fragment`. The check is purely lexical; no route table is consulted.
 
-  The `:rf.route/transitioned` / `:rf.route/handle-url-change` handlers use it to tell two cases apart: a plain route miss (`{:url url}`) and a malformed URL that failed closed (`{:url url :reason :malformed-url}`). Both cases end at `:rf.route/not-found`. The structured `:reason` lets per-route error UIs and SSR projections branch on the cause.
+  The `:rf.route/handle-url-change` handler uses it to tell two cases apart: a plain route miss (`{:url url}`) and a malformed URL that failed closed (`{:url url :reason :malformed-url}`). Both cases end at `:rf.route/not-found`. The structured `:reason` lets per-route error UIs and SSR projections branch on the cause.
 
 ## Introspection and slice access
 
@@ -201,7 +201,7 @@ This is the read-side surface over the route registry and the live route slice. 
   - `:id` `:rf/route` — the route FACT identity (every route materializes the one route slice; the per-route registration id is under `:source-form`).
   - `:kind` `:process`, `:refinement` `:route-fact`.
   - `:source-form` `{:kind :reg-route :id <route-id>}`.
-  - `:inputs` — the route-transition inputs (`:rf.route/navigate` / `:rf.route/transitioned` / `:rf.route/handle-url-change`).
+  - `:inputs` — the route-transition inputs (`:rf.route/navigate` / `:rf.route/handle-url-change`).
   - `:output` `[:runtime [:rf.runtime/routing :current]]`, `:storage` `:runtime-db`.
   - `:evaluation` `:on-route`, `:lifecycle` `:frame`, `:materialized?` `true`.
   - `:resource-edges` — only when the route declares `:resources`.
@@ -471,8 +471,7 @@ Standard events the runtime dispatches (or you dispatch) around routing.
 | Event | Notes |
 |---|---|
 | `:rf.route/navigate` | Navigate via one request map: `[:rf.route/navigate {request}]`. Address keys `:to` (route id) / `:url` (raw-URL escape hatch) / `:params` / `:query` / `:fragment`; policy keys `:replace?` / `:scroll` / `:bypass-leave?`; edit key `:query-merge`. `:to` xor `:url`; `:url` excludes `:params` / `:query` / `:query-merge`. Omit both `:to` and `:url` for an *in-place* request that patches the current location (`:query-merge`, or a `:query` / `:fragment` present by key). A structurally-invalid request rejects **loud** with `:rf.error/navigate-bad-request` before any guard runs. |
-| `:rf.route/handle-url-change` | URL-change handler for popstate / initial load / SSR (default scroll `:restore`). A co-equal sibling of `:rf.route/transitioned`: same slice-rewrite logic, not a delegate. Override it for custom URL-change handling. |
-| `:rf.route/transitioned` | URL-change handler for forward navigation — a link click or programmatic push (default scroll `:top`). The runtime dispatches this; you read it. |
+| `:rf.route/handle-url-change` | The one URL-change handler, for a link click / popstate / initial load / SSR. The cause rides `:rf.route/cause` on the trailing opts map (`:link` / `:popstate` / `:initial` / `:ssr`); an omitted rider resolves to `:initial` on a client frame and `:ssr` on a `:platform :server` one. Default scroll is `:top` for `:link` and `:restore` for every other cause. The runtime dispatches this; you read it, and you may override it for custom URL-change handling. |
 | `:rf.route/url-requested` | The user clicked a framework-owned link. `route-link` synthesises this event; you usually let the default handler take it. |
 | `:rf.route/navigation-blocked` | A `:can-leave` guard rejected a navigation. The pending-nav slot carries the rejected attempt as `{:id :destination :target :cause :policy :requested-url :rejecting-route :rejecting-guard :url-restored?}`. The slot is **leave-only** — no direction discriminator, because there is only one thing it can be. |
 | `:rf.route/entry-denied` | A `:can-enter` guard rejected a navigation. **Terminal** — nothing commits and no pending value is created; dispatched exactly once per attempt with `{:destination :target :cause :requested-url :guard}`. The natural place to redirect (e.g. to login); a framework no-op default ships, so registering one is optional. |

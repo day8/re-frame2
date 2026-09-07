@@ -1,7 +1,7 @@
 ;; day8/re-frame2-routing is the optional routing artefact.
 ;;
 ;; Per Spec 012 §Routing the route grammar (`reg-route`,
-;; `:rf.route/navigate`, `:rf.route/transitioned`, `:rf.route/url-requested`,
+;; `:rf.route/navigate`, `:rf.route/url-requested`,
 ;; `:rf.route/handle-url-change`, `:rf.route/continue` /
 ;; `:rf.route/cancel`, the `:rf.nav/push-url` / `:rf.nav/replace-url` /
 ;; `:rf.nav/scroll` / `:rf.nav/capture-scroll` fxs, `match-url` /

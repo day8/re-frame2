@@ -40,7 +40,7 @@
   ## Flows covered
 
     1. `:rf.route/navigate`             — programmatic navigation.
-    2. `:rf.route/transitioned`         — URL-driven forward nav.
+    2. `:rf.route/handle-url-change`    — URL-driven nav (cause `:link`).
     3. `:rf.route/handle-url-change`    — popstate / initial / SSR URL feed.
     4. can-leave pending-nav protocol   — `:rf.route/url-requested` /
        `:rf.route/cancel` / `:rf.route/continue`.
@@ -158,11 +158,11 @@
                                     [:rf.runtime/routing :current :route-id]))
           ":rf.route/navigate wrote the route slice (:rf.db/runtime applied)")
 
-      ;; (2) :rf.route/transitioned — URL-driven forward nav.
-      (rf/dispatch-sync [:rf.route/transitioned "/search?q=widgets"])
+      ;; (2) :rf.route/handle-url-change — URL-driven nav (cause :link).
+      (rf/dispatch-sync [:rf.route/handle-url-change "/search?q=widgets" {:rf.route/cause :link}])
       (is (= :route/search (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                    [:rf.runtime/routing :current :route-id]))
-          ":rf.route/transitioned wrote the route slice")
+          ":rf.route/handle-url-change wrote the route slice")
 
       ;; (3) :rf.route/handle-url-change — popstate / initial / SSR feed.
       (rf/dispatch-sync [:rf.route/handle-url-change "/"])
@@ -171,7 +171,7 @@
           ":rf.route/handle-url-change wrote the route slice")
 
       ;; (5) an :on-match route — loader runs fire-and-forget; the commit writes the slice.
-      (rf/dispatch-sync [:rf.route/transitioned "/loaded"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/loaded" {:rf.route/cause :link}])
       (is (= :route/loaded (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                    [:rf.runtime/routing :current :route-id]))
           "the :on-match route settled onto the slice")
@@ -198,7 +198,7 @@
     (let [diags (record-ownership-diagnostics! ::can-leave)]
       ;; Land on the guarded route, dirty it, attempt to leave → blocked
       ;; (`:rf.route/url-requested` writes the pending slot via `:rf.db/runtime`).
-      (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}])
       (rf/dispatch-sync [:editor/dirty true])
       (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
       (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))

@@ -1,7 +1,7 @@
 (ns re-frame.routing.plan
   "Pure navigation-planning seam shared by the programmatic
-  (`:rf.route/navigate`) and URL-driven (`:rf.route/transitioned` /
-  `:rf.route/handle-url-change`) entry points.
+  (`:rf.route/navigate`) and URL-driven
+  (`:rf.route/handle-url-change`) entry points.
 
   Both entry points share the same pre-commit policy: fragment normalisation,
   the `:rf.route/not-found` fallback shape + `:reason` vocabulary, the

@@ -44,8 +44,8 @@
  ;; Navigate to the :sensitive route (installs its classification), then to a
  ;; route declaring none (drops it — the singleton replacement).
  :fixture/dispatches
- [[:rf.route/transitioned "/oauth?token=secret123"]
-  [:rf.route/transitioned "/plain"]]
+ [[:rf.route/handle-url-change "/oauth?token=secret123" {:rf.route/cause :link}]
+  [:rf.route/handle-url-change "/plain" {:rf.route/cause :link}]]
 
  ;; project-egress runs AFTER both dispatches, so the leaving route's
  ;; classification has already dropped. Projecting a slice value carrying a

@@ -768,7 +768,7 @@ When the user says "duplicate this feature for wishlists," the AI runs the same 
 4. **Identify per-route data dependencies.** Use `:on-match` (vector of events the runtime dispatches when this route becomes active, server- and client-side).
 5. **Verify the route ids are unused.** `(rf/registrations {:source :store :kind :route})` enumerates registered routes.
 
-Routing is *state plus events*. The URL is a derivable view of `app-db`; navigation is an event. The runtime ships `:rf.route/navigate`, `:rf.route/handle-url-change`, `:rf.route/transitioned`, `:rf.route/url-requested` as standard events; user code typically only calls `:rf.route/navigate`.
+Routing is *state plus events*. The URL is a derivable view of `app-db`; navigation is an event. The runtime ships `:rf.route/navigate`, `:rf.route/handle-url-change`, `:rf.route/url-requested` as standard events; user code typically only calls `:rf.route/navigate`.
 
 **Template — register routes (declarative; the runtime owns dispatch):**
 
@@ -866,7 +866,7 @@ A frame owns the browser URL by carrying `:url-bound? true`, and that declaratio
 
 Nothing else is needed, and nothing else is *permitted*: an app never adds a `popstate` listener, never dispatches an initial `:rf.route/handle-url-change`, and never calls an install / remove pair — those exports are retired (see [012 §popstate drives the URL-owner frame](012-Routing.md#popstate-drives-the-url-owner-frame-both-directions)). A hand-rolled listener would duplicate the framework's, dispatch a second initial sync, and misreport the navigation cause in diagnostics.
 
-Routing has two co-equal URL-change events. `:rf.route/handle-url-change` (default scroll `:restore`) is dispatched by the `:url-bound?` lifecycle's own listener — for Back/Forward and for the initial sync alike, distinguished by the cause rider it stamps — while forward navigation, a `route-link` click or programmatic push, dispatches `:rf.route/transitioned` (default scroll `:top`). Both run the identical slice-rewrite; neither delegates to the other.
+Routing has ONE URL-change event. `:rf.route/handle-url-change` is dispatched by the `:url-bound?` lifecycle's own listener — for Back/Forward and for the initial sync alike — and by the link door after a `route-link` click's URL is pushed. Which of the four causes it is rides on the `:rf.route/cause` rider (`:link` / `:popstate` / `:initial` / `:ssr`), and the default scroll strategy follows from it: `:top` for `:link`, `:restore` otherwise.
 
 **Pattern-level discipline:**
 

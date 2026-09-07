@@ -35,7 +35,7 @@
  [;; (1) warm the destination ownerlessly.
   [:rf.route/prefetch {:to :route/article :params {:slug "routing"}}]
   ;; (2) navigate there for real — the activation ensure JOINS the warmed work.
-  [:rf.route/transitioned "/articles/routing"]]
+  [:rf.route/handle-url-change "/articles/routing" {:rf.route/cause :link}]]
 
  :fixture/expect
  {;; The route is now ACTIVE and :loading — the blocking first load reused the

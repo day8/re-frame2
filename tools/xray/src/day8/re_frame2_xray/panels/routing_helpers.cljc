@@ -449,8 +449,9 @@
   `:rf.route.nav-token/allocated` event. Returns the trace event map
   (with its `:tags` carrying `:route-id` + `:nav-token`) when present;
   nil otherwise. The emit fires inside both `:rf.route/navigate` (a
-  programmatic dispatch) and `:rf.route/transitioned` (browser-driven URL
-  change), so this catches both navigation paths uniformly."
+  programmatic dispatch) and `:rf.route/handle-url-change` (the URL-driven
+  door — link click, popstate, initial load, SSR), so this catches both
+  navigation paths uniformly."
   [event-bundle]
   (event-bundle-event-by-op event-bundle nav-allocated-op))
 
@@ -720,7 +721,7 @@
 ;;     From      /
 ;;     To        /cart
 ;;     Match     {:route :cart}
-;;     Events    [:rf.route/transitioned] [:cart/route-entered]
+;;     Events    [:rf.route/handle-url-change] [:cart/route-entered]
 ;;
 ;; The phase derives from the trace-event mix in the focused event-bundle:
 ;;   - event-bundle carries :rf.route.nav-token/allocated → :on-match

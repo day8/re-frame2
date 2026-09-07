@@ -497,7 +497,7 @@
 ;;
 ;; Reproducer from the security audit: `(rf.routing/match-url "/search?x=%")`
 ;; resolves to nil (route-miss → `:rf.route/not-found` with
-;; `:reason :malformed-url` at `:rf.route/transitioned`).
+;; `:reason :malformed-url` at `:rf.route/handle-url-change`).
 
 (deftest match-url-malformed-percent-in-path-is-route-miss
   (testing "a bare `%` in the path returns nil (route-miss), does not throw"
@@ -553,7 +553,7 @@
 (deftest malformed-url?-predicate-discriminates-decode-failures
   (testing "rf2-4ic0f: `malformed-url?` returns true for any URL whose
             %-encoding cannot be uniformly decoded; false otherwise.
-            `:rf.route/transitioned` uses this to write `:reason :malformed-url`
+            `:rf.route/handle-url-change` uses this to write `:reason :malformed-url`
             on the `:rf.route/not-found` slice."
     (is (false? (rf.routing/malformed-url? "/")))
     (is (false? (rf.routing/malformed-url? "/articles/intro")))

@@ -479,7 +479,7 @@ explicit host/bootstrap policy, not another absence repair. An app bootstrap may
 declare one URL-owning frame, but the routing runtime must not infer
 `:rf/default` when no owner is declared.
 
-Route transitions, `:rf.route/handle-url-change`, `:rf.route/transitioned`,
+Route transitions, `:rf.route/handle-url-change`,
 navigation tokens, can-leave restoration, scroll fxs, and history listeners
 must all thread the selected frame. A missing URL owner should be a routing
 configuration error or `:rf.error/no-frame-context`, and browser-originated

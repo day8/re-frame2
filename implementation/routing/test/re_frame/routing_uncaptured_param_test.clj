@@ -176,7 +176,7 @@
             best-effort address-bar restore: an in-place query edit while
             parked on the fallback carries the miss record back through
             route-url, and an unexempted fallback would reject it"
-    (rf/dispatch-sync [:rf.route/transitioned "/nope"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/nope" {:rf.route/cause :link}])
     (is (= :rf.route/not-found (:route-id (current-slice))))
     (is (= {:url "/nope"} (:params (current-slice)))
         "the miss record is the fallback's :params — never path captures")

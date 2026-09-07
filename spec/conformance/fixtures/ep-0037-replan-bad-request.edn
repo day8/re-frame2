@@ -30,7 +30,7 @@
  :fixture/dispatches
  [;; nothing has navigated yet — there is no active route to replan.
   [:rf.route/replan-resources {:cause [:boot]}]
-  [:rf.route/transitioned "/"]
+  [:rf.route/handle-url-change "/" {:rf.route/cause :link}]
   ;; a one-element event — the event-vector shape gate runs first.
   [:rf.route/replan-resources]
   ;; a non-map payload.

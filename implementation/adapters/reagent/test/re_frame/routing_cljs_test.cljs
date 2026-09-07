@@ -2,8 +2,8 @@
   "CLJS-side routing tests. Verifies the routing pipeline runs under the
   Reagent reactive substrate and locks the multi-frame routing contract.
 
-  - routing-handle-url-change-cljs       — :rf.route/transitioned / handle-url-change
-                                           drive the slice under the Reagent
+  - routing-handle-url-change-cljs       — :rf.route/handle-url-change (cause :link)
+                                           drives the slice under the Reagent
                                            adapter; subscriptions resolve.
   - routing-frame-provider-routing-cljs  — multi-frame routing: each frame's
                                            [:rf.db/runtime :rf.runtime/routing :current] slice
@@ -12,7 +12,7 @@
                                            per-frame.
 
   Note on test isolation: routing.cljc registers framework events
-  (:rf.route/transitioned, :rf.route/navigate, etc.) at namespace-load time.
+  (:rf.route/handle-url-change, :rf.route/navigate, etc.) at namespace-load time.
   CLJS has no runtime `(require :reload)`, so the JVM-side trick of
   reloading the routing ns to resurrect cleared registrations does not
   work here. These tests use frame creation (not registrar reset) for
@@ -31,7 +31,7 @@
 
 ;; Snapshot/restore the registrar around each test (rf2-am9d). We do NOT
 ;; call (registrar/clear-all!): it would wipe routing's framework events
-;; (:rf.route/navigate, :rf.route/transitioned, …) registered at routing.cljc's
+;; (:rf.route/navigate, :rf.route/handle-url-change, …) registered at routing.cljc's
 ;; ns-load, and CLJS cannot re-load namespaces at runtime to restore
 ;; them. routing/reset-counters! runs in :init-fn so per-test counter
 ;; sequences (nav-token, pending-nav, …) start from zero.
@@ -43,11 +43,11 @@
 ;; ---- Spec 012 §URL changes are events / §Reading the route is a sub -----
 
 (deftest routing-handle-url-change-cljs
-  (testing ":rf.route/transitioned drives the slice on CLJS"
+  (testing ":rf.route/handle-url-change drives the slice on CLJS"
     ;; Per Spec 012 §URL changes are events: the runtime's URL-driven
-    ;; entry point is :rf.route/transitioned (or :rf.route/handle-url-change for
-    ;; SSR-equivalent code paths). Both write the [:rf.db/runtime :rf.runtime/routing :current]
-    ;; slice from the URL and dispatch :on-match events. Subscriptions over
+    ;; entry point is :rf.route/handle-url-change, standing for the link-click,
+    ;; popstate, initial-load and SSR causes. It writes the [:rf.db/runtime :rf.runtime/routing :current]
+    ;; slice from the URL and dispatches :on-match events. Subscriptions over
     ;; the slice resolve under the Reagent adapter.
     ;;
     ;; Test isolation: a fresh frame so prior tests' [:rf.db/runtime :rf.runtime/routing :current]
@@ -68,7 +68,7 @@
                   (fn [rt _] (get-in rt [:rf.runtime/routing :current :params])))
 
       ;; URL-driven nav. The slice is set; :on-match dispatches.
-      (rf/dispatch-sync [:rf.route/transitioned "/cljs/articles/intro"] {:frame f})
+      (rf/dispatch-sync [:rf.route/handle-url-change "/cljs/articles/intro" {:rf.route/cause :link}] {:frame f})
       (is (= :route.cljs/article
              (rf/subscribe-once [:rf.cljs.route/id] {:frame f}))
           ":rf.route/id sub resolves under the Reagent adapter")
@@ -79,7 +79,7 @@
           ":on-match's [:cljs/article-load] dispatched and ran")
 
       ;; A second navigation through the same path with new params re-fires.
-      (rf/dispatch-sync [:rf.route/transitioned "/cljs/articles/welcome"] {:frame f})
+      (rf/dispatch-sync [:rf.route/handle-url-change "/cljs/articles/welcome" {:rf.route/cause :link}] {:frame f})
       (is (= {:id "welcome"}
              (rf/subscribe-once [:rf.cljs.route/params] {:frame f}))
           "new params land in the slice on subsequent navigation")
@@ -104,9 +104,9 @@
           right (rf.frame/make-anon-frame-record! {:doc "right tab frame"})]
 
       ;; Each frame navigates independently.
-      (rf/dispatch-sync [:rf.route/transitioned "/cljs2/articles"]
+      (rf/dispatch-sync [:rf.route/handle-url-change "/cljs2/articles" {:rf.route/cause :link}]
                         {:frame left})
-      (rf/dispatch-sync [:rf.route/transitioned "/cljs2/articles/intro"]
+      (rf/dispatch-sync [:rf.route/handle-url-change "/cljs2/articles/intro" {:rf.route/cause :link}]
                         {:frame right})
 
       (let [left-route  (rf/subscribe-once [:rf.cljs2/route] {:frame left})
@@ -121,7 +121,7 @@
             "right frame has the article id"))
 
       ;; Re-navigate on the left only — right is unaffected.
-      (rf/dispatch-sync [:rf.route/transitioned "/cljs2/"] {:frame left})
+      (rf/dispatch-sync [:rf.route/handle-url-change "/cljs2/" {:rf.route/cause :link}] {:frame left})
       (is (= :route.cljs2/home
              (:route-id (rf/subscribe-once [:rf.cljs2/route] {:frame left})))
           "left re-navigated to :route.cljs2/home")

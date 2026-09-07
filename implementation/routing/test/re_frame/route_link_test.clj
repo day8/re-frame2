@@ -220,7 +220,7 @@
     ;; `:rf.route/url-requested {:url ...}` — ONE key, because a raw URL IS
     ;; the address and the handler re-derives the rest from it.
     ;; The default `:rf.route/url-requested` handler classifies via match-url
-    ;; and dispatches `:rf.route/transitioned`, which updates the :rf/route
+    ;; and dispatches `:rf.route/handle-url-change`, which updates the :rf/route
     ;; slice. This test pins the round-trip without a DOM event — the
     ;; CLJS test covers the click branching that produces the dispatch.
     (rf/reg-route :route/home    {} "/")
@@ -233,7 +233,7 @@
                (fn [_ _] nil))
 
     ;; Land on /home first so :rf/route has a current id.
-    (rf/dispatch-sync [:rf.route/transitioned "/"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :link}])
     (is (= :route/home
            (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current :route-id]))
         "initial nav lands at :route/home")

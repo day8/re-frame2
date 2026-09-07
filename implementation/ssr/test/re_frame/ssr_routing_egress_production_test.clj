@@ -22,7 +22,7 @@
   projector reads what is in the registry but ASSUMES the thing that puts it
   there. Route activation is the other half of the production path, and it is
   the half a debug gate could plausibly be added to. So this namespace drives
-  `reg-route` plus a real `:rf.route/transitioned` and projects the frame's
+  `reg-route` plus a real `:rf.route/handle-url-change` and projects the frame's
   ACTUAL runtime-db, end to end.
 
   The two namespaces are therefore complements, not duplicates: one pins the
@@ -62,7 +62,7 @@
 (defn- navigate-to-classified-route!
   "Register an OAuth-callback-shaped route with a projection-relative
   `:sensitive` / `:large` declaration and navigate to it FOR REAL. `reg-route`
-  plus a genuine `:rf.route/transitioned` runs the production activation
+  plus a genuine `:rf.route/handle-url-change` runs the production activation
   lowering (`routing.classification/apply-route-classification`, `:source
   :route`), which is what writes the re-rooted absolute declarations into
   `:rf/default`'s per-frame elision registry. `:return-to` is a plain
@@ -76,10 +76,10 @@
                              [:payload   :string]
                              [:return-to :string]]}
                 "/oauth/callback")
-  (rf/dispatch-sync [:rf.route/transitioned
+  (rf/dispatch-sync [:rf.route/handle-url-change
                      (str "/oauth/callback?token=" token-secret
                           "&payload=" blob-secret
-                          "&return-to=/dashboard")]))
+                          "&return-to=/dashboard") {:rf.route/cause :link}]))
 
 (defn- live-runtime-db
   "`:rf/default`'s ACTUAL runtime-db — the state a request frame would be
@@ -170,7 +170,7 @@
             assertions above would also pass under a blanket scrub, which would
             be a different framework."
     (rf/reg-route :route/home {:query [:map [:token :string]]} "/home")
-    (rf/dispatch-sync [:rf.route/transitioned "/home?token=not-classified"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/home?token=not-classified" {:rf.route/cause :link}])
     (let [slice   (rf.ssr.payload-policy/project-runtime-db (live-runtime-db) :rf/default)
           current (get-in slice [:rf.runtime/routing :current])]
       (is (= "not-classified" (get-in current [:query :token]))

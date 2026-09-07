@@ -68,7 +68,7 @@
                (fn [_ _] nil))
 
     ;; 1. Land on the editor route. nav-token allocates; slice is set.
-    (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}])
     (is (= :editor/article (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                    [:rf.runtime/routing :current :route-id]))
         "initial nav landed on :editor/article")
@@ -168,7 +168,7 @@
     (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
-    (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}])
     (rf/dispatch-sync [:editor/dirty true])
     (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
     (let [pending (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :pending-navigation])]
@@ -206,7 +206,7 @@
     (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
-    (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}])
     (rf/dispatch-sync [:editor/dirty true])
     (let [traces (atom [])]
       (rf/register-listener! :trace ::blocked (fn [ev] (swap! traces conj ev)))
@@ -232,7 +232,7 @@
 ;;
 ;; Per Spec 012 §Navigation blocking — pending-nav protocol continue must
 ;; "re-issue the original navigation request, *bypassing* the leave guard".
-;; Pre-fix dispatched :rf.route/transitioned + :rf.nav/push-url directly, skipping
+;; Pre-fix dispatched the URL-change door + :rf.nav/push-url directly, skipping
 ;; the :rf.route/url-requested policy chain.
 
 (deftest continue-re-issues-via-url-requested-with-bypass
@@ -250,7 +250,7 @@
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     ;; Land on editor; dirty the form; try to leave; guard blocks.
-    (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}])
     (rf/dispatch-sync [:editor/dirty true])
     (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
     (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :pending-navigation]))
@@ -262,7 +262,7 @@
         "continue cleared the pending slot")
     (is (= :route/cart
            (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current :route-id]))
-        "continue completed the navigation through :rf.route/url-requested → :rf.route/transitioned")
+        "continue completed the navigation through :rf.route/url-requested → :rf.route/handle-url-change")
     (is (true? (get-in (rf/app-db-value :rf/default) [:editor :dirty?]))
         ":editor/dirty? remains true — bypass flag did NOT run the guard a second time")))
 
@@ -278,7 +278,7 @@
     (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
-    (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}])
     (rf/dispatch-sync [:editor/dirty true])
     (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
     (let [pending (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :pending-navigation])]
@@ -302,7 +302,7 @@
       (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
-      (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}])
       (rf/dispatch-sync [:editor/dirty true])
       (rf/dispatch-sync [:rf.route/navigate {:to :route/cart}])
       (let [db (:rf.db/runtime (rf/frame-state-value :rf/default))]
@@ -325,7 +325,7 @@
     (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
-    (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}])
     (rf/dispatch-sync [:editor/dirty true])
     (rf/dispatch-sync [:rf.route/handle-url-change "/cart"])
     (let [db (:rf.db/runtime (rf/frame-state-value :rf/default))]
@@ -346,7 +346,7 @@
     (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
-    (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}])
     (rf/dispatch-sync [:editor/dirty true])
     (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
     (let [pending-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
@@ -395,7 +395,7 @@
                     (fn [_ [_ pending-nav]]
                       (reset! seen pending-nav)
                       {}))
-      (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}])
       (rf/dispatch-sync [:editor/dirty true])
       (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
       (is (some? @seen)
@@ -421,7 +421,7 @@
     (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
-    (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}])
     (rf/dispatch-sync [:editor/set-dirty 42])
     (let [traces (atom [])]
       (rf/register-listener! :trace ::nb-id (fn [ev] (swap! traces conj ev)))
@@ -466,7 +466,7 @@
     (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
-    (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}])
     ;; A non-truthy non-false value (`nil`) would also be a non-boolean
     ;; — but we want to specifically exercise the "truthy non-boolean"
     ;; polarity bug, so dirty the editor first.
@@ -526,7 +526,7 @@
     (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
-    (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"] {:frame :route/owner})
+    (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}] {:frame :route/owner})
     (rf/dispatch-sync [:editor/dirty true] {:frame :route/owner})
     (let [traces (atom [])]
       (rf/register-listener! :trace ::dbmj6x-blocked (fn [ev] (swap! traces conj ev)))
@@ -567,7 +567,7 @@
     (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
-    (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"] {:frame :route/owner})
+    (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}] {:frame :route/owner})
     (rf/dispatch-sync [:editor/set-dirty 42] {:frame :route/owner})
     (let [traces (atom [])]
       (rf/register-listener! :trace ::dbmj6x-nb (fn [ev] (swap! traces conj ev)))
@@ -607,7 +607,7 @@
     (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
-    (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"] {:frame :route/owner})
+    (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}] {:frame :route/owner})
     ;; Unbind the subs hook so `can-leave?` falls through to the
     ;; subs-artefact-missing warning branch (the consumer-opted-out path).
     (let [prior (rf.late-bind/get-fn :subs/subscribe-once)]
@@ -651,7 +651,7 @@
     (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
-    (rf/dispatch-sync [:rf.route/transitioned "/"] {:frame :route/owner})
+    (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :link}] {:frame :route/owner})
     (let [traces (atom [])]
       (rf/register-listener! :trace ::dbmj6x-external (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/url-requested {:url "https://example.invalid/cart"}]
@@ -686,7 +686,7 @@
 ;; even when the route declares no `:can-leave` / `:can-enter` at all, so
 ;; any unexpected throw out of `match-url` escaped the guard phase and
 ;; crashed the event drain for EVERY nav entry point (`:rf.route/url-requested`,
-;; `:rf.route/navigate`, `:rf.route/transitioned`,
+;; `:rf.route/navigate`,
 ;; `:rf.route/handle-url-change`) instead of failing closed to
 ;; `:rf.route/not-found` like a bare miss.
 
@@ -701,7 +701,7 @@
     (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
-    (rf/dispatch-sync [:rf.route/transitioned "/"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :link}])
     (with-redefs [rf.routing.registry/match-url
                   (fn [_] (throw (ex-info "simulated hostile-URL parse failure" {})))]
       ;; Pre-fix this call throws straight out of dispatch-sync (crashes
@@ -728,7 +728,7 @@
     (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
-    (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}])
     (rf/dispatch-sync [:editor/dirty true])
     (with-redefs [rf.routing.registry/match-url
                   (fn [_] (throw (ex-info "simulated hostile-URL parse failure" {})))]

@@ -42,12 +42,12 @@
 
  :fixture/dispatches
  [;; Step 1: Navigate to /cart. :cart/load fires (count → 1).
-  [:rf.route/transitioned "/cart"]
+  [:rf.route/handle-url-change "/cart" {:rf.route/cause :link}]
 
   ;; Step 2: Navigate to /cart AGAIN — identical id/params/query/fragment.
   ;; Rule-3 no-op: the slice is unchanged, so :on-match does NOT re-fire
   ;; and no fresh nav-token is allocated.
-  [:rf.route/transitioned "/cart"]]
+  [:rf.route/handle-url-change "/cart" {:rf.route/cause :link}]]
 
  :fixture/expect
  {:final-app-db {:load-count 1}

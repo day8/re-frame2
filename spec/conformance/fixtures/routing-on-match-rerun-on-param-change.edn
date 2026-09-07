@@ -36,11 +36,11 @@
 
  :fixture/dispatches
  [;; Step 1: Navigate to /articles/A. :article/load fires.
-  [:rf.route/transitioned "/articles/A"]
+  [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}]
 
   ;; Step 2: Same route-id, different params. The slice changes; :on-match
   ;; re-fires.
-  [:rf.route/transitioned "/articles/B"]]
+  [:rf.route/handle-url-change "/articles/B" {:rf.route/cause :link}]]
 
  :fixture/expect
  {:final-app-db {:load-count 2}

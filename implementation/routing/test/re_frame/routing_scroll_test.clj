@@ -125,14 +125,14 @@
       (is (empty? @calls)
           ":scroll false on the route suppresses the :rf.nav/scroll fx")
 
-      ;; 5. :rf.route/transitioned (URL-driven) also emits the fx — default :top.
+      ;; 5. :rf.route/handle-url-change with cause :link also emits the fx — default :top.
       ;; Land on "/" (route/home, no :scroll meta) so the NEXT step's
       ;; handle-url-change to "/articles" is a genuine navigation, not a
       ;; rule-3 identical no-op (Spec 012 §Per-route data loading rule 3).
       (reset! calls [])
-      (rf/dispatch-sync [:rf.route/transitioned "/"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :link}])
       (is (= :top (-> @calls first :strategy))
-          ":rf.route/transitioned emits :rf.nav/scroll with default :top")
+          "cause :link emits :rf.nav/scroll with default :top")
 
       ;; 6. :rf.route/handle-url-change (popstate / initial) defaults to
       ;;    :restore — the saved position trumps a forward-style :top.
@@ -144,9 +144,67 @@
 
       ;; 7. Fragment in URL is forwarded in the fx args.
       (reset! calls [])
-      (rf/dispatch-sync [:rf.route/transitioned "/articles/intro#section-2"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/intro#section-2" {:rf.route/cause :link}])
       (is (= "section-2" (-> @calls first :fragment))
           "fragment from URL flows into :rf.nav/scroll args"))))
+
+;; ---- rf2-kuky.38 ruling: the URL-driven default scroll is a PURE FUNCTION
+;; ---- of the resolved cause ------------------------------------------------
+;;
+;; `:rf.route/transitioned` is gone (pre-alpha, no shim). The one URL-driven
+;; door `:rf.route/handle-url-change` now derives its default scroll strategy
+;; from the cause `url-change-cause` resolves for THIS dispatch: `:top` for
+;; `:link` — the forward link click that used to be a second event id — and
+;; `:restore` for everything else.
+;;
+;; The two arms are pinned SEPARATELY and both carry an EXPLICIT rider, so
+;; neither can pass by accident: a rider-free dispatch resolves to `:initial`
+;; and would answer `:restore` for the wrong reason, which is exactly the
+;; false pass a bare rewrite of the old link tests would have bought.
+
+(deftest url-change-default-scroll-follows-the-resolved-cause
+  (testing "{:rf.route/cause :link} defaults the scroll strategy to :top"
+    (let [calls (atom [])]
+      ;; Same JVM re-registration the emission test above uses: the spec's
+      ;; :platforms #{:client} default would otherwise skip the fx here.
+      (rf.fx/reg-fx :rf.nav/scroll
+                 {:platforms #{:server :client}}
+                 (fn [_ args] (swap! calls conj args)))
+      (rf.fx/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ _] nil))
+      (rf/reg-route :route/home     {} "/")
+      (rf/reg-route :route/articles {} "/articles")
+      ;; Land on "/" first so the graded dispatch is a genuine transition
+      ;; rather than a rule-3 identical no-op (Spec 012 §Per-route data
+      ;; loading rule 3), which emits no scroll fx at all.
+      (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :initial}])
+      (reset! calls [])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/articles" {:rf.route/cause :link}])
+      (is (= 1 (count @calls))
+          "the link cause emits exactly one :rf.nav/scroll fx")
+      (is (= :top (-> @calls first :strategy))
+          "cause :link ⇒ default scroll :top (the retired :rf.route/transitioned default)")))
+
+  (testing "{:rf.route/cause :popstate} defaults the scroll strategy to :restore"
+    (let [calls (atom [])]
+      ;; Same JVM re-registration the emission test above uses: the spec's
+      ;; :platforms #{:client} default would otherwise skip the fx here.
+      (rf.fx/reg-fx :rf.nav/scroll
+                 {:platforms #{:server :client}}
+                 (fn [_ args] (swap! calls conj args)))
+      (rf.fx/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ _] nil))
+      (rf/reg-route :route/home     {} "/")
+      (rf/reg-route :route/articles {} "/articles")
+      (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :initial}])
+      (reset! calls [])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/articles" {:rf.route/cause :popstate}])
+      (is (= 1 (count @calls))
+          "the popstate cause emits exactly one :rf.nav/scroll fx")
+      (is (= :restore (-> @calls first :strategy))
+          "cause :popstate ⇒ default scroll :restore (the saved position wins)"))))
 
 ;; ---- Spec 012 §Scroll restoration — pure helpers (rf2-1aqz / rf2-1hncp2) --
 ;;

@@ -60,13 +60,13 @@
       (rf/register-listener! :trace ::nav-token (fn [ev] (swap! traces conj ev)))
 
       ;; 1. Navigate to /articles/A. nav-token allocates → "nav-1".
-      (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}])
       (is (= "nav-1" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                              [:rf.runtime/routing :current :nav-token]))
           "first navigation got nav-1")
 
       ;; 2. Before A's response lands, navigate to /articles/B → "nav-2".
-      (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/B" {:rf.route/cause :link}])
       (is (= "nav-2" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                              [:rf.runtime/routing :current :nav-token]))
           "second navigation advanced the epoch to nav-2")
@@ -149,12 +149,12 @@
       (rf/register-listener! :trace ::cross-route (fn [ev] (swap! traces conj ev)))
 
       ;; 1. Navigate to /articles/A (:route/article) — nav-token "nav-1".
-      (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}])
       (is (= "nav-1" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                              [:rf.runtime/routing :current :nav-token])))
 
       ;; 2. Navigate to a DIFFERENT route /profile/P (:route/profile) — "nav-2".
-      (rf/dispatch-sync [:rf.route/transitioned "/profile/P"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/profile/P" {:rf.route/cause :link}])
       (is (= "nav-2" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                              [:rf.runtime/routing :current :nav-token])))
       (is (= :route/profile (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
@@ -235,13 +235,13 @@
                              (fn [ev] (swap! traces conj ev)))
 
       ;; 1. Land on :route/article id="A" — nav-token allocates to "nav-1".
-      (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}])
       (is (= "nav-1" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                              [:rf.runtime/routing :current :nav-token]))
           "first navigation got nav-1")
 
       ;; 2. Before A's async :on-success lands, navigate to id="B" — "nav-2".
-      (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/B" {:rf.route/cause :link}])
       (is (= "nav-2" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                              [:rf.runtime/routing :current :nav-token]))
           "second navigation advanced the epoch to nav-2")
@@ -373,8 +373,8 @@
       (rf/register-listener! :trace ::completed-at-fx (fn [ev] (swap! traces conj ev)))
 
       ;; 1. Land on A (nav-1), then supersede with B (nav-2).
-      (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
-      (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/B" {:rf.route/cause :link}])
 
       ;; 2. A's stale completion arrives carrying nav-1 AND its reply token's
       ;; completion time. Current is nav-2 → suppressed; the trace must carry
@@ -421,8 +421,8 @@
 
     (let [traces (atom [])]
       (rf/register-listener! :trace ::no-completed-at (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
-      (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/B" {:rf.route/cause :link}])
       (rf/dispatch-sync [:article/loaded-via-nav-token
                          {:carried-token    "nav-1"
                           :carried-route-id :route/article
@@ -458,8 +458,8 @@
     (let [traces        (atom [])
           completion-ts 1717009999999]
       (rf/register-listener! :trace ::fixture-completed-at (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
-      (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/B" {:rf.route/cause :link}])
       ;; A's stale resolution carries nav-1 + its captured completion time.
       (rf/dispatch-sync [:rf.test/simulate-http-resolution
                          {:on-success-event     [:article/loaded "A" "A-payload"]
@@ -509,7 +509,7 @@
                          (reset! seen nav-token)
                          {}))
       ;; Land on the route, then fire the on-match-style continuation.
-      (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}])
       (let [current (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                             [:rf.runtime/routing :current :nav-token])]
         (rf/dispatch-sync [:article/capture-token])
@@ -560,11 +560,11 @@
                          {}))
 
       ;; 1. Navigate to A; the loader captures A's token via the cofx.
-      (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}])
       (rf/dispatch-sync [:article/load "A"])
 
       ;; 2. Navigate to B BEFORE A's response lands — fresh token captured.
-      (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/B" {:rf.route/cause :link}])
       (rf/dispatch-sync [:article/load "B"])
 
       ;; 3. A's response lands LATE, carrying the stale cofx-captured token.
@@ -642,10 +642,10 @@
                          {}))
 
       ;; 1. Navigate to A; the loader captures A's nav-token + route-id.
-      (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}])
       (rf/dispatch-sync [:article/load "A"])
       ;; 2. Supersede with B BEFORE A's response lands.
-      (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/B" {:rf.route/cause :link}])
 
       (is (= :route/article (:route-id (@captured "A")))
           "the :rf.route/route-id cofx injected the live route id (pre-fix: no such cofx)")
@@ -710,7 +710,7 @@
                                :route-id    carried-route-id
                                :value       value}]]}))
 
-    (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}])
     (let [token (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                         [:rf.runtime/routing :current :nav-token])]
       ;; A's completion is LIVE (token still current) → the target is completed
@@ -750,8 +750,8 @@
     (let [traces (atom [])]
       (rf/register-listener! :trace ::stale-reply-to (fn [ev] (swap! traces conj ev)))
       ;; Land on A (nav-1), supersede with B (nav-2).
-      (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
-      (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/B" {:rf.route/cause :link}])
       ;; A's stale completion → suppressed; the app target MUST NOT run.
       (rf/dispatch-sync [:article/completed
                          {:carried-token    "nav-1"
@@ -809,8 +809,8 @@
       (let [traces (atom [])]
         (rf/register-listener! :trace ::stale-nondelivery (fn [ev] (swap! traces conj ev)))
         ;; Land on A (nav-1), supersede with B (nav-2) so the nav-1 completion is stale.
-        (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
-        (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
+        (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}])
+        (rf/dispatch-sync [:rf.route/handle-url-change "/articles/B" {:rf.route/cause :link}])
         (let [db-before  (rf/app-db-value :rf/default)
               rdb-before (:rf.db/runtime (rf/frame-state-value :rf/default))]
           (rf/dispatch-sync [:app/completed {:carried-token "nav-1" :target target}])
@@ -867,7 +867,7 @@
       (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
-      (rf/dispatch-sync [:rf.route/transitioned "/two-loaders"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/two-loaders" {:rf.route/cause :link}])
       (is (= [:fail :next] @order)
           "the later loader RAN after the earlier one threw (fire-and-forget FIFO)")
       (is (true? (:load/next-ran? (rf/app-db-value :rf/default)))

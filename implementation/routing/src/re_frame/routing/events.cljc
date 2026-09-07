@@ -68,7 +68,7 @@
   the flow-lifecycle symmetry: the activated/deactivated pair is to
   routes what `:rf.flow/computed` is to flows in giving tools a
   per-transition lifecycle signal independent of the underlying
-  `:rf.route/transitioned` event.
+  `:rf.route/handle-url-change` event.
 
   `frame` is the in-flight cascade's carried frame stamp
   (threaded from the nav handler's `:rf.frame/id` cofx via
@@ -93,8 +93,8 @@
 ;; :transition :error :nav-token}` under `[:rf.runtime/routing
 ;; :current]`. (`:route-id` is the self-describing slice key; the
 ;; consumer-facing sub-id stays `:rf.route/id`, rf2-3a5nk7.) Both nav entry points (programmatic
-;; `:rf.route/navigate` and URL-driven `:rf.route/transitioned` /
-;; `:rf.route/handle-url-change`) write the same merge shape after
+;; `:rf.route/navigate` and URL-driven `:rf.route/handle-url-change`)
+;; write the same merge shape after
 ;; allocating a nav-token. This helper encodes the slice-shape contract
 ;; in ONE place so the two writers and the layer-1 read
 ;; (`re-frame.routing.subs/route-sub-fn`) stay symmetric. `:error` starts nil

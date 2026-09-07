@@ -451,7 +451,7 @@ The composite scans the focused cascade's trace events for the routing
 lifecycle emits (per [`spec/012-Routing.md`](../../../spec/012-Routing.md)
 §Trace events — the runtime emits them in the order `nav-token/allocated`
 → `deactivated`? → `activated`?, inside both `:rf.route/navigate` and
-`:rf.route/transitioned`). **Both ids are read off the focused cascade's
+`:rf.route/handle-url-change`). **Both ids are read off the focused cascade's
 own trace events — never the live route slice.** Detection:
 
 - The `:rf.route.nav-token/allocated` emit's `:tags :route-id` is the

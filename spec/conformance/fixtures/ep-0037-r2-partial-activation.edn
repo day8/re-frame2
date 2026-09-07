@@ -43,9 +43,9 @@
  :fixture/dispatches
  [;; nav 1 → /account/a plans {viewer, a}; the plan's identity set is recorded
   ;; under nav-token 1 for the next activation to diff against.
-  [:rf.route/transitioned "/account/a"]
+  [:rf.route/handle-url-change "/account/a" {:rf.route/cause :link}]
   ;; nav 2 → /account/b: viewer is KEPT (shared parent), a is REMOVED, b ADDED.
-  [:rf.route/transitioned "/account/b"]]
+  [:rf.route/handle-url-change "/account/b" {:rf.route/cause :link}]]
 
  :fixture/expect
  {;; The SECOND navigation's route-plan trace projects the kept/added/removed

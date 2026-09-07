@@ -29,7 +29,7 @@
   Earlier fixtures in the CLJS test suite reached for `rf.registrar/clear-all!`,
   which is fundamentally hostile to CLJS isolation:
 
-    - `re-frame.routing` registers `:rf.route/transitioned`, `:rf.route/navigate`,
+    - `re-frame.routing` registers `:rf.route/handle-url-change`, `:rf.route/navigate`,
       `:rf.nav/scroll`, the `:rf/route` and `:rf.route/{id,params,query,
       transition,error}` reg-subs (and friends) at ns-load.
     - `re-frame.machines` registers the `:rf/machine` sub at ns-load.

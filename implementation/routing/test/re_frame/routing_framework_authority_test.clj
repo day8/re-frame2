@@ -3,7 +3,7 @@
 
   Routing is one of the legitimate runtime-db writers Spec 002 §Write
   authority names (alongside machines / elision / ssr). Its event handlers
-  (`:rf.route/navigate`, `:rf.route/transitioned` / `:rf.route/handle-url-change`,
+  (`:rf.route/navigate`, `:rf.route/handle-url-change`,
   `:rf.route/url-requested` / `:rf.route/continue` / `:rf.route/cancel`)
   read AND return the reserved `:rf.db/runtime` route slice. Before the fix `assemble-initial-ctx` minted
   framework-write authority from `:rf/machine?` ONLY, so every navigation
@@ -98,18 +98,18 @@
             ":rf.route/navigate is a framework-authority writer — no ownership diagnostic")))))
 
 (deftest url-change-event-mints-framework-authority
-  (testing ":rf.route/transitioned (URL-driven) does not trip the diagnostic"
+  (testing ":rf.route/handle-url-change (URL-driven) does not trip the diagnostic"
     (rf/reg-route :route/search {} "/search")
     (stub-push-url!)
     (let [warns (record-runtime-warnings! ::url-change)]
-      (rf/dispatch-sync [:rf.route/transitioned "/search?q=widgets"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/search?q=widgets" {:rf.route/cause :link}])
       (is (= :route/search (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                    [:rf.runtime/routing :current :route-id]))
           "the url-change handler wrote the route slice")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (is (empty? @warns)
-            ":rf.route/transitioned is a framework-authority writer — no diagnostic")))))
+            ":rf.route/handle-url-change is a framework-authority writer — no diagnostic")))))
 
 (deftest can-leave-continue-and-cancel-mint-framework-authority
   (testing "the pending-nav protocol (url-requested / continue / cancel) stays silent"
@@ -125,7 +125,7 @@
     (let [warns (record-runtime-warnings! ::can-leave)]
       ;; Land on the guarded route, dirty it, attempt to leave → blocked
       ;; (:rf.route/url-requested writes the pending slot via :rf.db/runtime).
-      (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}])
       (rf/dispatch-sync [:editor/dirty true])
       (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
       (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
@@ -157,7 +157,7 @@
                   {:on-match [[:load/noop]]} "/loaded")
     (stub-push-url!)
     (let [warns (record-runtime-warnings! ::settle)]
-      (rf/dispatch-sync [:rf.route/transitioned "/loaded"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/loaded" {:rf.route/cause :link}])
       (is (= :route/loaded (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                    [:rf.runtime/routing :current :route-id]))
           "the :on-match route committed onto the slice")

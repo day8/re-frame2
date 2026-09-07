@@ -8,8 +8,8 @@
 
   - `:rf.nav/push-url`     fx — calls `(.pushState js/window.history nil \"\" url)`.
   - `:rf.nav/replace-url`  fx — calls `(.replaceState js/window.history nil \"\" url)`.
-  - `:rf.route/transitioned`      event — forward nav (push / link click).
-  - `:rf.route/handle-url-change` event — popstate / initial / SSR.
+  - `:rf.route/handle-url-change` event — the one URL-driven door: a link
+                                  click (cause `:link`), popstate, initial, SSR.
 
   The runtime wires `window.addEventListener('popstate', ...)` itself,
   automatically, as part of the `:url-bound?` frame LIFECYCLE (rf2-g8pbwg):
@@ -1160,7 +1160,7 @@
 ;; 3. hashchange — fragment-only round-trip
 ;; =========================================================================
 ;;
-;; Per Spec 012 §Fragments and routing.cljc's `:rf.route/transitioned`
+;; Per Spec 012 §Fragments and routing.cljc's `:rf.route/handle-url-change`
 ;; handler — when only the URL fragment changes (the route-id,
 ;; :params, and :query are unchanged) the runtime updates
 ;; [:rf.runtime/routing :current :fragment] and emits :rf.route/fragment-changed (rf2-cj9fn,
@@ -1192,7 +1192,7 @@
               (swap! allocations conj (:tags ev))
               nil)))
         (try
-          (rf/dispatch-sync [:rf.route/transitioned "/articles/intro#section-2"])
+          (rf/dispatch-sync [:rf.route/handle-url-change "/articles/intro#section-2" {:rf.route/cause :link}])
           (finally
             (rf.trace.tooling/unregister-listener! cb-key)))
 

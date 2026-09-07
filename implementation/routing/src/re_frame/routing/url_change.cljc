@@ -1,19 +1,22 @@
 (ns re-frame.routing.url-change
   "URL-driven navigation: the shared full-rewrite path
-  (`url-change-fx`) plus the `:rf.route/transitioned` and
-  `:rf.route/handle-url-change` events for re-frame2 routing.
+  (`url-change-fx`) plus the `:rf.route/handle-url-change` event for
+  re-frame2 routing.
 
-  Per Spec 012 §URL changes are events. `:rf.route/transitioned`
-  (forward nav, default scroll `:top`) and `:rf.route/handle-url-change`
-  (popstate / initial / SSR, default scroll `:restore`) share
-  `url-change-fx`. The fragment-only branch (Spec 012 §Fragments rules
-  3-4) ALSO lives in `url-change-fx`, so both events honour it —
-  popstate / Back-Forward to a same-page anchor must not allocate a new
-  nav-token or re-fire `:on-match`.
+  Per Spec 012 §URL changes are events. `:rf.route/handle-url-change` is
+  the ONE URL-driven door, standing for FOUR causes — `:link` (the link
+  door's synthesised commit, default scroll `:top`) and `:popstate` /
+  `:initial` / `:ssr` (default scroll `:restore`). The cause rides the
+  trailing opts map's `:rf.route/cause` and is resolved per dispatch by
+  `url-change-cause`; the default scroll strategy is a pure function of
+  it. The fragment-only branch (Spec 012 §Fragments rules 3-4) lives in
+  `url-change-fx`, so every cause honours it — popstate / Back-Forward
+  to a same-page anchor must not allocate a new nav-token or re-fire
+  `:on-match`.
 
   Internal namespace; the public facade is `re-frame.routing`. The
-  facade owns the two `events/reg-event` calls so a `:reload`
-  re-wires them on a fresh registrar."
+  facade owns the `events/reg-event` call so a `:reload` re-wires it on
+  a fresh registrar."
   (:require [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
@@ -103,7 +106,7 @@
   map — WITHOUT allocating a fresh nav-token (rule 3) or re-firing
   `:on-match` (rule 4). The canonical op-name says what fires it (only a
   `#fragment` differed) and disambiguates from the runtime event
-  `:rf.route/transitioned`, which fires on every URL transition. The
+  `:rf.route/handle-url-change`, which fires on every URL transition. The
   full URL transition path never emits this op and never coincides with
   a `:rf.route.nav-token/allocated` on the same drain. Consumers carry
   `:prev-fragment` / `:next-fragment` in `:tags`, plus the `:frame` stamp
@@ -120,10 +123,10 @@
   commit sibling in `url-change-fx` uses — so the fragment-only door and
   the full-commit door resolve scroll identically. Before this fix the
   URL-driven door computed a scroll plan but DROPPED the scroll-fx: a
-  user clicking a `#section` link (`:rf.route/transitioned`, default
-  `:top` → scroll to the fragment) or Back-Forward to a fragment
-  (`:rf.route/handle-url-change`, default `:restore` → the saved
-  position) computed where to scroll and then never scrolled. This
+  user clicking a `#section` link (cause `:link`, default `:top` →
+  scroll to the fragment) or Back-Forward to a fragment (cause
+  `:popstate`, default `:restore` → the saved position) computed where
+  to scroll and then never scrolled. This
   URL-driven door does NOT drive the browser URL (the address bar already
   changed via link-click pushState / popstate), so — unlike the
   programmatic door — it emits NO `:rf.nav/push-url`; but `pushState` /
@@ -178,10 +181,10 @@
    route-resource scope resolves db-derived viewer identity at route
    entry. Routing never reads it.
 
-   `cause` is the R0 navigation cause the door represents (`:link` for the
-   forward `:rf.route/transitioned` door; `:popstate` / `:initial` / `:ssr`
-   for the three sub-doors `:rf.route/handle-url-change` represents, resolved
-   by `url-change-cause`). It is carried on the route plan built at the commit
+   `cause` is the R0 navigation cause the dispatch represents — `:link`,
+   `:popstate`, `:initial` or `:ssr`, the four sub-doors the ONE
+   `:rf.route/handle-url-change` event stands for, resolved by
+   `url-change-cause`. It is carried on the route plan built at the commit
    branch (EP-0037 R0b) and on any leave-pending / entry-denial value the
    decisions produce.
 
@@ -191,8 +194,9 @@
    transition evaluates both, in order. `opts` is the door's trailing opts
    map: `:bypass-leave?` is the public one-shot leave escape and
    `:rf.route/decided?` is the runtime-internal rider the link door sets on
-   the `:rf.route/transitioned` event it synthesises after deciding, so the
-   same target is not decided twice.
+   the `:rf.route/handle-url-change` event it synthesises after deciding
+   (alongside `:rf.route/cause :link`), so the same target is not decided
+   twice.
 
    rf2-szp11 — ONE argument map, keys named exactly as the destructuring
    names them, which is the shape every other function in this seam already
@@ -225,7 +229,7 @@
         ;; rf2-6t1xb / rf2-4ic0f: the seam is fail-closed. `match-url-fail-closed`
         ;; catches any throw out of `match-url` and yields a NIL match plus a
         ;; `:throw-reason` discriminator (`:match-error`), so a throwing URL
-        ;; arriving via `:rf.route/transitioned` / `:rf.route/handle-url-change`
+        ;; arriving via `:rf.route/handle-url-change`
         ;; degrades to `:rf.route/not-found` exactly like a bare miss; a bare
         ;; miss is discriminated from a malformed URL by the `malformed-url?`
         ;; scan, run only when `match-url` already missed.
@@ -238,9 +242,9 @@
         ;; params, query) the runtime updates `:fragment`, emits the
         ;; `:rf.route/fragment-changed` op trace, and short-circuits
         ;; BEFORE allocating a fresh nav-token or re-firing `:on-match`.
-        ;; This branch lives in the shared helper so EVERY URL-driven
-        ;; event honours it — both forward nav (`:rf.route/transitioned`)
-        ;; AND popstate / initial / SSR (`:rf.route/handle-url-change`).
+        ;; This branch lives in the shared helper so EVERY cause of
+        ;; `:rf.route/handle-url-change` honours it — link clicks AND
+        ;; popstate / initial / SSR alike.
         ;; Back/Forward to a same-page anchor must not re-fetch route
         ;; data (rf2-8oxj6).
         prev              (get-in rdb [:rf.runtime/routing :current])
@@ -347,8 +351,8 @@
 
       ;; Spec 012 §Fragments rules 3-4 (rf2-8oxj6): short-circuit BEFORE
       ;; the nav-token allocation / on-match drain below. Honoured on
-      ;; both `:rf.route/transitioned` and `:rf.route/handle-url-change`
-      ;; (popstate) because the branch lives in the shared helper. The
+      ;; every cause of `:rf.route/handle-url-change` (link click,
+      ;; popstate) because the branch lives in the shared helper. The
       ;; carried `frame` is threaded through so the emitted
       ;; `:rf.route/fragment-changed` trace is frame-attributed (rf2-n0851k),
       ;; consistent with the commit-path lifecycle traces below.
@@ -452,75 +456,42 @@
            ;; rf2-dbmj6x: the carried frame stamp (validated at the handler
            ;; top, threaded into `url-change-fx`). `commit-navigation` stamps
            ;; it on the nav-token-allocated + activated/deactivated lifecycle
-           ;; traces so the URL-driven `:rf.route/transitioned` /
-           ;; `:rf.route/handle-url-change` paths frame-attribute them too,
+           ;; traces so the URL-driven `:rf.route/handle-url-change` path
+           ;; frame-attributes them too,
            ;; consistent with the route-miss diagnostics already tagged above.
            :frame        frame
            ;; EP-0016 D3 slice 3: route-entry app-db for `{:from-db …}` scope.
            :app-db       app-db})))))
 
-(defn transitioned-handler
-  "`:rf.route/transitioned` event handler. Registered by the façade
-  so a `:reload` re-wires it on a fresh registrar. Per Spec 012 §URL
-  changes are events / §Fragments. Forward nav (link click /
-  programmatic push). After the leave-guard check, delegate to the
-  shared `url-change-fx`, which distinguishes a fragment-only change
-  (update :fragment, emit :rf.route/fragment-changed, no nav-token /
-  no :on-match — rf2-cj9fn) from a full slice rewrite. Default scroll
-  strategy for forward nav is `:top` per Spec 012 §Scroll restoration;
-  popstate / initial / SSR routes through `:rf.route/handle-url-change`
-  (default `:restore`)."
-  [{frame :rf.frame/id rdb :rf.db/runtime
-    nav-allocation :rf.route/nav-allocation
-    pending-nav-allocation :rf.route/pending-nav-allocation
-    app-db :db}
-   [_ url opts]]
-  (let [;; EP-0002 carried invariant — `:rf.route/transitioned` is a
-        ;; cascade event, so the cofx carries the frame stamp under
-        ;; `:rf.frame/id`; a nil stamp is an invariant failure
-        ;; (`:rf.error/no-frame-context`), never a synthesised `:rf/default`.
-        frame   (rf.frame/require-frame-stamp!
-                  frame :rf.route/transitioned
-                  {:where 'rf.route/transitioned-handler})
-        opts    (or opts {})
-        rdb     (or rdb {})]
-    ;; rf2-w3qgc: thread the active `frame` into `url-change-fx` so the
-    ;; forward-nav route-miss / malformed-url trace sites
-    ;; carry `:frame`, consistent with the popstate / SSR sibling
-    ;; (`handle-url-change-handler`, :restore below) and the programmatic
-    ;; `:rf.route/navigate {:url ...}` path. Spec 009 requires `:frame` on
-    ;; `:rf.error/no-such-handler {:kind :route}` and
-    ;; `:rf.warning/no-not-found-route`. The carried `:frame` (the
-    ;; cascade cofx supplies it) tags those traces. EP-0001 (rf2-vzld77):
-    ;; the route slice is durable routing runtime-db state.
-    ;; EP-0037 R0b: the forward `:rf.route/transitioned` door's plan cause
-    ;; is `:link`. EP-0037 R4: the guard decisions run INSIDE
-    ;; `url-change-fx`, after the transition kind is classified.
-    (url-change-fx {:rdb                    rdb
-                    :url                    url
-                    :default-scroll         :top
-                    :frame                  frame
-                    :nav-allocation         nav-allocation
-                    :pending-nav-allocation pending-nav-allocation
-                    :app-db                 app-db
-                    :cause                  :link
-                    :opts                   opts})))
-
 (defn url-change-cause
   "The true R0 navigation cause for one `:rf.route/handle-url-change`
-  dispatch. The event is ONE door standing for THREE (Spec 012 §URL changes
-  are events — popstate, initial page load, and the SSR request URL), and the
-  R0 causes `:popstate` / `:initial` / `:ssr` are cause-specific diagnostics,
-  so the door must report which of the three it actually was rather than
-  labelling all three `:popstate`.
+  dispatch. The event is ONE door standing for FOUR (Spec 012 §URL changes
+  are events — a link click, popstate, initial page load, and the SSR request
+  URL), and the R0 causes `:link` / `:popstate` / `:initial` / `:ssr` are
+  cause-specific diagnostics, so the door must report which of the four it
+  actually was rather than labelling them all `:popstate`. The resolved cause
+  also fixes the default scroll strategy — `:top` for `:link`, `:restore`
+  otherwise (Spec 012 §Scroll restoration).
+
+  The FOUR feeds the framework itself produces on this door: `:link` from the
+  link door (`rf.routing.decisions/url-requested-handler` synthesises the
+  commit with `{:rf.route/cause :link :rf.route/decided? true}` after the
+  address bar has moved); `:popstate` and `:initial` from the `:url-bound?`
+  history listener (`rf.routing.history` — the browser-driven
+  popstate / hashchange callback and the same listener's initial URL -> slice
+  sync); and `:ssr` for a rider-free dispatch on a `:platform :server` frame.
+  `:navigate` NEVER enters this door — the programmatic
+  `:rf.route/navigate` request commits inline (state-before-URL) and drives
+  the address bar itself; it is a member of `rf.routing.resolve/causes` for
+  the plan diagnostic, not a feed here.
 
   Resolution, in order:
 
   1. the runtime-internal `:rf.route/cause` rider on the door's trailing opts
-     map. The framework's own strategy-aware history listener sets it — the
-     browser-driven `popstate` / `hashchange` callback stamps `:popstate`, and
-     the same listener's initial URL -> slice sync stamps `:initial` (Spec 012
-     §popstate drives the URL-owner frame). Only a member of
+     map. The framework's own doors set it — the link door stamps `:link`,
+     the browser-driven `popstate` / `hashchange` callback stamps `:popstate`,
+     and the same listener's initial URL -> slice sync stamps `:initial` (Spec
+     012 §popstate drives the URL-owner frame). Only a member of
      `rf.routing.resolve/causes` is honoured; anything else falls through, so a stray
      value cannot invent a sixth cause. Like `:rf.route/decided?` this is a
      runtime-internal rider on the trailing opts map, NOT a member of the
@@ -544,28 +515,34 @@
       :else                              :initial)))
 
 (defn handle-url-change-handler
-  "`:rf.route/handle-url-change` event handler. Registered by the
-  façade so a `:reload` re-wires it on a fresh registrar. Per Spec 012
-  §URL changes are events — popstate, initial load, SSR. Delegates to
+  "`:rf.route/handle-url-change` event handler — the ONE URL-driven door.
+  Registered by the façade so a `:reload` re-wires it on a fresh
+  registrar. Per Spec 012 §URL changes are events — a link click,
+  popstate, initial load, SSR. Delegates to
   the shared `url-change-fx`, which honours the fragment-only
   short-circuit (Spec 012 §Fragments rules 3-4): a Back/Forward to a
   same-page `#fragment` updates :fragment WITHOUT allocating a new
-  nav-token or re-firing :on-match (rf2-8oxj6). The default scroll
-  strategy is `:restore` so the saved position trumps. `:frame` is
+  nav-token or re-firing :on-match (rf2-8oxj6). `:frame` is
   threaded through so the SSR error-projection listener can attribute
   the :no-such-handler trace per-frame.
 
-  This one event stands for THREE doors, so the plan cause is resolved
+  This one event stands for FOUR doors, so the plan cause is resolved
   per-dispatch by `url-change-cause` rather than hardcoded — otherwise the
-  declared `:initial` and `:ssr` causes are dead and cause-specific
-  diagnostics misreport two of the five doors."
+  declared `:link`, `:initial` and `:ssr` causes are dead and cause-specific
+  diagnostics misreport three of the five causes.
+
+  The default scroll strategy is a PURE FUNCTION of that resolved cause
+  (Spec 012 §Scroll restoration): `:top` for `:link` — a forward link click
+  lands you at the top of the new page — and `:restore` otherwise, so a
+  Back/Forward or a reload puts the saved position back. A route's own
+  `:scroll` meta still overrides it, and `:scroll false` still suppresses."
   [{frame :rf.frame/id rdb :rf.db/runtime
     nav-allocation :rf.route/nav-allocation
     pending-nav-allocation :rf.route/pending-nav-allocation
     app-db :db}
    [_ url opts]]
   (let [;; EP-0002 carried invariant — `:rf.route/handle-url-change` is a
-        ;; cascade event (popstate / initial / SSR), so the cofx carries
+        ;; cascade event (link / popstate / initial / SSR), so the cofx carries
         ;; the frame stamp under `:rf.frame/id`; a nil stamp is an invariant
         ;; failure (`:rf.error/no-frame-context`), never a synthesised
         ;; `:rf/default`.
@@ -573,17 +550,31 @@
                   frame :rf.route/handle-url-change
                   {:where 'rf.route/handle-url-change-handler})
         opts    (or opts {})
-        rdb     (or rdb {})]
+        rdb     (or rdb {})
+        ;; EP-0037 R0b: the URL-driven `:rf.route/handle-url-change` door stands
+        ;; for FOUR sub-doors, so it carries the cause `url-change-cause`
+        ;; resolves for THIS dispatch — `:link`, `:popstate`, `:initial`, or
+        ;; `:ssr`. Resolved ONCE: the plan cause and the default scroll
+        ;; strategy are two readings of the same value and cannot disagree.
+        cause   (url-change-cause frame opts)]
+    ;; rf2-w3qgc: thread the active `frame` into `url-change-fx` so the
+    ;; route-miss / malformed-url trace sites carry `:frame`, consistent with
+    ;; the programmatic `:rf.route/navigate {:url ...}` path. Spec 009 requires
+    ;; `:frame` on `:rf.error/no-such-handler {:kind :route}` and
+    ;; `:rf.warning/no-not-found-route`. The carried `:frame` (the cascade cofx
+    ;; supplies it) tags those traces.
     ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
-    ;; EP-0037 R0b: the URL-driven `:rf.route/handle-url-change` door stands for
-    ;; THREE sub-doors, so it carries the cause `url-change-cause` resolves for
-    ;; THIS dispatch — `:popstate`, `:initial`, or `:ssr`.
+    ;; EP-0037 R4: the guard decisions run INSIDE `url-change-fx`, after the
+    ;; transition kind is classified.
     (url-change-fx {:rdb                    rdb
                     :url                    url
-                    :default-scroll         :restore
+                    ;; Spec 012 §Scroll restoration: a forward link click lands
+                    ;; at the top; every other cause restores the saved
+                    ;; position.
+                    :default-scroll         (if (= :link cause) :top :restore)
                     :frame                  frame
                     :nav-allocation         nav-allocation
                     :pending-nav-allocation pending-nav-allocation
                     :app-db                 app-db
-                    :cause                  (url-change-cause frame opts)
+                    :cause                  cause
                     :opts                   opts})))

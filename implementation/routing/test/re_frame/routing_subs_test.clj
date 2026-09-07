@@ -67,12 +67,12 @@
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     ;; Land on a URL with a fragment — the slice carries :fragment "x"
-    (rf/dispatch-sync [:rf.route/transitioned "/docs/routing#scroll-restoration"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/docs/routing#scroll-restoration" {:rf.route/cause :link}])
     (is (= "scroll-restoration"
            @(rf/subscribe [:rf.route/fragment]))
         ":rf.route/fragment returns the URL's #fragment")
     ;; Land on a URL with no fragment — sub returns nil
-    (rf/dispatch-sync [:rf.route/transitioned "/docs/api"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/docs/api" {:rf.route/cause :link}])
     (is (nil? @(rf/subscribe [:rf.route/fragment]))
         ":rf.route/fragment returns nil when the URL has no #fragment")))
 
@@ -116,7 +116,7 @@
     (is (nil? @(rf/subscribe [:rf/pending-navigation]))
         ":rf/pending-navigation returns nil when no nav is pending")
     ;; Set up a pending nav via the can-leave guard
-    (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}])
     (rf/dispatch-sync [:editor/dirty true])
     (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
     (let [pending @(rf/subscribe [:rf/pending-navigation])]

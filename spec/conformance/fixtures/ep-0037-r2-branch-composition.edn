@@ -36,7 +36,7 @@
  {:fx {:rf.http/managed [[:noop]]}}
 
  :fixture/dispatches
- [[:rf.route/transitioned "/account/settings"]]
+ [[:rf.route/handle-url-change "/account/settings" {:rf.route/cause :link}]]
 
  :fixture/expect
  {;; Both blocking first loads pending → the route projects :loading.

@@ -6,7 +6,7 @@
   normalisation, the `:rf.route/not-found` fallback shape + `:reason`
   vocabulary, the identical-/fragment-only classification, and the
   fail-closed telemetry intents — was duplicated across the programmatic
-  (`:rf.route/navigate`) and URL-driven (`:rf.route/transitioned` /
+  (`:rf.route/navigate`) and URL-driven
   `:rf.route/handle-url-change`) entry points, and parity was only pinned
   by scattered end-to-end regression tests in `routing_test.clj` added
   AFTER drift was discovered. These tests pin the parity cases directly

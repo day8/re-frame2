@@ -69,7 +69,7 @@
   (rf/reg-sub :editor/can-leave? (fn [_ _] false))           ;; dirty → block
   (rf.fx/reg-fx :rf.nav/push-url    {:platforms #{:server :client}} (fn [_ _] nil))
   (rf.fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil))
-  (rf/dispatch-sync [:rf.route/transitioned "/editor"]))
+  (rf/dispatch-sync [:rf.route/handle-url-change "/editor" {:rf.route/cause :link}]))
 
 (defn- pending-id []
   (:id (rf/subscribe-once [:rf/pending-navigation] {:frame :rf/default})))
@@ -182,7 +182,7 @@
       ;; fresh ambient re-mint (the retired behaviour) yields \"nav-6\".
       (rf.routing.nav-counters/commit-counter! :rf/default :nav-token-counter 5)
       ;; LIVE re-mint (the hole) — the slice gets nav-6, NOT the recorded nav-1.
-      (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}])
       (is (= "nav-6" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                              [:rf.runtime/routing :current :nav-token]))
           "the re-mint wrote nav-6 to the slice (NOT the recorded nav-1)")
@@ -217,7 +217,7 @@
     ;; REPLAY: the recorded token carries BOTH allocations (a `transitioned`
     ;; event records both — both generate live; only nav-allocation is used on
     ;; the commit branch, but strict replay re-presents the full record).
-    (rf/dispatch-sync [:rf.route/transitioned "/articles/A"]
+    (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}]
                       {:rf.cofx {:rf.route/nav-allocation         {:token "nav-1" :counter 1}
                                  :rf.route/pending-nav-allocation {:id "pn-1" :counter 1}}
                        :rf.cofx/mint-policy :strict})
@@ -236,7 +236,7 @@
   (testing "rf2-vcop6y step 6: strict replay FAILS LOUDLY when the recorded
             nav-token allocation is missing (`:rf.error/missing-required-cofx`)"
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
-    (let [ex (try (rf/dispatch-sync [:rf.route/transitioned "/articles/A"]
+    (let [ex (try (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}]
                                     {:rf.cofx/mint-policy :strict})
                   nil
                   (catch clojure.lang.ExceptionInfo e e))]
@@ -259,14 +259,14 @@
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     ;; Replay an allocation whose recorded :counter is 9 (the host starts at 0).
     ;; A `transitioned` record carries both allocations (both generate live).
-    (rf/dispatch-sync [:rf.route/transitioned "/articles/A"]
+    (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}]
                       {:rf.cofx {:rf.route/nav-allocation         {:token "nav-9" :counter 9}
                                  :rf.route/pending-nav-allocation {:id "pn-1" :counter 1}}
                        :rf.cofx/mint-policy :strict})
     (is (= 9 (:nav-token-counter (rf.routing.nav-counters/counter-snapshot :rf/default)))
         "the commit fx advanced the host high-water to the recorded :counter (9) via max")
     ;; A subsequent LIVE navigation mints strictly past the re-established mark.
-    (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/articles/B" {:rf.route/cause :link}])
     (is (= "nav-10" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                             [:rf.runtime/routing :current :nav-token]))
         "the next live token is nav-10 — monotone past the replayed high-water, no recycle")))
@@ -283,9 +283,9 @@
     (rf/reg-route :route/a {} "/a")
     (rf/reg-route :route/b {} "/b")
     (rf/reg-route :route/c {} "/c")
-    (rf/dispatch-sync [:rf.route/transitioned "/a"])
-    (rf/dispatch-sync [:rf.route/transitioned "/b"])
-    (rf/dispatch-sync [:rf.route/transitioned "/c"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/a" {:rf.route/cause :link}])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/b" {:rf.route/cause :link}])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/c" {:rf.route/cause :link}])
     (is (= "nav-3" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                            [:rf.runtime/routing :current :nav-token]))
         "three live navigations mint nav-1 → nav-2 → nav-3 (monotone)")
@@ -346,7 +346,7 @@
             fails with :rf.error/cofx-value-invalid BEFORE the commit handler
             writes the :nav-token into the durable route slice"
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
-    (let [ex (try (rf/dispatch-sync [:rf.route/transitioned "/articles/A"]
+    (let [ex (try (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}]
                                     {:rf.cofx {:rf.route/nav-allocation
                                                {:token nil :counter "bad"}}
                                      :rf.cofx/mint-policy :strict})
@@ -370,7 +370,7 @@
     (rf/reg-route :route/a {} "/a")
     ;; A live navigation runs the generator (well-formed `{:token \"nav-1\"
     ;; :counter 1}`) and commits cleanly — no cofx-value-invalid throw.
-    (rf/dispatch-sync [:rf.route/transitioned "/a"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/a" {:rf.route/cause :link}])
     (is (= "nav-1" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                            [:rf.runtime/routing :current :nav-token]))
         "the live generator's well-formed allocation passes the schema and commits")))

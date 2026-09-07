@@ -52,7 +52,7 @@
   (rf/init! rf.substrate.plain-atom/adapter)
   ;; Framework events / fx are registered at namespace-load time in
   ;; routing.cljc; clear-all! wiped them. Re-eval those registrations
-  ;; so :rf.route/transitioned, :rf.route/url-requested, :rf.route/* etc. resurrect.
+  ;; so :rf.route/handle-url-change, :rf.route/url-requested, :rf.route/* etc. resurrect.
   (require 're-frame.routing :reload)
   ;; rf2-dbiv8 — the test-only `:rf.test/simulate-http-resolution` fixture
   ;; event lives in the routing test-support ns (not the production
@@ -251,26 +251,26 @@
       (rf/reg-route :route/b {} "/foo")
 
       ;; ---- Routing: :rf.route.nav-token/allocated + :rf.route/fragment-changed ----
-      ;; A reg-route + dispatch [:rf.route/transitioned url] threads through the
+      ;; A reg-route + dispatch [:rf.route/handle-url-change url {:rf.route/cause :link}] threads through the
       ;; allocate-token + match-url emit path.
       (rf/reg-route :user/show {} "/users/:id")
-      (rf/dispatch-sync [:rf.route/transitioned "/users/42"] {:frame :test/main})
+      (rf/dispatch-sync [:rf.route/handle-url-change "/users/42" {:rf.route/cause :link}] {:frame :test/main})
       ;; Now repeat with a fragment change only — emits :rf.route/fragment-changed
       ;; with prev/next-fragment shape.
-      (rf/dispatch-sync [:rf.route/transitioned "/users/42#section"] {:frame :test/main})
+      (rf/dispatch-sync [:rf.route/handle-url-change "/users/42#section" {:rf.route/cause :link}] {:frame :test/main})
 
       ;; ---- Routing: :rf.route/navigation-blocked --------------------------
       ;; Set up a :can-leave sub that returns false, then request a URL.
       (rf/reg-sub :always-block (fn [_ _] false))
       (rf/reg-route :nav/blocker {:can-leave :always-block} "/blockable")
       ;; Move "into" the blockable route so its :can-leave guards the next nav.
-      (rf/dispatch-sync [:rf.route/transitioned "/blockable"] {:frame :test/main})
+      (rf/dispatch-sync [:rf.route/handle-url-change "/blockable" {:rf.route/cause :link}] {:frame :test/main})
       (rf/dispatch-sync [:rf.route/url-requested {:url "/users/42"}] {:frame :test/main})
 
       ;; ---- Routing: :rf.route.nav-token/stale-suppressed ---------------------
       ;; Allocate a token by navigating, then dispatch the framework's
       ;; nav-token-checking event with a deliberately mismatched token.
-      (rf/dispatch-sync [:rf.route/transitioned "/users/7"] {:frame :test/main})
+      (rf/dispatch-sync [:rf.route/handle-url-change "/users/7" {:rf.route/cause :link}] {:frame :test/main})
       (rf/dispatch-sync [:rf.test/simulate-http-resolution
                          {:carried-nav-token :stale/token
                           :on-success-event  [:noop]}]
@@ -446,7 +446,7 @@
         ;; ---- routing :rf.event ops -----------------------------------------
         ;; Route lifecycle traces ride the :rf.event family (op-type
         ;; :rf.event; rf2-a20e9 completed the #1973 migration in routing).
-        (testing ":rf.event :rf.route.nav-token/allocated fires on :rf.route/transitioned full nav"
+        (testing ":rf.event :rf.route.nav-token/allocated fires on :rf.route/handle-url-change full nav"
           (is (has-op? events :rf.event :rf.route.nav-token/allocated)
               "expected :rf.event :rf.route.nav-token/allocated")
           (let [t (:tags (find-op events :rf.event :rf.route.nav-token/allocated))]

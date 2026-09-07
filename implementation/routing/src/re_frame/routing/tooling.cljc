@@ -106,7 +106,6 @@
 ;; matched — so it is the spine, not a per-route axis.
 (def ^:private route-transition-inputs
   [[:event :rf.route/navigate]
-   [:event :rf.route/transitioned]
    [:event :rf.route/handle-url-change]])
 
 (defn- resource-activation-edge
@@ -230,7 +229,6 @@
   - `:source-form` — `{:kind :reg-route :id <route-id>}`.
   - `:inputs`      — the route-transition causal events
                      (`[:event :rf.route/navigate]` /
-                     `[:event :rf.route/transitioned]` /
                      `[:event :rf.route/handle-url-change]`) — the
                      `:on-route` triggers the route fact depends on
                      (Derivations §Evaluation policy rule 4).
