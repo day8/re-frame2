@@ -471,6 +471,19 @@ has returned since the close, and never by reopening the closed item, whose clos
 normative record. The query, the label and the field that carries the URL are repository values,
 and they live in the agent-instructions file, per the rule at the head of this page.
 
+**When that file carries no such values, the read is not owed — do not reconstruct one.** A
+repository whose alert channel has gone quiet may retire this read deliberately, and the
+retirement is spelled as the ABSENCE of those values rather than as a note saying so. That
+absence reads exactly like an oversight, and a standing loop prompt can go on naming the sweep
+long after the values it pointed at are gone — so the coordinator looks where they should be,
+finds nothing, and invents a query. **An invented query is worse than no read at all.** Measured:
+the one invented was the label-filtered issue index, which that repository's own alerter refuses
+in a source comment — the index is eventually consistent, and had already made the alerter open a
+duplicate alert when it lagged. It then returned a reassuring empty result on every tick of a long
+session. THE EMPTY RESULT WAS CORRECT, which is why nothing on screen betrayed it: the channel
+genuinely held no open alerts, so the wrong instrument and the right one agreed, and their
+agreement is not evidence. Values present, do the read; values absent, skip it and report nothing.
+
 **Read the newest note first, and order the item by the tracker's own timestamps** — not by
 position, and not by dates written in the prose. The mechanics are set out for the worker under
 [*Common preamble*](dispatch-prompt-template.md#common-preamble) in
