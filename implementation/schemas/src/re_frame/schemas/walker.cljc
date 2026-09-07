@@ -93,7 +93,8 @@
   elision in traces and Spec 010 §`:sensitive?` — `:hint` is optional
   and omitted when absent so the marker shape stays minimal. The
   `:source :schema` slot records schema provenance for the owner-local
-  consumer (machine / resource `:data-schema`, HTTP body-privacy,
+  consumer (machine `[:schemas :data]` / resource `:data-schema`,
+  HTTP body-privacy,
   story-mcp) that reads the extracted map, not the durable app-db
   classification registry."
   [flag-key props]
@@ -280,7 +281,8 @@
   Spec 009 §Size elision in traces — the schema-driven nomination path.
 
   Returned declarations carry `:source :schema` per Spec 009 so the
-  owner-local consumer (machine / resource `:data-schema`, HTTP
+  owner-local consumer (machine `[:schemas :data]` / resource
+  `:data-schema`, HTTP
   body-privacy, story-mcp) that reads this map can report schema
   provenance for its wire-boundary elision. This map does not feed durable
   app-db classification."

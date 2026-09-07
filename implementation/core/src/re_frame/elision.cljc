@@ -17,8 +17,9 @@
   `reg-app-schema` `{:sensitive? true}` / `{:large? true}` slot prop is
   not a route into this registry. Schema `:sensitive?`
   drives schema-validation-failure-trace redaction (the schema's own
-  egress product — `re-frame.schemas`), and machine `:data-schema` per-slot
-  props classify machine `:data` (EP-0005). There are no
+  egress product — `re-frame.schemas`), and machine `[:schemas :data]` per-slot
+  props classify machine `:data` (EP-0005; the root `:data-schema` slot that EP
+  named is retired per EP-0029 A3). There are no
   imperative large-path APIs.
 
   EP-0001: the elision declaration registry is DURABLE,
@@ -535,7 +536,7 @@
 ;; Schemas describe shape, not durable app-db egress policy. Schema
 ;; `:sensitive?` drives
 ;; schema-validation-failure-trace redaction (`re-frame.schemas`), and
-;; machine `:data-schema` props classify machine `:data` (EP-0005) —
+;; machine `[:schemas :data]` props classify machine `:data` (EP-0005) —
 ;; both consult the schema directly, not this registry.
 
 (defn clear-warning-cache!

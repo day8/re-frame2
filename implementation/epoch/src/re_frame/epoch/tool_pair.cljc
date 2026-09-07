@@ -175,17 +175,18 @@
   reference implementation that validator is the machine-data boundary
   (`:machines/validate-machine-data!`, Spec 005 §Schema validation): it
   walks `[:rf.runtime/machines :snapshots]` and validates each snapshot's
-  `:data` against the registered machine's `:data-schema`, emitting its
+  `:data` against the registered machine's `[:schemas :data]` schema,
+  emitting its
   own per-snapshot trace and returning a boolean.
 
   Soft-pass cases (return `[]`):
     * the machines artefact is not on the classpath (hook absent) — no
       runtime-db validator means no runtime-db to disprove;
     * the validator returns true / nil (every snapshot conformed, or none
-      carried a `:data-schema`).
+      carried a `[:schemas :data]` schema).
 
   Failure case: the validator returned false — at least one snapshot's
-  `:data` failed its `:data-schema`. The validator does not surface the
+  `:data` failed its `[:schemas :data]` schema. The validator does not surface the
   failing leaf paths (it emits its own per-snapshot trace naming each), so
   the returned vector names the runtime-db root the failure walked
   (`[:rf.runtime/machines :snapshots]`) — the same shape the app-db

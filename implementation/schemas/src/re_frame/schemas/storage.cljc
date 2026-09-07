@@ -221,7 +221,8 @@
       or the legacy `:rf/runtime` root). App schemas validate only app-db;
       the runtime-db partition is framework-owned (the framework validates
       it — machine `:snapshots` refined per-machine from each machine's
-      `:data-schema`) and is NOT a user schema-registration surface, so the
+      `[:schemas :data]` schema) and is NOT a user schema-registration
+      surface, so the
       remedy is to drop the runtime path.
 
   `frame` (optional) names the resolved registration frame for the
@@ -257,7 +258,8 @@
             "partition is framework-owned and "
             "validated by the framework (machine "
             ":snapshots refined per-machine from "
-            "each machine's :data-schema); it is "
+            "each machine's [:schemas :data] "
+            "schema); it is "
             "NOT a user schema-registration "
             "surface — drop the runtime path.")
        {:recovery :drop-the-runtime-path

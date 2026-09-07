@@ -383,7 +383,7 @@
   ;; state-node / transition-map `:source-coords`) must elide; the prod
   ;; state-nodes ship clean (just the user's `{:on …}`).
   ;;
-  ;; Per rf2-jbbp7 the `:data-schema` key on `reg-machine` adds a second
+  ;; Per rf2-jbbp7 the `[:schemas :data]` key on `reg-machine` adds a second
   ;; gated surface: the `re-frame.machines.data-validation` ns's
   ;; emit-failure! body sits inside `(if interop/debug-enabled? ...)`
   ;; and its " :data failed schema at boundary :where :machine-data "
@@ -396,7 +396,7 @@
   ;;   2. registering a machine via `rf/reg-machine` so the macro's
   ;;      gated co-location dev arm is in reachable code, not just
   ;;      declared-but-dead.
-  ;;   3. registering a machine WITH `:data-schema` and forcing a violation
+  ;;   3. registering a machine WITH `[:schemas :data]` and forcing a violation
   ;;      so the emit-failure! call site is reached in the control build
   ;;      (DEBUG=true) and its sentinel string lands in the bundle.
   ;;

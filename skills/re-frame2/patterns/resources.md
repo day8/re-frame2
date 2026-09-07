@@ -37,7 +37,7 @@ Three roles never blur:
   :article/by-slug
   {:doc            "Article detail by slug."
    :params-schema  [:map [:slug :string]]          ;; REQUIRED — validates + canonicalizes params
-   :data-schema    :app/article                    ;; validates decoded data
+   :data-schema    :app/article                    ;; static shape fact for tooling — runtime validation rides :decode
    :scope          :rf.scope/global                 ;; REQUIRED — see §Scope is mandatory
    :stale-after-ms 60000                            ;; fresh window; after it, an ensure refetches
    :gc-after-ms    300000                           ;; inactive (no owner) entries GC'd after this

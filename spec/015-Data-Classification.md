@@ -500,7 +500,7 @@ Per-artefact unit tests cover the implementation mechanism; the conformance fixt
 - [EP-0025 (Data Classification)](../docs/EP/EP-0025-data-classification.md) — the proposal record for this model; §Scope, §How it works, and §What is removed carry the rationale.
 - [EP-0015 (Frame-Owned Egress Policy)](../docs/EP/EP-0015-frame-owned-egress-policy.md) — the predecessor egress-policy model (frame annotation, schema-prop durable classification, imperative marks, propagation); not part of the current model.
 - [EP-0007 (One Name Per Fact)](../docs/EP/EP-0007-one-name-per-fact.md) — rule 3 grounds the `:sensitive` / `:sensitive?` cross-layer pairing.
-- [EP-0005 (Machine `:data` Schema)](../docs/EP/EP-0005-machine-data-schema.md) — the machine `:data-schema` VALIDATES; there is no schema→classification redaction bridge (machine `:data` classification is the projection-relative `reg-machine` declaration).
+- [EP-0005 (Machine `:data` Schema)](../docs/EP/EP-0005-machine-data-schema.md) — the machine `[:schemas :data]` schema VALIDATES; there is no schema→classification redaction bridge (machine `:data` classification is the projection-relative `reg-machine` declaration).
 - [001-Registration §Registration grammar](001-Registration.md#registration-grammar) — the metadata-map shape registration-owned `:sensitive` / `:large` extend.
 - [002-Frames §Commit-plane data-classification effects](002-Frames.md#commit-plane-data-classification-effects-ep-0025) — the effect-map contract for the four commit-plane effects; the no-default-frame rule projection inherits.
 - [005-StateMachines](005-StateMachines.md) — machine-owned, projection-relative machine `:data` classification, lowered per actor instance at spawn / first-boot.

@@ -473,7 +473,7 @@
 
   rf2-jm2u63 — the `:rf.runtime/machines` slice is NOT shipped raw: each
   durable machine snapshot's `:data` is projected per the owning machine's
-  `:data-schema` `:sensitive?` / `:large?` classification under the
+  `[:schemas :data]` `:sensitive?` / `:large?` classification under the
   `:rf.egress/ssr-hydration` boundary (via the late-bound machines-owned
   `:machines/project-ssr-runtime-db` hook), so a sensitive/large field inside a
   durable snapshot redacts/elides rather than riding the hydration blob raw —
