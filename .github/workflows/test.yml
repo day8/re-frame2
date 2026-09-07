@@ -2233,21 +2233,28 @@ jobs:
   # `"false"` on THIS JVM and that `interop/debug-enabled?` honoured it. If the
   # property ever stops arriving, this job goes RED rather than
   # green-on-the-wrong-posture — which matters more here than anywhere else,
-  # because the lane's namespace roster is by construction a subset of what
-  # already passes in dev posture, so a lost flag would otherwise be invisible.
+  # because every namespace in this lane already passes in dev posture, so a
+  # lost flag would otherwise be invisible. With the exclusion roster gone
+  # (see SCOPE below) that pin is the only remaining signal that the posture
+  # is the one intended.
   #
-  # SCOPE. Not the whole ssr suite yet: 21 of its 48 test namespaces are red
-  # under the real gate (217 failures / 1 error) in three shapes —
-  # dev-instrumentation assertions written inline with semantics,
-  # `data-rf2-source-coord` / `data-rf-view` annotations that are prod-elided
-  # at the core `reg-view` boundary, and the error-projection cluster whose
-  # status codes depend on the development trace listener (a documented design
-  # choice with a real production consequence, held under rf2-rqje9). The
-  # roster and the triage bead (rf2-lwtlk) live in
-  # `scripts/test-ssr-prod-gate.sh`. What runs here today is 28 namespaces /
-  # 247 tests / 1379 assertions, green. The roster is an EXCLUSION list, so a
-  # new namespace joins this lane by default and has to be excluded
-  # deliberately.
+  # SCOPE. The WHOLE ssr suite. There was once a known-red EXCLUSION roster —
+  # 21 of 48 namespaces, 217 failures / 1 error, in three shapes — and
+  # rf2-lwtlk triaged it to zero, so the roster and the `-n` selector went
+  # with it. The runner now discovers every `.*-test$` namespace under
+  # `implementation/ssr/test` and runs it, which is the strongest polarity but
+  # also the quiet one: a NEW namespace joins this lane the day it lands, with
+  # nothing to edit and nothing to warn you. Budget for that when you add one.
+  #
+  # DO NOT SIZE THE LANE OFF A NUMBER IN THIS COMMENT. The script prints its
+  # own posture and the runner prints its own counts at run time, and that
+  # printout is the authority — this comment carried `28 namespaces / 247
+  # tests / 1379 assertions` long after the roster emptied, understating the
+  # lane by ~2.6x (rf2-0zsm). As a dated waypoint only: 653 tests / 4091
+  # assertions, 0 failures / 0 errors, measured 2026-09-07 by
+  # `bash scripts/test-ssr-prod-gate.sh`. The roster's history and the
+  # `RF2_MIN_TESTS` coverage floor that is now this lane's only structural
+  # guard live in `scripts/test-ssr-prod-gate.sh`.
   jvm-ssr-prod-gate:
     name: JVM ssr under the production gate (-Dre-frame.debug=false)
     # Same surface gate as jvm-ssr: it is the same artefact.
@@ -2281,9 +2288,10 @@ jobs:
             ${{ runner.os }}-clj-ssr-
             ${{ runner.os }}-clj-
 
-      # The script prints the property, the pin, the roster size and the
-      # excluded count before it runs anything, so the job's own log carries
-      # the evidence of which posture it ran in.
+      # The script prints the tree it resolved, the JVM property and the
+      # posture pin before it runs anything, so the job's own log carries the
+      # evidence of which posture it ran in; the runner then prints the tests
+      # and assertions it actually executed.
       - name: Run the ssr suite under -Dre-frame.debug=false
         run: bash scripts/test-ssr-prod-gate.sh
 
