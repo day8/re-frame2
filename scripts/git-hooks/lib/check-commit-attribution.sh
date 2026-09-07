@@ -143,6 +143,64 @@
 # The detector.
 # ---------------------------------------------------------------------------
 
+# rf2_attribution_is_tool_link WORD
+#
+# Returns 0 when WORD carries a URL whose HOST is the tool's own, 1 otherwise.
+# WORD is the already-lower-cased final blank-separated word of a line, so it
+# arrives wearing whatever punctuation the surrounding text lent it — the
+# markdown marker's closing `)`, a sentence's full stop.
+#
+# THIS ISOLATES THE HOST, WHICH IS THE WHOLE POINT. Rule 3's tail anchor used
+# to ask whether the word CONTAINED `claude` or `anthropic` anywhere, which
+# every piece of documentation around it already described as "ends on the
+# tool's own link". A URL's PATH is not its host, so that test refused an
+# ordinary citation:
+#
+#      Generated with [Claude Code] was declined per https://github.com/day8/re-frame2/blob/main/CLAUDE.md.
+#
+#   — a link to the very rule the sentence is complying with, refused because
+# the FILENAME of that rule is `CLAUDE.md`. The same sentence citing
+# `README.md` passed. That is the rf2-uo5f false-positive class again, reached
+# through the tail rather than the head, and linking the rule rather than
+# naming its file is the natural thing to write.
+#
+# So: strip the scheme, take the authority, drop userinfo and port, and compare
+# the host itself. Subdomains of the tool's hosts count; a host that merely
+# ENDS on one of them does not, because the dot is the boundary — otherwise
+# `claude.com.example.invalid` would read as the tool's.
+rf2_attribution_is_tool_link() {
+  _rf2a_host="$1"
+
+  case "$_rf2a_host" in
+    *://*) ;;
+    *) return 1 ;;
+  esac
+
+  _rf2a_host=${_rf2a_host#*://}   # the authority onwards
+  _rf2a_host=${_rf2a_host%%/*}    # up to the path,
+  _rf2a_host=${_rf2a_host%%\?*}   # or the query, where there is no path,
+  _rf2a_host=${_rf2a_host%%#*}    # or the fragment.
+  _rf2a_host=${_rf2a_host#*@}     # userinfo goes BEFORE the port: it may hold a colon
+  _rf2a_host=${_rf2a_host%%:*}    # the port
+
+  # A host ends on a letter or a digit; anything after that belongs to the
+  # prose. This is what unwraps the markdown marker's `…claude-code)`.
+  while :; do
+    case "$_rf2a_host" in
+      ''|*[a-z0-9]) break ;;
+      *) _rf2a_host=${_rf2a_host%?} ;;
+    esac
+  done
+
+  case "$_rf2a_host" in
+    claude.com|*.claude.com) return 0 ;;
+    claude.ai|*.claude.ai) return 0 ;;
+    anthropic.com|*.anthropic.com) return 0 ;;
+  esac
+
+  return 1
+}
+
 # rf2_attribution_is_offending_line LINE
 #
 # Returns 0 when LINE is an AI-attribution line, 1 otherwise.
@@ -223,22 +281,34 @@ rf2_attribution_is_offending_line() {
   #    already pinned: `No Generated with [Claude Code] trailer was added.`
   #    passes only because it ends on `added.`. So the discriminator is
   #    structural on BOTH halves — no letters in front, and a URL at the end
-  #    whose host is the tool's. A `://` is what makes the tail a link rather
-  #    than a word; deliberately NOT a list of negations ("No", "declined",
-  #    "not"), which was considered and rejected here as trivially defeatable.
+  #    whose host is the tool's; deliberately NOT a list of negations ("No",
+  #    "declined", "not"), which was considered and rejected here as trivially
+  #    defeatable.
+  #
+  #    AND "WHOSE HOST IS THE TOOL'S" HAD TO BE IMPLEMENTED TOO, which is the
+  #    third round on the same sentence. That repair added a `://` test in
+  #    front of the substring test and kept the substring test behind it, so
+  #    the word still answered for the host and a citation URL whose PATH
+  #    carried `claude` was read as the tool's own link:
+  #
+  #      Generated with [Claude Code] was declined per https://github.com/day8/re-frame2/blob/main/CLAUDE.md.
+  #
+  #    was refused while the same sentence citing `README.md` passed, on
+  #    nothing but a word in the path. Linking the rule rather than naming its
+  #    file is the natural way to cite it — and this repository's rule file is
+  #    literally called CLAUDE.md — so the wording a brief invites most was the
+  #    one refused. `rf2_attribution_is_tool_link` above now parses the tail as
+  #    a URL and compares the HOST, which is what every piece of documentation
+  #    around this rule has promised since the first repair.
   case "$_rf2a_low" in
     *'generated with'*)
       case "${_rf2a_low%%generated with*}" in
         *[a-z]*) ;;
         *)
           _rf2a_tail=${_rf2a_low##* }
-          case "$_rf2a_tail" in
-            *://*)
-              case "$_rf2a_tail" in
-                *claude*|*anthropic*) return 0 ;;
-              esac
-              ;;
-          esac
+          if rf2_attribution_is_tool_link "$_rf2a_tail"; then
+            return 0
+          fi
           ;;
       esac
       ;;
