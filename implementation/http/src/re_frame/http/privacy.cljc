@@ -76,6 +76,7 @@
   surface."
   (:require [clojure.string :as str]
             [re-frame.error :as rf.error]
+            [re-frame.http.encoding :as rf.http.encoding]
             [re-frame.http.privacy-headers :as rf.http.privacy-headers]
             [re-frame.http.url :as rf.http.url]
             [re-frame.late-bind :as rf.late-bind]
@@ -464,12 +465,23 @@
   the `:request` map rides `redact-request-tags` — denylisted headers +
   denylisted URL query values ALWAYS; `:body` / `:params` / all query values
   when the request is sensitive — with the registration's `:carriers`
-  extensions applied. The `:on-success` / `:on-failure` reply-address event
-  vectors additionally ride the TARGET event registration's own
-  classification (through the `:classification/redact-event-by-registration`
-  hook — bound by core at boot), so a payload-carrying reply address redacts
-  exactly as the dispatched reply event itself will. Total: a non-map `args`
-  passes through untouched."
+  extensions applied. EVERY reply-address event vector — the unified
+  `:reply-to` and the split `:on-success` / `:on-failure` sugar alike —
+  additionally rides the TARGET event registration's own classification
+  (through the `:classification/redact-event-by-registration` hook — bound by
+  core at boot), so a payload-carrying reply address redacts exactly as the
+  dispatched reply event itself will.
+
+  The three keys are alternate ADDRESSING forms for one reply (Spec 014
+  §Reply addressing), never alternate PRIVACY contracts — Spec 014 §Unified
+  one-handler form teaches carrying the originating message on the address
+  (`:reply-to [:article/load msg]`), so the unified spelling is exactly as
+  payload-bearing as the split one. Before rf2-uc7d only the split keys were
+  redacted here, so re-spelling a continuation from `:on-success` to the
+  IDENTICAL `:reply-to` vector leaked fields its target had declared
+  `:sensitive` into the generic HTTP fx traces.
+
+  Total: a non-map `args` passes through untouched."
   [args]
   (if-not (map? args)
     args
@@ -478,10 +490,10 @@
           redact-event (or (rf.late-bind/get-fn :classification/redact-event-by-registration)
                            identity)
           redact-addr  (fn [v] (if (vector? v) (redact-event v) v))]
-      (cond-> args
-        (map? (:request args))       (update :request #(redact-request-tags % sensitive? carriers))
-        (contains? args :on-success) (update :on-success redact-addr)
-        (contains? args :on-failure) (update :on-failure redact-addr)))))
+      (reduce (fn [m k] (cond-> m (contains? m k) (update k redact-addr)))
+              (cond-> args
+                (map? (:request args)) (update :request #(redact-request-tags % sensitive? carriers)))
+              rf.http.encoding/reply-address-keys))))
 
 ;; ---- trace-event composers ------------------------------------------------
 

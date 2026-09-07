@@ -173,6 +173,84 @@
       (is (not (leaks? pw-sentinel t))
           "the password appears nowhere in the projected do-fx trace"))))
 
+;; ---- rf2-uc7d — reply addressing is ONE privacy contract ------------------
+;;
+;; `:reply-to`, `:on-success` and `:on-failure` are alternate ADDRESSING forms
+;; for the same reply (Spec 014 §Reply addressing), not alternate PRIVACY
+;; contracts. Spec 014 §Unified one-handler form explicitly teaches carrying
+;; the originating message on the address (`:reply-to [:article/load msg]`),
+;; so a payload-bearing unified address is an ordinary shape — and until
+;; rf2-uc7d only the two SPLIT keys rode the target registration's
+;; classification, so moving a continuation between supported spellings
+;; leaked fields its target had declared `:sensitive`.
+
+(def ^:private reply-address-keys [:reply-to :on-success :on-failure])
+
+(deftest every-reply-address-key-rides-target-classification-in-aggregate
+  (testing "rf2-uc7d: the SAME classified target vector under EACH supported
+            reply-address key redacts identically in the :rf.event/fx
+            aggregate — addressing form is not a privacy boundary"
+    (register-target-classification!)
+    (doseq [k reply-address-keys]
+      (let [t   (project {:operation :rf.fx/do-fx
+                          :tags {:frame        :rf/default
+                                 :rf.event/fx [[:rf.http/managed
+                                                {:request {:method :post
+                                                           :url    "https://api.example.test/save"}
+                                                 k        [::target {:secret pw-sentinel
+                                                                     :email  email}]}]]}})
+            out (get-in t [:rf.event/fx 0 1])]
+        (is (= rf.privacy/redacted-sentinel (get-in out [k 1 :secret]))
+            (str k " reply-address payload rides the target registration's classification"))
+        (is (= email (get-in out [k 1 :email]))
+            (str k " keeps unmarked fields — path-precise, not whole-event"))
+        (is (= ::target (get-in out [k 0]))
+            (str k " retains the event id — identity is not redacted"))
+        (is (not (leaks? pw-sentinel t))
+            (str k " leaks the declared-sensitive value nowhere in the aggregate"))))))
+
+(deftest every-reply-address-key-rides-target-classification-in-fx-args
+  (testing "rf2-uc7d: the same holds on the individual [:rf.fx/id :rf.fx/args]
+            slot shape (:rf.fx/handled and the always-on fx error traces)"
+    (register-target-classification!)
+    (doseq [k  reply-address-keys
+            op [:rf.fx/handled :rf.error/fx-handler-exception]]
+      (let [t (project {:operation op
+                        :tags {:frame      :rf/default
+                               :rf.fx/id   :rf.http/managed
+                               :rf.fx/args {:request {:method :post
+                                                      :url    "https://api.example.test/save"}
+                                            k        [::target {:secret pw-sentinel}]}}})]
+        (is (= rf.privacy/redacted-sentinel (get-in t [:rf.fx/args k 1 :secret]))
+            (str op " " k " :rf.fx/args reply-address payload redacts"))
+        (is (not (leaks? pw-sentinel t))
+            (str op " " k " leaks no secret"))))))
+
+(deftest reply-address-projection-preserves-nil-and-bare-addresses
+  (testing "rf2-uc7d precision: an explicit nil (the fire-and-forget spelling)
+            stays nil rather than becoming a redaction sentinel, and an
+            unclassified bare address rides through untouched"
+    (register-target-classification!)
+    (doseq [k reply-address-keys]
+      (let [out (get-in (project {:operation :rf.fx/do-fx
+                                  :tags {:frame        :rf/default
+                                         :rf.event/fx [[:rf.http/managed
+                                                        {:request {:method :get
+                                                                   :url    "https://api.example.test/x"}
+                                                         k        nil}]]}})
+                        [:rf.event/fx 0 1])]
+        (is (contains? out k) (str k " is still present"))
+        (is (nil? (get out k)) (str "an explicit nil " k " survives projection as nil")))
+      (let [out (get-in (project {:operation :rf.fx/do-fx
+                                  :tags {:frame        :rf/default
+                                         :rf.event/fx [[:rf.http/managed
+                                                        {:request {:method :get
+                                                                   :url    "https://api.example.test/x"}
+                                                         k        [::unclassified {:note "plain"}]}]]}})
+                        [:rf.event/fx 0 1])]
+        (is (= [::unclassified {:note "plain"}] (get out k))
+            (str "an unclassified " k " address rides through untouched"))))))
+
 (deftest aggregate-managed-http-not-sensitive-stays-fail-open
   (testing "precision: a NON-sensitive managed request's body rides raw in the
             aggregate (the documented fail-open — no reflexive over-redaction),

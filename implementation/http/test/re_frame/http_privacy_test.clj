@@ -21,6 +21,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
+            [re-frame.http.encoding :as rf.http.encoding]
             [re-frame.http.managed :as rf.http.managed]
             [re-frame.http.privacy :as rf.http.privacy]
             [re-frame.http.privacy-headers :as rf.http.privacy-headers]
@@ -356,6 +357,34 @@
                          :body    {:note "plain"}}})]
       (is (= {:note "plain"} (get-in r [:request :body])))
       (is (= :rf/redacted (get-in r [:request :headers "Cookie"]))))))
+
+(deftest project-managed-fx-args-classifies-every-reply-address-key
+  (testing "rf2-uc7d — the artefact-level fn applies the target registration's
+            classification to ALL THREE reply-address keys. Core's
+            fx_aggregate_classification_cljs_test drives the same contract
+            through the trace projector; this pins the fn the
+            `:http/project-managed-fx-args` hook actually resolves to, so the
+            two doors cannot drift apart"
+    (rf.registrar/register! :event ::reply-target {:sensitive [[:password]]})
+    (doseq [k rf.http.encoding/reply-address-keys]
+      (let [r (rf.http.privacy/project-managed-fx-args
+                {:request {:method :post :url "https://api.example.test/save"}
+                 k        [::reply-target {:password "hunter2" :user "ann"}]})]
+        (is (= :rf/redacted (get-in r [k 1 :password]))
+            (str k " reply-address payload rides the target's :sensitive declaration"))
+        (is (= "ann" (get-in r [k 1 :user]))
+            (str k " keeps unmarked fields"))
+        (is (= ::reply-target (get-in r [k 0]))
+            (str k " keeps the event id"))))))
+
+(deftest project-managed-fx-args-preserves-nil-reply-addresses
+  (testing "rf2-uc7d — an explicit nil (fire-and-forget) survives as nil on
+            every reply-address key, never a redaction sentinel"
+    (doseq [k rf.http.encoding/reply-address-keys]
+      (let [r (rf.http.privacy/project-managed-fx-args
+                {:request {:method :get :url "/x"} k nil})]
+        (is (contains? r k) (str k " stays present"))
+        (is (nil? (get r k)) (str "an explicit nil " k " survives as nil"))))))
 
 (deftest project-managed-fx-args-tolerates-non-map
   (testing "a non-map args value passes through untouched"
