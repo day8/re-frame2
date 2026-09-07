@@ -82,6 +82,30 @@ const BUILD_ID = 'hicasso-modules-compile';
 const OUT_DIR = 'out/hicasso-modules-compile';
 const TAG = 'hicasso-compile';
 
+// rf2-wlga — the SAME roster again under `:advanced`. Two gates looked as
+// though they already covered this and neither did: the pass above is a dev
+// `compile`, and `npm run build:hicasso-release` starts at the PUBLIC DOOR,
+// which by construction cannot reach an optional module (the invariant
+// `check_optional_module_reachability.py` enforces is exactly that no
+// door-rooted graph contains one — verified at source: the release build's
+// entry `re-frame.hicasso.consumer-app` requires `re-frame.core`,
+// `re-frame.adapter.uix` and `re-frame.hicasso`, and nothing reachable from
+// the door requires `impl.overlay`). So the modules were compiled twice and
+// OPTIMISED never, and `:advanced` is where a different class lives from the
+// analyser's: Closure renames a property no extern declares, DCE drops a
+// binding reached only through interop, and an npm default-vs-namespace
+// import mistake becomes `undefined` at runtime rather than a warning at
+// compile time. `impl/overlay.cljs` reaches `react/useLayoutEffect`,
+// `react/useContext` and `react/useRef` and writes `(.. el -style
+// -anchorName)`, which is precisely that shape.
+//
+// A second pass rather than a second BUILD ID: the roster, the source paths
+// and the refusals are already right here, and an id in the hot-zone
+// `shadow-cljs.edn` would be one more thing to keep in step for no coverage
+// this does not give. `goog.DEBUG false` mirrors the release build, so what
+// is judged is the code a consumer would actually ship.
+const RELEASE_OUT_DIR = 'out/hicasso-modules-release';
+
 /**
  * The two core attribution instruments — see the header. `file` is relative
  * to `implementation/`, and both halves are verified: the file must exist AND
@@ -359,6 +383,20 @@ if (require.main === module) {
   shadowBuild({ impl: IMPL, mode: 'compile', buildId: BUILD_ID, configMerge, tag: TAG });
 
   console.error(`[${TAG}] ok — ${namespaces.length} namespaces compiled with zero warnings`);
+
+  // rf2-wlga — the same roster under `:advanced`. See RELEASE_OUT_DIR above
+  // for why this is not reachable from `build:hicasso-release`.
+  console.error(`[${TAG}] compiling the same ${namespaces.length} namespaces under :advanced -> ${RELEASE_OUT_DIR}`);
+
+  const releaseConfigMerge =
+    `{:output-dir "${RELEASE_OUT_DIR}" :asset-path "." ` +
+    `:compiler-options {:optimizations :advanced :infer-externs :auto ` +
+    `:closure-defines {goog.DEBUG false}} ` +
+    `:modules {:main {:entries [${namespaces.join(' ')}]}}}`;
+
+  shadowBuild({ impl: IMPL, mode: 'release', buildId: BUILD_ID, configMerge: releaseConfigMerge, tag: TAG });
+
+  console.error(`[${TAG}] ok — and the same ${namespaces.length} namespaces optimised under :advanced with zero warnings`);
 }
 
 module.exports = {
