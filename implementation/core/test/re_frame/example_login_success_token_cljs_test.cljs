@@ -107,9 +107,17 @@
             [login.stories :as login-stories])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
+;; `:async? true` — the live-drive tests at the foot of this ns are `(async
+;; done …)` rows, and `cljs.test` HARD-ERRORS on a fn-form fixture for one
+;; ("Async tests require fixtures to be specified as maps. Testing aborted." —
+;; and it aborts the WHOLE run, not just this ns). The flag hands back the
+;; map-form fixture, whose ambient frame scope is a persistent `set!` rather
+;; than a dynamic `binding`, so it survives the async body resuming on a later
+;; tick. Everything the sync tests above rely on is unchanged.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
-    {:adapter rf.adapter.reagent/adapter}))
+    {:adapter rf.adapter.reagent/adapter
+     :async?  true}))
 
 ;; ---------------------------------------------------------------------------
 ;; Helpers
