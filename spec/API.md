@@ -337,6 +337,7 @@ Standard route-related cofx (canonical detail in [012-Routing.md](012-Routing.md
 | Cofx | Delivers | Spec |
 |---|---|---|
 | `:rf.route/nav-token` | The active navigation epoch token (read from `[:rf.runtime/routing :current :nav-token]`), delivered flat under the coeffect key `:rf.route/nav-token` — declare via `{:rf.cofx/requires [:rf.route/nav-token]}` in an `:on-match`-reached handler to capture the epoch live at scheduling time for stale-result suppression. Per [012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression). | 012 |
+| `:rf.route/route-id` | The current route id (read from `[:rf.runtime/routing :current :route-id]`), delivered flat under the coeffect key `:rf.route/route-id`. The capture-side companion to `:rf.route/nav-token`: a route loader declares **both** (`{:rf.cofx/requires [:rf.route/nav-token :rf.route/route-id]}`) so it captures the two facts the route-loader work id `[:rf.work/route route-id nav-token loader-id]` needs at scheduling time, rather than reading the route id from the live slice at stale-arrival — where a cross-route completion would read the superseding route's. Per [012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression). | 012 |
 
 ---
 

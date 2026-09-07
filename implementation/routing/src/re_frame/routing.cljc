@@ -112,7 +112,12 @@
 (def reset-nav-counters!        rf.routing.nav-counters/reset-cache!)
 
 ;; Subs
-(def route-sub-fn               rf.routing.subs/route-sub-fn)
+;; rf2-kuky.36: no `route-sub-fn` facade alias. `route-sub-fn` is registered
+;; DIRECTLY as the `:rf/route` runtime sub below, in this already-loaded
+;; facade, so the alias published a registration detail as an API. The
+;; normative read is the subscription vector `[:rf/route]`; the normative
+;; slice path is `[:rf.runtime/routing :current]` (Conventions §Reserved
+;; runtime-db keys).
 
 ;; JVM tools get facade aliases for the static route algebra and a frame's
 ;; live route-slice algebra. CLJS tools require `re-frame.routing.tooling`
@@ -145,9 +150,11 @@
 (def with-base-path             rf.routing.strategy/with-base-path)
 
 ;; Listener installation/removal follows the `:url-bound?` frame lifecycle.
-;; `current-url` is the public query for the history strategy's current
-;; path-form URL.
-(def current-url                rf.routing.history/current-url)
+;; rf2-kuky.36: no `current-url` facade alias. It was `history-url-strategy`'s
+;; own `:decode` (`rf.routing.strategy`, published as `:decode`) re-exported
+;; under a general name, and nothing outside its two facade-pin tests called
+;; it. A caller that wants the current path-form URL reads it off the frame's
+;; strategy, or calls `rf.routing.history/current-url` directly.
 
 ;; Route-link render fns
 #?(:cljs (def route-link-render rf.routing.link/route-link-render))
@@ -388,7 +395,7 @@
 ;; `:rf.route/*` subscriptions chain from `:rf/route`.
 (rf.subs/reg-runtime-sub :rf/route
   {:doc "Subscribe to the current route slice `{:route-id :params :query :transition :error :fragment :nav-token}` at `[:rf.runtime/routing :current]`. The sub returns that published map directly; sibling routing state such as `:pending-navigation` and optional resource-blocking bookkeeping is not included. Allocator counters and scroll positions are host-side transient caches, not runtime-db siblings. Per Spec 012."}
-  route-sub-fn)
+  rf.routing.subs/route-sub-fn)
 (rf.subs/reg-sub :rf.route/id
   {:doc "Subscribe to the current route's id keyword (the slice's `:route-id` key). Per Spec 012."
    :inputs [[:rf/route]]}
@@ -426,15 +433,16 @@
 ;; :route/link registered view — Spec 012 §Linking from views.
 ;; Exposed on both platforms so .cljc render trees resolve identically
 ;; server- and client-side.
+;; rf2-kuky.36: the CLJS arm is a bare `reg-view*` FOR EFFECT, matching the
+;; `:clj` arm below. It previously bound the `reg-view*` return to a public
+;; `route-link` def that nothing dereferenced — `rf/route-link` reaches the
+;; view through the `:routing/route-link` late-bind hook (which carries
+;; `route-link-element`, not this value), so the def published a registration
+;; return as an API name.
 #?(:cljs
-   (def route-link
-     "Registered view at `:route/link`. Intercepts plain left-clicks and
-     dispatches `:rf.route/url-requested`; modifier-key clicks defer to the
-     browser. Per Spec 012 §Linking from views and API.md `route-link`
-     row. The underlying render fn is `route-link-render`."
-     (rf.views/reg-view* :route/link
-                      (rf.source-coords/merge-coords {})
-                      rf.routing.link/route-link-render))
+   (rf.views/reg-view* :route/link
+                    (rf.source-coords/merge-coords {})
+                    rf.routing.link/route-link-render)
    :clj
    (rf.registrar/register! :view :route/link
                         (assoc (rf.source-coords/merge-coords {})
@@ -482,12 +490,12 @@
 ;; integration points without reversing that dependency.
 
 (rf.late-bind/set-fn! :routing/reg-route          reg-route)
-;; rf2-bcjpq5 / rf2-sy7zr: no :routing/match-url, :routing/route-url,
-;; :routing/clear-route or :routing/current-url hooks — none of those four is
-;; a facade export (czn2m0 D1), so core has nothing to late-bind to. Callers
-;; use `re-frame.routing/match-url` / `route-url` / `clear-route` /
-;; `current-url` directly; a routing app requires this namespace at boot
-;; regardless.
+;; rf2-bcjpq5 / rf2-sy7zr: no :routing/match-url, :routing/route-url or
+;; :routing/clear-route hooks — none of those three is a facade export
+;; (czn2m0 D1), so core has nothing to late-bind to. Callers use
+;; `re-frame.routing/match-url` / `route-url` / `clear-route` directly; a
+;; routing app requires this namespace at boot regardless. (rf2-kuky.36
+;; deleted the `current-url` alias this list used to name as a fourth.)
 (rf.late-bind/set-fn! :routing/reset-counters!    reset-counters!)
 ;; Reset hooks clear host-side routing state that a raw frame-container reset
 ;; cannot reach.
@@ -496,9 +504,9 @@
 ;; rf2-6r9j.8: no :routing/route-sub-fn hook. `route-sub-fn` is registered
 ;; DIRECTLY as the `:rf/route` sub above, in this already-loaded facade, so
 ;; core never needed to late-bind to it; the hook was mechanical residue of the
-;; artefact split (c435165251) that nothing ever read. The public
-;; `re-frame.routing/route-sub-fn` alias stays — it is a documented owned-
-;; namespace function.
+;; artefact split (c435165251) that nothing ever read. rf2-kuky.36 then
+;; deleted the `re-frame.routing/route-sub-fn` alias too: the documentation
+;; was the only thing holding it, and the registration below is the surface.
 
 ;; Registration-time frame-config preflight (rf2-ktmto9): routing owns the
 ;; MEANING of `:url-strategy` (presence semantics + host-required legs), core

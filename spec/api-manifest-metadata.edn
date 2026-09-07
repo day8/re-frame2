@@ -1350,7 +1350,7 @@
                                                     :action :keep
                                                     :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-ssr artefact, and the wrapper raises a documented :rf.error/ssr-artefact-missing when that artefact is absent. Moving the export to re-frame.ssr would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. Serialises what active-head returns, on the same request; no rowed re-frame.ssr peer exists."}
   ;; Routing re-exports. rf2-wad2fl (front-porch shrink): the URL-codec +
-  ;; lifecycle QUERY helpers `match-url` / `route-url` / `current-url` /
+  ;; lifecycle QUERY helpers `match-url` / `route-url` /
   ;; `clear-route` are no longer façade exports — reach them through
   ;; `re-frame.routing` (already classified below). The `reg-route`
   ;; REGISTRATION MACRO stays on the façade (above). `route-link` (the view)
@@ -1701,7 +1701,6 @@
   ;; `route-algebra-view`. Owned-ns surface only (no re-frame.core export).
   ["re-frame.routing" "route-ids"]              {:tier :tooling :owner "012" :status "v1"}
   ["re-frame.routing" "route-meta"]             {:tier :tooling :owner "012" :status "v1"}
-  ["re-frame.routing" "current-url"]            {:tier :advanced :owner "012" :status "v1"}
   ;; rf2-aerrz5: the two shipped frame-level `:url-strategy` maps —
   ;; `history-url-strategy` (default, path-form) + `hash-url-strategy`
   ;; (`#`-prefixed). Declared on the URL-owning frame's `make-frame` config so
@@ -1726,7 +1725,6 @@
   ["re-frame.routing" "clear-route"]            {:tier :tooling :owner "012" :status "v1"}
   ["re-frame.routing" "malformed-url?"]         {:tier :implementation :owner "012" :status "v1"}
   ["re-frame.routing" "url-owner-frame-id"]     {:tier :implementation :owner "012" :status "v1"}
-  ["re-frame.routing" "route-sub-fn"]           {:tier :implementation :owner "012" :status "v1"}
   ["re-frame.routing" "route-link-render-ssr"]  {:tier :implementation :owner "012" :status "v1"}
   ["re-frame.routing" "save-scroll-position"]   {:tier :implementation :owner "012" :status "v1"}
   ["re-frame.routing" "lookup-scroll-position"] {:tier :implementation :owner "012" :status "v1"}
