@@ -554,29 +554,56 @@
          (filterv #(match-event? % opts) (frame-ring-flat-events rings frame-id))
          (filterv #(match-event-bundle? % opts) (frame-ring-event-bundles rings frame-id)))))))
 
+(defn- cleared-ring
+  "Return `frame-id`'s ring emptied at its own effective retention cap.
+  Preserves the override flag — emptying a buffer must not silently
+  downgrade an explicit per-frame override to inherited (rf2-va65k)."
+  [rings frame-id]
+  (empty-ring (effective-retained rings frame-id)
+              (true? (get-in rings [frame-id :override?]))))
+
 (defn clear-trace-buffer!
-  "Empty the named frame's run-keyed ring. Tooling uses this between
-  sessions. No-op for an unknown frame, no-op in production. Per Spec
-  009 §`trace-buffer` API."
-  [frame-id]
-  (when rf.interop/debug-enabled?
-    (swap! trace-rings
-           (fn [rings]
-             (if (contains? rings frame-id)
-               (let [retained  (effective-retained rings frame-id)
-                     ;; Preserve the override flag — emptying the buffer
-                     ;; must not silently downgrade an explicit per-frame
-                     ;; override to inherited (rf2-va65k).
-                     override? (true? (get-in rings [frame-id :override?]))]
-                 (assoc rings frame-id (empty-ring retained override?)))
-               rings))))
-  nil)
+  "Empty retained trace events. Tooling uses this between sessions.
+
+      (clear-trace-buffer!)           ; every frame's ring
+      (clear-trace-buffer! frame-id)  ; the named frame's ring
+
+  A DATA clear, not a fixture reset. Each ring is re-emptied at its own
+  effective `:rf.trace/events-retained` cap, so the process default set by
+  `(configure! {:trace-buffer {:events-retained N}})` and every frame's
+  explicit override both survive, and the hot-reload registration dedup
+  table is untouched. `clear-trace-rings!` is the fixture-grade reset that
+  additionally drops all three.
+
+  No-op for an unknown frame, no-op in production. Per Spec 009
+  §`trace-buffer` API."
+  ([]
+   (when rf.interop/debug-enabled?
+     (swap! trace-rings
+            (fn [rings]
+              (reduce-kv (fn [acc frame-id _ring]
+                           (assoc acc frame-id (cleared-ring rings frame-id)))
+                         {}
+                         rings))))
+   nil)
+  ([frame-id]
+   (when rf.interop/debug-enabled?
+     (swap! trace-rings
+            (fn [rings]
+              (if (contains? rings frame-id)
+                (assoc rings frame-id (cleared-ring rings frame-id))
+                rings))))
+   nil))
 
 (defn clear-trace-rings!
   "Drop EVERY frame's ring + reset the process-default
   events-retained back to its initial value + clear the B4 dedup
   table. Test-fixture / `clear-all!`-shaped helper — symmetric with
-  the listener registry's `clear-listeners!`. Production no-op."
+  the listener registry's `clear-listeners!`. Production no-op.
+
+  This resets retention POLICY as well as data. A clear that should leave
+  the user's configured retention in force — a UI \"clear buffer\" button, a
+  privacy scrub — wants the 0-arity `clear-trace-buffer!` instead."
   []
   (when rf.interop/debug-enabled?
     (reset! trace-rings {})

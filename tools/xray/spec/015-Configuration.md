@@ -589,9 +589,11 @@ that fires `trace-collector/retroactive-scrub!` after a confirmation
 modal (`"Clear buffer? This deletes all retained epochs."` → Cancel
 / Clear). The action drops the framework's per-frame rings + Xray's
 frameless secondary ring + the redaction counter in one wholesale
-clear. The action is dispatch-only and carries no `configure!`
-counterpart; hosts that need a programmatic clear call the
-`trace-collector` helper directly.
+clear. It clears *data* only: the `:events-retained` retention this
+same Buffer tab configures survives the clear, as does any frame's
+explicit override (rf2-kuky.54). The action is dispatch-only and
+carries no `configure!` counterpart; hosts that need a programmatic
+clear call the `trace-collector` helper directly.
 
 The `:panel-width-px` slot (rf2-x8h9y) drives the
 `:right-rail` panel's horizontal width. The Xray drag handle (per
