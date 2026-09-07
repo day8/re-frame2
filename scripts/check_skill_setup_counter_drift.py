@@ -57,7 +57,7 @@ The COUNTER-KEYWORD check is a CONTAINMENT assertion, not a literal-text diff:
   * Every event id DISPATCHED in the entry-namespace.md UIx/Helix snippets must be
     REGISTERED (via `reg-event-db` / `reg-event-fx`) in first-counter.md AND in the
     generator template's `_shared/events.cljs`.
-  * Every sub id SUBSCRIBED (`subscribe` / `use-subscribe`) in those snippets must
+  * Every sub id SUBSCRIBED (`subscribe` / `use-sub`) in those snippets must
     be REGISTERED (via `reg-sub`) in first-counter.md AND in the template's
     `_shared/subs.cljs`.
 
@@ -156,7 +156,7 @@ REG_SUB = re.compile(r"reg-sub\s+(:counter/[a-z0-9-]+)")
 
 # Consumption call sites — the events/subs the view snippets DISPATCH / SUBSCRIBE.
 DISPATCH = re.compile(r"dispatch\s+\[\s*(:counter/[a-z0-9-]+)")
-SUBSCRIBE = re.compile(r"(?:use-subscribe|subscribe)\s+\[\s*(:counter/[a-z0-9-]+)")
+SUBSCRIBE = re.compile(r"(?:use-sub|subscribe)\s+\[\s*(:counter/[a-z0-9-]+)")
 
 # HOT-RELOAD-LIFECYCLE retired framing (finding 2, INVERTED by rf2-ms6r8). The
 # CORRECT shadow-cljs `:browser` lifecycle — measured under rf2-r0kk7 / PR #8400 on
@@ -587,7 +587,7 @@ def _self_test() -> int:
     good_template_subs = "(rf/reg-sub\n  :counter/value (fn [db _] (:counter/value db)))\n"
     good_entry = (
         "($ :button {:on-click #(dispatch [:counter/increment])} \"+1\")\n"
-        "(rf.adapter.uix/use-subscribe [:counter/value])\n"
+        "(rf.adapter.uix/use-sub [:counter/value])\n"
     )
 
     # Case A — clean: snippet ids are a subset of both the leaf and the template.

@@ -502,7 +502,7 @@ The microtask boundary is universal across React 19's host platforms (browser, s
 
 ### §4.2 React 19 concurrent rendering — `act`, `flushSync`
 
-The scheduler **does not interfere** with React 19's transition / suspense / concurrent rendering. The mechanism: the rewrite's components consume their reactive state via `useSyncExternalStore`-shaped subscriptions to RAtom / Reaction objects (mirroring the UIx adapter's `use-subscribe` pattern at `uix.cljs:225+`). When an RAtom changes, the subscriber fires; React's reconciler then schedules its own re-render through normal React channels. The microtask scheduler is the path for **legacy Reagent-shape components** (Form-1/2/3) that don't use `useSyncExternalStore`; those components call `forceUpdate` from inside the microtask.
+The scheduler **does not interfere** with React 19's transition / suspense / concurrent rendering. The mechanism: the rewrite's components consume their reactive state via `useSyncExternalStore`-shaped subscriptions to RAtom / Reaction objects (mirroring the UIx adapter's `use-sub` pattern at `uix.cljs:225+`). When an RAtom changes, the subscriber fires; React's reconciler then schedules its own re-render through normal React channels. The microtask scheduler is the path for **legacy Reagent-shape components** (Form-1/2/3) that don't use `useSyncExternalStore`; those components call `forceUpdate` from inside the microtask.
 
 For test code, `flush-views!` runs the synchronous drain inside React's `act` —
 the React-19-blessed test primitive that drains React's pending work. As

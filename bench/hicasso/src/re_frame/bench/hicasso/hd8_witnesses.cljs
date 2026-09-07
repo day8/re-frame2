@@ -6,11 +6,11 @@
   Hicasso hypothesis survives when it is assembled out of parts that are
   already in this repository, BEFORE any API is designed: reagent-slim's
   `:f>` function-component path and its runtime hiccup interpreter for
-  markup, the existing UIx `use-subscribe` spine for reactivity. Two
+  markup, the existing UIx `use-sub` spine for reactivity. Two
   rungs, because the two halves of the claim have to be priced apart:
 
     RUNG 1 — markup + reactivity. `:f>` boundaries, runtime hiccup,
-             `use-subscribe` with the frame PINNED as a literal. ONE hook
+             `use-sub` with the frame PINNED as a literal. ONE hook
              per boundary. No shell.
     RUNG 2 — plus the product shell: ONE frame-context hook per boundary
              (the substrate's single internal context, HD-020(a)) and
@@ -39,8 +39,8 @@
 
   HD-008 says *composed*, and composition is the claim under test: every
   donor part is consumed at its published surface —
-  `reagent2.impl.template/as-element`, `re-frame.adapter.uix/use-subscribe`,
-  `re-frame.adapter.uix/use-current-frame`. Had the hypothesis needed a
+  `reagent2.impl.template/as-element`, `re-frame.adapter.uix/use-sub`,
+  `re-frame.adapter.uix/use-frame`. Had the hypothesis needed a
   donor edit to become measurable, it would already have failed.
 
   ## The hook ladder, and why it is the readable variable
@@ -289,16 +289,17 @@
 ;; ruling 1) derives its thresholds from it.
 ;;
 ;; TWO hooks per boundary — the frame-context read and the subscription —
-;; which is exactly HD-020's budget. `use-current-frame` is the NARROW raw
-;; `useContext` read; feeding it to the two-arity `use-subscribe` is the
-;; same hook count as the ambient one-arity form, one indirection less,
+;; which is exactly HD-020's budget. The frame read is `use-frame`, the
+;; hook-shaped "which frame am I in"; feeding its `:frame` to the explicit
+;; `use-sub` opts form is the same hook count as the ambient one-arity form,
+;; one indirection less,
 ;; and — unlike the ambient chain — independent of which adapter happens
 ;; to be installed, which is what lets this arm ride all three adapter
 ;; runs unchanged.
 
 (defui ux-m-row [{:keys [i]}]
-  (let [frame (rf.adapter.uix/use-current-frame)
-        v     (rf.adapter.uix/use-subscribe frame [:hd8/row i])
+  (let [frame (:frame (rf.adapter.uix/use-frame))
+        v     (rf.adapter.uix/use-sub [:hd8/row i] {:frame frame})
         d     (dispatch-for frame)]
     ($ :li.row {:data-index i :on-click (fn [_] (d [:hd8/touch i]))}
        ($ :span.label "row ")
@@ -312,8 +313,8 @@
           ($ ux-m-row {:key i :i i})))))
 
 (defui ux-u-cell [{:keys [i]}]
-  (let [frame (rf.adapter.uix/use-current-frame)
-        v     (rf.adapter.uix/use-subscribe frame [:hd8/cell i])
+  (let [frame (:frame (rf.adapter.uix/use-frame))
+        v     (rf.adapter.uix/use-sub [:hd8/cell i] {:frame frame})
         d     (dispatch-for frame)]
     ($ :span.cell {:data-i i :on-click (fn [_] (d [:hd8/touch i]))} v)))
 
@@ -330,7 +331,7 @@
 ;; function component — cached on the fn, so the type identity is stable
 ;; across renders — which is what makes hooks legal in the body. The body
 ;; returns hiccup, interpreted at runtime by `as-element`. The
-;; subscription is the UIx spine's `use-subscribe`, at its published
+;; subscription is the UIx spine's `use-sub`, at its published
 ;; two-arity form with the frame PINNED as a literal: no context read, no
 ;; frame resolution, ONE hook.
 ;;
@@ -339,7 +340,7 @@
 ;; it, and the gap between the rungs is the price of that purchase.
 
 (defn r1-m-row [i frame]
-  (let [v (rf.adapter.uix/use-subscribe frame [:hd8/row i])
+  (let [v (rf.adapter.uix/use-sub [:hd8/row i] {:frame frame})
         d (dispatch-for frame)]
     [:li.row {:data-index i :on-click (fn [_] (d [:hd8/touch i]))}
      [:span.label "row "]
@@ -352,7 +353,7 @@
     (for [i (range n)] ^{:key i} [:f> r1-m-row i frame])]])
 
 (defn r1-u-cell [i frame]
-  (let [v (rf.adapter.uix/use-subscribe frame [:hd8/cell i])
+  (let [v (rf.adapter.uix/use-sub [:hd8/cell i] {:frame frame})
         d (dispatch-for frame)]
     [:span.cell {:data-i i :on-click (fn [_] (d [:hd8/touch i]))} v]))
 
@@ -375,7 +376,7 @@
 ;;       codec turns it into a dispatching closure while building the
 ;;       element.
 ;;
-;; The `:f>` path, the runtime hiccup and the `use-subscribe` spine are
+;; The `:f>` path, the runtime hiccup and the `use-sub` spine are
 ;; rung 1's, unchanged.
 
 (def ^:private on-prefix "on-")
@@ -406,8 +407,8 @@
              props))
 
 (defn r2-m-row [i]
-  (let [frame (rf.adapter.uix/use-current-frame)
-        v     (rf.adapter.uix/use-subscribe frame [:hd8/row i])
+  (let [frame (:frame (rf.adapter.uix/use-frame))
+        v     (rf.adapter.uix/use-sub [:hd8/row i] {:frame frame})
         d     (dispatch-for frame)]
     [:li.row (lower-events d {:data-index i :on-click [:hd8/touch i]})
      [:span.label "row "]
@@ -420,8 +421,8 @@
     (for [i (range n)] ^{:key i} [:f> r2-m-row i])]])
 
 (defn r2-u-cell [i]
-  (let [frame (rf.adapter.uix/use-current-frame)
-        v     (rf.adapter.uix/use-subscribe frame [:hd8/cell i])
+  (let [frame (:frame (rf.adapter.uix/use-frame))
+        v     (rf.adapter.uix/use-sub [:hd8/cell i] {:frame frame})
         d     (dispatch-for frame)]
     [:span.cell (lower-events d {:data-i i :on-click [:hd8/touch i]}) v]))
 

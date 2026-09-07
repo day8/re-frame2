@@ -248,7 +248,7 @@
   work, and the instrument said so rather than quietly producing numbers: on
   a ratom spine the lowering check reported `:db-after \"T\"` — the click
   dispatched, the event ran, `app-db` was written — while the DOM stayed at
-  `\"0\"`. The React `use-subscribe` spine does not propagate over a ratom
+  `\"0\"`. The React `use-sub` spine does not propagate over a ratom
   spine, in either direction, and no drain fixes it: `ratom/flush!` settles
   the subscription graph and `reagent.core/flush` renders the dirty
   components, and a `useSyncExternalStore` subscriber watching a Reagent
@@ -272,7 +272,7 @@
 (def write-arm-ids-for
   "The WRITE rows are narrower than the mount rows, and only there.
 
-  A mount is a ONE-SHOT READ: `use-subscribe` takes its first snapshot
+  A mount is a ONE-SHOT READ: `use-sub` takes its first snapshot
   correctly under either spine, and the canonical-DOM parity gate proves it
   — every arm above builds the same page in every run, at both sizes. So
   the mount rows, which carry half of HD-012's ship bar, get their
@@ -560,7 +560,7 @@
   harness is yielding to.
 
     - `:none` — the floor (a local `swap!` and a `flushSync` render, with
-      nothing queued anywhere) and the React spine (`use-subscribe`'s
+      nothing queued anywhere) and the React spine (`use-sub`'s
       containers notify synchronously; the empty `flushSync` is the whole
       drain).
     - `:animation-frame` — stock Reagent. `reagent.impl.batching` schedules

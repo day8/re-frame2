@@ -25,7 +25,7 @@
       prop asserted for EXACT equality inside the registered component (the
       losslessness half: a marked UIx head carries the original CLJS props
       on `argv`, an unmarked one would be converted through
-      `interpret-attrs` and lose the namespace), a `use-subscribe` +
+      `interpret-attrs` and lose the namespace), a `use-sub` +
       `use-frame` hook boundary that must survive a dispatch and re-render,
       and a console/page-error capture that must stay free of both the
       invalid-element-type and the hook-boundary diagnostics.
@@ -164,7 +164,7 @@
 
 (defui probe-body
   "Receives a nested CLJS prop and a trailing child, and calls BOTH hooks —
-  `use-subscribe` for the read and `use-frame` for the frame-locked ops —
+  `use-sub` for the read and `use-frame` for the frame-locked ops —
   so the mount is proved to own a real React hook boundary rather than
   merely to render.
 
@@ -174,7 +174,7 @@
   captured under a broken boundary would be locked to the wrong frame, and
   the dispatch would move a `:n` nothing on screen is reading."
   [{:keys [payload children]}]
-  (let [n   (rf.adapter.uix/use-subscribe probe-query)
+  (let [n   (rf.adapter.uix/use-sub probe-query)
         ops (rf.adapter.uix/use-frame)]
     (reset! observed-payload payload)
     (reset! observed-children (some? children))
@@ -248,7 +248,7 @@
   (let [mount-node (.createElement js/document "div")
         react-root (react-dom-client/createRoot mount-node)]
     ;; Clear the fixture's ambient `:rf/default` dynamic scope so the
-    ;; 1-arg `use-subscribe` resolves through the React-context (provider)
+    ;; 1-arg `use-sub` resolves through the React-context (provider)
     ;; tier — the shape a real app has.
     (binding [rf.frame/*current-frame* nil]
       (let [mount-diagnostics (capture-render-diagnostics
@@ -309,7 +309,7 @@
              " the hook read the context this mount established; got "
              (pr-str (:frame frame-ops))))
     (is (= "1" initial-text)
-        (str label ": use-subscribe's initial value rendered; got " (pr-str initial-text)))
+        (str label ": use-sub's initial value rendered; got " (pr-str initial-text)))
     (is (= "2" updated-text)
         (str label ": the DOM re-rendered after a dispatch off use-frame's ops"
              " map; got " (pr-str updated-text)))))

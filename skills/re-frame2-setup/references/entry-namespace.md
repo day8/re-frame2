@@ -69,7 +69,7 @@ src/acme/my_app/
 
 ## UIx greenfield
 
-This skill scaffolds against **Reagent**. An explicit UIx request is the **same twelve-file project with three files swapped** — the template's `:substrate :uix` emission. `deps.edn` trades the Reagent adapter + `reagent/reagent` for the UIx adapter + `com.pitch/uix.core` / `uix.dom`; `core.cljs` mounts through `uix.dom`'s root API with the adapter's `frame-root` as a `$` element; `views.cljs` is `defui` + `$`, because UIx has **no auto-injection** — components read subscriptions through the adapter's `use-subscribe` hook and get `dispatch` off `use-frame` (capture-frame in hook position, destructured once per render). The other nine files — `package.json`, `shadow-cljs.edn`, `.gitignore`, `index.html`, `app.css`, `events.cljs`, `subs.cljs`, `events_test.cljs`, `README.md` — are identical to the Reagent scaffold, bar the display label: the generator writes `UIx` where `package.json`'s `description` and the README's first sentence say `Reagent`, and that one-word swap is the whole difference. The dataflow is a framework concern, not a substrate one, and no Xray, schema or devtools piece rides either route. Do **not** reach for the Reagent `rf/reg-view` views on a UIx app, and do not re-derive the events or subs per substrate.
+This skill scaffolds against **Reagent**. An explicit UIx request is the **same twelve-file project with three files swapped** — the template's `:substrate :uix` emission. `deps.edn` trades the Reagent adapter + `reagent/reagent` for the UIx adapter + `com.pitch/uix.core` / `uix.dom`; `core.cljs` mounts through `uix.dom`'s root API with the adapter's `frame-root` as a `$` element; `views.cljs` is `defui` + `$`, because UIx has **no auto-injection** — components read subscriptions through the adapter's `use-sub` hook and get `dispatch` off `use-frame` (capture-frame in hook position, destructured once per render). The other nine files — `package.json`, `shadow-cljs.edn`, `.gitignore`, `index.html`, `app.css`, `events.cljs`, `subs.cljs`, `events_test.cljs`, `README.md` — are identical to the Reagent scaffold, bar the display label: the generator writes `UIx` where `package.json`'s `description` and the README's first sentence say `Reagent`, and that one-word swap is the whole difference. The dataflow is a framework concern, not a substrate one, and no Xray, schema or devtools piece rides either route. Do **not** reach for the Reagent `rf/reg-view` views on a UIx app, and do not re-derive the events or subs per substrate.
 
 > **Heads-up on the UIx version target.** `spec/006-ReactiveSubstrate.md` names **UIx 2.x** (hooks-based) as the design target, but the template pins **`com.pitch/uix` `1.4.4`** — the **known-good, tested** set. Use the template pin; treat UIx 2.x as an unverified manual override to test before relying on it. The pins below are read off the template's `_uix/deps.edn` by derivation, so they follow a template bump automatically.
 
@@ -154,13 +154,13 @@ The three files, derived from the template's `_uix/` tree by `tests/first_counte
 ```clojure
 (ns acme.my-app.views
   "Views (UIx). Components are `defui`; subscriptions arrive through the
-   adapter's `use-subscribe` hook and `dispatch` comes off `use-frame`,
+   adapter's `use-sub` hook and `dispatch` comes off `use-frame`,
    which captures the render-time frame so a callback targets it later."
   (:require [uix.core             :refer [$ defui]]
             [re-frame.adapter.uix :as rf.adapter.uix]))
 
 (defui counter-buttons []
-  (let [value              (rf.adapter.uix/use-subscribe [:counter/value])
+  (let [value              (rf.adapter.uix/use-sub [:counter/value])
         {:keys [dispatch]} (rf.adapter.uix/use-frame)]
     ($ :div
        ($ :button {:on-click #(dispatch [:counter/increment])} "+1")

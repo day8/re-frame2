@@ -21,7 +21,7 @@
 
   Two candidates exist on this lane — Reagent reading re-frame2
   subscriptions ([[re-frame.bench.hicasso.p0-reagent-views]]) and UIx
-  reading them through the published `use-subscribe` spine
+  reading them through the published `use-sub` spine
   ([[re-frame.bench.hicasso.p0-uix-views]]) — and this arm is the second,
   for two reasons that are not taste.
 
@@ -128,7 +128,7 @@
   - **[[chrome]] 7, [[article-row]] 2, [[digest]] 5, [[digest-body]] 1,
     [[callout-block]] 1, [[unsupported-block]] 1** — read for read with
     their Hicasso counterparts, on the same registrations. `h/use-subs`
-    and two `use-subscribe` calls are one door and two doors onto the same
+    and two `use-sub` calls are one door and two doors onto the same
     two edges, not two read sets.
   - **[[pager]] 5 against 5 at the pinned seed**, from a body that reads
     them unconditionally against one that reads three of them inside its
@@ -242,7 +242,7 @@
 
   The Hicasso body reads `(h/sub [::rf.hicasso.examples.slice.subs/t label-key])` inside the `for`
   that places the two buttons, and it may: `h/sub` is an ambient
-  collector rather than a React hook. `use-subscribe` IS one, and a hook
+  collector rather than a React hook. `use-sub` IS one, and a hook
   reached from inside a `for` is reached from inside a LAZY SEQ — a seq
   React realises while rendering the parent element, after this body has
   already returned. The read would then happen outside the render it
@@ -254,13 +254,13 @@
   pairs, so both strings are read on every render of the Hicasso body
   too."
   [_]
-  (let [locale-now              (rf.adapter.uix/use-subscribe [::rf.hicasso.examples.slice.subs/locale])
-        theme-now               (rf.adapter.uix/use-subscribe [::rf.hicasso.examples.slice.subs/theme])
-        title                   (rf.adapter.uix/use-subscribe [::rf.hicasso.examples.slice.subs/t :app/title])
-        locale-label            (rf.adapter.uix/use-subscribe [::rf.hicasso.examples.slice.subs/t :app/locale])
-        theme-label             (rf.adapter.uix/use-subscribe [::rf.hicasso.examples.slice.subs/t :app/theme])
-        light-label             (rf.adapter.uix/use-subscribe [::rf.hicasso.examples.slice.subs/t :theme/light])
-        dark-label              (rf.adapter.uix/use-subscribe [::rf.hicasso.examples.slice.subs/t :theme/dark])
+  (let [locale-now              (rf.adapter.uix/use-sub [::rf.hicasso.examples.slice.subs/locale])
+        theme-now               (rf.adapter.uix/use-sub [::rf.hicasso.examples.slice.subs/theme])
+        title                   (rf.adapter.uix/use-sub [::rf.hicasso.examples.slice.subs/t :app/title])
+        locale-label            (rf.adapter.uix/use-sub [::rf.hicasso.examples.slice.subs/t :app/locale])
+        theme-label             (rf.adapter.uix/use-sub [::rf.hicasso.examples.slice.subs/t :app/theme])
+        light-label             (rf.adapter.uix/use-sub [::rf.hicasso.examples.slice.subs/t :theme/light])
+        dark-label              (rf.adapter.uix/use-sub [::rf.hicasso.examples.slice.subs/t :theme/dark])
         {:keys [dispatch-sync]} (rf.adapter.uix/use-frame)]
     ($ :header.slice-chrome
        ($ :h1.slice-title title)
@@ -292,11 +292,11 @@
 
   The Hicasso body reads its two values through `h/use-subs`, the grouped
   control, because both reads are unconditional. UIx has one door and it
-  is `use-subscribe`, so the two reads are two calls — the same two
+  is `use-sub`, so the two reads are two calls — the same two
   edges, on the same two registrations."
   [{:keys [slug title published? tags]}]
-  (let [open?      (rf.adapter.uix/use-subscribe [::rf.hicasso.examples.slice.subs/tags-open? slug])
-        tags-label (rf.adapter.uix/use-subscribe [::rf.hicasso.examples.slice.subs/t :feed/tags])
+  (let [open?      (rf.adapter.uix/use-sub [::rf.hicasso.examples.slice.subs/tags-open? slug])
+        tags-label (rf.adapter.uix/use-sub [::rf.hicasso.examples.slice.subs/t :feed/tags])
         {:keys [dispatch dispatch-sync]} (rf.adapter.uix/use-frame)
         address    {:to rf.hicasso.examples.slice.routes/article :params {:slug slug}}]
     ($ :li.article-row
@@ -359,12 +359,12 @@
   seed that ever made the feed single-page would move the population
   before it moved this."
   [_]
-  (let [page                  (rf.adapter.uix/use-subscribe [::rf.hicasso.examples.slice.subs/current-page])
-        pages                 (rf.adapter.uix/use-subscribe [::rf.hicasso.examples.slice.subs/page-count])
+  (let [page                  (rf.adapter.uix/use-sub [::rf.hicasso.examples.slice.subs/current-page])
+        pages                 (rf.adapter.uix/use-sub [::rf.hicasso.examples.slice.subs/page-count])
         {:keys [dispatch]}    (rf.adapter.uix/use-frame)
-        pagination            (rf.adapter.uix/use-subscribe [::rf.hicasso.examples.slice.subs/t :feed/pagination])
-        previous              (rf.adapter.uix/use-subscribe [::rf.hicasso.examples.slice.subs/t :feed/previous])
-        next-label            (rf.adapter.uix/use-subscribe [::rf.hicasso.examples.slice.subs/t :feed/next])
+        pagination            (rf.adapter.uix/use-sub [::rf.hicasso.examples.slice.subs/t :feed/pagination])
+        previous              (rf.adapter.uix/use-sub [::rf.hicasso.examples.slice.subs/t :feed/previous])
+        next-label            (rf.adapter.uix/use-sub [::rf.hicasso.examples.slice.subs/t :feed/next])
         page-address          (fn [n] {:to rf.hicasso.examples.slice.routes/feed :query {:page n}})]
     (when (< 1 pages)
       ($ :nav.pager {:aria-label pagination}
@@ -429,7 +429,7 @@
   ARE NOT THE SAME."
   [{:keys [block]}]
   (let [warning? (= :warning (:block/tone block))
-        colour   (rf.adapter.uix/use-subscribe [::rf.hicasso.examples.slice.subs/token (if warning? :danger :accent)])]
+        colour   (rf.adapter.uix/use-sub [::rf.hicasso.examples.slice.subs/token (if warning? :danger :accent)])]
     ($ :aside.block-callout {:style {:color colour}}
        (if warning?
          ($ :strong {:class "block-emphasis"} (:block/text block))
@@ -439,7 +439,7 @@
   "A block of a kind this build has no renderer for — the EXPECTED
   failure, which stays data."
   [{:keys [block]}]
-  (let [label (rf.adapter.uix/use-subscribe [::rf.hicasso.examples.slice.subs/t :digest/unsupported])]
+  (let [label (rf.adapter.uix/use-sub [::rf.hicasso.examples.slice.subs/t :digest/unsupported])]
     ($ :p.block-unsupported
        label
        " "
@@ -460,7 +460,7 @@
   COMPONENT and takes the value at runtime, so this is the same
   expression the Hicasso body writes."
   [_]
-  (let [blocks (rf.adapter.uix/use-subscribe [::rf.hicasso.examples.slice.subs/digest-blocks])]
+  (let [blocks (rf.adapter.uix/use-sub [::rf.hicasso.examples.slice.subs/digest-blocks])]
     ($ :div.digest-body
        (for [{:block/keys [id kind] :as block} blocks]
          ($ (get block-views kind unsupported-block) {:key id :block block})))))
@@ -475,11 +475,11 @@
         ;; into `[::rf.hicasso.examples.slice.subs/digest-blocks]`, so one fewer re-render when the
         ;; digest moves — which is the quiet way a donor becomes a
         ;; strawman.
-        _blocks                 (rf.adapter.uix/use-subscribe [::rf.hicasso.examples.slice.subs/digest-blocks])
-        loading?                (rf.adapter.uix/use-subscribe [::rf.hicasso.examples.slice.subs/digest-loading?])
-        heading                 (rf.adapter.uix/use-subscribe [::rf.hicasso.examples.slice.subs/t :digest/heading])
-        problem                 (rf.adapter.uix/use-subscribe [::rf.hicasso.examples.slice.subs/t :digest/problem])
-        retry                   (rf.adapter.uix/use-subscribe [::rf.hicasso.examples.slice.subs/t (if loading? :digest/loading :digest/retry)])
+        _blocks                 (rf.adapter.uix/use-sub [::rf.hicasso.examples.slice.subs/digest-blocks])
+        loading?                (rf.adapter.uix/use-sub [::rf.hicasso.examples.slice.subs/digest-loading?])
+        heading                 (rf.adapter.uix/use-sub [::rf.hicasso.examples.slice.subs/t :digest/heading])
+        problem                 (rf.adapter.uix/use-sub [::rf.hicasso.examples.slice.subs/t :digest/problem])
+        retry                   (rf.adapter.uix/use-sub [::rf.hicasso.examples.slice.subs/t (if loading? :digest/loading :digest/retry)])
         {:keys [dispatch-sync]} (rf.adapter.uix/use-frame)]
     ($ :section.digest
        ($ :h3.digest-heading heading)
@@ -503,7 +503,7 @@
 
   The Hicasso `feed-page` writes `[:p.feed-empty (h/sub [::rf.hicasso.examples.slice.subs/t
   :feed/empty])]` inside its empty branch, so a feed with rows in it never
-  records an edge on that string. `use-subscribe` is a React hook and a
+  records an edge on that string. `use-sub` is a React hook and a
   hook cannot be conditional, so the transcription that read it beside the
   rows and the heading gave this arm ONE SUBSCRIPTION AND ONE HOOK THE
   HICASSO ARM DOES NOT HAVE — on the shipped seed, which is seven
@@ -516,7 +516,7 @@
   is `<p class=\"feed-empty\">…` either way, so the driver's canonical-DOM
   gate reads the same page in both states."
   [_]
-  ($ :p.feed-empty (rf.adapter.uix/use-subscribe [::rf.hicasso.examples.slice.subs/t :feed/empty])))
+  ($ :p.feed-empty (rf.adapter.uix/use-sub [::rf.hicasso.examples.slice.subs/t :feed/empty])))
 
 (defui feed-page
   "The list, keyed by slug. The digest, the pager and the empty state are
@@ -527,8 +527,8 @@
   [[feed-empty]] carries the reason the empty state is a boundary here and
   is markup there."
   [_]
-  (let [rows    (rf.adapter.uix/use-subscribe [::rf.hicasso.examples.slice.subs/feed])
-        heading (rf.adapter.uix/use-subscribe [::rf.hicasso.examples.slice.subs/t :feed/heading])]
+  (let [rows    (rf.adapter.uix/use-sub [::rf.hicasso.examples.slice.subs/feed])
+        heading (rf.adapter.uix/use-sub [::rf.hicasso.examples.slice.subs/t :feed/heading])]
     ($ :section.feed
        ($ :h2 heading)
        ($ digest {})
@@ -560,9 +560,9 @@
   LESS is the one C3's ratio divides by, so the omission cannot flatter
   the numerator."
   [_]
-  (let [surface (rf.adapter.uix/use-subscribe [::rf.hicasso.examples.slice.subs/token :surface])
-        ink     (rf.adapter.uix/use-subscribe [::rf.hicasso.examples.slice.subs/token :ink])
-        pane    (rf.adapter.uix/use-subscribe [::rf.hicasso.examples.slice.subs/t :app/pane-error])]
+  (let [surface (rf.adapter.uix/use-sub [::rf.hicasso.examples.slice.subs/token :surface])
+        ink     (rf.adapter.uix/use-sub [::rf.hicasso.examples.slice.subs/token :ink])
+        pane    (rf.adapter.uix/use-sub [::rf.hicasso.examples.slice.subs/t :app/pane-error])]
     ($ :main.slice {:style {:background surface :color ink}}
        ($ chrome {})
        ($ error-region

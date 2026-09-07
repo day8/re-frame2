@@ -273,7 +273,7 @@
 (defui u-kb-field [{:keys [i]}]
   ($ :input.draft {:type      "text"
                    :data-i    (str "draft-" i)
-                   :value     (rf.adapter.uix/use-subscribe [:p0/draft i])
+                   :value     (rf.adapter.uix/use-sub [:p0/draft i])
                    :on-change (fn [e] (write-draft! i e))}))
 
 (defui u-kb-form [{:keys [n]}]

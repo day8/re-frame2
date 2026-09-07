@@ -37,8 +37,8 @@
      ;; `:ambient-frame nil` is load-bearing, not tidiness. The fixture's
      ;; default leaves a dynamic-var frame stamp in scope, and the
      ;; carried-invariant chain resolves that tier BEFORE React context —
-     ;; so the comparator's ambient `use-subscribe` would read the
-     ;; ambient frame's app-db while `use-current-frame` reported the
+     ;; so the comparator's ambient `use-sub` would read the
+     ;; ambient frame's app-db while the probe's `use-frame` reported the
      ;; provider's, and a parity miss would look like a rendering
      ;; difference. Caught by the frame probe below, which is why the
      ;; probe stays.
@@ -61,14 +61,14 @@
      [:li.read {:key i} (str (rf.bench.hicasso.arm1.runtime/sub [:dogfood/todo i]))])])
 
 (defui uix-one [{:keys [i]}]
-  ($ :li.read (str (rf.adapter.uix/use-subscribe [:dogfood/todo i]))))
+  ($ :li.read (str (rf.adapter.uix/use-sub [:dogfood/todo i]))))
 
 (defui uix-three [{:keys [i]}]
   ;; Three reads, three hooks, spelled out — a loop is illegal here, and
   ;; that illegality is the finding rather than an inconvenience.
-  (let [a (rf.adapter.uix/use-subscribe [:dogfood/todo i])
-        b (rf.adapter.uix/use-subscribe [:dogfood/todo (inc i)])
-        c (rf.adapter.uix/use-subscribe [:dogfood/todo (+ i 2)])]
+  (let [a (rf.adapter.uix/use-sub [:dogfood/todo i])
+        b (rf.adapter.uix/use-sub [:dogfood/todo (inc i)])
+        c (rf.adapter.uix/use-sub [:dogfood/todo (+ i 2)])]
     ($ :li.read (str a b c))))
 
 ;; ---------------------------------------------------------------------------

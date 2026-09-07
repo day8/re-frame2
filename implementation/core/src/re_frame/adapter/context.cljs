@@ -282,7 +282,7 @@
 ;; explicitly or binds one with `with-frame` — tier 1, which outranks both
 ;; slots. A stale-slot guard here was ruled out by name as
 ;; over-engineering. The behaviour is pinned by part 5 of
-;; `assert-use-subscribe-ambient-under-ssr`.
+;; `assert-use-sub-ambient-under-ssr`.
 ;;
 ;; Per Spec 006 §Frame-provider via React context, this fn is the
 ;; canonical impl that the UIx adapter publishes through the

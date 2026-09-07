@@ -20,7 +20,7 @@
   - **It counts what the component body calls, not what React implements
     with.** `useSyncExternalStore` is ONE dispatcher call; React's
     internal machinery for it does not go back through `H`. So the shell's
-    two hooks read as two, and a comparator's `use-subscribe` reads as the
+    two hooks read as two, and a comparator's `use-sub` reads as the
     hooks *it* calls — which is the comparison the budget is about.
   - **It cannot be satisfied by a runtime that reports on itself.** The
     numbers come from React.

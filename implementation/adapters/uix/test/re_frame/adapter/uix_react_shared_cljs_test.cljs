@@ -43,13 +43,14 @@
 
   Remaining UIx twins NOT folded here (DOM/browser — they define
   substrate-specific component vars via `defui`/`$`): `after_render_dom`
-  and `use_subscribe_dom`. Splitting those into the shared suite needs a
+  and `use_sub_dom`. Splitting those into the shared suite needs a
   node-vs-browser component-element parameterisation; tracked separately.
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.adapter.react-shared-suite]
+            [re-frame.adapter.react-test-support :as rf.adapter.react-test-support]
             [re-frame.test-support :as rf.test-support])
   (:require-macros
    [re-frame.adapter.react-shared-suite-tests
@@ -63,7 +64,7 @@
 ;; now target the substrate-agnostic spine core
 ;; (`build-frame-provider-element`) directly, so no `:frame-provider` cfg
 ;; key is needed here. The native-shell-under-`$` behaviour (including the
-;; idiomatic trailing-children call shape) is pinned by the use-subscribe
+;; idiomatic trailing-children call shape) is pinned by the use-sub
 ;; DOM twin + the trailing-children regression test (folded from the prior
 ;; per-adapter uix_frame_provider_branches_cljs_test.cljs).
 (def ^:private cfg
@@ -71,7 +72,10 @@
    :substrate-kw     :uix
    :name             "UIx"
    :producer-ns      're-frame.adapter.uix
-   :wrap-view        rf.adapter.uix/wrap-view
+   ;; rf2-kuky.57: the adapter no longer publishes a `wrap-view` Var, so the
+   ;; suite reaches the identical fn through the `:adapter/wrap-view` late-bind
+   ;; hook — the door `views/reg-view*` uses on every registration.
+   :wrap-view        rf.adapter.react-test-support/adapter-wrap-view
    :set-emitter!     rf.adapter.uix/set-hiccup-emitter!
    :render-to-string (:render-to-string rf.adapter.uix/adapter)
    ;; rf2-6j09b / rf2-6r9j.36 — the public Vars the suite's public-surface
@@ -80,24 +84,33 @@
    ;; directly; folded from the former uix_public_surface_cljs_test.cljs.
    ;;
    ;; The roster IS `spec/api-manifest.edn`'s `re-frame.adapter.uix` rows
-   ;; minus `adapter` — eight supported fns; `adapter` is checked by the
+   ;; minus `adapter` — nine supported fns; `adapter` is checked by the
    ;; suite's adapter-map assertion off the `:adapter` key above. Keep the
    ;; two in step: a manifest row added here without a row there (or the
    ;; reverse) is the drift this roster exists to catch. It deliberately
    ;; does NOT name the spine's warn-once clear thunk — that is internal,
    ;; carries no manifest row, and is reached through the chained
    ;; `:adapter/clear-warn-once-caches!` hook (rf2-6r9j.36).
-   :public-surface-keys [:set-hiccup-emitter! :use-current-frame :frame-provider
-                         :frame-root :use-subscribe :use-frame :flush-views!
-                         :wrap-view]
+   ;;
+   ;; rf2-kuky.57 dropped `use-current-frame` and `wrap-view` (retired as
+   ;; public Vars — the mechanisms stay, respectively inside the ambient
+   ;; `use-sub` body and behind the `:adapter/wrap-view` hook) and renamed
+   ;; `use-subscribe` to `use-sub`. The client-root trio rf2-kuky.56 added
+   ;; joins here in the same pass: it carried manifest rows from the day it
+   ;; landed and this roster had not caught up, which is exactly the drift the
+   ;; paragraph above asks a reader to close.
+   :public-surface-keys [:set-hiccup-emitter! :frame-provider :frame-root
+                         :use-sub :use-frame :flush-views!
+                         :client-root :render! :unmount!]
    :public-surface   {:set-hiccup-emitter! rf.adapter.uix/set-hiccup-emitter!
-                      :use-current-frame   rf.adapter.uix/use-current-frame
                       :frame-provider      rf.adapter.uix/frame-provider
                       :frame-root          rf.adapter.uix/frame-root
-                      :use-subscribe       rf.adapter.uix/use-subscribe
+                      :use-sub             rf.adapter.uix/use-sub
                       :use-frame           rf.adapter.uix/use-frame
                       :flush-views!        rf.adapter.uix/flush-views!
-                      :wrap-view           rf.adapter.uix/wrap-view}})
+                      :client-root         rf.adapter.uix/client-root
+                      :render!             rf.adapter.uix/render!
+                      :unmount!            rf.adapter.uix/unmount!}})
 
 ;; Emit one (deftest name (re-frame.adapter.react-shared-suite/assert-name cfg))
 ;; per row in `react-shared-suite-tests/test-specs`. The macro ns owns

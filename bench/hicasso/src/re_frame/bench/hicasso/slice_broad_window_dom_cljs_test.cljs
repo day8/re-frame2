@@ -190,7 +190,7 @@
   `rf.subs.tooling/sub-cache-snapshot` is the tool-facing read of the same
   per-frame cache BOTH substrates go through — Hicasso's collector calls
   `rf.hicasso.examples.slice.subs/subscribe` for every `h/sub` edge, and the UIx adapter's
-  `use-subscribe` calls it for every hook — so the two rosters are
+  `use-sub` calls it for every hook — so the two rosters are
   comparable without either arm being asked to report on itself.
 
   IT IS THE REALISED SUBGRAPH, NOT THE BOUNDARY READ SET, and the
@@ -224,7 +224,7 @@
   [[the-roster-gate-catches-an-unconditional-branch-local-read]] has a
   fault to catch."
   [_]
-  ($ :span.empty-label-probe (rf.adapter.uix/use-subscribe [::rf.hicasso.examples.slice.subs/t :feed/empty])))
+  ($ :span.empty-label-probe (rf.adapter.uix/use-sub [::rf.hicasso.examples.slice.subs/t :feed/empty])))
 
 (defn- with-probe-mounted
   "Render [[empty-label-probe]] into its own root on the DONOR frame, run

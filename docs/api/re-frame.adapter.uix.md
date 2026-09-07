@@ -2,13 +2,13 @@
 
 The UIx adapter connects re-frame2's substrate-agnostic core to UIx, a hooks-first React substrate. It exposes:
 
-- the hooks `use-subscribe`, `use-frame`, and `use-current-frame`;
+- the hooks `use-sub`, `use-frame`, and `use-current-frame`;
 - the `frame-provider` (SCOPE) + `frame-root` (ENSURE) components;
 - the `client-root` / `render!` / `unmount!` root trio your entry namespace mounts through;
 - the `adapter` spec map you pass to `init!`;
 - adapter seams for tests, SSR, and code-gen.
 
-It ships in the `day8/re-frame2-uix` artefact. The dependency direction is one-way: the adapter depends on `re-frame.core`, never the reverse. There is no auto-injection; UIx components read subscriptions with `use-subscribe` and take their frame ops (`dispatch`) off the `use-frame` hook directly.
+It ships in the `day8/re-frame2-uix` artefact. The dependency direction is one-way: the adapter depends on `re-frame.core`, never the reverse. There is no auto-injection; UIx components read subscriptions with `use-sub` and take their frame ops (`dispatch`) off the `use-frame` hook directly.
 
 ```clojure
 (:require [re-frame.adapter.uix :as uix-adapter])
@@ -24,7 +24,7 @@ Register views by Var (the React-component idiom) or with `rf/reg-view*` for reg
 (rf/init! uix-adapter/adapter)
 
 (defui cart-row [{:keys [item]}]
-  (let [count (uix-adapter/use-subscribe [:cart/count])]
+  (let [count (uix-adapter/use-sub [:cart/count])]
     ($ :tr
        ($ :td (:name item))
        ($ :td count))))
@@ -40,7 +40,7 @@ Registering by Var is the idiom, and it is what most UIx code should do. Reach f
 
 ```clojure
 (defui cart-row [{:keys [item]}]
-  (let [count (uix-adapter/use-subscribe [:cart/count])]
+  (let [count (uix-adapter/use-sub [:cart/count])]
     ($ :tr
        ($ :td (:name item))
        ($ :td count))))
@@ -86,13 +86,13 @@ Three things hold for that head, and they are the point of using the registry ra
 
 ## Hooks
 
-### `use-subscribe`
+### `use-sub`
 
 - **Kind**: UIx hook (function)
 - **Signature**:
   ```clojure
-  (use-subscribe query-v) → current sub value
-  (use-subscribe frame-kw query-v) → current sub value
+  (use-sub query-v) → current sub value
+  (use-sub frame-kw query-v) → current sub value
   ```
 - **Description**: Subscribe inside a UIx component. This is the hook-shaped equivalent of `subscribe`.
 
@@ -103,7 +103,7 @@ Three things hold for that head, and they are the point of using the registry ra
 - **Example**:
   ```clojure
   (defui cart-total []
-    (let [total (uix-adapter/use-subscribe [:cart/total])]
+    (let [total (uix-adapter/use-sub [:cart/total])]
       ($ :span total)))
   ```
 
@@ -118,13 +118,13 @@ Three things hold for that head, and they are the point of using the registry ra
 
   `capture-frame` is *the* hold primitive; `reg-view` injection (Reagent) and `use-frame` (UIx) are its two ergonomic spellings — one primitive, three faces.
 
-  - Frame resolution matches `use-subscribe`: `with-frame` dynamic scope first, then the surrounding `frame-provider` / `frame-root` via React context. It raises `:rf.error/no-frame-context` when neither is in scope.
+  - Frame resolution matches `use-sub`: `with-frame` dynamic scope first, then the surrounding `frame-provider` / `frame-root` via React context. It raises `:rf.error/no-frame-context` when neither is in scope.
   - The returned map is reference-stable across re-renders for the same resolved frame *incarnation* (safe in effect deps and child props). A provider swap re-renders the caller and yields a map locked to the new frame — and so does destroying the resolved frame and creating another under the same id, because a frame keyword is an address and the ops bundle is pinned to the incarnation it was captured against.
   - No options map, no variants — for an explicit frame, call `(rf/capture-frame frame-id)` directly.
 - **Example**:
   ```clojure
   (defui counter-buttons []
-    (let [count              (uix-adapter/use-subscribe [:counter/value])
+    (let [count              (uix-adapter/use-sub [:counter/value])
           {:keys [dispatch]} (uix-adapter/use-frame)]
       ($ :button {:on-click #(dispatch [:counter/inc])} "+")))
   ```

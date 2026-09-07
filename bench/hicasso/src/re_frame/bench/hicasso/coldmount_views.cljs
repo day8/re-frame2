@@ -18,7 +18,7 @@
   REAPER WINS: the escrowed reference is released, the commit misses, and
   the cold read builds twice, `bodyRuns` 2.00N measured at N = 1 and
   N = 300 (rf2-2rtt6.25, merged-PR audit of #7305; browser assertion
-  `use-subscribe-browser-runner-schedule-rebuilds`).
+  `use-sub-browser-runner-schedule-rebuilds`).
 
   So the `shipped` rows below are the MECHANISM measured where it is
   allowed to run to completion. They are not an acceptance witness for
@@ -33,7 +33,7 @@
 
   ## The term that was priced, and the schedule on which it is recovered
 
-  `re-frame.substrate.spine/use-subscribe` USED TO take a BALANCED
+  `re-frame.substrate.spine/use-sub` USED TO take a BALANCED
   render-phase round trip — `rf.subs/subscribe` immediately followed by
   `rf.subs/unsubscribe` (the rf2-es09qq net-zero rule) — so a render that
   never commits retained no ref-count. For a query with NO live cache
@@ -128,7 +128,7 @@
   the reaction would defeat the hand-off's own identity guard and measure
   the instrument):
 
-    * during render, right after `use-subscribe` returns, the witness
+    * during render, right after `use-sub` returns, the witness
       records WHICH REACTION the sub-cache holds for that query — the
       render-phase materialisation if it survived the render, `nil` if the
       balanced round trip disposed it;
@@ -218,7 +218,7 @@
 ;; The two transcriptions
 ;; ---------------------------------------------------------------------------
 ;;
-;; `use-sub-xcript` is `re-frame.substrate.spine`'s `use-subscribe-2` body,
+;; `use-sub-xcript` is `re-frame.substrate.spine`'s `use-sub-2` body,
 ;; copied — the same transcription rf2-2rtt6.12 published and validated
 ;; (its heap fidelity landed 0.332% from the shipped hook). The only
 ;; cosmetic differences are the ones that arm recorded: hooks named
@@ -354,28 +354,28 @@
 ;; and a reader pricing hook calls should be able to count them. Markup is
 ;; `p0_uix_views/m1-cell`'s, byte for byte; the parity gate checks it.
 ;;
-;; The SHIPPED arms read through the ambient 1-arg `use-subscribe` under
+;; The SHIPPED arms read through the ambient 1-arg `use-sub` under
 ;; `frame-provider` — exactly the converged M1 arm, because they carry the
 ;; red-zone denominator role. The transcriptions pin the frame explicitly,
-;; as `use-subscribe-2` (which the ambient form resolves into) does; the
+;; as `use-sub-2` (which the ambient form resolves into) does; the
 ;; per-boundary difference is one context read, far below the clock
 ;; quantum, and the fidelity control adjudicates it rather than this
 ;; comment.
 
 (defui s-m1-l1 [{:keys [i]}]
-  (let [cell (rf.adapter.uix/use-subscribe [:p0/cell i])]
+  (let [cell (rf.adapter.uix/use-sub [:p0/cell i])]
     ($ :li.row
        ($ :span.lbl "cell ")
        ($ :span.cell {:data-i i} (str cell)))))
 
 (defui s-m1-l2 [{:keys [i]}]
-  (let [cell (rf.adapter.uix/use-subscribe [:cm/l2 i])]
+  (let [cell (rf.adapter.uix/use-sub [:cm/l2 i])]
     ($ :li.row
        ($ :span.lbl "cell ")
        ($ :span.cell {:data-i i} (str cell)))))
 
 (defui s-m1-l3 [{:keys [i]}]
-  (let [cell (rf.adapter.uix/use-subscribe [:cm/l3 i])]
+  (let [cell (rf.adapter.uix/use-sub [:cm/l3 i])]
     ($ :li.row
        ($ :span.lbl "cell ")
        ($ :span.cell {:data-i i} (str cell)))))
@@ -421,7 +421,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defui s-m2-l1 [{:keys [i]}]
-  (let [cell (rf.adapter.uix/use-subscribe [:p0/cell i])]
+  (let [cell (rf.adapter.uix/use-sub [:p0/cell i])]
     ($ :div.field
        ($ :label.lbl {:for (str "f" i)} (str "Field " i))
        ($ :input.inp {:id        (str "f" i)
@@ -432,7 +432,7 @@
        ($ :p.err (rf.bench.hicasso.p0-reagent-views/field-error i)))))
 
 (defui s-m2-l2 [{:keys [i]}]
-  (let [cell (rf.adapter.uix/use-subscribe [:cm/l2 i])]
+  (let [cell (rf.adapter.uix/use-sub [:cm/l2 i])]
     ($ :div.field
        ($ :label.lbl {:for (str "f" i)} (str "Field " i))
        ($ :input.inp {:id        (str "f" i)
@@ -725,7 +725,7 @@
 ;; -- the SHIPPED witness: the real hook, counted off observable state -------
 ;;
 ;; No transcription and no spy. The cell calls `re-frame.adapter.uix/
-;; use-subscribe` — the 2-arity explicit-frame form, which is exactly what the
+;; use-sub` — the 2-arity explicit-frame form, which is exactly what the
 ;; ambient form resolves into — and then reads the sub-cache to record which
 ;; reaction (if any) is tenanted for that query at the instant the render-phase
 ;; read returned. See the namespace docstring's "How the SHIPPED arm is counted
@@ -746,7 +746,7 @@
   "The shipped hook, plus one render-phase observation. Reading an atom during
   render is a bench affordance, not a pattern: it records, it does not decide."
   [query-v]
-  (let [value (rf.adapter.uix/use-subscribe rf.bench.hicasso.p0-reagent-views/subs-frame query-v)]
+  (let [value (rf.adapter.uix/use-sub query-v {:frame rf.bench.hicasso.p0-reagent-views/subs-frame})]
     (swap! shipped-render-observed
            (fn [m] (if (contains? m query-v) m (assoc m query-v (tenant-of query-v)))))
     value))

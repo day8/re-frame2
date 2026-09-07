@@ -9,7 +9,7 @@
    the `auth.login` dataflow. This file `:require`s it (registering everything at
    ns-load) and adds only the UIx view layer + mount. The Reagent twin
    (`login.core`) imports the identical model. Same data, two doorways: here a
-   view is a UIx `defui` that reads subscriptions through the `use-subscribe`
+   view is a UIx `defui` that reads subscriptions through the `use-sub`
    hook; the Reagent twin reaches for `reg-view`.
 
    The machine tags a few of its states — `:auth/busy`, `:auth/authenticated`,
@@ -17,7 +17,7 @@
    framework sub. When the flow finally gives up, the terminal `:locked-out`
    state swaps the form for a dead-end locked-account panel.
 
-   For the boundary mechanics — `use-subscribe`, `use-frame`,
+   For the boundary mechanics — `use-sub`, `use-frame`,
    `frame-root` / `frame-provider`, and what stays put across React wrappers — see
    docs/core/how-to/use-uix-or-slim.md."
   (:require [uix.core :as uix :refer [$ defui]]
@@ -31,11 +31,11 @@
             [re-frame.adapter.uix :as rf.adapter.uix]))
 
 ;; ============================================================================
-;; VIEWS  (UIx — defui + use-subscribe)
+;; VIEWS  (UIx — defui + use-sub)
 ;; ============================================================================
 ;;
 ;; Here, at last, is the substrate seam — and it's a thin one. A UIx view is
-;; just a `defui`: it reads each subscription through the `use-subscribe` hook
+;; just a `defui`: it reads each subscription through the `use-sub` hook
 ;; and gets `dispatch` off the `use-frame` hook (capture-frame in hook
 ;; position). The Reagent twin registers the same views with `reg-view` and is
 ;; simply handed `dispatch`/`subscribe` — the same hold primitive in its other
@@ -49,12 +49,12 @@
 ;; secret). The draft lives in app-db, which is exactly why you won't find a
 ;; `uix/use-state` anywhere in here.
 (defui login-form []
-  (let [draft     (rf.adapter.uix/use-subscribe [:auth.login/draft])
-        busy?     (rf.adapter.uix/use-subscribe [:rf.machine/has-tag?
+  (let [draft     (rf.adapter.uix/use-sub [:auth.login/draft])
+        busy?     (rf.adapter.uix/use-sub [:rf.machine/has-tag?
                                               :auth.login/flow :auth/busy])
-        err       (rf.adapter.uix/use-subscribe [:auth.login/error])
-        email-err (rf.adapter.uix/use-subscribe [:auth.login/field-error :email])
-        pw-err    (rf.adapter.uix/use-subscribe [:auth.login/field-error :password])
+        err       (rf.adapter.uix/use-sub [:auth.login/error])
+        email-err (rf.adapter.uix/use-sub [:auth.login/field-error :email])
+        pw-err    (rf.adapter.uix/use-sub [:auth.login/field-error :password])
         {:keys [dispatch]} (rf.adapter.uix/use-frame)]
     ($ :form.login-form
        {:data-testid "login-form"
@@ -90,9 +90,9 @@
      ($ :p "Too many failed attempts. Contact support to unlock.")))
 
 (defui login-banner []
-  (let [authed? (rf.adapter.uix/use-subscribe [:rf.machine/has-tag?
+  (let [authed? (rf.adapter.uix/use-sub [:rf.machine/has-tag?
                                             :auth.login/flow :auth/authenticated])
-        locked? (rf.adapter.uix/use-subscribe [:rf.machine/has-tag?
+        locked? (rf.adapter.uix/use-sub [:rf.machine/has-tag?
                                             :auth.login/flow :auth/locked])]
     ($ :div.banner {:data-testid "login-banner"}
        (cond
@@ -129,7 +129,7 @@
     ;; demo stub and seeds the slice via `:initial-events`), and runs those
     ;; events once. On a hot reload it finds the frame already there, reuses it,
     ;; and skips the events. The `:id :rf/default` names the frame that
-    ;; `use-subscribe` and the `use-frame` hook inside `login-form` resolve
+    ;; `use-sub` and the `use-frame` hook inside `login-form` resolve
     ;; against — which is why those calls need a provider somewhere above them in
     ;; the tree.
     ;;

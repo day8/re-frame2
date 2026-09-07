@@ -327,12 +327,12 @@
   "The UIx twin's five coarse reads, then the frozen element tree. The
   UIx arm's own body work is `uixlocal − uixbare`."
   [_props]
-  (let [frame (rf.adapter.uix/use-current-frame)]
-    (rf.adapter.uix/use-subscribe frame [:conduit/slugs])
-    (rf.adapter.uix/use-subscribe frame [:census56/articles])
-    (rf.adapter.uix/use-subscribe frame [:conduit/tags])
-    (rf.adapter.uix/use-subscribe frame [:conduit/your-feed?])
-    (rf.adapter.uix/use-subscribe frame [:census56/pending])
+  (let [frame (:frame (rf.adapter.uix/use-frame))]
+    (rf.adapter.uix/use-sub [:conduit/slugs] {:frame frame})
+    (rf.adapter.uix/use-sub [:census56/articles] {:frame frame})
+    (rf.adapter.uix/use-sub [:conduit/tags] {:frame frame})
+    (rf.adapter.uix/use-sub [:conduit/your-feed?] {:frame frame})
+    (rf.adapter.uix/use-sub [:census56/pending] {:frame frame})
     @!frozen-element))
 
 ;; ---------------------------------------------------------------------------
@@ -433,12 +433,12 @@
                          tag)))))))))
 
 (defn- ux-page-body [link? _props]
-  (let [frame      (rf.adapter.uix/use-current-frame)
-        order      (rf.adapter.uix/use-subscribe frame [:conduit/slugs])
-        articles   (rf.adapter.uix/use-subscribe frame [:census56/articles])
-        tags       (rf.adapter.uix/use-subscribe frame [:conduit/tags])
-        your-feed? (rf.adapter.uix/use-subscribe frame [:conduit/your-feed?])
-        pending    (rf.adapter.uix/use-subscribe frame [:census56/pending])
+  (let [frame      (:frame (rf.adapter.uix/use-frame))
+        order      (rf.adapter.uix/use-sub [:conduit/slugs] {:frame frame})
+        articles   (rf.adapter.uix/use-sub [:census56/articles] {:frame frame})
+        tags       (rf.adapter.uix/use-sub [:conduit/tags] {:frame frame})
+        your-feed? (rf.adapter.uix/use-sub [:conduit/your-feed?] {:frame frame})
+        pending    (rf.adapter.uix/use-sub [:census56/pending] {:frame frame})
         d          (get @!dispatch frame)]
     (ux-local-chrome your-feed? tags d
                      (for [slug order]

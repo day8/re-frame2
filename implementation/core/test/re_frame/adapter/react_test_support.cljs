@@ -12,8 +12,27 @@
   drag the suite's heavy transitive deps — and its compile warnings — into
   a build that otherwise compiles two small files. This ns holds only the
   zero-dependency helpers, so both the suite and the elision-prod twins can
-  reference it without bloating either build."
-  (:require [clojure.string :as str]))
+  reference it without bloating either build. `re-frame.late-bind` is the one
+  `:require` beyond `clojure.string`, and it is free: core machinery that
+  `re-frame.core` already pulls into both builds."
+  (:require [clojure.string :as str]
+            [re-frame.late-bind :as rf.late-bind]))
+
+(defn adapter-wrap-view
+  "The installed adapter's source-coord wrapper, reached through the
+  `:adapter/wrap-view` late-bind hook.
+
+  That hook is the ONLY door since rf2-kuky.57 retired the public
+  `re-frame.adapter.uix` var of the same name: it was a second entrance onto
+  this identical fn, and `views/reg-view*` — which is how an application
+  reaches it — has always consulted the hook. Every assertion the public var
+  used to carry runs unchanged through here.
+
+  Resolves PER CALL rather than at load, because an entry file binds this into
+  a top-level `cfg` map while the adapter is installed by a per-test fixture.
+  `require-fn!` fails loud when no adapter publishing the hook is installed."
+  [id metadata user-fn]
+  ((rf.late-bind/require-fn! :adapter/wrap-view) id metadata user-fn))
 
 (defn react-element-attr
   "Pull `attr` (a string prop name) off a React element's `.-props`, or

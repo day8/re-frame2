@@ -473,9 +473,9 @@
   mechanism — they demonstrably do not, since the Hicasso doors resolve
   through `impl/collector`'s own context read. The ambient UIx form is
   the browser lane's to exercise, and `re-frame.adapter.uix`'s own
-  `uix_use_subscribe_dom_cljs_test` is where it already is."
+  `uix_use_sub_dom_cljs_test` is where it already is."
   [_]
-  (uix/$ :u {:class "uix"} (str (rf.adapter.uix/use-subscribe frame-id [::price]))))
+  (uix/$ :u {:class "uix"} (str (rf.adapter.uix/use-sub [::price] {:frame frame-id}))))
 
 (defn uix-reader-arm
   "The crossing into the UIx tree — a plain React shim, for

@@ -30,7 +30,7 @@
   (fn [db _] (:recipe.counter/value db)))
 
 (defui counter []
-  (let [n                  (rf.adapter.uix/use-subscribe [:recipe.counter/value])
+  (let [n                  (rf.adapter.uix/use-sub [:recipe.counter/value])
         {:keys [dispatch]} (rf.adapter.uix/use-frame)]
     ($ :div
        ($ :span {:data-testid "counter-value"} n)

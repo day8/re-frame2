@@ -639,7 +639,7 @@
   what `caveat`'s weakened `:full` sentence now admits to."
   '{re-frame.adapter.reagent      "(x/render! root view opts)"
     re-frame.adapter.reagent-slim "(x/client-root el)"
-    re-frame.adapter.uix          "(x/use-subscribe [:q])"
+    re-frame.adapter.uix          "(x/use-sub [:q])"
     re-frame.adapter.test-react   "(x/mount! [:div])"})
 
 (defn- probe

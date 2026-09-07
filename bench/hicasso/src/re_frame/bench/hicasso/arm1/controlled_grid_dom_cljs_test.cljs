@@ -323,7 +323,7 @@
 ;; keystroke — the ONLY variable is which library minted the element.
 
 (defui uix-cell [{:keys [i]}]
-  (let [v                        (rf.adapter.uix/use-subscribe [:agrid/cell i])
+  (let [v                        (rf.adapter.uix/use-sub [:agrid/cell i])
         {:keys [dispatch-sync]}  (rf.adapter.uix/use-frame)]
     ($ :input {:id        (str "u" i)
                :type      "text"

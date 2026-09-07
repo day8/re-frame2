@@ -9,7 +9,7 @@
 // HD-008 is EP-0038's STOP-GATE. Before a line of Hicasso's API is
 // designed, the central hypothesis is assembled out of parts already in
 // this repository — reagent-slim's `:f>` function-component path and its
-// runtime hiccup interpreter, plus the existing UIx `use-subscribe`
+// runtime hiccup interpreter, plus the existing UIx `use-sub`
 // spine — and measured against both Reagent paths and against direct UIx.
 // Two rungs: markup+reactivity, then plus the product shell (one
 // frame-context hook, native event-vector lowering). If the composed arm

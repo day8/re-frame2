@@ -16,7 +16,7 @@
    `{:on-change [:auth.login/edit-field :email ::rf.hicasso/value]}` IS the handler —
    there is no callback to write, and `::rf.hicasso/value` substitutes the event
    target's value at dispatch time. Reagent reaches for `reg-view` and an
-   injected `dispatch`; UIx reaches for `defui` plus the `use-subscribe` hook.
+   injected `dispatch`; UIx reaches for `defui` plus the `use-sub` hook.
    The subscription vectors and the event ids do not change one character
    across the three.
 

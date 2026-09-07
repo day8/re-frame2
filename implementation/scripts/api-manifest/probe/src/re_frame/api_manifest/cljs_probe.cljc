@@ -34,7 +34,7 @@
   side, derived at RUNTIME from `(fn? @v)`. The CLJS analyzer runs at
   COMPILE time and cannot know a `def`'s value is a fn: the adapter
   surfaces bind their hooks/seams as fn-VALUED `def`s
-  (`(def use-subscribe (:use-subscribe spine-fns))`), which the analyzer
+  (`(def use-sub (:use-sub spine-fns))`), which the analyzer
   reports as `:var` (no `:arglists`) even though they are callable. The
   curated `:kind :fn` on those rows is the correct human assertion; the
   analyzer simply cannot reproduce it. Reconciling `:kind` here would

@@ -63,19 +63,15 @@
   install the hiccup emitter explicitly (mirroring the Reagent adapter)."
   (:set-hiccup-emitter! spine-fns))
 
-(def use-current-frame
-  "UIx hook returning the current frame keyword from the surrounding
-  React context, or the no-provider sentinel
-  (`re-frame.adapter.context/no-provider-sentinel`, `:rf.frame/no-provider`)
-  when NEITHER `frame-provider` (SCOPE) nor `frame-root` (ENSURE) installs
-  the shared frame-context above. Both boundaries write that one context —
-  explicitly not `:rf/default` — and every React-shaped adapter reads it, so
-  mixed Reagent and UIx provider trees compose.
-
-  This is the narrow raw `useContext` read: it does not map the sentinel to
-  nil, nor consult the dynamic-var tier. Use `(rf/current-frame-id)` for the
-  full dynamic-var → context → nil resolution chain."
-  (:use-current-frame spine-fns))
+;; The narrow raw `useContext` frame read is INTERNAL (rf2-kuky.57). It stays
+;; the mechanism that keeps a `use-sub` caller subscribed to context-value
+;; changes — the spine calls it at the top of the ambient hook body — but it is
+;; no longer published: it returned the no-provider sentinel
+;; (`:rf.frame/no-provider`) as if it were an answer, consulted neither the
+;; dynamic-var tier nor the sentinel→nil mapping, and had no consumer outside
+;; this namespace and its own tests. `(rf/current-frame-id)` is the reader with
+;; the full dynamic-var → context → nil chain, and `use-frame` is the
+;; hook-shaped way to ask which frame you are in.
 
 (defui frame-provider
   "SCOPE an existing frame for descendant UIx components (rf2-nyea0r split).
@@ -137,13 +133,34 @@
     (:children props)
     're-frame.adapter.uix/frame-root))
 
-(def use-subscribe
+(def use-sub
   "UIx hook that reads a re-frame subscription. Returns the current
   value; re-renders the calling component when the value changes.
 
-  Reads the surrounding frame-provider by default; the 2-arg form pins an
-  explicit frame id."
-  (:use-subscribe spine-fns))
+      (let [n (use-sub [:counter/value])] …)
+
+  ONE name across every React function component: `re-frame.hicasso.native`
+  publishes `use-sub` for an island under Hicasso and this is the same
+  operation under the same name. The rule the pair follows: the VERB returns a
+  subscription (`rf/subscribe`, Reagent's reaction), the NOUN returns its
+  value (`h/sub` in a Hicasso body, `use-sub` in a function component).
+
+  Reads the surrounding `frame-provider` (SCOPE) / `frame-root` (ENSURE) by
+  default, through the same resolution chain `rf/subscribe`'s own 1-arity uses
+  — dynamic-var tier first, React context second, and no scope at all raises
+  `:rf.error/no-frame-context` with no `:rf/default` floor.
+
+      ($ frame-provider {:frame :tenant-b}
+         ($ price-cell))          ;; price-cell calls (use-sub [:quote/price sym])
+
+  To pin ONE read to an explicit frame — comparing two frames in one component,
+  say — pass the opts form `rf/subscribe` already publishes:
+
+      (use-sub [:quote/price sym] {:frame :tenant-b})
+
+  `:frame` takes a frame-id keyword or a live frame value, and is REQUIRED in
+  that form: it is the explicit read, and the 1-arity is the ambient one."
+  (:use-sub spine-fns))
 
 (def use-frame
   "UIx hook returning the frame api for the ambient frame — EXACTLY what
@@ -153,11 +170,11 @@
   (Reagent) and this hook are its two ergonomic spellings.
 
       (defui counter-buttons []
-        (let [count              (use-subscribe [:counter/value])
+        (let [count              (use-sub [:counter/value])
               {:keys [dispatch]} (use-frame)]
           ($ :button {:on-click #(dispatch [:counter/inc])} \"+\")))
 
-  Resolution matches the ambient `use-subscribe`: dynamic-var tier first,
+  Resolution matches the ambient `use-sub`: dynamic-var tier first,
   then the surrounding `frame-provider` / `frame-root` via React context;
   no scope raises `:rf.error/no-frame-context`. The returned map is
   reference-stable across re-renders for the same resolved frame
@@ -246,14 +263,14 @@
   already released the Root, does nothing. Returns nil."
   (:unmount-client-root! spine-fns))
 
-(def wrap-view
-  "Wrap a UIx-shape user component in a function component that injects
-  `data-rf2-source-coord` on the rendered root DOM element (when
-  `interop/debug-enabled?` is true). Returned fn has the same call
-  signature as `user-fn` and is suitable for use as a UIx component
-  head. Production builds elide via `interop/debug-enabled?` per
-  Spec 009 §Production builds."
-  (:wrap-view spine-fns))
+;; Source-coord injection is INTERNAL (rf2-kuky.57). The wrapper that stamps
+;; `data-rf2-source-coord` on a view's root DOM element reaches its callers
+;; through the `:adapter/wrap-view` late-bind hook, which `views/reg-view*`
+;; already consults on every registration — so registering a view is the whole
+;; public story and the hook is the whole mechanism. The var this namespace used
+;; to publish under that name was a second door onto the same fn, with no
+;; consumer outside this repo's own tests. The hook is unchanged; only the door
+;; is gone.
 
 ;; ---- registered-view component head — UIx-NATIVE half (rf2-oz7wr) ---------
 ;;

@@ -3,7 +3,7 @@
  *
  * Proves the UIx adapter wires up end-to-end on the DOCUMENTED BOOT
  * PATH: a real-DOM `frame-root` ENSURE mount (the template scaffold's
- * exact shape), subscribe (via use-subscribe), dispatch, re-render —
+ * exact shape), subscribe (via use-sub), dispatch, re-render —
  * and that the boot is CLEAN: zero console errors and zero uncaught
  * page errors. rf2-qgfo4 recorded a mount-time React-child regression
  * class (fn-as-child / MapEntry-as-child) that only a real-DOM boot

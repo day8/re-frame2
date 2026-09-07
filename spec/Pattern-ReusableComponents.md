@@ -131,7 +131,7 @@ The idiom is **substrate-agnostic**. The view is an ordinary function of its arg
 
 - **Reagent** — render-tree splice `[customer-card 42]` works as-is; the registered view is a Form-1 fn that closes over its args.
 - **Reagent-slim** — same surface.
-- **UIx** — the adapter's `use-subscribe` hook reads the parameterised sub identically; the view is a hooks-style function whose first prop carries the id.
+- **UIx** — the adapter's `use-sub` hook reads the parameterised sub identically; the view is a hooks-style function whose first prop carries the id.
 
 The id idiom predates substrate choice. A view that follows it ports across adapters with zero changes to the view body — only the surrounding component wrapper differs by adapter.
 

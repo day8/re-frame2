@@ -18,6 +18,7 @@
   (:require [cljs.test :refer-macros [deftest use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.adapter.react-shared-suite :as rf.adapter.react-shared-suite]
+            [re-frame.adapter.react-test-support :as rf.adapter.react-test-support]
             [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
@@ -28,7 +29,9 @@
   {:adapter      rf.adapter.uix/adapter
    :substrate-kw :uix
    :name         "UIx"
-   :wrap-view    rf.adapter.uix/wrap-view})
+   ;; rf2-kuky.57: reached through the `:adapter/wrap-view` late-bind hook —
+   ;; the door `reg-view*` uses — now that the adapter publishes no such var.
+   :wrap-view    rf.adapter.react-test-support/adapter-wrap-view})
 
 (deftest mounted-display-name-is-devtools-visible-uix
   (rf.adapter.react-shared-suite/assert-mounted-display-name-is-devtools-visible cfg))

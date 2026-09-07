@@ -452,7 +452,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest uix-greenfield-supplies-substrate-views
-  (testing "entry-namespace.md gives UIx view code (defui + use-subscribe), not just deps/entry"
+  (testing "entry-namespace.md gives UIx view code (defui + use-sub), not just deps/entry"
     (let [body @entry-namespace-md]
       (is (str/includes? body "defui counter-buttons")
           (str "entry-namespace.md no longer supplies the UIx (`defui`) "
@@ -460,9 +460,9 @@
                "auto-injection — the manual path must ship the substrate "
                "`views.cljs`, not send the author to the Reagent `reg-view` "
                "views (rf2-74uffk)."))
-      (is (str/includes? body "rf.adapter.uix/use-subscribe")
+      (is (str/includes? body "rf.adapter.uix/use-sub")
           (str "The UIx view snippet must read subscriptions through "
-               "the adapter `use-subscribe` hook (no auto-injected `subscribe` "
+               "the adapter `use-sub` hook (no auto-injected `subscribe` "
                "on that substrate) (rf2-74uffk)."))
       (is (str/includes? body "(rf.adapter.uix/use-frame)")
           (str "The UIx view snippet must obtain `dispatch` from the "
@@ -472,7 +472,7 @@
       (is (not (re-find #"(?i)views.{0,40}identical across substrates" body))
           (str "entry-namespace.md claims views are identical across "
                "substrates — they are NOT. Reagent uses `reg-view`; UIx "
-               "uses `defui` with `use-subscribe`. The 'everything else "
+               "uses `defui` with `use-sub`. The 'everything else "
                "identical' claim must exclude views (rf2-74uffk).")))))
 
 (deftest uix-not-routed-to-reagent-reg-view-counter
@@ -490,10 +490,10 @@
           (str "first-counter.md no longer flags itself as Reagent-only. The "
                "leaf's views use `rf/reg-view` + `reagent.dom.client` — UIx must "
                "be redirected to the substrate views (rf2-74uffk)."))
-      (is (and (str/includes? fc "use-subscribe")
+      (is (and (str/includes? fc "use-sub")
                (str/includes? fc "entry-namespace.md"))
           (str "first-counter.md no longer redirects UIx authors to the "
-               "`use-subscribe`/substrate path in entry-namespace.md "
+               "`use-sub`/substrate path in entry-namespace.md "
                "(rf2-74uffk).")))))
 
 ;; ---------------------------------------------------------------------------

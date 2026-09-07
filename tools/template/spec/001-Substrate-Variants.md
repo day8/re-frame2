@@ -84,7 +84,7 @@ Both variants emit the same project shape. The substrate choice swaps:
   `($ rf.adapter.uix/frame-root …)`. Both carry the same
   `^:dev/after-load mount!` hook and the same `init`.
 - `views.cljs` — the counter view. Reagent uses `rf/reg-view` and
-  hiccup; UIx uses `defui` with `$`, `use-subscribe` and `use-frame`.
+  hiccup; UIx uses `defui` with `$`, `use-sub` and `use-frame`.
 
 The other nine files are substrate-invariant: `events.cljs`,
 `subs.cljs`, `events_test.cljs`, `shadow-cljs.edn`, `package.json` and

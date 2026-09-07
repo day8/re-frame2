@@ -7,7 +7,7 @@
   while passing a query-vector arg that is value-EQUAL but a FRESH object
   each render (a `{…}` map / collection / record built inline in the render
   body) mints a DISTINCT cache key every render — unbounded cache growth,
-  zero reuse, silently. The React-hook `use-subscribe` path defends its
+  zero reuse, silently. The React-hook `use-sub` path defends its
   deps-array identity; this is the render-phase analogue for subscribe's cache
   keying.
 

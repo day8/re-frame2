@@ -7,7 +7,7 @@
   re-frame2 subscriptions`, and the only way a reader can check that two
   arms were like-for-like is if the shapes and the subscriptions are one
   declaration that both arms consume rather than two declarations someone
-  has to diff. Everything substrate-specific — `defui` + `use-subscribe`
+  has to diff. Everything substrate-specific — `defui` + `use-sub`
   for UIx, `reg-view` + `@(rf/subscribe …)` for Reagent — lives in the arm
   namespaces; nothing about WHAT is read lives there.
 

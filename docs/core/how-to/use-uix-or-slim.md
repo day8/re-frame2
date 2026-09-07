@@ -12,7 +12,7 @@ We'll take it one step at a time: the single line that picks a substrate, then a
 
 ??? info "Coming from Redux?"
 
-    The [adapter](../glossary.md#adapter) plays react-redux's role — `frame-provider` is `<Provider>`, `use-subscribe` is `useSelector` — with two differences. The binding is a value you pass explicitly at boot rather than a package you import, and exactly one is ever installed per runtime. No hidden default, no autowiring.
+    The [adapter](../glossary.md#adapter) plays react-redux's role — `frame-provider` is `<Provider>`, `use-sub` is `useSelector` — with two differences. The binding is a value you pass explicitly at boot rather than a package you import, and exactly one is ever installed per runtime. No hidden default, no autowiring.
 
 ## Step 1 — The one line that changes
 
@@ -107,7 +107,7 @@ Here's the part people are usually nervous about, and it turns out to be the eas
             [re-frame.adapter.uix :as uix-adapter]))
 
 (defui counter-buttons []
-  (let [count              (uix-adapter/use-subscribe [:counter/value])
+  (let [count              (uix-adapter/use-sub [:counter/value])
         {:keys [dispatch]} (uix-adapter/use-frame)]
     ($ :div
        ($ :button {:on-click #(dispatch [:counter/dec])} "-")
@@ -117,13 +117,13 @@ Here's the part people are usually nervous about, and it turns out to be the eas
 
 Three rules govern every UIx component, and once they click you won't think about them again:
 
-- **Read subs with `use-subscribe`.** It's a React hook built on `useSyncExternalStore`, which *is* the substrate's native "re-render when this changes" mechanism — so a re-frame2 subscription behaves like any other hook your team already trusts. It resolves the [frame](../glossary.md#frame) from the surrounding provider; the 2-arg form `(use-subscribe frame-id [:q …])` pins the read to an explicit frame instead.
+- **Read subs with `use-sub`.** It's a React hook built on `useSyncExternalStore`, which *is* the substrate's native "re-render when this changes" mechanism — so a re-frame2 subscription behaves like any other hook your team already trusts. It resolves the [frame](../glossary.md#frame) from the surrounding provider; the 2-arg form `(use-sub frame-id [:q …])` pins the read to an explicit frame instead.
 - **Hold frame ops with `use-frame`.** `(use-frame)` is a React hook that returns the [frame api](../glossary.md#capture-frame) — the ops map `{:frame :dispatch :dispatch-sync :subscribe}` — for the surrounding provider's frame; you pull `dispatch` (or `dispatch-sync`) off it and close over it. It is exactly what `(rf/capture-frame)` returns, in hook position. Grab it during render; never reach for a bare `rf/dispatch` inside a callback. (The next step explains exactly why.)
 - **There is no `reg-view` macro here.** That sugar is Reagent-only. UIx components are plain `defui`. (`rf/reg-view*` exists for the rare component that needs a registry id, but you'll reach for it about as often as you reach for `forwardRef`.)
 
 ??? info "For JavaScript developers"
 
-    `use-subscribe` *is* `useSelector`. If you've written a `useSelector`, you've written this — it's a hook over `useSyncExternalStore`, the same primitive react-redux uses under the hood. The 2-arg explicit-frame form is the same escape hatch Reagent gives you with `@(rf/subscribe [:q] {:frame f})`.
+    `use-sub` *is* `useSelector`. If you've written a `useSelector`, you've written this — it's a hook over `useSyncExternalStore`, the same primitive react-redux uses under the hood. The 2-arg explicit-frame form is the same escape hatch Reagent gives you with `@(rf/subscribe [:q] {:frame f})`.
 
 ## Step 3 — Why callbacks dispatch off the frame api
 
@@ -147,7 +147,7 @@ And the frame api gives you more than just a dispatch function — it's a small 
 You'll most often pull `:dispatch` straight off that map (that's what `(let [{:keys [dispatch]} (uix-adapter/use-frame)] …)` in the view above is doing), but all four entries are there:
 
 - `:dispatch-sync` is the one you want when an event must settle before the next line runs (initialisation, a confirm-then-read flow).
-- `:subscribe` returns the frame-locked *reaction* for a query — deref it for the current value. That's the shape for peeking at state inside a callback without making the component reactive on it (a deref outside render registers no dependency). For a one-shot value with no reaction at all, `rf/subscribe-once` is the sibling; for *reactive* reads that re-render the component, use the `use-subscribe` hook from Step 2.
+- `:subscribe` returns the frame-locked *reaction* for a query — deref it for the current value. That's the shape for peeking at state inside a callback without making the component reactive on it (a deref outside render registers no dependency). For a one-shot value with no reaction at all, `rf/subscribe-once` is the sibling; for *reactive* reads that re-render the component, use the `use-sub` hook from Step 2.
 
 The captured frame is authoritative: a per-call `:frame` in the dispatch opts can't override it — the frame api is locked to one frame for life.
 
@@ -168,7 +168,7 @@ The captured frame is authoritative: a per-call `:frame` in the dispatch opts ca
 
 ## Step 4 — Mount it: scope a frame into the subtree
 
-Step 3 said the surrounding provider supplies a view's ambient frame. This is that provider. [`frame-provider`](../glossary.md#frame-provider) — in its `{:frame …}` scope shape — wraps a chunk of your React tree and declares "everything rendered below me reads from *this* frame" — so the `use-subscribe` hooks underneath it know which world to read, and the `capture-frame` captures underneath it know which world to dispatch into. (It's the React-context counterpart to the lexical `rf/with-frame` you may have met elsewhere: same idea, scoped through the component tree instead of through a `let`.)
+Step 3 said the surrounding provider supplies a view's ambient frame. This is that provider. [`frame-provider`](../glossary.md#frame-provider) — in its `{:frame …}` scope shape — wraps a chunk of your React tree and declares "everything rendered below me reads from *this* frame" — so the `use-sub` hooks underneath it know which world to read, and the `capture-frame` captures underneath it know which world to dispatch into. (It's the React-context counterpart to the lexical `rf/with-frame` you may have met elsewhere: same idea, scoped through the component tree instead of through a `let`.)
 
 So the last move is to mount the root inside it. The scope shape takes a `:frame` opt naming an already-registered frame, with the subtree as idiomatic `$` trailing children:
 
@@ -190,13 +190,13 @@ Children ride the native `$` trailing-args channel — `($ frame-provider {:fram
 
 ??? info "For JavaScript developers"
 
-    `frame-provider {:frame …}` is your `<Provider store={...}>`. Same job as react-redux's `<Provider>` — make a store (here, a frame) available to everything rendered beneath it — except this shape never *creates* the store; it just scopes an existing one. The `use-subscribe` hooks below it resolve their frame through this provider, exactly as `useSelector` reads through `<Provider>`.
+    `frame-provider {:frame …}` is your `<Provider store={...}>`. Same job as react-redux's `<Provider>` — make a store (here, a frame) available to everything rendered beneath it — except this shape never *creates* the store; it just scopes an existing one. The `use-sub` hooks below it resolve their frame through this provider, exactly as `useSelector` reads through `<Provider>`.
 
 !!! note "A missing provider fails loud, on purpose"
 
-    A tree rendered with no provider raises `:rf.error/no-frame-context` at the first `use-subscribe`. And the scope shape is itself strict: its `:frame` is **required** and must be a frame id keyword or a live frame value. A `nil` `:frame` raises `:rf.error/no-frame-context`; a non-`nil` `:frame` that is neither (a string, a number) raises the more specific `:rf.error/bad-frame-provider-arg`; and naming a `:frame` that was never created (or has been destroyed) raises `:rf.error/frame-provider-frame-absent`. That's all deliberate — re-frame2 never *infers* a frame from absence, because a guessed-wrong frame is a debugging nightmare and a thrown error is a one-line fix.
+    A tree rendered with no provider raises `:rf.error/no-frame-context` at the first `use-sub`. And the scope shape is itself strict: its `:frame` is **required** and must be a frame id keyword or a live frame value. A `nil` `:frame` raises `:rf.error/no-frame-context`; a non-`nil` `:frame` that is neither (a string, a number) raises the more specific `:rf.error/bad-frame-provider-arg`; and naming a `:frame` that was never created (or has been destroyed) raises `:rf.error/frame-provider-frame-absent`. That's all deliberate — re-frame2 never *infers* a frame from absence, because a guessed-wrong frame is a debugging nightmare and a thrown error is a one-line fix.
 
-That's a complete UIx app: pick the substrate at boot (Step 1), write `defui` views that read with `use-subscribe` (Step 2) and dispatch off the handle (Step 3), and mount inside `frame-provider {:frame …}` (Step 4). Everything from here builds on those four moves.
+That's a complete UIx app: pick the substrate at boot (Step 1), write `defui` views that read with `use-sub` (Step 2) and dispatch off the handle (Step 3), and mount inside `frame-provider {:frame …}` (Step 4). Everything from here builds on those four moves.
 
 ## Step 5 — Ensure a view's own frame
 
@@ -272,8 +272,8 @@ Once you've seen all three substrates, the whole port collapses to one table. Th
 | Surface | Reagent / slim | UIx |
 |---|---|---|
 | Events, subs, fx, app-db | identical | identical |
-| Read a sub in a view | `@(subscribe [:q])` | `(uix-adapter/use-subscribe [:q])` |
-| Read a sub from an explicit frame | `@(subscribe [:q] {:frame f})` | `(uix-adapter/use-subscribe f [:q])` |
+| Read a sub in a view | `@(subscribe [:q])` | `(uix-adapter/use-sub [:q])` |
+| Read a sub from an explicit frame | `@(subscribe [:q] {:frame f})` | `(uix-adapter/use-sub [:q] {:frame f})` |
 | Dispatch from a callback | `dispatch` injected by `reg-view` | `(:dispatch (use-frame))` |
 | View form | `reg-view` + hiccup | `defui` + `$` |
 | Registry-keyed view (when needed) | `reg-view` | `(rf/reg-view* id render-fn)` |
@@ -285,7 +285,7 @@ There's one Reagent footgun that doesn't port at all, and that's good news: the 
 
 ??? note "Going deeper: why hooks are immune to the lazy-seq trap"
 
-    Hooks capture their dependency at call time, so UIx sidesteps that whole class of bug by construction — `use-subscribe` registers the dependency at hook-call time regardless of when any surrounding seq realises. Reagent's reactivity, by contrast, is *render-tracked*: it records every deref that happens during the render pass, so a deref deferred into an unrealised lazy seq escapes the tracking window. The hook model trades render-tracking for an explicit dependency edge, and that edge doesn't care about evaluation order. One fewer thing to teach a new hire.
+    Hooks capture their dependency at call time, so UIx sidesteps that whole class of bug by construction — `use-sub` registers the dependency at hook-call time regardless of when any surrounding seq realises. Reagent's reactivity, by contrast, is *render-tracked*: it records every deref that happens during the render pass, so a deref deferred into an unrealised lazy seq escapes the tracking window. The hook model trades render-tracking for an explicit dependency edge, and that edge doesn't care about evaluation order. One fewer thing to teach a new hire.
 
 !!! note "Flushing renders in tests"
 

@@ -16,7 +16,7 @@
   §Reading the frame from React context). `reg-view` is the paved Reagent
   spelling for a frame-scoped view and it injects a lexical `subscribe`
   bound to the surrounding frame — the exact counterpart of the UIx arm's
-  `use-subscribe`. Neither arm is doing the other's work, and neither is
+  `use-sub`. Neither arm is doing the other's work, and neither is
   hand-optimised.
 
   ## Why NOT a `reagent.core/atom` or a `cursor`

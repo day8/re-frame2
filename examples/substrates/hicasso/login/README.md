@@ -33,7 +33,7 @@ what each one holds constant.
 
 - **`h/defview` + `h/sub`, in place of a deref or a hook.** A Reagent view
   dereferences a subscription (`@(subscribe …)`); a UIx view reads one through
-  the `use-subscribe` hook. A Hicasso view calls `(h/sub [:auth.login/error])`
+  the `use-sub` hook. A Hicasso view calls `(h/sub [:auth.login/error])`
   anywhere in the synchronous body — inside a `let`, a `when`, or an inlined
   helper — and the edge is recorded where the read happens. Different idiom,
   the same subscription underneath.
