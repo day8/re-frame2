@@ -55,7 +55,7 @@
 ;; real Malli `:schema` (`[:map [:token :string] [:counter :int]]`). That
 ;; `:schema` check is ALWAYS-ON (it validates durable causal-token state in
 ;; prod as well as dev — Spec 009 `:rf.error/cofx-value-invalid` row) and
-;; routes through the registered `set-schema-validator!` seam. Under the
+;; routes through the registered `set-schema-fns!` seam. Under the
 ;; SHARED `:browser-test-prod-elision` bundle a SIBLING suite
 ;; (`resources-scope-mismatch-elision-prod-test`) loads `re-frame.schemas`,
 ;; installing the default Malli validator — but Malli's validation BODY is
@@ -68,10 +68,10 @@
 ;; restore so the suite leaves no cross-test residue — identical to the
 ;; resources prod-elision fixture (rf2-rsmiru).
 (defn- disable-schema-validation-fixture [f]
-  (let [snapshot (rf.schemas/snapshot-schema-fns)]
-    (rf.schemas/set-schema-validator! nil)
+  (let [snapshot (rf.schemas/schema-fns)]
+    (rf.schemas/set-schema-fns! {:validate nil})
     (try (f)
-         (finally (rf.schemas/restore-schema-fns! snapshot)))))
+         (finally (rf.schemas/set-schema-fns! snapshot)))))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture

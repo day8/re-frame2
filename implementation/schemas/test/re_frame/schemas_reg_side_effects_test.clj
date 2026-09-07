@@ -148,12 +148,12 @@
   `nil` rejects every value, `:needs-int` accepts only integers, any other
   token accepts."
   []
-  (rf.schemas/set-schema-validator!
-    (fn [schema value]
-      (cond
-        (nil? schema)         false
-        (= :needs-int schema) (int? value)
-        :else                 true))))
+  (rf.schemas/set-schema-fns!
+    {:validate (fn [schema value]
+                 (cond
+                   (nil? schema)         false
+                   (= :needs-int schema) (int? value)
+                   :else                 true))}))
 
 (deftest violation-fires-when-the-prior-registered-schema-token-is-nil
   (testing "rf2-4thn — re-registering a path whose PRIOR registered token was

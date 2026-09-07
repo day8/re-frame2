@@ -261,7 +261,7 @@
             "conservative fallback — value redacted under whole-schema
             sensitivity"))
       (finally
-        (rf.schemas/reset-schema-validator!)))))
+        (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)))))
 
 (deftest fallback-non-sensitive-rides-verbatim
   (testing "fallback path with a non-sensitive schema still emits the
@@ -278,7 +278,7 @@
         (is (= "x" (-> v :tags :value)))
         (is (not (contains? v :sensitive?))))
       (finally
-        (rf.schemas/reset-schema-validator!)))))
+        (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)))))
 
 ;; ---- registered-path always present --------------------------------------
 

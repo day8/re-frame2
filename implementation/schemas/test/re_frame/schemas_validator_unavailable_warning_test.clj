@@ -109,18 +109,18 @@
         (is (string? (:reason tags)))
         (is (re-find #"re-frame\.schemas\.malli" (:reason tags))
             ":reason names the Malli adapter ns")
-        (is (re-find #"set-schema-validator!" (:reason tags))
+        (is (re-find #"set-schema-fns!" (:reason tags))
             ":reason names the explicit-opt-out escape hatch")))))
 
 ;; ---- suppression — explicit non-default validator -------------------------
 
 (deftest warning-suppressed-when-explicit-validator-installed
-  (testing "an app that called set-schema-validator! with a non-default fn
+  (testing "an app that installed a non-default `:validate` fn
             has explicitly opted out of Malli — no warning fires"
     (with-trace-recorder! [recorded]
       (with-unbound-malli-validate
         (fn []
-          (rf.schemas/set-schema-validator! (fn [_schema _value] true))
+          (rf.schemas/set-schema-fns! {:validate (fn [_schema _value] true)})
           (rf/reg-app-schema [:user] [:map [:id :int]])))
       (is (empty? (warnings-of recorded
                                :rf.warning/schema-validator-unavailable))

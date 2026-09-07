@@ -46,11 +46,11 @@
 
 (defn- with-schema-validator-reset
   [test-fn]
-  (rf.schemas/reset-schema-validator!)
+  (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)
   (try
     (test-fn)
     (finally
-      (rf.schemas/reset-schema-validator!))))
+      (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns))))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})

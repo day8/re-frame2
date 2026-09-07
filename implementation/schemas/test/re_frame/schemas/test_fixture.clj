@@ -24,7 +24,7 @@
   - `(schemas/clear-schemas-by-frame!)` — resets the per-frame
     registry (the raw `schemas-by-frame` atom is no longer re-exported
     per the rf2-l5r974 encapsulated-only posture)
-  - `(schemas/reset-schema-validator!)` — restores Malli defaults
+  - `(schemas/set-schema-fns! schemas/default-schema-fns)` — restores Malli defaults
     per rf2-froe so a test that mutates the pluggable validator
     surface doesn't poison sibling tests.
   - `(schemas/clear-validator-unavailable-warned!)` — clears the
@@ -77,7 +77,7 @@
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
   (rf.schemas/clear-schemas-by-frame!)
-  (rf.schemas/reset-schema-validator!)
+  (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)
   (rf.schemas/clear-validator-unavailable-warned!)
   (rf.schemas/clear-walker-opaque-warned!)
   (rf.schemas/clear-edn-print-cache!)
