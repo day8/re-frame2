@@ -21,18 +21,51 @@
 
   WHY THE STRUCTURAL RENDER HASH DOES NOT CATCH IT: `render-tree-hash` is
   computed from the AUTHORED data, not from the parsed HTML, so server and
-  client agree on the hash while disagreeing on the text node. Only a
-  parse-level assertion sees it — which is what `parsed-text-content` below is
-  for.
+  client agree on the hash while disagreeing on the text node. The emitted
+  BYTES are where it becomes visible without a browser, and pinning those bytes
+  against react-dom's is what this namespace does.
 
-  THE PARSE MODEL. There is no HTML parser on this artefact's classpath, so
-  `parsed-text-content` models the ONE HTML5 tokenizer rule under test — \"a
-  newline-eating element's start tag is followed by an ignored LF\" (HTML
-  Standard §13.2.6.4.x, `<pre>`/`<listing>`/`<textarea>`) — over emitted markup
-  whose only structure is the element under test. It is deliberately not a
-  general parser: it exists so the assertion reads on the OBSERVABLE
-  `textContent` the acceptance names, rather than only on the emitted bytes.
-  Both are asserted; the byte pins are the react-dom/server 19.2 parity half.
+  WHAT THIS WITNESS OBSERVES, AND WHAT IT DOES NOT (rf2-s7l5, merged-PR audit
+  #9377). It never invokes an HTML parser and never runs a client renderer.
+  There is no HTML parser on this artefact's classpath — `implementation/ssr`'s
+  `:test` alias resolves core plus schemas / flows / routing / machines /
+  test-quiet, and none of them carries one — and adding a dependency to a
+  shipping artefact to strengthen a test is an operator call, not a test
+  author's. So this namespace asserts exactly TWO things, and both are named
+  honestly at every assertion site:
+
+    1. EMITTED BYTES. `render-to-string` / `render-shell` / `emit-ui-tree`
+       produce a specific string, pinned against react-dom/server 19.2's own
+       `renderToStaticMarkup` output for the same content. This is a real,
+       independent pin: the expected bytes were measured from react-dom, not
+       derived from this repository's rule.
+
+    2. A MODEL of the one HTML5 tokenizer rule — `modelled-text-content` below
+       applies \"a newline-eating element's start tag is followed by an ignored
+       LF\" (HTML Standard §13.2.6.4.x) to those bytes. It is NOT a parse, and
+       an assertion over it is NOT an observation of `textContent`. It is a
+       readability device: it re-expresses the byte pin in the units the
+       authored string is written in, so a reader can see WHY the extra LF
+       belongs there.
+
+  THE LIMIT, STATED PLAINLY. A model of a rule cannot independently establish
+  that rule. If the production compensation were wrong about WHICH elements eat
+  a newline, or about HOW MANY characters are eaten, a model that shares the
+  belief agrees with it and every assertion here stays green. The model's
+  roster is therefore written out as a LITERAL taken from the HTML Standard
+  rather than read from `rf.ssr.html-helpers/newline-eating-tags`, which removes
+  the circularity on the roster axis (and `one-roster-one-rule` below pins the
+  production roster against the same literal, from the other side). The
+  remaining shared belief — one LF, discarded, immediately after the start tag —
+  is not breakable without a real parser or a browser.
+
+  WHAT WOULD CLOSE IT. Either an HTML5-conformant parser on the JVM side (jsoup
+  implements this tokenizer rule) added to this artefact's `:test` alias, or a
+  browser-level witness on an adapter testbed that reads the real node's
+  `textContent`. Both are outside a test author's remit here — the first adds a
+  dependency, the second adds a browser spec — and rf2-s7l5's audit residual is
+  closed on the rename rather than on either. Do not upgrade the wording below
+  to claim a parse without one of them actually being present.
 
   JVM-only, mirroring `re-frame.ssr-emit-test`: the emitters are
   platform-neutral `.cljc` and the shared rule's own unit-level proof runs on
@@ -48,25 +81,42 @@
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 ;; ---------------------------------------------------------------------------
-;; The parse model — see the ns docstring
+;; The MODEL — not a parser. See the ns docstring for what it does and does not
+;; establish.
 ;; ---------------------------------------------------------------------------
 
-(defn- parsed-text-content
-  "The DOM `textContent` a browser yields for `html`, a single element whose
-  body is text. Strips the start and end tag, then applies the HTML5
-  newline-eating rule: one LF immediately after a `<pre>` / `<listing>` /
-  `<textarea>` start tag is DISCARDED by the tokenizer."
+(def ^:private html5-newline-eating-elements
+  "The newline-eating elements, written out from the HTML Standard
+  (§13.2.6.4.x — the `in body` insertion mode drops one LF immediately after a
+  `pre` / `listing` / `textarea` start tag).
+
+  DELIBERATELY A LITERAL, not `rf.ssr.html-helpers/newline-eating-tags`: the
+  model must not read the production roster it is used to check, or a wrong
+  roster would agree with itself. `one-roster-one-rule` pins the production
+  roster against the same literal from the other side."
+  #{"pre" "listing" "textarea"})
+
+(defn- modelled-text-content
+  "MODELS — does not parse — the DOM `textContent` a browser would yield for
+  `html`, a single element whose body is text. Strips the start and end tag,
+  then applies the one HTML5 rule under test: one LF immediately after a
+  `<pre>` / `<listing>` / `<textarea>` start tag is DISCARDED by the tokenizer.
+
+  An assertion over this function is an assertion about the emitted BYTES,
+  re-expressed in the units the authored string is written in. It is NOT an
+  observation of a real DOM node's `textContent`, and it cannot independently
+  establish the tokenizer rule it applies — see the ns docstring."
   [html]
   (let [[_ tag body] (re-matches #"(?s)<([A-Za-z][A-Za-z0-9-]*)[^>]*>(.*)</[A-Za-z][A-Za-z0-9-]*>"
                                  html)
-        _            (assert (some? tag) (str "parse model saw no element: " (pr-str html)))
-        newline-eater? (contains? rf.ssr.html-helpers/newline-eating-tags
+        _            (assert (some? tag) (str "the model saw no element: " (pr-str html)))
+        newline-eater? (contains? html5-newline-eating-elements
                                   (str/lower-case tag))
         parsed       (if (and newline-eater? (str/starts-with? body "\n"))
                        (subs body 1)
                        body)]
     ;; Un-escape the entity forms this emitter produces, so the model reports
-    ;; the DOM text rather than the wire text.
+    ;; the authored text rather than the wire text.
     (-> parsed
         (str/replace "&lt;" "<")
         (str/replace "&gt;" ">")
@@ -74,19 +124,20 @@
         (str/replace "&#39;" "'")
         (str/replace "&amp;" "&"))))
 
-(deftest parse-model-is-itself-exercised
-  ;; The model underwrites every textContent assertion below, so prove it
-  ;; BITES in the direction it is used: it must report the loss on the
-  ;; uncompensated markup, and no loss on a non-newline-eating element.
+(deftest text-content-model-is-itself-exercised
+  ;; The model underwrites every modelled-text-content assertion below, so
+  ;; prove it BITES in the direction it is used: it must report the loss on the
+  ;; uncompensated markup, and no loss on a non-newline-eating element. This is
+  ;; a check on the MODEL, not on a browser — see the ns docstring.
   (testing "an UNCOMPENSATED newline-eating element loses its leading LF"
-    (is (= "code" (parsed-text-content "<pre>\ncode</pre>"))
+    (is (= "code" (modelled-text-content "<pre>\ncode</pre>"))
         "this is the defect rf2-s7l5 repairs, seen through the model"))
   (testing "a COMPENSATED one round-trips"
-    (is (= "\ncode" (parsed-text-content "<pre>\n\ncode</pre>"))))
+    (is (= "\ncode" (modelled-text-content "<pre>\n\ncode</pre>"))))
   (testing "a non-newline-eating element eats nothing"
-    (is (= "\ncode" (parsed-text-content "<div>\ncode</div>"))))
-  (testing "entity forms are read back as DOM text"
-    (is (= "\n<a> & b" (parsed-text-content "<pre>\n\n&lt;a&gt; &amp; b</pre>")))))
+    (is (= "\ncode" (modelled-text-content "<div>\ncode</div>"))))
+  (testing "entity forms are un-escaped by the model"
+    (is (= "\n<a> & b" (modelled-text-content "<pre>\n\n&lt;a&gt; &amp; b</pre>")))))
 
 ;; ---------------------------------------------------------------------------
 ;; The shared rule — one roster, one implementation (acceptance: "share the
@@ -122,25 +173,26 @@
     (let [html (rf.ssr.emit/render-to-string [:pre "\ncode"])]
       (is (= "<pre>\n\ncode</pre>" html)
           "byte parity with react-dom/server 19.2 renderToStaticMarkup")
-      (is (= "\ncode" (parsed-text-content html))
-          "textContent matches the authored string and the client rendering")))
+      (is (= "\ncode" (modelled-text-content html))
+          "the MODELLED text content is the authored string — a model of the
+           tokenizer rule over the emitted bytes, not a parse (ns docstring)")))
   (testing "[:textarea \"\\ntext\"] — the same content loss"
     (let [html (rf.ssr.emit/render-to-string [:textarea "\ntext"])]
       (is (= "<textarea>\n\ntext</textarea>" html))
-      (is (= "\ntext" (parsed-text-content html)))))
+      (is (= "\ntext" (modelled-text-content html)))))
   (testing "<listing> is a newline-eating element too"
     (let [html (rf.ssr.emit/render-to-string [:listing "\nlisted"])]
       (is (= "<listing>\n\nlisted</listing>" html))
-      (is (= "\nlisted" (parsed-text-content html)))))
+      (is (= "\nlisted" (modelled-text-content html)))))
   (testing "every EXTRA authored LF survives (one is eaten, the rest remain)"
     (let [html (rf.ssr.emit/render-to-string [:pre "\n\ncode"])]
       (is (= "<pre>\n\n\ncode</pre>" html))
-      (is (= "\n\ncode" (parsed-text-content html)))))
+      (is (= "\n\ncode" (modelled-text-content html)))))
   (testing "text is still escaped alongside the compensation"
     (let [html (rf.ssr.emit/render-to-string [:pre "\n<a> & b"])]
       (is (= "<pre>\n\n&lt;a&gt; &amp; b</pre>" html))
-      (is (= "\n<a> & b" (parsed-text-content html))
-          "the authored string, escaped on the wire and read back off the DOM")))
+      (is (= "\n<a> & b" (modelled-text-content html))
+          "the authored string, escaped on the wire and un-escaped by the model")))
   (testing "an attrs map does not disturb the rule"
     (is (= "<pre class=\"c\">\n\ncode</pre>"
            (rf.ssr.emit/render-to-string [:pre {:class "c"} "\ncode"]))))
@@ -179,7 +231,7 @@
     ;; RED-BEFORE lever: walk-dom-tag emitted "<pre>\ncode</pre>".
     (let [html (shell [:pre "\ncode"])]
       (is (= "<pre>\n\ncode</pre>" html))
-      (is (= "\ncode" (parsed-text-content html)))))
+      (is (= "\ncode" (modelled-text-content html)))))
   (testing "textarea and listing through the shell walk"
     (is (= "<textarea>\n\ntext</textarea>" (shell [:textarea "\ntext"])))
     (is (= "<listing>\n\nlisted</listing>" (shell [:listing "\nlisted"]))))
