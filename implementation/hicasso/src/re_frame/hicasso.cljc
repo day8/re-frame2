@@ -203,10 +203,18 @@
   The declaration publishes one entry in re-frame's `:view` registrar,
   under `(keyword \"<ns>\" \"<sym>\")` — the id `rf/reg-view` derives
   from its own symbol, one convention for both substrates — carrying the
-  coordinate above and the minted head at `:hicasso/component`. It
-  carries NO `:handler-fn`: a boundary is a React component rather than
-  a hiccup-returning render fn, so `rf/view` answers nil for this entry
-  and its *returns the registered render fn* contract stays honest.
+  coordinate above and the minted head at `:handler-fn` — the ONE
+  executable slot every substrate's `:view` entry uses, so
+  `(rf/view id)` answers this boundary exactly as it answers a Reagent
+  or a UIx head (rf2-kuky.60). What comes back is `identical?` to what
+  the `def` bound: `re-frame.views/view-head` returns a `:view` slot it
+  did not build exactly as stored, so nothing wraps, composes or
+  componentises a boundary that already is a React component. Mount it
+  the way this docstring documents — `[head props]` inside a body,
+  `h/as-element` / `h/as-component` from outside — never as a hiccup
+  render fn in a Reagent tree. Registration is debug-gated, so
+  `(rf/view id)` for a Hicasso view is nil in a release build; that is
+  the documented answer.
 
   **Forward resolution is the whole of it.** The entry exists so that a
   tool holding a keyword the author WROTE — a story naming its subject,

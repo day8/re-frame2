@@ -1208,25 +1208,39 @@
   coordinate map the macro captured (`:ns` / `:file` / `:line` / `:column`
   at the top level, where `(rf/handler-meta :view id)` reads them) plus the
   author's `:doc`; `head` is the minted boundary, stored under
-  `:hicasso/component`. Answers `view-id` (spec/Conventions.md, the
+  `:handler-fn`. Answers `view-id` (spec/Conventions.md, the
   `reg-*` return-value convention).
 
-  The entry is an ALIAS: it carries no `:handler-fn`, so `(rf/view id)`
-  answers nil deliberately — a boundary is a React component, not a
-  render fn — and `:executable-key` names `:hicasso/component` so a
-  reload's `:rf.registry/handler-replaced` reports a real swap rather
-  than an idempotent one. Written through `registrar/register!` rather
-  than `rf/reg-view*`, which always builds a `:handler-fn` wrapper and
-  consults the `:adapter/wrap-view` hook at registration time, which at
-  namespace load precedes `rf/init!`. Dev only: called inside the
-  `defview` expansion's `interop/debug-enabled?` gate, so the call, this
-  fn and the slot leave a production bundle
-  (`error-source-coord-elision-prod-test`). The argument:
+  `:handler-fn` is the ONE executable slot every substrate's `:view`
+  entry uses, so `(rf/view id)` answers this boundary the way it answers
+  a Reagent or a UIx head (rf2-kuky.60). `re-frame.views/view-head`
+  returns a `:view` slot it did not itself build EXACTLY AS STORED — no
+  `compose-view`, no `:adapter/wrap-view`, no componentise — so the head
+  a caller gets back is `identical?` to the one the `def` bound. That
+  pass-through is the whole reason this writes `registrar/register!`
+  directly rather than `rf/reg-view*`: `reg-view*` builds a `:handler-fn`
+  WRAPPER and componentises it, and a Hicasso boundary is already a React
+  component that stamps its own annotations (rf2-c5w1) — routing it
+  through core's pipeline would wrap and double-stamp it. The registrar
+  reads executable identity at `(get metadata (get metadata :executable-key
+  :handler-fn))`, so a head stored under `:handler-fn` needs no
+  `:executable-key` for a reload's `:rf.registry/handler-replaced` to
+  report a real swap.
+
+  MOUNT IT THE WAY `defview` DOCUMENTS: inside a body as `[head props]`,
+  from a foreign React parent via `h/as-component`, from a foreign hiccup
+  parent via `h/as-element`. It is a React component, not a hiccup render
+  fn, so a Reagent story or tool must not splice it into a Reagent tree —
+  the `hicassoBoundary` own-property is the marker that says so.
+
+  Dev only: called inside the `defview` expansion's
+  `interop/debug-enabled?` gate, so the call, this fn and the slot leave
+  a production bundle (`error-source-coord-elision-prod-test`) and
+  `(rf/view id)` for a Hicasso view is nil in a release build — the
+  documented answer, not a defect. The argument:
   docs/design/hicasso/architecture.md, section The collector."
   [view-id slot head]
-  (rf.registrar/register! :view view-id (assoc slot
-                                       :hicasso/component head
-                                       :executable-key    :hicasso/component))
+  (rf.registrar/register! :view view-id (assoc slot :handler-fn head))
   view-id)
 
 ;; ---------------------------------------------------------------------------
