@@ -548,6 +548,16 @@
 (deftest hook-no-provider-with-dynamic-scope-raises-no-frame-context
   (rf.adapter.react-shared-suite/assert-hook-no-provider-with-dynamic-scope-raises-no-frame-context cfg))
 
+;; The SCHEDULING half of the same rule (rf2-kuky.62, merged-PR audit of
+;; #9427). Every row above renders inside `act()`, which runs the body on
+;; the calling stack — the right harness for an adversarial precedence
+;; contest and the wrong one for "the same tree resolves the same frame
+;; under either scheduling mode". This row renders with the act
+;; environment OFF, so the body runs a host task later with the binding
+;; unwound.
+(deftest hook-scheduled-render-after-unwind-reads-context-only
+  (rf.adapter.react-shared-suite/assert-hook-scheduled-render-after-unwind-reads-context-only cfg))
+
 (deftest use-sub-cleanup-decrements-sub-cache-refcount
   (rf.adapter.react-shared-suite/assert-use-sub-cleanup-decrements-refcount cfg))
 

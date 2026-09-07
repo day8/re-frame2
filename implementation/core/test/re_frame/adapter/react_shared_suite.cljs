@@ -4211,6 +4211,17 @@
 ;; frame is deliberately bound live around the render, and in
 ;; `assert-hook-no-provider-with-dynamic-scope-raises-no-frame-context`,
 ;; where the binding IS the adversary.
+;;
+;; AND ONE ROW GOES THE OTHER WAY, because a `binding` cannot reach a
+;; SCHEDULED render at all.
+;; `assert-hook-scheduled-render-after-unwind-reads-context-only` renders
+;; outside `act` and so meets the body one host task later, with every
+;; `binding` unwound — which is the scheduling mode the ruling's design
+;; requirement is stated over and the one no row here could previously
+;; see. It therefore INSTALLS a persistent ambient frame (`set!` on the
+;; root var, the shape the async fixture itself uses) so there is still
+;; something for a dynamic tier to answer with; without one, that row
+;; would pass under either rule and witness nothing.
 ;; ===========================================================================
 
 (defn assert-use-sub-provider-tier-resolution-ambient-cleared
@@ -4446,15 +4457,22 @@
   RETURN is renderer-agnostic and covers both, but only a run under each
   says so.
 
-  Three parts:
+  Four parts, and the two SERVER legs are one hook each because the
+  refusal is raised per hook: `use-sub` and `use-frame` classify the same
+  `useContext` return through the same helper, but each raises under its
+  own `:op`, so a repair that reached only one of them would leave the
+  other answering the dynamically-bound frame on the server. (The
+  `use-frame` server leg was missing until the rf2-kuky.62 merged-PR
+  audit of #9427 noticed part 3 exercised the `use-sub` probe twice.)
 
     1. CLIENT — `use-sub`'s 1-arity, mounted with no provider inside a live
        `binding`. A `:rf.error/no-frame-context` trace fires and nothing is
        observed; in particular the dynamically-bound frame's value is not.
     2. CLIENT — the same for `use-frame`: the hook throws rather than
        handing back an ops bundle locked to the dynamic frame.
-    3. SERVER — `renderToString` with no provider inside the same live
-       binding throws `:rf.error/no-frame-context`.
+    3. SERVER — `renderToString` of the `use-sub` probe with no provider
+       inside the same live binding throws `:rf.error/no-frame-context`.
+    4. SERVER — the same for `use-frame`.
 
   The render throws out of the hook; React funnels that through `act()`, so
   each part tolerates the throw and asserts on the captured trace / the
@@ -4519,7 +4537,7 @@
                     "and handed back no ops bundle at all")
                 (finally
                   (try (.unmount root) (catch :default _ nil))))))
-          (testing "3. SERVER — the same refusal through react-dom/server"
+          (testing "3. SERVER — use-sub's refusal through react-dom/server"
             ;; The server renderer reads the SECONDARY context slot, so this
             ;; is a genuinely different read path, not a repeat of part 1.
             (reset! probe-frame-provider-observed [])
@@ -4529,12 +4547,263 @@
                                 nil
                                 (catch :default e e)))]
               (is (= :rf.error/no-frame-context (:rf.error/id (ex-data thrown)))
-                  "with no boundary above it the ambient hook fails closed on the
-                   server too, live dynamic scope notwithstanding")
+                  (str "with no boundary above it the ambient hook fails closed on
+                        the server too, live dynamic scope notwithstanding. Saw "
+                       (pr-str (ex-data thrown))))
               (is (empty? @probe-frame-provider-observed)
                   "and nothing rendered")))
+          (testing "4. SERVER — use-frame's refusal through react-dom/server"
+            ;; The leg the merged-PR audit of #9427 found missing: part 3
+            ;; rendered the use-sub probe on both of its runs, so the server's
+            ;; SECONDARY slot had never been exercised through `use-frame` at
+            ;; all. The dynamic scope is live and names a REAL, SEEDED frame,
+            ;; so the only reason the hook can refuse is that it declined to
+            ;; consult the dynamic tier.
+            (reset! use-frame-observed [])
+            (let [thrown (binding [rf.frame/*current-frame* dyn-frame]
+                           (try (.renderToString react-dom-server
+                                  (probe-use-frame-element))
+                                nil
+                                (catch :default e e)))]
+              (is (= :rf.error/no-frame-context (:rf.error/id (ex-data thrown)))
+                  (str "use-frame fails closed on the server renderer too, rather
+                        than handing back a bundle locked to the frame the live
+                        with-frame named. Saw " (pr-str (ex-data thrown))))
+              (is (empty? @use-frame-observed)
+                  "and handed back no ops bundle at all")))
           (finally
             (rf.trace.tooling/unregister-listener! lk))))))))
+
+(defn- root-swallowing-uncaught!
+  "A concurrent root whose UNCAUGHT render errors land in `sink` rather
+  than in the host's error reporter.
+
+  Every other refusal row here renders inside `act()`, which rethrows on
+  the calling stack — so a `try` around the render is enough and no root
+  option is needed. A SCHEDULED render has no such stack: the throw
+  surfaces on React's own task, where the page (and therefore the browser
+  runner) would see it as an unhandled error. React 19's `createRoot`
+  option is the supported interception point, and it is used for
+  containment only — the load-bearing signal stays the emitted
+  `:rf.error/no-frame-context` trace, exactly as in the act-driven rows."
+  [sink]
+  (react-dom-client/createRoot
+    (make-mount-node!)
+    #js {:onUncaughtError (fn [e _info] (when (nil? @sink) (reset! sink e)))}))
+
+(defn assert-hook-scheduled-render-after-unwind-reads-context-only
+  "rf2-kuky.62, merged-PR audit of #9427 — THE SCHEDULING WITNESS, and the
+  one shape the rest of this cluster cannot reach.
+
+  Every other row in this section renders inside `act()` — and Hicasso's
+  own rows inside `flushSync` — so the component body runs on the very
+  stack that scheduled it and a `with-frame` around the render really is
+  live while the body runs. That is the right harness for an ADVERSARIAL
+  row, because a dynamic tier can only ever win there. It is the wrong
+  harness for the other half of what rf2-kuky.61 ruled: *the same
+  component tree resolves the same frame under either scheduling mode — a
+  scheduled concurrent render and a synchronous act/flushSync/server
+  render must not disagree*. Until this row, the scheduled half had no
+  witness at all, and the audit said so.
+
+  THE SHAPE. `root.render` is called on a concurrent root with the act
+  environment OFF, so React schedules the work and returns; the body runs
+  on a later host task, by which time the `binding` around the render call
+  has unwound. Four legs, and the first is what makes the other three mean
+  anything:
+
+    1. THAT THE RENDER REALLY DID RUN LATE. Immediately after
+       `root.render` returns — still INSIDE the binding — the probe's
+       observation atom is EMPTY. The body had not run, so everything
+       observed afterwards was observed outside the bound extent. Without
+       this leg the row would be indistinguishable from a synchronous one
+       that happened to pass.
+    2. THE PROVIDER RESULT, on that schedule: `use-sub`'s 1-arity reads
+       the provider's frame, and `use-frame`'s bundle is locked to it.
+    3. THE NO-PROVIDER REFUSAL, on that schedule: the same render with no
+       provider above it raises `:rf.error/no-frame-context`, on both
+       hooks.
+
+  WHY THERE IS A PERSISTENT AMBIENT FRAME, and why it is `set!` and not
+  `binding`. A `binding` cannot survive the hop to a scheduled render —
+  that is the whole point of the row — so a row that used only one would
+  reach the body with NO dynamic frame at all, and legs 2 and 3 would pass
+  under a dynamic-var-FIRST implementation just as readily, saying
+  nothing. A real ambient scope on this schedule is the persistent kind,
+  which is exactly the shape `make-reset-runtime-fixture`'s own async form
+  uses (`set!` on the root var, because its `:before` returns long before
+  an async body resumes). So this row installs one, and it is the
+  adversary: a hook that consulted the dynamic tier would answer
+  `:from-ambient` in leg 2 and would not refuse at all in leg 3.
+
+  THREE FRAMES, so a failure says WHICH tier answered — the provider's
+  (`:from-provider`), the persistent ambient's (`:from-ambient`), and the
+  one the unwound `binding` named (`:from-dynamic`).
+
+  cfg keys:
+    :substrate-kw                   keyword fragment for minted ids
+    :frame-provider-mount-element   thunk (fn [frame-kw child-el])
+    :probe-frame-provider-element   thunk → 1-arg ProbeFrameProvider
+    :probe-frame-provider-observed  atom the probe pushes observed values into
+    :probe-use-frame-element        thunk → the ProbeUseFrame element
+    :use-frame-observed             atom the use-frame probe pushes into
+    :frame-provider-query           query-v keyword the probe subscribes to"
+  [{:keys [name substrate-kw frame-provider-mount-element probe-frame-provider-element
+           probe-frame-provider-observed probe-use-frame-element use-frame-observed
+           frame-provider-query]}]
+  (testing (str name " — a SCHEDULED render reads React context after the scope unwinds (rf2-kuky.62 audit)")
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises the assertion")
+      (async done
+        (let [provider-frame (mint-kw substrate-kw "scheduled-provider-frame")
+              ambient-frame  (mint-kw substrate-kw "scheduled-ambient-frame")
+              scope-frame    (mint-kw substrate-kw "scheduled-scope-frame")
+              bumped         (mint-kw substrate-kw "scheduled-bump")
+              lk             (keyword "re-frame.adapter.react-shared-suite"
+                                      (str "kuky62-scheduled-" (clojure.core/name substrate-kw)))
+              traces         (atom [])
+              no-frame?      (fn [] (some #(= :rf.error/no-frame-context (:operation %)) @traces))
+              act-env-was    (.-IS_REACT_ACT_ENVIRONMENT js/globalThis)
+              ambient-was    rf.frame/*current-frame*
+              roots          (atom [])
+              new-root!      (fn [sink]
+                               (let [r (root-swallowing-uncaught! sink)]
+                                 (swap! roots conj r)
+                                 r))
+              ;; Budget in host macrotask turns. Generous, because the
+              ;; expiry is not silence — `await-settlement!` runs the
+              ;; continuation anyway, so a render that never arrived
+              ;; surfaces as a named failed assertion carrying what the
+              ;; probe did see, rather than as a runner timeout.
+              turns          360
+              finish!        (fn []
+                               (rf.trace.tooling/unregister-listener! lk)
+                               (run! (fn [r] (try (.unmount r) (catch :default _ nil))) @roots)
+                               (set! rf.frame/*current-frame* ambient-was)
+                               (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) act-env-was)
+                               (done))]
+          (rf.trace.tooling/register-listener! lk (fn [ev] (swap! traces conj ev)))
+          ;; No act, and no flushSync anywhere below: `root.render` must be
+          ;; free to SCHEDULE rather than to commit on this stack.
+          (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
+          (rf/make-frame {:id provider-frame :doc "rf2-kuky.62 scheduled-render provider frame"})
+          (rf/make-frame {:id ambient-frame  :doc "rf2-kuky.62 scheduled-render persistent ambient frame"})
+          (rf/make-frame {:id scope-frame    :doc "rf2-kuky.62 scheduled-render with-frame scope frame"})
+          (rf/reg-event ::scheduled-seed (fn [_ [_ v]] {:db {:k v}}))
+          (rf/reg-event bumped (fn [{:keys [db]} _] {:db (assoc db :bumped true)}))
+          (rf/dispatch-sync [::scheduled-seed :from-provider] {:frame provider-frame})
+          (rf/dispatch-sync [::scheduled-seed :from-ambient]  {:frame ambient-frame})
+          (rf/dispatch-sync [::scheduled-seed :from-dynamic]  {:frame scope-frame})
+          (rf/reg-sub frame-provider-query (fn [db _] (:k db)))
+          ;; THE ADVERSARY, installed only now — every `make-frame` above ran
+          ;; before it, so none of them saw a synthetic ambient scope.
+          (set! rf.frame/*current-frame* ambient-frame)
+          (letfn [(leg-4-use-frame-no-provider []
+                    (testing "4. NO PROVIDER, scheduled — use-frame refuses too"
+                      (reset! traces [])
+                      (reset! use-frame-observed [])
+                      (let [sink (atom nil)
+                            root (new-root! sink)]
+                        (binding [rf.frame/*current-frame* scope-frame]
+                          (.render root (probe-use-frame-element))
+                          (is (empty? @use-frame-observed)
+                              "scheduled, not committed: nothing ran inside the bound extent"))
+                        (await-settlement!
+                          (fn [] (or (some? @sink) (no-frame?)))
+                          (fn []
+                            (is (no-frame?)
+                                (str "use-frame refused on the scheduled render as well — "
+                                     "the ops bundle is not a second door onto the dynamic "
+                                     "tier. React surfaced " (pr-str (some-> @sink ex-data))))
+                            (is (empty? @use-frame-observed)
+                                "and handed back no ops bundle at all")
+                            (finish!))
+                          turns))))
+
+                  (leg-3-use-sub-no-provider []
+                    (testing "3. NO PROVIDER, scheduled — use-sub refuses although a real ambient frame is live"
+                      (reset! traces [])
+                      (reset! probe-frame-provider-observed [])
+                      (let [sink (atom nil)
+                            root (new-root! sink)]
+                        (binding [rf.frame/*current-frame* scope-frame]
+                          (.render root (probe-frame-provider-element))
+                          (is (empty? @probe-frame-provider-observed)
+                              "scheduled, not committed: nothing ran inside the bound extent"))
+                        (await-settlement!
+                          (fn [] (or (some? @sink) (no-frame?)))
+                          (fn []
+                            (is (no-frame?)
+                                (str "a :rf.error/no-frame-context trace fired on the SCHEDULED "
+                                     "render — absence of a provider is refused whatever the "
+                                     "dynamic tier says, and here it says " (pr-str ambient-frame)
+                                     ". React surfaced " (pr-str (some-> @sink ex-data))))
+                            (is (not (some #{:from-ambient} @probe-frame-provider-observed))
+                                "and the persistent ambient frame's value was NEVER read — this
+                                 is the leg a dynamic-var tier would pass by answering it")
+                            (is (empty? @probe-frame-provider-observed)
+                                "nothing was observed at all")
+                            (leg-4-use-frame-no-provider))
+                          turns))))
+
+                  (leg-2-use-frame-provider []
+                    (testing "2. PROVIDER present, scheduled — use-frame's bundle is the provider's"
+                      (reset! use-frame-observed [])
+                      (let [root (new-root! (atom nil))]
+                        (binding [rf.frame/*current-frame* scope-frame]
+                          (.render root (frame-provider-mount-element
+                                          provider-frame (probe-use-frame-element)))
+                          (is (empty? @use-frame-observed)
+                              "the body had NOT run when `render` returned inside the binding"))
+                        (await-settlement!
+                          (fn [] (seq @use-frame-observed))
+                          (fn []
+                            (let [ops (peek @use-frame-observed)]
+                              (is (= provider-frame (:frame ops))
+                                  (str "use-frame captured the PROVIDER's frame on a render that "
+                                       "ran after the scope unwound. Observed " (pr-str (:frame ops))))
+                              (when (some? ops)
+                                ((:dispatch-sync ops) [bumped])
+                                (is (true? (:bumped (rf/app-db-value provider-frame)))
+                                    "the dispatch obtained FROM use-frame moved the provider frame")
+                                (is (nil? (:bumped (rf/app-db-value ambient-frame)))
+                                    "and left the persistent ambient frame untouched")
+                                (is (nil? (:bumped (rf/app-db-value scope-frame)))
+                                    "and the frame the unwound with-frame named untouched")))
+                            (leg-3-use-sub-no-provider))
+                          turns))))
+
+                  (leg-1-use-sub-provider []
+                    (testing "1. PROVIDER present, scheduled — use-sub reads it after the scope unwinds"
+                      (reset! probe-frame-provider-observed [])
+                      (let [root (new-root! (atom nil))]
+                        (binding [rf.frame/*current-frame* scope-frame]
+                          (.render root (frame-provider-mount-element
+                                          provider-frame (probe-frame-provider-element)))
+                          ;; THE RECORDING. Nothing has been observed yet, so
+                          ;; every reading below was taken outside the extent
+                          ;; of the binding this line sits inside.
+                          (is (empty? @probe-frame-provider-observed)
+                              "the body had NOT run when `render` returned inside the binding —
+                               React scheduled it, so everything read below was read after the
+                               bound extent"))
+                        (is (= ambient-frame rf.frame/*current-frame*)
+                            "and the bound extent really has unwound: the dynamic tier now names
+                             the persistent ambient frame, not the one the binding named")
+                        (await-settlement!
+                          (fn [] (seq @probe-frame-provider-observed))
+                          (fn []
+                            (is (some #{:from-provider} @probe-frame-provider-observed)
+                                (str "the scheduled render resolved the PROVIDER's frame. Observed "
+                                     (pr-str @probe-frame-provider-observed)))
+                            (is (not (some #{:from-ambient} @probe-frame-provider-observed))
+                                "not the persistent ambient frame — which IS live while the body
+                                 runs, and is what a dynamic-var tier would have answered here")
+                            (is (not (some #{:from-dynamic} @probe-frame-provider-observed))
+                                "and not the frame the unwound binding named")
+                            (leg-2-use-frame-provider))
+                          turns))))]
+            (leg-1-use-sub-provider)))))))
 
 (defn assert-use-sub-cleanup-decrements-refcount
   "rf2-7g959: use-sub pairs subscribe with rf.subs/unsubscribe on
