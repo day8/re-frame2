@@ -36,9 +36,7 @@
   passing the key).
 
   `reason` is the discriminator — `:explicit` for direct-destroy
-  cascades, `:rf.machine/finished` for final-state auto-destroy,
-  `:rf.machine/join-reaped` for a `:spawn-all` join reaping an
-  ALREADY-TERMINAL child at resolution or parent exit (rf2-tj3l6a).
+  cascades, `:rf.machine/finished` for final-state auto-destroy.
 
   Only an `:explicit` destroy is a CANCELLATION of an IN-PROGRESS actor work
   attempt (the actor was torn down before reaching a terminal outcome), so
@@ -56,16 +54,11 @@
   the `cancelled?` gate below avoids):
 
     - `:rf.machine/finished` — the actor already closed its attempt through
-      `finalize-machine`'s `:rf.machine/done` reply.
-    - `:rf.machine/join-reaped` — the child already closed its attempt as a
-      `:spawn-all` join-child completion (`join-child-reply`'s
-      `:completed` / `:failed` terminal for the same canonical
-      `[:rf.work/machine spawned-id invoke-id generation]`); its
-      `:on-child-done` / `:on-child-error` terminal state was NOT `:final?`,
-      so it stays a LIVE actor that the join tears down at resolution or
-      parent exit — but
-      its terminal status is already decided, so re-classifying the teardown
-      as `:cancelled` would emit a SECOND, contradictory terminal (rf2-tj3l6a).
+      `finalize-machine`'s `:rf.machine/done` reply. This covers a `:spawn-all`
+      join child too: completion IS finality, so a child that folded into a
+      join reached a `:final?` state and closed its own attempt on the way
+      out. Only SURVIVORS remain for the join to tear down at resolution, and
+      their teardown is a genuine `:explicit` cancellation.
 
   The public destroyed-trace shape is unchanged."
   [{:keys [frame actor-id system-id parent-id invoke-id child-id reason
@@ -108,21 +101,6 @@
 
   The closed `cause` vocabulary:
 
-    - `:unverified-reap` — a `{:rf/reap true :rf/parent-id p :rf/invoke-id i
-      :rf/child-id c}` reap request whose claim does NOT match the live join
-      state (the named `:spawn-all` join at `[:spawned p i]` does not own
-      `c`, or `c` is not yet in `:done ∪ :failed`). The cancellation-
-      SUPPRESSING `:rf.machine/join-reaped` destroyed reason may only be
-      selected when the runtime can PROVE, against durable join state, that
-      the named actor is the completed / failed child of the named join —
-      an in-progress actor's teardown is always an `:explicit` cancellation.
-
-    - `:unresolved-join` — a reap whose terminal claim the join state DOES
-      substantiate, arriving AHEAD of the join attempt's `:resolved?` latch
-      (rf2-nvxehu). Reaping is a post-resolution act: a non-decisive
-      completed child of a still-waiting `:all` join cannot be reaped early
-      through the public reserved-fx boundary.
-
     - `:slot-shape-mismatch` — a well-formed tracked / spawn-all form whose
       addressed `[:spawned p i]` slot holds the OTHER form's shape
       (rf2-3phait): the tracked single-`:spawn` form resolving a `:spawn-all`
@@ -132,8 +110,8 @@
 
     - `:unknown-shape` — a map matching NONE of the known destroy shapes
       (the keyword `actor-id` form, the tracked `{:rf/parent-id :rf/invoke-id}`
-      `:spawn` exit-cascade form, the `:rf/spawn-all` form, or the verified
-      reap). Notably this is the pre-auth forgery
+      `:spawn` exit-cascade form, or the `:rf/spawn-all` form). Notably this is
+      the pre-auth forgery
       `{:rf/actor-id … :rf/reason …}`, which used to mint a CALLER-chosen
       destroyed reason and thereby suppress the cancellation terminal of an
       in-progress actor at the public reserved-fx boundary — and every

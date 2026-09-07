@@ -300,8 +300,6 @@
      :invoke-id       (:rf/spawn-all-id args)
      :child-id        (:rf/spawn-all-child-id args)
      :spawned-id      spawned-id
-     :done-kw         (get-in join-state [:spec :on-child-done])
-     :error-kw        (get-in join-state [:spec :on-child-error])
      :attempt         (:rf/attempt join-state)
      ;; Exact private work discriminator. The authored fixed-id presence
      ;; is explicit provenance: fixed children use the join attempt even
@@ -319,17 +317,17 @@
   `:spawn-all` child's `:data` under `:rf/join-child` (rf2-nvxehu). It
   carries the exact coordinates of the join ATTEMPT this child instance
   belongs to — the parent/invoke identity, the logical child id, the
-  child's own spawned instance address, the join's completion event
-  keywords, the opaque per-attempt token the seeding `spawn-all-init-fx`
-  minted into the join state, and the canonical private work generation
-  selected from explicit spawn provenance. The child's
-  machine-handler boundary reads it to stamp outbound completion carriers
-  with the exact-attempt coordinate the parent's join interceptor verifies
-  (`join/stamp-join-completion-fx` / `intercept-spawn-all-event`), so a
-  stale completion from a PRIOR attempt / prior actor incarnation can
-  never fold into a successor join, while fixed-vs-generated work provenance
-  never depends on the actor keyword's spelling. Framework-reserved, never
-  application-facing.
+  child's own spawned instance address, the opaque per-attempt token the
+  seeding `spawn-all-init-fx` minted into the join state, and the canonical
+  private work generation selected from explicit spawn provenance.
+
+  The record carries NO completion-event vocabulary: a child completes by
+  entering a `:final?` state, and `lifecycle-fx.finalize` reads this record
+  at that finality to mint the reserved completion carrier the parent's join
+  route verifies (`join/intercept-spawn-done-event`). So a stale completion
+  from a PRIOR attempt / prior actor incarnation can never fold into a
+  successor join, while fixed-vs-generated work provenance never depends on
+  the actor keyword's spelling. Framework-reserved, never application-facing.
 
   Returns nil for non-`:spawn-all` spawns and for a rejected invoke (the
   reject sentinel carries no `:children`).
@@ -1368,9 +1366,10 @@
        ;; `:rf/machine-type`, keeping the admitted child handler-resolvable
        ;; across a mid-drain registrar mutation (rf2-rxjy3).
 
-  Subsequent `:on-child-done` / `:on-child-error` events arrive at the
-  parent's `make-machine-handler` boundary and are intercepted by
-  `intercept-spawn-all-event` (in `lifecycle-fx.join`).
+  Each child's completion is its own `:final?` state: `lifecycle-fx.finalize`
+  mints the reserved `:rf.machine.spawn/done` carrier from the child's
+  `:rf/join-child` record, and the parent's `make-machine-handler` boundary
+  routes it to `intercept-spawn-done-event` (in `lifecycle-fx.join`).
 
   This fx fires FIRST in the entry `:fx` vector — BEFORE the per-child
   `:rf.machine/spawn` fxs — and its PREFLIGHT is the AUTHORITATIVE decision
@@ -1395,8 +1394,8 @@
       resolution, no snapshot, and no application validator — and an
       already-aliased batch must not pay for, nor be pre-empted by, any of them.
    1. **Unregistered child TYPE** (no inline `:definition`) — rf2-qb1j5z. A
-      never-running spec-less child would never dispatch its
-      `:on-child-done`, blocking an `:all` join FOREVER (`join.cljc`
+      never-running spec-less child would never reach a `:final?` state,
+      blocking an `:all` join FOREVER (`join.cljc`
       `(= n-done n-total)` can never hold).
    2. **Spawn-time `[:schemas :data]` rejection** — rf2-7u8gen. Validation
       used to run only inside each per-child spawn, so a mixed
@@ -1425,7 +1424,7 @@
   siblings: this fx is the SOLE emitter for a rejected invoke and emits
   exactly ONE reject per offending child (rf2-smya7a).
   Because the sentinel is childless, no actor is ever spawned to complete:
-  a stray / forged `:on-child-done` hits `join.cljc`'s childless-slot
+  a stray / forged completion hits `join.cljc`'s childless-slot
   guard and is a no-op (no deadlock), and `destroy-spawn-all-children!`
   finds nothing to tear down and clears the sentinel on parent exit.
 

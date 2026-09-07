@@ -49,7 +49,6 @@
             [re-frame.machines.hydrate :as rf.machines.hydrate]
             [re-frame.machines.lifecycle-fx.destroy :as rf.machines.lifecycle-fx.destroy]
             [re-frame.machines.lifecycle-fx.frame-destroy :as rf.machines.lifecycle-fx.frame-destroy]
-            [re-frame.machines.lifecycle-fx.join :as rf.machines.lifecycle-fx.join]
             [re-frame.machines.lifecycle-fx.registration :as rf.machines.lifecycle-fx.registration]
             [re-frame.machines.lifecycle-fx.resolver :as rf.machines.lifecycle-fx.resolver]
             [re-frame.machines.lifecycle-fx.spawn :as rf.machines.lifecycle-fx.spawn]
@@ -375,10 +374,6 @@
   {:doc "Dispatch an event to a spawned actor addressed by `:system-id`. Emit `[:rf.machine/dispatch-to-system [<system-id> <event-vector>]]` from a machine action's `:fx` vector. No-op when the system-id is unbound. The single named-addressing escape (advanced/parity tier); zero in-repo consumers, retained for XState v6 actor-system parity. Per Spec 005 §Cross-machine messaging by name."}
   dispatch-to-system-fx)
 
-(rf.fx/reg-fx :rf.machine/join-dispatch
-  {:doc "Machine-internal (rf2-t154jx): the recordable transport for a `:spawn-all` child's completion carrier. The runtime rewrites a member child's own outbound `:dispatch` / `:dispatch-later` completion into this fx so the exact-attempt coordinate rides the recordable `:rf.cofx` `:rf.machine/join-attempt` fact (surviving strict replay + delayed dispatch), not event metadata. The coordinate is a recordable correlation record, not authentication; the fold gate accepts it only on exact-current equality (rf2-cpbjfp). Reserved / non-overridable / non-redirectable to protect the framework path from capture or suppression; direct app emission is UNSUPPORTED but not security-prohibited. Per Spec 005 §Spawn-and-join via :spawn-all."}
-  rf.machines.lifecycle-fx.join/join-dispatch-fx)
-
 ;; ---- framework-shipped subs -----------------------------------------------
 ;;
 ;; Per Spec 005 §Subscribing to machines via the :rf/machine sub: the
@@ -439,7 +434,6 @@
            [:fx  :rf.machine/after-cancel]
            [:fx  :rf.machine/update-snapshot]
            [:fx  :rf.machine/dispatch-to-system]
-           [:fx  :rf.machine/join-dispatch]
            [:sub :rf/machine]
            [:sub :rf.machine/has-tag?]])))
 
