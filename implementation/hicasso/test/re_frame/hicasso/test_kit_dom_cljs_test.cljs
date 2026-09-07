@@ -77,6 +77,18 @@
                (rf.hicasso.test/canonical-dom
                  (node! "<!-- note --><p id=\"one\" class=\"row\" data-i=\"3\">milk</p>")))))
 
+      (testing "adjacent text nodes are one text run, so a split the DOM
+                happens to carry is not a difference in the page"
+        (let [split (js/document.createElement "div")
+              p     (js/document.createElement "p")]
+          (set! (.-id p) "one")
+          (.setAttribute p "class" "row")
+          (.setAttribute p "data-i" "3")
+          (.appendChild p (js/document.createTextNode "mi"))
+          (.appendChild p (js/document.createTextNode "lk"))
+          (.appendChild split p)
+          (is (= (rf.hicasso.test/canonical-dom a) (rf.hicasso.test/canonical-dom split)))))
+
       (testing "and a value that is not a DOM node refuses rather than
                 serialising to something plausible"
         (let [refused (try (rf.hicasso.test/canonical-dom {:tag :p}) nil
@@ -84,3 +96,58 @@
           (is (= {:rf.error/id :rf.error/hicasso-test-not-a-dom-node
                   :where       're-frame.hicasso.test}
                  (select-keys refused [:rf.error/id :where]))))))))
+
+(deftest data-cannot-imitate-the-serialisers-own-structure
+  ;; rf2-kovp. The sensitivity half above is asserted on ordinary values —
+  ;; `3` against `4`, `milk` against `bread` — and every one of those
+  ;; differs somewhere the serialiser's alphabet is unambiguous. These rows
+  ;; are the case where it is NOT: the page's own data is written in the
+  ;; characters the serialiser reserves for structure, so a comparator that
+  ;; emits data raw declares two visibly different pages equal, and every
+  ;; parity claim taken through it for such a page was vacuous.
+  (if-not (browser?)
+    (skip! ":node-test has no document")
+    (testing "a container whose TEXT reads like markup is not a container
+              holding that markup"
+      (let [literal (js/document.createElement "div")
+            real    (node! "<p>x</p>")]
+        (set! (.-textContent literal) "<p>x</p>")
+        (is (= "<p>x</p>" (.-textContent literal))
+            "the control: the page really is showing those characters to a
+             user, which is ordinary rendered content and not malformed DOM")
+        (is (not= (rf.hicasso.test/canonical-dom literal)
+                  (rf.hicasso.test/canonical-dom real))
+            "two different pages, therefore two different canonical forms")
+        (is (= "&lt;p&gt;x&lt;/p&gt;" (rf.hicasso.test/canonical-dom literal))
+            "and the canonical form is stated, so what the escape produces is
+             pinned rather than merely differing from something")))))
+
+(deftest a-quote-in-an-attribute-value-cannot-become-a-second-attribute
+  ;; rf2-kovp, the same ambiguity through the attribute door: `"` is the
+  ;; serialiser's own value delimiter, so an unescaped one closes the slot
+  ;; and opens what reads as another attribute. A page carrying a handler
+  ;; would compare equal to a page carrying none.
+  (if-not (browser?)
+    (skip! ":node-test has no document")
+    (let [one (js/document.createElement "div")
+          two (js/document.createElement "div")
+          p1  (js/document.createElement "p")
+          p2  (js/document.createElement "p")]
+      (.setAttribute p1 "data-x" "y\" data-z=\"w")
+      (.appendChild one p1)
+      (.setAttribute p2 "data-x" "y")
+      (.setAttribute p2 "data-z" "w")
+      (.appendChild two p2)
+      (testing "one attribute whose value spells two is still one attribute"
+        (is (= 1 (.-length (.-attributes p1))))
+        (is (= 2 (.-length (.-attributes p2))))
+        (is (not= (rf.hicasso.test/canonical-dom one)
+                  (rf.hicasso.test/canonical-dom two))))
+      (testing "and an ampersand a page really shows survives round-distinctly,
+                so the escape is not itself a new collision"
+        (let [amp (js/document.createElement "div")
+              lt  (js/document.createElement "div")]
+          (set! (.-textContent amp) "&lt;")
+          (set! (.-textContent lt) "<")
+          (is (not= (rf.hicasso.test/canonical-dom amp)
+                    (rf.hicasso.test/canonical-dom lt))))))))

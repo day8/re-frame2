@@ -495,6 +495,34 @@
 ;; L1 — the canonical DOM comparator
 ;; ---------------------------------------------------------------------------
 
+(defn- escape-text
+  "A text node's data with the serialiser's structural characters made
+  inert.
+
+  Without this the comparator's alphabet is ambiguous: `<` in DATA and
+  `<` opening an ELEMENT are the same byte, so a container whose text
+  reads `<p>x</p>` serialises exactly as a container holding a real
+  paragraph, and the two pages — one showing literal markup to a user,
+  the other a paragraph — compare EQUAL. `&` goes first, or escaping
+  would be unable to represent a literal `&lt;` the page really shows."
+  [s]
+  (-> (str s)
+      (str/replace "&" "&amp;")
+      (str/replace "<" "&lt;")
+      (str/replace ">" "&gt;")))
+
+(defn- escape-attribute
+  "An attribute value with the structural characters made inert, the
+  double quote among them.
+
+  The quote is this side's own delimiter: a single value of
+  `x\" onclick=\"boom` closes its slot and opens a second attribute, so
+  one attribute impersonates two and a page carrying a handler compares
+  equal to a page carrying none."
+  [s]
+  (-> (escape-text s)
+      (str/replace "\"" "&quot;")))
+
 (defn canonical-dom
   "Serialise a DOM node's subtree with every element's attribute names
   **sorted** — the fairness gate two renderings are compared through.
@@ -506,7 +534,19 @@
   which is the whole reason a comparison needs a canonical form at all.
 
   Extracted from the measurement lane's own gate
-  (`re-frame.bench.hicasso.lane/canonical`), unchanged in behaviour.
+  (`re-frame.bench.hicasso.lane/canonical`), which it now differs from in
+  one respect: **the data a node carries is escaped, so it cannot imitate
+  the serialiser's own structure** (rf2-kovp). A text node reading
+  `<p>x</p>` and a real `<p>` element holding `x` are visibly different
+  pages, and the lane's form emitted the same bytes for both — which made
+  this equality answer *equal* for a wrong page, and a parity assertion
+  taken through it vacuous. `&`, `<` and `>` are entity-escaped in text,
+  and `\"` as well inside an attribute value, where a quote would
+  otherwise split one value into two attributes. Escaping is per
+  character, so the adjacent-text normalisation below is untouched: a
+  text run split across two nodes escapes to exactly what the joined run
+  does.
+
   Comments are dropped; a node kind with no textual form records as
   `#<nodeType>` rather than vanishing.
 
@@ -548,11 +588,11 @@
                                    (map (fn [a] [(.-name a) (.-value a)]))
                                    (sort-by first))]
                     (.push out (str "<" tag))
-                    (doseq [[k v] attrs] (.push out (str " " k "=\"" v "\"")))
+                    (doseq [[k v] attrs] (.push out (str " " k "=\"" (escape-attribute v) "\"")))
                     (.push out ">")
                     (doseq [c (array-seq (.-childNodes n))] (walk c))
                     (.push out (str "</" tag ">")))
-                3 (.push out (.-nodeValue n))
+                3 (.push out (escape-text (.-nodeValue n)))
                 8 nil
                 (.push out (str "#" (.-nodeType n)))))]
       (doseq [c (array-seq (.-childNodes node))] (walk c)))
