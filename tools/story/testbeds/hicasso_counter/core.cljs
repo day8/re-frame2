@@ -68,11 +68,15 @@
   "Register the `:hicasso` render fn with Story. Three decisions ride in
   these lines and each is ruled on rf2-2dbpd:
 
-  - resolve LATE, per render, off `(rf/handler-meta :view id)`, so
-    re-evaluating a `defview` — which replaces the registrar entry behind
-    the same id — reaches the deck with no deck change;
-  - read `:hicasso/component`, because the alias entry deliberately
-    carries no `:handler-fn` and `rf/view` answers nil for it (rf2-5qaf4);
+  - resolve LATE, per render, off `(rf/view id)`, so re-evaluating a
+    `defview` — which replaces the registrar entry behind the same id —
+    reaches the deck with no deck change;
+  - use `rf/view`, the framework's own late-bind lookup, because the
+    alias publishes its minted head at `:handler-fn` like every other
+    substrate's `:view` entry (rf2-kuky.60). This read used to be
+    `(:hicasso/component (rf/handler-meta :view id))`, a private slot a
+    host had to know about, because the entry deliberately carried no
+    `:handler-fn` and `rf/view` answered nil for it (rf2-5qaf4);
   - mint the element with `rf.hicasso/as-element` rather than bridging through
     `rf.hicasso/as-component`. `defview` already mints ONE `React.memo` wrapper per
     head, so a fresh element per pass rides a stable TYPE and the boundary
@@ -80,7 +84,7 @@
   []
   (rf.story/register-substrate! :hicasso
     (fn [_variant-id view-id args]
-      (if-let [head (:hicasso/component (rf/handler-meta :view view-id))]
+      (if-let [head (rf/view view-id)]
         (rf.hicasso/as-element [head args])
         [:div (str ":component " (pr-str view-id)
                    " is not registered as a hicasso view")]))))

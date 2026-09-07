@@ -11,10 +11,11 @@
 
   Each `defview` publishes ONE registrar `:view` entry under
   `(keyword \"hicasso-counter.views\" \"<sym>\")` carrying its minted head
-  at `:hicasso/component` (rf2-5qaf4). A variant in `stories.cljs`
+  at `:handler-fn` (rf2-5qaf4, rf2-kuky.60). A variant in `stories.cljs`
   therefore names `:hicasso-counter.views/tally` exactly as a Reagent
   variant names a `reg-view` id, and the `:hicasso` render fn the shell
-  registers reads the head back out of that slot.
+  registers reads the head back with `rf/view` — the same lookup the
+  `:reagent` substrate uses, on the same key.
 
   ## The `data-test` attributes are the play script's grip, not decoration
 

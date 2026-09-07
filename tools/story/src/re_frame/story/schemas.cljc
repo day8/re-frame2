@@ -307,7 +307,7 @@
   somebody else's — the install is explicit and there is no
   default-adapter registry — and it remains ONE authoring layer either
   way: its views are boundaries minted by `h/defview`, reached through
-  `:hicasso/component` on the view registrar and crossed into with
+  `rf/view` on the view registrar and crossed into with
   `h/as-element`. That is what a member of THIS set names, and it does
   not move when the adapter beneath it does. The two enums now share a
   `hicasso` spelling and still answer different questions, which is
