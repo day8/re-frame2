@@ -48,6 +48,7 @@
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.classification :as rf.classification]
+            [re-frame.privacy :as rf.privacy]
             [re-frame.projection :as rf.projection]
             [re-frame.registrar :as rf.registrar]
             [re-frame.router :as rf.router]
@@ -550,6 +551,71 @@
     (not (vector? (:trigger-event record)))      :missing-trigger-event
     (not (map? (:rf.cofx record)))               :missing-replay-token))
 
+(defn- capture-loss-kind
+  "The kind of capture-time loss `v` is, or nil for an ordinary value:
+
+    :redacted  the `:rf/redacted` sensitive sentinel
+    :elided    a `:rf.size/large-elided` size marker
+
+  Both are framework-reserved substitutions, written by the projection
+  chokepoints in place of a value they would not carry."
+  [v]
+  (cond
+    (= rf.privacy/redacted-sentinel v) :redacted
+    (rf.elision/marker? v)             :elided))
+
+(defn- capture-losses
+  "Every capture-loss substitution inside `v`, as `[{:path <path> :loss <kind>}]`
+  — `path` indexes into `v` the way `get-in` does. A marker is TERMINAL:
+  nothing beneath it is walked, because there is nothing beneath it. Rides the
+  shared map/vec/seq/set walk skeleton, so the coordinates match the ones the
+  projection walkers use; a set member has no coordinate of its own and is
+  reported at its containing path."
+  [v]
+  (let [found (volatile! [])]
+    (rf.elision/walk-tree
+      v []
+      {:decide  (fn [path x]
+                  (if-let [loss (capture-loss-kind x)]
+                    (do (vswap! found conj {:path path :loss loss}) x)
+                    rf.elision/walk-recur))
+       :map-key (fn [path k] (conj path k))
+       :index   (fn [path i] (conj path i))
+       :leaf    (fn [_path x] x)})
+    @found))
+
+(defn- lost-replay-inputs
+  "The capture-time losses in `record`'s REPLAY MATERIAL — the argument-bearing
+  `:trigger-event` and the post-generation `:rf.cofx` token — as a sorted
+  vector of `{:slot :path :loss}`, empty for a record whose inputs are whole.
+
+  Registration classification (`:sensitive` / `:large` on a `reg-event` or
+  `reg-cofx`) is applied at TRACE CAPTURE, in-process and always-on, so a
+  declared argument or fact reaches the RETAINED RAW record already
+  substituted — the raw ring is raw only relative to the later off-box
+  projection. Re-driving such a record would hand the handler the substitution
+  in place of the value the original run consumed: a silent divergence that
+  writes app-db and re-fires external effects with data the run never saw.
+  Tool-Pair §Replay is faithful-or-fail-loud, so this is refused before
+  dispatch (rf2-xlr0).
+
+  The test is the PRESENCE of a reserved substitution, not a lookup of what
+  the registration currently declares. A declaration lookup would fail OPEN on
+  exactly the losses that do not come from one: the unconditional summarisation
+  of framework-owned synthetic payloads, the per-event-id dynamic projectors,
+  and the fail-closed arms that substitute when a frame cannot be resolved. It
+  would also read TODAY's declarations against YESTERDAY's record. A value the
+  application itself spells as one of the reserved substitutions is therefore
+  read as loss — the conservative direction, and the only one compatible with
+  faithful-or-fail-loud."
+  [record]
+  (into []
+        (sort-by (comp pr-str (juxt :slot :path))
+                 (concat (map #(assoc % :slot :trigger-event)
+                              (capture-losses (:trigger-event record)))
+                         (map #(assoc % :slot :rf.cofx)
+                              (capture-losses (:rf.cofx record)))))))
+
 (defn check-replay-preconditions!
   "Validate the preconditions for replaying `frame-id`'s retained epoch
   `epoch-id` through the frame's own handlers. Returns
@@ -568,8 +634,12 @@
     :rf.epoch/replay-non-replayable-record    — `:cause` is `:halted` (with the
                                                 record's `:outcome` /
                                                 `:halt-reason`), `:synthetic`,
-                                                `:missing-trigger-event` or
-                                                `:missing-replay-token`
+                                                `:missing-trigger-event`,
+                                                `:missing-replay-token` or
+                                                `:incomplete-inputs` (capture
+                                                classification substituted part
+                                                of the replay material; `:lost`
+                                                names each slot / path / kind)
     :rf.epoch/replay-unreplayable-fx-override — a recorded `:fx-overrides` entry
                                                 is `:rf/fn-override` (`:fx-ids`)"
   [frame-id epoch-id]
@@ -586,6 +656,7 @@
       (let [history (rf.epoch.state/history-for frame-id)
             epoch   (find-epoch-in history epoch-id)
             cause   (when epoch (non-replayable-cause epoch))
+            lost    (when (and epoch (nil? cause)) (lost-replay-inputs epoch))
             fn-ids  (when epoch (fn-override-fx-ids epoch))]
         (cond
           (nil? epoch)
@@ -599,6 +670,11 @@
            :tags    (cond-> {:cause cause}
                       (= :halted cause) (assoc :outcome     (:outcome epoch)
                                                :halt-reason (:halt-reason epoch)))}
+
+          (seq lost)
+          {:outcome :fail
+           :reason  :rf.epoch/replay-non-replayable-record
+           :tags    {:cause :incomplete-inputs :lost lost}}
 
           (seq fn-ids)
           {:outcome :fail
@@ -635,30 +711,46 @@
   the replayed dispatch recorded:
 
     {:ok? true :frame <id> :source-epoch-id <id> :event-id <kw>
-     :epoch-id <the new record's id, nil if the ring could not retain it>}
+     :epoch-id <the replayed event's own new epoch, nil if the ring could
+                not retain it>}
 
-  `:epoch-id` is the FIRST record the dispatch committed — the replayed
-  event's own epoch (a queued child settles after its parent, so it lands
-  later in the ring). A declared recordable fact ABSENT from the recorded
-  token throws the canonical `:rf.error/missing-required-cofx` out of the
-  dispatch exactly as any `:strict` dispatch does — nothing here catches it,
-  and nothing mints."
+  `:epoch-id` names the epoch the REPLAYED EVENT committed and no other. The
+  identity is taken from COMMIT ORDER — a one-shot observation armed on the
+  frame across the dispatch, filled by the commit funnel with the first epoch
+  committed — and then checked against the ring, so an epoch the ring did not
+  keep reports the documented nil.
+
+  Reading the ring alone cannot answer this (rf2-e0g2). Replay runs against
+  CURRENT state and code (Tool-Pair §Replay), so it may legitimately enqueue
+  work the recorded run did not; a queued child settles AFTER its parent, and
+  at a depth the cascade overruns the child evicts the parent's record. The
+  oldest surviving record of the dispatch is then the CHILD, and returning it
+  would attach the child's operation, state and effects to the parent this
+  response names under `:event-id` — wrong causal evidence handed to a tool
+  that trusts the chain.
+
+  A declared recordable fact ABSENT from the recorded token throws the
+  canonical `:rf.error/missing-required-cofx` out of the dispatch exactly as
+  any `:strict` dispatch does — nothing here catches it, and nothing mints."
   [frame-id record opts]
-  (let [pre-replay-epoch-ids
-        (into #{} (map :epoch-id) (rf.epoch.state/history-for frame-id))]
-    (rf.router/dispatch-sync! (:trigger-event record)
-                           (replay-dispatch-opts frame-id record opts))
-    (let [new-record
-          (some (fn [candidate-record]
-                  (when-not (contains? pre-replay-epoch-ids
-                                       (:epoch-id candidate-record))
-                    candidate-record))
-                (rf.epoch.state/history-for frame-id))]
+  (let [observation  (rf.epoch.state/arm-commit-observation! frame-id)
+        own-epoch-id (volatile! nil)]
+    ;; The take runs in a `finally` so the strict `:rf.error/missing-required-cofx`
+    ;; still propagates unchanged while the armed slot is always disarmed.
+    (try
+      (rf.router/dispatch-sync! (:trigger-event record)
+                                (replay-dispatch-opts frame-id record opts))
+      (finally
+        (vreset! own-epoch-id
+                 (rf.epoch.state/take-observed-commit! frame-id observation))))
+    (let [epoch-id  @own-epoch-id
+          retained? (some? (find-epoch-in (rf.epoch.state/history-for frame-id)
+                                          epoch-id))]
       {:ok?             true
        :frame           frame-id
        :source-epoch-id (:epoch-id record)
        :event-id        (:event-id record)
-       :epoch-id        (:epoch-id new-record)})))
+       :epoch-id        (when retained? epoch-id)})))
 
 ;; ---- write-boundary liveness guard ----------------------------------------
 ;;

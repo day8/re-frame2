@@ -293,6 +293,68 @@
   (swap! histories dissoc frame-id)
   nil)
 
+;; ---- one-shot commit observation ------------------------------------------
+;;
+;; A replay has to report the epoch the REPLAYED event itself committed
+;; (Tool-Pair §Replay). The ring cannot answer that: a queued child settles
+;; AFTER its parent, so at a depth the cascade overruns the child evicts the
+;; parent's record and the oldest surviving record of that dispatch is the
+;; CHILD (rf2-e0g2). Nothing in the retained window distinguishes that case
+;; from the one where the parent survived — the counts are identical when the
+;; cascade commits exactly `depth` records.
+;;
+;; COMMIT ORDER is where the identity is unambiguous, so the caller ARMS a
+;; one-shot slot for its frame and the commit funnel fills it with the FIRST
+;; epoch-id committed for that frame while the arming stands. The slot is
+;; filled at commit, so it names the parent whether or not the ring still
+;; holds it, and the caller then asks the ring — separately — whether that
+;; epoch is retained.
+;;
+;; The arming token keeps a second, concurrent arming honest instead of
+;; silently clobbering: `take-observed-commit!` answers nil for a caller whose
+;; arming was replaced, which is the same "no retained epoch" the documented
+;; nil already means.
+
+(defonce ^:private commit-observations (atom {}))
+
+(defn arm-commit-observation!
+  "Arm a one-shot commit observation for `frame-id`; returns the token to
+  hand back to `take-observed-commit!`. Always pair the two — a caller that
+  arms and does not take leaves a slot the next commit writes into."
+  [frame-id]
+  (let [token #?(:clj (Object.) :cljs (js-obj))]
+    (swap! commit-observations assoc frame-id {:token token})
+    token))
+
+(defn take-observed-commit!
+  "Disarm `frame-id`'s observation and return the FIRST epoch-id committed
+  for it while `token`'s arming stood — nil when nothing committed, or when a
+  later arming replaced this one."
+  [frame-id token]
+  (let [slot (get @commit-observations frame-id)]
+    (when (identical? token (:token slot))
+      (swap! commit-observations dissoc frame-id)
+      (:epoch-id slot))))
+
+(defn- note-commit!
+  "Record `epoch-id` against `frame-id`'s armed observation, once. A no-op
+  when nothing is armed (the ordinary hot path: one map read, no write)."
+  [frame-id epoch-id]
+  (when (and epoch-id (contains? @commit-observations frame-id))
+    (swap! commit-observations
+           (fn [observations]
+             (let [slot (get observations frame-id)]
+               (if (and slot (not (contains? slot :epoch-id)))
+                 (assoc observations frame-id (assoc slot :epoch-id epoch-id))
+                 observations))))
+    nil))
+
+(defn reset-commit-observations!
+  "Drop every armed commit observation (fixture / global history reset)."
+  []
+  (reset! commit-observations {})
+  nil)
+
 (defn- epoch-index
   "Return the index of the record matching `epoch-id` in the `history`
   vector, or nil when absent (evicted, or the epoch never landed). The
@@ -1062,6 +1124,7 @@
   (reset-last-settled-epochs!)
   (reset-mount-attribution!)
   (reset-frame-owners!)
+  (reset-commit-observations!)
   nil)
 
 ;; ---- listener registry ----------------------------------------------------
@@ -1884,7 +1947,12 @@
   `owner-token` still owns the frame's epoch stores. Shares the exact owner
   serialization with claim and terminal cleanup: commit-before-cleanup is
   erased, cleanup-before-commit rejects, and B-before-commit rejects. No
-  callback runs inside this transaction."
+  callback runs inside this transaction.
+
+  The commit observation is filled here rather than in `record!` because it
+  answers \"which epoch did this dispatch commit?\", which is true of a record
+  the ring immediately evicted — and true at depth 0, where `record!` appends
+  nothing at all."
   [frame-id owner-token record]
   (boolean
     (with-frame-owner-lock
@@ -1892,6 +1960,7 @@
         (when (identical? (get @frame-owner-tokens frame-id) owner-token)
           (record! record)
           (set-last-settled-epoch! frame-id (:epoch-id record))
+          (note-commit! frame-id (:epoch-id record))
           true)))))
 
 (defn cleanup-frame-owner!
