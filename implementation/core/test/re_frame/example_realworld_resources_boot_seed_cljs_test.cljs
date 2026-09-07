@@ -270,6 +270,9 @@
           (str "the registration at " path " tolerates absence"))
       (is (true? (m/validate schema nil))
           (str "the registration at " path " really does admit nil")))
-    (is (= #{[:auth] [:auth :login-form] [:auth :register-form] [:settings-form]}
+    (is (= #{[:auth] [:auth :login-form] [:auth :register-form] [:settings-form]
+             [:settings-save-owner]}
            (set (keys app-schema/app-db-schemas)))
-        "the registry still covers exactly the four app-db paths this app owns")))
+        "the registry still covers exactly the five app-db paths this app owns —
+         [:settings-save-owner] is present only while a settings save is on the
+         wire (rf2-2ape), so its `:maybe` is permanent like [:settings-form]'s")))
