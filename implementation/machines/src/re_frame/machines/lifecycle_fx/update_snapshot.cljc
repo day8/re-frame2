@@ -8,11 +8,10 @@
   > `[:rf.machine/update-snapshot {...}]` from inside the callback's
   > `:fx` vector — NOT a return-shape hidden contract.
 
-  Machine callbacks (`:action` / `:entry` / `:exit` / `:on-spawn`) return
+  Machine callbacks (`:action` / `:entry` / `:exit`) return
   only a fresh `:data` map (or a `{:data :fx}` effects map); they cannot
   reach `:state` / `:meta` atomically. This fx is the sanctioned, traced,
-  named alternative to a hidden return-shape contract — `apply-on-spawn`'s
-  docstring (`transition.cljc`) directs callers here, so the fx MUST exist.
+  named alternative to a hidden return-shape contract.
 
   Args shape: `{:rf/machine-id <id> :rf/patch {<snapshot-keys> ...}}`.
   `:rf/machine-id` names the actor whose snapshot at

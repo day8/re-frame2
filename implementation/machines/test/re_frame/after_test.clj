@@ -507,15 +507,10 @@
                            :done    {}}}
           parent {:initial :idle
                   :data    {}
-                  :on-spawn-actions
-                  ;; Advisory observation hook — returns nil (a non-nil
-                  ;; dropped return would warn).
-                  {:rec (fn [{:keys [id]}] (tap> [::spawned id]) nil)}
                   :states
                   {:idle {:on {:go :authenticating}}
                    :authenticating
-                   {:spawn {:machine-id :child/auth
-                             :on-spawn   :rec}
+                   {:spawn {:machine-id :child/auth}
                     :after  {30000 :timed-out}
                     :on    {:auth/succeeded :authenticated}}
                    :authenticated {}

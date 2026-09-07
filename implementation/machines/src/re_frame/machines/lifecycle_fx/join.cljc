@@ -824,8 +824,8 @@
     ;; the operator sees the dead join + the likely fix (declare
     ;; `:on-any-failed`). Advisory severity: the request is not
     ;; recovered, but the actor is not crashed — this is a config
-    ;; footgun nudge, the dev-advisory family (`:on-spawn-return-
-    ;; ignored`, the cofx lints), not an operation-recovery emit.
+    ;; footgun nudge, the dev-advisory family (the cofx lints), not an
+    ;; operation-recovery emit.
     (when (and (not (:resolved? resolution))
                (join-unsatisfiable? spec join-state')
                (not (join-unsatisfiable? spec join-state)))

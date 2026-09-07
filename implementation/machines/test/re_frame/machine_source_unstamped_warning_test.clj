@@ -3,7 +3,7 @@
   (`re-frame.machines.lifecycle-fx.registration/maybe-warn-source-unstamped!`,
   wired into the single registration home). The `reg-machine` macro / the
   `defmachine` def-shape co-locate per-element source (`:source-coords` /
-  `:source-code`) onto each `:guards` / `:actions` / `:on-spawn-actions` entry
+  `:source-code`) onto each `:guards` / `:actions` entry
   and `:states`-tree map node — the surface Xray reads to navigate a live
   snapshot back to the guard / action / state DEFINITION (click-to-source). A
   plain `(def m {…})` + `(reg-machine :id m)` hands the macro only the `m`

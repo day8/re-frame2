@@ -1165,7 +1165,7 @@
 ;;
 ;; The `reg-machine` MACRO walks the literal spec at expansion time and
 ;; co-locates per-element source (`:source-coords` / `:source-code`) onto each
-;; `:guards` / `:actions` / `:on-spawn-actions` entry and each `:states`-tree
+;; `:guards` / `:actions` entry and each `:states`-tree
 ;; map node — the surface Xray's machine panel reads to navigate a live
 ;; snapshot back to the guard / action / state DEFINITION (click-to-source). A
 ;; plain `(def m {…})` + `(reg-machine :id m)` hands the macro only the `m`

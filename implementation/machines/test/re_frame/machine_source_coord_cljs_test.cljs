@@ -2,19 +2,19 @@
   "CLJS coverage for co-located per-element source stamping. Per Spec 005
   §Source-coord stamping the `reg-machine` macro walks the literal spec form
   at expansion time and CO-LOCATES per-element source onto each guard /
-  action / on-spawn-action entry, and CO-LOCATES a reference-site
+  action entry, and CO-LOCATES a reference-site
   `:source-coords` onto each MAP node inside the `:states` tree (state-node /
   transition map) at its spec-path.
 
   The CLJS counterpart of machine_source_coord_test.clj. Per the keyword-
   reference rule the macro captures:
-    - definition sites: each fn literal under :guards / :actions /
-      :on-spawn-actions co-locates :source-coords / :source-code on its
+    - definition sites: each fn literal under :guards / :actions
+      co-locates :source-coords / :source-code on its
       entry — read at (get-in spec [:guards <id> :source-coords])
     - reference sites: each MAP node (state-node, transition map) inside
       :states carries its own :source-coords directly — read at
       (get-in spec [:states :idle :source-coords]) etc. Inline-fn / keyword
-      slots (:entry / :exit / :guard / :action / :on-spawn) hold a value,
+      slots (:entry / :exit / :guard / :action) hold a value,
       not a map, so they carry no coord of their own; a tool reads the
       nearest enclosing map's coord.
 
@@ -43,17 +43,15 @@
 ;; ---- definition-site stamping --------------------------------------------
 
 (deftest reg-machine-stamps-guard-and-action-definitions-cljs
-  (testing "fn literals under :guards / :actions / :on-spawn-actions
+  (testing "fn literals under :guards / :actions
   co-locate their definition coords on each entry"
     (rf/reg-machine :rf2-8bp3/defs
       {:initial :idle
        :guards  {:ok? (fn [_] true)}
        :actions {:do  (fn [_] {})}
-       :on-spawn-actions {:cap (fn [{data :data id :id}] (assoc data :pending id))}
        :states  {:idle {}}})
     (is (some? (element-coords :rf2-8bp3/defs :guards :ok?)))
-    (is (some? (element-coords :rf2-8bp3/defs :actions :do)))
-    (is (some? (element-coords :rf2-8bp3/defs :on-spawn-actions :cap)))))
+    (is (some? (element-coords :rf2-8bp3/defs :actions :do)))))
 
 ;; ---- reference-site stamping (transition / state-node / inline-fn) --------
 

@@ -5,19 +5,14 @@
 ;; :rf.machine/destroy (on exit) fx. Verify:
 ;;
 ;;   1. Entering the :spawn-bearing state emits a :rf.machine/spawn fx
-;;      whose args carry the user-declared :machine-id, :data, :on-spawn,
-;;      and :start keys — AND the runtime-supplied :rf/parent-id +
-;;      :rf/invoke-id used by the runtime spawn-registry slot at
+;;      whose args carry the user-declared :machine-id, :data and :start
+;;      keys — AND the runtime-supplied :rf/parent-id + :rf/invoke-id used
+;;      by the runtime spawn-registry slot at
 ;;      [:rf.runtime/machines :spawned <parent-id> <invoke-id>] (per rf2-t07u Option A
-;;      revised — runtime tracks the spawn-id itself so :on-spawn becomes
-;;      purely advisory user-side bookkeeping).
-;;   2. The :on-spawn callback fires with the unified context-map
-;;      `{:data ... :id <spawned-id>}` per rf2-grw4i / rf2-v0rrr. It is
-;;      purely advisory — the runtime DROPS any return value and the
-;;      parent's :data is NOT mutated by the callback. Users that need
-;;      the id user-side read it from the runtime-tracked
-;;      [:rf.runtime/machines :spawned <parent-id> <invoke-id>] slot or capture it via
-;;      a sidechannel atom.
+;;      revised — the runtime tracks the spawn-id itself).
+;;   2. The transition reducer binds the assigned actor id into the
+;;      parent's :data under the reserved per-invoke map :rf/spawned
+;;      (XState-context parity) — the one id-recording story.
 ;;   3. Exiting the state emits a :rf.machine/destroy fx whose args carry
 ;;      :rf/parent-id + :rf/invoke-id (NOT the actor id directly). The fx
 ;;      handler reads [:rf.runtime/machines :spawned <parent-id> <invoke-id>] from the
@@ -37,10 +32,6 @@
 ;; don't simulate spawn validate (1) and (2) only and report (3) as
 ;; not-exercised.
 ;;
-;; The :on-spawn callback is supplied as a registered :machine-action body so
-;; the host's handler-body DSL can drive it as data — it follows the same
-;; convention as inline actions elsewhere in the corpus.
-;;
 ;; Pure-call machine-transition (the conformance harness's runner) carries
 ;; no parent registration, so :rf/parent-id is the sentinel
 ;; :rf/transition-pure.
@@ -54,7 +45,7 @@
 {:fixture/id           :machine/spawn-on-entry-destroy-on-exit
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/flat :actor/spawn-destroy :actor/declarative-spawn}
- :fixture/doc          "Declarative :spawn on a state node desugars to entry/exit :rf.machine/spawn / :rf.machine/destroy fx at registration time. Verifies that entering the state emits :rf.machine/spawn with the declared spec, the :on-spawn callback updates the parent's :data with the spawned id, and exiting the state emits :rf.machine/destroy with the recorded id."
+ :fixture/doc          "Declarative :spawn on a state node desugars to entry/exit :rf.machine/spawn / :rf.machine/destroy fx at registration time. Verifies that entering the state emits :rf.machine/spawn with the declared spec, the transition reducer binds the spawned id into the parent's :data under :rf/spawned, and exiting the state emits :rf.machine/destroy with the recorded id."
 
  :fixture/registry
  {:machine
@@ -62,11 +53,11 @@
 
  :fixture/calls
  ;; ---- (1) Entering :authenticating: spawn fx is emitted with the
- ;;          declared :machine-id, :data, :on-spawn, and :start.
+ ;;          declared :machine-id, :data and :start.
  ;;
  ;; The transition fires from :idle on [:submit ...]; the entry-cascade for
- ;; :authenticating runs, emitting the auto-spawn fx. The :on-spawn callback
- ;; runs against the spawn's assigned id (host-deterministic in fixtures).
+ ;; :authenticating runs, emitting the auto-spawn fx against the spawn's
+ ;; assigned id (host-deterministic in fixtures).
  [{:call         :machine-transition
    :definition
    {:initial :idle
@@ -78,7 +69,6 @@
      :authenticating
      {:spawn {:machine-id :http/post
                :data       {:url "/api/login" :body {:user "alice" :pass "secret"}}
-               :on-spawn   :auth/record-actor
                :start      [:begin]}
       :on    {:auth/succeeded :authenticated
               :auth/failed    :idle}}
@@ -87,11 +77,10 @@
    :snapshot     {:state :idle :data {:credentials {:user "alice" :pass "secret"}}}
    :event        [:submit]
    ;; After the transition, :authenticating's auto-spawn entry has run.
-   ;; Per rf2-grw4i / rf2-v0rrr the :on-spawn callback is purely advisory
-   ;; — its return value is dropped, so the parent's USER-domain :data is
-   ;; NOT mutated by the callback. Per rf2-rc8wci the RUNTIME binds the
+   ;; Per rf2-rc8wci the RUNTIME binds the
    ;; assigned actor id into the parent's :data under the reserved per-invoke
-   ;; map :rf/spawned (XState-context parity) — {[:authenticating] :http/post#1}.
+   ;; map :rf/spawned (XState-context parity) — {[:authenticating] :http/post#1};
+   ;; the parent's USER-domain :data is untouched.
    ;; The fixture harness assigns the deterministic id :http/post#1 for
    ;; spawn-fx in test mode; an action reads the id from this :data slot (the
    ;; first-class path) — equivalently it remains at the runtime-tracked
@@ -103,7 +92,6 @@
    :expect-effects       [[:rf.machine/spawn {:machine-id    :http/post
                                               :data          {:url "/api/login"
                                                               :body {:user "alice" :pass "secret"}}
-                                              :on-spawn      :auth/record-actor
                                               :start         [:begin]
                                               :id-prefix     :http/post
                                               :rf/spawned-id :http/post#1
@@ -126,7 +114,6 @@
      :authenticating
      {:spawn {:machine-id :http/post
                :data       {:url "/api/login"}
-               :on-spawn   :auth/record-actor
                :start      [:begin]}
       :on    {:auth/succeeded :authenticated
               :auth/failed    :idle}}
@@ -143,18 +130,7 @@
    :expect-effects       [[:rf.machine/destroy {:rf/parent-id :rf/transition-pure
                                                 :rf/invoke-id [:authenticating]}]]}]
 
+ ;; The spawn carries no user callback: the id-recording story is the
+ ;; reducer's `[:data :rf/spawned <invoke-id>]` bind, asserted above.
  :fixture/handlers
- {:machine-action
-  ;; The :on-spawn callback the desugared :entry runs at spawn time.
-  ;; Per rf2-grw4i / rf2-v0rrr the signature is the unified context-map
-  ;; `(fn [{:keys [data id]}] _)` and the return is advisory only — the
-  ;; runtime drops it. The body retains its `:set` op for trace symmetry
-  ;; with regular actions; the harness reduces the body over the
-  ;; synthetic context but the runtime does NOT patch the result back.
-  ;; Authors observing the id from `:data` would read the
-  ;; runtime-tracked `[:rf.runtime/machines :spawned <parent> <invoke-id>]` slot.
-  ;;
-  ;; Per [005 §Path conventions in machine bodies] (rf2-een2 / rf2-smba): the
-  ;; body's :set paths are data-relative — uniform with regular machine
-  ;; actions. The path is [:pending], not [:data :pending].
-  {:auth/record-actor [[:set [:pending] [:event-arg 1]]]}}}
+ {}}

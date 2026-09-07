@@ -28,10 +28,7 @@
                  :states
                  {:idle    {:on {:start :working}}
                   :working {:spawn {:machine-id :worker/proc
-                                     :system-id  :worker
-                                     :on-spawn   :auth/record-actor}}}}}
-  :machine-action
-  {:auth/record-actor {:doc "On-spawn callback — body invokes a :set op for trace symmetry; per rf2-grw4i / rf2-v0rrr the runtime drops the return so the parent's :data is unchanged."}}}
+                                     :system-id  :worker}}}}}}
 
  :fixture/handlers
  {:machine-action

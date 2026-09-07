@@ -98,15 +98,12 @@
     (let [parent-machine
           {:initial :idle
            :data    {:credentials {:user "alice"}}
-           :on-spawn-actions
-           {:rec/store-id (fn [{data :data id :id}] (assoc data :pending id))}
            :states
            {:idle
             {:on {:submit :spawning}}
             :spawning
             {:spawn {:machine-id :child-source/worker
                       :data       {}
-                      :on-spawn   :rec/store-id
                       :start      [:begin]}
              :on    {:done :finished
                      :fail :idle}}
@@ -145,13 +142,10 @@
     (let [parent-machine
           {:initial :idle
            :data    {}
-           :on-spawn-actions
-           {:rec/store-id (fn [{data :data id :id}] (assoc data :pending id))}
            :states
            {:idle     {:on {:submit :spawning}}
             :spawning {:spawn {:machine-id :child-source2/proto
-                                :data       {}
-                                :on-spawn   :rec/store-id}}}}
+                                :data       {}}}}}
           child-machine
           {:initial :ready
            :data    {}

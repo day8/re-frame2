@@ -10,8 +10,7 @@
 
   Concerns covered:
     - `:spawn` spawns child on entry and destroys it on exit; the
-      deterministic actor id is tracked in the runtime spawn-registry slot
-      (the on-spawn callback is advisory — its return is dropped).
+      deterministic actor id is tracked in the runtime spawn-registry slot.
     - `:spawn :data` fn-form materialised at spawn: the spawned
       child receives the result map, not the fn; fn sees the post-action
       snapshot.
@@ -21,8 +20,7 @@
     - `:timeout-ms` on `:spawn` / `:spawn-all` is rejected at registration
       with `:rf.error/spawn-timeout-ms-removed`.
 
-  The on-spawn callback fires inline during `apply-transition-once` (advisory
-  — its return is dropped); the deterministic child id is read back from the
+  The deterministic child id is read back from the
   runtime spawn-registry slot at
   `[:rf.runtime/machines :spawned <parent> <invoke-id>]`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -58,15 +56,6 @@
     (let [machine
           {:initial :idle
            :data    {:credentials {:user "alice" :pass "secret"}}
-           :on-spawn-actions
-           ;; Per Spec 005 §Declarative :spawn: on-spawn callback takes a
-           ;; single context-map. The callback is advisory — its return is
-           ;; DROPPED and the runtime tracks the spawned id at
-           ;; [:rf.runtime/machines :spawned <parent> <invoke-id>]
-           ;; regardless. Returns nil (observational; a non-nil dropped
-           ;; return warns).
-           {:auth/record-actor (fn [{:keys [id]}]
-                                 (js/console.debug "spawned" id) nil)}
            :states
            {:idle
             {:on {:submit :authenticating}}
@@ -75,7 +64,6 @@
             {:spawn {:machine-id :http/post
                       :data       {:url "/api/login"
                                    :body {:user "alice" :pass "secret"}}
-                      :on-spawn   :auth/record-actor
                       :start      [:begin]}
              :on    {:auth/succeeded :authenticated
                      :auth/failed    :idle}}
@@ -93,15 +81,13 @@
       ;; Initial state :idle with the credentials fixture data is
       ;; synthesised on first dispatch; no seed required.
       ;; Entering :authenticating: :rf.machine/spawn fx fires
-      ;; (→ :rf.machine.spawn/spawned trace), :on-spawn callback records the
-      ;; deterministic actor id into :data.:pending.
+      ;; (→ :rf.machine.spawn/spawned trace).
       (rf.trace.tooling/register-listener! ::inv (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:auth3/flow [:submit]])
       (let [s (snapshot :auth3/flow)]
         (is (= :authenticating (:state s)))
-        ;; `:on-spawn` is purely advisory — the runtime tracks the spawned
-        ;; id at [:rf.runtime/machines :spawned <parent> <invoke-id>] instead
-        ;; of relying on the user-supplied callback to write into `:data`.
+        ;; The runtime tracks the spawned id at
+        ;; [:rf.runtime/machines :spawned <parent> <invoke-id>].
         (is (= :http/post#1
                (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                        [:rf.runtime/machines :spawned :auth3/flow [:authenticating]]))
@@ -222,14 +208,10 @@
                             :done    {}}}
           parent {:initial :idle
                   :data    {}
-                  :on-spawn-actions
-                  ;; Advisory observation hook — returns nil.
-                  {:record (fn [{:keys [id]}] (js/console.debug "spawned" id) nil)}
                   :states
                   {:idle {:on {:go :authenticating}}
                    :authenticating
-                   {:spawn {:machine-id :child/auth-after
-                             :on-spawn   :record}
+                   {:spawn {:machine-id :child/auth-after}
                     :after  {30000 :timed-out}
                     :on    {:auth/succeeded :authenticated}}
                    :authenticated {}

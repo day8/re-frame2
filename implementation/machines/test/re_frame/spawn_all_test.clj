@@ -402,7 +402,7 @@
           #"machine-spawn-bad-shape"
           (rf/reg-machine :spawnxor/neither
                           {:initial :working
-                           :states  {:working {:spawn {:on-spawn (fn [_] nil)}}
+                           :states  {:working {:spawn {:start [:begin]}}
                                      :done    {}}}))))
   (testing "a single :spawn declaring BOTH :machine-id AND :definition — rejected (XOR)"
     (is (thrown-with-msg?

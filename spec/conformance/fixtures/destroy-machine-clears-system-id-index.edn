@@ -27,11 +27,8 @@
                  :states
                  {:idle    {:on {:start :working}}
                   :working {:spawn {:machine-id :worker/proc
-                                     :system-id  :worker
-                                     :on-spawn   :auth/record-actor}
-                            :on    {:done :idle}}}}}
-  :machine-action
-  {:auth/record-actor {}}}
+                                     :system-id  :worker}
+                            :on    {:done :idle}}}}}}
 
  :fixture/handlers
  {:machine-action
@@ -47,9 +44,7 @@
 
  :fixture/expect
  ;; Post-destroy: :system-ids slot cleared, worker's snapshot gone,
- ;; only the parent's snapshot (now :idle) remains. Per rf2-grw4i /
- ;; rf2-v0rrr the :on-spawn callback is advisory only — the parent's
- ;; :data is unchanged by the callback's return, so the parent's :data
+ ;; only the parent's snapshot (now :idle) remains. The parent's :data
  ;; remains the literal `{}` it started with.
  {:final-runtime-db {:rf.runtime/machines {:snapshots {:sup/flow {:state :idle :data {}}} :system-ids {}}}
 

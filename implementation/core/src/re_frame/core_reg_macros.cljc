@@ -340,7 +340,7 @@
 ;; The bespoke reg-* form (Spec 005 §Source-coord stamping; rf2-xbtj) —
 ;; doesn't fit the splice-through pattern because the spec form is walked
 ;; at compile time. Per rf2-npvsx the walk produces ONE cohesive map per
-;; guard / action / on-spawn-action — `:guards {<id> {:fn .. :source-coords
+;; guard / action — `:guards {<id> {:fn .. :source-coords
 ;; .. :source-code ..}}` — and per rf2-vqja2 it CO-LOCATES a reference-site
 ;; `:source-coords` onto each MAP node inside the `:states` tree (state-node
 ;; / transition map) at its spec path, rather than building a flat
@@ -353,7 +353,7 @@
    (def ^:private machine-element-slots
      "The machine-spec slots whose `{<id> <fn>}` values are co-located into
      `{<id> {:fn .. :source-coords .. :source-code ..}}` per rf2-npvsx."
-     [:guards :actions :on-spawn-actions]))
+     [:guards :actions]))
 
 #?(:clj
    (defn stamp-machine-spec-expr
@@ -364,7 +364,7 @@
      <prod>)` expression.
 
      Per rf2-npvsx the two arms CO-LOCATE per-element source onto each
-     `:guards` / `:actions` / `:on-spawn-actions` entry, and per rf2-vqja2
+     `:guards` / `:actions` entry, and per rf2-vqja2
      they CO-LOCATE a reference-site `:source-coords` onto each MAP node
      inside the `:states` tree — rather than building the old
      `:rf.machine/source-coords` / `:rf.machine/handler-source` /
@@ -475,7 +475,7 @@
      gate so the dev-only source DCEs under :advanced + `goog.DEBUG=false`.
 
      The DEV arm co-locates `{:fn .. :source-coords .. :source-code ..}`
-     onto each `:guards` / `:actions` / `:on-spawn-actions` entry of the
+     onto each `:guards` / `:actions` entry of the
      spec, which `reg-machine*` stores under `:rf/machine` in the machine's
      `:event` registration. Tooling reads `(rf/handler-meta {:source :store :kind :machine-guard :id [machine-id guard-id]})`, which DERIVES the fn-source on demand from
      that `:event` spec (rf2-ftrcv, supersedes rf2-npvsx — no registrar
@@ -543,8 +543,8 @@
      "Build the expansion form for a `defmachine` macro call (rf2-gwj8l).
      `(defmachine name spec)` expands to a `(def name <stamped-spec>)`
      where the literal spec is walked at expansion time and per-element
-     source is co-located onto each `:guards` / `:actions` /
-     `:on-spawn-actions` entry (plus a reference-site `:source-coords`
+     source is co-located onto each `:guards` / `:actions` entry
+     (plus a reference-site `:source-coords`
      co-located onto each `:states`-tree map node per rf2-vqja2), gated on
      `interop/debug-enabled?` so the dev-only source DCEs under
      `:advanced + goog.DEBUG=false`.

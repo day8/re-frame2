@@ -21,10 +21,7 @@
                  :data    {}
                  :states
                  {:idle    {:on {:start :working}}
-                  :working {:spawn {:machine-id :worker/proc
-                                     :on-spawn   :auth/record-actor}}}}}
-  :machine-action
-  {:auth/record-actor {}}}
+                  :working {:spawn {:machine-id :worker/proc}}}}}}
 
  :fixture/handlers
  {:machine-action
