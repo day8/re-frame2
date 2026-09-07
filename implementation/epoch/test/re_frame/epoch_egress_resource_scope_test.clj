@@ -17,7 +17,7 @@
   tool-pair consults from `omit-off-box-resource-scope-values`. This test proves
   the WIRING fires end-to-end: with resources loaded, `projected-record` redacts
   the resolver values for the off-box default, and the trusted-local
-  `:include-sensitive?` opt-in lifts the redaction (the `local-raw` boundary).
+  `:rf.size/include-sensitive?` opt-in lifts the redaction (the `local-raw` boundary).
 
   resources is a TEST-ONLY dep here (production epoch never deps resources; the
   hook is nil-safe when absent — proven by the `epoch_egress_trace_events_test`

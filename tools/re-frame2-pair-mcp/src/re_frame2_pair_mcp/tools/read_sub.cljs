@@ -134,7 +134,7 @@
                    (args/parse-bool-arg raw-args :include-sensitive)
                    false)
         ;; `elision-opts-edn` takes walker-aligned `include-large?` — MCP
-        ;; `elision` true = emit markers = `:include-large?` false.
+        ;; `elision` true = emit markers = `:rf.size/include-large?` false.
         elision-opts (elision/elision-opts-edn (not elision?) incl?)
         ;; Fail-CLOSED: walk UNLESS the caller opted into
         ;; both raw axes (`:elision false` AND `:include-sensitive true`).

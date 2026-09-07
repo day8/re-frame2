@@ -66,6 +66,7 @@
   capture site consults — any of the three operations targeting the
   frame is a captured failure (spec/009 §Error contract)."
   (:require [re-frame.elision :as rf.elision]
+            [re-frame.privacy :as rf.privacy]
             ;; The canonical RAW trace-event frame reader
             ;; (`re-frame.trace/trace-event-frame`) — read the raw event's
             ;; frame through it, not a hand-rolled `[:tags :frame]` walk.
@@ -103,9 +104,14 @@
   "Project an `ex-data` map through `re-frame.elision/elide-wire-value`
   keyed on `frame-id`, so author-keyed slots sourced from path-marked
   app-db paths record `:rf/redacted` rather than the raw value
-  (spec/002 §Error projection §Privacy). Tolerant
-  (record-don't-throw): any elision error returns the raw value
-  unchanged so redaction failure never breaks error recording.
+  (spec/002 §Error projection §Privacy). Record-don't-throw, but
+  FAIL CLOSED (rf2-kuky.6): an elision error yields the
+  `:rf/redacted` sentinel, never the raw `data`. This catch used to
+  return `data` — harmless while the walker could not reject an opts
+  map, and a LEAK the moment it could: once the egress opts map is
+  closed, a stale or misspelled key here becomes a throw, and a throw
+  that returns `data` ships the unprojected `ex-data`. Redaction
+  failure still never breaks error recording.
 
   Elision is FRAME-SCOPED. It applies only when a `frame-id` is in
   hand — that is the variant-frame assertion-record path, the only one
@@ -122,7 +128,7 @@
     data
     (try
       (rf.elision/elide-wire-value data {:frame frame-id})
-      (catch #?(:clj Throwable :cljs :default) _ data))))
+      (catch #?(:clj Throwable :cljs :default) _ rf.privacy/redacted-sentinel))))
 
 (defn throwable->error-map
   "Project a (possibly nil) Throwable into the canonical

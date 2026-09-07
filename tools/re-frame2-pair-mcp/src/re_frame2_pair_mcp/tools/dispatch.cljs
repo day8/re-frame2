@@ -405,7 +405,7 @@
         ;; `incl?` (gate-ON + `:include-sensitive true`) does NOT bypass
         ;; the epoch projection: the `:trace` / `:settle` epoch ALWAYS
         ;; routes through `projected-record`, and `incl?` threads
-        ;; `{:include-sensitive? true}` INTO it (app-db sensitive axis
+        ;; `{:rf.size/include-sensitive? true}` INTO it (app-db sensitive axis
         ;; only). The orthogonal fx-args / runtime-db / large axes and the
         ;; app `:redact-fn` stay fail-closed regardless of
         ;; `:include-sensitive` (Security.md §Off-box egress).
@@ -416,7 +416,7 @@
         ;; STRING `"false"`, which is truthy in CLJS — a bare `boolean`
         ;; would coerce a caller's explicit `include-sensitive "false"`
         ;; to TRUE under `--allow-sensitive-reads`, threading
-        ;; `{:include-sensitive? true}` into `projected-record` and
+        ;; `{:rf.size/include-sensitive? true}` into `projected-record` and
         ;; lifting the app-db sensitive axis the operator just declined.
         ;; `parse-bool-arg` reads `"false"`/`"no"`/`"0"` as false (and
         ;; defaults absent/unrecognised to the table's `false`), so the

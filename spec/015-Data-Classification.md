@@ -223,10 +223,12 @@ The framework — never the author, never a sink — projects a value or record 
 (rf/elide-wire-value app-db-slice
   {:frame :app/main
    :path  [:auth]
-   :rf.egress/profile :rf.egress/off-box-tool})
+   :rf.size/include-digests? true})
 ```
 
 It reads the per-frame registry by path: every classified leaf under a declared sensitive path becomes `:rf/redacted`; every classified leaf under a declared large path becomes the `:rf.size/large-elided` marker. The advanced override layer is the boolean flags under `:rf.size/*` (`:rf.size/include-sensitive?` / `:rf.size/include-large?` / `:rf.size/include-digests?`). `elide-wire-value` knows nothing about record shapes; it is the primitive `project-egress` delegates to, and sinks / tools should rarely call it directly.
+
+Its `opts` map is **closed**: `:frame`, `:path`, `:query-v`, `:as-of-epoch` and the four `:rf.size/*` overrides, and nothing else. A **`:rf.egress/profile` does not belong here** — a profile names a *boundary*, and `project-egress` is what resolves one (to exactly these `:rf.size/*` flags) before delegating down. Passing one to the walker raises `:rf.error/bad-egress-opts` naming the key, as does any other unrecognised key, including the unqualified `include-sensitive?` / `include-large?` spellings. Closing the map cannot widen egress — an unknown key was a silent no-op before it, and the silence was the defect.
 
 ### `project-egress` — the record-level boundary primitive
 

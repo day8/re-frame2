@@ -199,7 +199,8 @@ Tools that forward epoch records across a process boundary must route through th
   - **Profiles** (the primary `:rf.egress/profile` selector — *"which boundary is this?"*):
     - `:rf.egress/off-box-observability` (DEFAULT) — for hosted monitoring, log shippers, Story, and pair recorders. Redacts sensitive paths, elides large ones, and omits structural digests.
     - `:rf.egress/off-box-tool` — the MCP / AI / tool wire. Same redact/elide defaults, but includes structural marker indicators (`:digest`) so a tool can reason about an elided large slot's shape. An unknown profile is rejected against the closed enum.
-  - The advanced per-call `:include-*` overrides (`:include-sensitive?` / `:include-large?` / `:include-runtime-db?` / `:include-fx-args?` / `:include-event-args?`, all default `false`) compose over the selected profile.
+  - The advanced per-call inclusion overrides (`:rf.size/include-sensitive?` / `:rf.size/include-large?` / `:include-runtime-db?` / `:include-fx-args?` / `:include-event-args?`, all default `false`) compose over the selected profile. The two app-db axes take the `:rf.size/*` spelling every egress door reads; the three epoch-local knobs are bare because they are different keyspaces, not app-db axes.
+  - `opts` is a **closed** map — those five plus `:rf.egress/profile`. Any other key throws `:rf.error/bad-egress-opts` naming it, the unqualified `include-sensitive?` / `include-large?` spellings included.
 
 ```clojure
 ;; Project an epoch record before forwarding it off-box (fully redacted).

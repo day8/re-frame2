@@ -279,7 +279,7 @@
     - READS call it at OFF-BOX EGRESS
       (`trace_egress/redact-reply-declarations`, rf2-ko5lm), and must not call
       it at the source: the app's own `:reply-to` handler is entitled to the
-      decoded body and the trusted-local `:include-sensitive?` opt-in must still
+      decoded body and the trusted-local `:rf.size/include-sensitive?` opt-in must still
       show it. There it composes with the coarse `whole-entry-disposition` arm,
       which reads the root prop a read owner CAN declare.
 

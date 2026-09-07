@@ -3102,7 +3102,7 @@
      `:rf.size/large-elided`. A hostile per-call opt-in cannot ship raw
      when the operator did not pass `--allow-sensitive-reads`.
    - Gate ON (`:allow-raw-state? true`): `elide-opts` carries the caller's
-     per-call posture. `:include-sensitive? true` (the operator's explicit
+     per-call posture. `:rf.size/include-sensitive? true` (the operator's explicit
      opt-in) passes declared-sensitive slots through verbatim; absent /
      false still elides. `elide-opts` `nil` ⇒ gate-OFF-equivalent
      fail-closed defaults so a bare REPL caller is never less safe than

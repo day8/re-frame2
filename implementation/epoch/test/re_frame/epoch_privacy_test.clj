@@ -10,7 +10,7 @@
        single normative projection emission site for off-box egress.
        Routes :db-before / :db-after / :trigger-event / :trace-events
        through elide-wire-value with off-box defaults
-       (:include-sensitive? false, :include-large? false).
+       (:rf.size/include-sensitive? false, :rf.size/include-large? false).
 
     3. Listener fan-out delivers RAW records by default — silent
        projection would break Xray's diff visualiser and on-box
@@ -323,7 +323,7 @@
             exact value (Xray diff / restore-epoch! need it), but the
             off-box `projected-record` / `projected-history` egress
             boundary MUST substitute a `:rf.size/large-elided` marker for
-            those value slots under the `:include-large? false` default —
+            those value slots under the `:rf.size/include-large? false` default —
             otherwise a bulky derived value escapes the projection
             contract (the pre-fix leak). The non-value row metadata
             (`:sub-id`, `:query-v`, `:value-changed?`, `:cascade?`) is
@@ -419,9 +419,9 @@
         (is (rf.elision/marker? (:rf.sub/value
                                (tags-of (last (rf.epoch/projected-history :test/main)))))
             "projected-history elides the trace-tag twin too")
-        (let [lifted (tags-of (rf.epoch/projected-record raw {:include-large? true}))]
+        (let [lifted (tags-of (rf.epoch/projected-record raw {:rf.size/include-large? true}))]
           (is (= 50000 (count (:rf.sub/value lifted)))
-              "NEGATIVE CONTROL — :include-large? true returns the raw value to
+              "NEGATIVE CONTROL — :rf.size/include-large? true returns the raw value to
                the tag, so the default elision is classification-driven"))))))
 
 (deftest projected-record-bookkeeping-passes-through
@@ -684,7 +684,7 @@
   (testing "rf2-nm611o: the trusted-local :include-event-args? true opt-in
             keeps the RAW event args off-box (a developer's own Xray panel
             inspecting their own running app). It is ORTHOGONAL to the
-            app-db :include-sensitive? / :include-large? opt-ins — those do
+            app-db :rf.size/include-sensitive? / :rf.size/include-large? opt-ins — those do
             NOT lift it; only :include-event-args? does."
     (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
@@ -699,11 +699,11 @@
       ;; Orthogonality: the app-db sensitive/large opt-ins do NOT lift the
       ;; event-args redaction (event args are a different keyspace).
       (is (= [:login :rf/redacted]
-             (:trigger-event (rf.epoch/projected-record raw {:include-sensitive? true})))
-          ":include-sensitive? does NOT lift the trigger-event-args redaction")
+             (:trigger-event (rf.epoch/projected-record raw {:rf.size/include-sensitive? true})))
+          ":rf.size/include-sensitive? does NOT lift the trigger-event-args redaction")
       (is (= [:login :rf/redacted]
-             (:trigger-event (rf.epoch/projected-record raw {:include-large? true})))
-          ":include-large? does NOT lift the trigger-event-args redaction"))))
+             (:trigger-event (rf.epoch/projected-record raw {:rf.size/include-large? true})))
+          ":rf.size/include-large? does NOT lift the trigger-event-args redaction"))))
 
 (deftest projected-record-trigger-event-redaction-idempotent
   (testing "rf2-nm611o: re-projecting an already-projected record leaves

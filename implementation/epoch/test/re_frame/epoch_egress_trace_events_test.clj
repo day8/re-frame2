@@ -463,16 +463,16 @@
            already redacted on-box, non-sensitive structure preserved)"))))
 
 (deftest off-box-include-sensitive-lifts-omission
-  (testing "rf2-t55hxg.6 — a trusted-local :include-sensitive? opt-in lifts
+  (testing "rf2-t55hxg.6 — a trusted-local :rf.size/include-sensitive? opt-in lifts
             the off-box omission (the local-raw boundary): the unschematized
             body rides for the trusted operator who opted sensitive back in"
     (rf/make-frame {:id :test/http})
     (let [body      {:token http-body-secret :user-id 42}
           record    (http-record :test/http :rf.http/replied :value body :omit)
-          projected (rf.epoch/projected-record record {:include-sensitive? true})
+          projected (rf.epoch/projected-record record {:rf.size/include-sensitive? true})
           ev        (first (:trace-events projected))]
       (is (= body (get-in ev [:tags :value]))
-          "with :include-sensitive? true the body is NOT omitted (lifted)"))))
+          "with :rf.size/include-sensitive? true the body is NOT omitted (lifted)"))))
 
 (deftest on-box-raw-body-preserved-on-ring
   (testing "rf2-t55hxg.6 — the ON-BOX ring record is NOT projected: the raw
@@ -507,7 +507,7 @@
 ;; and the `:rf.http/retry-attempt` trace whose intermediate failure body
 ;; nests at `[:failure :body]`. The emit site always stamps `:omit` for these
 ;; (the raw body is unschematized) so the off-box projector omits the slot,
-;; lifted only by the trusted-local `:include-sensitive?` opt-in. On-box stays
+;; lifted only by the trusted-local `:rf.size/include-sensitive?` opt-in. On-box stays
 ;; raw.
 ;; ---------------------------------------------------------------------------
 
@@ -581,15 +581,15 @@
           "no token re-leaks via the nested retry-attempt failure body"))))
 
 (deftest off-box-include-sensitive-lifts-raw-error-body-omission
-  (testing "rf2-t55hxg.10 — a trusted-local :include-sensitive? opt-in lifts
+  (testing "rf2-t55hxg.10 — a trusted-local :rf.size/include-sensitive? opt-in lifts
             the off-box omission of a raw error body (the local-raw boundary)"
     (rf/make-frame {:id :test/http})
     (let [body      (str "raw error " http-body-secret)
           record    (http-record :test/http :rf.http/http-5xx :body body :omit)
-          projected (rf.epoch/projected-record record {:include-sensitive? true})
+          projected (rf.epoch/projected-record record {:rf.size/include-sensitive? true})
           ev        (first (:trace-events projected))]
       (is (= body (get-in ev [:tags :body]))
-          "with :include-sensitive? true the raw error body is NOT omitted"))))
+          "with :rf.size/include-sensitive? true the raw error body is NOT omitted"))))
 
 (deftest on-box-raw-error-body-preserved-on-ring
   (testing "rf2-t55hxg.10 — the ON-BOX ring record is NOT projected: the raw

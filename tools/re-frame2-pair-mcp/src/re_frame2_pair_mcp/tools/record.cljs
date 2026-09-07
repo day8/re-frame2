@@ -290,7 +290,7 @@
                       (args/parse-bool-arg raw-args :include-sensitive)
                       false)
         ;; Polarity — MCP `elision` true = emit markers =
-        ;; `:include-large?` false, hence `(not elision?)`.
+        ;; `:rf.size/include-large?` false, hence `(not elision?)`.
         elision-opts (elision/elision-opts-edn (not elision?) incl?)]
     (cond
       (or (nil? signals) (empty? signals))

@@ -784,9 +784,12 @@ fn — `day8.re-frame2-xray.egress/egress-value` — BEFORE it reaches the
 sink. That fn is a thin wrapper over the framework's normative
 wire-elision walker (`re-frame.core/elide-wire-value`) with the off-box
 defaults BAKED IN, so the shortest call is the safe one (rf2-rcogp):
-`:include-sensitive?` and `:include-large?` both default `false`, a
-frame-declared sensitive slot egresses as `:rf/redacted`, and a large
-slot as the `:rf.size/large-elided` marker.
+`:rf.size/include-sensitive?` and `:rf.size/include-large?` both default
+`false`, a frame-declared sensitive slot egresses as `:rf/redacted`, and
+a large slot as the `:rf.size/large-elided` marker. Those two opts read
+in the unqualified spelling until rf2-kuky.6; they are now the same
+`:rf.size/*` vocabulary every other egress door takes, so a caller that
+knows one door knows them all.
 
 Static Machines' `Copy Mermaid` action also writes to the system
 clipboard, and is deliberately NOT in the table above: `mermaid/emit`
@@ -797,8 +800,8 @@ so it is not a value-egress site and rides
 
 **The affordance exposes no raw-value opt-in.** Xray's copy path is
 ALWAYS the redacted, size-elided projection — there is no
-`{:include-sensitive? true}` gesture reachable from the UI, and any
-future affordance inherits that.
+`{:rf.size/include-sensitive? true}` gesture reachable from the UI, and
+any future affordance inherits that.
 
 The egress is pinned to the frame being INSPECTED, not the frame the
 affordance dispatches in. The palette resolves and validates the focused

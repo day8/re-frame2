@@ -178,6 +178,15 @@
 ;; `:as-of-epoch`) flow through to `elide-wire-value` untouched.
 ;; ---------------------------------------------------------------------------
 
+(def project-egress-opt-keys
+  "The CLOSED key set `project-egress` accepts (rf2-kuky.6): the walker's
+  own closed set plus the ONE key this layer owns — `:rf.egress/profile`,
+  which resolves here and never reaches the walker.
+
+  Derived from `re-frame.elision/walker-opt-keys` rather than re-spelled,
+  so the two doors cannot drift into disagreeing about the vocabulary."
+  (conj rf.elision/walker-opt-keys :rf.egress/profile))
+
 (def ^:private size-override-keys
   "The `:rf.size/*` boolean keys a profile resolves but a caller may
   explicitly override (the override wins). `:rf.size/threshold-bytes` is
@@ -575,11 +584,13 @@
   `:rf.size/include-sensitive? true`) the tree passes through verbatim — the one
   deliberate way to ship a frameless tree raw.
 
-  `opts` is a map:
+  `opts` is a CLOSED map (`project-egress-opt-keys` — the walker's closed
+  set plus the one key this layer owns):
 
       {:rf.egress/profile <one of `profiles`>   ;; the named boundary
        :frame             <frame-id>            ;; whose classification applies (override; else the record's own :frame)
        :path              [...]                 ;; offset for a bare-value walk
+       :query-v           [...]                 ;; route-sub re-seeding (pass-through)
        :rf.size/include-sensitive? <bool>       ;; explicit override (wins)
        :rf.size/include-large?     <bool>
        :rf.size/include-digests?   <bool>
@@ -589,7 +600,11 @@
   Composition (EP-0015 §10): the profile's `:rf.size/*` opt-set is the
   floor; any `:rf.size/*` boolean the caller passes explicitly overlays it
   (the override wins). An unknown `:rf.egress/profile` throws
-  `:rf.error/unknown-egress-profile` — the enum is closed.
+  `:rf.error/unknown-egress-profile` — the enum is closed. An unrecognised
+  OPTS KEY throws `:rf.error/bad-egress-opts` naming it — the vocabulary is
+  closed too, so an unqualified inclusion axis or any other misspelling
+  is a loud error rather than a policy that silently did not apply
+  (rf2-kuky.6).
 
   Frame resolution (EP-0015) — three steps, each decided by KEY PRESENCE
   rather than truthiness:
@@ -624,6 +639,12 @@
   Per [Spec 015 §`project-egress`](../../../../../spec/015-Data-Classification.md#project-egress--the-record-level-boundary-primitive)."
   ([record-or-value] (project-egress record-or-value nil))
   ([record-or-value opts]
+   ;; CLOSED opts (rf2-kuky.6). Graded HERE rather than left to the walker
+   ;; downstream: a record kind whose slots are all event-shaped or
+   ;; summary-only never reaches `elide-wire-value`, so a stray key on such
+   ;; a call would slip through unread. One guard at the door means every
+   ;; `:rf.observe/*` kind and the kindless value path answer identically.
+   (rf.elision/assert-egress-opts! 'rf/project-egress project-egress-opt-keys opts)
    ;; Frame ownership, by KEY PRESENCE at every step (rf2-kuky.5):
    ;;   1. an explicit `:frame` key in `opts` wins, `nil` INCLUDED;
    ;;   2. else a RECOGNISED record's own `:frame` slot, `nil` included —
