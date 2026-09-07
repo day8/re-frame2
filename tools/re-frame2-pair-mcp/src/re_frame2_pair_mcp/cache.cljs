@@ -239,6 +239,16 @@
   (swap! state update :order touch k)
   (get-in @state [:entries k]))
 
+(defn forget!
+  "Drop the entry for `k` — both the entry and its LRU slot. The inverse
+  of [[store!]], for the case where the payload whose hash was recorded
+  never reached the caller."
+  [k]
+  (swap! state
+         (fn [{:keys [entries order]}]
+           {:entries (dissoc entries k)
+            :order   (filterv #(not= % k) order)})))
+
 (defn size
   "Current number of cached entries — exposed for tests and for the
   health surface."
@@ -331,6 +341,32 @@
         (do (store! k (cond-> {:hash h :sent-at now :tool tool}
                         (some? precheck-hash) (assoc :precheck-hash precheck-hash)))
             result-js)))))
+
+(defn withhold!
+  "Undo the identity [[apply-cache]] just recorded, because the payload it
+  hashed was never delivered to the caller (rf2-gov3).
+
+  A `:rf.mcp/cache-hit` is an instruction: *re-use the response you
+  already have*. `apply-cache` runs BEFORE the wire cap, so on a miss it
+  stores the full response's hash and `:sent-at` and then the cap can
+  replace that response with `:rf.mcp/overflow` — a payload the caller
+  never saw. The next identical read matched the stored hash and was told
+  to re-use bytes that were never sent, and the actionable size-limit
+  diagnosis was erased on every repeat.
+
+  Dropping the candidate entry is the narrow repair: the fast
+  hit-before-cap path is untouched for genuinely delivered responses (an
+  under-cap payload leaves its entry standing), and no overflow marker is
+  ever cached as if it were the source payload. The whole entry goes,
+  `:precheck-hash` included — that hash short-circuits a future call to
+  the very same cache-hit marker, so retaining it would reopen the same
+  false claim through the pre-eval door.
+
+  Takes the same `cache-opts` map `apply-cache` does. A no-op when the
+  cache is off or the tool is not cacheable, since nothing was stored."
+  [{:keys [tool args enabled? build]}]
+  (when (and enabled? (cacheable? tool))
+    (forget! (cache-key tool args build))))
 
 ;; ---------------------------------------------------------------------------
 ;; Precheck — decide cache-hit BEFORE running the tool.

@@ -262,9 +262,21 @@
 (defn- apply-cap-step
   "Step 3 — wire-boundary token-budget enforcement. When
   `:result` exceeds the per-call cap, replaces it with the
-  `:rf.mcp/overflow` marker."
-  [{:keys [result cap-opts] :as ctx}]
-  (assoc ctx :result (cap/apply-cap result cap-opts)))
+  `:rf.mcp/overflow` marker.
+
+  A replaced payload was NOT delivered, so the identity step 2 recorded
+  for it cannot underwrite a future `:rf.mcp/cache-hit` — that marker
+  tells the caller to re-use bytes it would never have received, and it
+  also erases the actionable overflow diagnosis on every repeat of the
+  same oversized read. So the cap withdraws the candidate entry here
+  (rf2-gov3). Only the withheld case pays anything: `apply-cap` returns
+  the identical result object when the payload fits, and a delivered
+  payload keeps its entry and the fast hit-before-cap path with it."
+  [{:keys [result cap-opts cache-opts] :as ctx}]
+  (let [capped (cap/apply-cap result cap-opts)]
+    (when-not (identical? capped result)
+      (cache/withhold! cache-opts))
+    (assoc ctx :result capped)))
 
 (defn- isError? [result-js]
   (and (some? result-js)
@@ -290,7 +302,9 @@
   Cache before cap is the right order: a cache hit emits a sub-100-
   byte marker that's trivially under any reasonable cap, so flipping
   the order would never change behaviour but would waste a token
-  walk on the hit path.
+  walk on the hit path. The cost of that order is that step 2 records
+  an identity for a payload step 3 may withhold, which `apply-cap-step`
+  settles by withdrawing that entry (rf2-gov3) — see its docstring.
 
   `:skip-when?` is the per-step skip predicate: when it returns true the
   step is skipped and the chain continues to the next step's own
