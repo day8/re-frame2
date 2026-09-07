@@ -35,7 +35,21 @@
   it: `rf/init!` installs only when NO adapter is seated, so in a shared
   runtime the first suite to call it wins and every later `init!` is a
   silent no-op. A test that quietly ran on plain-atom while claiming to
-  exercise SSR would be green for the wrong reason."
+  exercise SSR would be green for the wrong reason.
+
+  ## This namespace also runs under the PRODUCTION gate
+
+  `scripts/test-ssr-prod-gate.sh` re-runs this artefact under
+  `-Dre-frame.debug=false`, and its roster is an EXCLUSION list — a new
+  namespace joins that lane BY DEFAULT. So every assertion here must hold
+  with the dev-only surfaces compiled out, and `clojure -M:test` passing
+  is only half the evidence. The one thing that bit: a descriptor's
+  `:doc` is pure documentation and is stripped before storage under the
+  gate (Spec 001 §Production elision contract), so the divergence between
+  the two images is discriminated by RUNNING the resolved `:handler-fn`
+  rather than by reading a doc string off it. Everything else these tests
+  assert on — a head model, an `:rf.error/*` id, a public error's
+  `:status` — is always-on by contract."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.source-store :as rf.source-store]
@@ -105,13 +119,28 @@
            (set (keys (rf.source-store/descriptors-for :head rf.ssr.head-image-alpha/head-id))))))
 
   (testing "each frame's OWN generation resolves to its OWN image's body —
-            this is the answer the head query has to match"
-    (let [alpha-frame (frame-selecting! "re-frame.ssr.head-image-alpha" {:marker "A"})
-          beta-frame  (frame-selecting! "re-frame.ssr.head-image-beta" {:marker "B"})]
-      (is (= "ALPHA's body for the shared head id."
-             (:doc (rf/handler-meta {:frame alpha-frame :kind :head :id rf.ssr.head-image-alpha/head-id}))))
-      (is (= "BETA's body for the shared head id."
-             (:doc (rf/handler-meta {:frame beta-frame :kind :head :id rf.ssr.head-image-alpha/head-id})))))))
+            this is the answer the head query has to match.
+
+            Discriminated by RUNNING the resolved `:handler-fn`, not by
+            reading a `:doc` off the descriptor. `:doc` is a
+            pure-documentation key that `registrar/strip-pure-documentation`
+            drops BEFORE the metadata is stored when `debug-enabled?` is
+            false (Spec 001 §Production elision contract), so a `:doc`
+            assertion passes in the ordinary lane and reads nil under
+            `scripts/test-ssr-prod-gate.sh` — which is where this one was
+            caught, and the same trap `ssr_head_test`'s docstring records
+            for `reg-head-accepts-metadata-arity`. The handler fn is the
+            executable and is never stripped; it is also the thing this
+            test is actually about, so the elision-proof assertion is the
+            more direct one."
+    (let [alpha-frame  (frame-selecting! "re-frame.ssr.head-image-alpha" {:marker "A"})
+          beta-frame   (frame-selecting! "re-frame.ssr.head-image-beta" {:marker "B"})
+          head-fn-for  (fn [frame]
+                         (:handler-fn (rf/handler-meta {:frame frame
+                                                        :kind  :head
+                                                        :id    rf.ssr.head-image-alpha/head-id})))]
+      (is (= {:title "alpha:probe"} ((head-fn-for alpha-frame) {:marker "probe"} nil)))
+      (is (= {:title "beta:probe"}  ((head-fn-for beta-frame)  {:marker "probe"} nil))))))
 
 ;; ---------------------------------------------------------------------------
 ;; render-head
