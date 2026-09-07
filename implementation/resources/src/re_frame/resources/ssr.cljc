@@ -140,10 +140,12 @@
 ;;     `project-entry-data` for `:data`, and `project-entry-scope` /
 ;;     `project-entry-params` for the scoped key's two classification-bearing
 ;;     components (indices 0 and 2 of `:resource/key`). The per-slot
-;;     `:sensitive?` / `:large?` props on a co-present `:data-schema` /
-;;     `:params-schema` do NOT drive durable egress classification — the schema
-;;     VALIDATES, it does not classify (rf2-fuqcob); a schema mark serves only
-;;     validation-failure-trace redaction (EP-0025).
+;;     `:sensitive?` / `:large?` props on a co-present `:params-schema` do NOT
+;;     drive durable egress classification — the schema VALIDATES, it does not
+;;     classify (rf2-fuqcob); a schema mark serves only validation-failure-trace
+;;     redaction (EP-0025). A co-present `:data-schema` drives NEITHER axis: it
+;;     is a statically reflected shape fact with NO runtime validation consumer,
+;;     so it reaches no validator and therefore no failure trace.
 ;;
 ;; A `:sensitive?` (or `:large?`) resource must NOT ship its data verbatim
 ;; onto the wire — every visitor of every SSR page would otherwise receive

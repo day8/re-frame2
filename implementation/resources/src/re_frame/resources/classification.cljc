@@ -347,16 +347,22 @@
 ;; ---------------------------------------------------------------------------
 ;; Schemas validate; they do NOT classify durably.
 ;;
-;; A resource's `:data-schema` / `:params-schema` (and, for an infinite feed,
-;; the per-page validation supplied on the request's `:decode`)
+;; A resource's `:params-schema` (and, for an infinite feed, the per-page
+;; validation supplied on the request's `:decode`)
 ;; VALIDATES the value; it does NOT drive DURABLE egress classification. The
 ;; per-slot `:sensitive?` / `:large?` schema props survive ONLY for
 ;; VALIDATION-FAILURE-TRACE redaction (the validator's own transient egress
-;; product — `redact-invalid-params-error`, via the shared
-;; `:schemas/redact-validation-tags` seam) — NOT as a route into durable resource
+;; product — `redact-invalid-params-error`, which binds the spec's
+;; `:params-schema`, via the shared `:schemas/redact-validation-tags` seam) —
+;; NOT as a route into durable resource
 ;; data / params / scope classification (Spec 015 §Schemas describe shape, not
-;; durable egress policy). The SINGLE durable classification surface is the
-;; projection-relative `:sensitive` / `:large` path declarations on the spec
+;; durable egress policy). A resource's `:data-schema` drives NEITHER axis: it
+;; is a statically reflected shape fact with NO runtime validation consumer
+;; (surfaced as the process-node `:schema` by `re-frame.resources.tooling`), so
+;; it reaches no validator and therefore no failure trace — runtime shape-
+;; validation of a response rides the request's `:decode` instead
+;; (Spec 016 §Optional v1 keys). The SINGLE durable classification surface is
+;; the projection-relative `:sensitive` / `:large` path declarations on the spec
 ;; (`spec-declaration-marks`), LOWERED per instance into the per-frame elision
 ;; registry (`reconcile-registry`, the lowering section below) — one name per
 ;; fact, read back at egress through the SAME registry the routing / machines
