@@ -2,7 +2,7 @@
 
 SSR has two halves: a **per-request server frame** that renders body + head to a string, and a **client bootstrap** that hydrates from the server-supplied payload. This leaf is the authoring surface for the **two registration channels SSR apps own**: (a) `reg-head` plus its query helpers, which turn `<title>`/`<meta>`/`<link>`/JSON-LD into pure data-from-app-db; and (b) the `:rf.ssr/check-version` + `:rf.ssr/check-schema-digest` fxs that a `:rf/hydrate` handler dispatches to detect deploy drift between the rendering server and the bundled client. Both ship in `day8/re-frame2-ssr`; the schema-digest check resolves its client-side value through an optional-artefact late-bind hook (`:schemas/app-schemas-digest`), while the version check reads the SSR artefact's own compiled-in `pattern-protocol-version` constant (no hook). Both are pre-baked into the runtime's default `:rf/hydrate` handler so most apps inherit them for free.
 
-**Namespace aliases used below.** `rf/` is `re-frame.core`, which carries the `reg-head` REGISTRAR and nothing else of SSR's head surface. `ssr/` is `[re-frame.ssr :as ssr]` and `head/` is `[re-frame.ssr.head :as head]` — the head READS live there, not on the façade (rf2-kuky.44: requiring `re-frame.ssr` is what installs SSR, so there is nothing for a façade copy to guard against).
+**Namespace aliases used below.** `rf/` is `re-frame.core`, which carries the `reg-head` REGISTRAR and nothing else of SSR's head surface. `ssr/` is `[re-frame.ssr :as ssr]` and `head/` is `[re-frame.ssr.head :as head]` — the head READS live there, not on the façade, because requiring `re-frame.ssr` is what installs SSR and there is nothing for a façade copy to guard against (spec/API.md §SSR).
 
 ## When to load
 
