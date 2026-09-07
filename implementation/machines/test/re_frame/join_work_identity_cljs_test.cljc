@@ -11,8 +11,6 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.interop :as rf.interop]
-   [re-frame.late-bind :as rf.late-bind]
    [re-frame.machines]
    [re-frame.machines.reply :as rf.machines.reply]
    [re-frame.machines.test-support :as rf.machines.test-support]
@@ -25,28 +23,28 @@
        :cljs {:adapter rf.adapter.reagent/adapter}))
   rf.machines.test-support/trace-capture-fixture)
 
-(defn- dispatching-child [parent-id]
+(defn- completing-child
+  "A join child that completes the ONE way every machine completes: `:go`
+  reaches the top-level `:final?` leaf `:done`, `:fail` the `:error? true` leaf
+  `:failed`. It names no parent and no completion event — the runtime's finalize
+  cascade mints the carrier, reading the exact-attempt coordinate off the
+  child's own `:rf/join-child` record. That record IS the provenance this file
+  is about, so it now reaches the fold by the same route the runtime uses."
+  []
   {:initial :running
    :data    {:id nil}
    :actions {:remember-id (fn [{data :data event :event}]
-                            {:data (assoc data :id (second event))})
-             :complete    (fn [{data :data}]
-                            {:fx [[:dispatch
-                                   [parent-id [:child/done (:id data)]]]]})
-             :fail        (fn [{data :data}]
-                            {:fx [[:dispatch
-                                   [parent-id [:child/error (:id data)
-                                               :child-failed]]]]})}
+                            {:data (assoc data :id (second event))})}
    :states  {:running {:on {:set-id {:action :remember-id}
-                            :go     {:target :done :action :complete}
-                            :fail   {:target :failed :action :fail}}}
-             :done    {}
-             :failed  {}}})
+                            :go     {:target :done}
+                            :fail   {:target :failed}}}
+             :done    {:final? true :output-key :id}
+             :failed  {:final? true :error? true :output-key :id}}})
 
 (defn- register-fixed-parent!
   [parent-id child-a-type child-b-type fixed-a fixed-b join]
-  (rf/reg-machine child-a-type (dispatching-child parent-id))
-  (rf/reg-machine child-b-type (dispatching-child parent-id))
+  (rf/reg-machine child-a-type (completing-child))
+  (rf/reg-machine child-b-type (completing-child))
   (rf/reg-machine
     parent-id
     {:initial :idle
@@ -85,7 +83,7 @@
   [parent-id child-a-type child-b-type fixed-a fixed-b join
    child-a-machine]
   (rf/reg-machine child-a-type child-a-machine)
-  (rf/reg-machine child-b-type (dispatching-child parent-id))
+  (rf/reg-machine child-b-type (completing-child))
   (rf/reg-machine
     parent-id
     {:initial :idle
@@ -109,35 +107,6 @@
                     :abort :idle}}}})
   (rf/dispatch-sync [parent-id [:start]]))
 
-(defn- delayed-completion-child [parent-id]
-  {:initial :running
-   :data {:id nil}
-   :actions {:remember-id (fn [{data :data event :event}]
-                            {:data (assoc data :id (second event))})
-             :complete-later
-             (fn [{data :data}]
-               {:fx [[:dispatch-later
-                      {:ms 0
-                       :event [parent-id [:child/done (:id data)]]}]]})}
-   :states {:running {:on {:set-id {:action :remember-id}
-                           :later {:target :waiting
-                                   :action :complete-later}}}
-            :waiting {}}})
-
-(defn- completion-then-destroy-child [parent-id actor-id]
-  {:initial :running
-   :data {:id nil}
-   :actions {:remember-id (fn [{data :data event :event}]
-                            {:data (assoc data :id (second event))})
-             :complete-then-destroy
-             (fn [{data :data}]
-               {:fx [[:dispatch [parent-id [:child/done (:id data)]]]
-                     [:rf.machine/destroy actor-id]]})}
-   :states {:running {:on {:set-id {:action :remember-id}
-                           :go {:target :done
-                                :action :complete-then-destroy}}}
-            :done {}}})
-
 (defn- join-state [parent-id]
   (get-in (rf.machines.test-support/runtime-db)
           [:rf.runtime/machines :spawned parent-id [:racing]]))
@@ -160,22 +129,24 @@
               (filter #{:completed :failed :cancelled}))
         (rf.machines.test-support/captured-events)))
 
-(defn- forged-completion! [parent-id auth]
-  ;; The coordinate rides the recordable `:rf.cofx` slot (rf2-nsbwft) —
-  ;; the one coordinate slot the parent reads; the metadata slot is not read.
-  (rf/dispatch-sync
-    [parent-id [:child/done (:child-id auth)]]
-    {:rf.cofx {:rf.machine/join-attempt auth}}))
+(defn- forged-completion!
+  "Hand-dispatch the reserved completion carrier
+  `[<parent> [:rf.machine.spawn/done <invoke-id> <completion>]]` that
+  `lifecycle-fx.finalize` mints at a child's finality, carrying `auth` — a
+  `:rf/join-child` membership record read off a live child's snapshot — as the
+  exact-attempt coordinate.
 
-(defn- capture-dispatch! [sink f]
-  (let [real (rf.late-bind/get-fn :router/dispatch!)]
-    (try
-      (rf.late-bind/set-fn! :router/dispatch!
-                         (fn [event opts]
-                           (swap! sink conj [event opts])))
-      (f)
-      (finally
-        (rf.late-bind/set-fn! :router/dispatch! real)))))
+  The coordinate rides IN THE CARRIER, which is the only slot the fold reads.
+  Hand-authoring the carrier is how this file drives the duplicate / late /
+  superseded arrivals the runtime itself would never re-mint: read `auth` while
+  the child is alive, then deliver it after its attempt has closed."
+  [parent-id auth]
+  (rf/dispatch-sync
+    [parent-id [:rf.machine.spawn/done (:invoke-id auth)
+                (assoc (select-keys auth [:parent-id :invoke-id :child-id
+                                          :spawned-id :attempt :work-generation])
+                       :result (:child-id auth)
+                       :error? false)]]))
 
 (deftest numeric-tail-fixed-id-uses-runtime-attempt-not-keyword-spelling
   (testing "sequential attempts at a fixed address ending in #7 get distinct work ids"
@@ -241,118 +212,119 @@
               "the successor's generated policy cannot parse the old fixed name"))))))
 
 (deftest pre-resolution-exit-does-not-cancel-an-already-folded-child
-  (testing "a non-decisive completion stays the sole terminal when the parent exits"
+  (testing "a non-decisive completion stays A's ONLY outcome when the parent exits"
     (register-fixed-parent! :jwi/exit-parent
                             :jwi/exit-a-type :jwi/exit-b-type
                             :jwi/exit-fixed-a :jwi/exit-fixed-b :all)
     (let [attempt (:rf/attempt (join-state :jwi/exit-parent))
           work-a  [:rf.work/machine :jwi/exit-fixed-a [:racing] attempt]
           work-b  [:rf.work/machine :jwi/exit-fixed-b [:racing] attempt]]
-      ;; A folds successfully but is non-decisive for :all. Exiting before B
-      ;; reports must tear A down as post-terminal cleanup and cancel only B.
+      ;; A completes and folds, non-decisively for :all — and, completion being
+      ;; finality, destroys ITSELF on the way out. Exiting before B reports must
+      ;; therefore find nothing of A left to cancel, and cancel only B.
       (rf/dispatch-sync [:jwi/exit-fixed-a [:go]])
       (rf/dispatch-sync [:jwi/exit-parent [:abort]])
-      (is (= [:completed] (terminal-statuses-for work-a))
-          "A has exactly one terminal: its accepted completion")
+      ;; Two agreeing rows on A's work-id: its own finality reply and the join's
+      ;; non-decisive fold. The parent's exit adds no third, contradictory one.
+      (is (= [:completed :completed] (terminal-statuses-for work-a))
+          "A's terminals all agree on :completed — the exit adds no cancellation")
       (is (= [:cancelled] (terminal-statuses-for work-b))
           "the still-running sibling is cancelled exactly once")
-      (is (= :rf.machine/join-reaped
+      (is (= :rf.machine/finished
              (->> (events-of :rf.machine/destroyed)
                   (filter #(= :jwi/exit-fixed-a (get-in % [:tags :actor-id])))
                   first :tags :reason))
-          "A's physical teardown is classified as post-terminal cleanup"))))
+          "A's physical teardown is its OWN finality, not a parent-exit cancellation"))))
 
-(deftest imperative-destroy-of-a-done-folded-child-is-post-terminal-cleanup
-  (testing "an unresolved :all join folds A's done completion before destroy"
+(deftest imperative-destroy-of-a-done-folded-child-adds-no-terminal
+  (testing "an unresolved :all join has folded A's done completion, and an
+            imperative destroy of that already-finished address adds nothing"
     (register-imperative-destroy-parent!
       :jwi/direct-done-parent :jwi/direct-done-a-type :jwi/direct-done-b-type
       :jwi/direct-done-a#7 :jwi/direct-done-b :all
-      (dispatching-child :jwi/direct-done-parent))
+      (completing-child))
     (let [attempt (:rf/attempt (join-state :jwi/direct-done-parent))
           work-a  [:rf.work/machine :jwi/direct-done-a#7 [:racing] attempt]]
       (rf/dispatch-sync [:jwi/direct-done-a#7 [:go]])
       (is (= #{:a} (:done (join-state :jwi/direct-done-parent))))
       (is (false? (:resolved? (join-state :jwi/direct-done-parent))))
+      ;; A destroyed itself at finality, so this imperative destroy names a dead
+      ;; address — a silent idempotent no-op, never a late cancellation.
       (rf/dispatch-sync [:jwi/direct-done-parent [:destroy-a]])
-      (is (= [:completed] (terminal-statuses-for work-a))
+      (is (= [:completed :completed] (terminal-statuses-for work-a))
           "imperative teardown cannot add cancelled after accepted done")
-      (is (= :rf.machine/join-reaped
-             (-> (events-of :rf.machine/destroyed) first :tags :reason))))))
+      (is (= [:rf.machine/finished]
+             (mapv #(get-in % [:tags :reason])
+                   (filter #(= :jwi/direct-done-a#7 (get-in % [:tags :actor-id]))
+                           (events-of :rf.machine/destroyed))))
+          "exactly one destroyed trace for A, its own finality"))))
 
-(deftest imperative-destroy-of-a-failed-folded-child-is-post-terminal-cleanup
-  (testing "an unresolved :any join folds A's failed completion before destroy"
+(deftest imperative-destroy-of-a-failed-folded-child-adds-no-terminal
+  (testing "an unresolved :any join has folded A's failed completion, and an
+            imperative destroy of that already-finished address adds nothing"
     (register-imperative-destroy-parent!
       :jwi/direct-failed-parent
       :jwi/direct-failed-a-type :jwi/direct-failed-b-type
       :jwi/direct-failed-a#7 :jwi/direct-failed-b :any
-      (dispatching-child :jwi/direct-failed-parent))
+      (completing-child))
     (let [attempt (:rf/attempt (join-state :jwi/direct-failed-parent))
           work-a  [:rf.work/machine :jwi/direct-failed-a#7 [:racing] attempt]]
       (rf/dispatch-sync [:jwi/direct-failed-a#7 [:fail]])
       (is (= #{:a} (:failed (join-state :jwi/direct-failed-parent))))
       (is (false? (:resolved? (join-state :jwi/direct-failed-parent))))
       (rf/dispatch-sync [:jwi/direct-failed-parent [:destroy-a]])
-      (is (= [:failed] (terminal-statuses-for work-a))
+      (is (= [:failed :failed] (terminal-statuses-for work-a))
           "imperative teardown cannot add cancelled after accepted failure")
-      (is (= :rf.machine/join-reaped
-             (-> (events-of :rf.machine/destroyed) first :tags :reason))))))
+      (is (= [:rf.machine/finished]
+             (mapv #(get-in % [:tags :reason])
+                   (filter #(= :jwi/direct-failed-a#7 (get-in % [:tags :actor-id]))
+                           (events-of :rf.machine/destroyed))))
+          "exactly one destroyed trace for A, its own finality"))))
 
-(deftest delayed-completion-after-explicit-cancellation-cannot-fold
-  (testing "a delayed exact-attempt carrier is suppressed after its attempt closes"
-    (let [callback (atom nil)
-          pending  (atom [])]
-      (with-redefs [rf.interop/set-timeout! (fn [f _ms]
-                                          (reset! callback f)
-                                          ::timer)
-                    rf.interop/clear-timeout! (fn [_] nil)]
-        (register-imperative-destroy-parent!
-          :jwi/delayed-cancel-parent
-          :jwi/delayed-cancel-a-type :jwi/delayed-cancel-b-type
-          :jwi/delayed-cancel-a#7 :jwi/delayed-cancel-b :all
-          (delayed-completion-child :jwi/delayed-cancel-parent))
-        (let [attempt (:rf/attempt (join-state :jwi/delayed-cancel-parent))
-              work-a  [:rf.work/machine :jwi/delayed-cancel-a#7
-                       [:racing] attempt]]
-          (rf/dispatch-sync [:jwi/delayed-cancel-a#7 [:later]])
-          (is (some? @callback))
-          (is (= #{} (:done (join-state :jwi/delayed-cancel-parent))))
-          ;; Let the host timer fire but hold its recordable router delivery.
-          ;; The resulting pending event already carries exact join auth.
-          (capture-dispatch! pending #(@callback))
-          (is (= 1 (count @pending)))
-          (rf/dispatch-sync [:jwi/delayed-cancel-parent [:destroy-a]])
-          (is (= [:cancelled] (terminal-statuses-for work-a)))
-          (let [[event opts] (first @pending)]
-            (rf/dispatch-sync event opts))
-          (is (= #{} (:done (join-state :jwi/delayed-cancel-parent)))
-              "the exact-current late carrier cannot fold")
-          (is (= #{:a} (:cancelled (join-state :jwi/delayed-cancel-parent))))
-          (is (= [:cancelled] (terminal-statuses-for work-a))
-              "cancellation remains the attempt's sole terminal")
-          (is (= :rf.machine.spawn-all/duplicate-completion
-                 (-> (events-of :rf.machine.spawn-all/stale-completion)
-                     first :tags :rf.reply/stale-reason))))))))
+;; These two arcs used to be two tests, separated only by HOW a child-authored
+;; completion got held back until after its attempt closed: `:dispatch-later`
+;; through a stubbed host timer, and a same-fx queue behind the child's own
+;; `[:rf.machine/destroy …]`. Neither delivery route survives the child-
+;; completion protocol — the child authors no completion at all, and the carrier
+;; the runtime mints at finality is dispatched from inside finalize — so the two
+;; fixtures collapse into the one arc that is still constructible and is what
+;; both were really pinning: a carrier that was EXACT-CURRENT when it was formed,
+;; delivered after an explicit cancellation closed that attempt.
 
-(deftest same-fx-completion-queued-before-destroy-is-still-suppressed
-  (testing "destroy closes the attempt before the queued exact carrier drains"
+(deftest late-carrier-after-explicit-cancellation-cannot-fold
+  (testing "an exact-attempt carrier formed while A was live is suppressed once
+            an explicit destroy has closed that attempt: no fold, and
+            cancellation remains the attempt's SOLE terminal"
     (register-imperative-destroy-parent!
-      :jwi/queued-cancel-parent
-      :jwi/queued-cancel-a-type :jwi/queued-cancel-b-type
-      :jwi/queued-cancel-a#7 :jwi/queued-cancel-b :all
-      (completion-then-destroy-child
-        :jwi/queued-cancel-parent :jwi/queued-cancel-a#7))
-    (let [attempt (:rf/attempt (join-state :jwi/queued-cancel-parent))
-          work-a  [:rf.work/machine :jwi/queued-cancel-a#7 [:racing] attempt]]
-      (rf/dispatch-sync [:jwi/queued-cancel-a#7 [:go]])
-      (is (= #{} (:done (join-state :jwi/queued-cancel-parent))))
-      (is (= #{:a} (:cancelled (join-state :jwi/queued-cancel-parent))))
+      :jwi/late-cancel-parent
+      :jwi/late-cancel-a-type :jwi/late-cancel-b-type
+      :jwi/late-cancel-a#7 :jwi/late-cancel-b :all
+      (completing-child))
+    (let [attempt (:rf/attempt (join-state :jwi/late-cancel-parent))
+          work-a  [:rf.work/machine :jwi/late-cancel-a#7 [:racing] attempt]
+          ;; Form the carrier while A is still live and unfolded — every
+          ;; coordinate field read off A's own membership record, so it is
+          ;; exact-current at this instant.
+          auth-a  (join-attempt :jwi/late-cancel-a#7)]
+      (is (some? auth-a) "A carries its join membership record while live")
+      (is (= #{} (:done (join-state :jwi/late-cancel-parent))))
+      ;; Explicitly destroy A. That closes the attempt as a cancellation.
+      (rf/dispatch-sync [:jwi/late-cancel-parent [:destroy-a]])
       (is (= [:cancelled] (terminal-statuses-for work-a)))
+      ;; Now deliver the held carrier. It is exact-current by coordinate, and
+      ;; must STILL be refused — the attempt it names is closed.
+      (forged-completion! :jwi/late-cancel-parent auth-a)
+      (is (= #{} (:done (join-state :jwi/late-cancel-parent)))
+          "the exact-current late carrier cannot fold")
+      (is (= #{:a} (:cancelled (join-state :jwi/late-cancel-parent))))
+      (is (= [:cancelled] (terminal-statuses-for work-a))
+          "cancellation remains the attempt's sole terminal")
       (is (= :rf.machine.spawn-all/duplicate-completion
              (-> (events-of :rf.machine.spawn-all/stale-completion)
                  first :tags :rf.reply/stale-reason)))
-      (rf/dispatch-sync [:jwi/queued-cancel-parent [:abort]])
-      (rf/dispatch-sync [:jwi/queued-cancel-parent [:start]])
-      (is (= #{} (:cancelled (join-state :jwi/queued-cancel-parent)))
+      (rf/dispatch-sync [:jwi/late-cancel-parent [:abort]])
+      (rf/dispatch-sync [:jwi/late-cancel-parent [:start]])
+      (is (= #{} (:cancelled (join-state :jwi/late-cancel-parent)))
           "re-entry seeds an explicit empty tombstone set for the new attempt"))))
 
 (deftest fixed-id-join-attempt-authority-is-the-machine-work-generation
@@ -428,10 +400,7 @@
     (rf/reg-machine
       :jwi/final-child-type
       {:initial :running
-       :actions {:complete (fn [_]
-                             {:fx [[:dispatch
-                                    [:jwi/final-parent [:child/done :only]]]]})}
-       :states {:running {:on {:go {:target :done :action :complete}}}
+       :states {:running {:on {:go {:target :done}}}
                 :done {:final? true}}})
     (rf/reg-machine
       :jwi/final-parent
