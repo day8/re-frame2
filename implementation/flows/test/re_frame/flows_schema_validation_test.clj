@@ -10,7 +10,7 @@
   code path.
 
   The tests register a predicate-based validator via
-  `set-schema-validator!` rather than depending on Malli being on the
+  `set-schema-fns!` rather than depending on Malli being on the
   classpath — the seam is pluggable per Spec 010 §Non-Malli validators,
   so a tiny `(fn [schema value] (schema value))` validator exercises the
   exact production code path while keeping the test self-contained.
@@ -54,7 +54,7 @@
   the recorder and reset the validator again afterwards so no validator
   leaks into a sibling suite."
   [test-fn]
-  (rf.schemas/reset-schema-validator!)
+  (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)
   (let [captured (atom [])]
     (binding [*captured* captured]
       (rf.trace/register-listener!
@@ -66,7 +66,7 @@
         (test-fn)
         (finally
           (rf.trace/unregister-listener! ::schema-violation-recorder)
-          (rf.schemas/reset-schema-validator!))))))
+          (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns))))))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
@@ -176,7 +176,7 @@
   (testing "with the validator set to nil, a :schema flow soft-passes (no violation)"
     ;; nil validator => the `:schemas/validate-with-registered-fn` seam
     ;; treats 'no validator' as 'no validation' (Spec 010 soft-pass).
-    (rf.schemas/set-schema-validator! nil)
+    (rf.schemas/set-schema-fns! {:validate nil})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
     (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area] :schema (fn [_] false)} (fn [w h] (* w h))) ;; would reject everything IF consulted
     (rf/dispatch-sync [:seed])

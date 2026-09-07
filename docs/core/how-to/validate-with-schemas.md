@@ -367,12 +367,12 @@ Malli is the *default*, not a hard dependency — the runtime never inspects a `
                           :print    my-print-fn})     ;; (fn [schema-value] canonical-string) — feeds the digest
 
 ;; Lower-level single-fn setters — reach for these only to adjust one fn:
-(schemas/set-schema-validator! my-validate-fn)
-(schemas/set-schema-explainer! my-explain-fn)
-(schemas/set-schema-printer!   my-print-fn)
+(schemas/set-schema-fns! {:validate my-validate-fn
+                          :explain  my-explain-fn
+                          :print    my-print-fn})
 
 ;; Disable validation everywhere — every check short-circuits to "pass".
-(schemas/set-schema-validator! nil)
+(schemas/set-schema-fns! {:validate nil})
 ```
 
 A `nil` validator is the documented opt-out (every site passes, not fails), and one validator is in force per process — last-write-wins. You'll rarely touch any of this; it's here so the schema layer is genuinely pluggable, not so you reach for it on day one.

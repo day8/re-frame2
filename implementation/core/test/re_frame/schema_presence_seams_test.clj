@@ -40,7 +40,7 @@
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (rf.schemas/clear-schemas-by-frame!)
-  (rf.schemas/reset-schema-validator!)
+  (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)
   (rf.trace/clear-listeners!)
   (rf.error-emit/clear-error-listeners!)
   (rf.event-emit/clear-event-listeners!)
@@ -55,7 +55,7 @@
     (rf/with-frame :rf/default
       (test-fn))
     (finally
-      (rf.schemas/reset-schema-validator!))))
+      (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns))))
 
 (use-fixtures :each reset-runtime)
 
@@ -64,8 +64,8 @@
   returns false. Returns the recording atom."
   []
   (let [seen (atom [])]
-    (rf.schemas/set-schema-validator!
-      (fn [schema _value] (swap! seen conj schema) false))
+    (rf.schemas/set-schema-fns!
+      {:validate (fn [schema _value] (swap! seen conj schema) false)})
     seen))
 
 ;; The recordable-cofx validator is deliberately private (its public

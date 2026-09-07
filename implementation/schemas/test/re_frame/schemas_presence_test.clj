@@ -29,7 +29,7 @@
       schema takes the malformed-schema route (`:rf.error/malformed-schema`
       + false), never registration-success-plus-runtime-no-op.
    4. **The controls** (AC 4) — an omitted `:schema` key never consults
-      the validator, and `set-schema-validator!` nil still disables every
+      the validator, and `set-schema-fns!` with a nil `:validate` still disables every
       surface. These make the spy proof non-vacuous: restoring an
       `if-let` / nil guard turns the present-falsey cases red while the
       controls stay green."
@@ -48,8 +48,8 @@
   returns false. Returns the recording atom."
   []
   (let [seen (atom [])]
-    (rf.schemas/set-schema-validator!
-      (fn [schema _value] (swap! seen conj schema) false))
+    (rf.schemas/set-schema-fns!
+      {:validate (fn [schema _value] (swap! seen conj schema) false)})
     seen))
 
 (defn- ops [traces op]
@@ -65,8 +65,8 @@
                   "verbatim to the validator, once per consult, and the "
                   "false verdict returns")
       (let [seen (atom [])]
-        (rf.schemas/set-schema-validator!
-          (fn [schema _value] (swap! seen conj schema) false))
+        (rf.schemas/set-schema-fns!
+          {:validate (fn [schema _value] (swap! seen conj schema) false)})
         (is (false? (rf.schemas/validate-event! :ev/x [:ev/x 1] {:schema token}))
             "event surface returns false — the caller skips the handler")
         (is (false? (rf.schemas/validate-fx! :fx/x :ev/x {:a 1} {:schema token}))
@@ -148,10 +148,10 @@
             "rejected — never registration success plus runtime no-op")))))
 
 (deftest boundary-nil-validator-still-disables-validation-in-production
-  (testing "AC 4 control — set-schema-validator! nil remains the documented
+  (testing "AC 4 control — set-schema-fns! {:validate nil} remains the documented
             global opt-out: even a present nil schema passes the boundary
             unchecked when validation is disabled"
-    (rf.schemas/set-schema-validator! nil)
+    (rf.schemas/set-schema-fns! {:validate nil})
     (rf/reg-event :wire/received
       {:schema       nil
        :interceptors [:rf.schema/at-boundary]}
@@ -194,9 +194,9 @@
       (is (= [] @seen) "the validator was never consulted"))))
 
 (deftest nil-registered-validator-disables-validation-for-present-falsey-tokens
-  (testing "set-schema-validator! nil disables validation even for a
+  (testing "set-schema-fns! {:validate nil} disables validation even for a
             present nil / false declaration — the documented global opt-out"
-    (rf.schemas/set-schema-validator! nil)
+    (rf.schemas/set-schema-fns! {:validate nil})
     (is (true? (rf.schemas/validate-event! :ev/x [:ev/x 1] {:schema nil})))
     (is (true? (rf.schemas/validate-fx! :fx/x :ev/x {:a 1} {:schema false})))
     (is (true? (rf.schemas/validate-sub! :sub/x [:sub/x] 42 {:schema nil})))))

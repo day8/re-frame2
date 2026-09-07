@@ -124,7 +124,7 @@
 ;; ===========================================================================
 
 (defn- with-stub-validator []
-  (let [snap     (rf.schemas/snapshot-schema-fns)
+  (let [snap     (rf.schemas/schema-fns)
         ;; rf2-ps05ug: the stub is process-global, so while installed EVERY
         ;; schema-validating boundary uses it — including the routing
         ;; recordable allocation cofx, whose `:schema` is a real Malli VECTOR
@@ -144,7 +144,7 @@
                    (when (fn? schema)
                      {:reason :stub-explainer :value value}))]
     (rf.schemas/set-schema-fns! {:validate validate :explain explain})
-    (fn [] (rf.schemas/restore-schema-fns! snap))))
+    (fn [] (rf.schemas/set-schema-fns! snap))))
 
 ;; ===========================================================================
 ;; Test 1 — drain-time :rf.error/no-such-handler → projected 404 on the wire

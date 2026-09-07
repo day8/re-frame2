@@ -101,7 +101,7 @@
     (try
       (is (false? (rf.schemas/validate-with-registered-fn [:int] 1))
           "throwing validator → false (fail closed), not a propagated throw, not true")
-      (finally (rf.schemas/reset-schema-validator!)))))
+      (finally (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)))))
 
 (def ^:private untrusted-url-inputs
   "Hostile / malformed URL-sink inputs. Each MUST classify EXTERNAL

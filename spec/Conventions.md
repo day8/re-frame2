@@ -1353,12 +1353,12 @@ The caller hands a fn to a global hook the framework will invoke from arbitrary 
 Process-level state mutation outside the registrar — installing or tearing down the runtime's substrate adapter, swapping in a different schema validator, dropping the subscription cache. These surfaces touch implementation-defined slots that have nothing to do with the per-frame registries.
 
 - `install-adapter!`, `destroy-adapter!`
-- `set-schema-validator!`, `set-schema-explainer!`
+- `set-schema-fns!`
 - `clear-sub-cache!`
 
 ```clojure
-(rf/install-adapter!     reagent-adapter/adapter)           ;; bang — installs runtime
-(rf/set-schema-validator! my-validator-fn)                  ;; bang — swaps a global
+(rf/install-adapter! reagent-adapter/adapter)                     ;; bang — installs runtime
+(schemas/set-schema-fns! {:validate my-validator-fn})             ;; bang — swaps a global
 ```
 
 ### 4. Dispatch and subscribe — **no bang**
@@ -1448,8 +1448,7 @@ The opts-map sub-keys mix two shapes: cross-surface policy slots use a namespace
 For substitution points where the consumer hands the framework a **specific implementation** (a function or component) that the framework will hold a strong reference to and call from arbitrary sites. The bang earns its keep because the surface mutates an implementation-defined process-level slot (per [§Naming](#naming-when-does-a-surface-carry-) bucket 3).
 
 - `(rf/install-adapter! reagent/adapter)` — install the reactive-substrate adapter
-- `(rf/set-schema-validator! malli.core/validate)` — swap the schema validator
-- `(rf/set-schema-explainer! malli.core/explain)` — swap the schema explainer
+- `(schemas/set-schema-fns! {:validate malli.core/validate :explain malli.core/explain})` — swap the schema validator and explainer (on `re-frame.schemas`, not the `re-frame.core` front porch)
 
 These are NOT folded under `configure` because keyword-keyed addressing loses the type information that the consumer needs to pass an actual fn/component reference: `configure` is for *data*, `set-!` is for *impls*.
 

@@ -580,7 +580,7 @@
 ;; HARD ERROR in dev AND production (the `:dispatched-at` precedent — folding
 ;; an out-of-contract value into the durable ledger is corrupt state). The
 ;; check routes through the SAME registered validator the dev-time hot path
-;; uses (the `set-schema-validator!` seam, reached via the late-bind
+;; uses (the `set-schema-fns!` seam, reached via the late-bind
 ;; `:schemas/validate-with-registered-fn` hook) so a substituted (non-Malli)
 ;; validator covers this surface too; when the schemas artefact is absent or
 ;; the validator was set to nil the hook is nil and validation is a no-op
@@ -687,7 +687,7 @@
             validate-fn (rf.late-bind/get-fn-cached :schemas/validate-with-registered-fn)]
         (if (nil? validate-fn)
           ;; No validator registered (schemas artefact absent, or
-          ;; `set-schema-validator!` called with nil) → nil = "every value
+          ;; `set-schema-fns!` installed a nil `:validate`) → nil = "every value
           ;; passes"; the check is a no-op (Spec 010 §Non-Malli validators).
           value
           (let [ok? (try (validate-fn schema value)

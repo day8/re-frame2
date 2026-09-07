@@ -87,7 +87,7 @@
   Returns a cleanup fn for the caller to invoke.
 
   Captures the prior bundle through the encapsulated
-  `snapshot-schema-fns` / `restore-schema-fns!` pair (rf2-l4ljvr) rather
+  `schema-fns` read + `set-schema-fns!` install (rf2-l4ljvr) rather
   than reaching the raw `validator-fn` / `explainer-fn` atoms — the
   snapshot also preserves the printer, so the cleanup restores the full
   prior bundle.
@@ -105,7 +105,7 @@
   schemas (`fn?` — the predicate schemas these tests install) and PASSES
   any other (Malli vector / map) schema. The explainer is symmetric."
   []
-  (let [snap     (rf.schemas/snapshot-schema-fns)
+  (let [snap     (rf.schemas/schema-fns)
         validate (fn [schema value]
                    (if (fn? schema)
                      (boolean (schema value))
@@ -114,4 +114,4 @@
                    (when (fn? schema)
                      {:reason :stub-explainer :value value}))]
     (rf.schemas/set-schema-fns! {:validate validate :explain explain})
-    (fn [] (rf.schemas/restore-schema-fns! snap))))
+    (fn [] (rf.schemas/set-schema-fns! snap))))

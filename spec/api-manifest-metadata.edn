@@ -1321,8 +1321,8 @@
                                            :justification "A test-tier read that computes a subscription's value with no live view. The fixture layer (re-frame.test-support) is about runtime state rather than sub evaluation, so it has no peer there, and test authors reach it in the same file as the reg-sub it exercises."}
   ;; Schema introspection + validator-install re-exports REMOVED from the
   ;; façade (rf2-wad2fl — front-porch shrink): `app-schemas`, `app-schema-at`,
-  ;; `app-schema-meta-at`, `app-schemas-digest`, `set-schema-validator!`,
-  ;; `set-schema-explainer!`, `set-schema-printer!`, `set-schema-fns!` are
+  ;; `app-schema-meta-at`, `app-schemas-digest`, `set-schema-fns!`,
+  ;; `schema-fns`, `default-schema-fns` are
   ;; reached through `re-frame.schemas` (already classified below). The
   ;; `reg-app-schema` / `reg-app-schemas` REGISTRATION MACROS stay on the
   ;; façade (above). `validate-at-boundary-interceptor` (owned by re-frame.spec,
@@ -1570,19 +1570,17 @@
   ["re-frame.schemas" "app-schema-at"]           {:tier :tooling :owner "010" :status "v1"}
   ["re-frame.schemas" "app-schema-meta-at"]      {:tier :tooling :owner "010" :status "v1"}
   ["re-frame.schemas" "app-schemas-digest"]      {:tier :tooling :owner "010" :status "v1"}
-  ;; Schema-fns configuration surface. `set-schema-fns!` is the PREFERRED
-  ;; (blessed) path — one atomic bundle setter so a substitute-Malli port's
-  ;; validator/explainer/printer never drift mid-boot (API.md §Schemas). The
-  ;; three per-fn singletons are RETAINED as lower-level convenience setters for
-  ;; adjusting one fn in isolation; all are genuinely used + supported so they
-  ;; stay `advanced` (the closed tier vocabulary has no sub-advanced slot, and
-  ;; they are NOT `implementation` — that tier is the unsupported surface). The
-  ;; preferred-vs-lower-level distinction is carried in the API.md row prose.
+  ;; Schema-fns configuration surface (rf2-kuky.39). The validator port is a
+  ;; VALUE reached through ONE door: `set-schema-fns!` installs any subset,
+  ;; `schema-fns` reads what is installed, `default-schema-fns` is the
+  ;; framework's own bundle. All three are `advanced` — genuinely used and
+  ;; supported, and NOT `implementation`, which is the unsupported tier.
+  ;; The three per-fn setters and the reset verb they replace are gone: an
+  ;; omitted key already makes a one-key install the single-purpose call, and
+  ;; `(set-schema-fns! default-schema-fns)` is the reset.
   ["re-frame.schemas" "set-schema-fns!"]         {:tier :advanced :owner "010" :status "v1"}
-  ["re-frame.schemas" "set-schema-validator!"]   {:tier :advanced :owner "010" :status "v1"}
-  ["re-frame.schemas" "set-schema-explainer!"]   {:tier :advanced :owner "010" :status "v1"}
-  ["re-frame.schemas" "set-schema-printer!"]     {:tier :advanced :owner "010" :status "v1"}
-  ["re-frame.schemas" "reset-schema-validator!"] {:tier :advanced :owner "010" :status "v1"}
+  ["re-frame.schemas" "schema-fns"]              {:tier :advanced :owner "010" :status "v1"}
+  ["re-frame.schemas" "default-schema-fns"]      {:tier :advanced :owner "010" :status "v1"}
   ["re-frame.schemas" "reg-app-schema"]          {:tier :implementation :owner "010" :status "v1"}
   ["re-frame.schemas" "reg-app-schemas"]         {:tier :implementation :owner "010" :status "v1"}
   ;; rf2-l5r974 (option a end-state) / rf2-btdpqn — the four raw schema atoms
@@ -1591,19 +1589,18 @@
   ;; encapsulation-leak surface (the authoritative store's rep was frozen by
   ;; exposure; the public printer-fn atom bypassed the never-nil invariant).
   ;; The supported public surface is the encapsulated snapshot/restore/clear
-  ;; API (snapshot-schemas-by-frame / clear-schemas-by-frame! + the
-  ;; snapshot-schema-fns / set-schema-fns! bundle). The atoms remain the
+  ;; API (snapshot-schemas-by-frame / clear-schemas-by-frame!) plus the
+  ;; schema-fns / set-schema-fns! value pair. The atoms remain the
   ;; authoritative state in their home namespaces (storage / validator) but
   ;; are not public Vars on the facade, so they carry NO manifest row.
   ["re-frame.schemas" "snapshot-schemas-by-frame"] {:tier :implementation :owner "010" :status "v1"}
   ["re-frame.schemas" "restore-schemas-by-frame!"] {:tier :implementation :owner "010" :status "v1"}
-  ;; rf2-l4ljvr — bundle-level snapshot/restore for the validator/explainer/
-  ;; printer triple, the companion to the registry pair above. Internal-public
-  ;; test-support hooks (NOT a re-frame.core facade export): they are consumed
-  ;; by cross-artefact test-support (routing/ssr/ssr-ring fixtures) to capture
-  ;; and restore the pluggable schema bundle without reaching the raw atoms.
-  ["re-frame.schemas" "snapshot-schema-fns"]       {:tier :implementation :owner "010" :status "v1"}
-  ["re-frame.schemas" "restore-schema-fns!"]       {:tier :implementation :owner "010" :status "v1"}
+  ;; rf2-l4ljvr, superseded by rf2-kuky.39 — the bundle-level snapshot/restore
+  ;; pair that used to sit here is gone. The registry pair above keeps its
+  ;; dedicated verbs because its state is a mutable store with no value-shaped
+  ;; installer; the validator bundle has one, so `schema-fns` + `set-schema-fns!`
+  ;; already give the cross-artefact fixtures (routing/ssr/ssr-ring) capture and
+  ;; restore without reaching the raw atoms.
   ["re-frame.schemas" "clear-schemas-by-frame!"]   {:tier :implementation :owner "010" :status "v1"}
   ["re-frame.schemas" "frame-schema-entries"]      {:tier :implementation :owner "010" :status "v1"}
   ["re-frame.schemas" "on-frame-destroyed!"]       {:tier :implementation :owner "010" :status "v1"}

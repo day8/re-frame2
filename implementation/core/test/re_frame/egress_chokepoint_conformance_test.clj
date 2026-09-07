@@ -253,7 +253,7 @@
       `:reason` composed HERE. That last is the load-bearing difference from
       the trace beside it: the TRACE's reason interpolates the throwing
       validator's own message, which is author-controlled and unbounded — a
-      user-supplied `set-schema-validator!` fn may say anything, the value it
+      user-supplied `set-schema-fns!` validator may say anything, the value it
       choked on included — so the record names the boundary and nothing else.
       No exception residual either: `ex` is used for the dev trace's message
       and never rides the record.

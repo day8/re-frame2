@@ -53,10 +53,10 @@
   [f]
   (reset! last-managed-args nil)
   (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
-  (let [snapshot (rf.schemas/snapshot-schema-fns)]
-    (rf.schemas/set-schema-validator! nil)
+  (let [snapshot (rf.schemas/schema-fns)]
+    (rf.schemas/set-schema-fns! {:validate nil})
     (try (f)
-         (finally (rf.schemas/restore-schema-fns! snapshot)))))
+         (finally (rf.schemas/set-schema-fns! snapshot)))))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture

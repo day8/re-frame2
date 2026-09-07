@@ -1162,7 +1162,7 @@
 
   Fail CLOSED on a validator-machinery throw (rf2-uhk9ko — the retired
   treat-as-pass arm was a fail-OPEN bypass): a host-thrown validator
-  (e.g. a buggy user-supplied :schemas/set-schema-validator! fn, or the
+  (e.g. a buggy user-supplied `set-schema-fns!` `:validate` fn, or the
   late-bind machinery failing wholesale) is caught, surfaced as a
   `:rf.error/malformed-schema` trace with `:rollback? true`, and the
   candidate is REJECTED — a throwing validator cannot prove the
@@ -1204,7 +1204,7 @@
         ;;
         ;; The `:reason` is a CONSTANT sentence naming only the boundary, NOT
         ;; the throwing validator's message. That message is unbounded and
-        ;; author-controlled — a user-supplied `set-schema-validator!` fn may
+        ;; author-controlled — a user-supplied `set-schema-fns!` validator may
         ;; say anything, including the value it choked on — and an unbounded
         ;; reason on a bounded record is exactly the defect this campaign
         ;; exists to avoid. It stays on the DCE'd dev trace below, which is

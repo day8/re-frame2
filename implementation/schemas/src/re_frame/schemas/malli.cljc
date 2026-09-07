@@ -26,9 +26,9 @@
   cost under static CLJS compilation, since requiring the facade loads
   this ns's body) either:
 
-    - Calls `(schemas/set-schema-validator! my-validator-fn)` at boot to
-      install a custom validator, or
-    - Calls `(schemas/set-schema-validator! nil)` for a hard no-op.
+    - Calls `(schemas/set-schema-fns! {:validate my-validator-fn})` at
+      boot to install a custom validator, or
+    - Calls `(schemas/set-schema-fns! {:validate nil})` for a hard no-op.
 
   `malli.error` is the one Malli namespace this adapter keeps off the
   production path. The framework's only reader of the humanizer is the

@@ -191,7 +191,7 @@ On every surface, a structurally malformed registered schema (one that makes the
   - `event-id` (optional) names the handler whose commit prompted the failure — surfaced as `:failing-id`.
   - Returns `true` when every registered schema conformed. Also returns `true` when no validator is registered, no schemas are registered for the frame, or the build elided validation.
   - Returns `false` when at least one schema failed. The router consumes a `false` to roll the `:db` effect back to the pre-handler value.
-  - A hard no-op for every schema when `set-schema-validator!` has been called with `nil`.
+  - A hard no-op for every schema when `set-schema-fns!` has installed a `nil` `:validate`.
 
 ### `validate-event!`
 
@@ -274,31 +274,9 @@ These three functions are the production-side and cross-artefact seams. `validat
   - otherwise → the tags ride back verbatim.
   - Off-namespace callers reach it through the `:schemas/redact-validation-tags` late-bind hook. When the schemas artefact is absent, the tags fall through verbatim. Idempotent.
 
-## Validator extension seams
+## Validator extension seam
 
-The default validator ships Malli's `validate` / `explain` pair (plus an EDN canonical printer for the digest). These seams let an app swap in its own validator. The three setters answer three different questions: validation correctness (`validator`), human-readable failure messages (`explainer`), and stable canonical printing for the digest (`printer`).
-
-### `set-schema-validator!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (set-schema-validator! validate-fn)
-  ```
-- **Description**: Install the validator the framework uses at every dev-time schema-validation site.
-  - `validate-fn` is `(fn [schema value] truthy?)` — the `malli.core/validate` shape.
-  - `nil` disables validation entirely.
-  - Swaps ONLY the validator. Last-write-wins; returns the installed validator (may be `nil`).
-  - To install the validator/explainer/printer together, use `set-schema-fns!`.
-- **Example**:
-  ```clojure
-  ;; install an app's own validator (same shape as malli.core/validate:
-  ;; (fn [schema value] truthy?))
-  (schemas/set-schema-validator! my-validate)
-
-  ;; nil disables dev-time validation entirely
-  (schemas/set-schema-validator! nil)
-  ```
+The default validator ships Malli's `validate` / `explain` pair (plus an EDN canonical printer for the digest). This seam lets an app swap in its own. The bundle still answers three different questions — validation correctness (`:validate`), human-readable failure messages (`:explain`), and stable canonical printing for the digest (`:print`) — but they are three KEYS of one value rather than three setters: `set-schema-fns!` installs, `schema-fns` reads, and `default-schema-fns` is the framework's own bundle.
 
 ### `set-schema-fns!`
 
@@ -307,81 +285,67 @@ The default validator ships Malli's `validate` / `explain` pair (plus an EDN can
   ```clojure
   (set-schema-fns! {:validate validate-fn :explain explain-fn :print print-fn})
   ```
-- **Description**: Atomically install any subset of the validator / explainer / printer bundle from a single map.
-  - Each key is optional; an absent key leaves the existing registration in place.
-  - A `nil` `:print` coerces to the default EDN canonicaliser. A `nil` `:validate` or `:explain` disables that fn.
-  - Last-write-wins per key. Returns the installed bundle map `{:validate … :explain … :print …}`, reflecting the live state of all three fns after the call.
-  - This is the one-call substitute-Malli boot pattern: the three fns never drift mid-boot.
+- **Description**: Install any subset of the validator / explainer / printer bundle from a single map. This is the one door onto the validator port.
+  - Each key is optional; an **absent** key leaves the existing registration in place, so a one-key call is how you swap a single fn. An **explicit `nil`** is a write: `nil` `:validate` or `:explain` disables that fn.
+  - A `nil` `:print` coerces to the default EDN canonicaliser, so the printer is never nil and the digest is never undefined.
+  - `validate-fn` is `(fn [schema value] truthy?)` — the `malli.core/validate` shape. `explain-fn` is `(fn [schema value] explanation)` — the `malli.core/explain` shape. `print-fn` is `(fn [schema-value] canonical-string)` and must be pure and deterministic across runtimes.
+  - Last-write-wins per key; writes are not transactional.
+  - Returns the installed bundle map `{:validate … :explain … :print …}`, reflecting the live state of all three fns after the call — including keys the call did not touch. A caller wanting back just the fn it installed selects that key.
+  - This is the one-call substitute-Malli boot pattern: the three fns never drift mid-boot. It is also the restore path — hand it a value from `schema-fns` or `default-schema-fns`.
 - **Example**:
   ```clojure
   ;; install validator + explainer together (e.g. a clojure.spec or Zod port)
   (schemas/set-schema-fns! {:validate my-validate
                             :explain  my-explain})
-  ```
 
-### `set-schema-explainer!`
+  ;; swap just one fn — the others are untouched
+  (schemas/set-schema-fns! {:validate my-validate})
 
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (set-schema-explainer! explain-fn)
-  ```
-- **Description**: Install the explainer the framework uses to enrich `:rf.error/schema-validation-failure` traces' `:explain` key.
-  - `explain-fn` is `(fn [schema value] explanation)` — the `malli.core/explain` shape.
-  - `nil` disables explanations (the failure trace omits `:explain`).
-  - Last-write-wins; returns the installed explainer (may be `nil`). Companion to `set-schema-validator!`.
-- **Example**:
-  ```clojure
-  ;; enrich :rf.error/schema-validation-failure traces with a custom explanation
-  (schemas/set-schema-explainer! my-explain)
-  ```
-
-### `set-schema-printer!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (set-schema-printer! print-fn)
-  ```
-- **Description**: Install the schema-print companion the digest pipeline hashes.
-  - `(fn [schema-value] canonical-string)`. Must be pure and deterministic across runtimes.
-  - `nil` falls back to the default EDN canonicaliser, so the digest is never undefined.
-  - Last-write-wins; returns the installed printer (the default when `nil` was passed). Parallel to the validator / explainer setters.
-- **Example**:
-  ```clojure
   ;; a non-Malli port registers its own canonical schema serialiser
-  (schemas/set-schema-printer! (fn [schema] (pr-str schema)))
+  (schemas/set-schema-fns! {:print (fn [schema] (pr-str schema))})
+
+  ;; nil disables dev-time validation entirely
+  (schemas/set-schema-fns! {:validate nil})
   ```
 
-### `reset-schema-validator!`
+### `schema-fns`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (reset-schema-validator!)
+  (schema-fns) → {:validate fn|nil :explain fn|nil :print fn}
   ```
-- **Description**: Reset the validator, explainer, and printer back to the framework Malli defaults. Test-support helper — restores the defaults after a test that swapped them via `set-schema-validator!` / `set-schema-explainer!` / `set-schema-printer!`.
-
-### `snapshot-schema-fns`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (snapshot-schema-fns) → {:validate fn|nil :explain fn|nil :print fn}
-  ```
-- **Description**: Capture the currently-installed validator / explainer / printer bundle as one value, in the same shape `set-schema-fns!` accepts and returns.
-  - The bundle-level companion to `snapshot-schemas-by-frame`. The captured value round-trips losslessly through `restore-schema-fns!`.
-  - Unlike `reset-schema-validator!`, which restores the framework default, this captures whatever custom bundle is currently installed. A test can therefore restore the *prior* custom bundle.
+- **Description**: Read the currently-installed validator / explainer / printer as one value, in the same shape `set-schema-fns!` accepts and returns.
+  - `(set-schema-fns! (schema-fns))` is a no-op — the pair round-trips.
   - `:validate` / `:explain` may be `nil`; `:print` is never `nil`.
+  - This is what test isolation is built from: capture, stub, and reinstate without reaching the framework-internal atoms and without a dedicated snapshot or restore verb. The registry-level counterpart for the per-frame schema store is `snapshot-schemas-by-frame`.
+- **Example**:
+  ```clojure
+  ;; capture / stub / restore is an ordinary let + finally over a value
+  (let [installed (schemas/schema-fns)]
+    (try
+      (schemas/set-schema-fns! {:validate stub-validate})
+      ;; ... exercise the validation path against the stub ...
+      (finally
+        (schemas/set-schema-fns! installed))))
+  ```
 
-### `restore-schema-fns!`
+### `default-schema-fns`
 
-- **Kind**: function
+- **Kind**: var (bundle value)
 - **Signature**:
   ```clojure
-  (restore-schema-fns! bundle) → bundle
+  default-schema-fns → {:validate fn :explain fn :print fn}
   ```
-- **Description**: Reinstall a validator / explainer / printer bundle captured by `snapshot-schema-fns`. This is a full install of all three. It routes through `set-schema-fns!`, so a `nil` `:print` in the bundle coerces to the default printer — the printer-never-nil invariant holds. Returns the installed bundle map.
+- **Description**: The framework's own validator bundle as a plain map carrying exactly `:validate`, `:explain` and `:print` — the state the port holds before an app installs anything.
+  - Install it to restore the framework defaults: `(set-schema-fns! default-schema-fns)`.
+  - Because the value carries the same fn objects the port was seeded with, the "still on the framework default" check behind `:rf.warning/schema-validator-unavailable` answers true again afterwards. Rebuilding an equal-but-distinct bundle by hand would not.
+  - It is the **framework** default, not "the Malli bundle": `:print` is the EDN canonicaliser rather than anything Malli supplies, and `:validate` / `:explain` soft-pass while the Malli adapter is unloaded.
+- **Example**:
+  ```clojure
+  ;; restore the framework defaults after a test swapped them out
+  (schemas/set-schema-fns! schemas/default-schema-fns)
+  ```
 
 ## Schema classification walkers
 
@@ -471,7 +435,7 @@ The per-frame registry and diagnostic-latch maintenance hooks. `re-frame.test-su
   ```clojure
   (snapshot-schemas-by-frame) → snapshot
   ```
-- **Description**: Return a snapshot value of the per-frame schema registry. The registry-level companion to `snapshot-schema-fns`; restore it with `restore-schemas-by-frame!`.
+- **Description**: Return a snapshot value of the per-frame schema registry. The registry-level counterpart to `schema-fns`; restore it with `restore-schemas-by-frame!`.
 
 ### `restore-schemas-by-frame!`
 
