@@ -76,6 +76,11 @@
             [re-frame.story.error      :as rf.story.error]
             [re-frame.story.late-bind  :as rf.story.late-bind]
             [re-frame.story.loaders    :as rf.story.loaders]
+            ;; rf2-shx4 — frame teardown releases the frame's ownership of its
+            ;; authored `:network` canned replies (the runtime takes ownership
+            ;; before allocation). Pure registry bookkeeping; the HTTP
+            ;; artefact itself is reached lazily from inside that ns.
+            [re-frame.story.network    :as rf.story.network]
             [re-frame.story.predicates :as rf.story.predicates]
             [re-frame.story.registrar  :as rf.story.registrar]
             [re-frame.story.runtime-image :as rf.story.runtime-image]))
@@ -704,13 +709,34 @@
   every such caller in this codebase exercises. Before this fn threaded
   a classification arg, `allocate!` ALWAYS read the raw un-merged body —
   so a variant that only `:extends`ed a classified parent, declaring no
-  classification itself, silently dropped the parent's redaction."
-  ([variant-id decorator-stack] (allocate! variant-id decorator-stack nil))
+  classification itself, silently dropped the parent's redaction.
+
+  `plan-fx-overrides` (optional, 4-arity; rf2-shx4) is the compiled plan's
+  `[:world :frame :fx-overrides]` map — the lowering `:network` folds
+  `{:rf.http/managed :rf.http/managed-test-stub}` into. It merges UNDER the
+  decorator stack's materialised stubs (the plan map wins), exactly as
+  `allocate-inline!` has always merged its own. Omitted (2-/3-arity) leaves
+  the decorator stubs alone. Before this arity existed the registered path
+  passed only the decorator stack, so an authored `:network` fixture's
+  redirect never reached the frame and the variant executed the REAL
+  `:rf.http/managed` transport."
+  ([variant-id decorator-stack] (allocate! variant-id decorator-stack nil nil))
   ([variant-id decorator-stack classification]
+   (allocate! variant-id decorator-stack classification nil))
+  ([variant-id decorator-stack classification plan-fx-overrides]
    (when rf.story.config/enabled?
      (install-canonical-frame-events!)
      (let [fx-stack       (rf.story.decorators/fx-overrides-map (:fx-override decorator-stack))
-           fx-overrides   (register-fx-overrides! fx-stack)
+           decor-fx       (register-fx-overrides! fx-stack)
+           ;; rf2-shx4 — the compiled plan's `[:world :frame :fx-overrides]`
+           ;; (e.g. the `:network` lowering's `{:rf.http/managed
+           ;; :rf.http/managed-test-stub}` redirect) rides onto the frame the
+           ;; SAME way `allocate-inline!` already merges it: decorator stubs
+           ;; UNDER the plan map, so the plan wins. Before this the registered
+           ;; path passed only the decorator stack, so an authored `:network`
+           ;; fixture's redirect was silently dropped and the variant reached
+           ;; the REAL `:rf.http/managed` transport.
+           fx-overrides   (merge decor-fx plan-fx-overrides)
            ;; Inline the variant-body lookup (`variant-body` is defined
            ;; lower in this ns) — go through the registrar directly so
            ;; the events-only classification doesn't depend
@@ -937,6 +963,9 @@
         (catch #?(:clj Throwable :cljs :default) _ nil)))
     (try (apply-frame-teardown! frame-id (:frame-setup decorator-stack))
       (catch #?(:clj Throwable :cljs :default) _ nil))
+    ;; rf2-shx4 — same release as `destroy!`: an inline run's completion drops
+    ;; exactly the fixture that run owned.
+    (rf.story.network/release-frame! frame-id)
     (rf/destroy-frame! frame-id)
     nil))
 
@@ -1043,6 +1072,10 @@
   [variant-id]
   (when rf.story.config/enabled?
     (run-teardown-walks! variant-id)
+    ;; rf2-shx4 — release THIS frame's canned-network ownership (and, once no
+    ;; Story frame owns any, the shared stub fx). Only this frame's fixture
+    ;; goes: a concurrently mounted variant keeps answering its own replies.
+    (rf.story.network/release-frame! variant-id)
     (rf/destroy-frame! variant-id)
     nil))
 
