@@ -23,11 +23,12 @@ app. Hot reload should re-render changed views without losing app-db.
     [Hicasso](../hicasso/00-installation.md#hicasso-needs-a-substrate-adapter)
     does not exempt itself from the second: it interprets Hiccup and owns the
     render boundary, but the reactive container still comes from an adapter, so
-    a Hicasso app opens with the same `(rf/init! …)` line. Only the third job is
-    spelled differently. `h/mount!` is a function that *ensures* its frame
-    before it renders, rather than a `frame-root` element that ensures one
-    during the first commit — so a Hicasso tree has no frame component in it,
-    and `:initial-events` are already drained when the first paint happens.
+    a Hicasso app opens with the same `(rf/init! …)` line. The third job is
+    spelled the same way too: a Hicasso tree carries `[h/frame-root {:id …}]`
+    exactly where a Reagent tree carries `[rf/frame-root {:id …}]`, over the
+    same options and the same commit-owned ensure. Only the *root call* differs
+    — `(h/mount! node {} tree)` where Reagent has `render!` — and its config
+    carries React-root options only.
 
 ## The small shape
 

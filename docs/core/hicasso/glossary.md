@@ -730,21 +730,25 @@ Related: [Diagnostics](16-diagnostics.md).
 
 The Hicasso root lifecycle.
 
-`h/mount!` associates a DOM container, a frame, optional `:initial-events`, and
-one root view. It returns a root handle. Initial events run in order before
+`h/mount!` associates a DOM container with one root view and returns a root
+handle. Its config carries React-root options only; the **frame** is named in
+the tree, by `[h/frame-root {:id …}]` (ENSURE) or
+`[h/frame-provider {:frame …}]` (SCOPE). Initial events run in order before
 first paint.
 
-`h/render!` renders a new root element through the same handle.
+`h/render!` renders a new root element through the same handle — including the
+frame boundary, which rides every render rather than only the first.
 
-`h/unmount!` tears the root down and is safe to call more than once.
+`h/unmount!` tears the root down and is safe to call more than once. It destroys
+no frame: a frame outlives the boundary that ensured it.
 
 ```clojure
 (defonce root
   (h/mount!
    (js/document.getElementById "app")
-   {:frame :rf/default
-    :initial-events [[:app/init]]}
-   [app-shell {}]))
+   {}
+   [h/frame-root {:id :rf/default :initial-events [[:app/init]]}
+    [app-shell {}]]))
 ```
 
 Related: [Installation](00-installation.md).
@@ -755,9 +759,11 @@ Related: [Installation](00-installation.md).
 Two functions complete hydration:
 
 - `re-frame.ssr/hydrate!` installs the server payload into the client frame;
-- `h/hydrate!` adopts existing server DOM for one Hicasso root.
+- `h/hydrate!` adopts existing server DOM for one Hicasso root, under an
+  `[h/frame-provider {:frame …}]` that SCOPEs the frame the payload landed in.
 
-State hydration must run before DOM adoption.
+State hydration must run before DOM adoption — and `frame-provider` fails loud
+when it has not, rather than scoping a subtree to a frame that is not there.
 
 Related: [SSR and hydration](18-ssr-and-hydration.md).
 

@@ -127,17 +127,19 @@ as it likes, and no call here reaches a root the caller did not name.
   ```clojure
   (h/mount! container config view)
   ```
-- **Description**: The root door. Ensures a frame, associates it with a DOM
-  container and one root view, and answers the handle the other three take.
-  `config` carries `:frame` (required — the frame keyword this root scopes, created
-  if absent or joined as it stands), `:initial-events` (dispatched synchronously
-  **only when this mount creates the frame**, draining before the call returns) and
-  `:identifier-prefix` (React's `identifierPrefix`, a pass-through).
+- **Description**: The root door. Associates a DOM container with one root view
+  and answers the handle the other three take. `config` carries **root options
+  only** — `:identifier-prefix` (React's `identifierPrefix`, a pass-through) — and
+  REFUSES anything else: `:frame` / `:initial-events` raise
+  `:rf.error/hicasso-frame-config-misplaced` naming the head that takes them,
+  every other key `:rf.error/hicasso-unknown-root-option`. The frame is spelled in
+  the tree, on `frame-root` (ENSURE) or `frame-provider` (SCOPE).
 - **Example**:
   ```clojure
   (h/mount! (js/document.getElementById "app")
-            {:frame :rf/default :initial-events [[:counter/initialise]]}
-            [counter])
+            {}
+            [h/frame-root {:id :rf/default :initial-events [[:counter/initialise]]}
+             [counter]])
   ```
 
 ### `hydrate!`
@@ -148,12 +150,13 @@ as it likes, and no call here reaches a root the caller did not name.
   (h/hydrate! container config view)
   ```
 - **Description**: Adopts a container's existing server-rendered DOM rather than
-  replacing it. `config` carries `:frame` and optionally `:identifier-prefix` — and
-  no `:initial-events`. **It is not `mount!`'s symmetric twin**: it does not ensure
-  its frame, it returns *before* adoption finishes, and it must be handed the same
-  `:identifier-prefix` the server render used. State comes first and through a
-  different door: `re-frame.ssr/hydrate!` installs the server's app-db and must run
-  before this.
+  replacing it. Same root-options config as `mount!`. It returns *before* adoption
+  finishes, and it must be handed the same `:identifier-prefix` the server render
+  used. **Its tree SCOPEs rather than ENSUREs**: state comes first and through a
+  different door — `re-frame.ssr/hydrate!` installs the server's app-db and must
+  run before this — so the frame already exists and
+  `[h/frame-provider {:frame …} …]` is the verb. An ENSURE there would seed
+  replacement state over the state the server rendered from.
 
 ### `render!`
 

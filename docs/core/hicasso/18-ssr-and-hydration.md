@@ -144,16 +144,20 @@ has — install one with `rf/init!` before the first frame, per
   ;; 3. Adopt the existing server DOM.
   (h/hydrate!
    (js/document.getElementById "app")
-   {:frame             :app/main
-    :identifier-prefix "main"}
-   [views/page {}]))
+   {:identifier-prefix "main"}
+   [h/frame-provider {:frame :app/main}
+    [views/page {}]]))
 ```
 
 The three calls have different jobs:
 
 - `rf/make-frame` creates the frame. Neither hydration step does it for you:
-  `ssr/hydrate!` seeds a frame that already exists, and `h/hydrate!` names the
-  frame its root renders under.
+  `ssr/hydrate!` seeds a frame that already exists, and the tree
+  `h/hydrate!` adopts SCOPEs that frame with `h/frame-provider` rather than
+  ensuring it. **`h/frame-root` is the wrong verb here** — its ENSURE runs at
+  commit, after the payload, and would seed replacement state over the state the
+  server rendered from. That is the whole reason the two verbs are two
+  components.
 - `ssr/hydrate!` applies the state payload through `:rf/hydrate`. It validates
   the wire frame id against the requested frame. A mismatch raises
   `:rf.error/hydration-frame-id-mismatch`; omitting `:frame` raises
@@ -162,19 +166,22 @@ The three calls have different jobs:
 - `h/hydrate!` calls React's `hydrateRoot` on a container that already has
   server markup.
 
-!!! warning "Seeding an absent frame is silent"
+!!! warning "Seeding an absent frame is silent — the DOM step is not"
 
     `ssr/hydrate!` installs the payload by dispatching `:rf/hydrate`, and a
     dispatch into a frame that does not exist is a **no-op, not an error**. The
-    call still reads the payload and still returns it, so a boot that skips
-    step 1 looks like it worked: nothing throws, and the page adopts the
-    server's DOM against a frame that never received the server's state.
+    call still reads the payload and still returns it, so step 2 alone would
+    look like it worked. Step 3 is what catches it: `h/frame-provider` is
+    SCOPE-only and refuses an absent frame with
+    `:rf.error/frame-provider-frame-absent`, so a boot that skips step 1 fails
+    loudly at adoption instead of adopting the server's DOM against a frame that
+    never received the server's state.
 
 The frame comes first, then state, then the DOM.
 
 `h/hydrate!` has the same root lifecycle as `h/mount!`: it associates one
-container, one frame, and one view, and returns a handle accepted by
-`h/unmount!`.
+container and one view, its config carries React-root options only, and it
+returns a handle accepted by `h/unmount!`.
 
 Important root rules:
 
@@ -191,9 +198,12 @@ Important root rules:
 
 `ssr/hydrate!` returns the applied payload, or `nil` when the page carries no
 payload. A shared boot path branches on that: `nil` means nobody
-server-rendered this page, so seed the frame with ordinary events and `h/mount!`
-a fresh root instead of adopting one. Step 1 is the same either way — both
-branches need the frame.
+server-rendered this page, so `h/mount!` a fresh root under an
+`[h/frame-root {:id … :initial-events …}]` instead of adopting one — the ENSURE
+branch, where the frame and its seed are the tree's. The client-only branch
+therefore needs no separate `rf/make-frame` at all; the SSR branch still does,
+because the payload has to land in a configured frame before the DOM is
+adopted.
 
 ## Client-only components and fallbacks
 
@@ -270,15 +280,15 @@ A page can hydrate several roots against one frame and payload:
 
   (h/hydrate!
    (js/document.getElementById "app")
-   {:frame :app/main
-    :identifier-prefix "main"}
-   [views/page {}])
+   {:identifier-prefix "main"}
+   [h/frame-provider {:frame :app/main}
+    [views/page {}]])
 
   (h/hydrate!
    (js/document.getElementById "help")
-   {:frame :app/main
-    :identifier-prefix "help"}
-   [views/help-panel {}]))
+   {:identifier-prefix "help"}
+   [h/frame-provider {:frame :app/main}
+    [views/help-panel {}]]))
 ```
 
 The timestamp differs between server and client. React repairs the help root
@@ -311,8 +321,8 @@ share belong in the snapshot or hydration payload.
 ## When not to use SSR
 
 A client-only application does not need the Node rendering service, payload
-allowlist, or snapshot plumbing. Boot it with `h/mount!` and
-`:initial-events`.
+allowlist, or snapshot plumbing. Boot it with `h/mount!` and an
+`[h/frame-root {:id … :initial-events …}]`.
 
 Applications behind a login wall often gain little from rendering private,
 per-user HTML on a server fleet.
@@ -327,6 +337,7 @@ view rewrite.
 | --- | --- | --- |
 | `:rf.ssr/hydration-mismatch` names a root and view | Server and first client render differed, often because a body read a clock, random value, or browser global | Keep bodies deterministic; move platform work to client effects or host edges |
 | Every `useId` id in one root reports a mismatch | The root's `:identifier-prefix` differs from the server prefix | Use the same unique prefix in `server/render` and that root's `h/hydrate!` |
+| `h/hydrate!` throws `:rf.error/frame-provider-frame-absent` | The tree SCOPEs a frame nothing made — step 1 or step 2 was skipped | Create the frame and install the payload before adopting the DOM |
 | Client-only widget shows a skeleton, then swaps to the live widget | The Client-only policy is working | Use a same-size fallback, or select Render only when the component is truly server-safe |
 | Declaration raises `:rf.error/hicasso-host-fallback-boundary-head` | The fallback contains a view or host head | Use plain deterministic Hiccup, or render the real component with `{:server :render}` |
 | Server render throws `window is not defined` under Render | The component is not server-safe | Return it to Client-only and provide a fallback |

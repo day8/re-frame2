@@ -37,10 +37,12 @@ Everything below assumes a mounted root, so start here.
   (rf/init! uix-adapter/adapter)
   (reset! !root
           (h/mount! (js/document.getElementById "app")
-                    {:frame          :app/main
-                     :initial-events [[:app/seed]
-                                      [:rf.route/navigate {:to :route/home}]]}
-                    [views/app {}]))
+                    {}
+                    [h/frame-root
+                     {:id             :app/main
+                      :initial-events [[:app/seed]
+                                       [:rf.route/navigate {:to :route/home}]]}
+                     [views/app {}]]))
   nil)
 ```
 
@@ -49,8 +51,8 @@ Four things about this shape are load-bearing.
 **`rf/init!` comes first, and it is not optional.** Hicasso is a view layer, not
 a [substrate](../glossary.md#substrate): the reactive container app-db lives in
 comes from an [adapter](../glossary.md#adapter), and nothing installs one for
-you. `h/mount!` ensures its frame, creating a frame asks the adapter for a state
-container, and a mount that beats `init!` throws
+you. `h/frame-root` ensures its frame, creating a frame asks the adapter for a
+state container, and a boot that beats `init!` throws
 `:rf.error/no-adapter-installed`. `re-frame.adapter.uix` is its own artefact —
 [Installation](00-installation.md#add-the-dependencies) declares the
 `day8/re-frame2-uix` coordinate it comes from alongside Hicasso's, and
@@ -62,13 +64,18 @@ and a reload hook that calls `h/mount!` a second time would `createRoot` again �
 replacing the tree and discarding every DOM node, subscription and scrap of
 component state instead of reconciling against them.
 
-**Seed in one place.** `h/mount!` **ensures** its frame: it creates the frame if
-absent and seeds it with `:initial-events`, or joins it untouched if a root
-already made it. So if you call `rf/make-frame` yourself first, the mount joins
-and your `:initial-events` never run. Pick one.
+**Seed in one place, and let it be the tree.** `h/frame-root` **ensures** the
+frame it names: it creates the frame if absent and seeds it with
+`:initial-events`, or reuses the live one untouched if something already made it.
+So if you call `rf/make-frame` yourself first, the boundary reuses and your
+`:initial-events` never run. It takes the whole `rf/make-frame` option map —
+`:fx-overrides`, `:url-bound?`, `:images` and the rest — so there is no reason to
+make the frame anywhere else.
 
 **`:initial-events` drain before the first paint**, in order, so the first render
-is the seeded one rather than an empty frame filled in a moment later.
+is the seeded one rather than an empty frame filled in a moment later: the ensure
+runs in a layout effect, and `h/mount!` renders inside `flushSync`, so the door
+returns with the seeded markup already on the page.
 
 Chapter: [Installation](00-installation.md).
 
@@ -553,15 +560,18 @@ the DOM:
 (defn ^:export -main []
   (ssr/hydrate! {:frame :app/main})                    ;; 1. state
   (h/hydrate! (js/document.getElementById "app")       ;; 2. DOM
-              {:frame :app/main :identifier-prefix "main"}
-              [views/page {}])
+              {:identifier-prefix "main"}
+              [h/frame-provider {:frame :app/main}
+               [views/page {}]])
   nil)
 ```
 
 **State comes first, and it is a different door.** `h/hydrate!` adopts DOM and
-nothing else. Unlike `h/mount!` it does **not** ensure or seed its frame, and it
-has no `:initial-events` key — an adopting root takes its state from the server
-payload, and a seed here would overwrite exactly what the server rendered from.
+nothing else, and its tree SCOPEs rather than ENSUREs: an adopting root takes its
+state from the server payload, and an `h/frame-root` here would seed replacement
+state over exactly what the server rendered from. `h/frame-provider` refuses a
+frame that is not live, so getting the two lines the wrong way round is caught
+rather than silent.
 
 **Hand both sides the same `:identifier-prefix`.** React numbers `useId` per root
 and prefixes it with this option, so a hydrating root given a different prefix —

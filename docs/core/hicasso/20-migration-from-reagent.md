@@ -208,8 +208,9 @@ a Hicasso rule.
 
 `h/mount!` ([Installation](00-installation.md)) is the whole-application door.
 It is where the migration ends rather than where it starts: when the last
-screen is ported, the Reagent root and its `frame-root` wrapper give way to one
-`h/mount!` naming the same frame.
+screen is ported, the Reagent root gives way to one `h/mount!`, and the
+`frame-root` wrapper is respelled `h/frame-root` and stays exactly where it
+was.
 
 ### Common translations
 
@@ -238,17 +239,16 @@ spelling change; none of those is a change of shape:
 | `dispatch`, injected into a `reg-view` body | the intent vector itself, or `h/event` when the event matters |
 | `#(do (.preventDefault %) (dispatch [:e]))` | `[::h/prevent [:e]]` at the same prop |
 | `[rf/route-link {...}]`, a Hiccup head | `(h/route-link {...})`, a plain call |
-| `[rf/frame-root {:id :app ...}]` around the tree | `h/mount!`'s `{:frame :app ...}` root configuration, once the whole application is ported. Not a rename when the `frame-root` carries frame options — see below |
+| `[rf/frame-root {:id :app ...}]` around the tree | `[h/frame-root {:id :app ...}]` — the SAME head, the same options, in the same place. A rename, and nothing more |
 
-That last row is the exception, and it fails silently. `rf/frame-root` passes
-every `rf/make-frame` option through — `:url-bound?`, `:fx-overrides`, `:images`,
-`:preset` and the rest of the record config — while `h/mount!`'s config is closed
-at `:frame`, `:initial-events` and `:identifier-prefix`, and ensures the frame as
-an id plus that seed. Every other key in the mount config is ignored without
-complaint, so a `frame-root` carrying more than an id and a seed does not survive
-being respelled as one. Create the frame with `rf/make-frame` and its full
-options first, and let the mount join it — that is what mounting does whenever
-the frame is already live.
+That last row used to be the exception, and it used to fail silently: the mount
+config was closed at three keys and dropped the rest, so a `frame-root` carrying
+`:url-bound?` or `:fx-overrides` did not survive being respelled as one. It is an
+ordinary row now. `h/frame-root` passes every `rf/make-frame` option through
+exactly as `rf/frame-root` does — `:url-bound?`, `:fx-overrides`, `:images`,
+`:preset` and the rest of the record config — and the root door refuses a frame
+option rather than ignoring it, so the mistake is loud on the rare occasion
+somebody still makes it.
 [Installation](00-installation.md#a-frame-that-needs-more-than-a-seed) shows the
 shape; a routed application needs `:url-bound? true`, so this is the common path
 rather than an edge

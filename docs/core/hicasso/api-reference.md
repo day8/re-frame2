@@ -71,6 +71,10 @@ for one carries none of it.
 (h/render!  handle view)
 (h/unmount! handle)
 
+;; frame boundaries — written IN the tree
+[h/frame-root     {:id :app/main :initial-events […] …make-frame opts} child …]
+[h/frame-provider {:frame :app/main} child …]
+
 ;; markup
 [h/error-boundary {:fallback f :reset-key k :on-error e} child …]
 [h/portal {:target node :fallback markup} child …]
@@ -123,52 +127,56 @@ many roots as it likes, and no call here reaches a root the caller did not name.
 | `h/render!` | `(h/render! handle view)` | Re-renders a mounted root in place, synchronously, and answers its handle. It renders into the same root rather than opening a second one, so React reconciles the new tree against the one on the page. The hot-reload door — though on a reload that reconcile still rebuilds the DOM, because a reloaded namespace redefines every view and a changed component type is a remount: [Hot reload](00-installation.md#hot-reload). |
 | `h/unmount!` | `(h/unmount! handle)` | Takes this root down and touches nothing else — no sibling root's state, and not the container, which React empties and leaves in the document. Idempotent. |
 
-`h/mount!`'s `config` carries three keys:
+Both doors' `config` carries **root options only** — one key today:
 
 | Key | Meaning |
 | --- | --- |
-| `:frame` | the frame keyword this root scopes. Mounting **ensures** it: created if absent, joined as it stands if another root already uses it |
-| `:initial-events` | an ordered vector of ordinary event vectors, dispatched synchronously **when this mount creates the frame**, draining before the call returns. Core's own `:initial-events`, reaching `rf/make-frame` untouched |
-| `:identifier-prefix` | React's `identifierPrefix`, handed to `createRoot` untouched. No default, no coercion, no validation |
+| `:identifier-prefix` | React's `identifierPrefix`, handed to `createRoot` / `hydrateRoot` untouched. No default, no coercion, no validation. A page with two roots gives them distinct prefixes or watches their `useId` values collide |
 
-The list is closed, and any other key is ignored without complaint. A frame that
-needs an `rf/make-frame` option — `:url-bound?` for an application that owns the
-browser URL, `:fx-overrides`, `:images`, `:platform` — is created before the
-mount, which then joins it: [A frame that needs more than a
-seed](00-installation.md#a-frame-that-needs-more-than-a-seed).
+**A key the roster does not carry is REFUSED**, not ignored: `:frame` and
+`:initial-events` raise `:rf.error/hicasso-frame-config-misplaced` naming the
+head that takes them, and anything else raises
+`:rf.error/hicasso-unknown-root-option`.
 
-`h/hydrate!`'s `config` carries `:frame` and `:identifier-prefix`, and no
-`:initial-events`. The next section is why.
+### The frame is written in the tree
 
-### `h/mount!` and `h/hydrate!` are not symmetric
+Two heads, one verb each — the pair every re-frame2 view substrate spells
+([Frames spec](../../spec/002-Frames.md)).
 
-They read like a pair and they are not one. **`h/mount!` ensures its frame;
-`h/hydrate!` does not.** A boot written on the assumption that they behave alike
-compiles, runs, and renders an empty application.
+| Head | Verb | Contract |
+| --- | --- | --- |
+| `[h/frame-root {:id :f …} child …]` | **ENSURE** | Creates the frame if absent and REUSES the live one as it stands — no re-seed, no config refresh. Takes the **whole** `rf/make-frame` option map: `:initial-events`, `:images`, `:url-bound?`, `:fx-overrides`, `:preset`, every record-config key. `:id` is required and must be a keyword. Unmounting destroys nothing |
+| `[h/frame-provider {:frame :f} child …]` | **SCOPE** | Provides an ALREADY-LIVE frame to the subtree, and creates, refreshes and destroys nothing. `:frame` takes a frame-id keyword or the live frame value `rf/make-frame` returns. An absent frame is `:rf.error/frame-provider-frame-absent` rather than a subtree scoped to nothing |
 
-- **`h/mount!` creates the frame if it is absent**, seeding it with
-  `:initial-events`, and joins it untouched if it is already live. That is
-  `rf/frame-root`'s vocabulary reaching this arm: nothing else here made a
-  frame, so a consumer's boot line used to spell the frame id twice, once to
-  `rf/make-frame` and again to the root door.
-- **`h/hydrate!` takes the frame as it finds it.** It has no `:initial-events`
-  key, and this is deliberate rather than missing: an adopting root takes its
-  state from the server payload through `re-frame.ssr/hydrate!`, and a seed here
-  would overwrite the state the server rendered from. So state arrives first,
-  through a different door, and the DOM is adopted second:
+Each refuses the other's key by name: `:frame` on a `frame-root` is
+`:rf.error/frame-root-given-frame` pointing at `frame-provider`, and `:id` on a
+`frame-provider` is `:rf.error/frame-provider-given-id` pointing at
+`frame-root`. Changing a MOUNTED boundary's `:id` or opts is
+`:rf.error/frame-root-reconfigured`; pass a React `:key` and remount to point at
+a different frame.
+
+**The ENSURE is commit-owned, and the first paint is still the seeded one.**
+`frame-root`'s first render emits no subtree, and the frame is made in a
+`useLayoutEffect` — so a render React discards creates nothing and seeds
+nothing. The layout-phase state flip re-renders synchronously before the browser
+paints, and `h/mount!` renders inside `flushSync`, so the door returns with the
+seeded markup on the page.
+
+### Which verb an adopting root takes
+
+**A hydrating root SCOPEs.** Its frame already exists: `re-frame.ssr/hydrate!`
+installed the server's app-db one line earlier, and an ENSURE there would seed
+replacement state over the state the server rendered from. So state arrives
+first, through a different door, and the DOM is adopted second:
 
 ```clojure
-(ssr/hydrate! {:frame :app/main})                       ;; 1. state
-(h/hydrate! node {:frame :app/main} [views/page {}])    ;; 2. DOM
+(ssr/hydrate! {:frame :app/main})                     ;; 1. state
+(h/hydrate! node {}                                   ;; 2. DOM
+  [h/frame-provider {:frame :app/main} [views/page {}]])
 ```
 
-Two consequences follow, and both bite quietly.
-
-**`:initial-events` runs only on the mount that creates the frame.** A boot that
-calls `rf/make-frame` itself and then hands `h/mount!` an `:initial-events`
-vector has already created the frame, so the mount joins it and those events
-never run. Seed from one place: either `rf/make-frame` or the mount that creates
-the frame, never both.
+Getting that order wrong is caught rather than silent: `frame-provider` fails
+loud on a frame that is not live.
 
 **A hydrating root needs the same `:identifier-prefix` its server render used.**
 React numbers `useId` per root and prefixes it with this option, so a hydrating
