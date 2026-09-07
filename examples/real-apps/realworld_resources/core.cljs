@@ -29,6 +29,9 @@
      http.cljs       — the demo backend stub + failure projection
      views.cljs      — passive pages + the small UI event glue"
   (:require [re-frame.core :as rf]
+            ;; `debug-enabled?` — the build-posture flag the production error
+            ;; sink is gated on (see PRODUCTION ERROR REPORTING below).
+            [re-frame.interop :as rf.interop]
             ;; Managed HTTP — the one built-in transport both resources and
             ;; mutations lower onto.
             [re-frame.http.managed]
@@ -201,6 +204,81 @@
                       (str "Token " token)))))
 
 ;; ============================================================================
+;; PRODUCTION ERROR REPORTING  —  the frame `:observability` sink
+;; ============================================================================
+;;
+;; Ship this app as an optimised production build and the compiler elides the
+;; whole dev-time trace surface: no trace stream, no epoch rings, no Xray. What
+;; survives on purpose is the always-on error substrate, and a frame's
+;; `:observability` policy is how its records reach your monitor. The full guide
+;; is ../../../docs/core/how-to/report-errors-in-production.md.
+;;
+;; Two moves, and keeping them separate is the whole lesson:
+;;
+;;   (a) THE FRAME DECLARES A POLICY — which sink ids take its error records,
+;;       and the egress boundary those records may cross. It is plain data, it
+;;       costs nothing, and it is declared UNCONDITIONALLY (`:observability` in
+;;       the `frame-root` config below).
+;;
+;;   (b) THE APP REGISTERS THE CONCRETE SINK FN against the id the policy named
+;;       — and that is the half you GATE, so a dev build never fires
+;;       dev-verbose records at a real monitoring backend.
+;;
+;; Routing is fail-closed, which is what makes that split safe: a frame with no
+;; policy routes nothing, there is no `:rf/default` sink synthesised on your
+;; behalf, and a policy naming a sink nobody registered routes nowhere —
+;; visibly, on purpose. So in a dev build (b) simply never runs, the record is
+;; routed nowhere, and the framework's own console fallback prints it for you.
+;; Exactly what you want on a laptop.
+;;
+;; What the sink receives is ALREADY PROJECTED, under this frame's
+;; classification and the entry's `:rf.egress/off-box-observability` profile.
+;; The JWT that `:auth/classify-token` marked sensitive is redacted before your
+;; code sees it, and the off-box profile omits the raw event-args slot
+;; altogether. A sink never scrubs anything itself — that is precisely why the
+;; policy lives on the frame instead of being passed as a callback.
+;;
+;; Don't reach for `register-listener! :trace` here. It carries everything,
+;; which is the temptation, and it is dev-only — a monitor built on it works
+;; beautifully in development and ships nothing at all, which you find out
+;; mid-incident.
+;;
+;; re-frame2 ships no Sentry / Datadog client and never will; a real deployment
+;; swaps the body of `report-error!` for its own. This demo prints the record's
+;; discriminators, which is also a fair tour of what one carries.
+
+(def error-sink-id
+  "The sink id the frame policy names and the sink fn registers under. One
+   def so the two halves cannot drift apart."
+  :realworld-resources.sinks/error-monitor)
+
+(def observability
+  "This frame's error-reporting POLICY. Data, declared unconditionally — the
+   gate belongs on the registration below, never on the declaration."
+  {:errors [{:sink              error-sink-id
+             :rf.egress/profile :rf.egress/off-box-observability}]})
+
+(defn- report-error! [record]
+  ;; `record` is a projected `:rf.observe/error`: `:error` is the canonical
+  ;; `:rf.error/*` discriminator, `:event-id` names what was in flight, and
+  ;; `:exception` carries the host throwable when the failure had one (several
+  ;; record shapes do not — branch, never assume).
+  (js/console.error "[conduit] re-frame2 error record"
+                    #js {:error     (str (:error record))
+                         :frame     (str (:frame record))
+                         :eventId   (str (:event-id record))
+                         :exception (:exception record)}))
+
+(defn install-error-monitor!
+  "Register the concrete sink — the GATED half. `debug-enabled?` is false in an
+   optimised build, so this is a no-op on a laptop and the framework's console
+   fallback handles dev failures instead. A real app ANDs this with its own
+   build flag and a present DSN."
+  []
+  (when-not ^boolean rf.interop/debug-enabled?
+    (rf/register-observability-sink! error-sink-id report-error!)))
+
+;; ============================================================================
 ;; window.__conduit_debug__  — CONFORMANCE-CONTRACT SURFACE
 ;; ============================================================================
 ;;
@@ -326,6 +404,10 @@
                       :url-bound?      true
                       :url-strategy    routing/url-strategy
                       :revalidate-on   #{:focus :reconnect}
+                      ;; Where this frame's error records go, and how far they
+                      ;; may travel. Declared unconditionally; see PRODUCTION
+                      ;; ERROR REPORTING above.
+                      :observability   observability
                       :fx-overrides    {:rf.http/managed :realworld-resources.demo/http-stub}
                       :initial-events  [[:auth/classify-token]
                                             [:auth/initialise]
@@ -359,4 +441,10 @@
   (rf/with-frame app-frame
     (rf/reg-http-interceptor :realworld/bearer-auth
                              {:before bearer-auth-interceptor}))
+  ;; The gated half of the error-reporting pair (the frame declares the policy
+  ;; unconditionally, in `mount!`). Registering before the frame exists is fine
+  ;; and is the safer order: the sink registry is keyed by id and consulted
+  ;; when a record is routed, so the monitor is live from the very first
+  ;; `:initial-events` dispatch rather than from some later boot step.
+  (install-error-monitor!)
   (mount!))
