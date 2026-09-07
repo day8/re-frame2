@@ -766,7 +766,8 @@
 ;; (`clear-sub-cache!`) is reached through `re-frame.core`'s defalias
 ;; pointing at `re-frame.subs.cache/*` directly (no facade re-export).
 
-(declare subscribe subscribe-in-frame unsubscribe compute-and-cache!)
+(declare subscribe subscribe-in-frame unsubscribe unsubscribe-if-reaction
+         compute-and-cache!)
 
 ;; ---- acquire recovery channel (rf2-vxgfnd.27) ----------------------------
 ;;
@@ -925,12 +926,33 @@
         [recovery-qs true]))))
 
 (defn- release-input-ref!
-  "Release ONE declared input ref by calling `unsubscribe`, surfacing a
-  throw as a dev breadcrumb instead of discarding it silently.
+  "Release ONE declared input ref — the CONCRETE `input-reaction` this build
+  acquired — surfacing a throw as a dev breadcrumb instead of discarding it
+  silently.
 
-  A layer-2+ reaction's disposal walks `input-signals` and `unsubscribe`s
+  RELEASE WHAT YOU ACQUIRED (rf2-1frc). This was an address-only
+  `unsubscribe`, on the reading that the slot at `input-q` could not be
+  replaced between a parent's build and its disposal. It can, and the two
+  eviction primitives make it ORDINARY rather than exotic: both
+  `rf.subs.cache/invalidate-frame-subs!` and `clear-sub-cache!` remove the
+  whole condemned batch from the cache atom BEFORE they dispose any member of
+  it, and since PR #9373 a mounted React hook whose reaction is disposed
+  REACQUIRES eagerly from inside that walk. So a later member's teardown runs
+  against a cache an earlier member has already repopulated: two mounted
+  parents over one shared child ended with the second parent's release
+  decrementing — and disposing — the SUCCESSOR child the first parent was
+  holding, leaving one counted ref where two were owed.
+
+  So the release is identity-guarded through `unsubscribe-if-reaction`,
+  matching the cache-dissoc step of the very same on-dispose callback (which
+  was `identical?`-guarded all along — the asymmetry WAS the defect). A
+  release whose reaction is no longer the cache's no-ops, its reference having
+  died with the eviction; a release whose reaction IS the cache's takes the
+  ordinary 1 → 0 in-tick disposal, exactly as `unsubscribe` did.
+
+  A layer-2+ reaction's disposal walks `input-signals` and releases
   each — symmetric with the per-input `subscribe` bumps taken at build
-  time. The walk is BEST-EFFORT: one input's `unsubscribe` throwing must
+  time. The walk is BEST-EFFORT: one input's release throwing must
   NOT skip the remaining inputs (a leaked sibling ref-count would compound),
   so the caller keeps looping. Before rf2-is8ov5 the throw was caught and
   dropped (`(catch … _ nil)`), leaving no trace — a ref-count leak from a
@@ -952,9 +974,9 @@
   release on the escaped-caching path, `:sub-cycle-unwind` for the earlier
   inputs released when a declared-input cycle in a non-first input abandons the build —
   rf2-t3cpn3). Returns nil."
-  [frame-id input-q where]
+  [frame-id input-q input-reaction where]
   (try
-    (unsubscribe frame-id input-q)
+    (unsubscribe-if-reaction frame-id input-q input-reaction)
     (catch #?(:clj Throwable :cljs :default) ex
       (rf.trace/emit-error! :rf.warning/sub-input-dispose-exception
                          {:category         :rf.warning/sub-input-dispose-exception
@@ -1303,6 +1325,10 @@
                                        ;; the minimal precise fix; any other
                                        ;; (theoretical) throw re-propagates
                                        ;; unchanged.
+                                       ;; `acquired` holds `[input-q reaction]`
+                                       ;; pairs, not bare addresses: the unwind
+                                       ;; releases the CONCRETE reaction it
+                                       ;; took (rf2-1frc).
                                        (let [acquired (volatile! [])]
                                          (try
                                            ;; rf2-7w1im: fence the recursive input
@@ -1316,13 +1342,13 @@
                                                    (let [r (subscribe-in-frame
                                                              frame-id input-q
                                                              expected-incarnation)]
-                                                     (vswap! acquired conj input-q)
+                                                     (vswap! acquired conj [input-q r])
                                                      r))
                                                  input-qs)
                                            (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
                                              (when (= :rf.error/sub-cycle (:rf.error/id (ex-data e)))
-                                               (doseq [input-q @acquired]
-                                                 (release-input-ref! frame-id input-q :sub-cycle-unwind)))
+                                               (doseq [[input-q input-r] @acquired]
+                                                 (release-input-ref! frame-id input-q input-r :sub-cycle-unwind)))
                                              (throw e))))))
         memoised-body (cond
                         input-error?
@@ -1440,10 +1466,18 @@
             ;; parent slot so the cache invariant ("ref-count reflects
             ;; live refs") holds at every observable moment.
             ;; Best-effort per-input release: a throw from one input's
-            ;; `unsubscribe` surfaces a dev breadcrumb (rf2-is8ov5) and the
+            ;; release surfaces a dev breadcrumb (rf2-is8ov5) and the
             ;; loop continues so the remaining inputs still release.
-            (doseq [input-q input-signals]
-              (release-input-ref! frame-id input-q :on-dispose))
+            ;; rf2-1frc — hand each release the CONCRETE input reaction this
+            ;; build acquired (`inputs` is `mapv`'d from `input-signals`, so
+            ;; the two are positionally parallel by construction). An
+            ;; address-only release stole a successor entry's ref whenever an
+            ;; eviction batch was repopulated mid-walk by an eagerly
+            ;; reacquiring holder; the identity guard makes it a no-op
+            ;; instead, symmetric with the `identical?`-guarded cache-dissoc
+            ;; immediately below.
+            (doseq [[input-q input-r] (map vector input-signals inputs)]
+              (release-input-ref! frame-id input-q input-r :on-dispose))
             (swap! cache (fn [m]
                            (if (identical? reaction (:reaction (get m k)))
                              (dissoc m k)
@@ -1491,8 +1525,11 @@
       (do
         (when (and (not layer-1?)
                    (seq input-signals))
-          (doseq [input-q input-signals]
-            (release-input-ref! frame-id input-q :not-cached-release)))
+          ;; rf2-1frc — same identity-guarded release as the on-dispose walk:
+          ;; a frame torn down mid-build can have a SAME-ID successor whose
+          ;; cache an address-only release would decrement.
+          (doseq [[input-q input-r] (map vector input-signals inputs)]
+            (release-input-ref! frame-id input-q input-r :not-cached-release)))
         reaction))))))
 
 (defn- compute-and-cache!
@@ -2478,8 +2515,12 @@
   still holds `reaction`**, then take the ordinary 1 → 0 in-tick disposal.
 
   Not public API and not an alternative teardown: it exists for holders
-  whose reference can outlive its slot, and both of them are the React-hook
-  spine's.
+  whose reference can outlive its slot. Two of the three are the React-hook
+  spine's; the third is this namespace's own layer-2+ input release
+  (`release-input-ref!`, rf2-1frc), which outlives its slot for the same
+  reason case 2 does — an eviction batch is removed from the cache before it
+  is disposed, so an eagerly reacquiring holder can repopulate a slot mid-walk
+  and a later member's address-only release would decrement the successor.
 
     1. The RENDER-PHASE PROVISIONAL acquisition, released either by the
        commit that adopts it or by a host-macrotask reaper, across a window
