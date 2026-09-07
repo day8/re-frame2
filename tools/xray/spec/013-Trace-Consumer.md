@@ -330,8 +330,8 @@ restored.
 `trace-collector/retroactive-scrub!` drops all four places trace
 data lives:
 
-1. The framework's per-frame rings — via
-   `re-frame.trace.tooling/clear-trace-rings!`.
+1. The framework's per-frame rings — via the 0-arity
+   `(rf/clear-trace-buffer!)`.
 2. Xray's frameless secondary ring — via `clear-frameless-ring!`.
 3. Xray's app-db `:trace-buffer` slot — via `:rf.xray/clear-trace-
    buffer`.
@@ -342,6 +342,16 @@ alongside the sensitive cascade is also lost. This is the documented
 trade-off — selective scrubbing is unsafe because a single sensitive
 event can have caused later non-sensitive cascades (subs, renders,
 fx) whose payloads structurally reveal the redacted value.
+
+Wholesale over *data*, though — not over *policy*. The scrub
+deliberately does NOT reset the user's configured trace retention
+(`(rf/configure! {:trace-buffer {:events-retained N}})`), any frame's
+explicit `:rf.trace/events-retained` override, or the framework's
+hot-reload registration dedup table. Its subject is retained events; the
+Buffer tab writes that very retention knob, so a scrub that reset it
+would silently revert the user's own setting (rf2-kuky.54). The
+fixture-grade `re-frame.trace.tooling/clear-trace-rings!`, which *does*
+reset all three, is reserved for `reset-for-test!`.
 
 `config.cljc`'s `set-egress-profile!` walks the registered
 `toggle-off-callbacks` on every reveal → redact narrowing;

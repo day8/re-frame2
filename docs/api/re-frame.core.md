@@ -1025,11 +1025,13 @@ There is deliberately **no** facade `clear-listeners!` verb. Dropping every list
 - **Signature**:
   ```clojure
   (clear-trace-buffer! frame-id) → nil
+  (clear-trace-buffer!) → nil
   ```
-- **Description**: Empty the named frame's ring. No-op for an unknown frame, no-op in production.
+- **Description**: Empty retained trace events — the named frame's ring, or every frame's. A data clear, not a fixture reset: each ring is re-emptied at its own effective `:rf.trace/events-retained` cap, so the `:trace-buffer` process default and every per-frame override survive, and the hot-reload dedup table is untouched. No-op for an unknown frame, no-op in production.
 - **Example**:
   ```clojure
   (rf/clear-trace-buffer! :app/main)   ;; empty one frame's ring (e.g. between tool sessions)
+  (rf/clear-trace-buffer!)             ;; empty every ring; retention policy stays put
   ```
 
 ### `group-by-event`

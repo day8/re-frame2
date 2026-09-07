@@ -831,7 +831,7 @@ localStorage).
 | `:toggle-theme` | `#{:dynamic :static}` | Flips the Settings `:theme` slot between `:dark` and `:light` via `:rf.xray/settings-update`. |
 | `:toggle-reduced-motion` | `#{:dynamic :static}` | Flips the user-override reduced-motion axis (rides the axis-3 of theme/density/motion in §Settings). |
 | `:snapshot-db` | `#{:dynamic}` | Pins the current target-frame's app-db snapshot via `:rf.xray/pin-current`. |
-| `:clear-epoch` | `#{:dynamic}` | Clears the framework's per-frame rings + Xray's frameless secondary ring + the epoch history via `trace-collector/retroactive-scrub!`. |
+| `:clear-epoch-history` | `#{:dynamic}` | Drops Xray's own `:epoch-history` app-db slot via `[:palette/clear-epoch-history]`. It does **not** touch the framework's trace rings, the frameless secondary ring, or the framework's epoch ring — the sibling `:clear-trace-buffer` command is the one that runs `trace-collector/retroactive-scrub!`. |
 | `:toggle-mode` | `#{:dynamic :static}` | Dispatches `:rf.xray/toggle-mode` (the Cmd-Shift-M chord's verb form, surfaced as a palette entry for discoverability). |
 | `:jump-to-settings` | `#{:dynamic :static}` | Opens the Settings popup. |
 

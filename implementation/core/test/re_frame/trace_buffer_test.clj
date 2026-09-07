@@ -319,6 +319,64 @@
     (is (= [] (rf/trace-buffer :app/a)) ":app/a's ring is empty")
     (is (seq (rf/trace-buffer :app/b)) ":app/b's ring is intact")))
 
+;; ---- 1f-bis. The 0-arity data clear vs the fixture reset ----------------
+;; (rf2-kuky.54) Two clears, two policies. `clear-trace-buffer!` clears
+;; DATA; `clear-trace-rings!` additionally resets POLICY. Xray's
+;; user-facing "Clear buffer now" was wired to the fixture one, silently
+;; reverting the user's own `:events-retained` setting. The difference is
+;; pinned here as a test rather than left to a docstring.
+
+(deftest ^:requires-debug clear-trace-buffer-0-arity-clears-every-ring-preserving-policy
+  (testing "the 0-arity empties every ring and leaves retention policy in force"
+    (rf/configure! {:trace-buffer {:events-retained 7}})
+    (rf/make-frame {:id :tb/inherits :doc "inherits the process default of 7"})
+    (rf/make-frame {:id :tb/override :rf.trace/events-retained 3
+                    :doc "explicit per-frame override"})
+    (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
+    (rf/dispatch-sync [:ping] {:frame :tb/inherits})
+    (rf/dispatch-sync [:ping] {:frame :tb/override})
+    (is (seq (rf/trace-buffer :tb/inherits)))
+    (is (seq (rf/trace-buffer :tb/override)))
+
+    (rf/clear-trace-buffer!)
+    (is (= [] (rf/trace-buffer :tb/inherits))
+        "every ring is emptied, not just one frame's")
+    (is (= [] (rf/trace-buffer :tb/override)))
+
+    ;; Refill past both caps: retention survived the clear.
+    (dotimes [_ 10] (rf/dispatch-sync [:ping] {:frame :tb/inherits}))
+    (dotimes [_ 10] (rf/dispatch-sync [:ping] {:frame :tb/override}))
+    (is (= 7 (count (rf/trace-buffer :tb/inherits)))
+        "the configured process default (7) survived the clear")
+    (is (= 3 (count (rf/trace-buffer :tb/override)))
+        "the per-frame override (3) survived the clear")
+
+    ;; `:override?` survived too — `configure!` retunes inherited rings
+    ;; and skips overrides, so the two are still distinguishable.
+    (rf/configure! {:trace-buffer {:events-retained 2}})
+    (is (<= (count (rf/trace-buffer :tb/inherits)) 2)
+        "the inherited ring is still recognised as inherited, so it retunes")
+    (is (= 3 (count (rf/trace-buffer :tb/override)))
+        ":override? survived the clear — the override is not retuned")))
+
+(deftest ^:requires-debug clear-trace-rings-resets-policy-where-clear-trace-buffer-does-not
+  (testing "clear-trace-rings! is the fixture reset — it DOES restore the built-in default"
+    (rf/configure! {:trace-buffer {:events-retained 3}})
+    (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
+    (dotimes [_ 10] (rf/dispatch-sync [:ping]))
+    (is (= 3 (count (rf/trace-buffer :rf/default)))
+        "the configured default of 3 is in force")
+
+    (rf/clear-trace-buffer!)
+    (dotimes [_ 10] (rf/dispatch-sync [:ping]))
+    (is (= 3 (count (rf/trace-buffer :rf/default)))
+        "the data clear left the configured default of 3 in force")
+
+    (rf.trace.tooling/clear-trace-rings!)
+    (dotimes [_ 10] (rf/dispatch-sync [:ping]))
+    (is (= 10 (count (rf/trace-buffer :rf/default)))
+        "the fixture reset restored the built-in default (50), so all 10 are retained")))
+
 (deftest ^:requires-debug frame-destroy-clears-the-rings
   (testing "destroy-frame! releases the destroyed frame's ring"
     (rf/make-frame {:id :app/transient :doc "short-lived"})

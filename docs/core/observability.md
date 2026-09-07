@@ -164,7 +164,9 @@ That sets the process default. A frame that wants its own retention sets
 `:rf.trace/events-retained` in its frame config. And when you want to start a session
 from a clean slate — between two recordings, say —
 `(rf/clear-trace-buffer! :app)` empties the named frame's ring without touching
-anyone else's.
+anyone else's, and the 0-arity `(rf/clear-trace-buffer!)` empties every one of them.
+Either way you clear the *events*, not the *policy* — the retention you configured
+above, and any per-frame override, are still in force for what gets recorded next.
 
 ??? info "Coming from Redux DevTools?"
 

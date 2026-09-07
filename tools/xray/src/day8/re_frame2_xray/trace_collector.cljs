@@ -210,7 +210,7 @@
   (let [tool-frames #{:rf/xray :rf/re-frame2-pair}
         frame-ids   (remove tool-frames (rf.frame/frame-ids))
         per-frame   (into [] (mapcat (fn [fid]
-                                       (rf.trace.tooling/trace-buffer fid {:flat true})))
+                                       (rf/trace-buffer fid {:flat true})))
                           frame-ids)
         frameless   (frameless-events)
         all         (into per-frame frameless)]
@@ -339,7 +339,7 @@
 ;;
 ;; Three places hold trace data post-rf2-43koh:
 ;;   1. The framework's per-frame rings — clear via
-;;      `(rf.trace.tooling/clear-trace-rings!)`.
+;;      `(rf/clear-trace-buffer!)`.
 ;;   2. The Xray secondary frameless ring — clear via
 ;;      `(clear-frameless-ring!)`.
 ;;   3. Xray's app-db `:trace-buffer` slot — clear via
@@ -349,6 +349,14 @@
 ;; alongside so the `[● REDACTED N]` indicator disappears in lockstep
 ;; (clearing the buffer is the natural moment to drop the
 ;; \"you missed N events\" overhang).
+;;
+;; The framework clear is the 0-arity DATA clear, not the fixture-grade
+;; `clear-trace-rings!` (rf2-kuky.54). The scrub's subject is retained
+;; *events*; it deliberately does NOT reset the user's configured
+;; `(rf/configure! {:trace-buffer {:events-retained N}})` retention, any
+;; frame's explicit override, or the hot-reload registration dedup table —
+;; the Settings popup writes that very retention knob, so a scrub that reset
+;; it would silently revert the user's own setting.
 
 (defn retroactive-scrub!
   "Wholesale clear: per-frame rings + frameless secondary ring + Xray's
@@ -356,11 +364,15 @@
   toggle-off-callback registered below, AND from the Settings popup's
   \"Clear buffer now\" affordance.
 
+  Retention policy survives: the framework clear is the 0-arity data
+  clear, so the user's configured `:events-retained` and every per-frame
+  override stay in force (rf2-kuky.54).
+
   Production no-op (`rf.interop/debug-enabled?` gates every mutation
   point inside the framework + Xray paths)."
   []
   (when rf.interop/debug-enabled?
-    (rf.trace.tooling/clear-trace-rings!)
+    (rf/clear-trace-buffer!)
     (clear-frameless-ring!)
     (when (some? (rf.frame/frame defaults/default-frame-id))
       (rf/with-frame defaults/default-frame-id
