@@ -76,14 +76,13 @@ Two cross-feature bare keys are also accepted:
 
 Guide overview of the key groups: [Metadata map](../routing/concepts.md#the-metadata-map-in-full) (per-key catalogue is this table and the API rows below).
 
-### `clear-route`
+### Clearing a route
 
-- **Kind**: function
 - **Signature**:
   ```clojure
-  (clear-route id) → nil
+  (rf/clear :route id) → id
   ```
-- **Description**: Remove a registered route. Emits `:rf.route/cleared` (symmetric with `:rf.flow/cleared`) so tools subscribing to route lifecycle observe the removal. No-op when `id` was not registered.
+- **Description**: Remove a registered route. Emits `:rf.route/cleared` (symmetric with `:rf.flow/cleared`) so tools subscribing to route lifecycle observe the removal. No-op when `id` was not registered. There is **no** `clear-route` name: it was never a `re-frame.core` facade export, and `re-frame.routing` dropped its own re-export — `:route` is one of the kinds the one kind-keyed registrar inverse dispatches (see [`clear`](re-frame.core.md#clear)). `re-frame.routing.registry/clear-route` survives as the late-bind hook target that dispatch routes to, not as a public call (rf2-kuky.80).
 
 ### `reset-counters!`
 
