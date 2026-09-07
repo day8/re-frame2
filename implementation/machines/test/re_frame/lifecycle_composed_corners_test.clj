@@ -175,13 +175,13 @@
 ;; The parent's :spawn-all join state lives at [:rf.runtime/machines :spawned <parent>
 ;; <invoke-id>] in the parent FRAME's app-db. When the frame is
 ;; destroyed, the machine teardown cascade runs each spawned actor's
-;; :exit, but if a child dispatches its :on-child-done AFTER the frame
+;; :exit, but if a child's completion lands AFTER the frame
 ;; is gone, the dispatch routes to a destroyed frame and must be a
 ;; silent no-op.
 ;; ---------------------------------------------------------------------------
 
 (deftest invoke-all-child-completion-after-parent-frame-destroy-is-noop
-  (testing "child :on-child-done arriving after parent frame destroy is
+  (testing "a child completion arriving after parent frame destroy is
             a no-op + traces :rf.error/frame-destroyed; no join slot
             mutation; no resolution event fires"
     (rf/make-frame {:id :corner.ia/scoped :doc "scoped"})
@@ -219,7 +219,7 @@
           "frame is destroyed")
 
       ;; Late child completion: synthetic dispatch into the
-      ;; (now-destroyed) frame for :a's :on-child-done.
+      ;; (now-destroyed) frame for :a's completion.
       (let [[recorded unreg] (record! ::corner-ia)]
         (try
           (rf/dispatch-sync [:corner.ia/parent [:hydrate/loaded :a]]
