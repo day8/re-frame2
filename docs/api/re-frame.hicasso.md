@@ -115,6 +115,45 @@ silently gain or lose a public.
   `(rf/current-frame-id)` and zero-arity `(rf/capture-frame)` are legal inside a
   body.
 
+## Frame boundaries
+
+Two heads, one pair of opposite verbs. The frame is the **tree's** business, not
+the root door's: a boundary in the tree is what puts a frame in context for
+everything below it, and the same two heads answer for a whole-page root and for
+a subtree inside one. `rf/frame-root` and `re-frame.adapter.uix/frame-root` mount
+the same shared cores, so a Hicasso boot line reads like a Reagent or UIx one.
+
+### `frame-root`
+
+- **Kind**: Var (a legal hiccup head)
+- **Signature**:
+  ```clojure
+  [h/frame-root {:id :app/main :initial-events [[:app/boot]]} child …]
+  ```
+- **Description**: **ENSURE** a named frame for a subtree — creates it if absent,
+  joins it as it stands if it is already live. The opts map is the whole
+  `rf/make-frame` option map (`:id` required, plus `:doc`, `:fx-overrides`,
+  `:url-bound?` and the rest), so a frame option no longer has to detour through a
+  hand-written `make-frame` call before the mount. Ensuring runs at **commit**,
+  which is why it is the wrong verb after SSR — see `frame-provider`. A `:frame`
+  key is `:rf.error/frame-root-given-frame`, naming `frame-provider`; changing a
+  mounted boundary's `:id` or opts is `:rf.error/frame-root-reconfigured` rather
+  than a silent no-op.
+
+### `frame-provider`
+
+- **Kind**: Var (a legal hiccup head)
+- **Signature**:
+  ```clojure
+  [h/frame-provider {:frame :app/main} child …]
+  ```
+- **Description**: **SCOPE** an existing frame to a subtree — `frame-root`'s
+  sibling and its opposite verb. It creates nothing and configures nothing; it
+  fails loud when the frame is absent (`:rf.error/frame-provider-frame-absent`)
+  rather than quietly conjuring one. This is the verb after `re-frame.ssr/hydrate!`
+  and for a second root on a frame another root already ensured. An `:id` key is
+  `:rf.error/frame-provider-given-id`, naming `frame-root`.
+
 ## Roots
 
 Four doors and one handle. Every one is root-scoped: a page may hold as many roots
@@ -168,7 +207,11 @@ as it likes, and no call here reaches a root the caller did not name.
 - **Description**: Re-renders a mounted root in place, synchronously, and answers
   its handle — the hot-reload door. React reconciles the new tree against the one
   on the page. Calling `mount!` again instead would create a second root and
-  discard every node, subscription and scrap of component state.
+  discard every node, subscription and scrap of component state. **The view it is
+  handed is a whole root tree, boundary included** — the root door carries no
+  frame, so a re-render that drops the `frame-root` / `frame-provider` head leaves
+  the subtree with no frame in context, and re-rendering with the *other* head is a
+  React type change that remounts everything this door exists to preserve.
 
 ### `unmount!`
 
