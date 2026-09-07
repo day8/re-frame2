@@ -707,7 +707,7 @@ The same pattern with the `:epoch` stream to log one assembled epoch per event:
              "/" (count (:sub-runs epoch-record)) "sub-runs")))
 ```
 
-#### `register-epoch-listener!` — assembled-epoch listener
+#### The `:epoch` stream — assembled-epoch listener
 
 Alongside the raw `:trace` stream, the `:epoch` stream delivers a parallel **assembled-epoch listener** feed. Where `:trace` delivers each raw event as it is emitted, `:epoch` delivers one fully-assembled `:rf/epoch-record` (per [Spec-Schemas](Spec-Schemas.md#rfepoch-record)) per **dequeued event** — one per epoch (per [002 §Drain versus event](002-Frames.md#drain-versus-event--the-epoch-unit)). It routes through the optional `day8/re-frame2-epoch` artefact and no-ops (returns `nil`) when the artefact is absent. The app-facing route is the `:epoch` stream of the one listener verb — `(rf/register-listener! :epoch key f)` / `(rf/unregister-listener! :epoch key)`, exactly like `:trace` / `:events` / `:errors`; the dedicated `rf/register-epoch-listener!` / `rf/unregister-epoch-listener!` facade pair was retired in API-shrink #4, and the `re-frame.epoch/register-epoch-listener!` native form remains the implementation the stream delegates to (per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel)):
 
@@ -742,7 +742,7 @@ Alongside the raw `:trace` stream, the `:epoch` stream delivers a parallel **ass
 
 **Halted runs.** Listeners receive epoch records for halted drains as well as clean settles. `:outcome` on the record discriminates — `:ok`, `:halted-depth`, or `:halted-destroy`. The partial record carries whatever the runtime captured up to the halt point: `:trace-events`, `:sub-runs`, `:renders`, `:effects` reflect the run-so-far, and `:halt-reason` carries a structured descriptor of why the drain halted. Retention differs by outcome: a `:halted-depth` record is ring-retained when depth permits (it lands in `epoch-history` like an ordinary record), while the terminal `:halted-destroy` — an already-started event interrupted by frame destruction — is delivered to listeners **only** and never retained, because the destroyed frame's history is already gone (a late `:halted-destroy` is HISTORICAL for the destroyed incarnation; per [Tool-Pair §the late-record consumer rule](Tool-Pair.md#surface-behaviour-against-destroyed-frames), never splice it into a same-id successor's ring). This is the **devtools surface** for failing runs — Xray's epoch panel, re-frame2-pair's `cascade-of`, post-mortem dashboards: all route off the same listener, and `:outcome` lets them render the failure with the right shape. Consumers that only care about successful drains filter on `(= :ok (:outcome record))` at the top of their callback. `restore-epoch!` refuses non-`:ok` records — see [Spec-Schemas §`:rf/epoch-record` §Outcomes](Spec-Schemas.md#outcomes).
 
-**When to use which.** `register-listener!` is the right shape for tools that need fine-grained per-event activity (custom recorders, error-monitor forwarders, timing aggregators). `register-epoch-listener!` is the right shape for tools that route diagnostics off "what just happened in this run" — pair-shaped tools, post-mortem dashboards, anything that wants the structured `:sub-runs` / `:renders` / `:effects` projection without re-folding the raw trace stream.
+**When to use which.** The `:trace` stream is the right shape for tools that need fine-grained per-event activity (custom recorders, error-monitor forwarders, timing aggregators). The `:epoch` stream is the right shape for tools that route diagnostics off "what just happened in this run" — pair-shaped tools, post-mortem dashboards, anything that wants the structured `:sub-runs` / `:renders` / `:effects` projection without re-folding the raw trace stream.
 
 The two listener APIs are independent: tools may register either, both, or neither. They share the production-elision gate but have separate listener registries; no listener of one kind can interfere with the other.
 
@@ -1290,7 +1290,7 @@ The prose above catalogues the surfaces in elision-framing — what disappears u
 The framework exposes **five observation surfaces**:
 
 1. **Raw trace listener** — `register-listener!` / `unregister-listener!` ([§Listener API](#the-listener-api)).
-2. **Assembled-epoch listener** — `register-epoch-listener!` / `unregister-epoch-listener!` ([§Assembled-epoch listener](#register-epoch-listener--assembled-epoch-listener), [Tool-Pair §Time-travel](Tool-Pair.md#time-travel-epoch-snapshots-and-undo)).
+2. **Assembled-epoch listener** — `register-epoch-listener!` / `unregister-epoch-listener!` ([§Assembled-epoch listener](#the-epoch-stream--assembled-epoch-listener), [Tool-Pair §Time-travel](Tool-Pair.md#time-travel-epoch-snapshots-and-undo)).
 3. **Event-emit listener** — `register-listener!` / `unregister-listener!` (the `:events` stream) ([API.md §Event-emit](API.md#event-emit-always-on-production-survivable)).
 4. **Error-emit listener** — `register-listener!` / `unregister-listener!` (the `:errors` stream) ([API.md §Error-emit](API.md#error-emit-always-on-production-survivable)).
 5. **Performance API channel** — `performance.measure` brackets (options-bag form, cleared after emit) ([§Performance instrumentation](#performance-instrumentation)).
@@ -2778,7 +2778,7 @@ Tracing is the connective tissue between the runtime and every tool that observe
 
 ### Listener ordering
 
-Multiple listeners may register concurrently. **Listener-invocation order is not contract** — tools must not depend on the order in which sibling listeners receive a given event. Each listener receives the same event independently; nothing about the order in which the runtime walks the listener registry is guaranteed across builds, hosts, or registry implementations. The same rule applies to `register-listener!` (per [§Subscription / consumption](#subscription--consumption) and [§Listener invocation rules](#listener-invocation-rules)) and `register-epoch-listener!` (per [`register-epoch-listener!` §Invocation rules](#register-epoch-listener--assembled-epoch-listener)).
+Multiple listeners may register concurrently. **Listener-invocation order is not contract** — tools must not depend on the order in which sibling listeners receive a given event. Each listener receives the same event independently; nothing about the order in which the runtime walks the listener registry is guaranteed across builds, hosts, or registry implementations. The same rule applies to `register-listener!` (per [§Subscription / consumption](#subscription--consumption) and [§Listener invocation rules](#listener-invocation-rules)) and `register-epoch-listener!` (per [`register-epoch-listener!` §Invocation rules](#the-epoch-stream--assembled-epoch-listener)).
 
 ### Trace allocation cost in dev when no listeners
 

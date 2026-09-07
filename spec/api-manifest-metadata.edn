@@ -2004,40 +2004,48 @@
 
   ;; =========================================================================
   ;; re-frame.epoch — optional artefact (day8/re-frame2-epoch), §Tool-Pair.
-  ;; The whole surface is the Tool-Pair time-travel surface (tooling).
+  ;;
+  ;; ONE GRAMMAR FOR THE EPOCH RING (rf2-kuky.55 ruled A; executed by
+  ;; rf2-kuky.82). Every var in this namespace is an implementation seam —
+  ;; a late-bind hook target `re-frame.core` reaches through
+  ;; `re-frame.core-epoch`'s defwrappers. Tool code reads and writes the
+  ;; ring through the facade 46:0. The namespace therefore rows only what
+  ;; the facade does NOT already name:
+  ;;
+  ;;   * SEVEN vars the facade re-exports under the SAME name —
+  ;;     epoch-history, epoch-silence-current?, projected-record,
+  ;;     projected-history, replace-frame-state!, replay-epoch!,
+  ;;     restore-epoch! — are `^:no-doc` in epoch.cljc and therefore NOT
+  ;;     rowed here at all (spec/API.md §Not-rowed internal carve-outs).
+  ;;     Their `re-frame.core` rows above carry the classification, so one
+  ;;     public name has exactly one row. Do not re-add entries for them
+  ;;     without removing the `^:no-doc`: the generator drops `^:no-doc`
+  ;;     vars from `ns-publics`, so a classification entry for one is dead
+  ;;     text.
+  ;;   * FIVE doors with no same-named facade twin keep a row, tiered
+  ;;     :implementation, following `settle!` rather than `^:no-doc` —
+  ;;     the row is the only record they have, and this repo tiers a seam
+  ;;     honestly rather than quieting it (see the note at the head of this
+  ;;     file). :facade? is false on all of them, so the
+  ;;     `implementation-facade-rows` invariant is untouched.
+  ;;
+  ;; `current-config` was a fourteenth row until rf2-kuky.73 deleted the
+  ;; duplicate reader in favour of `(:epoch-history (rf/current-config))`.
   ;; =========================================================================
-  ["re-frame.epoch" "epoch-history"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
-  ["re-frame.epoch" "restore-epoch!"]             {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
-  ;; rf2-ov144 — the one-call strict replay from a retained epoch id.
-  ["re-frame.epoch" "replay-epoch!"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
-  ;; rf2-t3lftq (API-shrink #3): replace-app-db! / reset-app-db! /
-  ;; replace-runtime-db! DELETED — consolidated into replace-frame-state!'s
-  ;; partial-map contract.
-  ["re-frame.epoch" "replace-frame-state!"]       {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
-  ;; rf2-kuky.20 — `register-epoch-listener!` is the `:epoch`-stream HOME verb:
-  ;; an IMPLEMENTATION SEAM (`:facade? false`), not a second public spelling.
-  ;; Apps and tools attach through `(rf/register-listener! :epoch …)`; this row
-  ;; is here because `re-frame.epoch` is an enumerated optional-artefact public
-  ;; surface, not because the verb is a supported public spelling. Same
-  ;; registry, tier :tooling. What a tool needs from the require line is the
-  ;; DEPENDENCY, not this verb: a mandatory epoch consumer declares
-  ;; `day8/re-frame2-epoch` in deps.edn AND loads the producer with a bare
-  ;; `[re-frame.epoch]` require, because the facade reaches the producer through
-  ;; a late-bind hook an unloaded namespace never populates. See the facade row
-  ;; above and spec/Tool-Pair.md §"Facade vs home-namespace verb — one public
-  ;; spelling".
-  ["re-frame.epoch" "register-epoch-listener!"]   {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only; :epoch home verb — implementation seam, not a public spelling; attach via rf/register-listener! :epoch)"}
-  ["re-frame.epoch" "unregister-epoch-listener!"] {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only; :epoch home verb)"}
-  ;; rf2-uhouu — home-namespace form of the receiver decision the `re-frame.core`
-  ;; facade re-exports (rowed above). The supported way a
-  ;; `:rf.epoch.cb/silenced-on-frame-destroy` consumer decides, in ONE atomic
-  ;; observation, whether the signal still names a current fact.
-  ["re-frame.epoch" "epoch-silence-current?"]     {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
-  ["re-frame.epoch" "clear-epoch-listeners!"]     {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
-  ["re-frame.epoch" "clear-history!"]             {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
-  ["re-frame.epoch" "projected-history"]          {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
-  ["re-frame.epoch" "projected-record"]           {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
-  ["re-frame.epoch" "configure!"]                 {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ;; rf2-kuky.20 / rf2-kuky.82 — `register-epoch-listener!` is the
+  ;; `:epoch`-stream HOME verb: an IMPLEMENTATION SEAM, not a second public
+  ;; spelling. Apps and tools attach through `(rf/register-listener! :epoch …)`.
+  ;; What a tool needs from the require line is the DEPENDENCY, not this verb:
+  ;; a mandatory epoch consumer declares `day8/re-frame2-epoch` in deps.edn AND
+  ;; loads the producer with a bare `[re-frame.epoch]` require, because the
+  ;; facade reaches the producer through a late-bind hook an unloaded namespace
+  ;; never populates. See spec/Tool-Pair.md §"Facade vs home-namespace verb —
+  ;; one public spelling".
+  ["re-frame.epoch" "register-epoch-listener!"]   {:tier :implementation :owner "Tool-Pair" :status "v1 (dev-only; hook target for :epoch/register-epoch-listener!; the public door is rf/register-listener! :epoch)"}
+  ["re-frame.epoch" "unregister-epoch-listener!"] {:tier :implementation :owner "Tool-Pair" :status "v1 (dev-only; hook target for :epoch/unregister-epoch-listener!; the public door is rf/unregister-listener! :epoch)"}
+  ["re-frame.epoch" "clear-epoch-listeners!"]     {:tier :implementation :owner "Tool-Pair" :status "v1 (dev-only; hook target for :epoch/clear-epoch-listeners!; fixture-grade teardown, no facade door)"}
+  ["re-frame.epoch" "clear-history!"]             {:tier :implementation :owner "Tool-Pair" :status "v1 (dev-only; hook target for :epoch/clear-history!; fixture-grade teardown, no facade door)"}
+  ["re-frame.epoch" "configure!"]                 {:tier :implementation :owner "Tool-Pair" :status "v1 (dev-only; hook target for :epoch/configure!; the public door is rf/configure! {:epoch-history …})"}
   ["re-frame.epoch" "settle!"]                    {:tier :implementation :owner "Tool-Pair" :status "v1 (dev-only)"}
 
   ;; =========================================================================

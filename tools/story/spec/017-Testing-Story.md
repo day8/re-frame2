@@ -2852,7 +2852,7 @@ listener — even if `body` throws. It:
 - **NEVER throws from the epoch listener**: a violated OR a broken
   (throwing) predicate is caught and reported, and the run continues.
   Isolation is twofold — the `:epoch` stream already isolates
-  listener exceptions (Spec 009 §`register-epoch-listener!`), and the
+  listener exceptions (Spec 009 §The `:epoch` stream), and the
   per-epoch check itself catches predicate exceptions and reports them
   as violations carrying the isolated `:error`.
 
