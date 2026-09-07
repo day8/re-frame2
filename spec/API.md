@@ -650,7 +650,6 @@ All tracing is **dev-only** (elided in production). See [009 §Tracing](009-Inst
 | `(rf/configure! {:trace-buffer {:events-retained N}})` | — | See [§Configure keys](#configure-keys). | v1 (dev-only) | — (configure key) | 009 |
 | `group-by-event` | Fn | `(group-by-event events)` → vector of event bundles `{:dispatch-id :event :handler :fx :effects :subs :renders :other}`, sorted by emission order. Pure data; JVM-runnable. Re-exported from `re-frame.trace.projection` (see [009 §Event-bundle projection](009-Instrumentation.md#event-bundle-projection-group-by-event--domino-bucket)). | v1 (dev-only) | tooling | 009 |
 | `domino-bucket` | Fn | `(domino-bucket trace-event)` → `#{:event :handler :fx :effect :sub :render :other}`. Classifies a raw trace event into the six-domino slot used by `group-by-event`. Pure data. | v1 (dev-only) | tooling | 009 |
-| `group-by-event-with-events` | Fn | `(group-by-event-with-events events)` — like `group-by-event`, but each event bundle additionally carries `:trace-events` (the raw events that composed it), keyed by the same frame-scoped `[frame dispatch-id]` grouping. Pure data; JVM-runnable | v1 (dev-only) | tooling | 009 |
 
 ### Trace-emission opt-out (per-handler metadata)
 

@@ -105,17 +105,17 @@
             and the slot lands in current-config"
     (let [f (fn [r] r)]
       (rf/configure! {:epoch-history {:redact-fn f}})
-      (is (identical? f (:redact-fn (rf.epoch/current-config)))
+      (is (identical? f (:redact-fn (:epoch-history (rf/current-config))))
           ":redact-fn lands by identity — no wrapping"))))
 
 (deftest configure-accepts-nil-to-clear
   (testing "(rf/configure! {:epoch-history {:redact-fn nil}}) clears a
             previously-installed fn"
     (rf/configure! {:epoch-history {:redact-fn (fn [r] r)}})
-    (is (some? (:redact-fn (rf.epoch/current-config))))
+    (is (some? (:redact-fn (:epoch-history (rf/current-config)))))
 
     (rf/configure! {:epoch-history {:redact-fn nil}})
-    (is (nil? (:redact-fn (rf.epoch/current-config)))
+    (is (nil? (:redact-fn (:epoch-history (rf/current-config))))
         "explicit nil clears the slot")))
 
 (deftest configure-rejects-non-fn
@@ -124,19 +124,19 @@
     (let [f (fn [r] r)]
       (rf/configure! {:epoch-history {:redact-fn f}})
       (rf/configure! {:epoch-history {:redact-fn "not-a-fn"}})
-      (is (identical? f (:redact-fn (rf.epoch/current-config)))
+      (is (identical? f (:redact-fn (:epoch-history (rf/current-config))))
           "string silently dropped — prior fn survives")
 
       (rf/configure! {:epoch-history {:redact-fn 42}})
-      (is (identical? f (:redact-fn (rf.epoch/current-config)))
+      (is (identical? f (:redact-fn (:epoch-history (rf/current-config))))
           "number silently dropped")
 
       (rf/configure! {:epoch-history {:redact-fn {:k :v}}})
-      (is (identical? f (:redact-fn (rf.epoch/current-config)))
+      (is (identical? f (:redact-fn (:epoch-history (rf/current-config))))
           "map silently dropped")
 
       (rf/configure! {:epoch-history {:redact-fn [:a :b]}})
-      (is (identical? f (:redact-fn (rf.epoch/current-config)))
+      (is (identical? f (:redact-fn (:epoch-history (rf/current-config))))
           "vector silently dropped"))))
 
 (deftest configure-absent-slot-preserves-existing-fn
@@ -146,9 +146,9 @@
     (let [f (fn [r] r)]
       (rf/configure! {:epoch-history {:redact-fn f}})
       (rf/configure! {:epoch-history {:depth 17}})
-      (is (identical? f (:redact-fn (rf.epoch/current-config)))
+      (is (identical? f (:redact-fn (:epoch-history (rf/current-config))))
           ":redact-fn slot preserved across a :depth-only update")
-      (is (= 17 (:depth (rf.epoch/current-config)))
+      (is (= 17 (:depth (:epoch-history (rf/current-config))))
           "the :depth update was applied"))))
 
 (deftest configure-partial-update-mixed-validity
@@ -157,8 +157,8 @@
     (rf/configure! {:epoch-history {:depth 9}})
     (let [f (fn [r] r)]
       (rf/configure! {:epoch-history {:depth nil :redact-fn f}})
-      (is (identical? f (:redact-fn (rf.epoch/current-config))))
-      (is (= 9 (:depth (rf.epoch/current-config)))
+      (is (identical? f (:redact-fn (:epoch-history (rf/current-config)))))
+      (is (= 9 (:depth (:epoch-history (rf/current-config))))
           ":depth nil dropped; prior 9 survives"))))
 
 ;; ============================================================================

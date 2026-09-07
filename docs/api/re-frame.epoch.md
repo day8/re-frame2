@@ -6,7 +6,7 @@
 (:require [re-frame.epoch :as epoch])
 ```
 
-Most of this surface is re-exported on the `re-frame.core` facade, so `rf/restore-epoch!` and `epoch/restore-epoch!` name the same function. Examples below use the `rf/` form for re-exported names and the `epoch/` form for the epoch-only helpers (`clear-history!`, `current-config`, `register-epoch-listener!`, `unregister-epoch-listener!`, `clear-epoch-listeners!`, `configure!`). The epoch **listener** is NOT a per-channel facade re-export. Its app-facing route is the `:epoch` stream of the one listener verb: `(rf/register-listener! :epoch id f)` / `(rf/unregister-listener! :epoch id)`. The `epoch/register-epoch-listener!` native form below is the same underlying registry. See [Observability](../core/observability.md) for how epochs fit the broader trace model.
+Most of this surface is re-exported on the `re-frame.core` facade, so `rf/restore-epoch!` and `epoch/restore-epoch!` name the same function. Examples below use the `rf/` form for re-exported names and the `epoch/` form for the epoch-only helpers (`clear-history!`, `register-epoch-listener!`, `unregister-epoch-listener!`, `clear-epoch-listeners!`, `configure!`). Reading the live epoch configuration back is the facade's job alone — `(:epoch-history (rf/current-config))`; there is no `epoch/current-config`. The epoch **listener** is NOT a per-channel facade re-export. Its app-facing route is the `:epoch` stream of the one listener verb: `(rf/register-listener! :epoch id f)` / `(rf/unregister-listener! :epoch id)`. The `epoch/register-epoch-listener!` native form below is the same underlying registry. See [Observability](../core/observability.md) for how epochs fit the broader trace model.
 
 ## Epoch history
 
@@ -248,18 +248,11 @@ Tools that forward epoch records across a process boundary must route through th
 (rf/configure! {:epoch-history {:depth 20 :trace-events-keep 5}})
 ```
 
-### `current-config`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (current-config) → config map
-  ```
-- **Description**: Returns the current epoch-history configuration map (`:depth` / `:trace-events-keep` / `:redact-fn`). Public for tests and tools that display the current depth.
+Read the live configuration back through the facade's own read twin, `rf/current-config` — there is no `re-frame.epoch` reader (rf2-kuky.73 deleted it in favour of the one door). The epoch map arrives under the `:epoch-history` key, and is **absent entirely** when the `day8/re-frame2-epoch` artefact is not on the classpath, rather than reported as a fabricated default:
 
 ```clojure
 ;; Inspect the live epoch-history configuration.
-(epoch/current-config)
+(:epoch-history (rf/current-config))     ;; => {:depth 20 :trace-events-keep 5 ...}
 ```
 
 ## Runtime hook

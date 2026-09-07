@@ -94,7 +94,7 @@ const ENABLE_CONFIGURE_FORM = `
 (do
   (re-frame.core/configure! {:epoch-history {:depth 50}})
   {:hook-installed? (some? (re-frame.late-bind/get-fn :epoch/settle!))
-   :depth (:depth (re-frame.epoch/current-config))})`;
+   :depth (:depth (:epoch-history (re-frame.core/current-config)))})`;
 
 // Extract the FIRST `:value <int>` slot from a get-path result's EDN
 // text. get-path returns `{:ok? true :path [:count] :value <n> ...}`.
@@ -453,7 +453,7 @@ runWithWatchdog(
           "(re-frame.core/configure! {:epoch-history {:depth 0}}) " +
           "{:cleared? (empty? (re-frame.epoch/epoch-history " +
           "(re-frame2-pair.runtime/current-frame))) " +
-          ":depth (:depth (re-frame.epoch/current-config))})",
+          ":depth (:depth (:epoch-history (re-frame.core/current-config)))})",
       },
     });
     fatalIfError('eval-cljs (epoch teardown)', tdResp);

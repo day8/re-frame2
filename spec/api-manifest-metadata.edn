@@ -1195,7 +1195,7 @@
                                            :justification "Front-porch: the single process-level config door, and the config-mutation verb the lifecycle-verb law fixes across all three facades (Conventions, configure! vs current-config). An app calls it once at boot."}
   ["re-frame.core" "current-config"]       {:tier :advanced :owner "Conventions" :status "v1"
                                            :action :keep
-                                           :justification "Ruled ADD by rf2-kuky.4 (2026-09-06, rider A-ii) on named callers, not on symmetry with configure!. Two of them: the pair preload health query read the epoch depth by (resolve 're-frame.epoch/current-config) because no facade door handled an OPTIONAL artefact being absent, and rf2-kuky.55 C1 deletes the two owning-ns readers (re-frame.epoch/current-config, re-frame.elision/current-config) onto this one door — net -2 public vars on the back of this +1. Deferring was defensible (codex); the consumers are why it was not deferred. Advanced rather than front-porch: an app configures at boot and never reads back, so the demand is tooling-shaped."}
+                                           :justification "Ruled ADD by rf2-kuky.4 (2026-09-06, rider A-ii) on named callers, not on symmetry with configure!. Two of them: the pair preload health query read the epoch depth by (resolve 're-frame.epoch/current-config) because no facade door handled an OPTIONAL artefact being absent, and rf2-kuky.55 C1 pointed the owning-ns readers at this one door. rf2-kuky.73 executed that: re-frame.epoch/current-config is DELETED (its manifest row with it), while re-frame.elision/current-config SURVIVES as an unrostered implementation seam because this fn calls it directly for the :elision key — elision ships in core and is never an optional artefact, so it needs no late-bind indirection. Net -1 rostered var on the back of this +1. Deferring was defensible (codex); the consumers are why it was not deferred. Advanced rather than front-porch: an app configures at boot and never reads back, so the demand is tooling-shaped."}
   ;; EP-0013 -> EP-0023 supersession (rf2-pl97nd.2): the retired app/realm/module
   ;; COMPOSITION VOCABULARY left the public `re-frame.core` facade. The former
   ;; rows — `rf/module` / `rf/app` / `rf/app-registrations` / `rf/app-requires` /
@@ -1419,9 +1419,6 @@
   ["re-frame.core" "group-by-event"]            {:tier :tooling :owner "009" :status "v1 (dev-only)"
                                                 :action :keep
                                                 :justification "A Spec 009 trace surface whose producing home, re-frame.trace.tooling, is internal plumbing rather than an enumerated public artefact namespace -- it carries no manifest rows, so there is no clearer door to move to and Conventions forbids inventing one to tidy the column. A trace-projection read a tool takes over the buffer it just read."}
-  ["re-frame.core" "group-by-event-with-events"] {:tier :tooling :owner "009" :status "v1 (dev-only)"
-                                                 :action :keep
-                                                 :justification "A Spec 009 trace surface whose producing home, re-frame.trace.tooling, is internal plumbing rather than an enumerated public artefact namespace -- it carries no manifest rows, so there is no clearer door to move to and Conventions forbids inventing one to tidy the column. It is the events-carrying sibling of group-by-event. RECORDED UNCERTAINTY (existence, not placement): measured on this bead it has zero non-test in-repo consumers, and it landed after the forward rule, so the open question is whether it should exist at all rather than where it lives. Recorded keep because this audit classifies placement; it does not delete exports on its own initiative."}
   ["re-frame.core" "domino-bucket"]         {:tier :tooling :owner "009" :status "v1 (dev-only)"
                                             :action :keep
                                             :justification "A Spec 009 trace surface whose producing home, re-frame.trace.tooling, is internal plumbing rather than an enumerated public artefact namespace -- it carries no manifest rows, so there is no clearer door to move to and Conventions forbids inventing one to tidy the column. The domino-classification read of the same Spec 009 projection family."}
@@ -2016,7 +2013,6 @@
   ["re-frame.epoch" "projected-history"]          {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.epoch" "projected-record"]           {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.epoch" "configure!"]                 {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
-  ["re-frame.epoch" "current-config"]             {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.epoch" "settle!"]                    {:tier :implementation :owner "Tool-Pair" :status "v1 (dev-only)"}
 
   ;; =========================================================================

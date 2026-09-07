@@ -2531,24 +2531,6 @@
   §Trace projection."}
   group-by-event  rf.trace.projection/group-by-event)
 
-;; Facade-export classification (diff-time rule): TOOL-FACING projection
-;; primitive, sibling to `group-by-event`. Same `[frame dispatch-id]`
-;; grouping, additionally attaching each run's raw `:trace-events`.
-;; Justified: Tool-Pair streaming consumers (re-frame2-pair event
-;; bundles) need both the six-domino record AND each run's raw events
-;; keyed by the SAME frame-scoped key the framework uses — re-deriving the
-;; grouping consumer-side with a weaker (dispatch-id-only) key mixes
-;; foreign-frame events (rf2 trace-contract drift). Pure data; JVM + CLJS.
-(def ^{:doc "Like `group-by-event`, but each event-bundle record
-  additionally carries a `:trace-events` slot with the vector of raw
-  trace events that composed it — keyed by the same frame-scoped
-  `[frame dispatch-id]` grouping. Pure data — JVM and CLJS. The correct
-  projection for consumers needing both the six-domino record and each
-  run's raw events (e.g. re-frame2-pair streaming event bundles), so they
-  never re-derive the grouping with a weaker dispatch-id-only key. Per
-  Spec 009 §Trace projection."}
-  group-by-event-with-events  rf.trace.projection/group-by-event-with-events)
-
 (def ^{:doc "Classify a trace event into one of the domino buckets —
   one of `#{:event :handler :fx :effect :sub :render :other}`. `:other`
   covers every event that isn't part of the six-domino cascade (errors,

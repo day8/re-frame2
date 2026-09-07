@@ -984,7 +984,7 @@
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
-    (is (= 5 (:trace-events-keep (rf.epoch/current-config)))
+    (is (= 5 (:trace-events-keep (:epoch-history (rf/current-config))))
         "fixture OVERRIDE — the shipped runtime default is 50 (= :depth)")
 
     (rf/dispatch-sync [:seed] {:frame :test/main})

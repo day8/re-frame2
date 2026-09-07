@@ -160,6 +160,44 @@
       (is (<= (count default-cs) 3)
           ":rf/default's ring stays within its slot cap"))))
 
+(deftest ^:requires-debug frame-isolation-trace-events-carry-only-their-own-frame
+  ;; Re-homed from the retired `group-by-event-with-events` projection
+  ;; (rf2-kuky.53). That fn existed so a consumer holding an ARBITRARY
+  ;; event stream could group by `[frame dispatch-id]` rather than by
+  ;; `:rf.trace/dispatch-id` alone — dispatch ids are unique only WITHIN
+  ;; a frame, so the weaker key merges two frames' runs and attaches each
+  ;; the UNION of both frames' raw events (rf2-1we9fa defect 1). The
+  ;; per-frame ring reaches the same guarantee STRUCTURALLY: each frame
+  ;; owns its own ring, so a bundle read from frame f can only ever hold
+  ;; f's events. This pins that guarantee at the surviving door.
+  (testing "each frame's trace-buffer bundles carry ONLY that frame's raw
+            :trace-events — no foreign-frame event leaks in"
+    (rf/make-frame {:id :iso/a :doc "isolation probe A"})
+    (rf/make-frame {:id :iso/b :doc "isolation probe B"})
+    (rf/reg-event :iso/a-inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+    (rf/reg-event :iso/b-inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+    ;; Interleave the two frames' cascades so ordering cannot do the
+    ;; separating for us.
+    (dotimes [_ 3]
+      (rf/dispatch-sync [:iso/a-inc] {:frame :iso/a})
+      (rf/dispatch-sync [:iso/b-inc] {:frame :iso/b}))
+    (let [as (rf/trace-buffer :iso/a)
+          bs (rf/trace-buffer :iso/b)]
+      (is (= 3 (count as)) "three cascades in :iso/a")
+      (is (= 3 (count bs)) "three cascades in :iso/b")
+      (is (every? seq (map :trace-events as)) "every :iso/a bundle carries raw events")
+      (is (every? seq (map :trace-events bs)) "every :iso/b bundle carries raw events")
+      (is (every? (fn [c] (every? #(= :iso/a (get-in % [:tags :frame])) (:trace-events c)))
+                  as)
+          "no :iso/b event leaks into an :iso/a bundle's :trace-events")
+      (is (every? (fn [c] (every? #(= :iso/b (get-in % [:tags :frame])) (:trace-events c)))
+                  bs)
+          "no :iso/a event leaks into an :iso/b bundle's :trace-events")
+      (is (= [[:iso/a-inc]] (distinct (map :event as)))
+          "every :iso/a bundle is an :iso/a-inc run")
+      (is (= [[:iso/b-inc]] (distinct (map :event bs)))
+          "every :iso/b bundle is an :iso/b-inc run"))))
+
 ;; ---- 1d. Frameless emits skip the ring (B3) ------------------------------
 
 (deftest ^:requires-debug frameless-emits-bypass-the-ring

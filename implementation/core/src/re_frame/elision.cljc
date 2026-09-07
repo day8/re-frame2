@@ -78,8 +78,13 @@
   nil)
 
 (defn current-config
-  "Return the current elision configuration map. Public for tests and
-  tools that want to display the configured runtime size threshold."
+  "Return the current elision configuration map.
+
+  IMPLEMENTATION SEAM, not a public reader — the public door is
+  `re-frame.core/current-config`, which reports this map under its
+  `:elision` key (rf2-kuky.73 / rf2-kuky.4 rider A-ii). The facade
+  calls straight through to here rather than via the late-bind table,
+  because elision ships in core and is never an optional artefact."
   []
   @config)
 

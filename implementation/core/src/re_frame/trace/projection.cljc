@@ -263,29 +263,29 @@
          :cljs js/Number.MAX_SAFE_INTEGER))))
 
 (defn- grouped-event-bundles
-  "The single grouping pass shared by `group-by-event` and
-  `group-by-event-with-events`. Groups `events` by the stable
-  `[frame dispatch-id]` `bundle-key` (dispatch ids are unique only
-  within a frame — see `bundle-key`), reduces each group into an event
-  bundle, and returns a vector of `[[frame dispatch-id] evs record]`
-  triples sorted into emission order (lowest `:id` per run first).
+  "The grouping pass behind `group-by-event`. Groups `events` by the
+  stable `[frame dispatch-id]` `bundle-key` (dispatch ids are unique
+  only within a frame — see `bundle-key`), reduces each group into an
+  event bundle, and returns a vector of records sorted into emission
+  order (lowest `:id` per run first).
 
-  Both public projections consume this so the grouping key never drifts
-  between them: `group-by-event` keeps the slim record; the
-  `-with-events` sibling additionally attaches `evs` as `:trace-events`."
+  Grouping by `[frame dispatch-id]` rather than by `:rf.trace/dispatch-id`
+  alone is what keeps two same-id runs from different frames apart:
+  a dispatch-id-only group-by merges them into one record. The
+  per-frame ring reader (`re-frame.trace.tooling/trace-buffer`) reaches
+  the same guarantee structurally — each frame owns its own ring — and
+  attaches each run's raw events as `:trace-events` there."
   [events]
   (let [index  (frame-index events)
         groups (group-by #(bundle-key index %) events)]
     (->> groups
-         (map (fn [[[frame dispatch-id :as key] evs]]
-                [key
-                 evs
-                 (reduce absorb
-                         (assoc empty-event-bundle
-                                :dispatch-id dispatch-id
-                                :frame frame)
-                         evs)]))
-         (sort-by (fn [[_key _evs record]] (first-id record)))
+         (map (fn [[[frame dispatch-id] evs]]
+                (reduce absorb
+                        (assoc empty-event-bundle
+                               :dispatch-id dispatch-id
+                               :frame frame)
+                        evs)))
+         (sort-by first-id)
          vec)))
 
 (defn group-by-event
@@ -331,33 +331,4 @@
   want richer projections of `:other` can call `domino-bucket`
   directly on each event."
   [events]
-  (->> (grouped-event-bundles events)
-       (mapv (fn [[_key _evs record]] record))))
-
-(defn group-by-event-with-events
-  "Like `group-by-event`, but each record additionally carries a
-  `:trace-events` slot holding the VECTOR of raw trace events that
-  composed that event bundle. The same `[frame dispatch-id]` grouping
-  that `group-by-event` uses is reused verbatim — the `:trace-events`
-  slot is the exact set of events the record was reduced from, in input
-  order.
-
-  This is the correct projection for consumers that need both the
-  six-domino record AND the raw events of a pipeline run per the portable
-  trace contract — notably re-frame2-pair's streaming event bundles,
-  whose wire shape mirrors `(re-frame.trace.tooling/trace-buffer frame)`.
-  Such consumers MUST NOT re-derive the grouping with a weaker key
-  (`:rf.trace/dispatch-id` alone): dispatch ids are unique only WITHIN a
-  frame (see `bundle-key`), so a dispatch-id-only group-by merges two
-  same-id runs from different frames and attaches each the UNION of
-  both frames' raw events. Keying by `[frame dispatch-id]` here keeps
-  every record's `:trace-events` scoped to its own frame.
-
-  `group-by-event` is deliberately left slim — its seven-slot shape is
-  pinned and Xray-consumed; this sibling carries the extra `:trace-events`
-  slot for the consumers that need it. Returns a vector sorted by
-  emission order, identical to `group-by-event`."
-  [events]
-  (->> (grouped-event-bundles events)
-       (mapv (fn [[_key evs record]]
-               (assoc record :trace-events (vec evs))))))
+  (grouped-event-bundles events))
