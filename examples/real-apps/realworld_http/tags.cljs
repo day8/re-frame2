@@ -58,8 +58,8 @@
 ;;
 ;; turn into tag questions about the current state:
 ;;
-;;     :loading?   = @(rf/subscribe [:rf.machine/has-tag? :realworld/tags :tags/loading])
-;;     :fetching?  = @(rf/subscribe [:rf.machine/has-tag? :realworld/tags :tags/in-flight])
+;;     :loading?   = @(subscribe [:rf.machine/has-tag? :realworld/tags :tags/loading])
+;;     :fetching?  = @(subscribe [:rf.machine/has-tag? :realworld/tags :tags/in-flight])
 ;;
 ;; The payoff: the view never has to remember WHICH state means \"in-flight\".
 ;; It asks for the tag, and the machine keeps that bookkeeping to itself.
@@ -200,8 +200,8 @@
 ;; `:tags/error` for the error. What's missing is the `:loading?` /
 ;; `:fetching?` booleans — for those, views ask the machine a tag question:
 ;;
-;;     @(rf/subscribe [:rf.machine/has-tag? :realworld/tags :tags/loading])     ;; empty AND in-flight
-;;     @(rf/subscribe [:rf.machine/has-tag? :realworld/tags :tags/in-flight])   ;; in-flight, loading OR fetching
+;;     @(subscribe [:rf.machine/has-tag? :realworld/tags :tags/loading])     ;; empty AND in-flight
+;;     @(subscribe [:rf.machine/has-tag? :realworld/tags :tags/in-flight])   ;; in-flight, loading OR fetching
 
 (rf/reg-sub :tags/data
   {:doc "The popular-tags items, read out of the machine's :data."

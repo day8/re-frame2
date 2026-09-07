@@ -88,7 +88,7 @@
 ;; question about the current state:
 ;;
 ;;     :submitting?  = (= :submitting status)            ;; slice form
-;;     :submitting?  = @(rf/subscribe [:rf.machine/has-tag? :settings/form :settings/in-flight])
+;;     :submitting?  = @(subscribe [:rf.machine/has-tag? :settings/form :settings/in-flight])
 ;;
 ;; Same upside as the tags machine: the view never has to know WHICH state
 ;; means \"in-flight\". It asks the tag and moves on.
