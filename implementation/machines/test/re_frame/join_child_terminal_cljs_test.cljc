@@ -97,9 +97,7 @@
                :racing {:spawn-all
                         (merge
                           {:children       [{:id :a :machine-id child-a-kw :start [:set-id :a]}
-                                            {:id :b :machine-id child-b-kw :start [:set-id :b]}]
-                           :on-child-done  :child/done
-                           :on-child-error :child/failed}
+                                            {:id :b :machine-id child-b-kw :start [:set-id :b]}]}
                           spawn-all-extra)}}})
   (rf/dispatch-sync [parent-kw [:start]])
   (join-state parent-kw))

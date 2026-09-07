@@ -70,8 +70,6 @@
                          :h    {:spawn-all
                                 {:children        [{:id :a :machine-id :stub}]
                                  :join            :all
-                                 :on-child-done   :done
-                                 :on-child-error  :failed
                                  :on-all-complete [:done!]
                                  :timeout-ms      5000}}}}]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo

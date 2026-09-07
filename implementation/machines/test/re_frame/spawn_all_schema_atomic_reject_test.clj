@@ -88,8 +88,6 @@
     {:idle    {:on {:start :forking}}
      :forking {:spawn-all {:children        children
                            :join            join
-                           :on-child-done   :sa/done
-                           :on-child-error  :sa/failed
                            :on-all-complete [:all/done]
                            :on-some-complete [:some/done]}
                :on {:all/done :ready :some/done :ready :back :idle}}

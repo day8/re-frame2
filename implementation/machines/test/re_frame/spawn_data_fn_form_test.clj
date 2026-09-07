@@ -178,8 +178,6 @@
                                   :machine-id :hydra/leaf
                                   :data       (fn [{snap :snapshot}]
                                                 {:url (str (-> snap :data :base) "/two")})}]
-                                :on-child-done   :child/done
-                                :on-child-error  :child/error
                                 :on-all-complete [:done]}}}}]
       (rf/reg-machine :hydra/leaf child)
       (rf/reg-machine :sup/all parent)

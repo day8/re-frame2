@@ -119,8 +119,6 @@
                                                           :on-spawn :missing-cb}
                                                          {:id :y :machine-id :rf.on-spawn-tv/gc-y}]
                                        :join            :all
-                                       :on-child-done   :gc/done
-                                       :on-child-error  :gc/failed
                                        :on-all-complete [:all/done]}}}}]
       (rf/reg-machine :rf.on-spawn-tv/gc-x gc-x)
       (rf/reg-machine :rf.on-spawn-tv/gc-y gc-y)

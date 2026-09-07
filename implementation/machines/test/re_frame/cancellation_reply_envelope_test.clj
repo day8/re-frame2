@@ -261,8 +261,6 @@
                      ;; sibling cancellation on the join decision is
                      ;; unconditional → surviving sibling is torn down on
                      ;; resolution.
-                     :on-child-done    :asset/loaded
-                     :on-child-error   :asset/failed
                      :on-some-complete [:hydrate/some]}
                     :on    {:hydrate/some :ready}}
                    :ready     {}}}]

@@ -201,8 +201,6 @@
                                        {:id :b :machine-id :corner.ia/child :start [:set-id :b]}
                                        {:id :c :machine-id :corner.ia/child :start [:set-id :c]}]
                      :join            :all
-                     :on-child-done   :hydrate/loaded
-                     :on-child-error  :hydrate/failed
                      :on-all-complete [:hydrate/done]
                      :on-any-failed   [:hydrate/failed]}}}}]
       (rf/reg-machine :corner.ia/child child)
@@ -356,8 +354,6 @@
                                                      {:id :b :machine-id :corner.leak/ia-child
                                                       :start [:set-id :b]}]
                                    :join            :all
-                                   :on-child-done   :asset/loaded
-                                   :on-child-error  :asset/failed
                                    :on-all-complete [:done!]}}}}]
       (rf/reg-machine :corner.leak/ia-child  ia-child)
       (rf/reg-machine :corner.leak/ia-parent ia-parent)

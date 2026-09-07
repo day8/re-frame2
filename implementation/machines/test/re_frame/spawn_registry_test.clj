@@ -397,8 +397,6 @@
                                 {:children       [{:id :x :machine-id :gc/x}
                                                   {:id :y :machine-id :gc/y}]
                                  :join           :all
-                                 :on-child-done  :gc/done
-                                 :on-child-error :gc/failed
                                  :on-all-complete [:all/done]}
                                 :on {:back :idle :all/done :idle}}}}]
       (rf/reg-machine :child/a child-a)

@@ -99,8 +99,6 @@
               :states {:idle {:spawn-all {:children [{:id :c1
                                                       :machine-id :child
                                                       :bogus true}]  ;; unknown bare key
-                                          :on-child-done :cd
-                                          :on-child-error :ce
                                           :on-all-complete [:all]}
                               :on {:go :done}}
                        :done {}}})))))

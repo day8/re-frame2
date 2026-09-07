@@ -131,8 +131,6 @@
                                   {:children [{:id :a :machine-id :eo/ia-child}
                                               {:id :b :machine-id :eo/ia-child}]
                                    :join            :all
-                                   :on-child-done   :ia/done
-                                   :on-child-error  :ia/failed
                                    :on-all-complete [:go-done]
                                    :on-any-failed   [:ia/cancel]}
                                   :on {:go-done   :done

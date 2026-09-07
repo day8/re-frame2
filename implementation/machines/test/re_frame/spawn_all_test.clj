@@ -76,8 +76,6 @@
                                         {:id :b :machine-id :child/b :start [:set-id :b]}
                                         {:id :c :machine-id :child/c :start [:set-id :c]}]
                      :join             :all
-                     :on-child-done    :asset/loaded
-                     :on-child-error   :asset/failed
                      :on-all-complete  [:hydrate/done]
                      :on-any-failed    [:hydrate/failed]}
                     :on    {:hydrate/done   :ready
@@ -121,8 +119,6 @@
                                         {:id :b :machine-id :child/fb :start [:set-id :b]}
                                         {:id :c :machine-id :child/fc :start [:set-id :c]}]
                      :join             :all
-                     :on-child-done    :asset/loaded
-                     :on-child-error   :asset/failed
                      :on-all-complete  [:hydrate/done]
                      :on-any-failed    [:hydrate/failed]}
                     :on    {:hydrate/done   :ready
@@ -162,8 +158,6 @@
                                         {:id :b :machine-id :child/ab :start [:set-id :b]}
                                         {:id :c :machine-id :child/ac :start [:set-id :c]}]
                      :join             :any
-                     :on-child-done    :done
-                     :on-child-error   :failed
                      :on-some-complete [:race/won]}
                     :on    {:race/won :winner}}
                    :winner {}}}]
@@ -211,8 +205,6 @@
                                         {:id :b :machine-id :child/un-b :start [:set-id :b]}
                                         {:id :c :machine-id :child/un-c :start [:set-id :c]}]
                      :join             :all
-                     :on-child-done    :done
-                     :on-child-error   :failed
                      :on-all-complete  [:phase/done]}
                     :on    {:phase/done :ready}}
                    :ready {}}}]
@@ -253,8 +245,6 @@
                                         {:id :b :machine-id :child/gn-b :start [:set-id :b]}
                                         {:id :c :machine-id :child/gn-c :start [:set-id :c]}]
                      :join             :all
-                     :on-child-done    :done
-                     :on-child-error   :failed
                      :on-all-complete  [:phase/done]
                      :on-any-failed    [:phase/failed]}
                     :on    {:phase/done   :ready
@@ -285,8 +275,6 @@
                           {:initial :s
                            :states
                            {:s {:spawn-all {:children        [{:machine-id :foo}]
-                                             :on-child-done   :done
-                                             :on-child-error  :failed
                                              :on-all-complete [:done]}}}}))))
   (testing ":spawn-all with duplicate child ids — rejected"
     (is (thrown-with-msg?
@@ -297,8 +285,6 @@
                            :states
                            {:s {:spawn-all {:children        [{:id :x :machine-id :foo}
                                                                 {:id :x :machine-id :bar}]
-                                             :on-child-done   :done
-                                             :on-child-error  :failed
                                              :on-all-complete [:done]}}}}))))
   (testing ":spawn + :spawn-all on same state — rejected"
     (is (thrown-with-msg?
@@ -309,8 +295,6 @@
                            :states
                            {:s {:spawn     {:machine-id :foo}
                                 :spawn-all {:children        [{:id :x :machine-id :bar}]
-                                             :on-child-done   :done
-                                             :on-child-error  :failed
                                              :on-all-complete [:done]}}}}))))
   (testing ":spawn-all with :join :all but no :on-all-complete — rejected"
     (is (thrown-with-msg?
@@ -319,9 +303,7 @@
           (rf/reg-machine :bad/no-on-all
                           {:initial :s
                            :states
-                           {:s {:spawn-all {:children        [{:id :x :machine-id :foo}]
-                                             :on-child-done   :done
-                                             :on-child-error  :failed}}}}))))
+                           {:s {:spawn-all {:children        [{:id :x :machine-id :foo}]}}}}))))
   (testing ":spawn-all with :join :any but no :on-some-complete — rejected"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
@@ -330,9 +312,7 @@
                           {:initial :s
                            :states
                            {:s {:spawn-all {:children       [{:id :x :machine-id :foo}]
-                                             :join           :any
-                                             :on-child-done  :done
-                                             :on-child-error :failed}}}}))))
+                                             :join           :any}}}}))))
   ;; rf2-w8gxxz — the join grammar is a CLOSED two-member enum (:all + :any).
   ;; The removed modes ({:n N}, {:fn pred}) and the removed
   ;; :cancel-on-decision? key are now REJECTED as an unknown join spec /
@@ -346,8 +326,6 @@
                            :states
                            {:s {:spawn-all {:children         [{:id :x :machine-id :foo}]
                                              :join             {:n 2}
-                                             :on-child-done    :done
-                                             :on-child-error   :failed
                                              :on-some-complete [:some]}}}}))))
   (testing "rf2-w8gxxz: :spawn-all with the removed :join {:fn pred} mode — rejected"
     (is (thrown-with-msg?
@@ -358,8 +336,6 @@
                            :states
                            {:s {:spawn-all {:children         [{:id :x :machine-id :foo}]
                                              :join             {:fn (fn [_] true)}
-                                             :on-child-done    :done
-                                             :on-child-error   :failed
                                              :on-some-complete [:some]}}}}))))
   (testing "rf2-w8gxxz: :spawn-all with the removed :cancel-on-decision? key — rejected"
     (is (thrown-with-msg?
@@ -371,8 +347,6 @@
                            {:s {:spawn-all {:children            [{:id :x :machine-id :foo}]
                                              :join                :any
                                              :cancel-on-decision? false
-                                             :on-child-done       :done
-                                             :on-child-error      :failed
                                              :on-some-complete    [:some]}}}}))))
   ;; A :spawn-all child must declare EXACTLY ONE of :machine-id /
   ;; :definition (XOR): a child carrying BOTH is rejected, as is a child
@@ -388,8 +362,6 @@
                                                                 :machine-id :foo
                                                                 :definition {:initial :i
                                                                              :states  {:i {}}}}]
-                                             :on-child-done   :done
-                                             :on-child-error  :failed
                                              :on-all-complete [:done]}}}}))))
   (testing ":spawn-all child with EXACTLY ONE of :machine-id / :definition — accepted"
     (is (some?
@@ -399,8 +371,6 @@
                            {:s {:spawn-all {:children        [{:id         :x
                                                                 :definition {:initial :i
                                                                              :states  {:i {}}}}]
-                                             :on-child-done   :done
-                                             :on-child-error  :failed
                                              :on-all-complete [:done]}}}}))
         "an inline-definition :spawn-all child (no :machine-id) registers cleanly")))
 
@@ -506,8 +476,6 @@
                    {:spawn-all
                     {:children        [{:id :a :machine-id :child/pa :start [:set-id :a]}]
                      :join            :all
-                     :on-child-done   :asset/loaded
-                     :on-child-error  :asset/failed
                      :on-all-complete [:hydrate/done]}
                     :on    {:hydrate/done {:target :ready :action :record-payload}}}
                    :ready {}}}]
@@ -553,8 +521,6 @@
                     {:children            [{:id :a :machine-id :child/ca :start [:set-id :a]}
                                            {:id :b :machine-id :child/cb :start [:set-id :b]}]
                      :join                :any
-                     :on-child-done       :asset/loaded
-                     :on-child-error      :asset/failed
                      :on-some-complete    [:race/won]}}}}]
       (rf/reg-machine :child/ca child)
       (rf/reg-machine :child/cb child)
@@ -601,8 +567,6 @@
                     {:children            [{:id :a :machine-id :child/lka :start [:set-id :a]}
                                            {:id :b :machine-id :child/lkb :start [:set-id :b]}]
                      :join                :any
-                     :on-child-done       :asset/loaded
-                     :on-child-error      :asset/failed
                      :on-some-complete    [:race/won]}}}}]
       (rf/reg-machine :child/lka child)
       (rf/reg-machine :child/lkb child)
@@ -706,8 +670,6 @@
                     {:children        [{:id :a :machine-id :child/forge-a :start [:set-id :a]}
                                        {:id :b :machine-id :child/forge-b :start [:set-id :b]}]
                      :join            :all
-                     :on-child-done   :asset/loaded
-                     :on-child-error  :asset/failed
                      :on-all-complete [:hydrate/done]
                      :on-any-failed   [:hydrate/failed]}
                     :on    {:hydrate/done   :ready
@@ -755,8 +717,6 @@
                    {:spawn-all
                     {:children        [{:id :a :machine-id :child/forge-r :start [:set-id :a]}]
                      :join            :all
-                     :on-child-done   :asset/loaded
-                     :on-child-error  :asset/failed
                      :on-all-complete [:hydrate/done]
                      :on-any-failed   [:hydrate/failed]}
                     :on    {:hydrate/done   :ready
@@ -796,8 +756,6 @@
                      {:spawn-all
                       {:children        [{:id :p1-a :machine-id :child/p1a :start [:set-id :p1-a]}]
                        :join            :all
-                       :on-child-done   :asset/loaded
-                       :on-child-error  :asset/failed
                        :on-all-complete [:done]}}}}
           parent-2 {:initial :idle
                     :states
@@ -806,8 +764,6 @@
                      {:spawn-all
                       {:children        [{:id :p2-x :machine-id :child/p2x :start [:set-id :p2-x]}]
                        :join            :all
-                       :on-child-done   :asset/loaded
-                       :on-child-error  :asset/failed
                        :on-all-complete [:done]}}}}]
       (rf/reg-machine :child/p1a (mk-inert-child))
       (rf/reg-machine :child/p2x (mk-inert-child))
@@ -843,8 +799,6 @@
                     {:children        [{:id :a :machine-id :child/gate-a :start [:set-id :a]}
                                        {:id :b :machine-id :child/gate-b :start [:set-id :b]}]
                      :join            :all
-                     :on-child-done   :asset/loaded
-                     :on-child-error  :asset/failed
                      :on-all-complete [:hydrate/done]}
                     :on    {:hydrate/done :ready}}
                    :ready {}}}]
@@ -886,8 +840,6 @@
                             {:spawn-all
                              {:children        [{:id :r1a :machine-id :rf2-w84jv/r1-child :start [:set-id :r1a]}]
                               :join            :all
-                              :on-child-done   :done
-                              :on-child-error  :err
                               :on-all-complete [:r1/done]}
                              :on {:r1/done :ready}}
                             :ready {}}}
@@ -897,8 +849,6 @@
                             {:spawn-all
                              {:children        [{:id :r2x :machine-id :rf2-w84jv/r2-child :start [:set-id :r2x]}]
                               :join            :all
-                              :on-child-done   :done
-                              :on-child-error  :err
                               :on-all-complete [:r2/done]}
                              :on {:r2/done :ready}}
                             :ready {}}}}})
@@ -942,8 +892,6 @@
                     {:children       [{:id :a :machine-id :child/fpa :start [:set-id :a]}
                                       {:id :b :machine-id :child/fpb :start [:set-id :b]}]
                      :join            :all
-                     :on-child-done   :asset/loaded
-                     :on-child-error  :asset/failed
                      :on-all-complete [:hydrate/done]
                      :on-any-failed   [:hydrate/failed]}
                     :on    {:hydrate/done   :ready

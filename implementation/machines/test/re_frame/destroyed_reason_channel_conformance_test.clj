@@ -779,8 +779,6 @@
                                           {:children [{:id :a :machine-id :drj/a :start [:set-id :a]}
                                                       {:id :b :machine-id :drj/b :start [:set-id :b]}]
                                            :join             :any
-                                           :on-child-done    :asset/loaded
-                                           :on-child-error   :asset/failed
                                            :on-some-complete [:race/won]}}}})
       (rf.machines.test-support/with-trace-capture captured
         (rf/dispatch-sync [:drj/sup [:start]])

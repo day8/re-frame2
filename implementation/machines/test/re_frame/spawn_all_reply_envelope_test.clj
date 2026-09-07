@@ -108,8 +108,6 @@
                     {:children         [{:id :a :machine-id :relp1/a :start [:set-id :a]}
                                         {:id :b :machine-id :relp1/b :start [:set-id :b]}]
                      :join             :all
-                     :on-child-done    :asset/loaded
-                     :on-child-error   :asset/failed
                      :on-all-complete  [:hydrate/done]
                      :on-any-failed    [:hydrate/failed]}
                     :on    {:hydrate/done   :ready
@@ -147,8 +145,6 @@
                     {:children         [{:id :a :machine-id :relp2/a :start [:set-id :a]}
                                         {:id :b :machine-id :relp2/b :start [:set-id :b]}]
                      :join             :all
-                     :on-child-done    :asset/loaded
-                     :on-child-error   :asset/failed
                      :on-all-complete  [:hydrate/done]
                      :on-any-failed    [:hydrate/failed]}
                     :on    {:hydrate/done   :ready
@@ -190,8 +186,6 @@
                     {:children            [{:id :a :machine-id :relp3/a :start [:set-id :a]}
                                            {:id :b :machine-id :relp3/b :start [:set-id :b]}]
                      :join                :any
-                     :on-child-done       :asset/loaded
-                     :on-child-error      :asset/failed
                      :on-some-complete    [:hydrate/some]}}}}]
       (rf/reg-machine :relp3/a child)
       (rf/reg-machine :relp3/b child)
@@ -282,8 +276,6 @@
                             {:children         [{:id :a :machine-id :tjok/a :start [:set-id :a]}
                                                 {:id :b :machine-id :tjok/b :start [:set-id :b]}]
                              :join             :any
-                             :on-child-done    :asset/loaded
-                             :on-child-error   :asset/failed
                              :on-some-complete [:race/won]}}}}]
       (rf/reg-machine :tjok/a child)
       (rf/reg-machine :tjok/b child)
@@ -334,8 +326,6 @@
                             {:children         [{:id :a :machine-id :tjf/a :start [:set-id :a]}
                                                 {:id :b :machine-id :tjf/b :start [:set-id :b]}]
                              :join             :any
-                             :on-child-done    :asset/loaded
-                             :on-child-error   :asset/failed
                              :on-some-complete [:race/won]
                              :on-any-failed    [:race/lost]}}}}]
       (rf/reg-machine :tjf/a child)
@@ -380,8 +370,6 @@
                                {:children        [{:id :a :machine-id :tja/a :start [:set-id :a]}
                                                   {:id :b :machine-id :tja/b :start [:set-id :b]}]
                                 :join            :all
-                                :on-child-done   :asset/loaded
-                                :on-child-error  :asset/failed
                                 :on-all-complete [:hydrate/done]}}}}]
       (rf/reg-machine :tja/a child)
       (rf/reg-machine :tja/b child)
@@ -459,8 +447,6 @@
                             {:children         [{:id :a :machine-id :evok/a :start [:set-id :a]}
                                                 {:id :b :machine-id :evok/b :start [:set-id :b]}]
                              :join             :any
-                             :on-child-done    :asset/loaded
-                             :on-child-error   :asset/failed
                              :on-some-complete [:race/won]}}}}]
       (rf/reg-machine :evok/a child)
       (rf/reg-machine :evok/b child)
@@ -498,8 +484,6 @@
                             {:children         [{:id :a :machine-id :evf/a :start [:set-id :a]}
                                                 {:id :b :machine-id :evf/b :start [:set-id :b]}]
                              :join             :any
-                             :on-child-done    :asset/loaded
-                             :on-child-error   :asset/failed
                              :on-some-complete [:race/won]
                              :on-any-failed    [:race/lost]}}}}]
       (rf/reg-machine :evf/a child)
@@ -539,8 +523,6 @@
                    :hydrating {:spawn-all
                                {:children        [{:id :a :machine-id :evfin/a :start [:set-id :a]}]
                                 :join            :all
-                                :on-child-done   :asset/loaded
-                                :on-child-error  :asset/failed
                                 :on-all-complete [:done/all]}}}}]
       (rf/reg-machine :evfin/a final-child)
       (rf/reg-machine :sup/ev-fin parent)

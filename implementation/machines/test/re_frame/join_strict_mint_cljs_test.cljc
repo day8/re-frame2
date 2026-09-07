@@ -123,8 +123,6 @@
                         {:children        [{:id :a :machine-id target-kw :start [:set-id :a]}
                                            {:id :b :machine-id plain-kw  :start [:set-id :b]}]
                          :join            :all
-                         :on-child-done   :child/done
-                         :on-child-error  :child/failed
                          :on-all-complete [:all/done]}
                         :on {:abort :idle}}}}))
 
@@ -325,8 +323,6 @@
                :racing {:spawn-all
                         {:children         [{:id :a :machine-id child-kw :start [:set-id :a]}]
                          :join             :any
-                         :on-child-done    :child/done
-                         :on-child-error   :child/failed
                          :on-some-complete [:some/done]}
                         :on {:some/done {:target :ready :action :res-action}}}
                :ready {}}

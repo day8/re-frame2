@@ -103,8 +103,6 @@
                         {:children        [{:id :a :machine-id child-a-kw :start [:set-id :a]}
                                            {:id :b :machine-id child-b-kw :start [:set-id :b]}]
                          :join            :all
-                         :on-child-done   :child/done
-                         :on-child-error  :child/failed
                          :on-all-complete [:all/done]}
                         :on {:abort :idle}}}})
   (rf/dispatch-sync [parent-kw [:start]])

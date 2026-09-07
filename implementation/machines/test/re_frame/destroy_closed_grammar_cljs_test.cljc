@@ -68,8 +68,6 @@
                         {:children        [{:id :a :machine-id child-a-kw}
                                            {:id :b :machine-id child-b-kw}]
                          :join            :all
-                         :on-child-done   :child/done
-                         :on-child-error  :child/failed
                          :on-all-complete [:all/done]}}}})
   (rf/dispatch-sync [parent-kw [:start]])
   (join-state parent-kw [:racing]))
@@ -270,8 +268,6 @@
                            {:children        [{:id :a :machine-id :dcg/sa-child}
                                               {:id :b :machine-id :dcg/sa-child}]
                             :join            :all
-                            :on-child-done   :child/done
-                            :on-child-error  :child/failed
                             :on-all-complete [:all/done]}
                            :on {:abort :idle}}}})
     (rf/dispatch-sync [:dcg/sa-parent [:start]])

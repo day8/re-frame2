@@ -83,8 +83,6 @@
          {:children        [{:id :reg   :machine-id :qb/registered       :start [:set-id :reg]}
                             {:id :unreg :machine-id :qb/never-registered :start [:set-id :unreg]}]
           :join            :all
-          :on-child-done   :done
-          :on-child-error  :err
           :on-all-complete [:hydrate/done]}
          :on {:hydrate/done :ready}}
         :ready {}}})
@@ -129,8 +127,6 @@
                     {:children         [{:id :a :machine-id :qb/child-ba :start [:set-id :a]}
                                        {:id :b :machine-id :qb/child-bb :start [:set-id :b]}]
                      :join             :any
-                     :on-child-done    :done
-                     :on-child-error   :err
                      :on-some-complete [:race/won]}}}}]
       (rf/reg-machine :qb/child-ba child)
       (rf/reg-machine :qb/child-bb child)

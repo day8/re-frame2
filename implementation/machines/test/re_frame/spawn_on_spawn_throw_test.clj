@@ -128,8 +128,6 @@
                                {:children
                                 [{:id :a :machine-id :hydra/leaf :on-spawn :ok}
                                  {:id :b :machine-id :hydra/leaf :on-spawn :boom}]
-                                :on-child-done   :child/done
-                                :on-child-error  :child/error
                                 :on-all-complete [:done]}}}}]
       (rf/reg-machine :hydra/leaf child)
       (rf/reg-machine :sup/all-throw parent)
