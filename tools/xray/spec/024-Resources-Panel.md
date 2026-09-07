@@ -219,7 +219,12 @@ stacked sections:
    `:stale-at` / `:invalidated-at`, generation, attempt, request id,
    current work id, active owners, owner count, tags, GC eligibility.
    `:stale?` / `:has-data?` are **derived** here (Spec 016 §Status
-   semantics — never stored facts). **The infinite-feed surface (EP-0021,
+   semantics — never stored facts), by the SAME rule
+   `re-frame.resources.state/has-data?` applies: an `:infinite?` entry is
+   `:has-data?` only once its page vector carries **≥1 accumulated page**
+   (the seeded-empty `[]` is a first load, so the §4 live rollup reads
+   `:loading`, never `:fresh`); a scalar entry is `:has-data?` iff its
+   `:data` is non-nil. **The infinite-feed surface (EP-0021,
    R1/R2/R3):** an `:infinite?` entry additionally carries `:page-count`
    (the accumulated page-vector length), the runtime-owned `:cursor`
    (the `:next-page-param` — egress-projected, since a cursor can carry

@@ -575,9 +575,21 @@
   `:data` is no-data; a value already redacted/elided UPSTREAM (`:rf/redacted`
   / `:rf.size/large-elided`) means data WAS present (the sentinel replaced a
   real value), so it counts as has-data (rf2-tgm1xu — the egress redaction
-  of a payload must not flip the derived `:has-data?` fact)."
-  [data]
-  (some? data))
+  of a payload must not flip the derived `:has-data?` fact).
+
+  EP-0021 R1 (rf2-o5iv): an `:infinite?` feed's `:data` is the ordered PAGE
+  VECTOR, seeded EMPTY (`[]`) before page 0 loads — an empty page vector is
+  NO usable data, so the feed reads first-load (`:loading`), not `:fresh`.
+  This mirrors the SINGLE canonical derivation in
+  `re-frame.resources.state/has-data?`; the projection must agree with it or
+  the row contradicts its own `:status` / `:page-count`. The page-vector rule
+  applies only to an ACTUAL vector: an infinite payload already collapsed to
+  a redaction/elision sentinel upstream keeps the `some?` reading above."
+  [entry]
+  (let [data (:data entry)]
+    (if (and (:infinite? entry) (sequential? data))
+      (boolean (seq data))
+      (some? data))))
 
 (defn instance-row
   "Project ONE live cache entry `[scoped-key entry]` into a render-safe
@@ -641,7 +653,7 @@
               :params         (summarize (eg raw-params :params))
               :status         (:status entry)
               :stale?         (derive-stale? entry now-ms)
-              :has-data?      (entry-has-data? raw-data)
+              :has-data?      (entry-has-data? entry)
               :data           (summarize (eg raw-data :data))
               :error          (when (:error entry) (summarize (eg (:error entry) :error)))
               :refresh-error  (when (:refresh-error entry) (summarize (eg (:refresh-error entry) :refresh-error)))

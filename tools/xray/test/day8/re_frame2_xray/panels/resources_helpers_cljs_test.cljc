@@ -1312,3 +1312,80 @@
     ;; nil params AND a scope that no entry carries → no match
     (is (empty? (h/select-raw-entries nilparams-entries
                   {:scope :rf.scope/global :params nil})))))
+
+;; ---- (5c) rf2-o5iv — an EMPTY infinite feed is NOT has-data ---------------
+;;
+;; `rf.resources.state/has-data?` (Spec 016 §Status semantics, EP-0021 R1)
+;; defines an infinite feed as has-data ONLY once it carries ≥1 accumulated
+;; page: the seeded-empty page vector `[]` is a FIRST LOAD, not a refresh.
+;; The Xray projection derives the same fact and must agree — an empty feed
+;; reporting `:has-data? true` made `resource-liveness` skip `:loading` and
+;; call a never-loaded feed `:fresh`, contradicting its own `:status :loading`
+;; / `:page-count 0` on the same row.
+
+(deftest empty-infinite-feed-has-no-data-test
+  (let [empty-feed  {:resource/id     :feed/articles
+                     :resource/key    [session-scope :feed/articles {}]
+                     :status          :loading
+                     :infinite?       true
+                     :data            []          ; seeded-empty page vector
+                     :page-params     []
+                     :next-page-param nil
+                     :active-owners   #{[:feed/opened "feed"]}}
+        row         (h/instance-row [(rf.resources.state/key-id [session-scope :feed/articles {}])
+                                     empty-feed]
+                                    now)]
+    (testing "a seeded-empty page vector is NO usable data (EP-0021 R1)"
+      (is (= 0 (:page-count row)))
+      (is (false? (:has-data? row))
+          "an infinite feed with zero accumulated pages has not loaded anything")
+      (is (= :loading (:status row))
+          "the row's own status agrees — the projection no longer self-contradicts"))
+    (testing "the route/resource graph's live rollup reads FIRST LOAD, not :fresh"
+      ;; the rollup is private; exercise it through the public route-graph
+      ;; projection, which is how the panel reads it.
+      (let [graph (h/project-route-graph
+                    {:route/feed {:path      "/feed"
+                                  :resources [{:resource :feed/articles :blocking? false}]}}
+                    {:instance-rows [row]
+                     :work-rows     [{:resource-id :feed/articles :terminal? false}]})
+            live  (:live (first (:resources (first graph))))]
+        (is (false? (:has-data? live)))
+        (is (= :loading (:freshness live))
+            "active work + no accumulated page ⇒ :loading, never :fresh")))
+    (testing "ONE empty page is still a loaded page — has-data"
+      (let [one-page (assoc empty-feed :data [[]] :status :loaded)
+            row'     (h/instance-row [(rf.resources.state/key-id [session-scope :feed/articles {}])
+                                      one-page]
+                                     now)]
+        (is (= 1 (:page-count row')))
+        (is (true? (:has-data? row'))
+            "an accumulated page that happens to be empty is data")))
+    (testing "a SCALAR entry keeps nil/non-nil semantics — `[]` is still data"
+      (let [scalar {:resource/id  :article/by-slug
+                    :resource/key [session-scope :article/by-slug {:slug "x"}]
+                    :status       :loaded
+                    :data         []}
+            row'   (h/instance-row [(rf.resources.state/key-id [session-scope :article/by-slug {:slug "x"}])
+                                    scalar]
+                                   now)]
+        (is (true? (:has-data? row'))
+            "a non-infinite resource whose value IS an empty vector has data")
+        (is (false? (:has-data? (h/instance-row
+                                  [(rf.resources.state/key-id [session-scope :article/by-slug {:slug "y"}])
+                                   (assoc scalar :data nil
+                                          :resource/key [session-scope :article/by-slug {:slug "y"}])]
+                                  now)))
+            "a nil scalar payload is still no-data")))
+    (testing "an UPSTREAM-redacted/elided payload still reads has-data
+              (rf2-tgm1xu — the sentinel replaced a real value)"
+      (doseq [sentinel [:rf/redacted :rf.size/large-elided]]
+        (let [redacted {:resource/id  :article/by-slug
+                        :resource/key [session-scope :article/by-slug {:slug "s"}]
+                        :status       :loaded
+                        :data         sentinel}
+              row'     (h/instance-row [(rf.resources.state/key-id [session-scope :article/by-slug {:slug "s"}])
+                                        redacted]
+                                       now)]
+          (is (true? (:has-data? row'))
+              (str sentinel " means data WAS present — never flipped to no-data")))))))
