@@ -12,6 +12,7 @@
     "test:re-frame2-pair-live-iserror": "node test/live-re-frame2-pair-iserror.cjs",
     "test:re-frame2-pair-live-cofx": "node test/live-re-frame2-pair-cofx.cjs",
     "test:re-frame2-pair-live-event-meta": "node test/live-re-frame2-pair-event-meta.cjs",
+    "test:re-frame2-pair-live-replace-app-db": "node test/live-re-frame2-pair-replace-app-db.cjs",
     "test:re-frame2-pair-live-hermetic-suite": "node scripts/run-re-frame2-pair-live-hermetic-suite.cjs",
     "test:dedup-envelope": "node --test test/dedup-envelope.test.cjs",
     "test:story": "node test/end-to-end-story.cjs && node test/end-to-end-project-stories.cjs",

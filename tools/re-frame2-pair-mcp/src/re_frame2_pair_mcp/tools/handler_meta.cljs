@@ -57,13 +57,21 @@
   reload it no longer describes the handler that ran in an older epoch.
 
   Supported kinds: `event`, `sub`, `fx`, `cofx`, `interceptor`, `view`,
-  `frame`, `route`, `flow`, `head`, `error-projector`, `resource`,
+  `route`, `head`, `error-projector`, `resource`,
   `mutation`, `resource-scope`, `machine` — the closed v1 registrar set
-  (per Spec 001 §Registry model; the three resources-artefact kinds are
-  EP-0016; `interceptor` is EP-0022). App-db schemas are NOT
+  MINUS its two reserved-but-EMPTY slots (per Spec 001 §Registry model;
+  the three resources-artefact kinds are EP-0016; `interceptor` is
+  EP-0022). `flow` and `frame` are deliberately NOT offered: nothing is
+  ever written to either registrar slot, querying one throws
+  `:rf.error/registrar-kind-not-queryable` at the framework
+  (rf2-kuky.30), and flows / frames are read through their own doors
+  (`re-frame.flows/flows-snapshot` / `flow-meta-at`; `rf/frame-ids` /
+  `rf/frame-meta`). Asking for either gets the ordinary
+  `:reason :invalid-kind` envelope with the accepted-kinds hint
+  (rf2-zhef). App-db schemas are NOT
   a registrar kind; their metadata lives in the schemas
   artefact's per-frame side-table, surfaced via `rf/app-schemas` /
-  `rf/app-schema-meta-at`. The fourteen registrar kinds map directly to
+  `rf/app-schema-meta-at`. The twelve registrar kinds map directly to
   `rf/handler-meta`; `machine` routes through the runtime preload's
   `re-frame2-pair.runtime/machine-describe` door, which wraps
   `rf.machines/machine-meta` (Spec 005 §Querying machines —
@@ -82,7 +90,7 @@
   out what's registered, then `handler-meta` to drill in.
 
   For every registrar kind (`event` / `sub` / `fx` / `cofx` /
-  `interceptor` / `view` / `frame` / `route` / `flow` / `head` /
+  `interceptor` / `view` / `route` / `head` /
   `error-projector` / `resource` / `mutation` / `resource-scope`) the
   list comes from
   `re-frame2-pair.runtime/registrar-list`. For `machine` the list
@@ -168,12 +176,27 @@
   it routes through the preload's `machine-describe` / `machines-list`
   (which wrap `rf.machines/machine-meta` / `rf.machines/machines`, the
   derived views over `:event`-kind metadata carrying the `:rf/machine?`
-  flag) — but is in `supported-kinds` below."
-  #{:event :sub :fx :cofx :interceptor :view :frame :route :flow :head
+  flag) — but is in `supported-kinds` below.
+
+  `:flow` and `:frame` are absent for a THIRD reason, and it is the one
+  worth spelling out (rf2-zhef). `re-frame.registrar/kinds` RESERVES both
+  slots, but nothing is ever written to either: flows live in
+  `re-frame.flows` (`flows-snapshot` / `flow-meta-at`) and frames in
+  `rf/frame-ids` / `rf/frame-meta`. rf2-kuky.30 made querying them LOUD at
+  the framework — `(rf/registrations {:source :store :kind :flow})` throws
+  `:rf.error/registrar-kind-not-queryable`, whose message names the real
+  door — where it previously answered an authoritative-looking `{}`. The
+  preload's kind-agnostic `registrar-list` / `registrar-describe` do not
+  catch, so while this set carried them a caller's `list-handlers {kind
+  \"flow\"}` propagated that framework throw INSTEAD OF this tool's own
+  structured envelope. Dropping them is the whole fix: `parse-kind` returns
+  nil, and the existing `:invalid-kind` + `kinds-hint` envelope answers.
+  There is no second refusal path to write or to keep in step."
+  #{:event :sub :fx :cofx :interceptor :view :route :head
     :error-projector :resource :mutation :resource-scope})
 
 (def ^:private supported-kinds
-  "The full set of kinds the tool accepts. The fourteen registrar kinds
+  "The full set of kinds the tool accepts. The twelve registrar kinds
   above plus the virtual `:machine` kind."
   (conj registrar-kinds :machine))
 
@@ -234,7 +257,7 @@
 ;; ---------------------------------------------------------------------------
 ;; Tool — handler-meta.
 ;;
-;; Eval-form composition: for the fourteen registrar kinds we route through
+;; Eval-form composition: for the twelve registrar kinds we route through
 ;; `re-frame2-pair.runtime/registrar-describe` (already published; carries
 ;; the `:not-registered` envelope on miss). `:machine` routes through the
 ;; preload's `machine-describe` the same way — one `rt-call`, one
@@ -400,7 +423,7 @@
 (defn- list-form
   "Build the eval form returning the sorted id vector for a kind.
 
-  DEFAULT (`frame` nil): the fourteen registrar kinds route through
+  DEFAULT (`frame` nil): the twelve registrar kinds route through
   `re-frame2-pair.runtime/registrar-list`; `:machine` through
   `re-frame2-pair.runtime/machines-list`, which sorts the same way (Spec
   005 §Querying machines — every event handler with `:rf/machine? true`).

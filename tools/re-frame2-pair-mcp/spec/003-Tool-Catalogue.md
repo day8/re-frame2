@@ -3161,7 +3161,7 @@ bound it:
   nor the source bytes reach the bundle (JVM builds are always-on). A
   production runtime answers with coordinates and no body.
 - **`reg-event` scope.** No other kind on the enum above (`sub`, `fx`,
-  `cofx`, `interceptor`, `view`, `frame`, `route`, `flow`, `head`,
+  `cofx`, `interceptor`, `view`, `route`, `head`,
   `error-projector`, `resource`, `mutation`, `resource-scope`) carries the
   slot — fall back to `:rf.mcp/source-uri` and the filesystem
   there. Machine guards and actions do carry the same key, but
@@ -3175,11 +3175,24 @@ bound it:
   whether the code changed under you.
 
 **Args**: `kind` (string, **required** — one of `event` / `sub` /
-`fx` / `cofx` / `interceptor` / `view` / `frame` / `route` / `flow` / `head` /
+`fx` / `cofx` / `interceptor` / `view` / `route` / `head` /
 `error-projector` / `resource` / `mutation` / `resource-scope` /
 `machine`), `id` (string, **required** — EDN-encoded
 keyword or composite vector), `frame` (string, optional — a frame id keyword;
 the EP-0023 forward direction, see below), `build` (string, optional).
+
+**`flow` and `frame` are NOT on that enum** (rf2-zhef). Both are
+reserved-but-EMPTY registrar slots: nothing is ever written to either, so
+a registrar query could only ever answer `{}` — which reads as an
+authoritative empty catalogue while the real store sits elsewhere. Since
+rf2-kuky.30 the framework refuses such a query outright
+(`:rf.error/registrar-kind-not-queryable`), and this tool now refuses it
+one layer earlier with the ordinary
+`{:ok? false :reason :invalid-kind :kind <raw> :hint "..."}` envelope
+rather than propagating the framework throw. Read flows through
+`re-frame.flows/flows-snapshot` / `flow-meta-at`, and frames through
+`rf/frame-ids` / `rf/frame-meta` (`discover-app` surfaces the frame
+roster over the wire).
 
 **No realm coordinate** (EP-0023 / EP-0024). The public model is
 `image -> frame -> event stream`. The EP-0013 realm / app-value / install
@@ -3221,7 +3234,7 @@ surfaces the registered `:rf/interceptor-descriptor`).
 App-db schemas are **not** a registrar kind
 (rf2-cq1ak) — their metadata lives in the schemas artefact's per-frame
 side-table, queried via `rf/app-schemas` / `rf/app-schema-meta-at`.
-The fourteen registrar kinds route through
+The twelve registrar kinds route through
 `(re-frame2-pair.runtime/registrar-describe kind id)`. For a
 `:resource-scope` the meta surfaces the named scope resolver's declared
 `:inputs` map + `:whole-db?` cost (the EP-0016 disposition-2
@@ -3252,8 +3265,8 @@ symbol these forms emit is a public top-level `defn` in it.
 
 ```clojure
 {:ok?              true
- :kind             :event | :sub | :fx | :cofx | :interceptor | :view | :frame |
-                   :route | :flow | :head | :error-projector |
+ :kind             :event | :sub | :fx | :cofx | :interceptor | :view |
+                   :route | :head | :error-projector |
                    :resource | :mutation | :resource-scope | :machine
  :id               <registered-id>
  :ns               my.app.user
@@ -3345,8 +3358,8 @@ so the vector is stable across kinds.
 
 ```clojure
 {:ok?   true
- :kind  :event | :sub | :fx | :cofx | :interceptor | :view | :frame |
-        :route | :flow | :head | :error-projector |
+ :kind  :event | :sub | :fx | :cofx | :interceptor | :view |
+        :route | :head | :error-projector |
         :resource | :mutation | :resource-scope | :machine
  :ids   [<id> ...]
  :count <integer>}
