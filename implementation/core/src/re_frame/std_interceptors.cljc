@@ -147,7 +147,11 @@
        full app-db OBJECT (NOT an `assoc-in` allocation) — preserving the
        frame-commit `identical?` no-op (rf2-ekq28v);
     5. otherwise widens (`assoc-in`) the focused value into the original app-db
-       at `path-vector`.
+       at `path-vector`;
+    6. restores the ORIGINAL full app-db as the `:db` coeffect on unwind — the
+       focus is handler-scoped, so no stage after this interceptor's `:after`
+       (an outer interceptor, or the framework's own outermost flow stage) may
+       see the slice standing in for the root (rf2-bw76).
 
   `path-vector` MUST be a vector (validated by the factory below, which throws
   `:rf.error/path-interceptor-bad-path` otherwise). The root path `[]` focuses
@@ -184,7 +188,24 @@
           (let [[original-db original-slice] (peek stack)
                 new-stack (pop stack)
                 emitted?  (contains? (:effects ctx) :db)]
-            (cond-> (assoc ctx :rf.interceptor.path/stack new-stack)
+            (cond-> (-> ctx
+                        (assoc :rf.interceptor.path/stack new-stack)
+                        ;; Rule 6: unwind the focus. The `:db` coeffect is
+                        ;; HANDLER-scoped — restore the ORIGINAL full app-db
+                        ;; object so every stage that runs after this `:after`
+                        ;; sees the unfocused root. Nested paths restore in
+                        ;; LIFO order (inner → outer slice → root).
+                        ;; rf2-bw76: the framework's outermost flow stage falls
+                        ;; back to `[:coeffects :db]` as the pending app-db when
+                        ;; the handler emitted NO `:db` effect (router.cljc,
+                        ;; `pending-db`). Leaving the coeffect focused made an
+                        ;; ordinary effect-only focused event hand the flow pass
+                        ;; its own sub-slice as the ROOT — the flow pass then
+                        ;; staged that slice as a root `:db` effect and every
+                        ;; sibling key was erased. Restoring the original OBJECT
+                        ;; (not a rebuilt map) also keeps rule 4's `identical?`
+                        ;; commit no-op intact.
+                        (assoc-in [:coeffects :db] original-db))
               ;; Rule 3 is the absence of this branch — no `:db` effect means
               ;; no synthetic `:db` effect is written.
               emitted?

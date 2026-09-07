@@ -2575,7 +2575,10 @@ The standard path interceptor:
 2. stages the focused slice as the handler's `:db` coeffect;
 3. if the handler emits **no** `:db` effect, emits no synthetic `:db` effect;
 4. if the handler emits a `:db` effect whose focused value is **`identical?`** to the original focused slice, rewrites the effect back to the **original full app-db object** (not an `assoc-in` allocation);
-5. otherwise widens the focused value into the original app-db at `path-vector`.
+5. otherwise widens the focused value into the original app-db at `path-vector`;
+6. restores the **original full app-db object** as the `:db` coeffect when it unwinds — the focus is handler-scoped. Nothing that runs after the path interceptor's `:after` (an outer interceptor, or a framework tail stage such as the flow pass) may see the focused slice standing in for the root app-db.
+
+**Rule 6 is normative.** The framework's outermost flow stage takes the pending app-db from the `:db` coeffect when the handler emitted **no** `:db` effect (rule 3's case). A focus left un-unwound therefore hands the flow pass a sub-slice as its root — the pass reads root flow inputs as `nil` and stages the slice as a root `:db` effect, erasing every sibling key on an ordinary no-op or effect-only focused event (rf2-bw76).
 
 **Root path (`[]`).** The empty path-vector `[]` is the root path: the `:before` focuses the **whole** app-db (`(get-in db []) = db`) as the handler's `:db` coeffect, and rule 5's widen **replaces** the whole app-db with the emitted value (`(assoc-in db [] x)` is ill-defined, so the root case is special-cased to install the emitted value directly). Rules 3 and 4 still hold — a handler emitting no `:db` writes nothing, and an `identical?`-to-original emitted value re-emits the original app-db object. This `[]` semantics mirrors the `:rf/path` algebra's root-path laws (`get(s, []) = s`, `put(s, [], x) = x`; [Conventions §The `:rf/path` algebra](Conventions.md#the-rfpath-algebra)); it is impl-defined and test-pinned but not otherwise spec-mandated.
 
