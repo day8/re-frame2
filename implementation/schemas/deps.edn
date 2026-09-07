@@ -16,7 +16,7 @@
 ;; therefore active when a schema is registered on both CLJS and the JVM.
 ;;
 ;; Apps that want schemas-as-inert-data without the Malli validation
-;; surface call `(set-schema-validator! nil)` at boot, which disables every
+;; surface call `(set-schema-fns! {:validate nil})` at boot, which disables every
 ;; validation site (Spec 010 §Worked example). The residual soft-pass arm
 ;; in `re-frame.schemas.validator` is the defensive fallback for a non-Malli
 ;; port that never bound the Malli hook (and for test harnesses that

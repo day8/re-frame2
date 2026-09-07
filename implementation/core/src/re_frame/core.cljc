@@ -1113,8 +1113,8 @@
 ;; They are optional-feature surfaces whose owned namespace is the better
 ;; public home: reach them through `re-frame.flows` (`clear-flow`) and
 ;; `re-frame.schemas` (`app-schema-at`, `app-schema-meta-at`, `app-schemas`,
-;; `app-schemas-digest`, `set-schema-validator!`, `set-schema-explainer!`,
-;; `set-schema-printer!`, `set-schema-fns!`) — the owned namespaces already
+;; `app-schemas-digest`, `set-schema-fns!`, `schema-fns`,
+;; `default-schema-fns`) — the owned namespaces already
 ;; publish them. The `reg-flow` / `reg-app-schema` / `reg-app-schemas`
 ;; REGISTRATION MACROS stay on the façade (above): they capture call-site
 ;; source-coords and have no owned-namespace macro form, so registration

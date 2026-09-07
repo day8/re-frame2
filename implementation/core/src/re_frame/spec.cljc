@@ -51,9 +51,9 @@
     misconfiguration. There is no warn-and-accept fallback.
 
   Validation routes through the same registered validator the dev-time
-  hot path uses (the `set-schema-validator!` seam) — a substituted
+  hot path uses (the `set-schema-fns!` seam) — a substituted
   validator covers both surfaces with one registration. When
-  `set-schema-validator!` has been called with `nil` the boundary
+  `set-schema-fns!` has installed a `nil` `:validate` the boundary
   interceptor is also a no-op (validation disabled).
 
   This namespace stays decoupled from `re-frame.schemas` (an optional
@@ -138,8 +138,8 @@
 
   Re-uses the handler's existing `:schema` metadata; does not introduce
   a parallel schema. No-op in dev builds (step-1 validation already
-  fires); no-op when no validator is registered (`set-schema-validator!`
-  was called with `nil`).
+  fires); no-op when no validator is registered (`set-schema-fns!`
+  installed a `nil` `:validate`).
 
   A rejection is OBSERVABLE in a production build (rf2-mwv4e): besides the
   handler skip it stamps `:rf/boundary-rejected?` on the context, and the

@@ -11,7 +11,7 @@
   companion fn, pluggable via `re-frame.schemas.validator/printer-fn`.
   The default is `validator/default-edn-print` (the
   Malli-EDN canonical `pr-str`); non-Malli ports register their own
-  serialiser via `set-schema-printer!` so the digest reflects the
+  serialiser via `set-schema-fns!`'s `:print` key so the digest reflects the
   registered validator's serialisation contract rather than the
   framework's Malli-EDN default. The rest of the pipeline — SHA-256
   per entry, `<path> <hex>\\n` line emission, lexicographic line sort,
