@@ -1,10 +1,10 @@
 (ns re-frame.flows-direct-clear-settle-cljs-test
-  "Cross-host coverage for Spec 013 §The same boundary for a direct `clear-flow`.
+  "Cross-host coverage for Spec 013 §The same boundary for a direct flow clear.
 
   The `:rf.fx/clear-flow` route already settles: its dependents recompute
   against the cleared flow's absence before the dispatching event returns
-  (`re-frame.flows-settle-on-dispatch-test`). The plain function
-  `re-frame.flows/clear-flow` is documented as a synchronous
+  (`re-frame.flows-settle-on-dispatch-test`). The plain function call
+  `(rf/clear :flow id)` is documented as a synchronous
   deregister-and-vacate call for boot code, tests, and per-tenant setup, and
   it must honour the same OBSERVABLE boundary: when it returns, no remaining
   flow may still publish a value derived from the slot it just removed.
@@ -242,5 +242,5 @@
                 "an unknown id dispatches nothing"))))))
 
   (testing "an absent frame is a silent no-op, not a throw"
-    (is (nil? (rf/clear :flow :probe/a {:frame :probe/never-registered}))
-        "clear-flow against an absent frame returns nil without throwing")))
+    (is (= :probe/a (rf/clear :flow :probe/a {:frame :probe/never-registered}))
+        "clear against an absent frame returns the id without throwing")))

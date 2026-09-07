@@ -40,9 +40,10 @@
       (finally
         (rf.late-bind/set-fn! hook-key original)))))
 
-;; `clear-flow` is not on the `re-frame.core` façade — it is reached through
-;; `re-frame.flows/clear-flow`, so the façade artefact-missing contract does
-;; not apply to it. The `reg-flow` registration MACRO is on the façade
+;; Clearing a flow is `(rf/clear :flow id)` on the `re-frame.core` façade,
+;; which routes through the `:flows/clear-flow` late-bind hook — so the
+;; façade artefact-missing contract DOES apply to it (rf2-kuky.80).
+;; The `reg-flow` registration MACRO is on the façade
 ;; (source-coord capture); its missing-artefact contract is tested below,
 ;; alongside the framework-internal hook no-op contracts.
 
