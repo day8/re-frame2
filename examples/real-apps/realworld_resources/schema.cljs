@@ -77,11 +77,19 @@
   "The standard form-draft slice, shared by the login / register / settings
    drafts in app-db. The submission lifecycle isn't here — that's a mutation
    instance (`:rf/mutation`) — so this slice carries only the editable draft
-   plus a little touched-field bookkeeping."
+   plus a little touched-field bookkeeping.
+
+   `:session-owner` is the settings form's alone (hence optional): the username
+   the draft was seeded from, which `:settings/replied` compares against the
+   live session before folding a reply in — a save can reply after a logout, and
+   the departed user's credentials must not come back with it. The login and
+   register drafts are filled in by a visitor who has no session yet, so they
+   have nothing to own."
   [:map
    [:draft   :map]
    [:touched [:set :keyword]]
-   [:submit-attempted? {:optional true} :boolean]])
+   [:submit-attempted? {:optional true} :boolean]
+   [:session-owner {:optional true} [:maybe :string]]])
 
 (def AuthFlowData
   "The :data slot of the :auth/flow machine snapshot."

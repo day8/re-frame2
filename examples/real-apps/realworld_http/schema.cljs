@@ -144,15 +144,19 @@
   "The `:data` slot of the `:settings/form` machine's snapshot — the case where
    the whole FORM lifecycle lives in the machine. The state-keyword is the
    lifecycle (`:neutral` / `:incorrect` / `:correct` + `:submitting`), and
-   `:data` holds the draft, the per-field validation state, and the projected
-   submit-error string."
+   `:data` holds the draft, the per-field validation state, the projected
+   submit-error string, and `:session-owner` — the username the in-flight
+   submission was issued under, which the two reply handlers compare against
+   the live session before acting on a reply (settings.cljs §SESSION
+   OWNERSHIP)."
   [:map
-   [:draft        :map]
-   [:submitted    [:maybe :map]]
-   [:errors       [:map-of :keyword [:vector :string]]]
-   [:touched      [:set :keyword]]
-   [:submit-error [:maybe :string]]
-   [:loaded-at    [:maybe :int]]])
+   [:draft         :map]
+   [:submitted     [:maybe :map]]
+   [:errors        [:map-of :keyword [:vector :string]]]
+   [:touched       [:set :keyword]]
+   [:submit-error  [:maybe :string]]
+   [:loaded-at     [:maybe :int]]
+   [:session-owner [:maybe :string]]])
 
 (def FormSlice
   [:map

@@ -130,6 +130,47 @@
       (assoc-in [:auth :user] (dissoc user :token))
       (assoc-in [:auth :token] (:token user))))
 
+;; The identity half of the session, and the one question a completion that
+;; OUTLIVES its session has to ask before it acts.
+;;
+;; A request issued while signed in can reply after the sign-out: it is already
+;; on the wire, and logging out does not unsend it. Nothing below the app
+;; catches that. The frame is the same one, so the frame-teardown fence does not
+;; fire; the request was never superseded, so stale suppression has nothing to
+;; suppress. Both are working as specified — each is asking a question about the
+;; WORK, and this one is about the SESSION. A settings completion that folds its
+;; reply in regardless would put the departed user's User and token straight
+;; back into the auth slice.
+;;
+;; So a session-scoped write records who it was issued for, and its completion
+;; refuses to act once that identity is no longer the one signed in. It is the
+;; app-level twin of the framework's nav-token fence for route loaders
+;; (Spec 012 §Threading — "carry the captured facts in the follow-up event
+;; payload"), spelled here because WHO IS SIGNED IN is the app's fact, not the
+;; router's or the transport's.
+(defn session-owner
+  "Who the app is signed in as right now — the username, or nil for nobody.
+   PURE: takes an app-db value, reads nothing ambient."
+  [db]
+  (get-in db [:auth :user :username]))
+
+(defn owns-session?
+  "True when `owner` — a `session-owner` captured when a write was issued — is
+   still the identity signed in. False after a logout (nobody is) and after an
+   account switch (somebody else is).
+
+   A nil `owner` is false, and that clause is load-bearing rather than
+   defensive: `(= nil nil)` would read an unrecorded owner as 'matches the
+   anonymous session', so the guard would fail OPEN on precisely the logout it
+   exists to catch.
+
+   A settings save that RENAMES the user still matches. The comparison is
+   against the session as it stands when the reply LANDS, and the rename only
+   takes effect when that reply is folded in — so the live username is still
+   the pre-save one the owner was captured from."
+  [db owner]
+  (and (some? owner) (= owner (session-owner db))))
+
 (rf/reg-event :auth/store-session
   {:doc "Stash the authenticated session — the standalone, directly-dispatchable
          form of `store-session-db` (test fixtures and any external caller

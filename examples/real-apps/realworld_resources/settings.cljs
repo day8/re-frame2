@@ -10,9 +10,10 @@
    the mutation's `:invalidates` clears the public profile read so a later visit
    re-reads the new bio.
 
-   The only thing app-db holds is the editable draft — the live field values. The
-   lifecycle (`:idle` / `:pending` / `:success` / `:error`) is the mutation
-   instance, not a `:status` field you maintain.
+   The only thing app-db holds is the editable draft — the live field values,
+   plus the `:session-owner` recording whose settings they are. The lifecycle
+   (`:idle` / `:pending` / `:success` / `:error`) is the mutation instance, not a
+   `:status` field you maintain.
 
    The success continuation is a call-site `:reply-to`, and it's worth a beat. The
    submit passes `:reply-to [:settings/replied]` to `:rf.mutation/execute`; when
@@ -70,11 +71,23 @@
          write (classify-before-write, mirroring :auth/classify-token), so the
          new-password the user types reads :rf/redacted at every app-db egress
          while the submit handler still reads the live value. See keep-secrets:
-         ../../../docs/core/how-to/keep-secrets-out-of-traces.md"}
+         ../../../docs/core/how-to/keep-secrets-out-of-traces.md
+
+         The seed records `:session-owner` — WHOSE settings these are — beside
+         the draft it seeds from that same user. `:settings/replied` compares it
+         against the live session before folding a reply in, so a save that
+         replies after a logout cannot restore the departed user's credentials
+         (auth.cljs's `owns-session?` carries the full why). Recording it HERE,
+         where the slice is built, rather than at submit is what keeps it right
+         across a mid-save detour: leaving the page and coming back re-seeds the
+         slice, and a submit-time record would be dropped by that re-seed and
+         the returning user's own save then refused."}
   (fn [{:keys [db]} _]
-    {:db        (assoc-in db [:settings-form] {:draft   (draft-from-user (get-in db [:auth :user]))
-                                               :touched #{}})
-     :sensitive [[:settings-form :draft :password]]}))
+    (let [user (get-in db [:auth :user])]
+      {:db        (assoc-in db [:settings-form] {:draft         (draft-from-user user)
+                                                 :touched       #{}
+                                                 :session-owner (:username user)})
+       :sensitive [[:settings-form :draft :password]]})))
 
 (rf/reg-event :settings/edit-field
   {:doc    "Controlled-input edit for a NON-SECRET field (image / username /
@@ -130,8 +143,10 @@
   {:doc "The update-settings completion continuation (the `:reply-to` target). It
          receives the canonical reply map as its final arg, observed AFTER the
          mutation's `:invalidates` cleared the public profile read and the instance
-         settled. On `:ok`, push the saved User (the reply `:value`) into the auth
-         slice, clear the instance, and navigate to the user's profile. On
+         settled. It answers one question first — is the session that issued this
+         save still the one signed in? — and only then, on `:ok`, pushes the saved
+         User (the reply `:value`) into the auth slice, clears the instance, and
+         navigates to the user's profile. On
          `:error` there's nothing to do here — the form already shows it off the
          instance state. Clearing the instance also keeps the dispatch
          idempotent. The reply rides a map payload classified :sensitive — the
@@ -139,7 +154,19 @@
          token, just like login/register)."
    :sensitive [[:value :user :token]]}
   (fn [{:keys [db]} [_ {:keys [status value]}]]
-    (if (= :ok status)
+    (cond
+      ;; The session this save was issued for is gone — logged out, or a
+      ;; different account signed in while the PUT was in flight. Both replies
+      ;; are refused, not just the successful one: folding an :ok would restore
+      ;; the departed user's User and token (auth.cljs's `owns-session?`), and
+      ;; surfacing an :error would settle a form that belongs to nobody. Retire
+      ;; the instance and stop there — the write itself already happened on the
+      ;; server, and the next reader of that profile reads it fresh, because the
+      ;; mutation's `:invalidates` ran before this continuation did.
+      (not (auth/owns-session? db (get-in db [:settings-form :session-owner])))
+      {:fx [[:dispatch [:rf.mutation/clear {:instance settings-instance}]]]}
+
+      (= :ok status)
       (let [user (:user value)]
         ;; `store-session-db` is called DIRECTLY (not via a nested
         ;; `[:dispatch [:auth/store-session user]]`) — see that fn's doc
@@ -149,7 +176,8 @@
         {:db (auth/store-session-db db user)
          :fx [[:dispatch [:rf.mutation/clear {:instance settings-instance}]]
               [:dispatch [:rf.route/navigate {:to :realworld.profile/show :params {:username (:username user)}}]]]})
-      {})))
+
+      :else {})))
 
 (rf/reg-sub :settings/draft (fn [db _] (get-in db [:settings-form :draft])))
 
