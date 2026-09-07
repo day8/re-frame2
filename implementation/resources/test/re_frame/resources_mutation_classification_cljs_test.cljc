@@ -208,9 +208,13 @@
                     [:rf.runtime/mutations k-id :params :password]))
             "the instance :params :password decl is in the per-frame registry"))
       (testing "the off-box egress walk over the instance REDACTS :password"
+        ;; The walker's opts map is CLOSED (rf2-kuky.6): a `:rf.egress/profile`
+        ;; names a BOUNDARY and belongs to `project-egress`, which resolves it
+        ;; to the `:rf.size/*` opt-set below before delegating here. Spelt
+        ;; directly, this IS what `:rf.egress/off-box-tool` resolves to.
         (let [proj (rf/elide-wire-value inst {:frame :rf/default
                                               :path [:rf.runtime/mutations k-id]
-                                              :rf.egress/profile :rf.egress/off-box-tool})]
+                                              :rf.size/include-digests? true})]
           (is (= rf.privacy/redacted-sentinel (get-in proj [:params :password]))
               "the instance :password is redacted at egress")
           (is (= "w" (get-in proj [:params :slug])) "the non-sensitive :slug rides verbatim")
