@@ -308,13 +308,13 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest clear-flow-idempotent-for-absent-frame
-  (testing "clear-flow against a destroyed / never-registered frame is a silent no-op"
+  (testing "a flow clear against a destroyed / never-registered frame is a silent no-op"
     (rf/make-frame {:id :fc/gone :doc "frame to destroy"})
     (rf.frame/destroy-frame! :fc/gone)
-    (is (nil? (rf/clear :flow :whatever {:frame :fc/gone}))
-        "clear-flow on a DESTROYED frame returns nil (idempotent no-op)")
-    (is (nil? (rf/clear :flow :whatever {:frame :fc/never-existed}))
-        "clear-flow on a NEVER-registered frame returns nil (idempotent no-op)")))
+    (is (= :whatever (rf/clear :flow :whatever {:frame :fc/gone}))
+        "clear on a DESTROYED frame returns the id (idempotent no-op)")
+    (is (= :whatever (rf/clear :flow :whatever {:frame :fc/never-existed}))
+        "clear on a NEVER-registered frame returns the id (idempotent no-op)")))
 
 ;; ---------------------------------------------------------------------------
 ;; Reentrancy: `destroy-frame!` invoked from INSIDE a cold

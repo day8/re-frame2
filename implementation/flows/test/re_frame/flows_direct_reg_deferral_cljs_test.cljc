@@ -3,7 +3,7 @@
 
   This file pins an ASYMMETRY, and it exists because that asymmetry looks like
   an oversight and has already been mistaken for one (rf2-f3yl, filed against
-  the fixed rf2-g1zb). The plain function `re-frame.flows/clear-flow` settles
+  the fixed rf2-g1zb). The plain function call `(rf/clear :flow id)` settles
   before it returns; the plain `reg-flow` deliberately does NOT. The tests
   below fix the deferral as intended behaviour and, more importantly, make its
   REASON executable — so an attempt to \"restore symmetry\" fails here, loudly,

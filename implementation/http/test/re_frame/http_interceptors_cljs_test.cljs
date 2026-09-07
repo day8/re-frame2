@@ -61,7 +61,7 @@
 ;; closed and the :rf/default floor is gone.
 
 (deftest clear-http-interceptor-single-arity-fails-closed-under-no-scope
-  (testing "rf2-vl5xsp — single-arity `rf/clear-http-interceptor` under NO
+  (testing "rf2-vl5xsp — no-opts `(rf/clear :http-interceptor id)` under NO
             ambient frame raises :rf.error/no-frame-context; it does NOT
             synthesise a :rf/default target."
     (binding [rf.frame/*current-frame* nil]
