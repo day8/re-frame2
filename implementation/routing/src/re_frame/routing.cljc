@@ -40,7 +40,6 @@
   - `re-frame.routing.subs`           — framework-shipped subs over the slice
   - `re-frame.routing.link`           — :route/link registered view"
   (:require [re-frame.cofx :as rf.cofx]
-            [re-frame.emit :as rf.emit]
             [re-frame.events :as rf.events]
             [re-frame.fx :as rf.fx]
             [re-frame.late-bind :as rf.late-bind]
@@ -203,19 +202,22 @@
 ;; stays on the ordinary Spec 009 event error channel, attributed to the event.
 ;;
 ;; Deleting the registration CALLS (the R1 cut) does NOT retire a registration
-;; a PRE-R1 generation already installed: the event registrar and the always-on
-;; error-emit listener registry are `defonce`, so a dev session that loaded
-;; routing before the cut and then `(require 're-frame.routing :reload)`s under
-;; HMR retains the three retired framework registrations. A persisting on-match
-;; error trap could still observe a new blocking-resource `:loading` transition,
-;; route an `:on-match` throw through the retired handler, and resurrect the
+;; a PRE-R1 generation already installed: the event registrar is `defonce`, so
+;; a dev session that loaded routing before the cut and then
+;; `(require 're-frame.routing :reload)`s under HMR retains the two retired
+;; framework EVENT registrations, and a stale `:on-match` handler could still
+;; observe a new blocking-resource `:loading` transition and resurrect the
 ;; removed route `:error` / `:on-error` behaviour — a contract violation under
-;; normal reload. So the façade IDEMPOTENTLY unregisters exactly these three
+;; normal reload. So the façade IDEMPOTENTLY unregisters exactly these two
 ;; retired framework ids on every load/reload. This targets ONLY the framework's
 ;; own retired ids: it resets no registry and clears no user registration.
+;;
+;; The third purge — an `unregister-error-listener!` of the retired
+;; `:rf.route/on-match-error-trap` id — is GONE (rf2-kuky.19). No shipped code
+;; has registered that id since EP-0037 R1 landed, so the call only covered an
+;; HMR session spanning a change that is now months old.
 (rf.registrar/unregister! :event :rf.route.internal/settle-transition)
 (rf.registrar/unregister! :event :rf.route.internal/on-match-error)
-(rf.emit/unregister-error-listener! :rf.route/on-match-error-trap)
 
 ;; The two recordable allocation coeffects read host-side high-water marks and
 ;; record the selected id on the causal token. The effect installs the

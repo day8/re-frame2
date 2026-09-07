@@ -10,7 +10,7 @@
   primitives, and the headless adapter. Core reaches this optional artefact
   only through `re-frame.late-bind`; this artefact may depend on core."
   (:require [re-frame.cofx :as rf.cofx]
-            [re-frame.emit :as rf.emit]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.events :as rf.events]
             [re-frame.fx :as rf.fx]
             [re-frame.late-bind :as rf.late-bind]
@@ -384,8 +384,8 @@ explicitly."
 ;; categories. A sub that throws mid-render projects a fail-closed 5xx under
 ;; production hardening instead of recovering to nil and producing an HTTP
 ;; 200; an unroutable URL projects 404 instead of a soft-404 200.
-(rf.emit/register-error-listener! ::error-projection
-                                  rf.ssr.error-listener/error-emit-projection-listener)
+(rf.error-emit/register-error-listener! ::error-projection
+                                        rf.ssr.error-listener/error-emit-projection-listener)
 
 ;; The development trace listener covers the same categories on the DEV
 ;; trace bus, plus the ones that ride it ALONE and so DCE under

@@ -2215,8 +2215,8 @@ Per the listener-registration verb-shape unification, the trace and epoch listen
 **Late-bind hook keys** (only relevant to tool authors that publish into the framework's late-bind hook table — most apps will not touch this surface):
 
 ```
-:trace.tooling/register-trace-cb!  → :trace.tooling/register-listener!
-:trace.tooling/remove-trace-cb!    → :trace.tooling/unregister-listener!
+:trace.tooling/register-trace-cb!  → removed — attach with (rf/register-listener! :trace id f)
+:trace.tooling/remove-trace-cb!    → removed — detach with (rf/unregister-listener! :trace id)
 :epoch/register-epoch-cb!          → :epoch/register-epoch-listener!
 :epoch/remove-epoch-cb!            → :epoch/unregister-epoch-listener!
 :epoch/clear-epoch-cbs!            → :epoch/clear-epoch-listeners!
@@ -2705,7 +2705,7 @@ The prior `:rf.xray/static-mode?` flag was a back-compat hedge that does not app
 
 ### M-69. Listener-registration namespace consolidation — `register-event-emit-listener!` / `register-trace-listener!` / `register-error-emit-listener!` families renamed
 
-**Type A** (mechanical, closed rename table). The dev/prod axis moves into the **namespace**: `re-frame.trace/*` is dev-only (DCE'd in production via `goog.DEBUG=false`), `re-frame.emit/*` (event + error) is always-on. With the axis carried by the namespace, the per-fn `-trace-` / `-emit-` infixes became redundant and are dropped. The old names are **removed** — stale call sites raise unresolved-symbol.
+**Type A** (mechanical, closed rename table). The dev/prod axis moves into the **namespace**: `re-frame.trace.tooling/*` is dev-only (DCE'd in production via `goog.DEBUG=false`), `re-frame.event-emit/*` and `re-frame.error-emit/*` are always-on. With the axis carried by the namespace, the per-fn `-trace-` / `-emit-` infixes became redundant and are dropped. The old names are **removed** — stale call sites raise unresolved-symbol.
 
 | Old (v2-pre-rename) | New |
 |---|---|
@@ -2715,7 +2715,7 @@ The prior `:rf.xray/static-mode?` flag was a back-compat hedge that does not app
 
 The three families do not merely lose an infix — they **collapse onto one stream-parameterised verb pair**, `(rf/register-listener! stream id f)` / `(rf/unregister-listener! stream id)`, whose closed stream vocabulary is `:trace` / `:events` / `:errors` / `:epoch`. There is no per-family facade fn on the right-hand side — the facade publishes **no** per-stream `register-…-listener!` verb for trace, events, errors or epochs, only the pair above — and a value in the stream slot that is not one of the four throws `:rf.error/unknown-listener-stream`. The `clear-*` verbs have no facade replacement at all — the `clear-listeners!` facade was retired in API-shrink #4, and between-test isolation clears through the `re-frame.test-support` reset (which drives `re-frame.trace.tooling/clear-listeners!`, `re-frame.event-emit/clear-event-listeners!` and `re-frame.error-emit/clear-error-listeners!` directly).
 
-The `-trace-` infix is dropped because the canonical home namespace (`re-frame.trace`) already says "trace"; the `-emit-` infix is dropped because the always-on namespace (`re-frame.emit`) already says "emit". The home namespaces keep their own per-stream fns; the `rf/` facade does **not** mirror them — it publishes the single stream-parameterised pair above, and the dev/prod axis the namespaces carry is expressed on the facade as the choice of stream.
+The `-trace-` infix is dropped because the canonical home namespace (`re-frame.trace.tooling`) already says "trace"; the `-emit-` infix is dropped because the always-on namespaces (`re-frame.event-emit` / `re-frame.error-emit`) already say "emit". The home namespaces keep their own per-stream fns; the `rf/` facade does **not** mirror them — it publishes the single stream-parameterised pair above, and the dev/prod axis the namespaces carry is expressed on the facade as the choice of stream.
 
 ```clojure
 ;; before (v2-pre-rename)
