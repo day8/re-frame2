@@ -73,7 +73,7 @@
 (def format-source-coord rf.adapter.context/format-source-coord)
 (def format-view-id       rf.adapter.context/format-view-id)
 
-(defn ^:no-doc reagent-class?
+(defn- reagent-class?
   "Dependency-free structural predicate for a Reagent-family Form-3 class
   (a `create-class` result). Recognises BOTH supported Reagent
   implementations — stock Reagent AND reagent-slim — without importing
@@ -99,12 +99,7 @@
   MUST be recognised here: otherwise it falls to the Form-2 `fn?` branch below,
   is returned as a wrapper, and is later invoked as an ordinary function rather
   than mounted as a class — losing its React lifecycle. (`re-frame.test-helpers`
-  carries its own slim-aware detection where the test surface needs one.)
-
-  Public (`^:no-doc`, not a documented API surface) because `re-frame.views`
-  asks the SAME question one step earlier, about the value handed to
-  `reg-view*` rather than the value a render returned (rf2-xccd). One predicate
-  serves both so the two cannot drift into recognising different class shapes."
+  carries its own slim-aware detection where the test surface needs one.)"
   [x]
   (and (fn? x)
        (or
