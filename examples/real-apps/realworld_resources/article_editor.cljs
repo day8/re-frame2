@@ -74,7 +74,15 @@
    :body        (:body article)
    :tagList     (str/join ", " (:tagList article))})
 
-(defn- parse-tag-list [s]
+(defn- parse-tag-list
+  "The form's comma-separated tag STRING → the vector of tags the wire wants.
+   Called at exactly one place — `:editor/submit`, the form-to-mutation
+   boundary — because that is where the draft stops being text the user is
+   typing and becomes the mutation's declared `[:vector :string]` params. Run it
+   a second time on the result and CLJS does not complain: `str/split` coerces
+   its argument with `str` first, so a vector is split as its own PRINTED form
+   and `[]` comes back as the single tag `\"[]\"`."
+  [s]
   (->> (str/split (or s "") #",")
        (map str/trim)
        (remove str/blank?)
@@ -128,11 +136,16 @@
     (str/blank? description) (assoc :description "Description is required.")
     (str/blank? body)        (assoc :body "Body is required.")))
 
-(defn- article-body [draft]
-  {:article {:title       (:title draft)
-             :description (:description draft)
-             :body        (:body draft)
-             :tagList     (parse-tag-list (:tagList draft))}})
+(defn- article-body
+  "The RealWorld `{:article …}` request envelope, built from the mutation's
+   PARAMS — already normalised and already schema-checked against
+   `:params-schema` by the time the request function runs. `:tagList` arrives as
+   the vector that schema declares, so it travels through untouched: the one
+   string→vector conversion happened at the form-to-mutation boundary
+   (`:editor/submit`), which is the only place that knows about comma-separated
+   text at all."
+  [params]
+  {:article (select-keys params [:title :description :body :tagList])})
 
 (def save-instance
   "The one stable instance id the editor form watches for the save write."
@@ -214,12 +227,12 @@
                       :tags  #{[:feed]}}
                      {:scope {:from-db :realworld/viewer}
                       :tags  #{[:author-articles (get-in result [:article :author :username])]}}])}
-  (fn [{:keys [slug] :as draft} _ctx]
+  (fn [{:keys [slug] :as params} _ctx]
     {:request {:method (if slug :put :post)
                :url    (rh/full-url (if slug
                                       (str "/articles/" slug)
                                       "/articles"))
-               :body   (article-body (select-keys draft [:title :description :body :tagList]))}
+               :body   (article-body params)}
      :decode  schema/ArticleResponse}))
 
 (rf/reg-mutation :realworld/delete-article
@@ -391,8 +404,13 @@
         {:db (assoc-in db [:editor :submit-attempted?] true)
          :fx [[:dispatch [:rf.mutation/execute
                           {:mutation :realworld/save-article
-                           :params   (cond-> (select-keys draft [:title :description :body])
-                                       true (assoc :tagList (parse-tag-list (:tagList draft)))
+                           ;; The one place the comma-separated tag STRING the
+                           ;; user typed becomes the `[:vector :string]` the
+                           ;; mutation's `:params-schema` declares. Downstream —
+                           ;; the request builder included — sees only the
+                           ;; vector.
+                           :params   (cond-> (-> (select-keys draft [:title :description :body])
+                                                 (assoc :tagList (parse-tag-list (:tagList draft))))
                                        slug (assoc :slug slug))
                            :instance save-instance
                            ;; The save-success continuation is the call-site
