@@ -786,16 +786,17 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
   (rf/current-adapter)          ;; => the adapter spec map passed to (rf/init! …), or nil
   (:kind (rf/current-adapter))  ;; => :rf.adapter/reagent
   ```
-- **On Hicasso**: this fn asks *which substrate*, and Hicasso is a view layer rather
-  than one — it owns Hiccup interpretation and the render boundary, while the reactive
-  container comes from an adapter the application installs. What Hicasso now ships is
-  one of the answers: `re-frame.hicasso.substrate` is an optional module of
-  `day8/re-frame2-hicasso` declaring `:kind :rf.adapter/hicasso`, and the install
-  chapter teaches `(rf/init! substrate/adapter)` as the default, so a Hicasso
-  application normally answers `:rf.adapter/hicasso`. Installing Reagent or UIx under
-  a Hicasso tree instead stays supported, and then the answer is that adapter's —
-  either way the value names the substrate the app booted on, never the layer its
-  views are authored in. See
+- **On Hicasso**: `(:kind (rf/current-adapter))` asks *which substrate*, and Hicasso is a
+  view layer rather than one — it owns Hiccup interpretation and the render boundary,
+  while the reactive container comes from an adapter the application installs. What
+  Hicasso now ships is one of the answers: `re-frame.hicasso.substrate` is an optional
+  module of `day8/re-frame2-hicasso` declaring `:kind :rf.adapter/hicasso`, and the
+  install chapter teaches `(rf/init! substrate/adapter)` as the default, so
+  `(:kind (rf/current-adapter))` normally reads `:rf.adapter/hicasso` in a Hicasso
+  application. Installing Reagent or UIx under a Hicasso tree instead stays supported,
+  and then the kind is that adapter's — either way `current-adapter` itself answers the
+  installed adapter map, and the `:kind` on it names the substrate the app booted on,
+  never the layer its views are authored in. See
   [Hicasso needs a substrate adapter](../core/hicasso/00-installation.md#hicasso-needs-a-substrate-adapter).
 
 ### `configure!`
