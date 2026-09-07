@@ -433,6 +433,15 @@
   {:namespace "re-frame.hicasso" :var "as-component"   :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
   {:namespace "re-frame.hicasso" :var "as-element"     :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
   {:namespace "re-frame.hicasso" :var "error-boundary" :kind :var :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
+  ;; The two IN-TREE frame boundaries (rf2-kuky.58). Owner "002", not "006",
+  ;; because the contract each realises — ENSURE at commit / SCOPE a live frame,
+  ;; and the did-you-mean pair between them — is Spec 002's `frame-root` /
+  ;; `frame-provider`, and Hicasso's heads are shells over the same shared cores
+  ;; the Reagent and UIx realisations use. `:tier :advanced` matches every other
+  ;; `re-frame.hicasso` row: Hicasso is a substrate a consumer opts into, and its
+  ;; whole surface sits behind that opt-in rather than on the core front porch.
+  {:namespace "re-frame.hicasso" :var "frame-provider" :kind :var :facade? false :tier :advanced :owner "002"  :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.hicasso" :var "frame-root"     :kind :var :facade? false :tier :advanced :owner "002"  :status "v1" :runtime-verified? true}
   {:namespace "re-frame.hicasso" :var "hydrate!"       :kind :fn  :facade? false :tier :advanced :owner "004C" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.hicasso" :var "mount!"         :kind :fn  :facade? false :tier :advanced :owner "004C" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.hicasso" :var "portal"         :kind :var :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
