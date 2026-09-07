@@ -2,7 +2,7 @@
 
 > Schemas are how *dynamically typed hosts* describe shape. CLJS is dynamically typed, so the CLJS reference ships a runtime schema layer (Malli, by default). *Statically typed hosts* (TypeScript, Kotlin, Rust, F#) describe shape via the type system instead and may omit a runtime schema library entirely. The pattern requires shape description; the mechanism is host-specific.
 >
-> **Portable contract** (every port): `:schema` metadata on every `reg-*`; path-based `app-db` schemas via `reg-app-schema`; pluggable validator via `set-schema-validator!`; implementation-defined default validator. Schemas are **open by default** — consumers tolerate unknown keys; producers add new keys additively; `:closed` is opt-in only at system boundaries. Statically typed hosts express the same open-with-known-keys idiom via index signatures + known fields (`type T = { knownField: string; [k: string]: unknown }`).
+> **Portable contract** (every port): `:schema` metadata on every `reg-*`; path-based `app-db` schemas via `reg-app-schema`; pluggable validator via `set-schema-fns!`; implementation-defined default validator. Schemas are **open by default** — consumers tolerate unknown keys; producers add new keys additively; `:closed` is opt-in only at system boundaries. Statically typed hosts express the same open-with-known-keys idiom via index signatures + known fields (`type T = { knownField: string; [k: string]: unknown }`).
 >
 > **CLJS reference's default validator**: Malli (`malli.core/validate` + `malli.core/explain`). On the CLJS reference, **schema implies validation** — requiring the `re-frame.schemas` artefact wires Malli automatically (the facade `:require`s the `re-frame.schemas.malli` adapter), so `reg-app-schema` always validates rather than soft-passing into a silent no-op. The recommended soft-pass (claim 4) survives only as the cross-port default-absent posture and as the behaviour when an app installs a non-Malli substitute validator. Other ports document their own defaults (see [§Default validator and the validator-fn extension point](#default-validator-and-the-validator-fn-extension-point)).
 
@@ -20,7 +20,7 @@ re-frame2 lets users attach a schema to any of these via the `:schema` metadata 
 
 > **One vocabulary.** The framework speaks **one term — schema** — across every surface: the per-`reg-*` metadata key is `:schema`, the reserved namespace is `:rf.schema/*`, the boundary interceptor `:id` is `:rf.schema/at-boundary`, and the trace tag is `:schema-id`. There is no `:spec` metadata key, `:rf.spec/*` namespace, `:spec/at-boundary` id, or `:spec-id` tag. Migration: [MIGRATION §M-54](../migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema).
 
-**The `:schema` value is opaque to re-frame's validation.** No validation site interprets a schema itself; every one routes through the registered **validator fn** (the dev-only `:sensitive?`/`:large?` prop walkers MAY read vector-form Malli EDN as plain data — a compiled schema value is an opaque leaf to them, per [§`:sensitive?`](#sensitive--privacy-in-schema-validation-error-traces)) (`set-schema-validator!`, see [§Default validator and the validator-fn extension point](#default-validator-and-the-validator-fn-extension-point)). The validator chooses the schema language: Malli on the CLJS reference, Zod or similar on a TypeScript port, Pydantic on Python, dry-rb on Ruby, the host's structural-typecheck wrapper on a statically typed port. Substituting a different validator is a single registration call; the rest of this Spec (when validation runs, what happens on failure, how digests are computed) is unchanged.
+**The `:schema` value is opaque to re-frame's validation.** No validation site interprets a schema itself; every one routes through the registered **validator fn** (the dev-only `:sensitive?`/`:large?` prop walkers MAY read vector-form Malli EDN as plain data — a compiled schema value is an opaque leaf to them, per [§`:sensitive?`](#sensitive--privacy-in-schema-validation-error-traces)) (`set-schema-fns!`, see [§Default validator and the validator-fn extension point](#default-validator-and-the-validator-fn-extension-point)). The validator chooses the schema language: Malli on the CLJS reference, Zod or similar on a TypeScript port, Pydantic on Python, dry-rb on Ruby, the host's structural-typecheck wrapper on a statically typed port. Substituting a different validator is a single registration call; the rest of this Spec (when validation runs, what happens on failure, how digests are computed) is unchanged.
 
 ## Where schemas attach
 
@@ -281,7 +281,7 @@ The Xray Epoch panel attaches each schema violation to its owning pipeline step 
 
 The raw `:explain` value the registered explainer produces is structurally precise but operator-hostile — Malli's `m/explain` returns a nested `{:errors [{:schema … :path … :value …} …] :value …}` map that requires Malli familiarity to read at a glance. The schemas artefact ships a parallel **humanize hook** so each port's validator adapter can install a port-specific humanizer that transforms the raw explanation into an operator-readable shape (Malli's CLJS adapter installs `malli.error/humanize`, returning a path-shaped map of natural-language strings keyed at the failing slots).
 
-The humanize hook is a late-bind extension point — same opt-in pattern as `set-schema-validator!` / `set-schema-explainer!` / `set-schema-printer!`:
+The humanize hook is a late-bind extension point — same opt-in pattern as the `:validate` / `:explain` / `:print` keys of `set-schema-fns!`:
 
 - **Hook key**: `:schemas/humanize-explain!`. The producer (`re-frame.schemas`) consumes it; each port's validator adapter publishes it. The CLJS reference's Malli adapter (`re-frame.schemas.malli`) installs `malli.error/humanize` directly under this key on ns-load — in development builds only: the publication sits behind `interop/debug-enabled?`, the same gate as its sole reader.
 
@@ -533,11 +533,11 @@ This section is the **portable normative core** of the schemas surface. Every re
 
 1. **Apps register schemas via `reg-app-schema`** (path-scoped, per [§`app-db` schemas — path-based](#app-db-schemas--path-based)) and via the `:schema` metadata key on `reg-*` (per [§On every `reg-*`](#on-every-reg-)). These two surfaces are the portable contract every port supplies; both pass the registered schema value through opaquely.
 
-2. **Validation is pluggable via `set-schema-validator!`** (and its companion `set-schema-explainer!`). The runtime never inspects `:schema` directly; every validation site routes through the registered validator fn. Substituting a different validator is a single registration call — the rest of this Spec (when validation runs, what happens on failure, how digests are computed) is unchanged.
+2. **Validation is pluggable via `set-schema-fns!`** (which installs the validator and its companion explainer together). The runtime never inspects `:schema` directly; every validation site routes through the registered validator fn. Substituting a different validator is a single registration call — the rest of this Spec (when validation runs, what happens on failure, how digests are computed) is unchanged.
 
 3. **The default validator is implementation-defined.** Each port picks a default appropriate to its host: Malli on the CLJS reference, Zod on a TypeScript port, Pydantic on a Python port, dry-rb on a Ruby port, the host's structural-typecheck wrapper on a statically typed port — etc. Ports document their default's schema-language choice in their `README` / implementation-notes; the Spec does not mandate any particular library.
 
-4. **Dependency-absent behaviour is implementation-defined, with a recommended soft-pass default.** When the default validator's underlying library is not present on the classpath / module graph / runtime, the recommended behaviour is to **soft-pass** (treat the value as conforming) so new users aren't blocked by a missing optional dep. Apps that want a hard fail on a missing dep register a stricter validator via `set-schema-validator!`. The soft-pass is a recommendation, not a mandate — a port may choose a different default and document it.
+4. **Dependency-absent behaviour is implementation-defined, with a recommended soft-pass default.** When the default validator's underlying library is not present on the classpath / module graph / runtime, the recommended behaviour is to **soft-pass** (treat the value as conforming) so new users aren't blocked by a missing optional dep. Apps that want a hard fail on a missing dep register a stricter validator via `set-schema-fns!`. The soft-pass is a recommendation, not a mandate — a port may choose a different default and document it.
 
 ### How the surface works
 
@@ -554,47 +554,46 @@ Validation always goes through a registered **validator fn**. The CLJS reference
 (fn explain  [schema value] explanation-or-nil)
 ```
 
-Both fns are registered at boot, before the first `reg-app-schema` or `:schema`-bearing `reg-*` lands. **`set-schema-fns!` is the preferred path** — one atomic bundle setter so a port's validator/explainer/printer never drift mid-boot. The per-fn singletons (`set-schema-validator!` / `set-schema-explainer!` / `set-schema-printer!`) are the lower-level alternative, for adjusting one fn in isolation:
+Both fns are registered at boot, before the first `reg-app-schema` or `:schema`-bearing `reg-*` lands. The port is a **value** and `set-schema-fns!` is the one door: it takes any subset of the bundle, so the same call installs a whole port or swaps a single fn, and a port's validator/explainer/printer never drift mid-boot:
 
 ```clojure
-;; The setters live on re-frame.schemas, NOT the re-frame.core front
-;; porch — reach them through the owning namespace.
+;; The port lives on re-frame.schemas, NOT the re-frame.core front
+;; porch — reach it through the owning namespace.
 (require '[re-frame.schemas :as schemas])
 
-;; (1) PREFERRED — atomic bundle: install any subset of validator/explainer/
-;;     printer in one call so the three never drift mid-boot. The honest
-;;     bundle setter — its name says it sets all three fns, not just the
-;;     validator. Absent keys leave the existing registration in place;
-;;     a nil :print coerces to the default EDN canonicaliser.
+;; (1) Install a whole port: validator, explainer and digest-printer in
+;;     one call so the three never drift mid-boot.
 (schemas/set-schema-fns! {:validate my-validator-fn
                           :explain  my-explainer-fn
                           :print    my-printer-fn})
 
-;; Lower-level single-fn setters — reach for these only to adjust one fn
-;; in isolation; install a full port through set-schema-fns! at boot.
+;; (2) Swap ONE fn: an omitted key leaves its existing registration in
+;;     place, so a one-key install IS the single-purpose call.
+(schemas/set-schema-fns! {:validate my-validator-fn})
+(schemas/set-schema-fns! {:explain  my-explainer-fn})
 
-;; (2) Just the validator — the explainer and printer are untouched.
-(schemas/set-schema-validator! my-validator-fn)
-
-;; (3) Just the explainer — validator stays at its current value.
-(schemas/set-schema-explainer! my-explainer-fn)
-
-;; (4) Install the schema-print companion the digest pipeline hashes
-;;     (see §Schema digest below). Non-Malli ports register their own
+;; (3) The schema-print companion the digest pipeline hashes (see
+;;     §Schema digest below). Non-Malli ports register their own
 ;;     serialiser so the digest reflects the port's own validation
-;;     contract. Last-write-wins; passing nil reinstalls the default
-;;     EDN canonicaliser so the digest is never undefined for a present
+;;     contract. Passing nil here reinstalls the default EDN
+;;     canonicaliser, so the digest is never undefined for a present
 ;;     schema set.
-(schemas/set-schema-printer! my-printer-fn)
+(schemas/set-schema-fns! {:print my-printer-fn})
 
-;; (5) Hard no-op: passing nil disables validation everywhere.
-;;     Every validate-*! site short-circuits without inspecting the
-;;     schema. Apps that want zero validation surface (and zero
-;;     schema-library bundle cost) install nil at boot.
-(schemas/set-schema-validator! nil)
+;; (4) Hard no-op: an explicit nil :validate disables validation
+;;     everywhere. Every validate-*! site short-circuits without
+;;     inspecting the schema. Apps that want zero validation surface
+;;     (and zero schema-library bundle cost) install nil at boot.
+(schemas/set-schema-fns! {:validate nil})
+
+;; (5) Read back what is installed, and restore the framework defaults.
+(schemas/schema-fns)                                ;; => {:validate … :explain … :print …}
+(schemas/set-schema-fns! schemas/default-schema-fns)
 ```
 
-The three single-purpose setters — `set-schema-validator!`, `set-schema-explainer!`, `set-schema-printer!` — are each rowed in [API.md §Schemas](API.md#schemas); the atomic bundle setter `set-schema-fns!` joins them as the **public** validator-surface seam. Together they let a port (or an app) swap out Malli wholesale: validator + explainer + printer = the entire schema-language surface the framework consults. `set-schema-fns!` is the one-call form for installing all three together — the bundle setter is named for what it sets, not misleadingly named after the validator alone.
+Note the distinction (2) rests on: an **omitted** key leaves the live registration alone, while an **explicit nil** writes nil and disables that fn. Collapsing the two would make a partial install unsafe.
+
+`set-schema-fns!`, `schema-fns` and `default-schema-fns` are each rowed in [API.md §Schemas](API.md#schemas), and together they are the whole **public** validator-surface seam. They let a port (or an app) swap out Malli wholesale: validator + explainer + printer = the entire schema-language surface the framework consults.
 
 ### Per-port default
 
@@ -606,7 +605,7 @@ Substituting a different validator — `clojure.spec` instead of Malli, a JSON-S
 
 When the default validator's underlying library is *not present* (Malli is not on the CLJS classpath; Zod is not in the TS module graph; etc.), the **recommended** behaviour is **soft-pass**: every `validate-*!` site returns `true` (the value is treated as conforming) and no failure trace is emitted. The motivation is new-user friendliness — first-time users who haven't yet decided whether they want runtime validation should not be blocked by a missing optional dependency.
 
-Apps that want a **hard fail** when the default library is absent (a stricter posture suitable for production deploys where a missing dep means a misconfigured bundle) register a stricter validator via `set-schema-validator!`. The hard-fail validator's body is a single throw — the override surface is the same regardless of the failure mode the app prefers.
+Apps that want a **hard fail** when the default library is absent (a stricter posture suitable for production deploys where a missing dep means a misconfigured bundle) register a stricter validator via `set-schema-fns!`. The hard-fail validator's body is a single throw — the override surface is the same regardless of the failure mode the app prefers.
 
 This recommendation is normative-soft: ports that ship a different default-absent behaviour document the divergence in their README, and apps that depend on the soft-pass behaviour pin it explicitly with their own registered validator.
 
@@ -622,28 +621,25 @@ This recommendation is normative-soft: ports that ship a different default-absen
 
 What the extension point does NOT cover: a *mix* of validators in one process. The runtime resolves one validator and uses it for every `:schema` everywhere; a hybrid setup (one schema language for app schemas, a different one for boundary handlers) requires the user to register a *composite* validator that dispatches internally on schema shape.
 
-### Test-support: snapshot / restore the validator bundle
+### Test-support: capture and reinstate the validator bundle
 
-The validator/explainer/printer surface carries an **encapsulated snapshot/restore pair** so a test (or fixture) can capture the live bundle, install a custom one, and reinstate the prior bundle without reaching the framework-internal validator atoms:
-
-These two hooks live on the `re-frame.schemas` namespace (they are `:internal-public` test-support surface, like the `set-schema-*!` setters themselves — neither the setters nor these hooks are re-exported into the `re-frame.core` front-porch facade; reach them through the owning namespace):
+Because the port is a value, a test (or fixture) captures the live bundle, installs a custom one, and reinstates the prior bundle with the same two names an app uses — no dedicated snapshot or restore verb, and without reaching the framework-internal validator atoms. `schema-fns` reads, `set-schema-fns!` installs, and the two round-trip, so the whole pattern is an ordinary `let` + `finally` over a value:
 
 ```clojure
 (require '[re-frame.schemas :as schemas])
 
-;; Capture the currently-installed bundle as one opaque value
-;; (the same {:validate :explain :print} shape set-schema-fns! takes).
-(def snap (schemas/snapshot-schema-fns))
-
-(schemas/set-schema-fns! {:validate stub-validate :explain stub-explain})
-;; ... exercise the validation path against the stub ...
-
-;; Reinstall the captured bundle. A nil :print coerces to the default
-;; EDN canonicaliser, so the printer-never-nil invariant holds.
-(schemas/restore-schema-fns! snap)
+(let [installed (schemas/schema-fns)]        ;; the live {:validate :explain :print}
+  (try
+    (schemas/set-schema-fns! {:validate stub-validate :explain stub-explain})
+    ;; ... exercise the validation path against the stub ...
+    (finally
+      (schemas/set-schema-fns! installed)))) ;; reinstate; a nil :print would
+                                             ;; coerce to the default printer
 ```
 
-This is the **bundle-level** companion to the per-frame registry's `snapshot-schemas-by-frame` / `restore-schemas-by-frame!` test-support hooks (the registry side captures *which schemas are registered per frame*; the bundle side captures *which validator/explainer/printer is installed*). The two pairs compose: capturing+restoring both reinstates the whole schema runtime through the encapsulated API. `reset-schema-validator!` remains the shortcut for restoring the framework **defaults** specifically; `snapshot-schema-fns` / `restore-schema-fns!` are for capturing and reinstating an **arbitrary** prior bundle. All four are `:internal-public` test-support hooks rowed in [API.md §Schemas](API.md#schemas) — not part of the `re-frame.core` front-porch facade.
+Restoring the framework **defaults** specifically — rather than an arbitrary captured bundle — is `(schemas/set-schema-fns! schemas/default-schema-fns)`.
+
+This is the **bundle-level** counterpart to the per-frame registry's `snapshot-schemas-by-frame` / `restore-schemas-by-frame!` test-support hooks (the registry side captures *which schemas are registered per frame*; the bundle side captures *which validator/explainer/printer is installed*). The registry side keeps its dedicated pair because its state is a mutable store with no value-shaped installer; the bundle side no longer needs one. The two compose: capturing and reinstating both puts the whole schema runtime back through the encapsulated API. All of these are rowed in [API.md §Schemas](API.md#schemas) — not part of the `re-frame.core` front-porch facade.
 
 > **The raw atoms are private (encapsulated-only contract).** The four authoritative atoms — the per-frame schema registry (`schemas-by-frame`) and the pluggable `validator-fn` / `explainer-fn` / `printer-fn` bundle — are **not** re-exported as public Vars on `re-frame.schemas`. The supported surface is the snapshot / restore / clear API above; tests and fixtures capture-and-restore through it rather than reaching the atoms. This is deliberate: `schemas-by-frame` is the authoritative store (its rep must be free to evolve — e.g. the per-frame `frame-reg-locks` companion state that `clear-schemas-by-frame!` clears but a raw `(reset! schemas-by-frame {})` would silently skip), and the `printer-fn` atom must never be set to `nil` (the setters coerce `nil → default-edn-print` so the digest path's never-nil invariant holds without a read-site guard — a raw `(reset! printer-fn nil)` would defeat it). A port should expose the encapsulated snapshot/restore/clear surface and keep the underlying atoms internal to its schemas module.
 
@@ -661,7 +657,7 @@ The rule is **"I registered a schema" ⇒ "it validates"** (Ruling A). Before th
 
 The original motivation for the late-bind adapter pattern still holds: CLJS has no runtime `resolve`, so the older `(resolve 'malli.core/validate)` always returned nil on CLJS and the default validator silently soft-passed even when Malli was on the classpath. The adapter ns publishing the hooks at ns-load fixes that runtime-correctly; Ruling A additionally makes the facade load the adapter so the opt-in is not a separate, forgettable step.
 
-**Substitute validators and the soft-pass.** An app that wants a different schema language (a `clojure.spec` bridge, a custom validator) installs it via `set-schema-validator!` / `set-schema-fns!` at boot. The soft-pass branch in the default validator (return `true` when `:schemas/malli-validate` is unbound) is then the cross-port default-absent posture per [§Recommended soft-pass](#recommended-soft-pass-when-the-default-validators-library-is-absent) — it is not reachable on the CLJS reference's default path; the facade always wires Malli.
+**Substitute validators and the soft-pass.** An app that wants a different schema language (a `clojure.spec` bridge, a custom validator) installs it via `set-schema-fns!` at boot. The soft-pass branch in the default validator (return `true` when `:schemas/malli-validate` is unbound) is then the cross-port default-absent posture per [§Recommended soft-pass](#recommended-soft-pass-when-the-default-validators-library-is-absent) — it is not reachable on the CLJS reference's default path; the facade always wires Malli.
 
 On the **JVM** the same wiring applies — loading `re-frame.schemas` loads the adapter, so JVM apps validate against Malli without a separate require. The contract is symmetric across runtimes.
 
@@ -678,7 +674,7 @@ An app that uses schemas as inert data — surfaced via `app-schemas` / `app-sch
 ;; The setter lives on re-frame.schemas, not the re-frame.core facade.
 ;; Any (fn [schema value] truthy?) that returns true unconditionally
 ;; passes every value; nil disables the call site even faster.
-(schemas/set-schema-validator! nil)
+(schemas/set-schema-fns! {:validate nil})
 
 ;; Schemas attach as usual — they're inert data the framework still
 ;; surfaces via app-schemas / app-schemas-digest, but no validate
@@ -689,13 +685,13 @@ An app that uses schemas as inert data — surfaced via `app-schemas` / `app-sch
   ...)
 ```
 
-**`set-schema-validator! nil` disables validation *behaviour*, not Malli's *bundle cost*.** Under static CLJS compilation, requiring `re-frame.schemas` loads the Malli adapter at module-init, so Malli's body is in the bundle regardless of the nil validator. The nil opt-out is the right tool when you want schemas-as-data with zero validation overhead, but it is **not** a Malli-bundle-cost opt-out. The only Malli-free posture on the CLJS reference is **not requiring the schemas artefact at all** — an app that needs neither `reg-app-schema` nor `:schema` metadata pays nothing (the no-feature counter reference app, pinned by the counter bundle-isolation gate). This is the deliberate tradeoff Ruling A accepts: "schema implies validation" is worth the bounded Malli surface for apps that use schemas; apps that don't use schemas are unaffected.
+**A nil `:validate` disables validation *behaviour*, not Malli's *bundle cost*.** Under static CLJS compilation, requiring `re-frame.schemas` loads the Malli adapter at module-init, so Malli's body is in the bundle regardless of the nil validator. The nil opt-out is the right tool when you want schemas-as-data with zero validation overhead, but it is **not** a Malli-bundle-cost opt-out. The only Malli-free posture on the CLJS reference is **not requiring the schemas artefact at all** — an app that needs neither `reg-app-schema` nor `:schema` metadata pays nothing (the no-feature counter reference app, pinned by the counter bundle-isolation gate). This is the deliberate tradeoff Ruling A accepts: "schema implies validation" is worth the bounded Malli surface for apps that use schemas; apps that don't use schemas are unaffected.
 
 ### Boundary-validation seam
 
 The validator/explainer pair also fronts the boundary-validation interceptor (`:rf.schema/at-boundary`, see [§Production builds](#production-builds)). The interceptor's call into the registered fns happens outside the `interop/debug-enabled?` gate — so a substituted validator covers both the dev-mode hot path and the prod-mode boundary surface.
 
-The schemas namespace exposes two fns the interceptor calls — `validate-with-registered-fn` and `explain-with-registered-fn` — both routing through the same atoms `set-schema-validator!` mutates. Apps that swap in their own validator therefore reach every validation surface with one call, not three.
+The schemas namespace exposes two fns the interceptor calls — `validate-with-registered-fn` and `explain-with-registered-fn` — both routing through the same atoms `set-schema-fns!` writes. Apps that swap in their own validator therefore reach every validation surface with one call, not three.
 
 ## Notes
 
@@ -755,12 +751,12 @@ Validation *calls* are not in this cost — every `validate-*!` body is gated on
 - `malli.registry` — composite-registry helpers; ~3 KB gzipped (most lives in `malli.core`).
 - `malli.dev`, `malli.dev.pretty`, `malli.experimental`, `malli.instrument`, `malli.json-schema`, `malli.swagger`, `malli.provider`, `malli.util` — dev-only tooling; never bundle into production code.
 
-**Disabling validation behaviour — `set-schema-validator! nil`.** Apps that want schemas-as-inert-data with zero runtime validation overhead install `nil` via `set-schema-validator!` (per [§Default validator and the validator-fn extension point](#default-validator-and-the-validator-fn-extension-point)). This is the documented hard-no-op: every `validate-*!` site short-circuits to `true` and no validate call ever runs.
+**Disabling validation behaviour — a nil `:validate`.** Apps that want schemas-as-inert-data with zero runtime validation overhead install `{:validate nil}` via `set-schema-fns!` (per [§Default validator and the validator-fn extension point](#default-validator-and-the-validator-fn-extension-point)). This is the documented hard-no-op: every `validate-*!` site short-circuits to `true` and no validate call ever runs.
 
 ```clojure
 ;; Apps that want zero runtime validation surface (schemas are inert data)
-;; The setter lives on re-frame.schemas, not the re-frame.core facade.
-(schemas/set-schema-validator! nil)
+;; The installer lives on re-frame.schemas, not the re-frame.core facade.
+(schemas/set-schema-fns! {:validate nil})
 ```
 
 **Per Ruling A, `nil` does NOT remove Malli from the bundle.** Under static CLJS compilation, requiring `re-frame.schemas` loads the Malli adapter at module-init regardless of the runtime validator value, so Malli's body is in the bundle. The nil opt-out disables validation *behaviour*, not Malli's *bundle cost*. The only Malli-free posture on the CLJS reference is **not requiring the schemas artefact at all** — an app that needs neither `reg-app-schema` nor `:schema` metadata pays nothing for schemas or Malli (verified by the counter bundle-isolation gate). This is the deliberate tradeoff Ruling A accepts: making "schema implies validation" airtight is worth the bounded Malli surface for the apps that actually use schemas.
@@ -810,6 +806,6 @@ When a sub-path schema changes during dev (file save re-evaluates `reg-app-schem
 
 ### Pluggable validator and implementation-defined default
 
-The four normative claims in [§The four normative claims](#the-four-normative-claims) are the portable contract: apps register via `reg-app-schema` + `:schema`; validation is pluggable via `set-schema-validator!`; the default is implementation-defined; dependency-absent behaviour is implementation-defined with a recommended soft-pass.
+The four normative claims in [§The four normative claims](#the-four-normative-claims) are the portable contract: apps register via `reg-app-schema` + `:schema`; validation is pluggable via `set-schema-fns!`; the default is implementation-defined; dependency-absent behaviour is implementation-defined with a recommended soft-pass.
 
-The CLJS reference's expression of these claims: `(schemas/set-schema-validator! validate-fn)`, `(schemas/set-schema-explainer! explain-fn)`, and the atomic bundle `(schemas/set-schema-fns! {:validate ... :explain ... :print ...})` all live on `re-frame.schemas` — they are NOT re-exported into the `re-frame.core` front porch (only the `reg-app-schema` / `reg-app-schemas` registration macros are; per [API.md §Schemas](API.md#schemas) and the §Conventions front-porch boundary). The CLJS reference's chosen default delegates to Malli's `validate` / `explain`; soft-pass when Malli is absent on the classpath; hard no-op when `set-schema-validator!` is called with `nil`. Other ports document their own defaults in their READMEs. The schemas mandate at the framework level (every `reg-*` may attach `:schema`; `reg-app-schema` registers path schemas) is independent of which validator is registered.
+The CLJS reference's expression of these claims: `(schemas/set-schema-fns! {:validate validate-fn})`, `(schemas/set-schema-fns! {:explain explain-fn})`, and the whole-port form `(schemas/set-schema-fns! {:validate ... :explain ... :print ...})` all live on `re-frame.schemas` — they are NOT re-exported into the `re-frame.core` front porch (only the `reg-app-schema` / `reg-app-schemas` registration macros are; per [API.md §Schemas](API.md#schemas) and the §Conventions front-porch boundary). The CLJS reference's chosen default delegates to Malli's `validate` / `explain`; soft-pass when Malli is absent on the classpath; hard no-op when `set-schema-fns!` installs a `nil` `:validate`. Other ports document their own defaults in their READMEs. The schemas mandate at the framework level (every `reg-*` may attach `:schema`; `reg-app-schema` registers path schemas) is independent of which validator is registered.
