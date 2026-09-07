@@ -5094,7 +5094,25 @@
                                          ;; reaction owns notification through its own
                                          ;; source watches); present only to satisfy
                                          ;; the IWatchable protocol surface. No-op.
-                                         (-notify-watches [_ _old _nu] nil))]
+                                         (-notify-watches [_ _old _nu] nil)
+                                         ;; rf2-1frc — THE PROXY MUST CARRY THE
+                                         ;; DISPOSAL PROTOCOL THROUGH TOO. The spine
+                                         ;; now registers a REACQUISITION callback on
+                                         ;; the reaction it holds, via
+                                         ;; `rf.interop/add-on-dispose!` — so a
+                                         ;; stand-in that answers only IDeref +
+                                         ;; IWatchable stops being a stand-in and
+                                         ;; throws `No protocol method
+                                         ;; IDisposable.-add-on-dispose` the moment
+                                         ;; `subscribe-fn` wires itself up. Delegating
+                                         ;; to the real reaction is the same
+                                         ;; discipline as the un-substitution at the
+                                         ;; identity guard below: a spy is only a spy
+                                         ;; where it is transparent.
+                                         rf.disposable/IDisposable
+                                         (-add-on-dispose [_ f]
+                                           (rf.disposable/-add-on-dispose real f))
+                                         (-dispose [_] (rf.disposable/-dispose real)))]
                                  (swap! proxy->real assoc p real)
                                  p))
             unwrap           (fn [x] (get @proxy->real x x))
@@ -5275,7 +5293,17 @@
                                          (add-watch real k (fn [_ _ old nu] (f k this old nu)))
                                          this)
                                        (-remove-watch [_ k] (remove-watch real k) nil)
-                                       (-notify-watches [_ _o _n] nil))]
+                                       (-notify-watches [_ _o _n] nil)
+                                       ;; rf2-1frc — carry the disposal protocol
+                                       ;; through to the real reaction; the spine
+                                       ;; registers a reacquisition callback via
+                                       ;; `rf.interop/add-on-dispose!` on whatever
+                                       ;; `subscribe` handed it. See the fuller note
+                                       ;; on the rf2-sqhjtu proxy above.
+                                       rf.disposable/IDisposable
+                                       (-add-on-dispose [_ f]
+                                         (rf.disposable/-add-on-dispose real f))
+                                       (-dispose [_] (rf.disposable/-dispose real)))]
                                (swap! proxy->real assoc p real)
                                p))
             unwrap         (fn [x] (get @proxy->real x x))
@@ -6421,7 +6449,17 @@
                                          (add-watch real k (fn [_ _ old nu] (f k this old nu)))
                                          this)
                                        (-remove-watch [_ k] (remove-watch real k) nil)
-                                       (-notify-watches [_ _o _n] nil))]
+                                       (-notify-watches [_ _o _n] nil)
+                                       ;; rf2-1frc — carry the disposal protocol
+                                       ;; through to the real reaction; the spine
+                                       ;; registers a reacquisition callback via
+                                       ;; `rf.interop/add-on-dispose!` on whatever
+                                       ;; `subscribe` handed it. See the fuller note
+                                       ;; on the rf2-sqhjtu proxy above.
+                                       rf.disposable/IDisposable
+                                       (-add-on-dispose [_ f]
+                                         (rf.disposable/-add-on-dispose real f))
+                                       (-dispose [_] (rf.disposable/-dispose real)))]
                                (swap! proxy->real assoc p real)
                                p))
             unwrap         (fn [x] (get @proxy->real x x))
@@ -6521,34 +6559,44 @@
               (finally
                 (try (act-fn (fn [] (.unmount root))) (catch :default _ nil)))))))))))
 
-;; ---- unsubscribe arity contract (rf2-gizlj) -------------------------------
+;; ---- release call-shape contract (rf2-gizlj, retargeted by rf2-1frc) ------
 ;;
-;; The shared spine's `use-sub` useEffect cleanup calls
-;; `rf.subs/unsubscribe` with `[frame-id query-v]` — the canonical 2-arity
-;; form. Per rf2-cmfln (Spec 006 §Reference counting and disposal) the
-;; 3-arity `[frame-id query-v opts]` was retired with the grace-period
-;; mechanism: the cache disposes synchronously on the 1 → 0 transition
-;; and there are no more per-call overrides. The spine cleanup at
-;; `re-frame.substrate.spine/use-subscribe-effect` is the only
-;; production call site whose arity is invisible to the type checker
-;; (it goes through the spy in the rf2-mwft2 stable-deps-key test).
-;; This assertion locks the call-site arity so a future drift — adding
-;; a third arg back, or shifting to a single-arity query-v call — fails
-;; loudly here before reaching the cache layer.
+;; What this pin is FOR has not changed: the spine's commit-owned cleanup is
+;; the one production release site whose call shape no type checker sees (it
+;; goes through the spy in the rf2-mwft2 stable-deps-key test), and two drifts
+;; must fail loudly here rather than at the cache layer — the grace-period
+;; `opts` MAP re-entering the call (retired with the mechanism per rf2-cmfln,
+;; Spec 006 §Reference counting and disposal: the cache disposes synchronously
+;; on the 1 → 0 transition and there are no per-call overrides), and the spine
+;; DROPPING its explicit frame-id pin.
+;;
+;; WHAT CHANGED IS WHICH FN THE SPINE CALLS. Until rf2-1frc the cleanup was
+;; `rf.subs/unsubscribe` with `[frame-id query-v]`, and this assertion pinned
+;; the literal arity 2. That release was by ADDRESS, and a mounted hook's
+;; reaction can be replaced under it — hot reload, `clear-sub-cache!`, a frame
+;; generation change — after which the address names a SUCCESSOR's entry and an
+;; address-only release decrements a reference the hook never took. The cleanup
+;; now calls `rf.subs/unsubscribe-if-reaction` with
+;; `[frame-id query-v reaction]`, releasing under an identity guard.
+;;
+;; So the pin follows the mechanism instead of the number. Arity 3 is now
+;; CORRECT — but only for this fn, and only with a REACTION in the third
+;; position; a third arg that is a MAP is still exactly the grace-period drift
+;; the original pin was placed to catch, and it is now the more likely way to
+;; reintroduce it.
 
 (defn assert-use-sub-cleanup-calls-unsubscribe-with-2-args
-  "rf2-gizlj: the React-hook spine's `use-sub` useEffect cleanup
-  calls `rf.subs/unsubscribe` with exactly 2 args (`[frame-id query-v]`).
-  Per rf2-cmfln the canonical-leaf arity for `rf.subs/unsubscribe` is 2;
-  no `opts` map, no grace-period override. This test mounts a probe,
-  unmounts it, and asserts the spy observed exactly 2 args at the
-  cleanup call — drift here is what introduced the regression bug
-  rf2-gizlj fixed.
+  "rf2-gizlj / rf2-1frc: pin the SHAPE of the React-hook spine's commit-owned
+  release. It must release the reaction it holds, under the identity guard —
+  `rf.subs/unsubscribe-if-reaction` with `[frame-id query-v reaction]` — with a
+  non-nil frame-id pin, and the third argument must be a reaction rather than a
+  grace-period `opts` map. Any plain `rf.subs/unsubscribe` the spine still
+  drives must remain 2-arity.
 
-  cfg keys: re-uses the same stable-deps-key probe surface — the
-  cleanup fires on either parent here."
+  cfg keys: re-uses the same stable-deps-key probe surface — the cleanup fires
+  on either parent here."
   [{:keys [name probe-stable-deps-element stable-deps-set-tick stable-deps-frame stable-deps-query]}]
-  (testing (str name " — use-sub cleanup calls rf.subs/unsubscribe with 2 args (rf2-gizlj, rf2-cmfln contract)")
+  (testing (str name " — use-sub cleanup releases via unsubscribe-if-reaction with a reaction, not an opts map (rf2-gizlj / rf2-1frc)")
     (with-browser-act
      (fn [act-fn]
       (reset! stable-deps-set-tick nil)
@@ -6557,12 +6605,14 @@
       (rf/dispatch-sync [::gizlj-seed] {:frame stable-deps-frame})
       (rf/reg-sub stable-deps-query (fn [db _] (:p db)))
       (let [unsubscribe-arg-counts (atom [])
+            release-calls          (atom [])
             real-unsubscribe       rf.subs/unsubscribe
+            real-unsub-if          rf.subs/unsubscribe-if-reaction
             mount-node             (make-mount-node!)
             root                   (react-dom-client/createRoot mount-node)]
-        ;; Spy records the arg-count at each call site and delegates to
-        ;; the canonical 2-arity body (mirroring the existing spy bypass
-        ;; — see the rf2-mwft2 stable-deps-key spy comment).
+        ;; Spies record the call shape and delegate to the canonical bodies
+        ;; (mirroring the existing spy bypass — see the rf2-mwft2
+        ;; stable-deps-key spy comment).
         (with-redefs [rf.subs/unsubscribe
                       (fn spy-unsubscribe-arity
                         ([query-v]
@@ -6570,25 +6620,44 @@
                          (real-unsubscribe (rf.frame/resolve-current-frame) query-v))
                         ([frame-id query-v]
                          (swap! unsubscribe-arg-counts conj 2)
-                         (real-unsubscribe frame-id query-v)))]
+                         (real-unsubscribe frame-id query-v)))
+                      rf.subs/unsubscribe-if-reaction
+                      (fn spy-unsubscribe-if-reaction [frame-id query-v reaction]
+                        (swap! release-calls conj {:frame-id frame-id
+                                                   :query-v  query-v
+                                                   :third    reaction})
+                        (real-unsub-if frame-id query-v reaction))]
           (try
             (act-fn (fn [] (.render root (probe-stable-deps-element))))
             (act-fn (fn [] (.unmount root)))
-            ;; The spine's useEffect cleanup is the call site under
-            ;; test. There may be additional unsubscribes from layer-2+
-            ;; cascades, but the cleanup fn the spine wires must use
-            ;; the 2-arity form — anything else is a contract violation.
-            (let [arities (set @unsubscribe-arg-counts)]
-              (is (seq @unsubscribe-arg-counts)
-                  "spine fired at least one rf.subs/unsubscribe across mount + unmount")
-              (is (= #{2} arities)
-                  (str "every spine-driven rf.subs/unsubscribe call must be 2-arity "
-                       "(frame-id + query-v) per rf2-cmfln Spec 006 §Reference "
-                       "counting and disposal — observed arities: "
-                       (pr-str @unsubscribe-arg-counts)
-                       ". A 3-arity call here means the grace-period `opts` "
-                       "shape has re-entered the spine; a 1-arity call means "
-                       "the spine is dropping the explicit frame-id pin.")))
+            (is (seq @release-calls)
+                "the spine released through rf.subs/unsubscribe-if-reaction across mount + unmount")
+            (is (every? #(some? (:frame-id %)) @release-calls)
+                (str "every spine-driven release carries an explicit frame-id pin — a nil "
+                     "here means the spine is resolving the frame somewhere the release "
+                     "cannot follow (rf2-kuky.57). Observed: "
+                     (pr-str (mapv :frame-id @release-calls))))
+            (is (every? #(vector? (:query-v %)) @release-calls)
+                "every release names a query VECTOR in the second position")
+            (is (not-any? #(map? (:third %)) @release-calls)
+                (str "no release passes a MAP in the third position — that is the retired "
+                     "grace-period `opts` shape re-entering the spine (rf2-cmfln). "
+                     "Observed third-arg types: "
+                     (pr-str (mapv #(cond (map? (:third %)) :map
+                                          (nil? (:third %)) :nil
+                                          :else             :reaction)
+                                   @release-calls))))
+            (is (every? #(some? (:third %)) @release-calls)
+                "every release names the REACTION it actually holds — a nil third arg
+                 means the identity guard has nothing to compare and the release
+                 degrades to the address-only behaviour rf2-1frc removed")
+            ;; Any plain `unsubscribe` the spine still drives keeps its
+            ;; canonical 2-arity shape.
+            (is (or (empty? @unsubscribe-arg-counts)
+                    (= #{2} (set @unsubscribe-arg-counts)))
+                (str "any remaining spine-driven rf.subs/unsubscribe call is 2-arity "
+                     "(frame-id + query-v) — observed: "
+                     (pr-str @unsubscribe-arg-counts)))
             (finally
               (try (.unmount root) (catch :default _ nil))))))))))
 
@@ -6764,3 +6833,345 @@
                 "the name read off the fiber is the measure's own id"))
           (finally
             (try (.unmount root) (catch :default _ nil)))))))))
+
+;; ===========================================================================
+;; rf2-1frc / rf2-kuky.57 — subscription LIFETIME across a framework-owned
+;; eviction, and the explicit-target refusal.
+;; ===========================================================================
+;;
+;; Three defects, one mechanism: what a mounted hook HOLDS and what it later
+;; RELEASES have to be the same concrete thing.
+;;
+;;   * `use-sub` memoizes `subscribe-fn` on `[stable-key]`, so React calls it
+;;     exactly ONCE per (frame, query) target and never again for the life of
+;;     that target. It took one reaction there and kept it. When the framework
+;;     evicted and disposed that reaction — `reg-sub` re-registration,
+;;     `clear-sub-cache!`, or (rf2-4lp1) a frame generation change — the
+;;     disposed handle held no source watches, so `on-change` could never fire
+;;     again and the component went permanently DEAF; meanwhile `get-snap`
+;;     still found a key-matching entry and derefed it, so the component kept
+;;     rendering the OLD sub body. `assert-use-sub-reacquires-after-eviction`.
+;;
+;;   * The commit cleanup released by (frame, query) ADDRESS. After an
+;;     eviction, once an independent consumer had rebuilt the same key, that
+;;     address named the SUCCESSOR's entry — so unmounting the original
+;;     decremented a reference it never acquired.
+;;     `assert-use-sub-stale-cleanup-does-not-release-a-successor`.
+;;
+;;   * The explicit `[query-v opts]` arm passed `(:frame opts)` straight
+;;     through, and `rf.subs/subscribe`'s opts arity treats a nil target as
+;;     "ambient". So `(use-sub [:q] {})` under a provider ACQUIRED the ambient
+;;     frame's reaction while the hook stored nil in its stable key — and every
+;;     release then resolved nil, found no frame, and no-opped. An unbalanced
+;;     reference behind a contract that promised a refusal.
+;;     `assert-use-sub-nil-explicit-frame-refuses-without-retaining`.
+
+(defn assert-use-sub-reacquires-after-eviction
+  "rf2-1frc: a MOUNTED `use-sub` must follow its (frame, query) target across a
+  framework-owned cache eviction — the ordinary live-reload path. After
+  re-registering the sub body under a mounted, unchanged component:
+
+    (a) an unrelated parent re-render must read the NEW body (not the disposed
+        reaction's old one), and
+    (b) a subsequent app-db write must still NOTIFY it — the component stays
+        reactive rather than going silently deaf,
+
+  while the hook holds exactly ONE durable reference on the REBUILT entry (no
+  leak, no double-take), and unmount still returns it.
+
+  The two `is` forms marked THE BUG are the pre-fix control: without
+  reacquisition (a) reads the v1 value and (b) never fires at all.
+
+  cfg keys:
+    :probe-evict-element   thunk -> a probe calling
+                           `(use-sub [ev-query] {:frame @evict-target})`
+    :probe-evict-observed  atom the probe pushes every observed value into
+    :evict-target          atom the probe reads its target frame-id from
+    :ev-frame / :ev-query  frame-id + query-id keywords for this probe"
+  [{:keys [name probe-evict-element probe-evict-observed evict-target
+           ev-frame ev-query]}]
+  (testing (str name " — use-sub reacquires its subscription after the cached reaction is evicted (rf2-1frc)")
+    (with-browser-act
+     (fn [act-fn]
+      (reset! evict-target ev-frame)
+      (reset! probe-evict-observed [])
+      (rf/make-frame {:id ev-frame :doc "rf2-1frc eviction/reacquisition probe frame"})
+      (rf/reg-event ::ev-seed (fn [{:keys [db]} _] {:db {:n 1}}))
+      (rf/dispatch-sync [::ev-seed] {:frame ev-frame})
+      (rf/reg-event ::ev-set  (fn [{:keys [db]} [_ n]] {:db {:n n}}))
+      ;; v1 body.
+      (rf/reg-sub ev-query (fn [db _] (:n db)))
+      (let [k          [ev-query]
+            cache      (:sub-cache (rf.frame/frame ev-frame))
+            mount-node (make-mount-node!)
+            root       (react-dom-client/createRoot mount-node)]
+        (try
+          (act-fn (fn [] (.render root (probe-evict-element))))
+          (is (= 1 (last @probe-evict-observed))
+              "mounted probe reads the v1 body")
+          (let [committed-1 (get-in @cache [k :reaction])]
+            (is (some? committed-1) "the mount pinned a committed cached reaction")
+            (is (= 1 (or (get-in @cache [k :ref-count]) 0))
+                "exactly one durable committed ref before the eviction")
+
+            ;; THE EVICTION. Re-registering the sub fires the registrar
+            ;; replacement hook, which evicts the slot and disposes
+            ;; `committed-1` — under a component that has NOT unmounted and
+            ;; whose frame and query are unchanged.
+            (reset! probe-evict-observed [])
+            (rf/reg-sub ev-query (fn [db _] (+ 100 (:n db))))
+
+            (is (not (identical? committed-1 (get-in @cache [k :reaction])))
+                "the cache no longer holds the reaction the hook first took")
+
+            ;; (a) An unrelated parent re-render of the SAME mounted component.
+            ;; React re-reads `get-snap`; the `[stable-key]`-keyed memo does not
+            ;; re-run and `subscribe-fn` is not re-invoked.
+            (act-fn (fn [] (.render root (probe-evict-element))))
+            (is (= 101 (last @probe-evict-observed))
+                "THE BUG (rf2-1frc): a re-render must read the REPLACEMENT body — pre-fix `get-snap` derefed the disposed v1 handle and read 1")
+
+            ;; (b) Still REACTIVE. A disposed reaction has no source watches, so
+            ;; pre-fix this dispatch produced no notification at all.
+            (reset! probe-evict-observed [])
+            (act-fn (fn [] (rf/dispatch-sync [::ev-set 2] {:frame ev-frame})))
+            (is (= 102 (last @probe-evict-observed))
+                "THE BUG (rf2-1frc): the component must still be notified by an app-db write after the eviction — pre-fix it was permanently deaf")
+
+            ;; Exactly one durable ref on the REBUILT entry: reacquisition takes
+            ;; one reference, not zero (a leak of the component's liveness) and
+            ;; not two (a leaked reference).
+            (is (= 1 (or (get-in @cache [k :ref-count]) 0))
+                "the hook holds exactly ONE durable ref on the rebuilt entry")
+
+            ;; And unmount still balances it.
+            (act-fn (fn [] (.unmount root)))
+            (is (or (nil? (get @cache k))
+                    (zero? (or (get-in @cache [k :ref-count]) 0)))
+                "unmount released the REACQUIRED reference (entry dropped or ref-count 0)"))
+          (finally
+            (try (.unmount root) (catch :default _ nil)))))))))
+
+(defn assert-use-sub-stale-cleanup-does-not-release-a-successor
+  "rf2-1frc, the ownership edge. After an eviction and a SUCCESSOR consumer
+  acquiring the rebuilt entry, unmounting the ORIGINAL consumer must release
+  only what it holds — never the successor's reference.
+
+  The committed cleanup released by (frame, query) ADDRESS, which after a
+  rebuild names the successor's entry. With two mounted consumers of the same
+  key, unmounting one must leave ref-count 1 and the survivor still reactive.
+
+  cfg keys: reuses the eviction probe surface, plus a second INDEPENDENT
+  consumer of the same (frame, query)
+    :probe-evict-element / :probe-evict-observed / :evict-target
+    :probe-evict-successor-element / :probe-evict-successor-observed
+    :ev-frame / :ev-query"
+  [{:keys [name probe-evict-element probe-evict-observed evict-target
+           probe-evict-successor-element probe-evict-successor-observed
+           ev-frame ev-query]}]
+  (testing (str name " — a stale committed cleanup does not release a successor's reference (rf2-1frc)")
+    (with-browser-act
+     (fn [act-fn]
+      (reset! evict-target ev-frame)
+      (reset! probe-evict-observed [])
+      (reset! probe-evict-successor-observed [])
+      (rf/make-frame {:id ev-frame :doc "rf2-1frc successor-ownership probe frame"})
+      (rf/reg-event ::so-seed (fn [{:keys [db]} _] {:db {:n 1}}))
+      (rf/dispatch-sync [::so-seed] {:frame ev-frame})
+      (rf/reg-event ::so-set  (fn [{:keys [db]} [_ n]] {:db {:n n}}))
+      (rf/reg-sub ev-query (fn [db _] (:n db)))
+      (let [k              [ev-query]
+            cache          (:sub-cache (rf.frame/frame ev-frame))
+            node-original  (make-mount-node!)
+            node-successor (make-mount-node!)
+            root-original  (react-dom-client/createRoot node-original)
+            root-successor (react-dom-client/createRoot node-successor)]
+        (try
+          ;; The ORIGINAL consumer mounts and pins the v1 entry.
+          (act-fn (fn [] (.render root-original (probe-evict-element))))
+          (is (= 1 (or (get-in @cache [k :ref-count]) 0))
+              "one consumer, one durable ref")
+
+          ;; Evict + dispose that entry under the mounted original.
+          (rf/reg-sub ev-query (fn [db _] (+ 200 (:n db))))
+
+          ;; A SECOND, INDEPENDENT consumer mounts on the rebuilt entry.
+          (reset! probe-evict-successor-observed [])
+          (act-fn (fn [] (.render root-successor (probe-evict-successor-element))))
+          (is (= 201 (last @probe-evict-successor-observed))
+              "the independent successor consumer reads the replacement body")
+          (let [successor (get-in @cache [k :reaction])]
+            (is (some? successor))
+            (is (= 2 (or (get-in @cache [k :ref-count]) 0))
+                "both consumers hold the SAME rebuilt entry — two durable refs")
+
+            ;; Unmount the ORIGINAL. Its cleanup must release the reaction it
+            ;; actually holds and leave the successor's reference alone.
+            (reset! probe-evict-successor-observed [])
+            (act-fn (fn [] (.unmount root-original)))
+
+            (is (identical? successor (get-in @cache [k :reaction]))
+                "THE BUG (rf2-1frc): the successor's entry survives the original's unmount — an address-only release could dispose it out from under a live holder")
+            (is (= 1 (or (get-in @cache [k :ref-count]) 0))
+                "exactly ONE reference remains — the survivor's; the stale cleanup neither stole it nor left its own behind")
+
+            ;; And the survivor is still live.
+            (act-fn (fn [] (rf/dispatch-sync [::so-set 5] {:frame ev-frame})))
+            (is (= 205 (last @probe-evict-successor-observed))
+                "the surviving consumer is still notified after the other unmounted"))
+          (finally
+            (try (.unmount root-original) (catch :default _ nil))
+            (try (.unmount root-successor) (catch :default _ nil)))))))))
+
+(defn assert-use-sub-nil-explicit-frame-refuses-without-retaining
+  "rf2-kuky.57 (audit reopen): the explicit `(use-sub query-v opts)` arm must
+  resolve ONE concrete frame target BEFORE any subscription acquisition. A
+  missing `:frame` (`{}`) or an explicitly nil one (`{:frame nil}`), under a
+  perfectly valid AMBIENT provider, must REFUSE with
+  `:rf.error/no-frame-context` and retain NOTHING.
+
+  Pre-fix, `(:frame opts)` went straight through to `rf.subs/subscribe`, whose
+  opts arity spells a nil target as ambient — so the hook acquired the ambient
+  frame's reaction (ref-count 1) while storing nil in its stable key, and every
+  later release resolved nil, found no frame and no-opped. The ref-count
+  assertion below is the load-bearing one: a refusal that leaks is not a
+  refusal.
+
+  The legal explicit target is exercised as a CONTROL in the same frame, so a
+  green here cannot come from the arm having stopped working altogether.
+
+  cfg keys:
+    :substrate-kw                     keyword fragment for the listener key
+    :probe-nil-frame-element          thunk -> a probe calling
+                                      `(use-sub [nf-query] @nil-frame-opts)`
+    :nil-frame-opts                   atom holding the opts map the probe passes
+    :nil-frame-observed               atom the probe pushes observed values into
+    :nf-frame / :nf-query             frame-id + query-id keywords
+    :frame-provider-mount-element     (fn [frame-kw child-el] …) — the native
+                                      frame-provider element factory"
+  [{:keys [name substrate-kw probe-nil-frame-element nil-frame-opts
+           nil-frame-observed nf-frame nf-query frame-provider-mount-element]}]
+  (testing (str name " — a missing/nil explicit :frame refuses and retains nothing (rf2-kuky.57)")
+    (with-browser-act
+     (fn [act-fn]
+      (rf/make-frame {:id nf-frame :doc "rf2-kuky.57 nil-explicit-frame probe frame"})
+      (rf/reg-event ::nf-seed (fn [{:keys [db]} _] {:db {:v 7}}))
+      (rf/dispatch-sync [::nf-seed] {:frame nf-frame})
+      (rf/reg-sub nf-query (fn [db _] (:v db)))
+      (let [k     [nf-query]
+            cache (:sub-cache (rf.frame/frame nf-frame))]
+        (doseq [[label opts] [["missing :frame" {}]
+                              ["explicit nil :frame" {:frame nil}]]]
+          (let [lk     (keyword "re-frame.adapter.react-shared-suite"
+                                (str "nil-frame-" (clojure.core/name substrate-kw)
+                                     "-" (str/replace label #"[^a-zA-Z0-9]+" "-")))
+                traces (atom [])]
+            (rf.trace.tooling/register-listener! lk (fn [ev] (swap! traces conj ev)))
+            (reset! nil-frame-opts opts)
+            (reset! nil-frame-observed [])
+            (let [mount-node (make-mount-node!)
+                  root       (react-dom-client/createRoot mount-node)]
+              (try
+                ;; Mounted UNDER a valid ambient provider for `nf-frame`, so the
+                ;; ONLY thing wrong is the explicit target. Pre-fix that ambient
+                ;; frame is exactly what got acquired and never released.
+                (try
+                  (act-fn (fn [] (.render root
+                                   (frame-provider-mount-element
+                                     nf-frame (probe-nil-frame-element)))))
+                  (catch :default _ nil))
+                (is (pos? (count (filterv #(= :rf.error/no-frame-context (:operation %))
+                                          @traces)))
+                    (str label " — the explicit arm refused with :rf.error/no-frame-context rather than silently resolving an ambient frame"))
+                ;; The refusal happens BEFORE the hook returns, so the probe
+                ;; never records anything. Pre-fix it rendered and recorded the
+                ;; ambient frame's value for this query.
+                (is (empty? @nil-frame-observed)
+                    (str label " — THE BUG (rf2-kuky.57): the hook refused instead of returning an ambient read; pre-fix it rendered and recorded "
+                         (pr-str @nil-frame-observed)))
+                ;; THE LEAK ASSERTION, and it sweeps EVERY live frame rather
+                ;; than the provider's alone. Which frame the pre-fix code
+                ;; leaked INTO is not fixed: `{:frame nil}` falls through to the
+                ;; ambient 1-arity, whose chain is dynamic-var FIRST and React
+                ;; context second — so under a `with-frame` scope it acquires
+                ;; there, and under a bare provider it acquires the provider's
+                ;; frame. Either way the reference is unbalanced, because the
+                ;; hook stored nil in its stable key and every release resolved
+                ;; nil, found no frame and no-opped. `nf-query` is unique to
+                ;; this assertion, so ANY cache holding a slot for it is a
+                ;; retained reference this refused read is responsible for.
+                (let [retained (into []
+                                     (comp (keep (fn [fid]
+                                                   (when-let [c (:sub-cache (rf.frame/frame fid))]
+                                                     (when-let [e (get @c k)]
+                                                       [fid (:ref-count e)]))))
+                                           (filter (fn [[_ rc]] (pos? (or rc 0)))))
+                                     (rf.frame/frame-ids))]
+                  (is (empty? retained)
+                      (str label " — THE BUG (rf2-kuky.57): a refused read must retain NO sub-cache reference in ANY frame; found "
+                           (pr-str retained))))
+                (finally
+                  (rf.trace.tooling/unregister-listener! lk)
+                  (try (.unmount root) (catch :default _ nil)))))))
+        ;; CONTROL: the LEGAL explicit keyword target still works, still
+        ;; updates, and still releases on unmount — so the refusal above is
+        ;; a refusal and not a broken arm.
+        (reset! nil-frame-opts {:frame nf-frame})
+        (reset! nil-frame-observed [])
+        (let [mount-node (make-mount-node!)
+              root       (react-dom-client/createRoot mount-node)]
+          (try
+            (act-fn (fn [] (.render root (probe-nil-frame-element))))
+            (is (= 7 (last @nil-frame-observed))
+                "CONTROL — the legal explicit keyword target reads its frame's value")
+            (is (= 1 (or (get-in @cache [k :ref-count]) 0))
+                "CONTROL — and holds exactly one durable reference")
+            (rf/reg-event ::nf-set (fn [{:keys [db]} [_ v]] {:db {:v v}}))
+            (act-fn (fn [] (rf/dispatch-sync [::nf-set 9] {:frame nf-frame})))
+            (is (= 9 (last @nil-frame-observed))
+                "CONTROL — a legal explicit target still updates on an app-db write")
+            (act-fn (fn [] (.unmount root)))
+            (is (or (nil? (get @cache k))
+                    (zero? (or (get-in @cache [k :ref-count]) 0)))
+                "CONTROL — and releases on unmount")
+            (finally
+              (try (.unmount root) (catch :default _ nil))))))))))
+
+(defn assert-use-sub-live-frame-value-target-balances
+  "rf2-kuky.57, the other half of resolving ONE concrete target: a live frame
+  VALUE (`make-frame`'s return token) is a legal explicit target, and it must
+  acquire and release the SAME entry a keyword target does. The arm normalizes
+  through `rf.frame/frame-target->id` before acquisition, so the hook's stable
+  key, its escrow token and its release all name the record's id.
+
+  cfg keys: reuses the nil-frame probe surface
+    :probe-nil-frame-element / :nil-frame-opts / :nil-frame-observed
+    :nf-frame / :nf-query"
+  [{:keys [name probe-nil-frame-element nil-frame-opts nil-frame-observed
+           nf-frame nf-query]}]
+  (testing (str name " — a live frame VALUE explicit target acquires and releases the same entry (rf2-kuky.57)")
+    (with-browser-act
+     (fn [act-fn]
+      (let [frame-value (rf/make-frame {:id nf-frame
+                                        :doc "rf2-kuky.57 frame-value target probe frame"})]
+        (rf/reg-event ::fv-seed (fn [{:keys [db]} _] {:db {:v 3}}))
+        (rf/dispatch-sync [::fv-seed] {:frame nf-frame})
+        (rf/reg-sub nf-query (fn [db _] (:v db)))
+        (reset! nil-frame-opts {:frame frame-value})
+        (reset! nil-frame-observed [])
+        (let [k          [nf-query]
+              cache      (:sub-cache (rf.frame/frame nf-frame))
+              mount-node (make-mount-node!)
+              root       (react-dom-client/createRoot mount-node)]
+          (try
+            (act-fn (fn [] (.render root (probe-nil-frame-element))))
+            (is (= 3 (last @nil-frame-observed))
+                "the frame-VALUE target reads its record's value")
+            (is (= 1 (or (get-in @cache [k :ref-count]) 0))
+                "and pins exactly one durable reference in THAT record's cache")
+            (act-fn (fn [] (.unmount root)))
+            (is (or (nil? (get @cache k))
+                    (zero? (or (get-in @cache [k :ref-count]) 0)))
+                "unmount releases it — the release names the same normalized id the acquire did")
+            (finally
+              (try (.unmount root) (catch :default _ nil))))))))))

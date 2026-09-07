@@ -3350,6 +3350,113 @@
                 subscribe-fn
                 (use-callback
                   (fn [on-change]
+                    ;; rf2-1frc — WHAT THIS CLOSURE HOLDS, rather than what
+                    ;; ADDRESS it subscribed to. `held` is `#js [reaction
+                    ;; watch-key]`: the ONE reaction this store-subscription
+                    ;; currently owns a durable +1 on, and the watch key placed
+                    ;; on it. `wire!` (below) replaces both atomically, so a
+                    ;; framework-owned eviction can hand the hook a REBUILT
+                    ;; reaction without React re-running `subscribe-fn` — which
+                    ;; it never will, since the memo is keyed on `[stable-key]`
+                    ;; and the target has not changed.
+                    ;;
+                    ;; Before this, the closure held ONE reaction for the life
+                    ;; of the subscription target and released by ADDRESS. Both
+                    ;; halves were wrong once the cache evicted underneath it:
+                    ;; the disposed reaction has no source watches (so
+                    ;; `on-change` could never fire again — the component went
+                    ;; permanently deaf) while `get-snap` still found a
+                    ;; key-MATCHING entry in `committed-ref` and derefed the
+                    ;; disposed handle (so it kept rendering the OLD sub body);
+                    ;; and the address-only release could later decrement a
+                    ;; SUCCESSOR entry that an independent consumer had
+                    ;; rebuilt under the same (frame, query).
+                    (let [held      (volatile! nil)
+                          released? (volatile! false)
+                          wire!
+                          (fn wire! [reaction]
+                            ;; UNIQUE watch key per ACQUISITION (not merely per
+                            ;; `subscribe-fn` invocation). The key MUST NOT
+                            ;; derive from `(hash reaction)`: subscriptions are
+                            ;; cached/deduped by query, so sibling components
+                            ;; reading the SAME query share the SAME cached
+                            ;; reaction, `add-watch` REPLACES an existing
+                            ;; watcher with the same key, and the last-mounted
+                            ;; sibling's `on-change` would silently overwrite
+                            ;; every earlier sibling's `useSyncExternalStore`
+                            ;; callback — leaving the earlier ones rendering
+                            ;; stale UI until an unrelated parent render
+                            ;; refreshed them. A fresh keyword per acquisition
+                            ;; is cheap and collision-free.
+                            (let [wk (keyword use-sub-watch-ns
+                                              (str (gensym "watch-")))]
+                              (vreset! held #js [reaction wk])
+                              ;; rf2-sqhjtu / rf2-naz09e: publish the durable
+                              ;; reaction KEY-TAGGED with this invocation's
+                              ;; `stable-key` so `get-snap` derefs THIS live
+                              ;; handle (source watches + current sub body) and
+                              ;; never a stale one — but ONLY while the current
+                              ;; render's key matches the tag. The key tag is
+                              ;; what lets `get-snap` reject a stale committed
+                              ;; reaction across a query-v / frame change (the
+                              ;; change-commit reads the render-phase handle for
+                              ;; the NEW target instead).
+                              (set! (.-current committed-ref)
+                                    #js [stable-key reaction])
+                              (when reaction
+                                (add-watch reaction wk (fn [_ _ _ _] (on-change)))
+                                ;; rf2-1frc — THE REACQUISITION SEAM, and the
+                                ;; reason it is THIS one. The obvious hook is
+                                ;; `rf.subs.cache/emit-dispose!`, and it is
+                                ;; unusable: that is an `rf.trace/emit!` behind
+                                ;; `rf.interop/debug-enabled?`, so it is
+                                ;; dead-code-eliminated from production CLJS
+                                ;; bundles — a correctness fix hung off it would
+                                ;; work in development, pass a dev-mode test and
+                                ;; silently not exist in a release build.
+                                ;; `rf.interop/add-on-dispose!` is the
+                                ;; documented cross-substrate teardown contract
+                                ;; (the `:adapter/add-on-dispose!` late-bind
+                                ;; hook, with `re-frame.disposable/
+                                ;; -add-on-dispose` as the CLJS protocol
+                                ;; method); it carries no debug gate and
+                                ;; survives `:advanced` + `goog.DEBUG=false`.
+                                ;;
+                                ;; The callback is GUARDED three ways so it
+                                ;; re-acquires exactly once, for the right
+                                ;; holder, and cannot resurrect a dead frame:
+                                ;;   * `released?` — an unmounted hook takes
+                                ;;     nothing back;
+                                ;;   * identity — this callback fires only for
+                                ;;     the reaction it was registered on, and
+                                ;;     only while that is still the one `held`
+                                ;;     (a later `wire!` supersedes it);
+                                ;;   * frame liveness — `destroy-frame!` flips
+                                ;;     `:destroyed?` (step 4) BEFORE it disposes
+                                ;;     the sub-cache (step 5), so a torn-down
+                                ;;     frame reads nil here and the hook lets go
+                                ;;     rather than emitting a
+                                ;;     `:rf.error/frame-destroyed` recovery per
+                                ;;     mounted component.
+                                (rf.interop/add-on-dispose! reaction
+                                  (fn on-committed-disposed []
+                                    (let [h @held]
+                                      (when (and (not @released?)
+                                                 (some? h)
+                                                 (identical? (aget h 0) reaction)
+                                                 (some? (rf.frame/frame stable-frame-kw)))
+                                        ;; Take the REBUILT entry and re-wire
+                                        ;; onto it, then tell React to re-read
+                                        ;; the snapshot. `subscribe-fn`'s
+                                        ;; IDENTITY is untouched, so React's
+                                        ;; subscribe/unsubscribe contract and
+                                        ;; the same-key steady state are exactly
+                                        ;; what they were.
+                                        (wire! (rf.subs/subscribe
+                                                 stable-query-v
+                                                 {:frame stable-frame-kw}))
+                                        (on-change)))))))
+                            nil)]
                     ;; Take the durable committed ref now (post-commit). This is
                     ;; the ONLY place a lasting +1 is acquired. The returned
                     ;; reaction is the live cached one and its value `=` the
@@ -3379,59 +3486,51 @@
                       ;; already spent, the reaper beat us and the subscribe
                       ;; above was an honest miss + rebuild: today's behaviour,
                       ;; no worse.
-                      (let [held (.-current provisional-ref)]
-                        (when (and (some? held)
-                                   (identical? (aget held 0) stable-key))
+                      (let [tok (.-current provisional-ref)]
+                        (when (and (some? tok)
+                                   (identical? (aget tok 0) stable-key))
                           (set! (.-current provisional-ref) nil)
-                          (release-provisional! (aget held 1))))
-                      ;; rf2-sqhjtu / rf2-naz09e: publish the durable committed
-                      ;; reaction KEY-TAGGED with this invocation's `stable-key`
-                      ;; so `get-snap` derefs THIS live handle (source watches +
-                      ;; current sub body) and never a stale one — but ONLY
-                      ;; while the current render's key matches
-                      ;; the tag. Set post-commit (here), cleared on teardown
-                      ;; below. The key tag is what lets `get-snap` reject a
-                      ;; stale committed reaction across a query-v / frame
-                      ;; change (the change-commit reads the render-phase handle
-                      ;; for the NEW target instead).
-                      (set! (.-current committed-ref) #js [stable-key committed])
-                      ;; UNIQUE watch key per `subscribe-fn` INVOCATION,
-                      ;; closed over by the returned cleanup. The key MUST
-                      ;; NOT derive from `(hash reaction)`: subscriptions are
-                      ;; cached/deduped by query, so sibling UIx
-                      ;; components reading the SAME query share the SAME
-                      ;; cached reaction. A hash-of-reaction key would be
-                      ;; IDENTICAL across those siblings, and `add-watch`
-                      ;; replaces an existing watcher with the same key — so
-                      ;; the last-mounted sibling's `on-change` would silently
-                      ;; overwrite every earlier sibling's `useSyncExternalStore`
-                      ;; callback, leaving the earlier ones rendering stale UI
-                      ;; until an unrelated parent render refreshed them.
-                      ;; `subscribe-fn` is `use-callback`-memoized on
-                      ;; `[stable-key]`, so React calls it once per subscription
-                      ;; target (NOT per render); a fresh keyword per call is
-                      ;; cheap and collision-free.
-                      (let [k (keyword use-sub-watch-ns (str (gensym "watch-")))]
-                        (when committed
-                          (add-watch committed k (fn [_ _ _ _] (on-change))))
-                        (fn unsubscribe []
-                          (when committed (remove-watch committed k))
-                          ;; rf2-sqhjtu / rf2-naz09e: clear the published
-                          ;; committed reaction, but ONLY if it still holds THIS
-                          ;; invocation's handle (compare the tagged reaction at
-                          ;; index 1). A later `subscribe-fn` re-acquire (e.g. a
-                          ;; subscribe-identity / key change) may have already
-                          ;; overwritten `committed-ref` with the NEW tagged
-                          ;; committed reaction before this older cleanup runs;
-                          ;; clobbering it to nil would strand `get-snap` on the
-                          ;; fallback.
-                          (let [stored (.-current committed-ref)]
-                            (when (and stored (identical? (aget stored 1) committed))
-                              (set! (.-current committed-ref) nil)))
-                          ;; Release the durable committed ref — symmetric with
-                          ;; the `rf.subs/subscribe` above. Runs on unmount /
-                          ;; key change / teardown.
-                          (rf.subs/unsubscribe stable-frame-kw stable-query-v)))))
+                          (release-provisional! (aget tok 1))))
+                      ;; Publish + watch + arm the reacquisition seam. Every
+                      ;; later re-acquisition goes through this same `wire!`, so
+                      ;; there is ONE place that decides what this closure holds.
+                      (wire! committed)
+                      (fn unsubscribe []
+                        (vreset! released? true)
+                        (let [h @held]
+                          (vreset! held nil)
+                          (when (some? h)
+                            (let [r (aget h 0)]
+                              (when r (remove-watch r (aget h 1)))
+                              ;; rf2-sqhjtu / rf2-naz09e: clear the published
+                              ;; committed reaction, but ONLY if it still holds
+                              ;; THIS closure's handle (compare the tagged
+                              ;; reaction at index 1). A later `subscribe-fn`
+                              ;; acquire (a subscribe-identity / key change) may
+                              ;; have already overwritten `committed-ref` with
+                              ;; the NEW tagged reaction before this older
+                              ;; cleanup runs; clobbering it to nil would strand
+                              ;; `get-snap` on the fallback.
+                              (let [stored (.-current committed-ref)]
+                                (when (and stored (identical? (aget stored 1) r))
+                                  (set! (.-current committed-ref) nil)))
+                              ;; rf2-1frc — RELEASE THE REACTION WE ACTUALLY
+                              ;; HOLD, not the (frame, query) ADDRESS. The
+                              ;; address-only `rf.subs/unsubscribe` was correct
+                              ;; only while a cache slot could never be replaced
+                              ;; under a live holder. It can: hot reload, an
+                              ;; explicit `clear-sub-cache!` and a frame
+                              ;; generation change all evict and rebuild, and
+                              ;; after an independent consumer has rebuilt the
+                              ;; same key a late cleanup here decremented the
+                              ;; SUCCESSOR's reference — a foreign entry this
+                              ;; hook never acquired. `unsubscribe-if-reaction`
+                              ;; releases under an identity guard, so a stale
+                              ;; holder no-ops instead of stealing; when the
+                              ;; slot IS ours it takes the ordinary 1 → 0
+                              ;; in-tick disposal, byte-identical to before.
+                              (rf.subs/unsubscribe-if-reaction
+                                stable-frame-kw stable-query-v r))))))))
                   #js [stable-key])]
             (React/useSyncExternalStore subscribe-fn get-snap get-snap)))
         use-subscribe
@@ -3499,9 +3598,41 @@
           ;; `:frame` went nil between renders would change its hook COUNT
           ;; mid-life — a rules-of-hooks violation React reports as a
           ;; misordered-hook crash somewhere else entirely. For an ambient read,
-          ;; call the 1-arity. A missing or malformed `:frame` fails loud at the
-          ;; subs layer, on the same bad-/destroyed-frame path any other
-          ;; explicit read takes.
+          ;; call the 1-arity.
+          ;;
+          ;; rf2-kuky.57 (audit reopen) — AND THE REQUIREMENT HAS TO BE ENFORCED
+          ;; HERE, because the layer this arm used to delegate it to does not
+          ;; enforce it. The sentence above once ended "a missing or malformed
+          ;; `:frame` fails loud at the subs layer"; it does not.
+          ;; `rf.subs/subscribe`'s opts arity reads `(if-some [target (:frame
+          ;; opts)] … (subscribe query-v))`, so an ABSENT or nil `:frame` is
+          ;; that layer's spelling for "ambient" and it resolves the ambient
+          ;; frame silently. Passing `(:frame opts)` straight through therefore
+          ;; produced a SPLIT identity in the hook: the acquire resolved the
+          ;; ambient frame and took a real +1 on its reaction, while the hook
+          ;; stored nil in `stable-key` — so `release-provisional!` and the
+          ;; commit cleanup both released against a nil frame, `frame-target->id`
+          ;; normalized it to nil, the registry lookup found nothing, and both
+          ;; no-opped. The reference was never balanced: a leak, invisible,
+          ;; behind a contract that promised a refusal.
+          ;;
+          ;; The repair is to resolve ONE CONCRETE TARGET before any
+          ;; acquisition, with the machinery that already exists for exactly
+          ;; this — `frame-target->id` normalizes the one frame-target grammar
+          ;; (a frame-id keyword or a live frame value) to the id its record is
+          ;; keyed by, and `require-frame-stamp!` is the framework's standing
+          ;; answer to "a token reached a frame-scoped operation carrying no
+          ;; frame": it returns the stamp when present and otherwise emits +
+          ;; throws the always-on `:rf.error/no-frame-context`. No new
+          ;; validation policy, no options schema — we trust the programmer, and
+          ;; the one thing checked here is the invariant this arm's own
+          ;; documented contract already asserted.
+          ;;
+          ;; Normalizing to an id is load-bearing beyond the refusal: it is what
+          ;; makes the acquire and the release name the SAME thing for a live
+          ;; frame VALUE target too, and what lets `unsubscribe-if-reaction`'s
+          ;; identity guard key the exact slot. It is a plain call, not a hook,
+          ;; so the hook count is unchanged on every path.
           ([query-v]
            ;; Hook subscription to provider-value changes (re-render). The
            ;; returned sentinel/keyword is intentionally NOT used as the
@@ -3513,7 +3644,14 @@
                {:where    're-frame.substrate.spine/use-subscribe
                 :event-id (first query-v)})
              query-v))
-          ([query-v opts] (use-subscribe-2 (:frame opts) query-v)))]
+          ([query-v opts]
+           (use-subscribe-2
+             (rf.frame/require-frame-stamp!
+               (rf.frame/frame-target->id (:frame opts))
+               :subscribe
+               {:where    're-frame.substrate.spine/use-sub
+                :event-id (first query-v)})
+             query-v)))]
     ;; rf2-6id3el: the return map exposes ONLY the surfaces the adapter
     ;; assembler consumes. `:warn-cache` is read by `make-react-adapter`
     ;; (the governance arm/armed? probes, :1868). The `:emitter-cell` /

@@ -2477,14 +2477,30 @@
   one reference to `query-v` in `frame-id` **only while the frame's sub-cache
   still holds `reaction`**, then take the ordinary 1 → 0 in-tick disposal.
 
-  Not public API and not an alternative teardown: it exists for the ONE
-  holder whose reference can outlive its slot — the React-hook spine's
-  render-phase provisional acquisition, released either by the commit that
-  adopts it or by a host-macrotask reaper, across a window in which hot
-  reload, `clear-sub-cache!` or `destroy-frame!` may have evicted the entry
-  (Spec 006 §Render-phase provisional acquisition and commit adoption). A
-  stale release then no-ops rather than stealing a successor entry's
-  reference. Every other consumer calls `unsubscribe`.
+  Not public API and not an alternative teardown: it exists for holders
+  whose reference can outlive its slot, and both of them are the React-hook
+  spine's.
+
+    1. The RENDER-PHASE PROVISIONAL acquisition, released either by the
+       commit that adopts it or by a host-macrotask reaper, across a window
+       in which hot reload, `clear-sub-cache!` or `destroy-frame!` may have
+       evicted the entry (Spec 006 §Render-phase provisional acquisition and
+       commit adoption).
+    2. The COMMITTED acquisition a mounted hook holds (rf2-1frc). This was
+       an address-only `unsubscribe`, on the reading that a cache slot could
+       never be replaced under a live holder. It can: hot reload, an explicit
+       `clear-sub-cache!` and a frame generation change (rf2-4lp1) all evict
+       and rebuild, and the hook now REACQUIRES across such an eviction — so
+       what it releases on unmount is the reaction it ended up holding, which
+       need not be the one it first took. After an independent consumer has
+       rebuilt the same (frame, query), an address-only release from a stale
+       holder decremented that SUCCESSOR's reference; the identity guard
+       makes it no-op instead of stealing.
+
+  In both cases a release whose reaction is no longer the cache's no-ops
+  rather than stealing a successor entry's reference; when the slot IS the
+  caller's it takes the ordinary 1 → 0 in-tick disposal, exactly as
+  `unsubscribe` would. Every other consumer calls `unsubscribe`.
 
   Frame resolution and cache-keying are this facade's, exactly as
   `unsubscribe`'s — a frame-id keyword or a live frame value, normalized
