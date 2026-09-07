@@ -823,7 +823,7 @@
                          chart renders an empty-state placeholder.
                          (The component does NOT subscribe to a
                          framework registry directly — hosts pull the
-                         definition via `(rf.machines/machine-meta machine-id)`
+                         definition via the `:rf/machine` registrar projection
                          and pass it in. Keeps the component testable
                          in isolation.)
     :current-state     — the live `:state` keyword/vector for the

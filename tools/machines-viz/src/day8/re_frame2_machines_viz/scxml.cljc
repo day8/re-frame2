@@ -809,8 +809,7 @@
 (defn spec->scxml
   "Convert a re-frame2 machine spec to an SCXML XML string.
 
-  `machine-spec` is the normalised definition shape `(rf.machines/machine-meta
-  id)` returns (per Spec 005 §Transition table grammar):
+  `machine-spec` is the normalised definition shape the `:rf/machine` registrar projection returns (per Spec 005 §Transition table grammar):
 
   ```clojure
   {:initial :idle

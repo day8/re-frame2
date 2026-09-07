@@ -23,7 +23,7 @@
   no owned-ns macro form), so the façade missing-artefact contract is
   tested here for `reg-machine` only. The fn surfaces (`reg-machine*`,
   `make-machine-handler`, `machine-transition`) and the read-only query
-  surfaces (`machines`, `machine-meta`, `machine-by-system-id`) live on
+  surfaces (`machines`, `machine-by-system-id`) live on
   `re-frame.machines` (the owned namespace; requiring it means the
   artefact is present, so the façade artefact-missing contract does not
   apply to them)."

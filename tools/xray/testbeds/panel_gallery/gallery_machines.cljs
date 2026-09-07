@@ -13,7 +13,7 @@
                                           :snapshots]` runtime-db subtree; test
                                          override slot exists.
     - `:rf.xray/machine-definitions`  — defaults to
-                                         `(rf.machines/machine-meta ...)`; test
+                                         the `:rf/machine` registrar projection; test
                                          override slot exists.
     - `:rf.xray/trace-buffer`         — drives transition-history.
     - `:rf.xray/selected-machine-id`  — picker focus.

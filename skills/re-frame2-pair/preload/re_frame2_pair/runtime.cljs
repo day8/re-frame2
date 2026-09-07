@@ -1139,7 +1139,8 @@
   (-> (rf.machines/machines) sort vec))
 
 (defn machine-describe
-  "(rf.machines/machine-meta id) — registered spec map for one machine, or
+  "The registered spec map for one machine — the `:rf/machine` projection of
+  its `:event` registration (no `machine-meta` accessor; rf2-kuky.31) — or
    `{:ok? false :reason :not-a-machine}`.
 
    `strip-fns` for the reason `registrar-describe` runs it: a machine spec

@@ -607,7 +607,8 @@
 
 ;; ---- registry-side introspection -----------------------------------------
 ;; The `<thing>-ids` + `<thing>-meta` enumerate pair every sibling registry
-;; carries (`resource-ids`/`resource-meta`, `machines`/`machine-meta`) — the
+;; carries (`resource-ids`/`resource-meta`; machines keep only `machines`,
+;; their per-id read being the generic `:rf/machine` projection) — the
 ;; static-registry read a tool or AI inspector walks to answer "which routes
 ;; are registered, and what is route X's spec?" without re-stating the
 ;; `rf.registrar/registrations :route` walk at each call site.
@@ -625,7 +626,8 @@
   `:params`, `:query`, `:scroll`, `:can-leave`, the computed `:rf.route/rank`
   / `:rf.route/compiled` / coercion tables, source coords) for `route-id`, or
   nil if no route is registered under that id. Mirrors the sibling
-  `resource-meta` / machines `machine-meta` introspection accessors. Per Spec
+  `resource-meta` introspection accessors (machines have no per-id accessor
+  — rf2-kuky.31 retired theirs for the generic read). Per Spec
   012 §Reserved route-metadata keys."
   [route-id]
   (rf.registrar/lookup :route route-id))

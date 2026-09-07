@@ -134,10 +134,10 @@
                 :actions {:break (fn [_] {:data {:attempts "nope" :token nil :error nil}})}
                 :states  {:idle {:on {:auth.login/break {:target :idle :action :break}}}}}]
       (rf.machines/reg-machine* flow-id {:schema AuthLoginEvent} spec)
-      ;; The machine meta is stamped — machine-meta reads the spec + [:schemas :data]
+      ;; The machine meta is stamped — the :rf/machine projection reads the spec + [:schemas :data]
       ;; back (so the schema is live, not inert).
       (let [meta (:rf/machine (rf/handler-meta {:source :store :kind :event :id flow-id}))]
-        (is (some? meta) "machine-meta is non-nil (meta WAS stamped)")
+        (is (some? meta) "the :rf/machine projection is non-nil (meta WAS stamped)")
         (is (= AuthLoginData (get-in meta [:schemas :data]))
             "[:schemas :data] round-trips through the `:rf/machine` projection — it is LIVE"))
       ;; And it actually validates: an action returning a non-int :attempts

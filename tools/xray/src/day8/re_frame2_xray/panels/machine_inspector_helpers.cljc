@@ -238,8 +238,7 @@
   "One row per registered machine. `machine-id` is the keyword the
   machine is registered under (per Spec 005); `snapshot` is the
   current `{:state :data}` map (or nil for uninitialised machines).
-  `definition` is the registered machine spec (`(rf.machines/machine-meta
-  machine-id)`); nil when the spec is not yet introspectable.
+  `definition` is the registered machine spec (the `:rf/machine` registrar projection); nil when the spec is not yet introspectable.
 
   Per the panel's minimum-viable contract the row carries:
 

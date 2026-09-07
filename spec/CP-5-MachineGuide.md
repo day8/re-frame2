@@ -7,7 +7,7 @@ This file is intentionally **kept separate** from Construction-Prompts.md so tha
 
 ## Registration — `reg-machine` and `reg-machine*`
 
-Two equivalent surfaces register a machine; CP-5-generated scaffolds default to **`reg-machine`** (the macro). Both register the same thing — an event handler whose body interprets the transition table — and both stamp the registry slot with `:rf/machine? true` and `:rf/machine <spec>` so that `(rf.machines/machines)` and `(rf.machines/machine-meta id)` see the registration (per [005 §Querying machines](005-StateMachines.md#querying-machines)).
+Two equivalent surfaces register a machine; CP-5-generated scaffolds default to **`reg-machine`** (the macro). Both register the same thing — an event handler whose body interprets the transition table — and both stamp the registry slot with `:rf/machine? true` and `:rf/machine <spec>` so that `(rf.machines/machines)` and the per-id `:rf/machine` registrar projection see the registration (per [005 §Querying machines](005-StateMachines.md#querying-machines)).
 
 ```clojure
 ;; Standard form — the macro (preferred).
@@ -79,7 +79,7 @@ For the third case (compound predicate), prefer naming the compound — `:eligib
 
 ## v1 grammar subset
 
-v1 ships the **machine-as-event-handler foundation** — `make-machine-handler`, `machine-transition`, the `[:rf.machine/spawn ...]` and `[:rf.machine/destroy ...]` lifecycle fx, the reserved fx-id `:raise` (machine-internal), the `[:rf.runtime/machines :snapshots <id>]` runtime-db storage scheme, four-level drain, machine-scoped `:guards` / `:actions` declaration with registration-time validation, and the discovery lens (`(rf.machines/machines)` / `(rf.machines/machine-meta id)`).
+v1 ships the **machine-as-event-handler foundation** — `make-machine-handler`, `machine-transition`, the `[:rf.machine/spawn ...]` and `[:rf.machine/destroy ...]` lifecycle fx, the reserved fx-id `:raise` (machine-internal), the `[:rf.runtime/machines :snapshots <id>]` runtime-db storage scheme, four-level drain, machine-scoped `:guards` / `:actions` declaration with registration-time validation, and the discovery lens (`(rf.machines/machines)` plus the per-id `:rf/machine` registrar projection).
 
 The grammar this foundation interprets (per [005 §Capability matrix](005-StateMachines.md#capability-matrix)):
 

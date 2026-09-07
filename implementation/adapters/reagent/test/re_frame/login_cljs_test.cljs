@@ -20,7 +20,7 @@
    trip) — which is exactly the machine surface this ns pins.
 
    Coverage:
-     - data-schema-attached         — `(machine-meta :auth.login/flow)`
+     - data-schema-attached         — the `:rf/machine` projection of `:auth.login/flow`
        carries `AuthLoginData`; the schema rejects malformed `:data`.
      - malformed-data-fails-boundary — driving the machine's `:failure` with a
        non-string message makes `:record-error` write a NON-string into `:error`
@@ -97,7 +97,7 @@
 (deftest data-schema-attached
   (testing "the login machine carries AuthLoginData on its [:schemas :data] slot"
     (let [meta (:rf/machine (rf/handler-meta {:source :store :kind :event :id :auth.login/flow}))]
-      (is (some? meta) "machine-meta resolves the registered login machine")
+      (is (some? meta) "the :rf/machine projection resolves the registered login machine")
       (is (= login.model/AuthLoginData (get-in meta [:schemas :data]))
           "the [:schemas :data] schema round-trips as login.model/AuthLoginData")))
   (testing "AuthLoginData validates the :data slot only (rejects a non-string :error)"

@@ -699,12 +699,13 @@
   "The `{machine-id meta}` definition map for `machines` — each machine's spec
   map (`:initial`, `:data`, `:states`, `:guards`, …) read from the HOST app's
   `:event` registrar's `:rf/machine` slot (the same value
-  `re-frame.machines/machine-meta` returns).
+  the `:rf/machine` registrar projection returns).
 
-  Resolved via `(rf/handler-meta {:source :store :kind :event :id id})` (the
-  SOURCE-STORE read, which never consults a bound image generation), NOT
-  `(machines/machine-meta id)`: the framework's
-  `machine-meta` reads `registrar/lookup :event id`, which is generation-scoped.
+  Resolved via `(rf/handler-meta {:source :store :kind :event :id id})` — the
+  SOURCE-STORE read, which never consults a bound image generation. The
+  `{:source :store}` selector is load-bearing here: `registrar/lookup :event id`
+  (what the artefact's own `resolver/spec-from-registry` uses) is
+  generation-scoped.
   This fn runs inside the `:rf.xray/machine-definitions` sub COMPUTATION under
   Xray's OWN image-loaded `:rf/xray` frame, so a generation-scoped read would
   resolve through Xray's image (no host machines) and lose every definition.

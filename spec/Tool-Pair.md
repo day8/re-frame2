@@ -410,13 +410,16 @@ Per [Spec 005 §Source-coord stamping](005-StateMachines.md#source-coord-stampin
 
 ```clojure
 ;; Per-element definition coord + source — co-located on the entry:
-(get-in (rf.machines/machine-meta :auth/login) [:guards :form-valid?])
+(get-in (rf/handler-meta {:source :store :kind :event :id :auth/login})
+        [:rf/machine :guards :form-valid?])
 ;; {:fn <fn> :source-coords {:ns ... :line ... :column ... :file ...} :source-code "(fn ...)"}
 
 ;; Reference-site coords — read directly off the map node:
-(get-in (rf.machines/machine-meta :auth/login) [:states :form :source-coords])
+(get-in (rf/handler-meta {:source :store :kind :event :id :auth/login})
+        [:rf/machine :states :form :source-coords])
 ;; {:ns ... :line ... :column ... :file ...}
-(get-in (rf.machines/machine-meta :auth/login) [:states :form :on :submit :source-coords])
+(get-in (rf/handler-meta {:source :store :kind :event :id :auth/login})
+        [:rf/machine :states :form :on :submit :source-coords])
 ;; {:ns ... :line ... :column ... :file ...}
 ```
 
@@ -613,7 +616,7 @@ The full attachment surface, from the tool's point of view:
 | Enumerate frames | `(rf/frame-ids)`, `(rf/frame-meta id)` — the public frame-id space is the whole public address ([EP-0023](../docs/EP/EP-0023-image-loaded-frames.md) §Public API) | [002 §Public registrar query API](002-Frames.md#the-public-registrar-query-api) |
 | Read a frame's app-db | `(rf/app-db-value frame-id)` / `(get-in (rf/app-db-value frame-id) path)` | [002 §Public registrar query API](002-Frames.md#the-public-registrar-query-api) |
 | Inspect the registry | `(rf/registrations {:source :store :kind kind})`, `(rf/handler-meta {:source :store :kind kind :id id})` | [001](001-Registration.md), [002](002-Frames.md) |
-| Enumerate machines | `(rf.machines/machines)`, `(rf.machines/machine-meta id)` | [005 §Querying machines](005-StateMachines.md#querying-machines) |
+| Enumerate machines | `(rf.machines/machines)`, then `(:rf/machine (rf/handler-meta {:source :store :kind :event :id id}))` per id | [005 §Querying machines](005-StateMachines.md#querying-machines) |
 | Inspect the sub-cache (CLJS-only) | `(rf/sub-cache frame-id)` | [002 §Public registrar query API](002-Frames.md#the-public-registrar-query-api) |
 | Source coords for any registration | `:ns`/`:line`/`:column`/`:file` keys on `(handler-meta ...)` return; shape `:rf/source-coord-meta` per [Spec-Schemas](Spec-Schemas.md#rfsource-coord-meta) | [001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference) |
 | Dispatch | `(rf/dispatch event opts)` / `(rf/dispatch-sync event opts)` | [002 §Routing](002-Frames.md#routing-the-dispatch-envelope) |

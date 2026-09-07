@@ -166,15 +166,15 @@ The result is one plain map:
 
 Effects are asserted as data. The HTTP request is not performed in this test; the returned `:fx` description is inspected.
 
-`machine-transition` and `machine-meta` live on `re-frame.machines`, not the `rf/` facade.
+`machine-transition` lives on `re-frame.machines`, not the `rf/` facade.
 
 ## Testing registered definitions
 
-If a machine is already registered and you want its registered definition, use machine metadata:
+If a machine is already registered and you want its registered definition, read it off the registration. There is no `machine-meta` accessor: a machine is an `:event` registration carrying `:rf/machine? true`, and its spec rides at the reserved `:rf/machine` key.
 
 ```clojure
 (rf.machines/machine-transition
-  (rf.machines/machine-meta :auth.login/flow)
+  (:rf/machine (rf/handler-meta {:source :store :kind :event :id :auth.login/flow}))
   snapshot
   trigger)
 ```
