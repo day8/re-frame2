@@ -238,7 +238,7 @@
   §op-type vocabulary they are disjoint, so neither alone is a complete
   record of an actor going away. `:rf.machine/destroyed` is the
   fx-substrate terminal — the normal teardown (`:explicit`,
-  `:rf.machine/finished`, `:rf.machine/join-reaped`);
+  `:rf.machine/finished`);
   `:rf.machine.lifecycle/destroyed` is the registrar-substrate
   frame-exit reap (`:parent-frame-destroyed`, its sole reason).
 

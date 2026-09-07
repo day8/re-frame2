@@ -432,8 +432,8 @@
    :rf.machine.timer/fired                 :completed
    :rf.machine/done                        :completed
    ;; An explicit actor teardown emits the canonical terminal cancellation
-   ;; reply on `:rf.machine/destroyed`. Non-cancelling finished/join-reaped
-   ;; cleanup rows use the same operation but carry no reply facts; the row
+   ;; reply on `:rf.machine/destroyed`. Non-cancelling `:rf.machine/finished`
+   ;; rows use the same operation but carry no reply facts; the row
    ;; projector below admits only the `:rf.reply/status :cancelled` shape.
    :rf.machine/destroyed                   :completed
    ;; ---- stale suppression (the correctness boundary) ----
