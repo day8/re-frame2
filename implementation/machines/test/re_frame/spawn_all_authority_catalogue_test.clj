@@ -93,26 +93,31 @@
           [:rf.runtime/machines :spawned parent-id invoke-id]))
 
 (defn- mk-child
-  "A dispatching child: on `:go` / `:fail` it transitions to a PLAIN
-  (non-`:final?`) terminal and dispatches its completion back to
-  `parent-id` THROUGH its own handler boundary, so `stamp-join-completion-fx`
-  rewrites the completion into the `:rf.machine/join-dispatch` transport and
-  the runtime stamps its exact-attempt coordinate on the recordable `:rf.cofx`
-  fact `:rf.machine/join-attempt` (the metadata slot is not read)."
-  [parent-id]
+  "A join child. Completion IS finality: on `:go` / `:fail` it reaches a
+  `:final?` terminal whose `:output-key` names the result, and the runtime's
+  finalize cascade mints the exact-attempt coordinate straight off the child's
+  `:rf/join-child` membership record. The child names no parent and dispatches
+  nothing."
+  []
   {:initial :running
    :data    {:id nil}
-   :actions {:record-id     (fn [{data :data ev :event}]
-                              {:data (assoc data :id (second ev))})
-             :dispatch-done (fn [{data :data}]
-                              {:fx [[:dispatch [parent-id [:child/done (:id data)]]]]})
-             :dispatch-err  (fn [{data :data}]
-                              {:fx [[:dispatch [parent-id [:child/failed (:id data)]]]]})}
+   :actions {:record-id (fn [{data :data ev :event}]
+                          {:data (assoc data :id (second ev))})}
    :states  {:running {:on {:set-id {:action :record-id}
-                            :go     {:target :done   :action :dispatch-done}
-                            :fail   {:target :failed :action :dispatch-err}}}
-             :done   {}
-             :failed {}}})
+                            :go     {:target :done}
+                            :fail   {:target :failed}}}
+             :done   {:final? true :output-key :id}
+             :failed {:final? true :error? true :output-key :id}}})
+
+(defn- completion
+  "The reserved completion carrier the runtime mints at a child's finality,
+  hand-built here so a fixture can present a LATE / STALE / UNSTAMPED one.
+  `coord` is the exact-attempt coordinate (omit it for the coordinate-less
+  case the fence classifies `:attempt-unverified`)."
+  ([invoke-id child-id] (completion invoke-id child-id nil))
+  ([invoke-id child-id coord]
+   [:rf.machine.spawn/done invoke-id
+    (merge {:child-id child-id :result child-id :error? false} coord)]))
 
 (defn- reg-join-parent!
   "Register a two-child join parent (mode + resolution keys via
@@ -121,8 +126,8 @@
   join slot survives for post-resolution probes. Returns the seeded join
   state."
   [parent-kw child-a-kw child-b-kw spawn-all-extra]
-  (rf/reg-machine child-a-kw (mk-child parent-kw))
-  (rf/reg-machine child-b-kw (mk-child parent-kw))
+  (rf/reg-machine child-a-kw (mk-child))
+  (rf/reg-machine child-b-kw (mk-child))
   (rf/reg-machine parent-kw
     {:initial :idle
      :states  {:idle   {:on {:start :racing}}
@@ -140,8 +145,8 @@
   IN-PROGRESS — a membership-verified explicit teardown, so the runtime records a
   cancellation TOMBSTONE. Returns the seeded live join state."
   [parent-kw child-a-kw child-b-kw]
-  (rf/reg-machine child-a-kw (mk-child parent-kw))
-  (rf/reg-machine child-b-kw (mk-child parent-kw))
+  (rf/reg-machine child-a-kw (mk-child))
+  (rf/reg-machine child-b-kw (mk-child))
   (rf/reg-machine parent-kw
     {:initial :idle
      :actions {:kill-child (fn [{ev :event}]
@@ -314,12 +319,9 @@
         ;; a runtime that stopped seeding `:cancelled` would be caught here.
         (is (not (m/validate InvokeAllJoinState (dissoc tombstoned :cancelled)))
             "dissociating :cancelled FAILS the extracted schema — the tombstone is required")
-        ;; a LATE exact-current completion carrier for :a cannot resurrect
-        ;; it. The coordinate rides the recordable `:rf.cofx` slot
-        ;; (rf2-nsbwft — the metadata slot is not read).
+        ;; a LATE exact-current completion carrier for :a cannot resurrect it.
         (rf.machines.test-support/reset-captured!)
-        (rf/dispatch-sync [:sac/tomb [:child/done :a]]
-                          {:rf.cofx {:rf.machine/join-attempt attempt}})
+        (rf/dispatch-sync [:sac/tomb (completion [:racing] :a attempt)])
         (let [after (join-state :sac/tomb [:racing])
               stale (first (rf.machines.test-support/events-of :rf.machine.spawn-all/stale-completion))]
           (is (= #{} (:done after))
@@ -330,60 +332,6 @@
           (is (= :rf.machine.spawn-all/duplicate-completion
                  (:rf.reply/stale-reason (:tags stale)))
               "the late carrier is classified a duplicate terminal against the tombstone"))))))
-
-;; ---------------------------------------------------------------------------
-;; 1bb. NARROWING — the join-completion coordinate is read ONLY from the
-;;      recordable `:rf.cofx` slot; the event-vector metadata slot is not read
-;;      (rf2-nsbwft). This is a slot narrowing, not a secrecy boundary
-;;      (rf2-cpbjfp).
-;; ---------------------------------------------------------------------------
-
-(deftest exact-current-metadata-tuple-folds-nothing-slot-not-read
-  (testing "rf2-nsbwft / rf2-cpbjfp — a public `rf/dispatch-sync` carrying an
-            EXACT-CURRENT `:rf/join-attempt` coordinate on event-vector METADATA
-            — every field read straight off live runtime state (parent/invoke
-            identity, logical child id, current spawned instance address, current
-            attempt token) — folds NOTHING: no `:done` fold, no resolution. Not
-            because the coordinate is a forgery (it is exact-current, and the
-            fence accepts exact-current coordinates on the cofx slot regardless
-            of source), but because the METADATA SLOT IS NOT READ — a pure
-            narrowing. `:attempt-unverified` is the fail-closed classification.
-            Pre-fix `carrier-attempt`'s metadata fallback read it and flipped the
-            unresolved join from `:done #{}` to `:done #{:a}` without child `:a`
-            ever completing."
-    (let [j (reg-join-parent! :sac/forge :sac/forgea :sac/forgeb
-                              {:join :all :on-all-complete [:all/done]})
-          a (get-in j [:children :a])
-          ;; An exact-current coordinate — every field matches live state — but
-          ;; presented on the metadata slot, which is not read.
-          exact-current {:parent-id  :sac/forge
-                         :invoke-id  [:racing]
-                         :child-id   :a
-                         :spawned-id a
-                         :attempt    (:rf/attempt j)}]
-      (is (= #{} (:done j)) "precondition: child :a has not completed")
-      (rf.machines.test-support/reset-captured!)
-      ;; Present the exact-current coordinate on event-vector metadata — the
-      ;; pre-fix metadata fallback read it; the fence no longer does.
-      (rf/dispatch-sync [:sac/forge (with-meta [:child/done :a]
-                                      {:rf/join-attempt exact-current})])
-      (let [after (join-state :sac/forge [:racing])
-            stale (first (rf.machines.test-support/events-of :rf.machine.spawn-all/stale-completion))]
-        (is (= #{} (:done after))
-            "the metadata-borne coordinate folded NOTHING (slot not read)")
-        (is (false? (:resolved? after))
-            "the join did not resolve on the metadata carrier")
-        (is (some? stale)
-            "a stale-completion suppression fired for the coordinate-less carrier")
-        (is (= :rf.machine.spawn-all/attempt-unverified
-               (:rf.reply/stale-reason (:tags stale)))
-            "the metadata slot is not read — classified :attempt-unverified"))
-      ;; And a REAL child completion (through its own handler boundary, so the
-      ;; coordinate rides the recordable `:rf.cofx` slot) still folds — the fix
-      ;; removes ONLY the metadata read, not the framework-produced path.
-      (rf/dispatch-sync [a [:go]])
-      (is (= #{:a} (:done (join-state :sac/forge [:racing])))
-          "a real child completion still folds once through the recordable transport"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 1c. SCHEMA — the childless REJECT sentinel is a THIRD legal `:spawned` arm,
@@ -488,17 +436,15 @@
       (rf/dispatch-sync [a [:go]])
       (is (true? (:resolved? (join-state :sac/p3 [:racing]))) "the :any join resolved")
       (rf.machines.test-support/reset-captured!)
-      ;; :a's EXACT-CURRENT completion re-completes AFTER the :resolved? latch
+      ;; :a's EXACT-CURRENT completion re-presents AFTER the :resolved? latch
       ;; flipped — the late-completion path is gated on the exact-attempt fence
-      ;; (rf2-ixjd48), so the carrier presents the current attempt's coordinate
-      ;; on the recordable `:rf.cofx` slot (rf2-nsbwft).
+      ;; (rf2-ixjd48), so the carrier presents the current attempt's coordinate.
       (rf/dispatch-sync
-        [:sac/p3 [:child/done :a]]
-        {:rf.cofx {:rf.machine/join-attempt {:parent-id  :sac/p3
-                                          :invoke-id  [:racing]
-                                          :child-id   :a
-                                          :spawned-id a
-                                          :attempt    (:rf/attempt (join-state :sac/p3 [:racing]))}}})
+        [:sac/p3 (completion [:racing] :a
+                             {:parent-id  :sac/p3
+                              :invoke-id  [:racing]
+                              :spawned-id a
+                              :attempt    (:rf/attempt (join-state :sac/p3 [:racing]))})])
       (let [late (first (rf.machines.test-support/events-of :rf.machine.spawn-all/late-completion))]
         (is (some? late) "the late-completion op fired")
         (is (= :stale (:rf.reply/status (:tags late))))
@@ -516,9 +462,9 @@
     (reg-join-parent! :sac/p4 :sac/p4a :sac/p4b
                       {:join :all :on-all-complete [:all/done]})
     (rf.machines.test-support/reset-captured!)
-    ;; A bare hand-dispatched completion never flowed through the member
-    ;; child's boundary, so it carries no runtime `:rf/join-attempt` stamp.
-    (rf/dispatch-sync [:sac/p4 [:child/done :a]])
+    ;; A hand-authored completion carrier that never came from a child's
+    ;; finality, so it carries no runtime-minted exact-attempt coordinate.
+    (rf/dispatch-sync [:sac/p4 (completion [:racing] :a)])
     (let [stale (first (rf.machines.test-support/events-of :rf.machine.spawn-all/stale-completion))]
       (is (some? stale) "the stale-completion op fired")
       (is (= :stale (:rf.reply/status (:tags stale))))

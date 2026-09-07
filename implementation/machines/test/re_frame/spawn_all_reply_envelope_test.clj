@@ -23,6 +23,9 @@
   in the pure `machines-reply` test."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            ;; Loading `re-frame.machines` installs the artefact's late-bind
+            ;; hooks and reserved fx handlers, which `rf/reg-machine` requires.
+            [re-frame.machines]
             [re-frame.machines.reply :as rf.machines.reply]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.reply :as rf.reply]
@@ -32,24 +35,22 @@
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- mk-child
-  [parent-id done-event-kw error-event-kw]
+  "A join child that completes by reaching a TOP-LEVEL `:final?` state,
+  reporting its own :id as the result. `:go` reaches the plain final `:done`;
+  `:fail` reaches the `:error? true` final `:failed`. It names no parent and
+  no completion event — completion IS finality."
+  []
   {:initial :running
    :data    {:id nil}
-   :actions {:dispatch-done
-             (fn [{data :data}]
-               {:fx [[:dispatch [parent-id [done-event-kw (:id data)]]]]})
-             :dispatch-error
-             (fn [{data :data}]
-               {:fx [[:dispatch [parent-id [error-event-kw (:id data)]]]]})
-             :record-id
+   :actions {:record-id
              (fn [{data :data ev :event}]
                {:data (assoc data :id (second ev))})}
    :states
    {:running {:on {:set-id {:action :record-id}
-                   :go     {:target :done   :action :dispatch-done}
-                   :fail   {:target :failed :action :dispatch-error}}}
-    :done   {}
-    :failed {}}})
+                   :go     {:target :done}
+                   :fail   {:target :failed}}}
+    :done   {:final? true :output-key :id}
+    :failed {:final? true :error? true :output-key :id}}})
 
 ;; ---- pure reply-helper level ----------------------------------------------
 
@@ -99,7 +100,7 @@
 (deftest all-completed-trace-carries-decisive-child-reply
   (testing "rf2-d63qtp — the :all-completed resolution trace carries the
             decisive child's reply-envelope facts (:work/id, :status :ok)"
-    (let [child  (mk-child :sup/relp1 :asset/loaded :asset/failed)
+    (let [child  (mk-child)
           parent {:initial :idle
                   :states
                   {:idle      {:on {:start :hydrating}}
@@ -136,7 +137,7 @@
 (deftest any-failed-trace-carries-decisive-child-reply
   (testing "rf2-d63qtp — the :any-failed resolution trace carries the
             decisive child's reply-envelope facts (:status :error)"
-    (let [child  (mk-child :sup/relp2 :asset/loaded :asset/failed)
+    (let [child  (mk-child)
           parent {:initial :idle
                   :states
                   {:idle      {:on {:start :hydrating}}
@@ -172,11 +173,11 @@
   (testing "rf2-d63qtp — a post-resolution late completion (a known child
             re-completing after the join latched) rides a :status :stale /
             :rf.reply/work-status :suppressed reply on the late-completion trace"
-    (let [child  (mk-child :sup/relp3 :asset/loaded :asset/failed)
+    (let [child  (mk-child)
           ;; Parent stays in :hydrating across resolution by NOT declaring
           ;; an :on for the resolution event (the runtime still dispatches
           ;; :hydrate/some, but no transition fires) — so the join slot
-          ;; survives and a re-dispatch of a known child-id flows through
+          ;; survives and a re-minted carrier for a known child flows through
           ;; the :resolved? late-completion branch.
           parent {:initial :idle
                   :states
@@ -197,19 +198,21 @@
           ;; First child resolves the :any join.
           (rf/dispatch-sync [(:a ids) [:go]])
           ;; The decisive child :a re-completes LATE (the join already
-          ;; latched :resolved?). Its EXACT-CURRENT :on-child-done lands as a
-          ;; post-resolution late-completion — the fix gates that path on exact
-          ;; authority, so the carrier is stamped for the current attempt
-          ;; (rf2-ixjd48).
+          ;; latched :resolved?). Only an EXACT-CURRENT carrier reaches the
+          ;; post-resolution late-completion branch — the ownership + attempt
+          ;; gates run ahead of the :resolved? classification (rf2-ixjd48) —
+          ;; so the coordinate is copied from the live join state.
           (let [j (get-in (rf.machines.test-support/runtime-db)
                           [:rf.runtime/machines :spawned :sup/relp3 [:hydrating]])]
             (rf/dispatch-sync
-              [:sup/relp3 [:asset/loaded :a]]
-              {:rf.cofx {:rf.machine/join-attempt {:parent-id  :sup/relp3
-                                                :invoke-id  [:hydrating]
-                                                :child-id   :a
-                                                :spawned-id (:a ids)
-                                                :attempt    (:rf/attempt j)}}})))
+              [:sup/relp3 [:rf.machine.spawn/done [:hydrating]
+                           {:result     :a
+                            :error?     false
+                            :parent-id  :sup/relp3
+                            :invoke-id  [:hydrating]
+                            :child-id   :a
+                            :spawned-id (:a ids)
+                            :attempt    (:rf/attempt j)}]])))
         (let [late (->> @captured
                         (filter #(= :rf.machine.spawn-all/late-completion (:operation %)))
                         first)]
@@ -255,6 +258,19 @@
               (keep :rf.reply/work-status))
         @captured))
 
+(defn- work-reply-rows
+  "`work-statuses-for-spawned`'s diagnostic twin: `[<trace-op>
+  <work-status>]` pairs for `spawned-id`'s work-id, so a failure message
+  names WHICH authority published each status rather than only how many
+  there were."
+  [captured spawned-id]
+  (into []
+        (comp (filter #(= spawned-id (second (:rf.reply/work-id (:tags %)))))
+              (keep (fn [ev]
+                      (when-let [st (:rf.reply/work-status (:tags ev))]
+                        [(:operation ev) st]))))
+        @captured))
+
 (def ^:private terminal-work-statuses
   "The closed TERMINAL work-status set — a child attempt closes on exactly
   one of these (`:suppressed` is the stale/late non-terminal fold)."
@@ -265,7 +281,7 @@
             EXACTLY ONE terminal work-reply (:completed) and is NEVER
             re-classified :cancelled by the join teardown, while the surviving
             sibling B still emits its cancelled-on-join-resolution cancellation"
-    (let [child  (mk-child :sup/tj-ok :asset/loaded :asset/failed)
+    (let [child  (mk-child)
           parent {:initial :idle
                   :states
                   {:idle   {:on {:start :racing}}
@@ -297,7 +313,8 @@
             ;; terminal for the same work-id.
             (is (= [:completed] a-terminals)
                 (str "completed child A emits EXACTLY ONE terminal work-reply "
-                     "(:completed), NOT a subsequent :cancelled; saw " a-statuses))
+                     "(:completed), NOT a subsequent :cancelled; saw "
+                     (work-reply-rows captured a-id)))
             (is (not (contains? (set a-statuses) :cancelled))
                 "the completed child A is never classified :cancelled by teardown")
             ;; B: survivor still closes :cancelled (legitimate cancellation).
@@ -316,7 +333,7 @@
             child A emits EXACTLY ONE terminal work-reply (:failed) and is NEVER
             re-classified :cancelled, while the surviving sibling B still emits
             its cancellation"
-    (let [child  (mk-child :sup/tj-fail :asset/loaded :asset/failed)
+    (let [child  (mk-child)
           parent {:initial :idle
                   :states
                   {:idle   {:on {:start :racing}}
@@ -360,7 +377,7 @@
             consistency — no work-id carries both a completion and a
             cancellation. There are no survivors in an all-complete, so NO child
             is spuriously :cancelled; the decisive child closes :completed"
-    (let [child  (mk-child :sup/tj-all :asset/loaded :asset/failed)
+    (let [child  (mk-child)
           parent {:initial :idle
                   :states
                   {:idle      {:on {:start :hydrating}}
@@ -439,7 +456,7 @@
             :reason :rf.machine/join-reaped and NO cancellation reply fields.
             Fails if the reason is misspelled/substituted, or if the completed
             child is routed back through the :explicit cancellation destroy"
-    (let [child  (mk-child :sup/ev-ok :asset/loaded :asset/failed)
+    (let [child  (mk-child)
           parent {:initial :idle
                   :states
                   {:idle   {:on {:start :racing}}
@@ -476,7 +493,7 @@
   (testing "rf2-evejwu — the failure-side counterpart: a LIVE (non-:final?)
             FAILED :spawn-all child is reaped with :reason :rf.machine/join-reaped
             and no cancellation fields (covers the error-finality fold)"
-    (let [child  (mk-child :sup/ev-fail :asset/loaded :asset/failed)
+    (let [child  (mk-child)
           parent {:initial :idle
                   :states
                   {:idle   {:on {:start :racing}}

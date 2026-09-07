@@ -1516,11 +1516,8 @@
 ;; when its body installs/clears durable frame runtime state
 ;; (`:rf.machine/spawn`, `:rf.machine/destroy`, `:rf.fx/reg-flow`,
 ;; `:rf.fx/clear-flow`, `:rf.route/with-nav-token`).
-;; rf2-0qsp5: the source set has a SIXTH member on a DIFFERENT rationale —
-;; the private `:rf.machine/join-dispatch` join-completion transport, which
-;; writes NO runtime state and threads NO nav-token but must not be captured
-;; or suppressed (rf2-2lzk8a). §7e pins that its diagnostic says so.
-;; Three defence layers:
+;; rf2-0qsp5: the diagnostic's `:reason` is id-specific rather than one blanket
+;; clause — §7e pins that. Three defence layers:
 ;;   (1) dev per-call reject in `handle-one-fx`  — emit + run reserved body
 ;;   (2) production prod-strip `strip-rejected-overrides` — drop keys loudly
 ;;   (3) cascade-exclusion in `child-dispatch-opts` — never inherit a
@@ -1882,24 +1879,25 @@
         (is (zero? (count (filter #(= :rf.error/reserved-fx-override (:operation %)) @traces)))
             "no :rf.error/reserved-fx-override fired — the override was excluded from the child opts (not inherited-then-rejected)")))))
 
-;; ---- 7d. SOURCE vs TARGET policy separation (rf2-1w4af) -------------------
+;; ---- 7d. the SOURCE policy is the only policy (rf2-1w4af) -----------------
 ;;
 ;; `rejected-reserved-fx-ids` once served TWO policies conflated into one set:
 ;;   (1) non-overridable SOURCE  — an id whose real body may not be OVERRIDDEN.
 ;;   (2) non-redirectable TARGET — an id a keyword-redirect may not name.
 ;; A non-overridable source is NOT automatically a non-redirectable target: an
 ;; app can emit `:rf.machine/spawn` / `:rf.machine/destroy` directly, so a
-;; custom effect may redirect to the same real handler. Only the private
-;; `:rf.machine/join-dispatch` transport keeps BOTH policies (its own
-;; self-recursion / framework-path rationale). The fixture reloads
-;; `re-frame.machines`, so `:rf.machine/spawn` / `:rf.machine/destroy` are real
-;; registrar fxs here.
+;; custom effect may redirect to the same real handler. The target policy was
+;; narrowed to ONE private transport — the `:spawn-all` join-completion
+;; transport — and emptied when that transport was retired with the
+;; child-completion protocol, so only the source policy remains. The fixture
+;; reloads `re-frame.machines`, so `:rf.machine/spawn` / `:rf.machine/destroy`
+;; are real registrar fxs here.
 
 (deftest source-nonoverridable-is-redirectable-target
   (testing "a NON-OVERRIDABLE SOURCE (:rf.machine/spawn / :rf.machine/destroy)
             is a REDIRECTABLE TARGET — a custom effect resolves to the real
-            registered handler (was WRONGLY :protected-rejection when the two
-            policies shared one set)"
+            registered handler (was WRONGLY refused as a protected target when
+            the two policies shared one set)"
     (doseq [id [:rf.machine/spawn :rf.machine/destroy]]
       (is (some? (rf.registrar/lookup :fx id))
           (str "precondition: the machines artefact registered " id))
@@ -1913,25 +1911,23 @@
       (is (= {} (rf.fx/strip-rejected-overrides {id (fn [_ _] :stub)} :rf/default [:some/event]))
           (str "a direct " id " override is rejected/stripped"))))
 
-  (testing "vice-versa: the private :rf.machine/join-dispatch transport stays a
-            NON-REDIRECTABLE TARGET (independent redirect-specific rationale) AND
-            a NON-OVERRIDABLE SOURCE — re-conflating the sets would break the
-            redirect-target case above"
-    (is (= {:disposition :protected-rejection :target :rf.machine/join-dispatch}
-           (rf.fx/classify-fx-override {:dispatch :rf.machine/join-dispatch} :dispatch))
-        "redirecting canonical dispatch to :rf.machine/join-dispatch is still refused")
-    (is (= {} (rf.fx/strip-rejected-overrides
-                {:rf.machine/join-dispatch (fn [_ _] :stub)} :rf/default [:some/event]))
-        "a direct :rf.machine/join-dispatch override is still stripped")))
+  (testing "there is NO protected-TARGET disposition left to reach: a redirect
+            naming an UNREGISTERED id falls through honestly rather than being
+            refused as protected — the only two dispositions a keyword redirect
+            can now produce"
+    (is (= {:disposition :fallthrough :reason :unregistered :target :nobody/home}
+           (rf.fx/classify-fx-override {:dispatch :nobody/home} :dispatch))
+        "an unregistered redirect target is an honest :fallthrough")
+    (is (= {:disposition :applied-redirect :target :rf.machine/spawn}
+           (rf.fx/classify-fx-override {:dispatch :rf.machine/spawn} :dispatch))
+        "a registered redirect target applies, even one that is a rejected SOURCE")))
 
 ;; ---- 7e. the reject diagnostic's REASON is policy-accurate (rf2-0qsp5) -----
 ;;
 ;; The always-on `:rf.error/reserved-fx-override` `:reason` used to assert ONE
 ;; blanket rationale for the whole source set — "installs/clears durable frame
-;; runtime state (or threads a correctness-critical nav-token)". That is FALSE
-;; for `:rf.machine/join-dispatch`, which writes no runtime-db and threads no
-;; nav-token: its source-policy membership is protection of a PRIVATE transport
-;; from capture/suppression (rf2-2lzk8a). A programmer who overrode it was
+;; runtime state (or threads a correctness-critical nav-token)". The set has
+;; held members that clause was FALSE for, and a programmer who overrode one was
 ;; handed the wrong reason on a production-reachable error channel.
 ;;
 ;; The reason is now id-specific. TAG SHAPE IS UNCHANGED — `:reason` was
@@ -1987,26 +1983,6 @@
         (is (string? (:reason r))
             ":reason was lifted onto the production record alongside :failing-id"))))
 
-  (testing "join-dispatch's reason gives its OWN transport rationale and does
-            NOT claim it installs runtime state or threads a nav-token"
-    (let [reason (reject-reason-for :rf.machine/join-dispatch)]
-      (is (string? reason) "a reason is emitted for :rf.machine/join-dispatch")
-      (is (re-find #"(?i)transport" reason)
-          "the reason names the private join-completion TRANSPORT rationale")
-      (is (re-find #"(?i)captur|suppress" reason)
-          "the reason names capture/suppression as the hazard")
-      ;; The exact blanket clause the diagnostic used to assert for EVERY
-      ;; member — the falsehood this bead removes.
-      (is (not (re-find #"(?i)installs/clears durable" reason))
-          "the old blanket state-installation clause is gone for join-dispatch")
-      ;; Stronger than absence: the reason AFFIRMATIVELY disclaims both of the
-      ;; rationales that do not apply, so a regression to the blanket clause
-      ;; cannot pass by dropping words.
-      (is (re-find #"(?i)installs NO runtime state" reason)
-          "the reason states join-dispatch installs NO runtime state")
-      (is (re-find #"(?i)threads NO nav-token" reason)
-          "the reason states join-dispatch threads NO nav-token")))
-
   (testing "a state-installing member still gets its state-installation reason"
     (let [reason (reject-reason-for :rf.machine/spawn)]
       (is (re-find #"(?i)snapshot|runtime-db" reason)
@@ -2018,7 +1994,7 @@
 
   (testing "every source-policy member has an id-specific reason — none falls
             back to the generic policy clause (rf2-1w4af set-membership pin)"
-    (doseq [id [:rf.machine/spawn :rf.machine/destroy :rf.machine/join-dispatch
+    (doseq [id [:rf.machine/spawn :rf.machine/destroy
                 :rf.fx/reg-flow :rf.fx/clear-flow :rf.route/with-nav-token]]
       (let [reason (reject-reason-for id)]
         (is (re-find (re-pattern (str "\\Q" id "\\E")) reason)
@@ -2026,13 +2002,11 @@
         (is (not (re-find #"is a non-overridable SOURCE \(" reason))
             (str id " has its own rationale line, not the generic fallback")))))
 
-  (testing "the reason distinguishes the SOURCE policy from the TARGET policy —
-            a rejected source is NOT thereby a forbidden redirect target"
-    (is (re-find #"(?i)SOURCE policy ONLY" (reject-reason-for :rf.machine/spawn))
-        "spawn's reason says redirecting a custom effect TO it stays permitted")
-    (is (re-find #"(?i)ALSO the non-redirectable TARGET"
-                 (reject-reason-for :rf.machine/join-dispatch))
-        "join-dispatch's reason says it is additionally a refused redirect target")))
+  (testing "every reason says the SOURCE policy is the only policy — a rejected
+            source is NOT thereby a forbidden redirect target"
+    (doseq [id [:rf.machine/spawn :rf.machine/destroy :rf.route/with-nav-token]]
+      (is (re-find #"(?i)SOURCE policy ONLY" (reject-reason-for id))
+          (str id "'s reason says redirecting a custom effect TO it stays permitted")))))
 
 ;; ---- rf2-twt7m Change 2 — :rf.fx/do-fx carries :fx + :db-present? ---------
 ;;

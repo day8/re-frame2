@@ -455,11 +455,11 @@
   (rf.machines.test-support/events-of :rf.error/machine-spawn-all-bad-child-id))
 
 (defn- resolve-all-join!
-  "Resolve a fresh `reg-join-parent!` `:all` join by completing BOTH children
-  through their own handler boundaries (so they fold with valid attempt
-  coordinates). The parent has no `:on` for `:all/done`, so it stays on
-  `:racing` and the resolved join slot survives for post-resolution probes.
-  Returns the resolved join state."
+  "Resolve a fresh `reg-join-parent!` `:all` join by driving BOTH children to
+  their `:final?` leaves (so each folds through the runtime-minted carrier and
+  its exact-attempt coordinate). The parent has no `:on` for `:all/done`, so it
+  stays on `:racing` and the resolved join slot survives for post-resolution
+  probes. Returns the resolved join state."
   [parent-kw]
   (let [j (join-state parent-kw)]
     (rf/dispatch-sync [(get-in j [:children :a]) [:go]])
@@ -475,9 +475,10 @@
             classified `:attempt-superseded` carrying ITS OWN (attempt-A)
             identity, NO late-completion fires, and B's resolved join is
             untouched (zero db mutation)."
-    (let [j1     (reg-join-parent! :jea/pr1 :jea/pr1a :jea/pr1b)
-          token1 (:rf/attempt j1)
-          a1     (get-in j1 [:children :a])]
+    (let [j1 (reg-join-parent! :jea/pr1 :jea/pr1a :jea/pr1b)
+          a1 (get-in j1 [:children :a])
+          ;; attempt A's OWN completion, captured while attempt A is live.
+          cA (exact-completion :jea/pr1 :a)]
       ;; Tear attempt 1 down (its completion is still 'in flight'), re-enter
       ;; (attempt 2 = B), and RESOLVE B.
       (rf/dispatch-sync [:jea/pr1 [:abort]])
@@ -488,12 +489,7 @@
         (is (not= a1 a2) "attempt B respawned :a as a fresh instance")
         (rf.machines.test-support/reset-captured!)
         ;; Attempt A's exact carrier drains AFTER B resolved.
-        (dispatch-forged! :jea/pr1 [:child/done :a]
-                          {:parent-id  :jea/pr1
-                           :invoke-id  [:racing]
-                           :child-id   :a
-                           :spawned-id a1
-                           :attempt    token1})
+        (dispatch-forged! :jea/pr1 cA)
         ;; (1) exactly :attempt-superseded evidence; NO late-completion.
         (is (= [:rf.machine.spawn-all/attempt-superseded] (stale-reasons))
             "the old-attempt straggler is superseded, not late-completed")
@@ -518,16 +514,10 @@
             `:late-completion` path — the fix gates late-completion on the
             exact-attempt fence, it does not remove it."
     (reg-join-parent! :jea/pr2 :jea/pr2a :jea/pr2b)
-    (let [j (resolve-all-join! :jea/pr2)
-          a (get-in j [:children :a])]
+    (let [j (resolve-all-join! :jea/pr2)]
       (is (true? (:resolved? j)))
       (rf.machines.test-support/reset-captured!)
-      (dispatch-forged! :jea/pr2 [:child/done :a]
-                        {:parent-id  :jea/pr2
-                         :invoke-id  [:racing]
-                         :child-id   :a
-                         :spawned-id a
-                         :attempt    (:rf/attempt j)})
+      (dispatch-forged! :jea/pr2 (exact-completion :jea/pr2 :a))
       (is (= 1 (count (late-completions)))
           "the exact-current carrier still fires the late-completion op")
       (is (empty? (stale-completions))
@@ -545,7 +535,7 @@
     (reg-join-parent! :jea/pr3 :jea/pr3a :jea/pr3b)
     (resolve-all-join! :jea/pr3)
     (rf.machines.test-support/reset-captured!)
-    (dispatch-forged! :jea/pr3 [:child/done :a] nil)
+    (dispatch-forged! :jea/pr3 (unstamped-completion :a))
     (is (empty? (late-completions))
         "no late-completion for a coordinate-less carrier")
     (is (= [:rf.machine.spawn-all/attempt-unverified] (stale-reasons))
@@ -560,7 +550,7 @@
     (reg-join-parent! :jea/pr4 :jea/pr4a :jea/pr4b)
     (resolve-all-join! :jea/pr4)
     (rf.machines.test-support/reset-captured!)
-    (dispatch-forged! :jea/pr4 [:child/done :zzz] nil)
+    (dispatch-forged! :jea/pr4 (unstamped-completion :zzz))
     (is (empty? (late-completions))
         "no late-completion for an unknown child")
     (is (= 1 (count (bad-child-errors)))
