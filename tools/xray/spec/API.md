@@ -509,7 +509,7 @@ reference:
 | `(rf/frame-ids)` / `(rf/frame-meta id)` | Spec 002 | The frame picker. |
 | `(rf.machines/machines)` | Spec 005 | The machine inspector dropdown — 0-ary; returns the seq of machine-ids registered **globally** (every event handler whose registration metadata carries `:rf/machine? true`). It takes no frame argument — only live machine snapshots and system-id lookup are frame-scoped. |
 | `(rf/app-schemas frame-id)` | Spec 010 | The schema-violation timeline rows. |
-| `(rf/sub-cache frame-id)` (CLJS only) | Tool-Pair | The subscription graph. |
+| `(rf.subs.tooling/sub-cache-snapshot frame-id)` (CLJS only) | Tool-Pair | The subscription graph. The `rf/sub-cache` facade alias was removed (rf2-80mmlf) — this is subscription TOOLING rather than an app-author front-porch read, so callers address the owning `re-frame.subs.tooling` namespace directly. |
 | `:rf.trace/dispatch-id` / `:rf.trace/parent-dispatch-id` (in `:tags`) | Spec 009 | The cascade lineage tags read by event-detail and trace surfaces (`:rf.*` single-root names per rf2-y4qpy). |
 | `:rf.event/origin` (in `:tags`) | Spec 009 | The colour-coding axis. |
 | Source-coord metadata (`:ns` / `:line` / `:column` / `:file`) | Spec 001 / 006 | Click-to-source — see `Open in editor` below. |
