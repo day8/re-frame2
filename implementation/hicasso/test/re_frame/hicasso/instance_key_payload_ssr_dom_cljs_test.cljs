@@ -250,7 +250,9 @@
         {:keys [seen stop!]}      (rf.hicasso.roots-frames-support/watch-mismatches!)
         {:keys [captured close!]} (rf.hicasso.roots-frames-support/open-console-capture! capture-opts)
         before                    (some? (open-panel-in container))
-        handle                    (rf.hicasso/hydrate! container {:frame wire-frame} [screen {}])]
+        handle                    (rf.hicasso/hydrate! container {}
+                                            [rf.hicasso/frame-provider {:frame wire-frame}
+                                             [screen {}]])]
     (-> (rf.hicasso.roots-frames-support/adopted! handle)
         (.then (fn [shut?]
                  (close!)

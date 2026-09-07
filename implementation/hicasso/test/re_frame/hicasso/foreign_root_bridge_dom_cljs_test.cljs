@@ -171,7 +171,8 @@
 (defn- hicasso-root
   "THE CONTROL. Hicasso's own root door, and no crossing at all."
   [node frame-kw]
-  (let [handle (rf.hicasso/mount! node {:frame frame-kw} [card {:label "ctl"}])]
+  (let [handle (rf.hicasso/mount! node {}
+                         [rf.hicasso/frame-root {:id frame-kw} [card {:label "ctl"}]])]
     (fn [] (try (rf.hicasso/unmount! handle) (catch :default _ nil)))))
 
 (defn- reagent-root-as-element

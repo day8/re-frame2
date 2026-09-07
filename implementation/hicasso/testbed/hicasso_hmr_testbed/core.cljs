@@ -452,8 +452,9 @@
     (seed! frame label)
     (swap! !handles assoc frame
            (rf.hicasso/mount! (js/document.getElementById container)
-                     {:frame frame}
-                     [views/app {:ref-sink    (get ref-sinks frame)
-                                 :island-refs (island-refs-for frame)}])))
+                     {}
+                     [rf.hicasso/frame-root {:id frame}
+                      [views/app {:ref-sink    (get ref-sinks frame)
+                                  :island-refs (island-refs-for frame)}]])))
   (install-door!)
   nil)

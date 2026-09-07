@@ -62,5 +62,7 @@
   []
   (rf/init! rf.adapter.uix/adapter)
   (make-frame!)
-  (reset! !root (rf.hicasso/mount! (js/document.getElementById "app") {:frame frame-id} [rf.hicasso.examples.typeahead.views/screen {}]))
+  (reset! !root (rf.hicasso/mount! (js/document.getElementById "app") {}
+                          [rf.hicasso/frame-root {:id frame-id}
+                           [rf.hicasso.examples.typeahead.views/screen {}]]))
   nil)

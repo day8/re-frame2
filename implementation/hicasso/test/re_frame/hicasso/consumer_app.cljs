@@ -158,5 +158,6 @@
   []
   (rf/init! rf.adapter.uix/adapter)
   (rf/make-frame {:id frame-id :initial-events [[::seed]]})
-  (reset! !root (rf.hicasso/mount! (js/document.getElementById "app") {:frame frame-id} [app {}]))
+  (reset! !root (rf.hicasso/mount! (js/document.getElementById "app") {}
+                          [rf.hicasso/frame-root {:id frame-id} [app {}]]))
   nil)
