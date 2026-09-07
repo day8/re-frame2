@@ -186,10 +186,13 @@
   ;; at `re-frame.cofx` ns-load; clear-all! wiped it. Re-seat it.
   (require 're-frame.cofx :reload)
   ;; Framework events / fx are registered at ns-load in routing.cljc /
-  ;; ssr.cljc; clear-all! wiped them. Re-eval those registrations. Use the
-  ;; fn-form re-frame.subs/reg-sub (rf/reg-sub is a macro).
-  ((requiring-resolve 're-frame.subs/reg-sub) :rf/route
-   (requiring-resolve 're-frame.routing/route-sub-fn))
+  ;; ssr.cljc; clear-all! wiped them. Re-eval those registrations.
+  ;; rf2-kuky.36 deleted a hand-registration of `:rf/route` that sat here: it
+  ;; went through `re-frame.subs/reg-sub`, which makes an APP-DB sub, while
+  ;; `:rf/route` is a RUNTIME sub over `[:rf.runtime/routing :current]`. The
+  ;; reload below re-registers it correctly one line later and had been
+  ;; overwriting the wrong registration all along, so the only thing the
+  ;; hand-registration bought was a consumer for the `route-sub-fn` alias.
   (require 're-frame.routing :reload)
   ;; rf2-dbiv8 — re-seat the test-only `:rf.test/simulate-http-resolution`
   ;; fixture event after clear-all!.

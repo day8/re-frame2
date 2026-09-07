@@ -26,9 +26,13 @@
 
 (defn route-sub-fn
   "Layer-1 sub fn for `:rf/route` — reads the route slice from
-  `[:rf.runtime/routing :current]`. Exposed publicly so external
-  callers (smoke tests, tooling) read the slice without re-deriving the
-  path."
+  `[:rf.runtime/routing :current]`.
+
+  Internal to the artefact (rf2-kuky.36 deleted the `re-frame.routing`
+  alias that re-exported it). The public read is the subscription vector
+  `[:rf/route]`; a tool that must reach the slice without a subscription
+  spells the normative path `[:rf.runtime/routing :current]` directly, which
+  Conventions §Reserved runtime-db keys fixes."
   [db _query]
   (get-in db [:rf.runtime/routing :current]))
 
