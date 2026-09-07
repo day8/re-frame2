@@ -134,8 +134,6 @@ Both layers compose. A machine's `:spawn` spawns a managed request that itself r
 
 **`:body` thunks.** `:body (fn [] big-blob)` defers materialisation until after backoff. Each retry re-invokes — fresh handle per attempt.
 
-**Schema reflection.** `:rf.http/decode-schemas [...]` in handler metadata is reflective sugar for pair tools / generators; runtime does NOT cross-check.
-
 **Frame awareness.** Reply dispatches inherit the originating event's `:frame`; the request crosses frame boundaries cleanly.
 
 ## Anti-patterns

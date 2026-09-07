@@ -334,8 +334,7 @@
          Broadcasts :submit-valid into the machine (which moves it to
          :submitting and clears any prior errors); when the reply lands,
          :settings/submit-success / :settings/submit-error broadcast
-         :submit-succeeded / :submit-failed in turn."
-   :rf.http/decode-schemas [schema/UserResponse]}
+         :submit-succeeded / :submit-failed in turn."}
   ;; The machine snapshot lives in runtime-db; the session identity lives in
   ;; app-db, so this handler reads both partitions.
   (fn handler-settings-submit [{:keys [db] rt :rf.db/runtime} _]

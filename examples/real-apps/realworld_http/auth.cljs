@@ -324,15 +324,14 @@
 ;; `:data` slot, and registering it here is what brings that schema to life
 ;; instead of leaving it as decoration. This one only validates its `:data`
 ;; (there's no outer event-vector `:schema`), so the opts map is short: just
-;; `:doc` and `:rf.http/decode-schemas`.
+;; a `:doc`.
 (rf/reg-machine :auth/flow
   {:doc "The auth flow in one line: idle → submitting/restoring → authed |
          error. Requests go out via `:rf.http/managed`, fired by the
          credential-owning form/restore events, never by this machine — it
          only ever sees bare, credential-free signals. Login, register, and
          restore don't retry — it's one submission per click; a transient
-         failure parks a message in `:error` and the user takes another swing."
-   :rf.http/decode-schemas [schema/UserResponse]}
+         failure parks a message in `:error` and the user takes another swing."}
   ;; No :id in the spec map — the id is just the `reg-machine` id above.
   {:initial :idle
    :data    {:error nil}
@@ -593,8 +592,7 @@
          nudges the :auth/flow machine with a bare, credential-free :auth/login
          signal. The success reply routes to the classified
          :auth/session-established event, never straight to the machine — see
-         the machine's namespace note above."
-   :rf.http/decode-schemas [schema/UserResponse]}
+         the machine's namespace note above."}
   (fn [{:keys [db]} _]
     (let [draft (get-in db [:auth :login-form :draft])]
       {:db (-> db
@@ -654,8 +652,7 @@
          form above: fires the (sensitive) managed-HTTP register request
          itself, blanks the password, and nudges the machine with a bare
          :auth/register signal. Shares :auth/session-established with login —
-         both successes store the session and bounce the same way."
-   :rf.http/decode-schemas [schema/UserResponse]}
+         both successes store the session and bounce the same way."}
   (fn [{:keys [db]} _]
     (let [draft (get-in db [:auth :register-form :draft])]
       {:db (-> db

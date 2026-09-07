@@ -235,8 +235,7 @@
 
          It also broadcasts `:fetch-started` into the home machine, nudging the
          `:data` region to `:loading` (or `:refreshing`, if a list is already
-         showing)."
-   :rf.http/decode-schemas [schema/ArticlesResponse]}
+         showing)."}
   ;; The route lives in runtime-db. The 1-indexed `?page=` off the route query
   ;; becomes the wire's limit/offset window via `rh/paginate-path`, which also
   ;; URL-encodes the `:tag` filter. The active tag is a path param; the page is

@@ -18,7 +18,6 @@
     shape exercised; the live transport runs through them when fetch is
     available, which the JVM smoke and the conformance fixtures cover
     end-to-end)
-  - `:rf.http/decode-schemas` reflection metadata via `handler-meta`
   - `with-managed-request-stubs*` — install/run/uninstall
 
   Per Spec 014 §Implementation status — CLJS is the reference target;
@@ -29,9 +28,9 @@
             ;; validation. Publishes :schemas/malli-validate /
             ;; :schemas/malli-explain into the late-bind hook table so
             ;; the default validator delegates to Malli on CLJS. The
-            ;; http-managed CLJS smoke exercises `:rf.http/decode-
-            ;; schemas` shapes that route through the registered
-            ;; validator; without this require they'd soft-pass.
+            ;; http-managed CLJS smoke exercises schema-shaped `:decode`
+            ;; values that route through the registered validator;
+            ;; without this require they'd soft-pass.
             [re-frame.schemas.malli]
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
@@ -130,20 +129,7 @@
       ;; Only the initial dispatch fired :ping; no reply re-entered.
       (is (= 1 @seen) "no reply was dispatched when :on-success is nil"))))
 
-;; ---- 5. decode reflection metadata ----------------------------------------
-
-(deftest decode-reflection-metadata-cljs
-  (testing ":rf.http/decode-schemas declared on the handler is queryable via handler-meta"
-    (rf/reg-event :article/load
-      {:doc                    "Load an article."
-       :rf.http/decode-schemas [::ArticleResponse ::ArticleSummary]}
-      (fn [_ _] {}))
-    (let [m (rf/handler-meta {:source :store :kind :event :id :article/load})]
-      (is (= [::ArticleResponse ::ArticleSummary]
-             (:rf.http/decode-schemas m))
-          "decode-schemas metadata round-trips through the registrar"))))
-
-;; ---- 6. with-managed-request-stubs* helper --------------------------------
+;; ---- 5. with-managed-request-stubs* helper --------------------------------
 
 (deftest with-managed-request-stubs-cljs
   (testing "rf2-rzqan — with-managed-request-stubs* routes [method url] → reply
@@ -165,7 +151,7 @@
           (is (= :ok (get-in db [:result :status])))
           (is (= [:hello :world] (get-in db [:result :value]))))))))
 
-;; ---- 6a. rf2-rzqan — bare thunk INTERCEPTS, never reaching the real fx ----
+;; ---- 5a. rf2-rzqan — bare thunk INTERCEPTS, never reaching the real fx ----
 ;;
 ;; CLJS counterpart of the JVM interception regression. The documented
 ;; `with-managed-request-stubs*` form must route `:rf.http/managed` through
@@ -199,7 +185,7 @@
                 "the real :rf.http/managed fx was NEVER invoked — the helper
                  intercepted (pre-fix: this fired the real Fetch transport)")))))))
 
-;; ---- 6b. rf2-bxc8kf — stubs work inside a PRE-CREATED SEALED frame ---------
+;; ---- 5b. rf2-bxc8kf — stubs work inside a PRE-CREATED SEALED frame ---------
 ;;
 ;; CLJS counterpart of the JVM sealed-frame regression. `rf/make-frame {}`
 ;; resolves + SEALS an image generation at construction; a dispatch into that
@@ -245,7 +231,7 @@
                    frame (pre-fix: the minted per-scope stub was unresolvable in
                    the sealed generation, so this fired the real Fetch transport)"))))))))
 
-;; ---- 7. with-managed-request-stubs* — failure mapping --------------------
+;; ---- 6. with-managed-request-stubs* — failure mapping --------------------
 
 (deftest with-managed-request-stubs-failure-cljs
   (testing "with-managed-request-stubs* synthesises a failure reply when {:reply {:failure ...}}"
@@ -267,7 +253,7 @@
           (is (= :rf.http/http-4xx (get-in db [:result :error :kind])))
           (is (= 404 (get-in db [:result :error :status]))))))))
 
-;; ---- 8. unmatched-stub falls through to a transport failure --------------
+;; ---- 7. unmatched-stub falls through to a transport failure --------------
 
 (deftest with-managed-request-stubs-unmatched-cljs
   (testing "an unmatched [method url] under stubs synthesises a :rf.http/transport failure"
@@ -290,7 +276,7 @@
           (is (= :error (get-in db [:result :status])))
           (is (= :rf.http/transport (get-in db [:result :error :kind]))))))))
 
-;; ---- 9. canned-failure: explicit :kind / :tags shape ---------------------
+;; ---- 8. canned-failure: explicit :kind / :tags shape ---------------------
 
 (deftest canned-failure-custom-kind-cljs
   (testing ":rf.http/managed-canned-failure honours :kind and :tags args"
@@ -312,7 +298,7 @@
       (is (= :rf.http/http-5xx (get-in db [:error :error :kind])))
       (is (= 503 (get-in db [:error :error :status]))))))
 
-;; ---- 10. multi-frame reply isolation -------------------------------------
+;; ---- 9. multi-frame reply isolation -------------------------------------
 
 (deftest multi-frame-reply-isolation-cljs
   (testing "managed requests issued from frame A reply into frame A's app-db"

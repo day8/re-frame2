@@ -394,8 +394,7 @@
          through :rf.http/managed, fired by the credential-owning form/restore
          events, never by this machine — it only ever sees bare,
          credential-free signals. Login, register, and restore don't retry —
-         one submission per click, by design."
-   :rf.http/decode-schemas [schema/UserResponse]}
+         one submission per click, by design."}
   {:initial :idle
    :data    {:error nil}
    :schemas {:data app-schema/AuthFlowData}
