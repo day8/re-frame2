@@ -104,6 +104,131 @@
                 "Location"))
         ":location is resolved; the co-present retired keys are ignored")))
 
+;; ===========================================================================
+;; rf2-c1b1 — the redirect target REPLACES any existing Location, whatever its
+;; casing.
+;;
+;; The materialiser folds application headers case-insensitively
+;; (`merge-pair-into-header-map` collapses case variants under the FIRST-SEEN
+;; spelling) and then inserted the redirect target with a case-SENSITIVE
+;; `(assoc "Location" target)`. So an app that had already written a `location`
+;; / `LOCATION` header shipped BOTH spellings — two conflicting singleton
+;; headers under one logical name — and which one the browser followed was the
+;; HTTP adapter's or client's choice, possibly the stale one. An
+;; `Uppercase-first` spelling happened to be replaced by the `assoc`; every
+;; other spelling was not. `docs/ssr/response.md` promises case-insensitive
+;; header names, and Spec 011 §Redirect precedence gives the redirect the last
+;; word. Repair: strip every casing with the existing `strip-header` helper —
+;; the same rule `headers->ring-map+content-type-override` already applies to
+;; the `:content-type` override — before associating the canonical spelling.
+;; ===========================================================================
+
+(deftest redirect-replaces-a-lowercase-location-header
+  (testing "an existing `location` header is REPLACED, not duplicated"
+    (let [resp {:redirect {:status 302 :location "/new"}
+                :headers  [["location" "/old"]]}
+          ring (rf.ssr.ring.pipeline/ssr-response->ring-response resp nil)
+          location-keys (filter #(= "location" (str/lower-case (str %)))
+                                (keys (:headers ring)))]
+      (is (= 302 (:status ring)))
+      (is (= 1 (count location-keys))
+          "exactly ONE Location entry, whatever its spelling")
+      (is (= "/new" (get (:headers ring) (first location-keys)))
+          "and it carries the REDIRECT target, not the stale one")
+      (is (= "Location" (first location-keys))
+          "the canonical spelling is what the redirect emits"))))
+
+(deftest redirect-replaces-every-location-casing
+  (testing "rf2-c1b1: `location`, `LOCATION`, `Location`, `LoCaTiOn` — each is
+            the same logical header, so each is replaced by the target"
+    (doseq [spelling ["location" "LOCATION" "Location" "LoCaTiOn"]]
+      (let [resp {:redirect {:status 303 :location "/new"}
+                  :headers  [[spelling "/old"]]}
+            ring (rf.ssr.ring.pipeline/ssr-response->ring-response resp nil)
+            headers (:headers ring)
+            location-keys (filter #(= "location" (str/lower-case (str %)))
+                                  (keys headers))]
+        (is (= 1 (count location-keys))
+            (str "one Location entry for the " (pr-str spelling) " spelling"))
+        (is (= ["/new"] (mapv #(get headers %) location-keys))
+            (str "the " (pr-str spelling) " value was replaced by the target"))
+        (is (not-any? #(= "/old" %) (vals headers))
+            (str "no stale target survives under any key ("
+                 (pr-str spelling) ")"))))))
+
+(deftest redirect-replaces-a-multi-valued-location-fold
+  (testing "rf2-c1b1: repeated Location pairs fold to a VECTOR under one key;
+            the redirect must clear the whole entry, not conj onto it"
+    (let [resp {:redirect {:status 302 :location "/new"}
+                :headers  [["location" "/old-a"] ["Location" "/old-b"]]}
+          ring (rf.ssr.ring.pipeline/ssr-response->ring-response resp nil)]
+      (is (= {"Location" "/new"}
+             (select-keys (:headers ring) ["Location"]))
+          "one scalar Location carrying the target")
+      (is (= 1 (count (filter #(= "location" (str/lower-case (str %)))
+                              (keys (:headers ring))))))
+      (is (not-any? #{"/old-a" "/old-b"} (vals (:headers ring)))
+          "neither stale value survives"))))
+
+(deftest redirect-location-replacement-preserves-unrelated-headers
+  (testing "rf2-c1b1 VACUITY: the strip is scoped to Location — unrelated
+            headers, cookies, status and the empty body are untouched"
+    (let [resp {:redirect {:status 302 :location "/new"}
+                :headers  [["location" "/old"]
+                           ["X-Trace" "abc"]
+                           ["vary" "Accept"]
+                           ["Vary" "Cookie"]]
+                :cookies  [{:name "sid" :value "s1" :path "/"}]}
+          ring (rf.ssr.ring.pipeline/ssr-response->ring-response resp nil)
+          headers (:headers ring)]
+      (is (= 302 (:status ring)))
+      (is (= "" (:body ring)) "a redirect still has no body")
+      (is (= "/new" (get headers "Location")))
+      (is (= "abc" (get headers "X-Trace")) "unrelated header retained")
+      (is (= ["Accept" "Cookie"] (get headers "vary"))
+          "the unrelated case-insensitive fold is untouched")
+      (is (some? (get headers "Set-Cookie")) "cookies retained")
+      (is (str/includes? (str (get headers "Set-Cookie")) "sid=s1")))))
+
+(deftest redirect-no-target-leaves-an-existing-location-alone
+  (testing "rf2-c1b1 VACUITY: the strip runs only where a target replaces it.
+            A target-LESS redirect adds nothing, so it must remove nothing —
+            stripping there would delete an app-set header and leave the 3xx
+            with no Location at all, which is strictly worse than the
+            malformed-but-warned shape the no-target branch already ships."
+    (let [resp {:redirect {:status 302}
+                :headers  [["location" "/app-set"]]}
+          ring (rf.ssr.ring.pipeline/ssr-response->ring-response resp nil)]
+      (is (= 302 (:status ring)))
+      (is (= "/app-set" (get (:headers ring) "location"))
+          "the app's own header survives a target-less redirect"))))
+
+(deftest redirect-through-the-public-handler-yields-one-location
+  (testing "rf2-c1b1: the whole documented fx sequence — an ordinary event
+            writing `location` and then redirecting — reaches the wire as ONE
+            logical Location header carrying the NEW target"
+    (rf/reg-event :test/stale-location-then-redirect
+      {:platforms #{:server}}
+      (fn [_ _]
+        {:fx [[:rf.server/set-header {:name "location" :value "/old"}]
+              [:rf.server/redirect {:location "/new"}]]}))
+    (rf/reg-view* :pages/redirecting (fn [] [:div "unused"]))
+    (let [handler  (rf.ssr.ring/ssr-handler
+                     {:initial-events [[:test/stale-location-then-redirect]]
+                      :root-view      [(rf/view :pages/redirecting)]
+                      :payload        :rf.ssr.payload/whole-app-db})
+          response (handler {:uri "/" :request-method :get})
+          headers  (:headers response)
+          location-keys (filter #(= "location" (str/lower-case (str %)))
+                                (keys headers))]
+      (is (= 302 (:status response)) "the redirect's default status rides through")
+      (is (= 1 (count location-keys))
+          "one logical Location on the wire, not two conflicting singletons")
+      (is (= "/new" (get headers (first location-keys)))
+          "the redirect target wins, per Spec 011 §Redirect precedence")
+      (is (not-any? #(= "/old" %) (vals headers))
+          "the stale target does not reach the wire under any spelling"))))
+
 (deftest redirect-default-status-302-when-absent
   (testing "rf2-ynjts.14: a redirect map with a target but no :status
             defaults to 302 (the materialiser's `(or redirect-status

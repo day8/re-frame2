@@ -236,9 +236,27 @@
                      ;; The Location value must be a string — a non-string
                      ;; target (the `:location` is caller-trusted at the fx
                      ;; boundary) is coerced so the Ring header map is valid.
-                     (cond-> target (assoc "Location" (if (string? target)
-                                                        target
-                                                        (str target))))
+                     ;;
+                     ;; rf2-c1b1 — and it REPLACES any Location the app already
+                     ;; wrote, whatever its casing. Header field names are
+                     ;; case-insensitive (RFC 7230 §3.2) and the fold above
+                     ;; collapses variants under the FIRST-SEEN spelling, so a
+                     ;; bare case-sensitive `assoc` left an app-set `location`
+                     ;; / `LOCATION` standing beside the redirect's own
+                     ;; `Location` — two conflicting singleton headers under
+                     ;; one logical name, with the browser free to follow the
+                     ;; stale one. Spec 011 §Redirect precedence gives the
+                     ;; redirect the last word, so strip every casing first,
+                     ;; exactly as the `:content-type` override does. Scoped to
+                     ;; the arm that HAS a target: the no-target branch below
+                     ;; adds nothing, so it must remove nothing — stripping
+                     ;; there would turn an app-set Location into a 3xx with no
+                     ;; target at all.
+                     (cond-> target
+                       (-> (rf.ssr.ring.headers/strip-header "location")
+                           (assoc "Location" (if (string? target)
+                                               target
+                                               (str target)))))
                       ;; A bodiless redirect cannot honour an app-set length.
                      (rf.ssr.ring.headers/strip-content-length))
         :body    ""})
