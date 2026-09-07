@@ -99,9 +99,16 @@
             [login.stories :as login-stories])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
+;; `:async? true` because the rf2-cckg drive at the foot of this ns is an
+;; `async` test (`rf.story/run-variant` resolves a promise). cljs.test refuses a
+;; FN-form fixture around any async body — "Async tests require fixtures to be
+;; specified as maps. Testing aborted." — and the abort takes the whole bundle
+;; down, not just this namespace. The map form serves the four synchronous tests
+;; above unchanged.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
-    {:adapter rf.adapter.reagent/adapter}))
+    {:adapter rf.adapter.reagent/adapter
+     :async?  true}))
 
 ;; ---------------------------------------------------------------------------
 ;; Helpers
