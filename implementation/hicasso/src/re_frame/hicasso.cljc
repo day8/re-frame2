@@ -60,6 +60,7 @@
      (:require [re-frame.hicasso.impl.boundary :as rf.hicasso.impl.boundary]
                [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
                [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+               [re-frame.hicasso.impl.frame-boundary :as rf.hicasso.impl.frame-boundary]
                [re-frame.hicasso.impl.intent]
                [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
                [re-frame.hicasso.impl.portal :as rf.hicasso.impl.portal]
@@ -547,6 +548,84 @@
   `re-frame.hicasso.impl.codec/as-component`."}
        as-component rf.hicasso.impl.codec/as-component)
 
+     ;; ---- the two frame boundaries: ENSURE and SCOPE ---------------------
+     ;;
+     ;; The frame is spelled IN THE TREE, as it is on every other
+     ;; React-shaped substrate (spec/002; the rf2-nyea0r split). The root
+     ;; door below carries React-root options and nothing about frames.
+
+     (def ^{:doc "`h/frame-root` — **ENSURE a named frame for a subtree**,
+  and the head a Hicasso app's root view sits under:
+
+      (h/mount! node {}
+        [h/frame-root {:id             :app/main
+                       :initial-events [[:app/init]]
+                       :fx-overrides   {:http stub-http}}
+         [root-view]])
+
+  **It takes the `rf/make-frame` option map WHOLE** — `:id`,
+  `:initial-events`, `:images`, `:url-bound?`, `:fx-overrides`, `:preset`,
+  every record-config key `make-frame` honours — because it IS the
+  `make-frame` call, written where the frame is used. There is no curated
+  subset to be caught out by, which is what the root door's closed
+  three-key config used to be.
+
+  **ENSURE, not create.** Absent, the frame is created and
+  `:initial-events` run once; live, it is REUSED exactly as it stands —
+  no re-seed, no config refresh — so a second root under the same `:id`
+  JOINs rather than resets. Unmounting destroys NOTHING: a frame outlives
+  the boundary that ensured it, and `rf/destroy-frame!` is the verb for
+  ending one.
+
+  **The ENSURE is commit-owned.** The first render emits no subtree at
+  all, and the frame is made in a `useLayoutEffect` — so a render React
+  discards (Suspense, a concurrent abort) creates nothing and seeds
+  nothing, and React's own layout phase re-renders synchronously before
+  the browser paints. Under `h/mount!`, which renders inside `flushSync`,
+  that means the door still returns with the seeded markup on the page.
+
+  Fail-loud where it matters: `:id` is required and must be a keyword; a
+  `:frame` key is `:rf.error/frame-root-given-frame`, naming
+  `h/frame-provider`; and changing a MOUNTED boundary's `:id` or opts is
+  `:rf.error/frame-root-reconfigured` rather than a silent no-op — pass a
+  React `:key` and remount to point at a different frame.
+
+  ONE implementation across every substrate: the two-pass is core's
+  `re-frame.views.frame-boundary/frame-root-fc`, the same component
+  `rf/frame-root` and `re-frame.adapter.uix/frame-root` mount.
+  `re-frame.hicasso.impl.frame-boundary/frame-root`."}
+       frame-root rf.hicasso.impl.frame-boundary/frame-root)
+
+     (def ^{:doc "`h/frame-provider` — **SCOPE an EXISTING frame to a
+  subtree**. `frame-root`'s sibling and its opposite verb: it creates,
+  refreshes and destroys nothing.
+
+      (h/hydrate! node {:identifier-prefix \"main\"}
+        [h/frame-provider {:frame :app/main} [views/page {}]])
+
+  Three places want it. **After SSR**, where `rf.ssr/hydrate!` has
+  already installed the server's app-db and an ENSURE would seed
+  replacement state over it. **A second root on the page** sharing a
+  frame the first ensured. **A subtree on another frame** — a tenant
+  switcher, a preview pane — nested under the root's own boundary.
+
+  `:frame` is required and takes the one frame-target grammar `dispatch`
+  and `subscribe` teach: a frame-id keyword, or the live frame value
+  `rf/make-frame` returns. **A frame that is not live FAILS LOUD**
+  (`:rf.error/frame-provider-frame-absent`) rather than scoping a subtree
+  to nothing — that guardrail is the reason SCOPE is its own component.
+  An `:id` key is `:rf.error/frame-provider-given-id`, naming
+  `h/frame-root`.
+
+  Distinct from `re-frame.hicasso.substrate/frame-provider`, which is the
+  reactive-substrate contract's `:register-context-provider` slot — a
+  lower-level seat the contract requires and an application never writes.
+  This is the authoring verb, and it writes the same one React context
+  every adapter reads, so a Hicasso subtree under a UIx provider (or the
+  reverse) resolves the same frame.
+  `re-frame.hicasso.impl.frame-boundary/frame-provider`."}
+       frame-provider rf.hicasso.impl.frame-boundary/frame-provider)
+
      ;; ---- the root lifecycle: mount, re-render, tear down ----------------
      ;;
      ;; Every door here is ROOT-SCOPED, which is why `release!` is not
@@ -557,35 +636,32 @@
      ;; half hydrates into a text mismatch (docs/design/hicasso/product/
      ;; dispositions.md HS-11).
 
-     (def ^{:doc "`h/mount!` — **the root door**: ensure a frame,
-  associate it with a DOM container and one root view, and answer the
-  handle `render!` and `unmount!` take. HD-021(b)'s whole execution
-  contract.
+     (def ^{:doc "`h/mount!` — **the root door**: associate a DOM
+  container with one root view and answer the handle `render!` and
+  `unmount!` take. HD-021(b)'s whole execution contract.
 
       (h/mount! (js/document.getElementById \"app\")
-                {:frame          :rf/default
-                 :initial-events [[:counter/initialise]]}
-                [counter])
+                {}
+                [h/frame-root {:id :rf/default
+                               :initial-events [[:counter/initialise]]}
+                 [counter]])
 
-  `(node config view)`, row 20's shape, and the `config` carries three
-  keys — one required and two optional.
+  `(node config view)`, row 20's shape. **The config carries ROOT options
+  only, and a key it does not own FAILS LOUD** — there is no closed list
+  quietly ignoring the rest. `:identifier-prefix` is the whole roster
+  today.
 
-  **`:frame`** is the frame keyword this root scopes, and mounting
-  ENSURES it: the frame is created if it does not exist, or JOINED as it
-  stands if another root already uses it. Nothing else in the package
-  makes a frame, so a consumer's boot line names the id once here rather
-  than twice — to `rf/make-frame` and again to the root door.
-
-  **`:initial-events`** is an ordered vector of ordinary event vectors,
-  dispatched synchronously into the frame **when this mount CREATES it**,
-  and never when it joins one. They drain in order before this returns,
-  so the first paint is the seeded one rather than an empty frame filled
-  in a moment later. It is core's own `:initial-events` (EP-0027) reaching
-  `rf/make-frame` untouched — the vocabulary `rf/frame-root` and
-  `re-frame.adapter.uix/frame-root` already ENSURE with — so its shape and
-  its errors are core's, not a second spelling minted here. Seed from the
-  mount that creates the frame; a joining root omits it. Initial state
-  arrives through events, and there is no separate `:db` seed option.
+  **The FRAME is the tree's, not the door's.** `[h/frame-root {:id …}]`
+  ENSUREs — creates the frame if absent, reuses it as it stands if live —
+  and takes the `rf/make-frame` option map WHOLE, `:initial-events`,
+  `:fx-overrides`, `:url-bound?` and the rest; `[h/frame-provider {:frame
+  …}]` SCOPEs a frame that already exists. Handing `:frame` or
+  `:initial-events` to this door is `:rf.error/hicasso-frame-config-
+  misplaced`, naming the head that spells it; any other key is
+  `:rf.error/hicasso-unknown-root-option`. That is the same one boundary
+  vocabulary every substrate writes (spec/002 §`frame-root`,
+  §`frame-provider`), so a Hicasso boot line reads like a Reagent or UIx
+  one and every frame option has exactly one place to go.
 
   **`:identifier-prefix`** is React's own `identifierPrefix`, handed to
   `createRoot` untouched. It exists because `useId` numbers
@@ -600,40 +676,56 @@
 
   `hydrate!`'s reason exactly, and the two doors are the same case seen
   twice: `impl.mount/root!` is `(container frame-kw hiccup opts)` — the
-  impl tier's positional shape — and row 20 keeps the guide's config map,
-  because a config map is what lets `:initial-events` and
-  `:identifier-prefix` join without an arity each. So the adaptation is
-  three lines here and impl keeps one caller shape for its own witnesses
-  to drive. `impl.mount/root!` keeps its own name for the same reason
-  `hydrate!`'s impl keeps `hydrate-root!`.
+  impl tier's positional shape, whose frame slot the public door passes
+  `nil` — and row 20 keeps the guide's config map. So the adaptation is
+  four lines here, the refusal above them, and impl keeps one caller
+  shape for its own witnesses to drive. `impl.mount/root!` keeps its own
+  name for the same reason `hydrate!`'s impl keeps `hydrate-root!`.
   `re-frame.hicasso.impl.mount/root!`,
-  `re-frame.hicasso.impl.mount/ensure-frame!`."}
+  `re-frame.hicasso.impl.mount/require-root-options!`."}
        mount!
-       ;; `config` reaches `root!` as the opts map WHOLE, the arrangement
-       ;; `hydrate!` below already has: impl reads the keys it owns and a
-       ;; config key added later needs no edit here.
+       ;; `nil` where `root!` takes its positional frame: the TREE names
+       ;; the frame now, so the root walk above the boundary head names
+       ;; nothing and no second Provider fiber is wrapped round the root.
+       ;; `config` still reaches `root!` whole — it carries only root
+       ;; options, and `require-root-options!` has already refused
+       ;; anything else.
        (fn mount! [container config hiccup]
-         (rf.hicasso.impl.mount/root! container (:frame config) hiccup config)))
+         (rf.hicasso.impl.mount/require-root-options! config 're-frame.hicasso/mount!)
+         (rf.hicasso.impl.mount/root! container nil hiccup config)))
 
      (def ^{:doc "`h/hydrate!` — **adopt a container's existing
   server-rendered DOM** rather than replacing it; `mount!`'s hydrating
   twin, and the client half of every SSR route:
 
       (h/hydrate! (js/document.getElementById \"app\")
-                  {:frame :app/main :identifier-prefix \"main\"}
-                  [views/page {}])
+                  {:identifier-prefix \"main\"}
+                  [h/frame-provider {:frame :app/main}
+                   [views/page {}]])
 
-  `(node config view)`, and the config carries `:frame` — the frame
-  keyword this root scopes — and optionally `:identifier-prefix`.
-  Returns the handle `render!` and `unmount!` take, unchanged.
+  `(node config view)`, and the config carries ROOT options only —
+  `:identifier-prefix` — with every other key refused (`mount!`'s two
+  refusals, and its roster). Returns the handle `render!` and `unmount!`
+  take, unchanged.
+
+  **The tree SCOPEs rather than ENSUREs, and that is the SSR seam made
+  visible.** An adopting root's frame already exists: `rf.ssr/hydrate!`
+  made it from the server's payload one line earlier, so
+  `[h/frame-provider {:frame …} …]` is the verb, and an
+  `[h/frame-root {:id …} …]` there would be the mistake this split exists
+  to name — a boundary that seeds replacement state over the state just
+  adopted. `frame-provider` fails loud when the frame is absent, so
+  hydrating before installing the payload is caught rather than silently
+  scoping nothing.
 
   **State comes first, and it is a different door.** This adopts DOM;
   `re-frame.ssr/hydrate!` installs the server's app-db through
   `:rf/hydrate` and must run BEFORE this, so the first client render
   sees the state the server rendered from:
 
-      (ssr/hydrate! {:frame :app/main})   ;; 1. state
-      (h/hydrate! node {:frame :app/main} [views/page {}])   ;; 2. DOM
+      (ssr/hydrate! {:frame :app/main})                      ;; 1. state
+      (h/hydrate! node {}                                    ;; 2. DOM
+        [h/frame-provider {:frame :app/main} [views/page {}]])
 
   **Hand `:identifier-prefix` the same string the server render used.**
   React numbers `useId` per root and prefixes it with this option, so a
@@ -658,15 +750,19 @@
   shape — while naming-ledger row 20 keeps the guide's `(node config
   view)` config map, because a config map is what lets
   `:identifier-prefix` join without a second arity. So the adaptation is
-  three lines here rather than a second signature down in impl, and impl
+  four lines here rather than a second signature down in impl, and impl
   keeps one caller shape for its own witnesses to drive.
-  `re-frame.hicasso.impl.mount/hydrate-root!`."}
+  `re-frame.hicasso.impl.mount/hydrate-root!`,
+  `re-frame.hicasso.impl.mount/require-root-options!`."}
        hydrate!
-       ;; `config` reaches `hydrate-root!` as the opts map WHOLE rather
-       ;; than re-built from `:identifier-prefix` — impl reads the keys
-       ;; it owns and a config key added later needs no edit here.
+       ;; `nil` where `hydrate-root!` takes its positional frame, for
+       ;; `mount!`'s reason: an adopting root scopes with
+       ;; `[h/frame-provider {:frame …} …]` in the tree, which is also
+       ;; what makes the SSR seam explicit — the frame exists because
+       ;; `rf.ssr/hydrate!` made it, and SCOPE is the verb for that.
        (fn hydrate! [container config hiccup]
-         (rf.hicasso.impl.mount/hydrate-root! container (:frame config) hiccup config)))
+         (rf.hicasso.impl.mount/require-root-options! config 're-frame.hicasso/hydrate!)
+         (rf.hicasso.impl.mount/hydrate-root! container nil hiccup config)))
 
      (def ^{:doc "Re-render a mounted root in place, synchronously, and
   answer its handle — **the hot-reload door**:
