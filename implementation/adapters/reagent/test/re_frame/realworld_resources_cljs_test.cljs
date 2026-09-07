@@ -650,6 +650,57 @@
         (is (false? (rf/compute-sub [:editor/dirty?] (state-value f)))
             "the saved draft is no longer dirty")))))
 
+(defn- saved-tag-list
+  "The `:tagList` the save actually put on the wire — read off the lowered
+   request body rather than off the mutation params, because the defect this
+   pins lived BETWEEN the two."
+  [args]
+  (get-in args [:request :body :article :tagList]))
+
+(deftest editor-save-parses-its-tag-list-exactly-once
+  (testing "examples/real-apps/realworld_resources — the comma-separated tag string
+            is converted ONCE, at the form-to-mutation boundary; the
+            :realworld/save-article request builder passes the resulting vector
+            through untouched. A second parse would not throw under CLJS —
+            `clojure.string/split` coerces with `str` — it would send the
+            vector's PRINTED form as a single tag (rf2-0mxz)"
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
+                                       :fx-overrides {:rf.nav/push-url :rf/no-op}})]
+      (rf/dispatch-sync [:editor/register-flow] {:frame f})
+
+      (testing "tags left blank → an EMPTY tag list, not the single tag \"[]\""
+        (rf/dispatch-sync [:editor/initialise] {:frame f})
+        (rf/dispatch-sync [:editor/edit-field :title "Untagged"] {:frame f})
+        (rf/dispatch-sync [:editor/edit-field :description "A desc"] {:frame f})
+        (rf/dispatch-sync [:editor/edit-field :body "Some body"] {:frame f})
+        (reset! last-managed-args nil)
+        (rf/dispatch-sync [:editor/submit] {:frame f})
+        (is (= [] (saved-tag-list @last-managed-args))
+            "a blank tag field sends an empty tagList")
+        ;; settle it, so the next arm's submit starts from an idle instance
+        (reply-success! @last-managed-args
+                        {:article {:slug "untagged" :title "Untagged" :description "A desc"
+                                   :body "Some body" :tagList []}}
+                        f))
+
+      (testing "\"clojure, SPA\" → two tags, not one serialized vector"
+        (rf/dispatch-sync [:editor/initialise] {:frame f})
+        (rf/dispatch-sync [:editor/edit-field :title "Tagged"] {:frame f})
+        (rf/dispatch-sync [:editor/edit-field :description "A desc"] {:frame f})
+        (rf/dispatch-sync [:editor/edit-field :body "Some body"] {:frame f})
+        (rf/dispatch-sync [:editor/edit-field :tagList "clojure, SPA"] {:frame f})
+        (reset! last-managed-args nil)
+        (rf/dispatch-sync [:editor/submit] {:frame f})
+        (is (= ["clojure" "SPA"] (saved-tag-list @last-managed-args))
+            "the tags reach the wire trimmed, split and in order")
+        (is (= #{:title :description :body :tagList}
+               (set (keys (get-in @last-managed-args [:request :body :article]))))
+            "the request body carries the four Article fields and nothing else")
+        (reply-success! @last-managed-args
+                        {:article {:slug "tagged" :title "Tagged" :description "A desc"
+                                   :body "Some body" :tagList ["clojure" "SPA"]}}
+                        f)))))
+
 ;; ============================================================================
 ;; 5. LOGOUT TEARDOWN — clear-scope + owner release
 ;; ============================================================================
@@ -1639,6 +1690,76 @@
           ":settings/replied navigates to the user's profile on :ok")
       (is (= "alice" (:username (route-params f)))
           "the profile route carries the saved username"))))
+
+;; ----------------------------------------------------------------------------
+;; …and the same continuation when the session it was issued for has gone
+;; (rf2-2ape). Logout stays live while the save is in flight — both the form's
+;; own button and the navbar's — and the PUT is already on the wire, so its
+;; reply can land on a signed-out app. Nothing below the app rejects it: the
+;; frame is the same one and the mutation instance is the same live instance,
+;; so the reply is accepted as current and reaches `:settings/replied`. The
+;; continuation is where the session question gets asked.
+;; ----------------------------------------------------------------------------
+
+(defn- park-a-settings-save!
+  "Sign `username` in, open Settings, edit the bio and submit — returning the
+   lowered PUT's args, still unanswered."
+  [f username]
+  (rf/dispatch-sync [:auth/store-session {:username username :email "a@b.c" :token "jwt"
+                                          :bio nil :image nil}] {:frame f})
+  (rf/dispatch-sync [:settings/load] {:frame f})
+  (rf/dispatch-sync [:settings/edit-field :bio "A brand new bio"] {:frame f})
+  (reset! last-managed-args nil)
+  (rf/dispatch-sync [:settings/submit] {:frame f})
+  @last-managed-args)
+
+(defn- settings-frame! []
+  (rf.frame/make-anon-frame-record!
+    {:url-bound?   true
+     :fx-overrides {:rf.nav/push-url :rf/no-op
+                    :realworld-resources.session/persist :rf/no-op}}))
+
+(deftest settings-reply-after-logout-does-not-restore-the-session
+  (testing "examples/real-apps/realworld_resources — a settings save that replies
+            AFTER the user logged out is refused by :settings/replied: the
+            departed user's User and token do not come back, and there is no
+            stale navigation to their profile (rf2-2ape)"
+    (with-new-frame [f (settings-frame!)]
+      (let [save-args (park-a-settings-save! f "alice")]
+        (is (some? save-args) "the settings PUT lowered a write")
+        ;; Logout, while the save is parked.
+        (rf/dispatch-sync [:auth/clear-session] {:frame f})
+        (rf/dispatch-sync [:rf.route/navigate {:to :realworld/home}] {:frame f})
+        (is (nil? (get-in (rf/app-db-value f) [:auth :user])) "signed out")
+        ;; The server accepts the save and answers with a fresh User + token.
+        (reply-success! save-args
+                        {:user {:username "alice" :email "a@b.c" :token "jwt2"
+                                :bio "A brand new bio" :image nil}}
+                        f)
+        (is (nil? (get-in (rf/app-db-value f) [:auth :user]))
+            "the late reply does NOT restore the logged-out user")
+        (is (nil? (get-in (rf/app-db-value f) [:auth :token]))
+            "the late reply does NOT restore the logged-out user's token")
+        (is (not= :realworld.profile/show (route-id f))
+            "no stale navigation to the departed user's profile")))))
+
+(deftest settings-reply-from-an-old-account-does-not-overwrite-the-new-one
+  (testing "examples/real-apps/realworld_resources — the same refusal covers an
+            account SWITCH: alice's parked save replying after bob has signed in
+            must not put alice's credentials over bob's session (rf2-2ape)"
+    (with-new-frame [f (settings-frame!)]
+      (let [alice-args (park-a-settings-save! f "alice")]
+        (rf/dispatch-sync [:auth/clear-session] {:frame f})
+        (rf/dispatch-sync [:auth/store-session {:username "bob" :email "b@b.c" :token "bob-jwt"
+                                                :bio nil :image nil}] {:frame f})
+        (reply-success! alice-args
+                        {:user {:username "alice" :email "a@b.c" :token "jwt2"
+                                :bio "A brand new bio" :image nil}}
+                        f)
+        (is (= "bob" (get-in (rf/app-db-value f) [:auth :user :username]))
+            "bob is still the signed-in user")
+        (is (= "bob-jwt" (get-in (rf/app-db-value f) [:auth :token]))
+            "bob's token is untouched by the old account's reply")))))
 
 (deftest follow-author-continuation-restales-the-detail-article
   (testing "examples/real-apps/realworld_resources — :ui/follow-author fires the follow

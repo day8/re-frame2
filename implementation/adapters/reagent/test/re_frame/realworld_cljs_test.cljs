@@ -133,6 +133,23 @@
 ;; survives the per-test reset.
 (reg-canned-success! :realworld.test/canned-success-empty {})
 
+;; A stub that PARKS the request instead of answering it: it records the args
+;; and returns, so the test decides when — and whether — the reply lands. The
+;; canned stubs above resolve inside the dispatch that issued the request, which
+;; is exactly the window a late-reply row needs to keep open.
+(def ^:private parked-managed-args (atom nil))
+
+(rf/reg-fx :realworld.test/park-managed
+  {:platforms #{:client :server}}
+  (fn [_frame-ctx args] (reset! parked-managed-args args) nil))
+
+(defn- reply-parked-success!
+  "Replay a parked request's `:on-success` with the transport's result appended
+   as the LAST arg — the shape the live managed-HTTP transport produces
+   (Spec 014 §Reply addressing)."
+  [args value frame]
+  (rf/dispatch-sync (conj (:on-success args) {:status :ok :value value}) {:frame frame}))
+
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     ;; EP-0002 (rf2-9o48ih): each helper spins its OWN top-level frame via
@@ -749,6 +766,78 @@
       (is (= :neutral (:state snap)))
       (is (false? (settings-machine-has-tag? f :form/invalid)))
       (is (not (contains? (get-in snap [:data :errors]) :email))))))
+
+(defn- park-a-settings-save!
+  "Sign `username` in, open Settings, edit the bio and submit — returning the
+   lowered PUT's args, still unanswered. The stub PARKS the request, so the test
+   owns the window between submitting and replying, which is the window Logout
+   lives in."
+  [f username]
+  (rf/dispatch-sync [:auth/store-session {:email "alice@example.com"
+                                          :token "jwt-1"
+                                          :username username
+                                          :bio nil
+                                          :image nil}]
+                    {:frame f})
+  (rf/dispatch-sync [:settings/load] {:frame f})
+  (rf/dispatch-sync [:settings/edit-field :bio "New bio"] {:frame f})
+  (reset! parked-managed-args nil)
+  (rf/dispatch-sync [:settings/submit] {:frame f})
+  @parked-managed-args)
+
+(defn- settings-logout-race-test []
+  ;; rf2-2ape. Logout stays live while the save is in flight — the button on
+  ;; this page and the navbar's — and the PUT is already on the wire, so its
+  ;; reply can land on a signed-out app. Nothing below the app rejects it: same
+  ;; frame, never superseded. :settings/submit-success is where the session
+  ;; question gets asked, and a reply from a session that has gone is refused.
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
+                                 :fx-overrides {:rf.http/managed      :realworld.test/park-managed
+                                                :auth.session/persist :rf/no-op}})]
+    (let [save-args (park-a-settings-save! f "alice")]
+      (is (some? save-args) "the settings PUT lowered a request and parked")
+      (is (= :submitting (:state (settings-snapshot (rf/frame-state-value f))))
+          "the form is in flight")
+
+      ;; Log out while it is parked.
+      (rf/dispatch-sync [:auth/clear-session] {:frame f})
+      (is (nil? (get-in (rf/frame-state-value f) [:rf.db/app :auth :user])) "signed out")
+
+      ;; The server accepts the save and answers with a fresh User + token.
+      (reply-parked-success! save-args
+                             {:user {:email "alice@example.com" :token "jwt-2"
+                                     :username "alice" :bio "New bio" :image nil}}
+                             f)
+      (let [db (rf/frame-state-value f)]
+        (is (nil? (get-in db [:rf.db/app :auth :user]))
+            "the late reply does NOT restore the logged-out user")
+        (is (nil? (get-in db [:rf.db/app :auth :token]))
+            "the late reply does NOT restore the logged-out user's token")
+        (is (= :neutral (:state (settings-snapshot db)))
+            "the refused reply still settles the form out of :submitting (:reset)")
+        (is (= "" (get-in (settings-snapshot db) [:data :draft :bio]))
+            "and scrubs the departed user's draft on the way past")))))
+
+(defn- settings-account-switch-test []
+  ;; The same refusal covers an account SWITCH, which is the case a bare
+  ;; "is anybody signed in?" test would let through.
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
+                                 :fx-overrides {:rf.http/managed      :realworld.test/park-managed
+                                                :auth.session/persist :rf/no-op}})]
+    (let [alice-args (park-a-settings-save! f "alice")]
+      (rf/dispatch-sync [:auth/clear-session] {:frame f})
+      (rf/dispatch-sync [:auth/store-session {:email "bob@example.com" :token "bob-jwt"
+                                              :username "bob" :bio nil :image nil}]
+                        {:frame f})
+      (reply-parked-success! alice-args
+                             {:user {:email "alice@example.com" :token "jwt-2"
+                                     :username "alice" :bio "New bio" :image nil}}
+                             f)
+      (let [db (rf/frame-state-value f)]
+        (is (= "bob" (get-in db [:rf.db/app :auth :user :username]))
+            "bob is still the signed-in user")
+        (is (= "bob-jwt" (get-in db [:rf.db/app :auth :token]))
+            "bob's token is untouched by the old account's reply")))))
 
 ;; ============================================================================
 ;; tags — route query helpers + the :realworld/tags machine
@@ -1529,7 +1618,11 @@
   (testing ":settings/form machine — failure path lands in :incorrect (rf2-6d3x)"
     (settings-failure-test))
   (testing ":settings/form machine — :submit-invalid / :edit cycle (rf2-6d3x)"
-    (settings-validation-test)))
+    (settings-validation-test))
+  (testing "a save that replies after logout does not restore the session (rf2-2ape)"
+    (settings-logout-race-test))
+  (testing "a save that replies after an account switch does not overwrite it (rf2-2ape)"
+    (settings-account-switch-test)))
 
 (deftest realworld-tags
   (testing "tag filter and feed-kind round-trip via :rf.route/query"

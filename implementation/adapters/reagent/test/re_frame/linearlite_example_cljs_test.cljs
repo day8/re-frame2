@@ -509,6 +509,90 @@
     (is (= "Beta" (:title (issue-by-id "srv-2"))) "the title reverted to its prior value (rollback)")
     (is (= demo-board (board-data)) "the board is restored to its pre-edit value")))
 
+;; ============================================================================
+;; 4b. THE TEMP-ID WINDOW — a card the server has not named yet (rf2-mmos)
+;; ============================================================================
+;;
+;; The board's overlapping writes are the example's headline: adding a card
+;; while a retitle saves, moving one while another is in flight. There is one
+;; thing it cannot offer, and it is a limit of IDENTITY rather than of
+;; concurrency. While a create is in flight its card wears the client-minted
+;; `tmp-N` placeholder, which addresses nothing on the server: a retitle or a
+;; move would `PUT /api/issues/tmp-N` at a row that does not exist, come back a
+;; success having changed nothing, and then lose its on-screen value too when
+;; the create's own reply swaps the placeholder for the server's row. So that
+;; card's own two controls wait for its create; every other card keeps them.
+;;
+;; This row reads the card's RENDERED props, because withholding a control is a
+;; view-level fact — the events remain perfectly dispatchable, and should: the
+;; view is the gate.
+
+(defn- card-hiccup
+  "Render `issue`'s card the way the board does, and return the hiccup. The
+   view's auto-injected `subscribe` binds to the surrounding frame, so this
+   runs inside `with-frame` (the same shape realworld-resources' route-link
+   egress row uses for `route-link-render`)."
+  [issue]
+  (rf/with-frame :rf/default
+    (linearlite.core/issue-card {:issue issue :editing nil})))
+
+(defn- hiccup-nodes
+  "Every hiccup node in `tree`. The branch test excludes MAPS deliberately:
+   descending into a props map would yield its entries, which are vectors too,
+   and a `[k {…}]` entry would then read as a node with props."
+  [tree]
+  (filter vector? (tree-seq #(and (coll? %) (not (map? %))) seq tree)))
+
+(defn- props-of
+  "The props map of the first node whose props satisfy `pred?`."
+  [tree pred?]
+  (some (fn [node]
+          (let [props (second node)]
+            (when (and (map? props) (pred? props)) props)))
+        (hiccup-nodes tree)))
+
+(defn- picker-props [card] (props-of card #(contains? % :disabled?)))
+(defn- title-props  [card] (props-of card #(re-find #"^title-" (str (:data-testid %)))))
+
+(deftest a-cards-own-controls-wait-until-the-server-has-named-it
+  (testing "examples/capabilities/resources/linearlite — while its create is in flight a
+            card carries only the client-minted tmp id, so ITS retitle and move
+            controls are withheld; a card the server has already named keeps
+            both, and the new card gets them the moment the create replies
+            (rf2-mmos)"
+    (load-board!)
+    (rf/dispatch-sync [:linearlite/create-issue "Gamma"])
+    (let [tmp    (issue-by-title "Gamma")
+          tmp-id (:id tmp)]
+      (is (string? tmp-id))
+      (is (true? (:pending? (mutation-state [:create tmp-id])))
+          "the create is in flight — the fact the card gates on")
+
+      (testing "the not-yet-named card withholds its own two controls"
+        (let [card (card-hiccup tmp)]
+          (is (true? (:disabled? (picker-props card)))
+              "the status picker is disabled while the id is a placeholder")
+          (is (nil? (:on-click (title-props card)))
+              "the title offers no retitle click while the id is a placeholder")
+          (is (string? (:title (title-props card)))
+              "and says why, rather than silently ignoring the click")))
+
+      (testing "every OTHER card stays live throughout"
+        (let [card (card-hiccup (issue-by-id "srv-1"))]
+          (is (false? (:disabled? (picker-props card)))
+              "a server-named card's status picker stays live")
+          (is (fn? (:on-click (title-props card)))
+              "a server-named card's title stays clickable")))
+
+      (testing "and the new card gets its controls the moment the create replies"
+        (reply-success! {:issues [{:id "srv-3" :title "Gamma" :status :backlog}]})
+        (let [card (card-hiccup (issue-by-id "srv-3"))]
+          (is (nil? (issue-by-id tmp-id)) "the placeholder is gone")
+          (is (false? (:disabled? (picker-props card)))
+              "the committed card's status picker is live")
+          (is (fn? (:on-click (title-props card)))
+              "the committed card's title is clickable"))))))
+
 
 ;; ============================================================================
 ;; 5. THE ARMED DEMO BACKEND — fail-next-write answers a REAL 503 (rf2-pqt5f)

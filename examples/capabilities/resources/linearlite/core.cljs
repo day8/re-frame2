@@ -569,11 +569,12 @@
               :on-change   #(dispatch [:linearlite/set-new-issue-draft (.. % -target -value)])}]
      [:button {:type :submit :data-testid "new-issue-submit"} "Add issue"]]))
 
-(rf/reg-view status-picker [{:keys [id status]}]
+(rf/reg-view status-picker [{:keys [id status disabled?]}]
   ;; Pick a new column. This fires the optimistic change-status mutation: the
   ;; card jumps right away, then commits or rolls back when the reply lands.
   [:select {:data-testid (str "status-" id)
             :value       (name status)
+            :disabled    (boolean disabled?)
             :on-change   #(dispatch [:linearlite/change-status
                                      id (keyword (.. % -target -value))])}
    (for [{s-id :id s-label :label} statuses]
@@ -591,7 +592,19 @@
         pending?      (or optimistic?
                           (:optimistic? edit-state) (:optimistic? status-state)
                           (:optimistic? create-state))
-        errored?      (or (:error? edit-state) (:error? status-state) (:error? create-state))]
+        errored?      (or (:error? edit-state) (:error? status-state) (:error? create-state))
+        ;; The one overlap this board cannot offer, and it isn't a policy
+        ;; choice. While a create is in flight the card is wearing the
+        ;; client-minted `tmp-N` placeholder; the server has never heard of that
+        ;; id, so a retitle or a move would `PUT /api/issues/tmp-N` at a row that
+        ;; does not exist. The write would come back a cheerful success having
+        ;; changed nothing, and then the create's own reply would swap the
+        ;; placeholder card for the server's row and the change would be gone
+        ;; from the screen too. So this card's own controls wait for its create
+        ;; — that reply is the moment the id becomes real. Every OTHER card stays
+        ;; live throughout, including one being retitled while this one is
+        ;; created: those have server ids to address.
+        creating?     (boolean (:pending? create-state))]
     [:li.issue-card {:data-testid (str "issue-" id)
                      :class       (str (when pending? "pending ") (when errored? "errored"))}
      (if editing-this?
@@ -609,13 +622,14 @@
         [:button {:type :submit :data-testid (str "edit-save-" id)} "Save"]
         [:button {:type :button :on-click #(dispatch [:linearlite/cancel-edit])} "Cancel"]]
        [:div.issue-row
-        [:span.issue-title {:data-testid (str "title-" id)
-                            :on-click    #(dispatch [:linearlite/begin-edit id title])}
+        [:span.issue-title (cond-> {:data-testid (str "title-" id)}
+                             creating?       (assoc :title "Waiting for the server to name this card…")
+                             (not creating?) (assoc :on-click #(dispatch [:linearlite/begin-edit id title])))
          title]
         (when pending? [:span.badge {:data-testid (str "pending-" id)} "saving…"])
         (when errored? [:span.badge.error {:data-testid (str "errored-" id)} "failed — reverted"])])
      [:div.issue-actions
-      [status-picker {:id id :status status}]]]))
+      [status-picker {:id id :status status :disabled? creating?}]]]))
 
 (rf/reg-view board-column [{:keys [status issues editing]}]
   [:div.column {:data-testid (str "column-" (:id status))}
