@@ -52,7 +52,21 @@
             [re-frame.ssr.render-state :as rf.ssr.render-state]
             [re-frame.subs :as rf.subs]))
 
-(use-fixtures :once (fn [f] (rf/init! rf.ssr/adapter) (f)))
+;; rf2-qj4g — COLD-START the adapter slot rather than assuming it is empty.
+;; `init!` is idempotent only for the adapter ALREADY SEATED (rf2-kuky.1);
+;; handed a DIFFERENT one it raises `:rf.error/adapter-already-installed`
+;; instead of silently ignoring the call. This ns runs in the shared node
+;; bundle beside suites that seat Reagent / UIx / plain-atom, so a bare
+;; `init!` here was a NO-OP whenever one of them ran first — every test
+;; below then exercised the SSR flow on somebody else's substrate and
+;; passed for the wrong reason. Destroy first, seat the adapter this ns
+;; NAMES, and destroy again on the way out so the slot is left cold for
+;; whichever namespace the runner reaches next.
+(use-fixtures :once
+  (fn [f]
+    (rf/destroy-adapter!)
+    (rf/init! rf.ssr/adapter)
+    (try (f) (finally (rf/destroy-adapter!)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures

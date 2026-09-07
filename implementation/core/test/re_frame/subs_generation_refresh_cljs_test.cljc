@@ -72,6 +72,13 @@
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
   (rf.schemas/clear-schemas-by-frame!)
+  ;; rf2-qj4g — COLD-START the slot: destroy, then seat. `init!` is idempotent
+  ;; only for the adapter ALREADY SEATED (rf2-kuky.1) — handed a DIFFERENT one
+  ;; it raises `:rf.error/adapter-already-installed` rather than ignoring the
+  ;; call. This ns shares the node bundle with suites that seat Reagent, UIx
+  ;; and the SSR adapter, so a bare `init!` here was a no-op whenever one of
+  ;; them ran first, and every test below ran on a substrate it never named.
+  (rf/destroy-adapter!)
   (rf/init! rf.substrate.plain-atom/adapter)
   (test-fn))
 
