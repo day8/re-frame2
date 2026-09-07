@@ -2748,16 +2748,16 @@
 ;; ---- configure / substrate adapter / boot --------------------------------
 
 (def ^:private known-configure-keys
-  "The closed set of top-level keys `configure!` READS. Mirrors the three
-  `when-let` delegations in `configure!`'s body and the §Configure keys
-  table in spec/API.md — keep the three in step.
+  "The closed set of top-level keys `configure!` READS. Mirrors the
+  delegations in `configure!`'s body and the §Configure keys table in
+  spec/API.md — keep the three in step.
 
   `configure!`'s vocabulary is CLOSED and its keys are BARE, so an
   unrecognised bare key reads as a typo of a real key rather than as an
   extension point: `:epoch-histroy` applies nothing and, before rf2-kuky.2,
   said nothing. `unknown-configure-keys` below is what
   [Conventions §No silent swallow] requires of that shape."
-  #{:epoch-history :trace-buffer :elision})
+  #{:epoch-history :trace-buffer :elision :observability})
 
 (defn- unknown-configure-keys
   "Return a vector of `config-map`'s top-level keys that `configure!` does
@@ -2798,13 +2798,50 @@
                                                     (default 16384; 0 disables runtime
                                                     auto-detect — only declared / schema
                                                     entries elide)
+    :observability {:errors         [<sink-entry>]  PROCESS-DEFAULT production
+                    :handled-events [<sink-entry>]} observation sink policy — the
+                                                    same closed entry grammar
+                                                    `make-frame` takes. `nil` clears.
 
   One composable configuration value rather than several near-equivalent
   spellings:
 
       (configure! {:epoch-history {:depth 100}
                    :trace-buffer  {:events-retained 25}
-                   :elision       {:rf.size/threshold-bytes 8192}})
+                   :elision       {:rf.size/threshold-bytes 8192}
+                   :observability {:errors [{:sink :app/sentry}]}})
+
+  `:observability` DECLARES PRODUCTION OBSERVATION ONCE PER PROCESS
+  (rf2-kuky.67). Policy is a deployment property, so a multi-frame app no
+  longer restates its Sentry policy on every `make-frame` call:
+
+      (rf/configure! {:observability {:errors [{:sink :app/sentry}]}})
+      (rf/register-observability-sink! :app/sentry (fn [projected-record] …))
+
+  Precedence is PER STREAM, never whole-map. A frame that DECLARES a stream
+  uses its own entries for it; a frame that OMITS the stream inherits the
+  default's. So a frame declaring only `{:handled-events […]}` still inherits
+  the default's `:errors`. `{:errors []}` on a FRAME is that frame's opt-out
+  — it declares the stream and names no sink — and exactly one source is
+  consulted per record per stream, so a sink id named by both is invoked
+  ONCE. `{:observability nil}` here CLEARS the default.
+
+  It is also the ONLY door for records with no resolvable frame owner:
+  `:rf.error/no-frame-context`, the pre-frame SSR hydration-parse arm of
+  `:rf.error/malformed-hydration-payload`, hicasso's compute-sub
+  `:rf.error/sub-exception`, and any record whose `:frame` no longer resolves
+  (a destroyed frame, a dissociated incarnation's teardown report). These
+  reach the process default projected under an EXPLICITLY NIL governing frame
+  — fail-closed, so tree slots are `:rf/redacted` and summary ids stay
+  intact — and a stale `:frame` id is kept as a diagnostic but NEVER
+  re-resolved, so it can never reach a same-id successor's sink. Per Spec 015
+  §Frame-owned observability sink policy.
+
+  Unlike the other keys this one VALIDATES at call time, fail-loud with
+  `:rf.error/bad-frame-classification` and `:where 'rf/configure!` — the same
+  validator and the same closed entry grammar `make-frame` applies, because a
+  policy that installs silently only surfaces as a dropped record at the first
+  sink fire.
 
   The argument MUST be a map. A non-map argument — the RETIRED keyed
   form `(configure! :trace-buffer {…})`, a vector, `nil` — throws
@@ -2814,8 +2851,8 @@
   false) rather than degrading to a silent no-op there. A missing
   top-level key leaves that subsystem untouched; a present key delegates
   to that subsystem's configurator in API-table order
-  (`:epoch-history`, `:trace-buffer`, `:elision`), preserving each one's
-  existing slot-merge semantics.
+  (`:epoch-history`, `:trace-buffer`, `:elision`, `:observability`),
+  preserving each one's existing slot-merge semantics.
 
   An unrecognised top-level key still applies nothing and the call still
   returns `nil` — but a BARE key (`:epoch-histroy`) or a FRAMEWORK-
@@ -2886,6 +2923,16 @@
       (f opts)))
   (when-let [opts (:elision config-map)]
     (rf.elision/configure! opts))
+  ;; rf2-kuky.67 — the process-default observation policy. Read by KEY
+  ;; PRESENCE, not truthiness, so `{:observability nil}` CLEARS the default
+  ;; while OMITTING the key leaves it untouched. A `when-let` here would
+  ;; collapse those two into one silent no-op and leave the clear
+  ;; unspellable — the same key-presence discipline `project-egress` applies
+  ;; to an explicit `{:frame nil}` (rf2-kuky.5). Validation is the
+  ;; subsystem's, and it THROWS: unlike the other three keys this one is a
+  ;; policy the runtime must be able to refuse at the call the author typed.
+  (when (contains? config-map :observability)
+    (rf.observability/configure! (:observability config-map)))
   ;; rf2-kuky.2 — no silent swallow of a BARE / framework-namespaced unknown
   ;; key. Reuses the `:rf.warning/unknown-dispatch-opt` convention verbatim
   ;; (re-frame.router.diagnostics/emit-unknown-dispatch-opts-warning!): the
@@ -2933,7 +2980,10 @@
   PROCESS values only. There are no per-frame effective values here: a
   frame carrying its own `:rf.trace/events-retained` metadata is not
   reflected, because this reads the same slots `configure!` writes and
-  nothing else.
+  nothing else. `:observability` follows that rule exactly: it reports the
+  PROCESS DEFAULT policy verbatim (absent when none is declared) and never
+  the effective policy of any frame, which is per-stream and resolved per
+  record.
 
   A subsystem key is ABSENT — not `nil`, not a fabricated default —
   when its OWN producer is unavailable in this build. The optional keys
@@ -2958,10 +3008,20 @@
   Per Conventions §`configure!` (mutation) vs `current-config` (read)."
   []
   (let [epoch-read (rf.late-bind/get-fn :epoch/current-config)
-        trace-read (rf.late-bind/get-fn :trace.tooling/current-trace-buffer-config)]
+        trace-read (rf.late-bind/get-fn :trace.tooling/current-trace-buffer-config)
+        ;; rf2-kuky.67. Present only when a process default is DECLARED: an
+        ;; undeclared policy is absent rather than `nil`, which is this fn's
+        ;; standing rule (`:epoch-history` / `:trace-buffer` read the same
+        ;; way) and reads correctly against the routing model — no default
+        ;; means frames route on their own policy alone. It is NOT the
+        ;; optional-artefact branch those two take: `re-frame.observability`
+        ;; is always loaded, so the key's absence is a statement about
+        ;; CONFIGURATION, never about the build.
+        observability (rf.observability/current-observability-config)]
     (cond-> {:elision (rf.elision/current-config)}
-      epoch-read (assoc :epoch-history (epoch-read))
-      trace-read (assoc :trace-buffer (trace-read)))))
+      epoch-read          (assoc :epoch-history (epoch-read))
+      trace-read          (assoc :trace-buffer (trace-read))
+      (some? observability) (assoc :observability observability))))
 
 (def ^{:doc "Tear down the installed adapter. Calls the adapter's
   `:dispose-adapter!` fn (if present). Teardown is a one-way terminal

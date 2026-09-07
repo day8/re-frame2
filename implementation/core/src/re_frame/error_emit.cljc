@@ -646,15 +646,27 @@
              ;; THIS second egress route too — otherwise `project-error-record`
              ;; app-db-walks `:event` and the same coincidental integer path
              ;; redacts identity here. Late-bound to avoid a require cycle.
-             ;; `route-frame?` false (rf2-bf0io) SUPPRESSES ONLY this route for a
-             ;; known-dead-incarnation emission — core's router / subs
-             ;; frame-destroyed emitters since rf2-qjfrw, the retired
-             ;; `re-frame.ui` `(frame)` bundle before it went with that artefact
-             ;; (rf2-0yp7w) — so a dead incarnation's bare id can never resolve
-             ;; to a same-id successor's error sink; the corpus fan-out above
-             ;; still fired. A suppressed route delivered to nothing, so it
-             ;; contributes 0 to the console decision below and the record
-             ;; keeps its fallback.
+             ;; `route-frame?` false (rf2-bf0io) is a known-dead-incarnation
+             ;; emission — core's router / subs frame-destroyed emitters since
+             ;; rf2-qjfrw, the retired `re-frame.ui` `(frame)` bundle before it
+             ;; went with that artefact (rf2-0yp7w). It rides through as
+             ;; `route-error!`'s trailing FRAME-AUTHORITY bit, and it still
+             ;; guarantees the thing it was added for: a dead incarnation's bare
+             ;; id can never resolve to a same-id successor's error sink.
+             ;;
+             ;; What it no longer does (rf2-kuky.67) is SUPPRESS THE CALL. It
+             ;; used to gate the whole late-bound invocation, so a fallback
+             ;; inside `observability.cljc` was unreachable for exactly these
+             ;; records and their only channel was the corpus-wide `:errors`
+             ;; stream rf2-kuky.69 retires. `route-frame?` false now means *no
+             ;; frame authority — the PROCESS DEFAULT still delivers*, not *no
+             ;; sink route*: the record is projected under an explicitly nil
+             ;; governing frame (fail-closed) and reaches the operator's
+             ;; process-default sink, contributing its delivered-count to the
+             ;; console decision below like any other route. The authority bit
+             ;; has to be CARRIED from here — `observability` cannot rediscover
+             ;; it, because `frame` cannot tell a never-registered id from a
+             ;; dissociated one and a successor would pass either test.
              ;;
              ;; rf2-kuky.65: the SAME component attribution the corpus record
              ;; above carries rides through to the sink route, as a trailing
@@ -668,13 +680,13 @@
              ;; `:errors` stream retires, this route is the ONLY production door.
              (let [sink-attrs (cond-> attribution
                                 source-coord (assoc :source-coord source-coord))
-                   routed (if (and route-frame? (rf.trace/continuation-live?))
+                   routed (if (rf.trace/continuation-live?)
                             (if-some [route-error! (rf.late-bind/get-fn-cached
                                                      :observability/route-error)]
                               (try
                                 (route-error! error-kw event event-id frame-id exception
                                               elapsed-ms time nil raw-identity-event?
-                                              sink-attrs)
+                                              sink-attrs route-frame?)
                                 (catch #?(:clj Throwable :cljs :default) e
                                   (if (rf.trace/continuation-live?) (throw e) 0)))
                               0)
@@ -915,14 +927,21 @@
   `route-frame?` is false only for an exact-incarnation teardown report emitted
   after that incarnation has been dissociated. Its corpus-wide fact survives,
   but the bare frame id can no longer name A's sink policy and must not resolve
-  to a same-id successor B."
+  to a same-id successor B.
+
+  rf2-kuky.67: it is passed to the sink route as the FRAME-AUTHORITY bit rather
+  than gating the call. A dissociated incarnation's report still reaches the
+  PROCESS DEFAULT — projected under an explicitly nil governing frame, keeping
+  its stale `:frame` id as a summary diagnostic — and still never reaches a
+  same-id successor's sink. Most records on this path are frameless, which is
+  the same arm: they used to route to nothing at all."
   [record route-frame?]
   ((:fan-out registry) record rf.trace/continuation-live?)
-  (let [routed (if (and route-frame? (rf.trace/continuation-live?))
+  (let [routed (if (rf.trace/continuation-live?)
                  (if-some [route-error-record! (rf.late-bind/get-fn-cached
                                                  :observability/route-error-record)]
                    (try
-                     (route-error-record! record)
+                     (route-error-record! record route-frame?)
                      (catch #?(:clj Throwable :cljs :default) e
                        (if (rf.trace/continuation-live?) (throw e) 0)))
                    0)
@@ -931,7 +950,10 @@
     ;; half of the fallback. Same rule as `dispatch-on-error!`: exactly once
     ;; per record, under the same (here unconditional) conditions, and taken
     ;; AFTER the sink route so arm (b)'s delivered-count is available. Most
-    ;; of these records are frameless, which routes to nothing and returns 0.
+    ;; of these records are frameless: before rf2-kuky.67 that routed to
+    ;; nothing and returned 0, so the console was always their only channel;
+    ;; now a declared process default owns them and the fallback correctly
+    ;; stands down.
     (report-unowned-error! record routed))
   nil)
 

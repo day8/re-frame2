@@ -130,11 +130,19 @@
   "Build the `:rf.error/bad-frame-classification` ex-info with the canonical
   thrown-error shape (Spec 009 §The thrown-error shape). `reason` is the
   human-facing message; `extras` names the offending slot (`:bad-key`,
-  `:bad-carrier`, `:bad-entry`, `:bad-value`)."
-  [frame-id reason extras]
+  `:bad-carrier`, `:bad-entry`, `:bad-value`).
+
+  `where` is the PUBLIC call site the author actually typed. The sink-entry
+  grammar below is now validated from TWO doors — `rf/make-frame`'s frame
+  policy and `rf/configure!`'s process default (rf2-kuky.67) — and the
+  thrown-error shape's `:where` is the slot that tells the author WHICH of
+  the two rejected their map. One category (`:rf.error/bad-frame-classification`),
+  one grammar, two call sites: a second error category for the identical
+  malformation would be a distinction without a difference."
+  [where frame-id reason extras]
   (rf.error/thrown-ex-info
     :rf.error/bad-frame-classification
-    'rf/make-frame
+    where
     reason
     {:recovery :fix-frame-classification
      :extra    (merge {:frame frame-id} extras)}))
@@ -195,9 +203,10 @@
   following the `throw` in its chunked- and unchunked-seq branches, which
   the CLJS analyzer correctly flags as unreachable code (the `recur` can
   never run once the `throw` fires)."
-  [frame-id config]
+  [where frame-id config]
   (when-let [k (some #(when (contains? config %) %) retired-frame-keys)]
     (throw (classification-error
+             where
              frame-id
              (retired-frame-key-reason k)
              {:bad-key k :bad-value (get config k)}))))
@@ -209,15 +218,17 @@
 (def ^:private sink-entry-keys #{:sink :rf.egress/profile})
 
 (defn- validate-sink-entry!
-  [frame-id stream entry]
+  [where frame-id stream entry]
   (when-not (map? entry)
     (throw (classification-error
+             where
              frame-id
              (str ":observability " stream " entries must be maps naming a "
                   ":sink")
              {:bad-key [:observability stream] :bad-entry entry})))
   (when-not (keyword? (:sink entry))
     (throw (classification-error
+             where
              frame-id
              (str ":observability " stream " entries must carry a :sink "
                   "keyword id")
@@ -233,6 +244,7 @@
     (let [profile (:rf.egress/profile entry)]
       (when-not (contains? rf.projection/profiles profile)
         (throw (classification-error
+                 where
                  frame-id
                  (str ":observability " stream " entry has unknown "
                       ":rf.egress/profile " profile "; valid profiles are "
@@ -252,6 +264,7 @@
     (when (seq unknown)
       (let [k (first unknown)]
         (throw (classification-error
+                 where
                  frame-id
                  (str ":observability " stream " entry has unknown key " k
                       "; a sink entry carries only " sink-entry-keys)
@@ -260,16 +273,18 @@
                   :bad-entry entry}))))))
 
 (defn- validate-observability!
-  [frame-id observability]
+  [where frame-id observability]
   (when (some? observability)
     (when-not (map? observability)
       (throw (classification-error
+               where
                frame-id
                ":observability, when present, must be a map of {:handled-events [..] :errors [..]}"
                {:bad-key :observability :bad-value observability})))
     (doseq [k (keys observability)]
       (when-not (contains? observability-keys k)
         (throw (classification-error
+                 where
                  frame-id
                  (str "unknown :observability key " k "; valid keys are "
                       observability-keys)
@@ -279,12 +294,13 @@
             :when (some? entries)]
       (when-not (vector? entries)
         (throw (classification-error
+                 where
                  frame-id
                  (str ":observability " stream ", when present, must be a "
                       "vector of sink entries")
                  {:bad-key [:observability stream] :bad-value entries})))
       (doseq [entry entries]
-        (validate-sink-entry! frame-id stream entry)))
+        (validate-sink-entry! where frame-id stream entry)))
     nil))
 
 ;; ---- validation seam ----------------------------------------------------
@@ -314,11 +330,41 @@
   ;; independently of the surviving-policy trigger — neither is in
   ;; `classification-keys`, so a config carrying ONLY a retired key would
   ;; otherwise never reach validation.
-  (reject-retired-frame-keys! frame-id config)
+  (reject-retired-frame-keys! 'rf/make-frame frame-id config)
   (when (some #(contains? config %) classification-keys)
     ;; Observability sink policy (shape only).
-    (validate-observability! frame-id (:observability config)))
+    (validate-observability! 'rf/make-frame frame-id (:observability config)))
   nil)
+
+(defn validate-observability-policy!
+  "Validate a STANDALONE `:observability` sink policy — the process default
+  `(rf/configure! {:observability …})` (rf2-kuky.67) — under the SAME closed
+  grammar `make-frame` validates a frame's policy against.
+
+  ONE grammar, two doors. The process default and a frame's policy are the
+  same value in two scopes, so a second validator would be a second grammar
+  that drifts: an entry key `make-frame` refuses would install silently from
+  `configure!` and only surface as a dropped record at the first sink fire.
+  Reusing this one is what makes the target form in Spec 015 — the identical
+  `{:sink … :rf.egress/profile …}` entry, wherever it is declared — true
+  rather than merely intended.
+
+  Throws `:rf.error/bad-frame-classification` with `:where 'rf/configure!`,
+  which is the slot that tells the author which door rejected the map. No new
+  error category: the malformation is identical, so a `:rf.error/bad-configure-
+  observability` sibling would be a distinction without a difference (Spec 009
+  §Error event catalogue is a CLOSED vocabulary — adding to it needs a defect
+  it names that no existing category does).
+
+  `nil` is valid and means CLEAR — the caller's opt-out, not a malformation
+  (`validate-observability!` already no-ops on nil). There is no frame, so
+  the ex-data's `:frame` slot is nil: honest for a PROCESS-scoped policy, and
+  the same slot a frameless record carries downstream.
+
+  Returns nil. Called at `configure!` time — fail-loud at the call the author
+  typed, never deferred to the first record that tries to route."
+  [observability]
+  (validate-observability! 'rf/configure! nil observability))
 
 ;; Published so the frame-registration path (`re-frame.frame/upsert-frame!`)
 ;; can reach validation without a static require (frame.cljc sits below this

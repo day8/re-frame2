@@ -1682,10 +1682,12 @@
           (when original-epoch (apply original-epoch args))))
       (rf.late-bind/set-fn!
         :observability/route-error-record
-        (fn [record]
+        ;; rf2-kuky.67 gave the hook a trailing frame-authority arg; forward
+        ;; whatever the producer passes rather than pinning an arity here.
+        (fn [record & more]
           (when (= :rf.error/frame-teardown-failed (:error record))
             (swap! frame-routes inc))
-          (when original-route (original-route record))))
+          (when original-route (apply original-route record more))))
       (let [destroy-a (future
                         (rf/dispatch-sync [:destroy/teardown-overlap-a]
                                           {:frame id}))]
@@ -1944,10 +1946,11 @@
     (rf/make-frame {:id id :drain-depth 4})
     (try
       (rf.late-bind/set-fn! :observability/route-error-record
-        (fn [record]
+        ;; rf2-kuky.67 — see the teardown-overlap stub above.
+        (fn [record & more]
           (when (= :rf.error/drain-depth-exceeded (:error record))
             (swap! frame-routes inc))
-          (when original-route (original-route record))))
+          (when original-route (apply original-route record more))))
       ;; Listener #1 (destroyer) is registered FIRST so the small array-map
       ;; corpus registry fans it before the sibling: it destroys A, publishes
       ;; same-id B, and installs a sentinel into B's capture buffer.
