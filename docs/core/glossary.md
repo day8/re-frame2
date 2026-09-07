@@ -468,7 +468,7 @@ Related: [app-db](#app-db), [frame](#frame). Paths: `:rf.db/runtime`, children `
 
 ### **schema**
 
-A data description of a value's shape — `[:map [:sku :string] [:qty :int]]` — in **Malli** (default). Attach to an [app-db](#app-db) path (`reg-app-schema`), an event, or an HTTP `:decode` step. Checks run at a named boundary, but whether one survives a production build depends on which boundary: `reg-app-schema`'s app-db check and the plain event check are development assertions and [elide](#elide), while an event handler carrying `:rf.schema/at-boundary` and a managed-HTTP `:decode` schema are checked in **every** build. Schema-as-data supports validate, coerce, and tooling round-trips.
+A data description of a value's shape — `[:map [:sku :string] [:qty :int]]` — in **Malli** (default). Attach to an [app-db](#app-db) path (`reg-app-schema`), an event, or an HTTP `:decode` step. Checks run at a named boundary, but whether one survives a production build depends on which boundary: `reg-app-schema`'s app-db check and the plain event check are development assertions and [elide](#elide), while an event handler registered `:boundary? true` and a managed-HTTP `:decode` schema are checked in **every** build. Schema-as-data supports validate, coerce, and tooling round-trips.
 
 Related: [Validate with schemas](how-to/validate-with-schemas.md).
 
@@ -577,7 +577,7 @@ Hyphenate **run-to-completion** consistently.
 
 ### **elide**
 
-Compile dev-only code out of production via one flag (`goog.DEBUG` or `-Dre-frame.debug`). Removes the dev trace surface, the [epoch](#epoch) buffer, and the *ordinary registration diagnostics* among the [schema](#schema) checks. What elides is settled by **what the check is for**, not by who declared the schema it reads: a check the framework relies on to keep a promise of its own — `:rf.schema/at-boundary`, a recordable [coeffect](#coeffect)'s `:schema`, a declared route's shape — holds in every build, and those three all validate against a schema the programmer wrote. Always-on `:errors` and `:events` streams survive.
+Compile dev-only code out of production via one flag (`goog.DEBUG` or `-Dre-frame.debug`). Removes the dev trace surface, the [epoch](#epoch) buffer, and the *ordinary registration diagnostics* among the [schema](#schema) checks. What elides is settled by **what the check is for**, not by who declared the schema it reads: a check the framework relies on to keep a promise of its own — a `:boundary? true` handler's `:schema`, a recordable [coeffect](#coeffect)'s `:schema`, a declared route's shape — holds in every build, and those three all validate against a schema the programmer wrote. Always-on `:errors` and `:events` streams survive.
 
 ```clojure
 ;; goog.DEBUG=false removes the dev trace surface and the schema

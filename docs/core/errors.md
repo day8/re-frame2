@@ -248,8 +248,8 @@ Four of those defaults shape how your app degrades, so they're worth knowing by 
     because the check itself does not.
 
     **One arm of this category does survive a production build, and it is the one you
-    would reach for.** An event handler registered with `{:interceptors
-    [:rf.schema/at-boundary]}` is the framework's answer for untrusted structured
+    would reach for.** An event handler registered with `{:schema … :boundary? true}`
+    is the framework's answer for untrusted structured
     ingress — an HTTP request body, a websocket frame, a query string. That is no
     longer a claim you are making about your own code; it is the framework promising
     something about its own doorway, and a promise kept only in dev is not a promise.

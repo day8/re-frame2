@@ -649,8 +649,8 @@ and checking one are two different acts. A production build performs the
 registration and elides the check ([010 §Production
 builds](010-Schemas.md#production-builds)), so a candidate that violates
 `FeatureSchema` installs silently there — no rejection, no rollback, no trace.
-Write any rule that must hold in production as a branch in the handler, and put
-untrusted input behind the `:rf.schema/at-boundary` interceptor, which is the
+Write any rule that must hold in production as a branch in the handler, and
+declare `:boundary? true` on the handler that admits untrusted input — the
 one validation seam that survives the gate.
 
 **Directory / namespace convention (CLJS reference):**
@@ -944,7 +944,7 @@ Routing has ONE URL-change event. `:rf.route/handle-url-change` is dispatched by
 
 (rf/reg-event :webhook/handle
   {:schema [:cat [:= :webhook/handle] IncomingWebhookPayload]
-   :interceptors [:rf.schema/at-boundary]}                   ;; ref by id (EP-0022) — rejects payload at boundary if invalid
+   :boundary? true}                                          ;; the handler's own `:schema` refuses a bad payload in every build
   ...)
 ```
 
@@ -953,7 +953,7 @@ Routing has ONE URL-change event. `:rf.route/handle-url-change` is dispatched by
 - **Open by default.** Don't add `:closed true` unless the data crosses a process boundary.
 - **Don't model object hierarchies.** A schema describes the *shape* of an open map. There are no classes.
 - **Schemas grow additively.** Once a schema ships, you can add new optional keys; you cannot remove or rename existing keys without bumping a version (Spec-ulation).
-- **Validation runs in dev, elides in prod** by default. Reference the `:rf.schema/at-boundary` interceptor by id (`{:interceptors [:rf.schema/at-boundary]}` — the `rf/validate-at-boundary-interceptor` Var is the registration-boundary input, not a chain entry) for runtime validation in prod at system boundaries.
+- **Validation runs in dev, elides in prod** by default. Declare `:boundary? true` alongside the handler's `:schema` (`{:schema S :boundary? true}`) to keep that one schema running in prod at a system boundary; the flag without a `:schema` key is refused at registration time.
 
 **AI-first checklist:**
 

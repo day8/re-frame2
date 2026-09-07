@@ -279,13 +279,13 @@ The `:status` slot earns its keep, because it reports the dispatch result across
 
 - `:ok` — clean settle: `:db` [committed](../glossary.md#commit), flows ran, `:fx` walked.
 - `:error` — the interceptor chain (handler or interceptor) threw; the run halted before any `:db` commit.
-- `:rejected` — the `:rf.schema/at-boundary` interceptor refused the event's payload, so the handler never ran.
+- `:rejected` — a `:boundary? true` handler's `:schema` refused the event's payload, so the handler never ran.
 - `:rolled-back` — `:db` schema validation rejected the candidate state before it installed, so the container kept its pre-handler value; flows and `:fx` were skipped.
 - `:flow-error` — a flow's `:output` threw; the run halted before `:fx`.
 
 !!! warning "`:rolled-back` is the quiet one in production; `:rejected` is the loud one"
 
-    The handled-event stream survives the production gate, but app-db schema validation does not. `reg-app-schema` is a development-time assertion: a production build registers your schemas and never checks them, so nothing is left to reject a candidate and `:rolled-back` has no producer. A dispatch whose `:db` violates a registered schema installs anyway and reports `:ok`. Do not read a quiet `:rolled-back` metric as evidence that no schema was violated — in production it is quiet by construction. If you need a real production check, put the invariant in the handler, or validate untrusted input with the `:rf.schema/at-boundary` interceptor.
+    The handled-event stream survives the production gate, but app-db schema validation does not. `reg-app-schema` is a development-time assertion: a production build registers your schemas and never checks them, so nothing is left to reject a candidate and `:rolled-back` has no producer. A dispatch whose `:db` violates a registered schema installs anyway and reports `:ok`. Do not read a quiet `:rolled-back` metric as evidence that no schema was violated — in production it is quiet by construction. If you need a real production check, put the invariant in the handler, or validate untrusted input by registering that handler `:boundary? true`.
 
     That interceptor is the complement of everything in the paragraph above, and the two are worth holding side by side because they are easy to conflate. Its check is ungated, and so is its **report**: a refused payload settles `:status :rejected` on your handled-event sink and fans one `:rf.error/schema-validation-failure` record (`:source :boundary`) onto the error route. Both surfaces on this page see it, in a release build, with no wiring of your own. So a spike of `:rejected` on your dashboard is a real one, and it is the value to alert on — a flat `:rolled-back` line, in the same build, means nothing at all.
 

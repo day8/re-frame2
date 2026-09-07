@@ -53,7 +53,7 @@ The scaffold's `.gitignore` keeps the first commit free of regenerable output: t
 
 ## Production build (`release`)
 
-`npm run release` (`shadow-cljs release app`) produces an optimised `:advanced` bundle at the same `resources/public/js/main.js`; serve `resources/public/` from any static host. No re-frame2-specific config: re-frame2's `:advanced`-compile elision contract (Spec 009) strips the dev-time machinery — `trace`, `epoch-history`, the registration diagnostics — when `goog.DEBUG` is false, which it is under `:advanced`. What the framework relies on to keep a promise of its own (the schema boundary interceptor, a route's declared shape, a recordable coeffect's contract) survives — none of it is in this scaffold yet.
+`npm run release` (`shadow-cljs release app`) produces an optimised `:advanced` bundle at the same `resources/public/js/main.js`; serve `resources/public/` from any static host. No re-frame2-specific config: re-frame2's `:advanced`-compile elision contract (Spec 009) strips the dev-time machinery — `trace`, `epoch-history`, the registration diagnostics — when `goog.DEBUG` is false, which it is under `:advanced`. What the framework relies on to keep a promise of its own (a `:boundary? true` handler's schema check, a route's declared shape, a recordable coeffect's contract) survives — none of it is in this scaffold yet.
 
 ## nREPL — only if you'll use `re-frame2-pair`
 

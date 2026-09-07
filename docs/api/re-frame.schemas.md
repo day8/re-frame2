@@ -30,7 +30,7 @@ The registration macros live in `re-frame.core` and route through the schemas ar
   (reg-app-schema path metadata schema)
   ```
 - **Description**: Attach a Malli schema to an `app-db` path.
-  - **Development-build assertion, not a production guarantee.** A production build still performs this registration — `app-schema-at` and `app-schemas` keep answering — but the candidate validator is elided, so nothing checks the schema. A candidate that violates it installs silently: no rejection, no rollback, no trace. Your app-db schemas do not run in production builds. Keep the invariant that must hold in production in the handler, and use [`validate-at-boundary-interceptor`](re-frame.core.md) (`:rf.schema/at-boundary`) where untrusted input must be validated in production too.
+  - **Development-build assertion, not a production guarantee.** A production build still performs this registration — `app-schema-at` and `app-schemas` keep answering — but the candidate validator is elided, so nothing checks the schema. A candidate that violates it installs silently: no rejection, no rollback, no trace. Your app-db schemas do not run in production builds. Keep the invariant that must hold in production in the handler, and set [`:boundary? true`](re-frame.core.md#reg-event) on the registration where untrusted input must be validated in production too.
   - The schema is the **positional value slot** (rf2-qm7k83 Part A), uniform with the rest of the `reg-*` family. The optional middle metadata map carries the frame target under `:frame` (a frame-id keyword or a frame value), plus `:doc` and open `:my/*` keys.
   - The **path is the registration id**. App-db schemas are path-keyed and live in the schemas artefact's per-frame side-table; they are NOT a registrar kind. `(app-schema-at [:user])` looks up by the same path vector.
   - `path` is a sequential `get-in` path of concrete segments, normalized to canonical vector form. `[]` registers a whole-`app-db` root schema. Returns the normalized path.
@@ -235,7 +235,7 @@ On every surface, a structurally malformed registered schema (one that makes the
 
 ## Boundary validation and redaction seams
 
-These three functions are the production-side and cross-artefact seams. `validate-with-registered-fn` / `explain-with-registered-fn` are the pure check surface used by the production boundary-validation interceptor (`validate-at-boundary-interceptor`, in [re-frame.core.md](re-frame.core.md)), which reaches them through the late-bind table. `redact-validation-tags` is the one schema-aware redactor; every validation-failure emit site outside this namespace routes through it.
+These three functions are the production-side and cross-artefact seams. `validate-with-registered-fn` / `explain-with-registered-fn` are the pure check surface used by the always-on boundary check that `{:boundary? true}` turns on for a handler (see [`reg-event`](re-frame.core.md#reg-event)), which reaches them through the late-bind table. `redact-validation-tags` is the one schema-aware redactor; every validation-failure emit site outside this namespace routes through it.
 
 ### `validate-with-registered-fn`
 
@@ -244,11 +244,11 @@ These three functions are the production-side and cross-artefact seams. `validat
   ```clojure
   (validate-with-registered-fn schema value) → boolean
   ```
-- **Description**: Apply the registered validator to `(schema, value)`. This is the public check seam the boundary-validation interceptor uses. It runs in production, outside the `debug-enabled?` gate the `validate-*!` hot path sits behind.
+- **Description**: Apply the registered validator to `(schema, value)`. This is the public check seam the `:boundary? true` check uses. It runs in production, outside the `debug-enabled?` gate the `validate-*!` hot path sits behind.
   - Returns `true` on conform.
   - Returns `false` on fail, including when a structurally malformed schema makes the validator throw (**fail closed**).
   - Returns `true` when no validator is registered. No-validator means no-validation, mirroring the hot path.
-  - Does NOT emit a trace (the interceptor owns the failure envelope) and does NOT consult `debug-enabled?`.
+  - Does NOT emit a trace (the boundary check owns the failure envelope) and does NOT consult `debug-enabled?`.
 
 ### `explain-with-registered-fn`
 
@@ -257,7 +257,7 @@ These three functions are the production-side and cross-artefact seams. `validat
   ```clojure
   (explain-with-registered-fn schema value) → explanation | nil
   ```
-- **Description**: Apply the registered explainer to `(schema, value)`. Companion to `validate-with-registered-fn` for the boundary interceptor.
+- **Description**: Apply the registered explainer to `(schema, value)`. Companion to `validate-with-registered-fn` for the boundary check.
   - Returns the explanation map / data on fail.
   - Returns `nil` when the value conforms, when no explainer is registered, or when the explainer throws. A throwing explainer degrades to `nil` because diagnostics must never change the verdict.
 
@@ -268,7 +268,7 @@ These three functions are the production-side and cross-artefact seams. `validat
   ```clojure
   (redact-validation-tags schema tags) → tags
   ```
-- **Description**: The shared schema-aware redaction seam for every validation-failure trace emitted OUTSIDE this namespace. Its callers are the production boundary interceptor, machine `:data` validation, the `:sub-override` path, flow-output validation, and the recordable-coeffect `:rf.error/cofx-value-invalid` emit. Given the `schema` the failing value was checked against and a failure-trace `tags` map, it returns the tags with:
+- **Description**: The shared schema-aware redaction seam for every validation-failure trace emitted OUTSIDE this namespace. Its callers are the always-on boundary check, machine `:data` validation, the `:sub-override` path, flow-output validation, and the recordable-coeffect `:rf.error/cofx-value-invalid` emit. Given the `schema` the failing value was checked against and a failure-trace `tags` map, it returns the tags with:
   - a `:sensitive?` schema → the value-bearing slots (`:value` / `:received` / `:explain` / `:explain-humanized` / `:rf.fx/args` / `:rf.sub/query-v`) scrubbed to `:rf/redacted`, and `:sensitive? true` stamped. An opaque compiled schema the walker cannot introspect fails closed and is treated as sensitive.
   - a `:large?` (non-sensitive) schema → those same slots elided to the `:rf.size/large-elided` marker.
   - otherwise → the tags ride back verbatim.
@@ -506,6 +506,6 @@ The per-frame registry and diagnostic-latch maintenance hooks. `re-frame.test-su
 
 ## See also
 
-- [re-frame.core.md](re-frame.core.md) — the `reg-app-schema` / `reg-app-schemas` facade rows, the `validate-at-boundary-interceptor` interceptor value, and the commit-plane data-classification effects (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`) that own durable `app-db` classification.
+- [re-frame.core.md](re-frame.core.md) — the `reg-app-schema` / `reg-app-schemas` facade rows, the `:boundary? true` registration flag, and the commit-plane data-classification effects (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`) that own durable `app-db` classification.
 - [Validate with schemas](../core/how-to/validate-with-schemas.md) — the working guide to schemas at `app-db` paths.
 - [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md) — data classification, `:sensitive?`, and large values.

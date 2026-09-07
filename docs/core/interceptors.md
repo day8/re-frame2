@@ -178,7 +178,7 @@ Coeffect satisfaction is **context assembly**, a step that runs to completion *b
 
 ## The one standard interceptor: `path`
 
-Core ships exactly one standard interceptor (the schemas artefact contributes a second — the boundary validator you'll meet below), and you attach it with a second kind of reference — an `[id arg]` vector. `[:rf.interceptor/path <path-vector>]` **focuses** a handler on an [`app-db`](glossary.md#app-db) sub-slice: on the way in it stages just that slice as the handler's `:db`; on the way out it widens the returned slice back into the full `app-db`.
+Core ships exactly one standard interceptor, and you attach it with a second kind of reference — an `[id arg]` vector. `[:rf.interceptor/path <path-vector>]` **focuses** a handler on an [`app-db`](glossary.md#app-db) sub-slice: on the way in it stages just that slice as the handler's `:db`; on the way out it widens the returned slice back into the full `app-db`.
 
 ```clojure
 (rf/reg-event :cart/add
@@ -293,7 +293,7 @@ Don't do real work directly in an interceptor body. Not because it won't run —
 
 (`:localstorage/set` is the app-registered effect from [effects](effects.md) — its `reg-fx` handler stays the one place that touches the host.)
 
-So what *are* interceptors allowed to do? Two things. They **decide**: a `:before` can take the handler out of play — the schema [boundary validator](how-to/validate-with-schemas.md) (a second framework-provided reference, attached by its bare id, `:rf.schema/at-boundary`) does this on invalid input, marking the context so the handler becomes a no-op while every `:after` still runs. (Setting that mark yourself — an auth guard, say — is the same how-to's recipe.) And they **decorate**: transform `:coeffects`, rewrite `[:effects :db]`, append `:fx` rows. The actual doing belongs to effect handlers. The one exemption is diagnostics — the logger's `console.log` may stay in the body, because re-executing it on replay is harmless.
+So what *are* interceptors allowed to do? Two things. They **decide**: a `:before` can take the handler out of play, marking the context so the handler becomes a no-op while every `:after` still runs. (Setting that mark yourself — an auth guard, say — is [this how-to's](how-to/validate-with-schemas.md) recipe. The framework's own [boundary schema check](how-to/validate-with-schemas.md#in-production-what-goes-what-stays) reaches the same outcome without an interceptor at all: it is the `:boundary? true` registration flag, and it runs before the chain does.) And they **decorate**: transform `:coeffects`, rewrite `[:effects :db]`, append `:fx` rows. The actual doing belongs to effect handlers. The one exemption is diagnostics — the logger's `console.log` may stay in the body, because re-executing it on replay is harmless.
 
 !!! warning "Gotcha — a frame interceptor runs on the server too"
 

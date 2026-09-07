@@ -30,6 +30,12 @@ Type: standards-track
 > skills, guide, and tools is done; the correctness review is **CLEAN**; and the
 > coverage gaps are closed. `final` asserts the **decisions are settled** and the
 > normative homes govern (where this EP and the spec differ, the spec governs).
+>
+> **Superseded in part, 2026-09-08 (rf2-kuky.64).** The registered interceptor
+> id `:rf.schema/at-boundary` and the Var `validate-at-boundary-interceptor`
+> were retired outright, with no replacement name; always-on boundary schema
+> validation is now the `:boundary? true` registration flag on `reg-event`.
+> Everything else this EP rules is unchanged.
 
 ## Abstract
 
@@ -231,6 +237,11 @@ It does not need to be a framework-standard interceptor.
 - No change to the event context shape, effects map, coeffects map, or
   interceptor execution algorithm.
 - No attempt to statically prove which events an interceptor can affect.
+- **2026-09-08 (rf2-kuky.64):** the reserved interceptor id
+  `:rf.schema/at-boundary` and the Var `validate-at-boundary-interceptor` named
+  above were retired outright with no replacement name — always-on boundary
+  schema validation is now the `:boundary? true` registration flag on
+  `reg-event`, so it is no longer an interceptor of any kind.
 
 ## Relationships
 

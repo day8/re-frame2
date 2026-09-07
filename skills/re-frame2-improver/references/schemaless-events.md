@@ -8,14 +8,14 @@
 
 **Two boundary shapes, two production gates.** The untrusted value arrives in one of two places, and only the matching gate counts:
 
-- **Event-payload** — the value rides *in the dispatched event vector* (a Managed HTTP reply envelope, appended as the last arg to a `:reply-to` / `:on-success` target; a `postMessage` arg; a query-string map dispatched as `[:route/params-received params]`). The always-on gate is the `:rf.schema/at-boundary` interceptor ref in metadata `:interceptors` (it forces the handler's `:schema` to run over the **event vector** at run-time, production included), **or** a Managed HTTP `:decode <Schema>` on the originating request, **or** a custom registered interceptor that Malli-validates the event vector outside any `goog.DEBUG` guard.
-- **Body-read** — the handler *reads the value mid-body* (`(.getItem js/localStorage …)`, `js/window.location.search`, a stashed `(.-data msg)`, an IndexedDB cursor) then writes it to `app-db`. `:rf.schema/at-boundary` is **useless here** — the value never appears in the event vector it checks. The trust gate must wrap the **raw value**: a validating cofx / interceptor / fx-reply path that materialises and validates the value *before* the handler writes it, **or** an unconditional `(m/validate Schema raw)` / `m/coerce` in the body (not behind `(when ^boolean js/goog.DEBUG …)`). **The in-body spelling is sufficient on its own only when the value does not feed durable state.** A body-read feeding a *durable* write must *also* fold a **recorded** fact — a recordable cofx or an event-payload value, never a live host read at the write site — because replay (epoch-restore, SSR hydration, time-travel) re-runs the handler against whatever the host returns *then*; see the Regression example below and [`imperative-effects.md` §the durable/diagnostic fork](imperative-effects.md#reads--the-durablediagnostic-fork-ep-0010).
+- **Event-payload** — the value rides *in the dispatched event vector* (a Managed HTTP reply envelope, appended as the last arg to a `:reply-to` / `:on-success` target; a `postMessage` arg; a query-string map dispatched as `[:route/params-received params]`). The always-on gate is `:boundary? true` in the registration metadata (it makes the handler's own `:schema` run over the **event vector** at run-time, production included), **or** a Managed HTTP `:decode <Schema>` on the originating request, **or** a custom registered interceptor that Malli-validates the event vector outside any `goog.DEBUG` guard.
+- **Body-read** — the handler *reads the value mid-body* (`(.getItem js/localStorage …)`, `js/window.location.search`, a stashed `(.-data msg)`, an IndexedDB cursor) then writes it to `app-db`. `:boundary? true` is **useless here** — the value never appears in the event vector it checks. The trust gate must wrap the **raw value**: a validating cofx / interceptor / fx-reply path that materialises and validates the value *before* the handler writes it, **or** an unconditional `(m/validate Schema raw)` / `m/coerce` in the body (not behind `(when ^boolean js/goog.DEBUG …)`). **The in-body spelling is sufficient on its own only when the value does not feed durable state.** A body-read feeding a *durable* write must *also* fold a **recorded** fact — a recordable cofx or an event-payload value, never a live host read at the write site — because replay (epoch-restore, SSR hydration, time-travel) re-runs the handler against whatever the host returns *then*; see the Regression example below and [`imperative-effects.md` §the durable/diagnostic fork](imperative-effects.md#reads--the-durablediagnostic-fork-ep-0010).
 
 Detection logic, per candidate handler:
 
 1. Ingests data from an untrusted source? No → not in scope.
 2. **Where does the untrusted value arrive?** Classify event-payload vs body-read; it picks which gate counts. Matching gate present → not a finding.
-3. No matching gate → **flag**, regardless of `:schema` / `reg-app-schema` (both dev-elided). A body-read handler carrying `:schema` + `:rf.schema/at-boundary` *for the event id only* is still a finding — see the Regression example.
+3. No matching gate → **flag**, regardless of `:schema` / `reg-app-schema` (both dev-elided). A body-read handler carrying `:schema` + `:boundary? true` *for the event id only* is still a finding — see the Regression example.
 
 Greppable signals — flag when **any** match AND no production gate is wired:
 
@@ -84,7 +84,7 @@ Greppable signals — flag when **any** match AND no production gate is wired:
 
 ## Regression example — body-read boundaries need the value validated, not the event
 
-This is the trap. The handler below carries **both** a `:schema` for its event id **and** the `:rf.schema/at-boundary` interceptor ref — exactly the shape that closes an *event-payload* boundary. It is **still a finding**, because the untrusted value (`localStorage`) is read *inside the body*: the interceptor validates the (empty, trusted) `[:session/rehydrate]` dispatch and never touches the parsed payload. The same trap applies to any body-read source — query string, a stashed `postMessage`, an IndexedDB cursor.
+This is the trap. The handler below carries **both** a `:schema` for its event id **and** `:boundary? true` — exactly the shape that closes an *event-payload* boundary. It is **still a finding**, because the untrusted value (`localStorage`) is read *inside the body*: the boundary check validates the (empty, trusted) `[:session/rehydrate]` dispatch and never touches the parsed payload. The same trap applies to any body-read source — query string, a stashed `postMessage`, an IndexedDB cursor.
 
 ```clojure
 (def Session
@@ -93,14 +93,14 @@ This is the trap. The handler below carries **both** a `:schema` for its event i
 (rf/reg-app-schema [:session] Session)                 ;; dev-only — elided in production
 
 (rf/reg-event :session/rehydrate
-  {:schema [:cat [:= :session/rehydrate]]                        ;; dev-only — pins the (trusted) dispatch shape
-   :interceptors [:rf.schema/at-boundary]}                        ;; validates the EVENT VECTOR — not the localStorage value
+  {:schema    [:cat [:= :session/rehydrate]]                     ;; pins the (trusted) dispatch shape — trivially valid
+   :boundary? true}                                              ;; validates the EVENT VECTOR — not the localStorage value
   (fn [{:keys [db]} _]
     (let [raw (.getItem js/globalThis.localStorage "session")]   ;; <-- untrusted body read
       {:db (assoc db :session (js->clj (js/JSON.parse raw)))}))) ;; production: writes arbitrary localStorage straight in
 ```
 
-**Why it flags.** `:rf.schema/at-boundary` validates only the trivially-valid `[:session/rehydrate]` dispatch; it has no visibility into `raw`, and the `reg-app-schema` write-check is elided in production — so nothing validates the JSON a tampered/stale `localStorage` returns.
+**Why it flags.** `:boundary? true` validates only the trivially-valid `[:session/rehydrate]` dispatch; it has no visibility into `raw`, and the `reg-app-schema` write-check is elided in production — so nothing validates the JSON a tampered/stale `localStorage` returns.
 
 **The fix — a recordable validating cofx.** The value feeds **durable** app-db (`:session`), so two boundaries must close at once: the **trust** boundary (validate the untrusted value, always-on) *and* the **replay** boundary (a durable write folds a *recorded* fact, never a live host read). One `reg-cofx` **recordable generator** does both — it reads `localStorage` once at processing-start, validates it, records the result on the causal token, and re-presents that recorded value verbatim under epoch-restore / SSR-hydration / time-travel:
 
