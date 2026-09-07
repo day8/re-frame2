@@ -1372,33 +1372,42 @@
   ;; remain addressable via `re-frame.event-emit` / `re-frame.error-emit` +
   ;; late-bind for internal consumers.
   ;;
-  ;; FACADE vs HOME-NAMESPACE VERB — the DCE tier rule (rf2-rfid2x).
+  ;; FACADE vs HOME-NAMESPACE VERB — one public spelling (rf2-kuky.20;
+  ;; supersedes the DCE tier rule filed under rf2-rfid2x, which was measured
+  ;; false at tip and rewritten by PR #9332).
   ;; `re-frame.core/register-listener!` (`:facade? true` in the generated
-  ;; manifest) is the APP-FACING call form. Each stream ALSO has a
-  ;; home-namespace verb — the TOOL-EMBEDDING form (`:facade? false`) that a
-  ;; dev-only tool preload uses so it never requires `re-frame.core` into a
-  ;; production build (bundle isolation / DCE):
+  ;; manifest) is THE public call form — apps and tools alike attach through
+  ;; it. Each stream also has a home-namespace verb, but those are
+  ;; IMPLEMENTATION SEAMS (`:facade? false`): late-bind targets,
+  ;; framework-internal registration and fixture clears, never a second
+  ;; public spelling.
   ;;   :trace  → re-frame.trace.tooling/register-listener!
   ;;   :events → re-frame.event-emit/register-event-listener!
   ;;   :errors → re-frame.error-emit/register-error-listener!
   ;;   :epoch  → re-frame.epoch/register-epoch-listener!   (rowed below)
   ;; The normative rule lives in spec/Tool-Pair.md §"Facade vs home-namespace
-  ;; verb — the DCE tier rule". BOTH call forms hit the SAME registries and
-  ;; BOTH carry `:tier :tooling` — registering a listener is a tooling-tier
-  ;; concern regardless of call form (per spec/API.md §Tier vs Status, which
-  ;; cites `register-listener!` as the canonical `:tooling` exemplar); the
-  ;; app-facing-vs-tool-embedding split is carried by `:facade?`, not by a
-  ;; different tier value. The trace.tooling / event-emit / error-emit home
-  ;; namespaces are internal-plumbing (reached via the facade or late-bind),
-  ;; not enumerated public-artefact surfaces, so they are NOT separately rowed
-  ;; here; `re-frame.epoch` IS an enumerated optional-artefact public surface,
-  ;; so its home verb `register-epoch-listener!` is rowed (tier :tooling) below.
-  ["re-frame.core" "register-listener!"]    {:tier :tooling :owner "009" :status "v1 (stream-parameterized: :trace dev-only, :events/:errors always-on, :epoch optional artefact; app-facing facade — home-verb tool-embedding form per Tool-Pair DCE tier rule)"
+  ;; verb — one public spelling". What keeps a tool out of a production build
+  ;; is `:devtools/preloads` placement plus a `goog.DEBUG`-gated call site,
+  ;; NOT which namespace the call names: `re-frame.core` requires
+  ;; `re-frame.trace`, which requires `re-frame.trace.tooling` unconditionally
+  ;; on both platforms, so BOTH call forms hit the SAME registries through the
+  ;; same function, and `check-bundle-isolation` pins a var-level DCE property
+  ;; rather than a namespace-level one. BOTH carry `:tier :tooling` —
+  ;; registering a listener is a tooling-tier concern regardless of call form
+  ;; (per spec/API.md §Tier vs Status, which cites `register-listener!` as the
+  ;; canonical `:tooling` exemplar); the public-vs-seam split is carried by
+  ;; `:facade?`, not by a different tier value. The trace.tooling / event-emit
+  ;; / error-emit home namespaces are internal-plumbing (reached via the facade
+  ;; or late-bind), not enumerated public-artefact surfaces, so they are NOT
+  ;; separately rowed here; `re-frame.epoch` IS an enumerated optional-artefact
+  ;; public surface, so its home verb `register-epoch-listener!` is rowed
+  ;; (tier :tooling) below.
+  ["re-frame.core" "register-listener!"]    {:tier :tooling :owner "009" :status "v1 (stream-parameterized: :trace dev-only, :events/:errors always-on, :epoch optional artefact; the one public call form — the per-stream home verbs are implementation seams, per Tool-Pair §Facade vs home-namespace verb)"
                                             :action :keep
-                                            :justification "spec/Tool-Pair.md Facade vs home-namespace verb -- the DCE tier rule makes this the APP-FACING call form on purpose: canonical devtools attach through the per-stream home verbs (re-frame.trace.tooling/register-listener! and siblings) so a tool preload never requires re-frame.core into a production build. Moving it would delete the app-facing half of a rule whose entire point is that the two halves are separate. 235 in-repo consumer files."}
+                                            :justification "spec/Tool-Pair.md Facade vs home-namespace verb -- one public spelling: listeners attach through this facade, apps and tools alike, and the per-stream home verbs (re-frame.trace.tooling/register-listener! and siblings) are implementation seams rather than a second public call form. What keeps a tool out of a production build is :devtools/preloads placement plus a goog.DEBUG-gated call site, not which namespace the call names. Moving this row would delete the only public door to the listener registries. 235 in-repo consumer files."}
   ["re-frame.core" "unregister-listener!"]  {:tier :tooling :owner "009" :status "v1 (stream-parameterized)"
                                             :action :keep
-                                            :justification "The removal half of the same DCE tier rule, and the Lifecycle-verb law's own named exemplar of the unregister-* verb. 175 in-repo consumer files."}
+                                            :justification "The removal half of the same one-public-spelling rule, and the Lifecycle-verb law's own named exemplar of the unregister-* verb. 175 in-repo consumer files."}
   ;; Tracing (dev-only) — §009.
   ["re-frame.core" "emit-trace-event!"]     {:tier :tooling :owner "009" :status "v1 (dev-only)"
                                             :action :keep
@@ -1992,14 +2001,19 @@
   ;; replace-runtime-db! DELETED — consolidated into replace-frame-state!'s
   ;; partial-map contract.
   ["re-frame.epoch" "replace-frame-state!"]       {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
-  ;; rf2-rfid2x — `register-epoch-listener!` is the `:epoch`-stream HOME verb:
-  ;; the TOOL-EMBEDDING form (`:facade? false`) canonical devtools attach with,
-  ;; the home-verb counterpart to the app-facing `(rf/register-listener! :epoch
-  ;; …)` facade. Same registry, tier :tooling; a dev-only preload uses this form
-  ;; so it never drags `re-frame.core` into a production build. See the facade
-  ;; row above and spec/Tool-Pair.md §"Facade vs home-namespace verb — the DCE
-  ;; tier rule".
-  ["re-frame.epoch" "register-epoch-listener!"]   {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only; :epoch home verb — tool-embedding form, cf. rf/register-listener! :epoch facade)"}
+  ;; rf2-kuky.20 — `register-epoch-listener!` is the `:epoch`-stream HOME verb:
+  ;; an IMPLEMENTATION SEAM (`:facade? false`), not a second public spelling.
+  ;; Apps and tools attach through `(rf/register-listener! :epoch …)`; this row
+  ;; is here because `re-frame.epoch` is an enumerated optional-artefact public
+  ;; surface, not because the verb is a supported public spelling. Same
+  ;; registry, tier :tooling. What a tool needs from the require line is the
+  ;; DEPENDENCY, not this verb: a mandatory epoch consumer declares
+  ;; `day8/re-frame2-epoch` in deps.edn AND loads the producer with a bare
+  ;; `[re-frame.epoch]` require, because the facade reaches the producer through
+  ;; a late-bind hook an unloaded namespace never populates. See the facade row
+  ;; above and spec/Tool-Pair.md §"Facade vs home-namespace verb — one public
+  ;; spelling".
+  ["re-frame.epoch" "register-epoch-listener!"]   {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only; :epoch home verb — implementation seam, not a public spelling; attach via rf/register-listener! :epoch)"}
   ["re-frame.epoch" "unregister-epoch-listener!"] {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only; :epoch home verb)"}
   ;; rf2-uhouu — home-namespace form of the receiver decision the `re-frame.core`
   ;; facade re-exports (rowed above). The supported way a
