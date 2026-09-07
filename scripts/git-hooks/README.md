@@ -370,7 +370,7 @@ Four shapes, case-insensitive, all anchored at **column 0**:
 |-------|---------|
 | the session trailer | a `Claude-Session:` line |
 | the co-author trailer, *when the address is the assistant's* | a `Co-Authored-By:` line whose value carries `@anthropic.com` |
-| the generated-with marker | a line that IS `… Generated with [Claude Code](…)` — decoration in front, its own link at the end |
+| the generated-with marker | a line that IS `… Generated with [Claude Code](…)` — decoration in front, its own **link** at the end |
 | the bare session URL | an `https://claude.ai/code/session_…` line, the URL and nothing else |
 
 That is the whole set. This is **not** a commit-message linter: it does not
@@ -407,6 +407,24 @@ and are unchanged: both key on a trailer **token** at column 0, which is already
 precisely git's own definition of a trailer, and widening what is already exact
 would only open a hole. Layer 10q pins both directions — prose permitted, a real
 trailer beside that same prose still refused.
+
+**Rule 3's second anchor tests for a link, not for the word "Claude".** That
+sentence is the repair the merged-PR audit of #9385 asked for, and it is worth
+stating because the first cut of the rule did not implement what this table row
+and the detector's own comment already promised: it asked whether the last
+blank-separated word *contained* `claude` or `anthropic`. So a column-0
+compliance sentence ending on a **filename** was still refused —
+
+     Generated with [Claude Code] was declined per CLAUDE.md.
+
+— while `No Generated with [Claude Code] trailer was added.` passed, on nothing
+but its final word. Same claim, no link and no attribution on either line, one
+rewording apart. The tail must now be a URL (`://`) whose host is the tool's,
+which is what "ends on its own link" means mechanically. **So a check of this
+guard must vary what the sentence *ends* on, not only whether it mentions a
+trailer** — a two-case check clears it and proves nothing. Layer 10q pairs that
+permitted sentence against `Generated with Claude Code https://claude.com/claude-code`,
+which shares its head and is still refused.
 
 **The co-author rule matches the address family, not the name.** All 31
 trailers in this repository's log carry `@anthropic.com` and the documented

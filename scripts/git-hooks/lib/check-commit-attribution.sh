@@ -198,20 +198,46 @@ rf2_attribution_is_offending_line() {
   #      - NOTHING BUT DECORATION BEFORE IT. The harness writes the marker
   #        behind a robot emoji; a human writes it behind words. Words in
   #        front make the line a sentence, so the head must carry no letters.
-  #      - THE LINE ENDS ON THE TOOL'S NAME, i.e. the last blank-separated
+  #      - THE LINE ENDS ON THE TOOL'S OWN LINK, i.e. the last blank-separated
   #        word is the `[Claude Code](https://claude.com/claude-code)` link
   #        itself. Anything else after it is prose, and a marker with prose
   #        after it attributes nothing.
   #
   #    So `… Generated with [Claude Code](…)` is refused and `Generated with
   #    [Claude Code] was declined` is not — which is the whole of rf2-uo5f.
+  #
+  #    THE SECOND ANCHOR TESTS FOR A LINK, NOT FOR THE WORD "CLAUDE", and the
+  #    difference between those two is the residual this repair closes (the
+  #    merged-PR audit of #9385). The first cut of this rule asked only whether
+  #    the last word CONTAINED `claude` or `anthropic`, which the documentation
+  #    above, scripts/git-hooks/README.md and CLAUDE.md all described as "ends
+  #    on the tool's own link" — a promise the code did not keep. The gap is
+  #    not academic: it refuses an ordinary column-0 compliance sentence that
+  #    merely happens to END on such a word,
+  #
+  #      Generated with [Claude Code] was declined per CLAUDE.md.
+  #
+  #    whose final word `CLAUDE.md.` is a FILENAME. That line carries no link
+  #    and attributes nothing to anybody, and it is the same false-positive
+  #    class rf2-uo5f exists for, reached one rewording away from the case
+  #    already pinned: `No Generated with [Claude Code] trailer was added.`
+  #    passes only because it ends on `added.`. So the discriminator is
+  #    structural on BOTH halves — no letters in front, and a URL at the end
+  #    whose host is the tool's. A `://` is what makes the tail a link rather
+  #    than a word; deliberately NOT a list of negations ("No", "declined",
+  #    "not"), which was considered and rejected here as trivially defeatable.
   case "$_rf2a_low" in
     *'generated with'*)
       case "${_rf2a_low%%generated with*}" in
         *[a-z]*) ;;
         *)
-          case "${_rf2a_low##* }" in
-            *claude*|*anthropic*) return 0 ;;
+          _rf2a_tail=${_rf2a_low##* }
+          case "$_rf2a_tail" in
+            *://*)
+              case "$_rf2a_tail" in
+                *claude*|*anthropic*) return 0 ;;
+              esac
+              ;;
           esac
           ;;
       esac
