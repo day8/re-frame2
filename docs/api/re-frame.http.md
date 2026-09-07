@@ -25,7 +25,7 @@ The verb helpers live in `re-frame.http`. The `:rf.http/managed` fx is keyword-a
   - `:retry` — `{:on #{categories} :max-attempts N :backoff {:base-ms :factor :max-ms :jitter}}`. `:on` must be a set drawn from the retryable subset `#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}`. Anything else raises `:rf.error/http-bad-retry-on` at dispatch.
   - `:timeout-ms` — per-attempt timeout, default 30000. An explicit `nil` or `0` opts out.
   - `:reply-to` — the unified reply target: one event vector for **both** the success and the failure reply (the app branches on `:status`). The same call-site key resources / mutations use.
-  - `:on-success` / `:on-failure` — the split routing sugar over `:reply-to`: success / failure target events; event vector or nil. Any other value raises `:rf.error/http-bad-reply-target`. Supplying **none** of `:reply-to` / `:on-success` / `:on-failure` raises `:rf.error/http-no-reply-target` at dispatch.
+  - `:on-success` / `:on-failure` — the split routing sugar: success / failure target events; event vector or nil. Any other value raises `:rf.error/http-bad-reply-target`. The two styles are **exclusive** — `:reply-to` beside either branch key raises the same error with `:reason :mixed-addressing`. Supplying **none** of the three raises `:rf.error/http-no-reply-target` at dispatch.
   - `:request-id` — for abort / supersede.
   - `:abort-signal` — optional (CLJS).
   - `:sensitive?` — see [Privacy and classification](#privacy-and-classification).
@@ -83,8 +83,8 @@ Every reply is the one canonical reply envelope — a plain map keyed on a close
 Every request must address its reply; where the payload lands depends on how:
 
 - **Unified `:reply-to`** — one event vector for **both** the success and the failure reply, the canonical envelope appended as the last arg. A `:cart/load` handler sees `[:cart/load {:status :ok :value decoded-body …}]` (or the `:error` / `:cancelled` shape) and branches on `(:status reply)`. Ride request context along the prefix — `:reply-to [:cart/load ctx]` delivers `[:cart/load ctx <envelope>]`. The same call-site key resources / mutations use.
-- **Split `:on-success` / `:on-failure`** — pure routing sugar over `:reply-to`. Both receive the identical envelope appended as the last event-vector arg. A `:cart/loaded` handler sees `[:cart/loaded {:status :ok :value decoded-body …}]` and destructures it directly (`[_ {:keys [value]}]` for success, `[_ {:keys [error]}]` for failure).
-- **`:on-success nil` / `:on-failure nil`** — silences that side; no reply dispatch.
+- **Split `:on-success` / `:on-failure`** — pure routing sugar. Both receive the identical envelope appended as the last event-vector arg. Exclusive with `:reply-to`: a map carrying both raises `:rf.error/http-bad-reply-target` (`:reason :mixed-addressing`) at dispatch, on key presence rather than value. A `:cart/loaded` handler sees `[:cart/loaded {:status :ok :value decoded-body …}]` and destructures it directly (`[_ {:keys [value]}]` for success, `[_ {:keys [error]}]` for failure).
+- **`:reply-to nil`** — the fire-and-forget spelling: no receiver at all. `:on-success nil` / `:on-failure nil` silences ONE side of the split form.
 - **Omitting all of `:reply-to` / `:on-success` / `:on-failure`** raises `:rf.error/http-no-reply-target` at dispatch — the co-located default (reply merged under `:rf/reply` back to the originating event) was retired pre-alpha; the framework never silently addresses the reply.
 - Any other non-vector value for a reply-target key raises `:rf.error/http-bad-reply-target`.
 

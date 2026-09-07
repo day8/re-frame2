@@ -235,6 +235,57 @@
   two split keys and silently skipping the unified one."
   [:reply-to :on-success :on-failure])
 
+(defn validate-reply-addressing!
+  "Per Spec 014 §Reply addressing — the two authoring styles are EXCLUSIVE.
+  Throws `:rf.error/http-bad-reply-target` when an args map carries
+  `:reply-to` beside `:on-success` or `:on-failure`.
+
+  The test is key PRESENCE, not value: `{:reply-to [:a] :on-failure nil}` is
+  a mixture (and was the only pin the deleted per-branch override precedence
+  ever had). Values are irrelevant because there is nothing coherent for a
+  mixture to mean — `:reply-to` already addresses BOTH branches, so a branch
+  key beside it is either a redundant restatement or a contradiction, and the
+  reader cannot tell which was intended.
+
+  Called from THREE paths so the refusal is the same wherever a managed args
+  map is interpreted: the live fx (`handlers/validate-reply-target!`), and the
+  canned success / failure stubs, which resolve reply addressing themselves
+  (`re-frame.http.test-support`)."
+  [args-map]
+  (when (and (map? args-map) (contains? args-map :reply-to))
+    (let [mixed (filterv #(contains? args-map %) [:on-success :on-failure])]
+      (when (seq mixed)
+        (throw (rf.error/thrown-ex-info
+                 :rf.error/http-bad-reply-target :rf.http/managed
+                 "`:reply-to` and `:on-success` / `:on-failure` are EXCLUSIVE reply-addressing styles per Spec 014 §Reply addressing — `:reply-to` already addresses BOTH branches, so a branch key beside it has no meaning. Supply either the unified `:reply-to` or the split pair, never both. Rejected on key PRESENCE, so an explicit `nil` branch is a mixture too; to silence a reply, use `:reply-to nil`"
+                 {:extra {:keys   (into [:reply-to] mixed)
+                          :reason :mixed-addressing}}))))))
+
+(defn reply-target
+  "Lower an args map's reply addressing to the ONE internal
+  `{:supplied? :value}` descriptor `build-reply-event` consumes, for
+  `branch-key` (`:on-success` or `:on-failure`).
+
+  Per Spec 014 §Reply addressing, with the two styles now exclusive
+  (rf2-kuky.12):
+
+  - `:reply-to` present → that one target addresses BOTH branches.
+  - else the branch's own key, when present.
+  - else `{:supplied? false}` — this branch has no target, which after
+    `validate-reply-addressing!` means only that the OPPOSITE sugar was
+    supplied alone. Omitting every key fails loud upstream
+    (`:rf.error/http-no-reply-target`); the co-located default was retired
+    pre-alpha.
+
+  One fn rather than a precedence rule restated at each interpreting site —
+  the live fx and both canned stubs previously carried their own copy, and
+  a copy is where a precedence rule drifts."
+  [args-map branch-key]
+  (cond
+    (contains? args-map :reply-to)   {:supplied? true  :value (:reply-to args-map)}
+    (contains? args-map branch-key)  {:supplied? true  :value (get args-map branch-key)}
+    :else                            {:supplied? false :value nil}))
+
 (declare build-reply-event)
 
 (defn dispatch-reply-via-late-bind!

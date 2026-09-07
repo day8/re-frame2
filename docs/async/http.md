@@ -21,7 +21,7 @@ API surfaces (interceptors, stubs, traces): [re-frame.http](../api/re-frame.http
 
 ## The args map
 
-Every key you can hand `:rf.http/managed`. Only `:request` (with a `:url`) is required; everything else has a sane default, which is why the common case stays short.
+Every key you can hand `:rf.http/managed`. `:request` (with a `:url`) and a reply address — `:reply-to`, or `:on-success` / `:on-failure` — are required; everything else has a sane default, which is why the common case stays short.
 
 | Key | What it does | Default |
 |---|---|---|
@@ -175,6 +175,7 @@ The first time it runs there is no `reply`, so the handler issues the request. W
 ### Delivery rules
 
 - **Reply targets must be event vectors.** When you supply `:reply-to`, `:on-success`, or `:on-failure`, each must be an event vector. `nil` means "silence this side"; a keyword, map, string, or any other non-vector value is rejected when that side's reply is dispatched, with `:rf.error/http-bad-reply-target`, so a misshaped continuation cannot be silently rerouted.
+- **The two styles are exclusive.** `:reply-to` already addresses both branches, so a map carrying it beside `:on-success` or `:on-failure` is rejected at dispatch with `:rf.error/http-bad-reply-target` and `:reason :mixed-addressing`. The check is on key *presence*, so `{:reply-to [:a] :on-failure nil}` is a mixture too — to decline the reply entirely, write `:reply-to nil`.
 - **The reply lands in the same [frame](../core/frames.md) the request went out from.** The fx carries the frame from the original dispatch through to the reply, so a frame leak — a dispatch firing after the frame has unwound — cannot happen here. ([Frame identity is carried, not found](../core/glossary.md#frame-identity-is-carried-not-found).)
 - **A stale reply is never delivered.** A reply whose correlation went obsolete before delivery ([below](#cancellation-supersession-and-abort)) — a superseded `:request-id`, or an actor destroy whose reply addressed the destroyed actor — does not reach your app at all; it is trace-only.
 
@@ -195,7 +196,7 @@ If a reply handler wants to record *when* something completed, don't call `(js/D
 
 ### Silencing a reply
 
-Set `:on-success` or `:on-failure` to `nil` and that reply is dropped — fire-and-forget, useful for a telemetry beacon you genuinely don't care to handle. But the framework won't let you *accidentally* swallow an error: the first time a non-aborted failure is dropped by `:on-failure nil`, a one-shot `:rf.warning/failure-swallowed` trace fires (dev-only) so the silence is observable rather than invisible. Aborted requests are excluded — a cancelled request that no longer wants its reply is correct silence, not a bug.
+Write `:reply-to nil` and the whole reply is dropped — fire-and-forget, useful for a telemetry beacon you genuinely don't care to handle. Setting `:on-success` or `:on-failure` to `nil` silences just that one side of the split form. But the framework won't let you *accidentally* swallow an error: the first time a non-aborted failure is dropped by `:on-failure nil`, a one-shot `:rf.warning/failure-swallowed` trace fires (dev-only) so the silence is observable rather than invisible. Aborted requests are excluded — a cancelled request that no longer wants its reply is correct silence, not a bug.
 
 ## Failures are a closed set
 

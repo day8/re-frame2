@@ -135,7 +135,7 @@
   canonical envelope's `:status`), or by `:on-success` / `:on-failure` (the
   split routing sugar; an explicit `nil` silences that branch).
 
-  Two dispatch-time guards, both fired BEFORE `run-attempt!` (matching the
+  Three dispatch-time guards, all fired BEFORE `run-attempt!` (matching the
   other args-map guards — `validate-retry!` → `:rf.error/http-bad-retry-on`;
   `validate-url!` → `:rf.error/http-bad-request`):
 
@@ -145,7 +145,14 @@
      `:rf.error/http-no-reply-target` rather than silently routing the reply
      back to the dispatching event.
 
-  2. SHAPE (rf2-bvw9ut) — each SUPPLIED `:reply-to` / `:on-success` /
+  2. EXCLUSIVITY (rf2-kuky.12) — the unified `:reply-to` and the split
+     `:on-success` / `:on-failure` sugar are alternate STYLES, and a map
+     carrying both is refused with `:rf.error/http-bad-reply-target`
+     (`:reason :mixed-addressing`). The check is
+     `encoding/validate-reply-addressing!`, shared with the canned stubs so
+     one map is judged identically on every path that interprets it.
+
+  3. SHAPE (rf2-bvw9ut) — each SUPPLIED `:reply-to` / `:on-success` /
      `:on-failure` must be an event VECTOR or `nil`. Per Spec 014 §Request
      envelope this shape check is a DISPATCH-TIME guard (alongside
      `:retry :on` and `:url`). Previously the vector-or-nil check lived ONLY
@@ -156,12 +163,13 @@
      BEFORE the network call. `build-reply-event`'s guard stays as
      belt-and-braces for any non-args-map descriptor path."
   [args-map]
-  (when-not (some #(contains? args-map %) [:reply-to :on-success :on-failure])
+  (when-not (some #(contains? args-map %) rf.http.encoding/reply-address-keys)
     (throw (rf.error/thrown-ex-info
              :rf.error/http-no-reply-target :rf.http/managed
              "`:rf.http/managed` must address its reply — supply `:reply-to` (one target for both success and failure; the app branches on the canonical envelope's `:status`), or `:on-success` / `:on-failure` (an explicit `nil` silences a branch). The co-located default (reply merged under `:rf/reply` back to the originating event) was retired pre-alpha. Per Spec 014 §Reply addressing"
              {:extra {:args-keys (vec (keys args-map))}})))
-  (doseq [k [:reply-to :on-success :on-failure]]
+  (rf.http.encoding/validate-reply-addressing! args-map)
+  (doseq [k rf.http.encoding/reply-address-keys]
     (when (contains? args-map k)
       (let [v (get args-map k)]
         (when-not (valid-reply-target? v)
@@ -193,8 +201,7 @@
   no-timeout opt-out via a `(pos? timeout-ms)` guard (NOT a bare
   truthiness check — `0` is truthy in Clojure). The three-way contract
   is thus preserved end-to-end without any reshaping here."
-  [{:keys [request decode accept retry timeout-ms
-           on-success on-failure reply-to request-id abort-signal]
+  [{:keys [request decode accept retry timeout-ms request-id abort-signal]
     :or   {timeout-ms 30000}
     :as   args-map}
    frame-ctx]
@@ -238,18 +245,15 @@
         ;; target for BOTH the success and the failure reply (the app branches
         ;; on the canonical envelope's `:status`), mirroring the resources /
         ;; mutation call-site `:reply-to`. `:on-success` / `:on-failure` are
-        ;; the split routing sugar; a per-branch key OVERRIDES the `:reply-to`
-        ;; base for its branch. The co-located default (reply merged under
-        ;; `:rf/reply` back to the originating event when NO target was given)
-        ;; was retired pre-alpha — omitting every target fails loud at
-        ;; `validate-reply-target!`, so a branch is `{:supplied? false}` only
-        ;; under partial addressing (the opposite sugar alone).
-        reply-target (fn [branch-supplied? branch-value]
-                       (cond
-                         branch-supplied?   {:supplied? true  :value branch-value}
-                         (contains? args-map :reply-to)
-                         {:supplied? true  :value reply-to}
-                         :else              {:supplied? false :value nil}))]
+        ;; the split routing sugar, EXCLUSIVE with it (rf2-kuky.12 — a mixed
+        ;; map is refused at `validate-reply-target!` above). The lowering
+        ;; itself is `encoding/reply-target`, shared with the canned stubs.
+        ;; The co-located default (reply merged under `:rf/reply` back to the
+        ;; originating event when NO target was given) was retired pre-alpha —
+        ;; omitting every target fails loud, so a branch is
+        ;; `{:supplied? false}` only under partial addressing (the opposite
+        ;; sugar alone).
+        reply-target #(rf.http.encoding/reply-target args-map %)]
     {:request           request
      :decode            decode
      :accept            accept
@@ -257,8 +261,8 @@
      :timeout-ms        timeout-ms
      :max-decoded-keys  max-keys
      :origin-event      origin-event
-     :explicit-on-success (reply-target (contains? args-map :on-success) on-success)
-     :explicit-on-failure (reply-target (contains? args-map :on-failure) on-failure)
+     :explicit-on-success (reply-target :on-success)
+     :explicit-on-failure (reply-target :on-failure)
      :request-id        request-id
      :actor-id          actor-id
      :abort-signal      abort-signal

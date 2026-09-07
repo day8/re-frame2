@@ -22,7 +22,7 @@
             ;; `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}`
             ;; throughout, so it opts in by requiring the test-support ns.
             ;; Requiring test support registers both canned effect ids.
-            [re-frame.http.test-support]
+            [re-frame.http.test-support :as rf.http.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace :as rf.trace])
@@ -133,6 +133,48 @@
         (is (not (and (some? ex)
                       (= :rf.error/http-no-reply-target (:rf.error/id (ex-data ex)))))
             (str "supplying " k " (even nil) satisfies reply addressing"))))))
+
+;; ---- 1b-bis. rf2-kuky.12 — mixed reply addressing is refused everywhere ----
+
+;; The route-map override target is private; the refusal must hold on THAT
+;; path too, so reach it the way the reply-tail suite reaches its validator.
+(def ^:private stub-handler @#'rf.http.test-support/stub-handler)
+
+(deftest mixed-reply-addressing-refused-on-every-interpreting-path
+  (testing "rf2-kuky.12 — `:reply-to` beside `:on-success` / `:on-failure` is
+            refused with :rf.error/http-bad-reply-target on EVERY path that
+            interprets a managed args map: the live fx, both canned stubs, and
+            the route-map stub. A map the live fx rejects must not be quietly
+            interpreted by a test double — that is how a suite green-lights a
+            call site production would refuse"
+    (let [mixed {:request {:method :get :url "http://127.0.0.1:1/x"}
+                 :reply-to [:a] :on-failure nil}
+          check (fn [label thunk]
+                  (let [e (try (thunk) nil (catch clojure.lang.ExceptionInfo e e))]
+                    (is (some? e) (str label " must throw on a mixed args map"))
+                    (is (= :rf.error/http-bad-reply-target (:rf.error/id (ex-data e)))
+                        (str label " → :rf.error/http-bad-reply-target"))
+                    (is (= :mixed-addressing (:reason (ex-data e)))
+                        (str label " → :reason :mixed-addressing"))
+                    (is (= [:reply-to :on-failure] (:keys (ex-data e)))
+                        (str label " names the colliding keys"))))
+          ctx   {:frame :rf/default :event [:no-op]}]
+      (check "the live fx"
+             #(rf.http.managed/managed-handler ctx mixed))
+      (check ":rf.http/managed-canned-success"
+             #(rf.http.test-support/canned-success-handler ctx mixed))
+      (check ":rf.http/managed-canned-failure"
+             #(rf.http.test-support/canned-failure-handler ctx mixed))
+      (check "the route-map stub"
+             #(stub-handler {[:get "http://127.0.0.1:1/x"] {:value {:ok true}}}
+                            ctx mixed)))
+    (testing "…while both unmixed styles still run on the canned path"
+      (doseq [ok [{:reply-to [:no-op]}
+                  {:on-success [:no-op] :on-failure [:no-op]}]]
+        (is (nil? (rf.http.test-support/canned-success-handler
+                    {:frame :rf/default :event [:no-op]}
+                    (merge {:request {:method :get :url "/x"} :value {}} ok)))
+            (str (pr-str (vec (keys ok))) " is accepted by the canned stub"))))))
 
 ;; ---- 1c. rf2-et4c1s — all three spellings deliver the identical envelope ---
 

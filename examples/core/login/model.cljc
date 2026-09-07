@@ -343,15 +343,15 @@
 
     :lock-account
     ;; Slam the door after too many tries. This one is fire-and-forget: we tell
-    ;; the server to lock the account but don't care to hear back, so
-    ;; `:on-success nil` / `:on-failure nil` mute both reply branches. (Leave
-    ;; them off and the default would dispatch a reply event that
-    ;; `AuthLoginEvent` then rejects — a self-inflicted wound.)
+    ;; the server to lock the account but don't care to hear back. `:reply-to
+    ;; nil` is THE spelling for that — one target for both branches, addressed
+    ;; at nothing. (Leave the reply unaddressed entirely and the request fails
+    ;; loud with `:rf.error/http-no-reply-target`: silence has to be chosen, not
+    ;; defaulted into.)
     (fn [_]
       {:fx [[:rf.http/managed
-             {:request    {:method :post :url "/api/auth/lock"}
-              :on-success nil
-              :on-failure nil}]]})}
+             {:request  {:method :post :url "/api/auth/lock"}
+              :reply-to nil}]]})}
    ;; No `:store-session` action here — and that absence is the point. The
    ;; success reply carries the session TOKEN (a credential), and the machine
    ;; must never see a credential (same rule the password follows on the way

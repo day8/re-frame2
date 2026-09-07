@@ -104,8 +104,47 @@
         "an event vector passes")
     (is (nil? (validate-reply-target! {:on-success nil}))
         "an explicit nil (fire-and-forget) passes")
-    (is (nil? (validate-reply-target! {:reply-to [:load] :on-failure nil}))
-        "a vector :reply-to with an explicit-nil :on-failure passes")))
+    (is (nil? (validate-reply-target! {:reply-to nil}))
+        "an explicit nil :reply-to — the ONE fire-and-forget spelling — passes")
+    ;; rf2-kuky.12 — this assertion previously read "passes", and it was the
+    ;; only pin the per-branch override precedence ever had. The two styles are
+    ;; now EXCLUSIVE; see mixed-reply-addressing-refused-at-dispatch below.
+    (is (= :rf.error/http-bad-reply-target
+           (:rf.error/id (ex-data (try (validate-reply-target! {:reply-to [:load] :on-failure nil})
+                                       (catch clojure.lang.ExceptionInfo e e)))))
+        "a :reply-to beside an explicit-nil :on-failure is now a REFUSED mixture")))
+
+(deftest mixed-reply-addressing-refused-at-dispatch
+  (testing "rf2-kuky.12 — `:reply-to` and the `:on-success` / `:on-failure`
+            split sugar are EXCLUSIVE. Refusal is on key PRESENCE, so an
+            explicit `nil` branch is a mixture too; the ex-data names the keys
+            and the reason so a caller can see WHICH pair collided"
+    (doseq [mixed [{:reply-to [:a] :on-success [:b]}
+                   {:reply-to [:a] :on-failure [:b]}
+                   {:reply-to [:a] :on-failure nil}
+                   {:reply-to nil  :on-success [:b]}
+                   {:reply-to [:a] :on-success [:b] :on-failure [:c]}]]
+      (let [e (try (validate-reply-target! mixed)
+                   nil
+                   (catch clojure.lang.ExceptionInfo e e))]
+        (is (some? e) (str (pr-str (vec (sort-by str (keys mixed)))) " must throw"))
+        (is (= :rf.error/http-bad-reply-target (:rf.error/id (ex-data e)))
+            "→ :rf.error/http-bad-reply-target (reused; no new catalogue id)")
+        (is (= :mixed-addressing (:reason (ex-data e)))
+            ":reason distinguishes a mixture from the bad-SHAPE use of the same id")
+        (is (= :reply-to (first (:keys (ex-data e))))
+            ":keys leads with :reply-to, then the colliding branch key(s)")
+        (is (= (set (keys mixed)) (set (:keys (ex-data e))))
+            ":keys names every colliding key, not just the first")))
+    (testing "the two unmixed styles, and each branch alone, still pass"
+      (doseq [ok [{:reply-to [:a]}
+                  {:reply-to nil}
+                  {:on-success [:a]}
+                  {:on-failure nil}
+                  {:on-success [:a] :on-failure [:b]}
+                  {:on-success [:a] :on-failure nil}]]
+        (is (nil? (validate-reply-target! ok))
+            (str (pr-str ok) " is a legal reply addressing"))))))
 
 (deftest bvw9ut-bare-keyword-on-success-rejected-before-network
   (testing "rf2-bvw9ut — dispatching :rf.http/managed with a bare-keyword
