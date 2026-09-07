@@ -376,41 +376,103 @@
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; Phase ordering: cache hit BEFORE cap. The hit marker is sub-100
-;; bytes; even with an absurdly tight cap the marker survives because
-;; the cap walk sees the small marker, not the original oversized
-;; payload. Flipping the order would force the cap to walk the full
-;; (potentially massive) original payload before the cache could
-;; replace it.
+;; Phase ordering: cache hit BEFORE cap, for a payload that was actually
+;; DELIVERED. The hit marker is sub-100 bytes, so it survives the cap
+;; walk; flipping the order would force the cap to walk the full
+;; (potentially massive) original payload before the cache could replace
+;; it. This arm keeps that optimisation pinned.
 ;; ---------------------------------------------------------------------------
 
-(deftest cache-hit-bypasses-cap-walk
+(deftest delivered-payload-still-gets-the-fast-cache-hit
   (async done
-    ;; Cap = 200 tokens: the original payload (~2000 tokens) overflows,
-    ;; but the cache-hit marker (~68 tokens) survives. With the order
-    ;; reversed (cap before cache), the first hit would have been
-    ;; cap'd to overflow BEFORE the cache could see the original hash
-    ;; — and the cache slot would store the OVERFLOW marker's hash
-    ;; instead, so the second call's "same text" would compare
-    ;; against an overflow marker hash, never matching the underlying
-    ;; payload.
-    (let [args (args-js {:cache "true" "max-tokens" 200})
-          big  (apply str (repeat 8000 "x"))]
+    ;; Under the cap on both calls: the payload really reached the
+    ;; caller, so the second identical read is honestly told to re-use
+    ;; the bytes it already has, and the cap never walks them again.
+    (let [args (args-js {:cache "true" "max-tokens" 5000})
+          body (apply str (repeat 40 "x"))]
       (set-stubs!
         {:snapshot-tool (fn [_conn _args]
+                          (js/Promise.resolve (mcp-result (pr-str {:small body}))))})
+      (-> (tools/invoke nil "snapshot" args nil)
+          (.then (fn [first-result]
+                   (is (not (overflow? first-result))
+                       "first call: under-cap payload is delivered verbatim")
+                   (is (not (cache-hit? first-result)))
+                   (tools/invoke nil "snapshot" args nil)))
+          (.then (fn [second-result]
+                   (is (cache-hit? second-result)
+                       "second call: same delivered text → cache-hit marker")
+                   (is (= :result-hash
+                          (get-in (extract-edn second-result)
+                                  [:rf.mcp/cache-hit :via]))
+                       "marker is the post-eval result-hash path")
+                   (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-gov3 — a `:rf.mcp/cache-hit` says "re-use the payload you already
+;; have". A response the wire cap replaced with `:rf.mcp/overflow` was
+;; never delivered, so it cannot underwrite that claim. `apply-cache`
+;; runs before `apply-cap`, so the miss path recorded the FULL response's
+;; hash and the cap then withheld the response — and the next identical
+;; read matched that hash and was told to re-use bytes it never received,
+;; erasing the actionable size-limit diagnosis on every repeat.
+;;
+;; These arms replace the former `cache-hit-bypasses-cap-walk`, which
+;; asserted exactly that overflow-then-cache-hit sequence and so pinned
+;; the defect rather than the contract.
+;; ---------------------------------------------------------------------------
+
+(deftest withheld-payload-never-claims-a-cache-hit
+  (async done
+    ;; Cap = 200 tokens against a ~2000-token payload: both calls
+    ;; overflow, and the second must say so rather than claiming the
+    ;; caller already holds the original bytes.
+    (let [args  (args-js {:cache "true" "max-tokens" 200})
+          big   (apply str (repeat 8000 "x"))
+          calls (atom 0)]
+      (set-stubs!
+        {:snapshot-tool (fn [_conn _args]
+                          (swap! calls inc)
                           (js/Promise.resolve (mcp-result (pr-str {:huge big}))))})
       (-> (tools/invoke nil "snapshot" args nil)
           (.then (fn [first-result]
                    (is (overflow? first-result)
                        "first call: big payload → overflow marker")
+                   (is (zero? (cache/size))
+                       "and its identity is NOT retained — the payload was withheld")
                    (tools/invoke nil "snapshot" args nil)))
           (.then (fn [second-result]
-                   (is (cache-hit? second-result)
-                       "second call: same text → cache-hit marker, not overflow")
-                   (is (= :result-hash
-                          (get-in (extract-edn second-result)
-                                  [:rf.mcp/cache-hit :via]))
-                       "marker is the post-eval result-hash path")
+                   (is (overflow? second-result)
+                       "second call: still the honest overflow diagnosis")
+                   (is (not (cache-hit? second-result))
+                       "never a cache-hit for bytes the caller never received")
+                   (is (= 2 @calls)
+                       "and the read is genuinely re-run rather than short-circuited")
+                   (done)))))))
+
+(deftest raising-the-cap-after-a-withheld-read-delivers-the-payload
+  (async done
+    ;; The recovery the overflow marker's hint points at. A larger
+    ;; `max-tokens` is a different cache key, so it was always able to
+    ;; recover; this pins that withdrawing the withheld entry did not
+    ;; break it, and that the recovered payload then caches honestly.
+    (let [tight (args-js {:cache "true" "max-tokens" 200})
+          roomy (args-js {:cache "true" "max-tokens" 5000})
+          body  (apply str (repeat 8000 "x"))]
+      (set-stubs!
+        {:snapshot-tool (fn [_conn _args]
+                          (js/Promise.resolve (mcp-result (pr-str {:big body}))))})
+      (-> (tools/invoke nil "snapshot" tight nil)
+          (.then (fn [first-result]
+                   (is (overflow? first-result))
+                   (tools/invoke nil "snapshot" roomy nil)))
+          (.then (fn [second-result]
+                   (is (not (overflow? second-result))
+                       "the roomier cap delivers the payload")
+                   (tools/invoke nil "snapshot" roomy nil)))
+          (.then (fn [third-result]
+                   (is (cache-hit? third-result)
+                       "and THAT delivered payload does earn a cache-hit")
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
