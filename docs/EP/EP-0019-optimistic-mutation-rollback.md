@@ -285,9 +285,46 @@ scoped key it records, on the mutation **instance** row
 **entry** as it stood immediately before the forward patch (`:data`, `:status`,
 freshness timers), captured by reference (structural sharing — the cache already
 shares structure on `=`, see `patch-entry`, `mutation_runtime.cljc` 234–261).
-For a key with no entry, `:before` is `:absent` (rollback removes it). This
+For a key with no entry, `:before` is `:absent`. This
 makes the inverse **truthful by construction**: rollback restores exactly the
 entry that existed, including its freshness, never a reconstructed approximation.
+
+**Amendment — what "exactly the entry that existed" owns (rf2-veef).** The
+paragraph above is the original ruling and it still governs the *payload*. It
+was written against a rollback with nothing else in flight, and read literally
+it orphans a **newer live read**: `entry-start-load` deliberately does **not**
+bump `:revision` (Open Issue 5 — a read *start* must not false-conflict), so a
+refetch that begins while the mutation is pending leaves the revision unmoved,
+the settle chooses `restore`, and putting the whole snapshot back reinstates the
+pre-read `:generation` / `:current-work`. `reply-handlers/live-slot-for-reply`
+then rejects that read's own valid reply, and an owner the load attached is
+dropped and reindexed away with it. So the rule is narrowed, in these terms:
+
+- **Rollback owns the optimistic payload and its freshness** — `:data`,
+  `:loaded-at` / `:stale-at` / `:tags`, and the terminal facts the apply wrote.
+  These are restored from `:before` verbatim, exactly as ruled.
+- **Rollback does not own the entry's live read-work and ownership facts** —
+  `:generation`, `:current-work`, `:request-id`, `:attempt`, `:active-owners`.
+  The optimistic apply never wrote them, so it has no inverse for them: they are
+  carried forward off the **current** entry.
+- **`:status` is reconciled, not restored**, whenever a preserved
+  `:current-work` is still in flight — the live read's status
+  (`:fetching` over usable restored data, `:loading` without any), never the
+  snapshot's terminal `:loaded` / `:error` / `:idle`, which would render as
+  settled while a reply is still coming.
+- **An `:absent` snapshot restores absence only when that would not orphan live
+  work.** Dropping the entry orphans a read started on that key just as surely
+  as clobbering it does, so a rolled-back *seed* under a live read leaves the
+  **empty pre-seed entry carrying that read** instead of dissoc'ing it. With no
+  read in flight the absence is restored exactly as ruled.
+
+This is **not** a weakening of the conflict rule and changes nothing about it:
+no authoritative data landed, the revision is genuinely unmoved, and the
+rollback of the optimistic payload is still exact. Only the facts the rollback
+never owned survive it. The no-concurrent-work case — where the current entry's
+work facts match the snapshot's — is `:before` **unchanged**, so the ordinary
+rollback is byte-identical to the original ruling. Shipped as
+`mutation-runtime/reconcile-restored-entry` + `restore-before`.
 
 **Revision token.** Each resource entry gains a monotone per-entry
 `:revision` counter (a small fact on the entry, EP-0012-canonical), bumped on
@@ -355,7 +392,7 @@ entry's **current revision** against the **recorded revision**:
 
 | Condition | Action |
 |---|---|
-| current revision **==** recorded revision (no one else touched it) | **restore** the recorded `:before` entry verbatim (structural-shared) — the truthful, conflict-free rollback |
+| current revision **==** recorded revision (no one else touched it) | **restore** the recorded `:before` entry (structural-shared) — the truthful, conflict-free rollback. Verbatim for the payload; the current entry's live read-work and ownership facts (`:generation`, `:current-work`, `:request-id`, `:attempt`, `:active-owners`) are carried forward with a coherent `:status`, and an `:absent` snapshot restores absence only where no read is in flight — see the *Amendment* under §Inverse = entry snapshot (rf2-veef) |
 | current revision **moved** (a concurrent mutation, refetch, or populate landed) | **`:on-conflict :invalidate`** (default): the recorded inverse is a **stale "before"** and restoring it would clobber newer truth — so the runtime marks the entry stale (one scoped `:rf.resource/invalidate-tags` of the entry's own tags, in its own scope) and lets the read path re-fetch the authoritative value. Emit `:rf.mutation/rolled-back` with `:conflict true`. |
 
 `:on-conflict` is a registration-level option with members:
@@ -819,9 +856,14 @@ deferred-keys line changed. The normative text:
 >   recorded inverse is discarded;
 > - an accepted **`:error`** / `:cancelled` reply **rolls back** — for each
 >   recorded inverse, if the entry's current `:revision` equals the recorded one
->   the `:before` entry is restored verbatim; if it **moved**, `:on-conflict`
+>   the `:before` entry is restored; if it **moved**, `:on-conflict`
 >   governs: `:invalidate` (default) marks the entry stale and refetches the
 >   authoritative value; `:force` restores the (stale) inverse anyway;
+>   *(rf2-veef amendment: an unmoved-revision restore is verbatim for the
+>   entry's payload and freshness, and carries the current entry's live
+>   read-work / ownership facts forward with a coherent `:status`, so a refetch
+>   begun while the mutation was pending is not orphaned; an `:absent` snapshot
+>   restores absence only where no read is in flight.)*
 > - a **stale/superseded** reply rolls back nothing — its inverse is discarded,
 >   the current generation owns the entry (the newer apply recorded the truthful
 >   inverse).
