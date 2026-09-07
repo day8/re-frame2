@@ -2521,7 +2521,7 @@ The interceptor-map carries:
 - `:frame` (optional, default `:rf/default`)
 - `:doc` / `:tags` / `:schema` / `:sensitive?` (standard `:rf/registration-metadata`)
 
-At least one of `:before` / `:after` MUST be supplied — a no-op interceptor is rejected at registration. The `:rf.fx/reg-http-interceptor` fx takes the same single map (with `:id` riding alongside); the fx body routes `:id` into the positional arg and passes the rest through unchanged.
+At least one of `:before` / `:after` MUST be supplied — a no-op interceptor is rejected at registration. There is no fx form: the map-shaped `:rf.fx/reg-http-interceptor` / `:rf.fx/clear-http-interceptor` pair was deleted 2026-09-08 (rf2-kuky.13) for want of a shipped handler-time consumer — register at boot through the fn/macro.
 
 **Detect.** Any `reg-http-interceptor` call site that doesn't match `(rf/reg-http-interceptor :id {…})` — that is, the 2-arity (positional :before) form `(rf/reg-http-interceptor :id (fn [ctx] …))` or the 3-arity (opts + positional :before) form `(rf/reg-http-interceptor :id {…} (fn [ctx] …))` or the older single-map form `(rf/reg-http-interceptor {:id … :before …})`.
 

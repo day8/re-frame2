@@ -9,15 +9,10 @@
 
   - `:rf.http/managed`                  — issue a managed request
   - `:rf.http/managed-abort`            — abort by `:request-id`
-  - `:rf.fx/reg-http-interceptor`       — register an HTTP interceptor
-                                          (data-shaped fx for EDN fixtures;
-                                          see §Middleware below). The map carries
-                                          `:before` / `:after` alongside
-                                          the standard registration slots.
-  - `:rf.fx/clear-http-interceptor`     — clear an HTTP interceptor
-                                          (data-shaped fx)
 
   Plus the registry / middleware / privacy re-exports detailed below.
+  HTTP interceptors register through the `reg-http-interceptor` fn/macro
+  pair at boot; there is no fx form (rf2-kuky.13).
 
   ## Test support
 
@@ -200,71 +195,23 @@
            {:doc "Spec 014 — abort an in-flight :rf.http/managed by request-id."}
            rf.http.handlers/managed-abort-handler)
 
-;; ---- middleware fx wrappers -----------------------------------------------
+;; ---- middleware registration ----------------------------------------------
 ;;
-;; `reg-http-interceptor` / `clear-http-interceptor` are direct fn-call APIs
-;; — load-time registration of cross-cutting HTTP interceptors (Spec 014
-;; §Middleware). Most apps register at app bootstrap
-;; and never call again. But the conformance corpus (Spec 011 §Conformance)
-;; is pure-data EDN, has no fn-call seam, and drives behaviour exclusively
-;; through `:fx` ops + `:fx-overrides`. The two fxs below let portable
-;; EDN fixtures register/clear interceptors via the same DSL channel they
-;; use for everything else — `[:fx [[:rf.fx/reg-http-interceptor {...}]]]`
-;; / `[:fx [[:rf.fx/clear-http-interceptor {...}]]]`.
+;; `reg-http-interceptor` / `clear-http-interceptor` are the fn-call APIs —
+;; load-time registration of cross-cutting HTTP interceptors (Spec 014
+;; §Middleware). Apps register at bootstrap and never call again.
 ;;
-;; The fx and fn forms use the same data shape; the fx body routes `:id` into
-;; the fn's positional argument:
-;;   :rf.fx/reg-http-interceptor   {:id <kw> :before <fn> :after <fn>?
-;;                                  :frame <id>? :doc ... :tags ... }
-;;   :rf.fx/clear-http-interceptor {:id <kw> :frame <id>?}
-;;
-;; Both fxs are dev+prod (`:platforms #{:client :server}`). The
-;; framework-wide rule for when a registrar carries an fx form, and what
-;; shape its args take, is Conventions §When a registrar has an fx form.
-;; This pair's map args and its lack of a shipped handler-time consumer
-;; are recorded there as an open disposition, not justified here.
-
-(rf.fx/reg-fx :rf.fx/reg-http-interceptor
-           {:doc "Spec 014 §Middleware — register an
-                  HTTP interceptor as an fx. Args is a map carrying
-                  `:id` (kw), at least one of `:before` / `:after`,
-                  optional `:frame` (id), plus any
-                  `:rf/registration-metadata` slots. The fx body splits
-                  `:id` off and passes the remaining map straight through
-                   to the fn-form.
-
-                  EP-0002 — the carried frame is the fx-context `:frame`
-                  (the cascade envelope stamp); the args `:frame` is the
-                  per-call *override*. The body threads the fx-context
-                  frame in when the args omit one, so the fn-form receives
-                  an explicit frame and never falls through to a
-                  synthesised `:rf/default` (a frameless cascade would have
-                  failed at dispatch already)."}
-           (fn [{ctx-frame :frame} {:keys [id] :as args}]
-             (rf.http.middleware/reg-http-interceptor
-               id (-> (dissoc args :id)
-                      (update :frame #(or % ctx-frame))))))
-
-(rf.fx/reg-fx :rf.fx/clear-http-interceptor
-           {:doc "Spec 014 §Middleware — clear a request-side
-                  interceptor by id as an fx. Args is the map
-                  `{:frame <id> :id <kw>}` (NOT positional, matching the
-                  fx-convention shape — sibling to `:rf.fx/reg-http-interceptor`
-                  which also takes a map). The public call-site surface is
-                  the fn-form `clear-http-interceptor`'s opts form
-                  `(id {:frame f})`; this fx is the data-shaped surface for
-                  EDN-driven callers. It already holds a resolved frame, so it
-                  routes through the artefact-internal `clear-http-interceptor*`
-                  seam (frame-first) rather than the public opts form (rf2-s32bf).
-
-                  EP-0002 — the carried frame is the fx-context `:frame`
-                  (the cascade envelope stamp); the args `:frame` is the
-                  per-call *override*. The args frame wins, else the
-                  fx-context frame, threaded explicitly into the internal
-                  frame-first seam so it never repairs to a synthesised
-                  `:rf/default`."}
-           (fn [{ctx-frame :frame} {:keys [frame id]}]
-             (rf.http.middleware/clear-http-interceptor* (or frame ctx-frame) id)))
+;; There is deliberately NO fx form. The map-shaped
+;; `:rf.fx/reg-http-interceptor` / `:rf.fx/clear-http-interceptor` pair was
+;; deleted under rf2-kuky.13 (disposition H of rf2-kuky.25): an interceptor's
+;; payload is a fn, so putting it inside an fx vector makes it less
+;; data-shaped rather than more, and after ~200 registration opportunities the
+;; pair had no shipped handler-time consumer. Un-park trigger: a shipped
+;; handler must change the interceptor chain ITSELF from inside an event. If it
+;; ever returns, the shape is pre-settled as positional per Conventions §When a
+;; registrar has an fx form — `[:rf.fx/reg-http-interceptor [id
+;; interceptor-map]]` / `[:rf.fx/clear-http-interceptor id]` — never the map
+;; form the deleted pair used.
 
 ;; The canned effects and stub helpers are registered only when
 ;; `re-frame.http.test-support` is explicitly required. The namespace boundary,
