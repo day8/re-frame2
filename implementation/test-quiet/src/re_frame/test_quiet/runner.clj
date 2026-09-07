@@ -108,7 +108,17 @@
   whichever the classpath resolves while the other never loads, running a
   suite twice under a tally that goes UP rather than down.
   `discovery-defects` is the third rule and it fires BEFORE any test does;
-  see its own docstring, and rf2-vruo9."
+  see its own docstring, and rf2-vruo9.
+
+  ## What the lane's FIXTURES will do
+
+  A namespace that WAS discovered, WAS loaded and DOES hold tests still
+  runs none of them if its fixtures are not functions — `clojure.test`
+  calls a fixture with the test thunk, and a map called with one argument
+  is a key lookup that returns nil.  `uncallable-fixtures` is the fourth
+  rule; it fires from `:summary`, the first hook that holds control after
+  every namespace this lane runs has loaded.  See its own docstring, and
+  rf2-4yw1."
   (:require
     [re-frame.test-quiet]
     [clojure.java.io :as io]
@@ -867,6 +877,72 @@
         (flush))
       (System/exit 1))))
 
+;; ----------------------------------------------------------------------
+;; What the lane's FIXTURES will do (rf2-4yw1) — a fixture the runner
+;; cannot CALL is a namespace that ran nothing.
+;;
+;; `cljs.test` accepts a MAP fixture — `(use-fixtures :each {:before f
+;; :after g})` — and this repo's `*_cljs_test.cljs` files use it throughout.
+;; `clojure.test` accepts functions ONLY, and validates nothing:
+;; `join-fixtures` folds whatever it is handed into the chain and calls it
+;; with the test thunk, and a map called with one argument is a KEY LOOKUP
+;; that returns nil, so the thunk never runs.  Maps are `IFn`, so nothing
+;; throws.  cljs.test asserts on this ("Fixtures may not be of mixed
+;; types"); the JVM half is the unguarded one.
+;;
+;; MEASURED: a two-line namespace whose single `deftest` asserts `(= 1 2)`
+;; reports `Ran 0 tests containing 0 assertions. / 0 failures, 0 errors.`
+;; and exits 0 under the map form.  Two `.cljc` namespaces under
+;; `implementation/resources` were zeroed exactly this way while the lane
+;; reported 839 tests / 7584 assertions, green (rf2-4yw1).
+;;
+;; WHY THIS IS A RUNTIME RULE AND NOT A SCAN.  A scan sees text, and
+;; `(use-fixtures :each fixture)` where `fixture` is a symbol bound to a map
+;; is spelled exactly like the legitimate fn form.  `use-fixtures` writes
+;; the args it was handed into the namespace's metadata, so reading that
+;; metadata back sees the VALUE either way.  The tree already holds a static
+;; half — `tools/story/test/re_frame/story/meta_fixtures_test.cljc` — and it
+;; is scoped to that one artefact's `test/` tree, which is how the two
+;; measured files escaped it.
+
+(def ^:private fixture-meta-keys
+  "The namespace-metadata keys `clojure.test/use-fixtures` writes.  Each
+  holds the ARGS the call was handed, so a map literal and a symbol bound
+  to a map land here indistinguishably — which is the point."
+  [:clojure.test/once-fixtures :clojure.test/each-fixtures])
+
+(defn uncallable-fixtures
+  "Every `[ns-sym fixture-key fixture]` registered on `namespaces` that
+  `clojure.test` cannot call, sorted by namespace name.
+
+  Empty is the only acceptable answer.  `fn?` is the whole test: it is
+  precisely what `join-fixtures` needs of each entry, so anything else is a
+  namespace whose tests will not run."
+  [namespaces]
+  (vec (sort-by (comp str first)
+                (for [ns-obj    namespaces
+                      meta-key  fixture-meta-keys
+                      fixture   (get (meta ns-obj) meta-key)
+                      :when     (not (fn? fixture))]
+                  [(ns-name ns-obj) meta-key fixture]))))
+
+(defn- uncallable-fixture-complaint
+  "The one-screen operator message for `offenders`.  ASCII only: it goes
+  through the platform-default stderr encoding, where an em dash renders as
+  a replacement character on a Windows console."
+  [offenders]
+  (str "this lane registered " (count offenders)
+       " fixture(s) clojure.test cannot call, so EVERY test in the"
+       " namespace(s) below silently did not run:\n"
+       (str/join "\n" (for [[ns-sym meta-key fixture] offenders]
+                        (str "  " ns-sym " " meta-key " -> "
+                             (.getName (class fixture)))))
+       "\nclojure.test hands each fixture the test thunk; a map called with"
+       " one argument is a key lookup returning nil, so the thunk never runs"
+       " and the tally stays green.\n"
+       "The {:before f :after g} map is cljs.test-only. Use the fn form:"
+       " (use-fixtures :each (fn [t] (before) (t) (after))) (rf2-4yw1).\n"))
+
 (defn- install-summary-method!
   "Install `f` as `clojure.test/report`'s `:summary` method, or — when `f`
   is nil — remove any installed method so the multimethod falls back to its
@@ -883,9 +959,9 @@
   invocation. On a RED run it replays `stderr-ring` to `original-err`, then
   delegates to `prior-summary-method` (the `:summary` method installed
   before this invocation) so the canonical summary line still prints, and
-  finally enforces this lane's claim — the `min-tests` floor for a suite
-  lane, or the zero-test expectation for a `--probe` lane (see the ns
-  docstring and `parse-min-tests`).
+  finally enforces this lane's claim — `uncallable-fixtures` first, then the
+  `min-tests` floor for a suite lane or the zero-test expectation for a
+  `--probe` lane (see the ns docstring and `parse-min-tests`).
 
   `:summary` is where both belong because it is the one place that
   holds BOTH the executed-test count and control before cognitect exits.
@@ -967,18 +1043,25 @@
     ;; through the platform-default stderr encoding, where an em dash renders
     ;; as a replacement char on a Windows console.
     (let [test-count (or (:test summary) 0)
-          exit-for-claim-mismatch!
+          fail-run!
           (fn [message]
             (.write original-err (str "\n[test-quiet] ERROR: " message))
             (.flush original-err)
-            (System/exit 1))]
+            (System/exit 1))
+          uncallable (uncallable-fixtures (all-ns))]
       (cond
+        ;; An uncallable fixture zeroes its whole namespace, so it is read
+        ;; BEFORE the coverage floor: a lane zeroed this way is otherwise
+        ;; reported as the discovery problem it does not have (rf2-4yw1).
+        (seq uncallable)
+        (fail-run! (uncallable-fixture-complaint uncallable))
+
         ;; A probe reaching this hook has already proved what it claims:
         ;; deps resolved and the discovery dirs were scanned. All that is
         ;; left is that it really is a probe.
         probe?
         (when (pos? test-count)
-          (exit-for-claim-mismatch!
+          (fail-run!
             (str "this lane is declared a classpath probe (" probe-flag
                       ") but executed " test-count " test(s).\n"
                       "A lane with tests claims COVERAGE, not resolution:"
@@ -987,7 +1070,7 @@
                       "so the test-count floor applies to it (rf2-qqzmf).\n")))
 
         (< test-count min-tests)
-        (exit-for-claim-mismatch!
+        (fail-run!
           (str "this run executed " test-count
                     " test(s), below the floor of " min-tests
                     " (" min-tests-env-var ").\n"
