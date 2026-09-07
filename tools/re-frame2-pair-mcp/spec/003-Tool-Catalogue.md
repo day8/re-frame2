@@ -1631,7 +1631,7 @@ did not land:
 | `:rf.error/no-such-handler` (`:kind :frame`) | unknown / destroyed frame — refused before dispatch |
 | `:rf.epoch/replay-during-drain` | a drain is in flight — refused before dispatch |
 | `:rf.epoch/replay-unknown-epoch` (`:history-size`) | id not in the frame's current history (never recorded / aged out) — refused before dispatch |
-| `:rf.epoch/replay-non-replayable-record` (`:cause`) | `:halted` (outcome not `:ok`; `:outcome` / `:halt-reason` ride along), `:synthetic` (a `replace-app-db` record), `:missing-trigger-event`, `:missing-replay-token` — refused before dispatch |
+| `:rf.epoch/replay-non-replayable-record` (`:cause`) | `:halted` (outcome not `:ok`; `:outcome` / `:halt-reason` ride along), `:synthetic` (a `replace-app-db` record), `:missing-trigger-event`, `:missing-replay-token`, `:incomplete-inputs` (a `:sensitive` / `:large` registration declaration substituted part of the replay material at capture; `:lost` names each `{:slot :path :loss}`) — refused before dispatch |
 | `:rf.epoch/replay-unreplayable-fx-override` (`:fx-ids`) | a recorded `:fx-overrides` entry is the `:rf/fn-override` sentinel — refused before dispatch |
 | `:rf.error/missing-required-cofx` | the strict dispatch failed loud on a declared fact absent from the record (the code moved on since it was recorded); nothing was minted |
 | `:replay-unavailable` | the framework returned `false` — epoch surface elided, or `day8/re-frame2-epoch` not loaded |

@@ -76,13 +76,14 @@ Per-frame epoch snapshots, recorded on each handled event's run-to-completion in
   (replay-epoch! frame-id epoch-id opts) → envelope map (false when elided)
   ```
 - **Description**: Re-drives the named retained epoch's recorded event through the frame's own handlers in one call, as a strict replay. The record is resolved in-process and its replay material is folded into the dispatch: the raw argument-bearing `:trigger-event`, the recorded post-generation `:rf.cofx` under `:rf.cofx/mint-policy :strict`, and the record's own `:fx-overrides` / `:interceptor-overrides`. Nothing is exported or copied by hand — which is what makes replay available to an off-box tool, since the projected record only ever shows event arguments as `:rf/redacted`. Same frame in and out. Replay runs against the frame's current state and code, so it does not restore first (compose with `restore-epoch!` when the start state matters), any effect the handler emits fires again, and the replayed dispatch records a new ordinary epoch; re-presenting the recorded `:rf/time-ms` makes that epoch's `:committed-at` equal the original's.
-  - Returns `{:ok? true :frame … :source-epoch-id … :event-id … :epoch-id <the new epoch>}` on success.
+  - Returns `{:ok? true :frame … :source-epoch-id … :event-id … :epoch-id <the new epoch>}` on success. `:epoch-id` names the epoch the replayed event itself committed — never a queued child's record — and is `nil` when the ring did not retain it (a replay may enqueue work the recorded run did not, and at a shallow `:depth` a child can evict its own parent's record).
   - Returns `{:ok? false :reason … :frame … :epoch-id … <tags>}`, decided before anything dispatches and without a trace emit, for:
     - `:rf.error/no-such-handler` (kind `:frame`) — frame not registered / destroyed
     - `:rf.epoch/replay-during-drain` — called while a drain is in flight
     - `:rf.epoch/replay-unknown-epoch` (`:history-size`) — epoch-id not in the frame's current history
-    - `:rf.epoch/replay-non-replayable-record` (`:cause` — `:halted`, `:synthetic`, `:missing-trigger-event` or `:missing-replay-token`)
+    - `:rf.epoch/replay-non-replayable-record` (`:cause` — `:halted`, `:synthetic`, `:missing-trigger-event`, `:missing-replay-token` or `:incomplete-inputs`)
     - `:rf.epoch/replay-unreplayable-fx-override` (`:fx-ids`) — a recorded `:fx-overrides` entry is the `:rf/fn-override` sentinel
+  - `:incomplete-inputs` is the capture-loss refusal: a `reg-event` / `reg-cofx` `:sensitive` / `:large` declaration is applied at trace capture, so a declared event argument or recordable fact reaches the retained record already carrying `:rf/redacted` or a `:rf.size/large-elided` marker. Replay is faithful-or-fail-loud, so the record is refused rather than re-driven with the substitution in place of the value the original run consumed; `:lost` names each `{:slot :path :loss}`.
   - A declared recordable fact absent from the recorded token is not a refusal: the dispatch fails loud with the canonical `:rf.error/missing-required-cofx`, exactly as any `:strict` dispatch does. Nothing is minted.
   - `opts` carries only the slots replay does not own (`:origin`, `:source`, `:trace-id`); a value under `:frame`, `:rf.cofx`, `:rf.cofx/mint-policy`, `:fx-overrides` or `:interceptor-overrides` is discarded.
 
