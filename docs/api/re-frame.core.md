@@ -1549,23 +1549,20 @@ Resources are an optional capability (cached server-state reads plus mutations) 
 - **Signature**: `(reg-resource-scope scope-id metadata resolve-fn)`
 - Register a named resource-scope resolver under `scope-id`; a resource's `:scope` policy references it. The canonical 3-slot grammar applies: the `:resolve` fn is the value slot, and `metadata` carries the declared `:inputs` (omit `:inputs` for the 2-arg whole-db sugar). Returns `scope-id`. Full contract in [re-frame.resources.md](re-frame.resources.md).
 
-#### `clear-resource`
+#### Clearing a resource registration
 
-- **Kind**: function
-- **Signature**: `(clear-resource resource-id)`
-- Remove a registered resource (a registration-lifecycle operation — NOT cache invalidation) and dispose its per-frame runtime state. Returns `resource-id`. Full contract in [re-frame.resources.md](re-frame.resources.md).
+- **Signature**: `(clear :resource resource-id)`
+- Remove a registered resource (a registration-lifecycle operation — NOT cache invalidation) and dispose its per-frame runtime state. Returns `resource-id`. There is **no** `rf/clear-resource` name — `:resource` is one of the kinds the one kind-keyed registrar inverse dispatches (see [`clear`](#clear)). The `re-frame.resources.registry` fn it routes to is artefact-internal plumbing, not a public call. Full contract in [re-frame.resources.md](re-frame.resources.md).
 
-#### `clear-mutation`
+#### Clearing a mutation registration
 
-- **Kind**: function
-- **Signature**: `(clear-mutation mutation-id)`
-- Remove a registered mutation (registration-lifecycle — NOT the `[:rf.mutation/clear …]` runtime-instance reset). Returns `mutation-id`. Full contract in [re-frame.resources.md](re-frame.resources.md).
+- **Signature**: `(clear :mutation mutation-id)`
+- Remove a registered mutation (registration-lifecycle — NOT the `[:rf.mutation/clear …]` runtime-instance reset). Returns `mutation-id`. There is **no** `rf/clear-mutation` name — `:mutation` is one of the kinds [`clear`](#clear) dispatches. Full contract in [re-frame.resources.md](re-frame.resources.md).
 
-#### `clear-resource-scope`
+#### Clearing a resource-scope registration
 
-- **Kind**: function
-- **Signature**: `(clear-resource-scope scope-id)`
-- Remove a registered resource-scope resolver (registration-lifecycle). Full contract in [re-frame.resources.md](re-frame.resources.md).
+- **Signature**: `(clear :resource-scope scope-id)`
+- Remove a registered resource-scope resolver (registration-lifecycle). There is **no** `rf/clear-resource-scope` name — `:resource-scope` is one of the kinds [`clear`](#clear) dispatches. Full contract in [re-frame.resources.md](re-frame.resources.md).
 
 #### `resolve-resource-scope`
 
