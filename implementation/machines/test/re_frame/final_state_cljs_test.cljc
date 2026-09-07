@@ -193,16 +193,21 @@
         (is (nil? (-> (first dones) :tags :parent-id))
             ":parent-id is nil for singletons (D7)")))))
 
-;; ---- (f) [:rf.runtime/machines :system-ids ...] reverse-index clears after :on-done -----
+;; ---- (f) [:rf.runtime/machines :system-ids ...] reverse-index clears at teardown -----
 
-(deftest system-id-clears-after-on-done
-  (testing "D8: [:rf.runtime/machines :system-ids <sid>] reverse-index entry clears AFTER :on-done fires"
+(deftest system-id-clears-at-child-teardown
+  (testing "D8: the [:rf.runtime/machines :system-ids <sid>] reverse-index entry
+            clears with the child's teardown, so the parent's :on-done fold —
+            which runs at the PARENT's boundary on the completion carrier, after
+            the child is gone — sees no binding. A binding that still resolved
+            would name a destroyed actor."
     (let [on-done-saw-sid (atom nil)]
       (rf/reg-machine :rf2-gn80/sid-child
         {:initial :running
          :data    {}
+         :actions {:stamp (fn [{d :data}] {:data (assoc d :payload :sid-child/value)})}
          :states
-         {:running {:on {:fin :done}}
+         {:running {:on {:fin {:target :done :action :stamp}}}
           :done    {:final?     true
                     :output-key :payload}}})
       (rf/reg-machine :rf2-gn80/sid-parent
@@ -212,9 +217,9 @@
           {:spawn {:machine-id :rf2-gn80/sid-child
                     :system-id  :auth-actor
                     :on-done (fn [{d :data r :result}]
-                                  ;; D8: during :on-done, the system-id
-                                  ;; binding MUST still resolve — only
-                                  ;; cleared after the hook returns.
+                                  ;; D8: by the time this fold runs the child
+                                  ;; has completed and been torn down, so the
+                                  ;; system-id binding is already released.
                                   (reset! on-done-saw-sid
                                           (rf.machines/machine-by-system-id :auth-actor))
                                   (assoc d :result r))}}}})
@@ -224,10 +229,12 @@
         (is (= spawned-id (rf.machines/machine-by-system-id :auth-actor))
             ":system-id is bound while the child is running")
         (rf/dispatch-sync [spawned-id [:fin]])
-        (is (= spawned-id @on-done-saw-sid)
-            ":on-done saw the :system-id binding still live (D8)")
+        (is (nil? @on-done-saw-sid)
+            ":on-done saw NO :system-id binding — the child was already torn down when its completion reached the parent (D8)")
         (is (nil? (rf.machines/machine-by-system-id :auth-actor))
-            ":system-id binding was cleared AFTER :on-done ran (D8)")))))
+            ":system-id binding is cleared (D8)")
+        (is (= :sid-child/value (:result (:data (snapshot :rf2-gn80/sid-parent))))
+            "the fold still ran and still received the child's :output-key value")))))
 
 ;; ---- (g) dispatch to done-then-destroyed actor reuses destroyed-frame path
 

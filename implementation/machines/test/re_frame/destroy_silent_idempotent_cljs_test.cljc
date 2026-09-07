@@ -188,29 +188,26 @@
 ;; Active→Stopped transition ⇒ exactly one `:rf.machine/destroyed` per actor.
 
 (defn- mk-cancel-child
-  "Child that, on `:go`, transitions to `:done` and dispatches
-  `[parent-id [:done <own-id>]]` back to the parent. `:set-id` records
-  the child's own id (supplied via the parent's `:start`)."
-  [parent-id]
+  "Child that, on `:go`, COMPLETES by reaching a `:final?` state carrying its
+  own id out through `:output-key`. `:set-id` records that id (supplied via the
+  parent's `:start`). It names no parent and dispatches nothing."
+  []
   {:initial :running
    :data    {:id nil}
-   :actions {:dispatch-done
-             (fn [{data :data}]
-               {:fx [[:dispatch [parent-id [:done (:id data)]]]]})
-             :record-id
+   :actions {:record-id
              (fn [{data :data ev :event}]
                {:data (assoc data :id (second ev))})}
    :states
    {:running {:on {:set-id {:action :record-id}
-                   :go     {:target :done :action :dispatch-done}}}
-    :done    {}}})
+                   :go     {:target :done}}}
+    :done    {:final? true :output-key :id}}})
 
 (deftest spawn-all-join-cancelled-survivor-destroyed-exactly-once
   (testing "rf2-ndfjo — a join-cancelled survivor in a :spawn-all exit
             cascade emits :rf.machine/destroyed EXACTLY once (silent-
             idempotent destroy; no phantom double-destroy)"
     (let [traces (record-traces! ::ndfjo-cancel)
-          child  (mk-cancel-child :rf2-ndfjo/sup)
+          child  (mk-cancel-child)
           parent {:initial :idle
                   :states
                   {:idle    {:on {:start :working}}
