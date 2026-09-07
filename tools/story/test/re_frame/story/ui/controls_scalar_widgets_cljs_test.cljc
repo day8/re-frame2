@@ -16,7 +16,9 @@
   Runs under shadow's `:node-test` and `:browser-test` targets (the
   `cljs-test$` ns regex picks up this name)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [malli.core :as m]
             #?(:cljs [re-frame.story :as rf.story])
+            #?(:cljs [re-frame.story.args :as rf.story.args])
             #?(:cljs [re-frame.story.ui.controls :as rf.story.ui.controls])
             [re-frame.story.ui.state :as rf.story.ui.state]))
 
@@ -330,3 +332,137 @@
                     :story.x/v [:address :street] "Main St" {:widget :text})]
          (is (re-find #"address" (-> tree second :aria-label)))
          (is (re-find #"street"  (-> tree second :aria-label)))))))
+
+;; ---- rf2-i6v4 · typed values survive the DOM adapter ---------------------
+;;
+;; The controls panel infers its widgets from the variant's Spec 010
+;; schema, so a widget the schema GENERATED must write a value that
+;; schema ACCEPTS. `<option value>` can only carry a string, so a select
+;; whose on-change wrote the raw DOM string turned `:large` into
+;; `":large"` — a value the very `[:enum :small :large]` that produced the
+;; widget rejects, and one that never reaches the view's keyword branch.
+;; The `:radio` renderer above already writes the source option; these
+;; pin the same contract for `:select`, and for the keyword coercion
+;; `infer-widget`'s `:keyword` case has always promised.
+
+#?(:cljs
+   (deftest select-widget-on-change-writes-the-keyword-option
+     (testing ":select on-change writes the SOURCE keyword option, not the
+               stringified DOM token — the value satisfies the enum that
+               generated the widget"
+       (let [tree    (rf.story.ui.controls/scalar-widget
+                       :story.x/v [:size] :small
+                       {:widget :select :options [:small :large]})
+             handler (-> tree second :on-change)]
+         (handler (input-event ":large"))
+         (let [written (get-in (rf.story.ui.state/get-state)
+                               [:cell-overrides :story.x/v :size])]
+           (is (= :large written))
+           (is (keyword? written) "a keyword, not the string \":large\"")
+           (is (m/validate [:enum :small :large] written)
+               "and it satisfies the enum schema the widget was inferred from"))))))
+
+#?(:cljs
+   (deftest select-widget-on-change-writes-the-numeric-option
+     (testing ":select on-change writes a numeric option as a number"
+       (let [tree    (rf.story.ui.controls/scalar-widget
+                       :story.x/v [:cols] 1 {:widget :select :options [1 2 3]})
+             handler (-> tree second :on-change)]
+         (handler (input-event "3"))
+         (let [written (get-in (rf.story.ui.state/get-state)
+                               [:cell-overrides :story.x/v :cols])]
+           (is (= 3 written))
+           (is (number? written) "a number, not the string \"3\"")
+           (is (m/validate [:enum 1 2 3] written)))))))
+
+#?(:cljs
+   (deftest select-widget-leaves-string-options-as-strings
+     (testing ":select does not over-coerce — a string option stays a string"
+       (let [tree    (rf.story.ui.controls/scalar-widget
+                       :story.x/v [:label] "a" {:widget :select :options ["a" "b"]})
+             handler (-> tree second :on-change)]
+         (handler (input-event "b"))
+         (is (= "b" (get-in (rf.story.ui.state/get-state)
+                            [:cell-overrides :story.x/v :label])))))))
+
+#?(:cljs
+   (deftest select-widget-ignores-a-token-naming-no-option
+     (testing ":select writes nothing when the chosen token names no option
+               — no string leaks into the override as a fallback"
+       (let [tree    (rf.story.ui.controls/scalar-widget
+                       :story.x/v [:size] :small
+                       {:widget :select :options [:small :large]})
+             handler (-> tree second :on-change)]
+         (handler (input-event ":enormous"))
+         (is (nil? (get-in (rf.story.ui.state/get-state)
+                           [:cell-overrides :story.x/v :size]))
+             "no override written for an unrecognised token")))))
+
+#?(:cljs
+   (deftest select-widget-nested-path-writes-the-typed-option
+     (testing "the same adapter at a NESTED path also writes the typed
+               option — the fix is in the widget, not in a top-level
+               special case"
+       (let [tree    (rf.story.ui.controls/scalar-widget
+                       :story.x/v [:theme :mode] :light
+                       {:widget :select :options [:light :dark]})
+             handler (-> tree second :on-change)]
+         (handler (input-event ":dark"))
+         (is (= :dark (get-in (rf.story.ui.state/get-state)
+                              [:cell-overrides :story.x/v :theme :mode])))))))
+
+#?(:cljs
+   (deftest infer-widget-keyword-carries-the-coercion-tag
+     (testing "a :keyword schema infers a text widget TAGGED for keyword
+               coercion — the docstring's promise, now carried in data"
+       (is (= {:widget :text :coerce :keyword}
+              (rf.story.ui.controls/infer-widget :keyword))))))
+
+#?(:cljs
+   (deftest keyword-text-widget-on-change-writes-a-keyword
+     (testing "a schema-derived :keyword text field edits to a KEYWORD, so
+               an ordinary keyword argument round-trips through its own
+               inferred editor"
+       (let [spec    (rf.story.ui.controls/infer-widget :keyword)
+             tree    (rf.story.ui.controls/scalar-widget :story.x/v [:status] :idle spec)
+             handler (-> tree second :on-change)]
+         (handler (input-event "loading"))
+         (is (= :loading (get-in (rf.story.ui.state/get-state)
+                                 [:cell-overrides :story.x/v :status])))
+         ;; The user types what the value PRINTS as just as readily.
+         (handler (input-event ":ready"))
+         (is (= :ready (get-in (rf.story.ui.state/get-state)
+                               [:cell-overrides :story.x/v :status])))))))
+
+#?(:cljs
+   (deftest plain-text-widget-still-writes-a-string
+     (testing "an untagged :text widget is untouched — actual string args
+               stay strings"
+       (let [tree    (rf.story.ui.controls/scalar-widget
+                       :story.x/v [:title] "" {:widget :text})
+             handler (-> tree second :on-change)]
+         (handler (input-event "loading"))
+         (is (= "loading" (get-in (rf.story.ui.state/get-state)
+                                  [:cell-overrides :story.x/v :title]))
+             "no coercion tag → the raw string, unchanged")))))
+
+#?(:cljs
+   (deftest typed-select-option-survives-into-effective-args
+     (testing "ACCEPTANCE: the typed option written by the handler is what
+               `resolve-args` hands the view — the override is not
+               re-stringified downstream"
+       (rf.story/reg-variant :story.typed/cell
+                             {:tags #{:dev} :setup [] :args {:size :small}})
+       (let [tree    (rf.story.ui.controls/scalar-widget
+                       :story.typed/cell [:size] :small
+                       {:widget :select :options [:small :large]})
+             handler (-> tree second :on-change)]
+         (handler (input-event ":large"))
+         (let [shell (rf.story.ui.state/get-state)
+               eff   (rf.story.args/resolve-args
+                       :story.typed/cell
+                       {:active-modes   (:active-modes shell)
+                        :cell-overrides (get-in shell [:cell-overrides :story.typed/cell])})]
+           (is (= :large (:size eff)))
+           (is (m/validate [:enum :small :large] (:size eff))
+               "the effective arg satisfies the enum schema"))))))

@@ -74,6 +74,7 @@
             [re-frame.story.ui.author-expectations :as rf.story.ui.author-expectations]
             [re-frame.story.ui.controls-styles :refer [styles]]
             [re-frame.story.ui.save-variant    :as rf.story.ui.save-variant]
+            [re-frame.story.ui.schema-form     :as rf.story.ui.schema-form]
             [re-frame.story.ui.schema-validation :as rf.story.ui.schema-validation]
             [re-frame.story.ui.state           :as rf.story.ui.state]
             [re-frame.story.ui.view-state      :as rf.story.ui.view-state]))
@@ -152,7 +153,10 @@
   - `:string`             → `{:widget :text}`
   - `:int` / `:double`    → `{:widget :number}`
   - `:boolean`            → `{:widget :boolean}`
-  - `:keyword`            → `{:widget :text}` (keyword-coercion at edit)
+  - `:keyword`            → `{:widget :text :coerce :keyword}` (the
+                            `:coerce` tag is what makes the promised
+                            keyword-coercion-at-edit actually happen —
+                            `render-text` reads it, rf2-i6v4)
   - `[:enum a b c]`       → `{:widget :select :options [a b c]}`
 
   Collection shapes:
@@ -176,7 +180,7 @@
     (= :int schema-fragment)     {:widget :number}
     (= :double schema-fragment)  {:widget :number}
     (= :boolean schema-fragment) {:widget :boolean}
-    (= :keyword schema-fragment) {:widget :text}
+    (= :keyword schema-fragment) {:widget :text :coerce :keyword}
 
     (vector? schema-fragment)
     (case (schema-op schema-fragment)
@@ -393,6 +397,43 @@
   [variant-id path]
   (fn [e] (on-change-at-path variant-id path (read-event-value e))))
 
+(defn- on-coerced-change
+  "Text-input on-change handler for a widget carrying a `:coerce` tag —
+  writes the value the DOM string DENOTES rather than the string itself,
+  via the shared `rf.story.ui.schema-form/coerce-input` (the SAME
+  coercion the View-State form applies; there is no second coercion
+  table). `widget-spec` with no `:coerce` coerces to the string
+  unchanged, so this is safe for a plain text field.
+
+  rf2-i6v4: `infer-widget` promises keyword coercion at edit for a
+  `:keyword` schema, but the inferred editor wrote a plain string — so an
+  ordinary keyword argument could not round-trip through its own
+  generated control, and the written `\"loading\"` failed the very schema
+  that produced the widget."
+  [variant-id path widget-spec]
+  (fn [e]
+    (on-change-at-path variant-id path
+                       (rf.story.ui.schema-form/coerce-input
+                         widget-spec (read-event-value e)))))
+
+(defn- option-for-token
+  "Map a `<select>`'s chosen DOM string back to the SOURCE option it
+  names. `<option value>` must be a string, so the renderer prints each
+  option as its token; this reverses that projection so the override
+  carries the original `:large` / `3` rather than `\":large\"` / `\"3\"`.
+
+  The same token round-trip the View-State form's select already
+  performs (`rf.story.ui.view-state/field-widget`) — one idiom, not two.
+
+  Returns a single-element vector `[option]` on a hit and nil on a miss —
+  a BOX rather than the bare option, so a legitimately falsey option
+  (`false` in an `[:enum true false]`) is distinguishable from no match.
+  The caller treats a miss as no edit."
+  [options token]
+  (reduce (fn [_ opt] (when (= (str opt) token) (reduced [opt])))
+          nil
+          options))
+
 (defn- path-label
   "Derive an accessible name for an input from its `path`. The path tail
   is the user-visible label sibling (rendered in the `:label` span at
@@ -406,12 +447,14 @@
   (let [parts (mapv str path)]
     (str/join " / " parts)))
 
-(defn- render-text [variant-id path value _]
+(defn- render-text [variant-id path value widget-spec]
   [:input {:type       "text"
            :style      (:input styles)
            :aria-label (path-label path)
            :value      (if (nil? value) "" (str value))
-           :on-change  (on-string-change variant-id path)}])
+           :on-change  (if (:coerce widget-spec)
+                         (on-coerced-change variant-id path widget-spec)
+                         (on-string-change variant-id path))}])
 
 (defn- render-textarea [variant-id path value _]
   [:textarea {:style      (:textarea styles)
@@ -438,10 +481,20 @@
                                             (read-event-checked e)))}])
 
 (defn- render-select [variant-id path value {:keys [options]}]
+  ;; rf2-i6v4 — the DOM can only carry a STRING as an <option value>, so
+  ;; the chosen token is mapped back to the source option before it is
+  ;; written. Writing the raw string instead (as this did) meant that
+  ;; picking `:large` from a widget the `[:enum :small :large]` schema
+  ;; GENERATED stored `":large"`, which then failed that same schema and
+  ;; never exercised the view's keyword branch; a numeric enum went the
+  ;; same way. The sibling `render-radio` already writes the source
+  ;; option, so the two now agree.
   [:select {:value      (str value)
             :style      (:input styles)
             :aria-label (path-label path)
-            :on-change  (on-string-change variant-id path)}
+            :on-change  (fn [e]
+                          (when-let [[opt] (option-for-token options (read-event-value e))]
+                            (on-change-at-path variant-id path opt)))}
    (for [opt options]
      ^{:key (str opt)}
      [:option {:value (str opt)} (str opt)])])
