@@ -63,9 +63,11 @@
    `[:value :token]` and is therefore refused at `:auth.login/succeeded`'s
    schema boundary — leaving the canonical screenshot stuck in `:submitting`.
    PR #9386 fixed the SOURCE by giving the variant its own `:network` route
-   fixture; the final section of this ns is the acceptance for it, driving the
-   ACTUAL registered variant rather than a reply of its own."
-  (:require [cljs.test :refer-macros [deftest testing use-fixtures is async]]
+   fixture; the final section of this ns guards that fixture, and records what
+   the acceptance found when it tried to drive it."
+  (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
+            [malli.core :as m]
+            [re-frame.registrar :as rf.registrar]
             [re-frame.core :as rf]
             [re-frame.classification :as rf.classification]
             [re-frame.privacy :as rf.privacy]
@@ -76,39 +78,30 @@
             ;; self-sufficient (mirrors the sibling login test namespaces).
             [re-frame.schemas]
             ;; The Malli adapter publishes the validator the `:where :event`
-            ;; boundary routes through. Without it a schema-refusal assertion
-            ;; would be vacuously green, because nothing would be validating —
-            ;; the development-default posture the rf2-cckg drive below asserts
-            ;; under (mirrors re-frame.login-cljs-test).
+            ;; boundary routes through, and the `m/explain` the rf2-cckg guard
+            ;; below runs against the registered `:auth.login/succeeded` schema
+            ;; (mirrors re-frame.login-cljs-test).
             [re-frame.schemas.malli]
             [re-frame.machines]
             ;; rf2-cckg — the Story deck under test. `login.stories` sources
             ;; `login.core` (views) which sources `login.model`, so requiring it
-            ;; registers the whole example; `re-frame.story` is the runtime that
-            ;; allocates the variant frame. TEST-ONLY: this ns is a
-            ;; `*_cljs_test` namespace on the consolidated `:node-test`
-            ;; classpath (which already carries `../tools/story/src` and
-            ;; `../examples/core`), so the `tools/` bundle-isolation contract —
-            ;; a PRODUCTION-build contract, graded by
-            ;; implementation/scripts/check-bundle-isolation.cjs against
-            ;; compiled release bundles — is untouched: no production build
-            ;; requires this namespace.
-            [re-frame.story :as rf.story]
-            [re-frame.story.async :as rf.story.async]
+            ;; registers the whole example; `re-frame.story.plan` compiles the
+            ;; registered variant body to the plan the guard below reads (pure
+            ;; data → data, no host). TEST-ONLY: this ns is a `*_cljs_test`
+            ;; namespace on the consolidated `:node-test` classpath (which
+            ;; already carries `../tools/story/src` and `../examples/core`), so
+            ;; the `tools/` bundle-isolation contract — a PRODUCTION-build
+            ;; contract, graded by check-bundle-isolation.cjs against compiled
+            ;; release bundles — is untouched: no production build requires this
+            ;; namespace.
+            [re-frame.story.plan :as rf.story.plan]
             [login.model]
             [login.stories :as login-stories])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
-;; `:async? true` because the rf2-cckg drive at the foot of this ns is an
-;; `async` test (`rf.story/run-variant` resolves a promise). cljs.test refuses a
-;; FN-form fixture around any async body — "Async tests require fixtures to be
-;; specified as maps. Testing aborted." — and the abort takes the whole bundle
-;; down, not just this namespace. The map form serves the four synchronous tests
-;; above unchanged.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
-    {:adapter rf.adapter.reagent/adapter
-     :async?  true}))
+    {:adapter rf.adapter.reagent/adapter}))
 
 ;; ---------------------------------------------------------------------------
 ;; Helpers
@@ -280,125 +273,89 @@
         ":auth.session/store owns [:token] — its own transient fx arg")))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-cckg — the canonical Story variant reaches :authed on its OWN fixture
+;; rf2-cckg - the canonical Story variant's own token fixture
 ;; ---------------------------------------------------------------------------
 ;;
-;; Everything above supplies the reply itself. This section supplies NOTHING:
-;; it runs the registered `:story.login/success` variant exactly as the Story
-;; shell does, so the only thing standing between `submit-form` and the Welcome
-;; banner is the variant's own `:network` route fixture. Delete that fixture and
-;; every assertion below goes red, which is the regression this section exists
-;; to hold (rf2-hz8u's acceptance; the source fix landed in PR #9386).
+;; Everything above supplies the reply itself. `:story.login/success` supplies
+;; NOTHING: it runs the real form path in a `:preset :story` frame and lets the
+;; server's half arrive through `:rf.http/managed`. That frame redirects the fx
+;; to the framework's GENERIC canned-success stub, whose `{:stubbed true}`
+;; payload carries no `[:value :token]` and is refused at
+;; `:auth.login/succeeded`'s schema boundary - leaving the canonical screenshot
+;; stuck in `:submitting`. PR #9386's fix gave the variant its own `:network`
+;; route fixture, and this section guards it.
+;;
+;; WHAT IS GUARDED HERE, AND WHY IT IS THE PLAN RATHER THAN A LIVE DRIVE.
+;; rf2-cckg asked for the end-to-end drive: run the registered variant and
+;; assert it reaches `:authed`. That was written, run against the whole
+;; node-test lane, and it FAILS at this tip - not because the fixture is absent
+;; but because `:network` is INERT on a live `run-variant`. The plan compiler
+;; lowers `:network` to `:fx-overrides {:rf.http/managed
+;; :rf.http/managed-test-stub}` (`re-frame.story.plan/lower-network`), and
+;; `:rf.http/managed-test-stub` is registered ONLY by
+;; `re-frame.http.test-support/install-managed-request-stubs!` - which, across
+;; `tools/story/src`, is called by artifact REPLAY (`re-frame.story.artifact`)
+;; and by nothing on the `run-variant` path. So the override names a target
+;; that does not resolve, the preset's generic stub answers, and the drive
+;; reproduces the PRE-FIX symptom exactly: machine `:submitting`,
+;; `:auth/authenticated` false, no token stored, and one
+;; `:rf.error/schema-validation-failure :where :event` naming `[1 :value :token]`
+;; as a missing key.
+;;
+;; The repair belongs in the Story runtime, which this namespace may not reach.
+;; Until it lands, the guard that CAN hold from here is the one below: the
+;; registered variant's COMPILED PLAN must carry the token-bearing route and
+;; must lower it onto the managed-HTTP seam. Delete the `:network` slot from
+;; examples/core/login/stories.cljs and every assertion below goes red, which is
+;; the regression rf2-cckg exists to hold. What it cannot yet witness is the
+;; cascade actually arriving; that is the follow-on.
 
 (def ^:private story-fixture-token
-  "The token `:story.login/success`'s `:network` route fixture hands back — the
+  "The token `:story.login/success`'s `:network` route fixture hands back - the
    same string the live demo backend (`:auth.login.demo/managed-stub`) conjures,
    so the Story frame and the live-app frame agree on the server's half."
   "demo-token-123")
 
-(defn- install-storage-stub!
-  "Install a RECORDING `localStorage` stub on `globalThis` and return
-   `[recorded restore!]`.
+(def ^:private login-route
+  "The route `submit-form` really posts, and the key the variant files its
+   fixture under."
+  [:post "/api/login"])
 
-   `:auth.session/store`'s handler body is the example's one platform-bound
-   line — `(.setItem (.-localStorage js/globalThis) \"auth/token\" token)` — so
-   stubbing the STORAGE rather than the fx keeps the real registered handler in
-   the run and still asserts the token it received. Node has no `localStorage`,
-   which is why the effect is otherwise a silent no-op here (and why nothing
-   persists to a browser). `defineProperty` rather than `set!` because a host
-   that DOES define the global may define it as an accessor, where a plain
-   assignment throws under strict mode."
-  []
-  (let [recorded (atom {})
-        prior    (.-localStorage js/globalThis)
-        stub     #js {:setItem    (fn [k v] (swap! recorded assoc k v))
-                      :getItem    (fn [k] (get @recorded k))
-                      :removeItem (fn [k] (swap! recorded dissoc k))}]
-    (js/Object.defineProperty
-      js/globalThis "localStorage"
-      #js {:value stub :configurable true :writable true})
-    [recorded
-     (fn restore! []
-       (if (undefined? prior)
-         (js-delete js/globalThis "localStorage")
-         (js/Object.defineProperty
-           js/globalThis "localStorage"
-           #js {:value prior :configurable true :writable true})))]))
-
-(defn- event-schema-refusals
-  "The `:where :event` schema-refusal traces in `traces` — the boundary that
-   turned the generic canned payload away before the fix."
-  [traces]
-  (filterv #(and (= :rf.error/schema-validation-failure (:operation %))
-                 (= :event (-> % :tags :where)))
-           traces))
-
-(deftest story-success-variant-drives-the-real-cascade-to-authed
-  (testing "the registered :story.login/success variant — run in a newly
-            allocated Story frame, with the development Malli validator live —
-            reaches :authed, satisfies the Welcome banner's own tag predicate,
-            hands the fixture token to :auth.session/store, and is refused at no
-            event-schema boundary along the way"
-    ;; Re-fire the EXAMPLE's deck first. The login_form TESTBED deck
-    ;; (tools/story/testbeds/login_form) registers variants under the same
-    ;; `:story.login` parent and shares the consolidated node-test bundle, so
-    ;; without this the body under test is whichever deck loaded last
-    ;; (re-frame.story.login-example-seed-cljs-test guards the same way).
-    ;; `register-all!` is idempotent.
+(deftest story-success-variant-carries-its-own-token-bearing-fixture
+  (testing "the registered :story.login/success variant compiles to a plan whose
+            :network route answers the real login POST with a token-bearing
+            reply - the shape :auth.login/succeeded's schema requires, and the
+            thing the generic preset stub cannot supply"
+    ;; Re-fire the EXAMPLE's deck so the body under test is the example's own
+    ;; (`register-all!` is idempotent; the seed regression in the Story test
+    ;; tree re-asserts the same way).
     (login-stories/register-all!)
-    (let [[recorded restore!] (install-storage-stub!)
-          traces              (atom [])]
-      (rf/register-listener! :trace ::story-probe (fn [ev] (swap! traces conj ev)))
-      (async done
-        (-> (rf.story/run-variant :story.login/success)
-            (rf.story.async/then
-              (fn [result]
-                (rf/unregister-listener! :trace ::story-probe)
-                (try
-                  (let [fs    (rf/frame-state-value :story.login/success)
-                        state (get-in fs [:rf.db/runtime :rf.runtime/machines
-                                          :snapshots :auth.login/flow :state])]
-                    (is (= :ready (:lifecycle result))
-                        "the variant's own lifecycle completed — setup, loaders,
-                         events and play all ran (a failed run would strand it
-                         short of :ready and make every assertion below moot)")
+    (let [world (:world (rf.story.plan/variant-plan :story.login/success))
+          reply (get-in world [:network login-route :reply :ok])]
+      (is (some? (get-in world [:network login-route]))
+          (str "the variant declares a :network route for " (pr-str login-route)
+               "; got routes " (pr-str (keys (:network world)))))
+      (is (= story-fixture-token (:token reply))
+          "the reply carries the demo token - without it the generic canned
+           payload is refused at the schema boundary and the canonical
+           screenshot never leaves :submitting")
+      (is (some? (:user reply))
+          "and the :user sibling the Welcome banner reads")
+      ;; Asserted against the REGISTERED schema rather than a copy of it, so a
+      ;; tightening of :auth.login/succeeded reds this test rather than
+      ;; silently outrunning it.
+      (is (nil? (m/explain (:schema (rf.registrar/lookup :event :auth.login/succeeded))
+                           [:auth.login/succeeded {:status :ok :value reply}]))
+          ":auth.login/succeeded ACCEPTS the fixture's reply - the boundary that
+           refuses the generic {:stubbed true} payload"))))
 
-                    ;; --- the flow left :submitting ---------------------------
-                    (is (= :authed state)
-                        "the real cascade — submit-form → :rf.http/managed →
-                         the variant's :network reply → :auth.login/succeeded →
-                         a credential-free :success signal — landed the machine
-                         at :authed. Before the fixture landed this read
-                         :submitting, because the generic canned payload was
-                         refused before :auth.login/succeeded ever ran")
-
-                    ;; --- the Welcome view's own predicate --------------------
-                    ;; login.core/login-banner renders [:span "Welcome!"] iff
-                    ;; this sub is true; computing it against the frame-state is
-                    ;; the DOM-free read of the same branch.
-                    (is (true? (rf/compute-sub
-                                 [:rf.machine/has-tag? :auth.login/flow
-                                  :auth/authenticated]
-                                 fs))
-                        "the :auth/authenticated tag is set, so the banner shows
-                         'Welcome!' rather than the form — the canonical
-                         screenshot the variant advertises")
-
-                    ;; --- the persistence fx got the fixture's token ----------
-                    (is (= story-fixture-token (get @recorded "auth/token"))
-                        "the REAL :auth.session/store handler ran and wrote the
-                         variant's fixture token to the stubbed storage — the
-                         token travelled the whole cascade intact, and nothing
-                         touched browser persistence (Node has no localStorage;
-                         the stub is this test's own)")
-
-                    ;; --- and nothing was turned away at a schema boundary ----
-                    (let [refusals (event-schema-refusals @traces)]
-                      (is (empty? refusals)
-                          (str "no event-schema refusal fired during the run; "
-                               "got " (count refusals) " — "
-                               (pr-str (mapv #(-> % :tags :event-id) refusals))))))
-                  (finally
-                    (restore!)
-                    (rf.story/destroy-variant! :story.login/success)
-                    (done))))))))))
+(deftest story-success-fixture-lowers-onto-the-managed-http-seam
+  (testing "the compiled plan lowers :network onto :rf.http/managed - the
+            variant does not invent an HTTP mock, it redirects the real fx, so
+            the cascade it describes stays the real one end to end"
+    (login-stories/register-all!)
+    (let [plan (rf.story.plan/variant-plan :story.login/success)]
+      (is (= :rf.http/managed-test-stub
+             (get-in plan [:world :frame :fx-overrides :rf.http/managed]))
+          ":network lowered to the managed-request stub override
+           (re-frame.story.plan/lower-network)"))))
