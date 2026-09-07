@@ -2680,8 +2680,9 @@ re-frame2 commits to a queryable public registrar for every kind of registered e
 | Query | Returns | JVM-runnable? |
 |---|---|---|
 | `(rf/registrations {:source :store :kind kind})` | Map of id → metadata for every handler of the given kind. The kind keyword set is canonicalised in [001 §The query API](001-Registration.md#the-query-api): `:event` (every `reg-event` handler), `:sub`, `:fx`, `:cofx`, `:interceptor` (every `reg-interceptor` handler — per [EP-0022](../docs/EP/EP-0022-registered-interceptors.md)), `:view`, `:frame`, `:route`. Machines themselves register under `:event` (per [005](005-StateMachines.md)) — filter by `:rf/machine?` metadata to enumerate them. Machine guards and actions are **machine-scoped** (declared in each machine's `:guards` / `:actions` map) — there is no `:machine-guard` / `:machine-action` registry kind. App-db schemas are **not** a registrar kind either — introspect via `schemas/app-schemas` / `schemas/app-schema-meta-at`. | Yes |
-| `(rf/registrations kind pred-fn)` | Same, filtered by `pred-fn` applied to each metadata map. | Yes |
+| `(rf/registrations {:frame f :kind kind})` | Same, resolved through live frame `f`'s own sealed image generation — only the ids that frame's image carries. | Yes |
 | `(rf/handler-meta {:source :store :kind kind :id id})` | Metadata for a single handler (config, source coords, doc, spec, etc.). | Yes |
+| `(rf/handler-meta {:frame f :kind kind :id id})` | Same, resolved through live frame `f`'s generation. | Yes |
 | `(rf/frame-ids)` | Seq of all registered frame keywords. | Yes |
 | `(rf/frame-ids prefix)` | Seq filtered by namespace prefix (e.g., `(rf/frame-ids :story)` returns all `:story.*` frames). | Yes |
 | `(rf/frame-meta id)` | Metadata for a single frame (config, source coords, lifecycle, doc, override maps, interceptor list). | Yes |

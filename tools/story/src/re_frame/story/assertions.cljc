@@ -51,8 +51,8 @@
   Per the `downstream EPs consume foundation` rule each assertion is a
   regular re-frame event registered with `re-frame.core/reg-event`
   — Story adds NO new registry kind for assertions. The vocabulary is
-  enumerable via `(rf/registrations :event #(re-find #\"^:rf\\.assert/\"
-  (str (:id %))))` per the existing registrar query API.
+  enumerable by filtering `(rf/registrations {:source :store :kind :event})`
+  on the `:rf.assert/` id namespace, per the registrar query API.
 
   ## Public surface
 
