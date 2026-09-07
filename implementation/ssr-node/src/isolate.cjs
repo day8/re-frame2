@@ -67,6 +67,40 @@ function reportIsolateFault(isolateSeq, err) {
   process.stderr.write(`[rf.ssr-node] isolate ${isolateSeq} died mid-render: ${trace}\n`);
 }
 
+/**
+ * Stamp the service-owned torn-response count onto a terminal refusal
+ * (rf2-kirm).
+ *
+ * `README.md` §refusals and `service.cjs`'s own header promise that a failure
+ * arriving AFTER chunks is a torn response carrying `detail.afterChunks`, and
+ * name "the isolate dying under a render" as one of the two ways that happens.
+ * The count was attached only where the WORKER reported the failure — but the
+ * three paths that matter most here are precisely the ones the worker cannot
+ * report on, because on each of them the worker is already gone or going: the
+ * deadline rejection, `_failPendingRender` (the crashed / exited thread), and
+ * `close()`. Each rebuilt a refusal from scratch and cleared `pendingRender`,
+ * so the only record of how many chunks had already left went with it, and a
+ * transport branching on the advertised discriminator saw `undefined` beside
+ * body bytes it had already written.
+ *
+ * SERVICE-OWNED, on the same footing as the `isolate` / `threadId` /
+ * `timeoutMs` fields it joins: the count is what THIS file forwarded, and
+ * nothing the render module authored reaches it. It is stamped for a clean
+ * failure too (`afterChunks: 0`), because a consumer branching on the field
+ * cannot otherwise tell an untorn response from a path that forgot to say.
+ *
+ * A count already present is NEVER overwritten — the worker's own
+ * `afterChunks` is its authority on a failure it observed, and this is only
+ * the fallback for the failures it did not.
+ */
+function stampAfterChunks(refusal, chunkCount) {
+  if (!(refusal instanceof Refusal)) return refusal;
+  const detail = refusal.detail ?? {};
+  if (Object.prototype.hasOwnProperty.call(detail, 'afterChunks')) return refusal;
+  refusal.detail = { ...detail, afterChunks: chunkCount };
+  return refusal;
+}
+
 let nextIsolateSeq = 0;
 
 class Isolate {
@@ -236,12 +270,20 @@ class Isolate {
         // to stop.
         const isolateSeq = this.seq;
         const threadId = this.threadId;
-        this._settlePendingRender(renderId, () =>
+        this._settlePendingRender(renderId, (pendingRender) =>
           reject(
             new Refusal(
               CODE.RENDER_TIMEOUT,
               `render exceeded its ${timeoutMs} ms deadline; the isolate was terminated`,
-              { timeoutMs, isolate: isolateSeq, threadId, entry: request.entry },
+              {
+                timeoutMs,
+                isolate: isolateSeq,
+                threadId,
+                entry: request.entry,
+                // rf2-kirm — a deadline can land after chunks have already
+                // gone out; the count is the transport's discriminator.
+                afterChunks: pendingRender.chunkCount,
+              },
             ),
           ),
         );
@@ -314,12 +356,17 @@ class Isolate {
     }
   }
 
+  /**
+   * `settle` is handed the pendingRender it is settling — the record is
+   * cleared before it runs, so a settler that needs the render's own facts
+   * (`chunkCount`, rf2-kirm) has no other way to reach them.
+   */
   _settlePendingRender(renderId, settle) {
     const pendingRender = this.pendingRender;
     if (!pendingRender || pendingRender.renderId !== renderId) return;
     clearTimeout(pendingRender.deadlineTimer);
     this.pendingRender = null;
-    settle();
+    settle(pendingRender);
   }
 
   /** Reject whatever is in flight — the isolate died under it. */
@@ -329,7 +376,10 @@ class Isolate {
     if (pendingRender) {
       clearTimeout(pendingRender.deadlineTimer);
       this.pendingRender = null;
-      pendingRender.reject(refusal);
+      // rf2-kirm — the worker is gone, so nothing else knows how many chunks
+      // it forwarded. Stamp before the reject, while the record is still in
+      // hand.
+      pendingRender.reject(stampAfterChunks(refusal, pendingRender.chunkCount));
     }
   }
 
@@ -350,7 +400,13 @@ class Isolate {
       const pendingRender = this.pendingRender;
       this.pendingRender = null;
       pendingRender.reject(
-        new Refusal(CODE.SERVICE_CLOSED, 'the service is shutting down', {}),
+        // rf2-kirm — the third terminal path that clears `pendingRender`. A
+        // shutdown under a streaming render tears it exactly as a deadline
+        // does, so it names the count on the same footing.
+        stampAfterChunks(
+          new Refusal(CODE.SERVICE_CLOSED, 'the service is shutting down', {}),
+          pendingRender.chunkCount,
+        ),
       );
     }
     if (worker) await worker.terminate().catch(() => {});

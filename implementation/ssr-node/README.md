@@ -373,9 +373,14 @@ or, instead of everything:
 A refusal is terminal and arrives instead of chunks, never after them —
 every caller-fault refusal is delivered before an isolate is even
 acquired. A failure that does arrive after chunks (the isolate dying under
-a render, or a streaming module throwing halfway) is a torn response:
+a render, a deadline firing mid-stream, or a streaming module throwing
+halfway) is a torn response:
 it carries `detail.afterChunks`, and the transport destroys the socket
-rather than presenting a well-formed shorter page.
+rather than presenting a well-formed shorter page. Every refusal that ends
+an **in-flight render** carries the field, `0` included — a consumer
+branching on it must be able to tell an untorn response from a path that
+forgot to say. A caller-fault refusal raised before an isolate is acquired
+does not carry it, and has no render to have torn.
 
 ### Refusal codes
 
@@ -530,8 +535,13 @@ outcome is honestly different: the refusal is `:rf.ssr-node/isolate-lost`,
 because the render did not finish *and* the isolate is not reusable, so
 the pool replaces it. The code is not smoothed into `render-threw` — a
 caller acts on the difference — but the wording is this contract's, the
-`detail` is the service's own (`isolate`, `threadId`), and the exception's
-message and stack stay off the wire. The stack matters twice over here: on
+`detail` is the service's own (`isolate`, `threadId`, `afterChunks`), and
+the exception's
+message and stack stay off the wire. `afterChunks` is the torn-response
+count promised above, and this is exactly the path that needs the service to
+supply it: the worker crashed, so no error message ever arrives from it and
+nothing else still knows how many chunks had already gone out. The stack
+matters twice over here: on
 top of the module's wording it names absolute paths in the deployment's
 filesystem. It goes to the same stderr, and on this path that is not
 merely the better channel but the only one — the worker never caught
