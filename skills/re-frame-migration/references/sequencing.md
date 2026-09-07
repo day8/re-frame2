@@ -92,7 +92,7 @@ The M-rule numbering in [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/
 | 17 | **M-35** | Actor-lifecycle fx-id rename (`:spawn` → `:rf.machine/spawn`). |
 | 18 | **M-34** | Spawn-id tracking move. Listed here because it composes with M-35's fx-id rename, but the rewrite is **Type B** (asked-first — flag every declarative-`:spawn` site). Detail in [`breaking-changes.md`](breaking-changes.md). |
 | 18a | **M-56** | Machine vocabulary divergence. Closed rename table: `:invoke` → `:spawn`, `:invoke-all` → `:spawn-all`, plus all sibling `:rf/invoke-*` snapshot keys, `:rf.machine.invoke*/*` trace ops, `:rf.error/machine-invoke-*` error categories, `:rf.invoke/*` generated-action ns. Apply alongside M-35 (the fx-id sibling). v2-pre-rename only. |
-| 18b | **M-60** | Route event + trace rename. `:rf/url-changed` → `:rf.route/transitioned`; `:rf.route/url-changed` → `:rf.route/fragment-changed`. Closed two-keyword rename. Pairs with M-29 (routing artefact). v2-pre-rename only. |
+| 18b | **M-60** | Route event + trace rename. `:rf/url-changed` → `:rf.route/transitioned`; `:rf.route/url-changed` → `:rf.route/fragment-changed`. Closed two-keyword rename. **`:rf.route/transitioned` was itself removed under rf2-kuky.38 (2026-09-08) — land on `:rf.route/handle-url-change` with `{:rf.route/cause :link}` and branch on the cause.** Pairs with M-29 (routing artefact). v2-pre-rename only. |
 
 ### Group 5 — Interceptors and registration metadata
 

@@ -306,8 +306,7 @@ Standard route-related events:
 | Event | Notes | Spec |
 |---|---|---|
 | `:rf.route/navigate` | Navigate to a registered route. | 012 |
-| `:rf.route/handle-url-change` | URL-change handler for popstate / initial load / SSR (default scroll `:restore`). Co-equal sibling of `:rf.route/transitioned`, not a delegate. | 012 |
-| `:rf.route/transitioned` | URL-change handler for forward navigation (link click / programmatic push; default scroll `:top`). | 012 |
+| `:rf.route/handle-url-change` | URL-change handler for link / popstate / initial load / SSR; the cause rides `:rf.route/cause` (`:link`, `:popstate`, `:initial`, `:ssr` are the framework's own feeds); default scroll `:top` for `:link`, else `:restore`. | 012 |
 | `:rf.route/url-requested` | The user clicked a framework-owned link. | 012 |
 | `:rf.route/navigation-blocked` | A `:can-leave` guard rejected a navigation. | 012 |
 | `:rf.route/entry-denied` | A `:can-enter` guard rejected navigation *into* a route. TERMINAL — nothing commits and no pending value is created; dispatched exactly once per attempt, carrying `{:destination :target :cause :requested-url :guard}`. A framework no-op default handler ships, so denial is safe with no application handler. | 012 |
