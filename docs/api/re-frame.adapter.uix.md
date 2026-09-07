@@ -308,7 +308,7 @@ That is the whole opt-in, and it is deliberately explicit. `true` selects UIx's 
 
 ## See also
 
-- [re-frame.core](re-frame.core.md) — the substrate-agnostic ergonomic surface (`capture-frame`, `with-frame`, `with-new-frame`, `frame-provider`) plus the `init!` / `install-adapter!` / `current-adapter` / `adapter-disposed?` lifecycle.
+- [re-frame.core](re-frame.core.md) — the substrate-agnostic ergonomic surface (`capture-frame`, `with-frame`, `with-new-frame`, `frame-provider`) plus the `init!` / `destroy-adapter!` / `current-adapter` lifecycle.
 - [re-frame.adapter.reagent](re-frame.adapter.reagent.md) — the default (inline) substrate.
 - [Use UIx or reagent-slim](../core/how-to/use-uix-or-slim.md) — narrative coverage with worked examples and the full decision set.
 - [Adapter (glossary)](../core/glossary.md#adapter) — the substrate seam, defined.

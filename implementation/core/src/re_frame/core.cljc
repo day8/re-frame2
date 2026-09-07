@@ -2987,12 +2987,6 @@
       epoch-read (assoc :epoch-history (epoch-read))
       trace-read (assoc :trace-buffer (trace-read)))))
 
-(def ^{:doc "Install the substrate adapter for this process. Once. A
-  second call without an intervening `destroy-adapter!` raises
-  `:rf.error/adapter-already-installed`. Most apps call `init!` rather
-  than this directly. Per Spec 006 §Adapter selection at boot."}
-  install-adapter!     rf.substrate.adapter/install-adapter!)
-
 (def ^{:doc "Tear down the installed adapter. Calls the adapter's
   `:dispose-adapter!` fn (if present). Teardown is a one-way terminal
   boundary: it clears only the exact generation it claimed, marks the
@@ -3006,27 +3000,19 @@
   create/destroy (`destroy-frame!`)."}
   destroy-adapter!     rf.substrate.adapter/dispose-adapter!)
 
-(def ^{:doc "Return the discriminator keyword identifying the installed
-  adapter, or `nil` if none. One of
-  `:rf.adapter/reagent`, `:rf.adapter/reagent-slim`, `:rf.adapter/uix`,
-  `:rf.adapter/hicasso`, `:rf.adapter/plain-atom`, `:rf.adapter/ssr`, or
-  `:custom` for user-supplied adapters that didn't pick a canonical kind.
+(def ^{:doc "Return the installed adapter SPEC MAP — the exact value
+  passed to `init!` — or `nil` if none is installed. Carries the adapter
+  contract fns (`:make-state-container`, `:replace-container!`,
+  `:render`, `:dispose-adapter!`, …) plus a `:kind` discriminator.
+
+  ONE read, map-shaped. Branch code asks for the discriminator as a KEY:
+  `(:kind (rf/current-adapter))` — `:rf.adapter/reagent`,
+  `:rf.adapter/reagent-slim`, `:rf.adapter/uix`, `:rf.adapter/hicasso`,
+  `:rf.adapter/plain-atom`, `:rf.adapter/ssr`, or `nil` for a custom
+  adapter map that picked no canonical kind (nothing is synthesised for
+  it). PRESENCE is a question about the MAP, never about `:kind`.
   Per Spec 006 §Adapter introspection."}
   current-adapter      rf.substrate.adapter/current-adapter)
-
-(def ^{:doc "Return the installed adapter spec map, or `nil` if none.
-  Carries the adapter contract fns (`:make-state-container`,
-  `:replace-container!`, `:render`, `:dispose-adapter!`, etc.). Per
-  Spec 006 §Adapter introspection."}
-  current-adapter-spec rf.substrate.adapter/current-adapter-spec)
-
-(def ^{:doc "Return `true` iff teardown of the most recent installed
-  adapter generation has been terminally claimed and no fresh
-  `install-adapter!` has fired since. Cleanup success is not implied:
-  the claim remains terminal when the primary cleanup failure is rethrown.
-  False for a never-installed process and after a fresh install. Per
-  Spec 006 §Adapter lifecycle."}
-  adapter-disposed?    rf.substrate.adapter/adapter-disposed?)
 
 (defn- bad-init-arg!
   "Raise `:rf.error/no-adapter-specified` with a consistent reason
@@ -3101,7 +3087,7 @@
       ;; stable token, so the re-call stays a no-op.
       (when-not (rf.substrate.adapter/same-adapter?
                   adapter-map
-                  (rf.substrate.adapter/current-adapter-spec))
+                  (rf.substrate.adapter/current-adapter))
         (rf.substrate.adapter/install-adapter! adapter-map))
       ;; EP-0022 (rf2-0adhqs.2): re-seed the framework-standard interceptors
       ;; (`:rf.interceptor/path`) so the standard refs survive a test fixture's

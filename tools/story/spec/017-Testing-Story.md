@@ -904,7 +904,7 @@ the existing framework drain and a flush-hook seam over it.
   `re-frame.story.play.substrate-boundary`, installed from the canonical
   installer chain. It names no substrate: it reads the optional
   `:flush-render!` contract fn off the LIVE adapter
-  (`rf/current-adapter-spec`, Spec 006 §Adapter introspection) and, when it
+  (`rf/current-adapter`, Spec 006 §Adapter introspection) and, when it
   finds one, declares `:provides :dom` with that synchronous commit
   registered at the `:cljs-reactive` and `:dom` rungs. `flush-render!` is
   the framework's substrate-neutral settle signal (Spec 006

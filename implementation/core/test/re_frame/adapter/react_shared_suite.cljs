@@ -1201,7 +1201,7 @@
   adapter so the fixture teardown lands clean."
   [{:keys [adapter substrate-kw name]}]
   (testing (str name " — copied adapter map still routes to live :adapter/wrap-view")
-    (let [original (rf.substrate.adapter/current-adapter-spec)
+    (let [original (rf.substrate.adapter/current-adapter)
           ;; The copy carries an instrumentation marker — exactly the
           ;; "wrap a canonical adapter map" shape — with a DIFFERENT object
           ;; identity but the SAME canonical :kind token.
@@ -1209,9 +1209,9 @@
       (try
         (rf.substrate.adapter/dispose-adapter!)
         (rf.substrate.adapter/install-adapter! copied)
-        (is (false? (identical? adapter (rf.substrate.adapter/current-adapter-spec)))
+        (is (false? (identical? adapter (rf.substrate.adapter/current-adapter)))
             "precondition: the installed copy is NOT identical to the routed canonical map")
-        (is (= (:kind adapter) (rf.substrate.adapter/current-adapter))
+        (is (= (:kind adapter) (:kind (rf.substrate.adapter/current-adapter)))
             "precondition: the copy preserves the canonical :kind token")
         ;; The routed late-bind hook itself reports the copy as the active
         ;; adapter (the closure consults same-adapter?, not identity).
@@ -2489,7 +2489,7 @@
   [{:keys [adapter name]}]
   (testing (str name " — #20 adapter swap mid-process is forbidden")
     (let [thrown? (try
-                    (rf/install-adapter! adapter)
+                    (rf.substrate.adapter/install-adapter! adapter)
                     false
                     (catch :default e
                       ;; rf2-vvixub — branch on the canonical :rf.error/id
@@ -2498,7 +2498,7 @@
                          (:rf.error/id (ex-data e)))))]
       (is thrown? "second install-adapter! raises :rf.error/adapter-already-installed"))
     (rf/destroy-adapter!)
-    (rf/install-adapter! adapter)
+    (rf.substrate.adapter/install-adapter! adapter)
     (is (some? (rf.substrate.adapter/current-adapter))
         "after destroy, install succeeds again — clean swap path")))
 

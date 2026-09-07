@@ -1013,9 +1013,9 @@
       (rf.substrate.adapter/dispose-adapter!)
       (rf.substrate.adapter/install-adapter! copied)
       (try
-        (is (false? (identical? rf.adapter.test-react/adapter (rf.substrate.adapter/current-adapter-spec)))
+        (is (false? (identical? rf.adapter.test-react/adapter (rf.substrate.adapter/current-adapter)))
             "precondition: the installed copy is NOT identical to the canonical map")
-        (is (= :rf.adapter/test-react (rf.substrate.adapter/current-adapter))
+        (is (= :rf.adapter/test-react (:kind (rf.substrate.adapter/current-adapter)))
             "precondition: the copy preserves the canonical :kind token")
         (let [mount (rf.adapter.test-react/mount! [:div "via-copied-map"])]
           (is (some? mount)

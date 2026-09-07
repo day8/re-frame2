@@ -290,7 +290,7 @@
   host app is healthy, so this is not an error) and return it. Returns nil
   when the installed substrate can host the hiccup shell."
   []
-  (let [kind (rf.substrate.adapter/current-adapter)]
+  (let [kind (:kind (rf.substrate.adapter/current-adapter))]
     (when (contains? react-element-render-kinds kind)
       (let [diagnostic (unsupported-substrate-diagnostic kind)]
         (reset! diagnostic-state diagnostic)

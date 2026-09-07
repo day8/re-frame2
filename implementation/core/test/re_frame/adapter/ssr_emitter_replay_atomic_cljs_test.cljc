@@ -94,7 +94,7 @@
     (testing "no generation is seated — the failed boot is not installed"
       (is (nil? (rf.substrate.adapter/current-adapter))
           "current-adapter is nil: the seated generation was rolled back")
-      (is (nil? (rf.substrate.adapter/current-adapter-spec)))
+      (is (nil? (rf.substrate.adapter/current-adapter)))
       (is (false? (rf.substrate.adapter/adapter-disposed?))
           "a failed install disposed nothing — the never-installed diagnosis stands"))
 
@@ -106,7 +106,7 @@
     (testing "an immediate clean retry installs fresh"
       (rf.late-bind/set-fn! :adapter/arm-hiccup-emitter-if-unarmed! (fn [_] nil))
       (is (= fake-adapter (rf.substrate.adapter/install-adapter! fake-adapter)))
-      (is (= :rf.test/atomic-adapter (rf.substrate.adapter/current-adapter))
+      (is (= :rf.test/atomic-adapter (:kind (rf.substrate.adapter/current-adapter)))
           "the rollback left a clean slot, so the retry seats normally"))))
 
 (deftest exact-generation-rollback-does-not-erase-a-replacement
@@ -125,7 +125,7 @@
                          (throw (ex-info "outer boom" {}))))
     (is (thrown? #?(:clj Throwable :cljs :default)
                  (rf.substrate.adapter/install-adapter! fake-adapter)))
-    (is (identical? replacement (rf.substrate.adapter/current-adapter-spec))
+    (is (identical? replacement (rf.substrate.adapter/current-adapter))
         "the replacement generation survived — the stale install's rollback is exact-generation-scoped")))
 
 ;; ---- 2. routing: an inactive throwing setter cannot break the active boot -
@@ -148,7 +148,7 @@
 
     (is (= fake-adapter (rf.substrate.adapter/install-adapter! fake-adapter))
         "install succeeds — the throwing broadcast setter is not on the replay path")
-    (is (= :rf.test/atomic-adapter (rf.substrate.adapter/current-adapter)))
+    (is (= :rf.test/atomic-adapter (:kind (rf.substrate.adapter/current-adapter))))
     (is (true? @arm-ran) "the routed install-replay arm ran")
     (is (false? @broadcast-ran)
         "the :reagent/set-hiccup-emitter! broadcast was NOT invoked by install-replay")))

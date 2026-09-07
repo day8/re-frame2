@@ -21,7 +21,7 @@
     2. POSITIVE server control: ONE `(rf/init! rf.ssr/adapter)` at process
        boot, then TWO `rf.hicasso.server/render` requests both answer a `:document`
        and a payload, with no second adapter install attempted
-       (`rf/current-adapter-spec` identity is unchanged across both) —
+       (`rf/current-adapter` identity is unchanged across both) —
        initialization is boot work, not request work.
     3. POSITIVE client-shaped control: install the migrating app's
        existing React-shaped adapter (the stock Reagent adapter MIG-15
@@ -80,9 +80,9 @@
 
   (testing "POSITIVE server control — one (rf/init! rf.ssr/adapter) at process boot, then requests just work"
     (rf/init! rf.ssr/adapter)
-    (is (= :rf.adapter/ssr (rf/current-adapter))
+    (is (= :rf.adapter/ssr (:kind (rf/current-adapter)))
         "the corrected server half installs the headless server-side adapter once")
-    (let [spec-before (rf/current-adapter-spec)
+    (let [spec-before (rf/current-adapter)
           r1          (rf.hicasso.server/render render-opts)
           r2          (rf.hicasso.server/render render-opts)]
       (is (string? (:document r1))
@@ -91,18 +91,18 @@
           "first request: and a hydration payload")
       (is (string? (:document r2))
           "second request: works with NO second install")
-      (is (identical? spec-before (rf/current-adapter-spec))
+      (is (identical? spec-before (rf/current-adapter))
           "two requests after ONE rf/init! left the installed adapter untouched — initialization is process boot, not request work")))
 
   (testing "POSITIVE client-shaped control — the migrating app's existing Reagent adapter advances the same frame entry point"
     (rf/destroy-adapter!)
     (rf/init! rf.adapter.reagent/adapter)
-    (is (= :rf.adapter/reagent (rf/current-adapter))
+    (is (= :rf.adapter/reagent (:kind (rf/current-adapter)))
         "the client keeps its existing Reagent adapter — no silent adapter switch")
     (rf/make-frame {:id :app/main :platform :client})
     (is (contains? (rf/frame-ids) :app/main)
         "the exact rf/make-frame call the cold client died at now advances")
-    (let [spec (rf/current-adapter-spec)]
+    (let [spec (rf/current-adapter)]
       (rf/init! rf.adapter.reagent/adapter)
-      (is (identical? spec (rf/current-adapter-spec))
+      (is (identical? spec (rf/current-adapter))
           "a reload-path rf/init! re-run is a no-op — the hydration/HMR path never reinstalls"))))

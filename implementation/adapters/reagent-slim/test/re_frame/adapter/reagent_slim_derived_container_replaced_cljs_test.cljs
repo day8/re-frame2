@@ -175,14 +175,14 @@
 
 (deftest copied-adapter-map-routes-to-live-derived-container-hook
   (testing "a copied reagent-slim adapter map still drives the live :adapter/derived-container? hook (rf2-dkl5z1)"
-    (let [original (rf.substrate.adapter/current-adapter-spec)
+    (let [original (rf.substrate.adapter/current-adapter)
           copied   (assoc rf.adapter.reagent-slim/adapter :rf.test/instrumentation-wrapper true)]
       (try
         (rf.substrate.adapter/dispose-adapter!)
         (rf.substrate.adapter/install-adapter! copied)
-        (is (false? (identical? rf.adapter.reagent-slim/adapter (rf.substrate.adapter/current-adapter-spec)))
+        (is (false? (identical? rf.adapter.reagent-slim/adapter (rf.substrate.adapter/current-adapter)))
             "precondition: the installed copy is NOT identical to the routed canonical map")
-        (is (= :rf.adapter/reagent-slim (rf.substrate.adapter/current-adapter))
+        (is (= :rf.adapter/reagent-slim (:kind (rf.substrate.adapter/current-adapter)))
             "precondition: the copy preserves the canonical :kind token")
         (let [hook (rf.late-bind/get-fn :adapter/derived-container?)
               src  (rf.substrate.adapter/make-state-container {:n 1})]

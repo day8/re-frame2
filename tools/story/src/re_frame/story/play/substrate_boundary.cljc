@@ -38,7 +38,7 @@
   registered adapter; a tool that names `reagent.core/flush!` is
   non-conforming and breaks under UIx)\". This ns therefore names no
   substrate at all: it reads `:flush-render!` off
-  `re-frame.core/current-adapter-spec` — the introspection surface Spec
+  `re-frame.core/current-adapter` — the introspection surface Spec
   006 documents for exactly this purpose (\"give me the adapter fns to
   call — tools\"). Story consequently settles correctly under Reagent,
   reagent-slim and UIx today, and under any adapter added later, with no
@@ -67,7 +67,7 @@
 
   Nil covers all three of \"no adapter seated\" (a bare JVM run, or before
   `rf/init!`), \"adapter seated but shipping no live commit\" (plain-atom,
-  SSR) and \"the adapter is mid-dispose\" — `current-adapter-spec` already
+  SSR) and \"the adapter is mid-dispose\" — `current-adapter` already
   returns nil for the last. Tolerant: a throwing host reads as nil rather
   than taking the play down, which matches every other Story probe of
   framework state.
@@ -77,7 +77,7 @@
   already pending\" form is `(flush-render (fn [] nil))`."
   []
   (try
-    (:flush-render! (rf/current-adapter-spec))
+    (:flush-render! (rf/current-adapter))
     (catch #?(:clj Throwable :cljs :default) _ nil)))
 
 (defn substrate-flush-hooks

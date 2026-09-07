@@ -52,7 +52,7 @@ Interactions are grouped by the Specs that meet, in roughly the order an impleme
 
 - **Specs:** [005-StateMachines §Spawning](005-StateMachines.md#spawning--dynamic-actors), [006-ReactiveSubstrate §Adapter selection](006-ReactiveSubstrate.md#adapter-selection-at-boot).
 - **Scenario:** A `(rf/make-frame {:id :app :initial-events [[:boot]]})` fires `:boot` which spawns a machine — but boot order means the substrate adapter has not been installed yet.
-- **Behaviour:** `:initial-events` are queued on the frame's router but the drain does not start until the adapter is installed. Once `(rf/install-adapter! ...)` completes, the queue drains. Spawned machines therefore always run against an installed adapter.
+- **Behaviour:** `:initial-events` are queued on the frame's router but the drain does not start until the adapter is installed. Once `(rf/init! ...)` completes, the queue drains. Spawned machines therefore always run against an installed adapter.
 - **Reason:** A spawned machine's reactive surfaces — the `[:rf/machine <id>]` snapshot subs external observers read, and any sub-valued recordable coeffect (`{:rf/sub …}`) a named entry declares, both of which evaluate through the sub-cache — must reach a working cache, which requires the adapter. (A machine callback never reads a sub imperatively; the prohibition is in [005 §Causal host facts](005-StateMachines.md#causal-host-facts--rfcofx-ep-0017).) Deferring drain until adapter-ready is the simplest invariant.
 - **Status:** `Provisional` — fixture pending: `boot-order-adapter-ready.edn`.
 
@@ -221,7 +221,7 @@ Interactions are grouped by the Specs that meet, in roughly the order an impleme
 ### 20. Adapter swap mid-process is forbidden
 
 - **Specs:** [006-ReactiveSubstrate §Single adapter per process](006-ReactiveSubstrate.md#single-adapter-per-process).
-- **Scenario:** A program calls `(rf/install-adapter! ...)` a second time without an intervening `(rf/destroy-adapter!)` — or reaches the same door through the front porch, calling `(rf/init! ...)` a second time with a **different** adapter.
+- **Scenario:** A program calls `(re-frame.substrate.adapter/install-adapter! ...)` a second time without an intervening `(rf/destroy-adapter!)` — or reaches the same door through the front porch, calling `(rf/init! ...)` a second time with a **different** adapter.
 - **Behaviour:** The second call raises `:rf.error/adapter-already-installed` and does not change the installed adapter. To swap, destroy first, then install. `init!` re-called with the adapter *already seated* (same canonical `:rf.adapter/*` `:kind`, or the identical custom map) stays an idempotent no-op, which is what makes a `^:dev/after-load` boot safe.
 - **Reason:** Mid-process adapter swap would leave an unknown set of cached reactions, mounted views, and frame containers wired to the old adapter — the inconsistency is unrecoverable. The dispose-then-install path forces a known clean state.
 - **Status:** `Provisional` — fixture pending: `adapter-already-installed.edn`.

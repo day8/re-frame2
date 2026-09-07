@@ -240,7 +240,7 @@
                 unwrapped, after the drain finished")
 
             ;; (4) Terminal lifecycle state despite the throw.
-            (is (nil? (rf.substrate.adapter/current-adapter-spec))
+            (is (nil? (rf.substrate.adapter/current-adapter))
                 "the install slot is cleared even though cleanup threw")
             (is (true? (rf.substrate.adapter/adapter-disposed?))
                 "the disposed breadcrumb is set even though cleanup threw")
@@ -349,7 +349,7 @@
                 "the identical root-unmount failure reached the caller, after the drain")
             (is (true? (rf.substrate.adapter/adapter-disposed?))
                 "the disposed breadcrumb is set even though a root unmount threw")
-            (is (nil? (rf.substrate.adapter/current-adapter-spec))
+            (is (nil? (rf.substrate.adapter/current-adapter))
                 "active-root ownership released with the install slot despite the throw")))))))
 
 (deftest dispose-adapter-happy-teardown-still-returns-nil
@@ -367,7 +367,7 @@
 
     ;; And a fresh generation installs over the disposed one.
     (rf/init! rf.adapter.reagent/adapter)
-    (is (= :rf.adapter/reagent (rf.substrate.adapter/current-adapter))
+    (is (= :rf.adapter/reagent (:kind (rf.substrate.adapter/current-adapter)))
         "a fresh rf/init! installs a new generation after teardown")))
 
 (deftest claimed-generation-cleanup-keeps-public-delegation-terminal
@@ -390,7 +390,7 @@
                  (catch :default e
                    (:rf.error/id (ex-data e))))]
            (reset! observed
-                   {:current-spec (rf.substrate.adapter/current-adapter-spec)
+                   {:current-spec (rf.substrate.adapter/current-adapter)
                     :delegation-error delegation-error
                     :nested-destroy (rf.substrate.adapter/dispose-adapter!)}))))
 

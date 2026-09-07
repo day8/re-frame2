@@ -48,10 +48,10 @@
     (is (nil? (rf.substrate.adapter/current-adapter))
         "precondition: no adapter installed")
     (rf/init! rf.adapter.reagent/adapter)
-    (is (identical? rf.adapter.reagent/adapter (rf.substrate.adapter/current-adapter-spec))
+    (is (identical? rf.adapter.reagent/adapter (rf.substrate.adapter/current-adapter))
         "explicit init! installed the Reagent adapter (map identity)")
-    (is (= :rf.adapter/reagent (rf.substrate.adapter/current-adapter))
-        "current-adapter returns the discriminator keyword per Spec 006")))
+    (is (= :rf.adapter/reagent (:kind (rf.substrate.adapter/current-adapter)))
+        "(:kind (current-adapter)) is the discriminator per Spec 006"))))
 
 (deftest init-no-arg-raises-arity-error
   (testing "(rf/init!) with no args raises a language-level arity error (rf2-3ubmv — no-arg arity cut)"

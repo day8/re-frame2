@@ -88,11 +88,11 @@
         "init! creates NO :rf/default frame (EP-0002: the runtime never synthesises a default)")
     (is (zero? (count-frames))
         "init! registers no frames at all")
-    (let [adapter-after-first (rf.substrate.adapter/current-adapter-spec)
+    (let [adapter-after-first (rf.substrate.adapter/current-adapter)
           frames-after-first  @rf.frame/frames]
       ;; Second boot — should be a no-op.
       (rf/init! rf.substrate.plain-atom/adapter)
-      (is (identical? adapter-after-first (rf.substrate.adapter/current-adapter-spec))
+      (is (identical? adapter-after-first (rf.substrate.adapter/current-adapter))
           "the second init! does NOT re-install the adapter (same identity)")
       (is (= frames-after-first @rf.frame/frames)
           "the second init! does NOT mutate the frames registry"))
@@ -113,7 +113,7 @@
         "precondition: cold start, no adapter installed")
     (rf/init! rf.substrate.plain-atom/adapter)
     (is (identical? rf.substrate.plain-atom/adapter
-                    (rf.substrate.adapter/current-adapter-spec))
+                    (rf.substrate.adapter/current-adapter))
         "the first init! seats the plain-atom adapter")
     (let [other  (assoc rf.substrate.plain-atom/adapter :kind ::other)
           thrown (try
@@ -133,7 +133,7 @@
         (is (identical? other (:attempted data))
             "ex-data's :attempted is the adapter the caller tried to seat"))
       (is (identical? rf.substrate.plain-atom/adapter
-                      (rf.substrate.adapter/current-adapter-spec))
+                      (rf.substrate.adapter/current-adapter))
           "the rejected init! leaves the seated adapter untouched")))
 
   (testing "HOT-RELOAD CONTROL: a structural copy of the seated canonical adapter is NOT a different adapter"
@@ -146,7 +146,7 @@
     (rf.substrate.adapter/dispose-adapter!)
     (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
     (rf/init! rf.substrate.plain-atom/adapter)
-    (let [seated  (rf.substrate.adapter/current-adapter-spec)
+    (let [seated  (rf.substrate.adapter/current-adapter)
           reload  (assoc rf.substrate.plain-atom/adapter :doc "reloaded")]
       (is (not (identical? reload rf.substrate.plain-atom/adapter))
           "control precondition: the reloaded map is a genuinely distinct object")
@@ -154,7 +154,7 @@
           "control precondition: it carries the same canonical :rf.adapter/* kind")
       (is (nil? (rf/init! reload))
           "re-initing with a structural copy of the seated canonical adapter does not throw")
-      (is (identical? seated (rf.substrate.adapter/current-adapter-spec))
+      (is (identical? seated (rf.substrate.adapter/current-adapter))
           "and it does not re-install: the seated identity is unchanged")))
 
   (testing "two distinct KIND-LESS custom adapters are different adapters (object-identity fallback)"
@@ -166,7 +166,7 @@
     (let [custom-a (dissoc rf.substrate.plain-atom/adapter :kind)
           custom-b (dissoc rf.substrate.plain-atom/adapter :kind)]
       (rf/init! custom-a)
-      (is (identical? custom-a (rf.substrate.adapter/current-adapter-spec))
+      (is (identical? custom-a (rf.substrate.adapter/current-adapter))
           "the kind-less custom adapter is seated")
       (let [thrown (try
                      (rf/init! custom-b)
@@ -175,7 +175,7 @@
         (is (= :rf.error/adapter-already-installed
                (:rf.error/id (ex-data thrown)))
             "a second, structurally-equal but distinct kind-less map raises")
-        (is (identical? custom-a (rf.substrate.adapter/current-adapter-spec))
+        (is (identical? custom-a (rf.substrate.adapter/current-adapter))
             "and the seated custom adapter is untouched"))
       (is (nil? (rf/init! custom-a))
           "re-initing with the IDENTICAL custom map is still an idempotent no-op"))))
@@ -186,7 +186,7 @@
         "precondition: cold start, no adapter installed")
     ;; First install — succeeds.
     (rf.substrate.adapter/install-adapter! rf.substrate.plain-atom/adapter)
-    (is (identical? rf.substrate.plain-atom/adapter (rf.substrate.adapter/current-adapter-spec))
+    (is (identical? rf.substrate.plain-atom/adapter (rf.substrate.adapter/current-adapter))
         "first install-adapter! seats the plain-atom adapter")
     ;; Second install (without dispose) — must throw with the spec'd error.
     (let [thrown (try
@@ -210,13 +210,13 @@
         (is (some? (:attempted data))
             "ex-data carries the :attempted (rejected) adapter")))
     ;; Sanity: the originally-installed adapter is still seated.
-    (is (identical? rf.substrate.plain-atom/adapter (rf.substrate.adapter/current-adapter-spec))
+    (is (identical? rf.substrate.plain-atom/adapter (rf.substrate.adapter/current-adapter))
         "the rejected install does NOT replace or unseat the existing adapter")))
 
 (deftest dispose-adapter-clears-slot
   (testing "dispose-adapter! tears down + clears the slot; subsequent install! succeeds"
     (rf.substrate.adapter/install-adapter! rf.substrate.plain-atom/adapter)
-    (is (identical? rf.substrate.plain-atom/adapter (rf.substrate.adapter/current-adapter-spec))
+    (is (identical? rf.substrate.plain-atom/adapter (rf.substrate.adapter/current-adapter))
         "precondition: adapter installed")
     ;; Dispose — clears the slot.
     (rf.substrate.adapter/dispose-adapter!)
@@ -224,7 +224,7 @@
         "after dispose-adapter! the slot is nil")
     ;; Re-install — works now without throwing.
     (rf.substrate.adapter/install-adapter! rf.substrate.plain-atom/adapter)
-    (is (identical? rf.substrate.plain-atom/adapter (rf.substrate.adapter/current-adapter-spec))
+    (is (identical? rf.substrate.plain-atom/adapter (rf.substrate.adapter/current-adapter))
         "install-adapter! succeeds after a prior dispose-adapter!"))
   (testing "dispose-adapter! on an empty slot is a no-op (no throw)"
     (rf.substrate.adapter/dispose-adapter!)
@@ -253,7 +253,7 @@
                     (try (rf.substrate.adapter/dispose-adapter!) nil
                          (catch clojure.lang.ExceptionInfo e e)))
         "the adapter cleanup error remains the primary throw")
-    (is (nil? (rf.substrate.adapter/current-adapter-spec))
+    (is (nil? (rf.substrate.adapter/current-adapter))
         "a cleanup throw cannot leave the one-adapter install slot seated")
     (is (true? (rf.substrate.adapter/adapter-disposed?))
         "the lifecycle breadcrumb records the attempted installed teardown")
@@ -296,9 +296,9 @@
                                (rf.substrate.adapter/install-adapter! replacement)))]
       (rf.substrate.adapter/install-adapter! old)
       (rf.substrate.adapter/dispose-adapter!)
-      (is (identical? replacement (rf.substrate.adapter/current-adapter-spec))
+      (is (identical? replacement (rf.substrate.adapter/current-adapter))
           "the old generation's finally leaves the replacement seated")
-      (is (= ::replacement (rf.substrate.adapter/current-adapter)))
+      (is (= ::replacement (:kind (rf.substrate.adapter/current-adapter))))
       (is (false? (rf.substrate.adapter/adapter-disposed?))
           "the replacement generation's successful install owns the breadcrumb"))))
 
@@ -327,7 +327,7 @@
         (is (nil? (deref second 5000 ::timeout))
             "a concurrent destroy observes the claimed generation and does no cleanup"))
       (is (= 1 @calls) "exactly one cleanup owner ran")
-      (is (nil? (rf.substrate.adapter/current-adapter-spec))
+      (is (nil? (rf.substrate.adapter/current-adapter))
           "the terminal claim removes the generation from public introspection")
       (is (true? (rf.substrate.adapter/adapter-disposed?))
           "the disposed breadcrumb flips atomically with the terminal claim")
@@ -351,7 +351,7 @@
       (finally
         (deliver release :release)))
     (is (= :destroyed (deref first 5000 ::timeout)))
-    (is (nil? (rf.substrate.adapter/current-adapter-spec)))
+    (is (nil? (rf.substrate.adapter/current-adapter)))
     (is (true? (rf.substrate.adapter/adapter-disposed?)))
     (is (identical? rf.substrate.plain-atom/adapter
                     (rf.substrate.adapter/install-adapter! rf.substrate.plain-atom/adapter))
@@ -453,55 +453,57 @@
 (deftest init-map-form-installs-literal-spec
   (testing "(rf/init! adapter-map) installs the literal adapter — only legal form"
     (rf/init! rf.substrate.plain-atom/adapter)
-    (is (identical? rf.substrate.plain-atom/adapter (rf.substrate.adapter/current-adapter-spec))
+    (is (identical? rf.substrate.plain-atom/adapter (rf.substrate.adapter/current-adapter))
         "init! with a literal adapter map installs that exact spec")
     (is (zero? (default-frame-count))
         "no :rf/default frame is created by init! (EP-0002 — the runtime never synthesises a default)")))
 
-;; ---- current-adapter vs current-adapter-spec (rf2-ivx3a) -----------------
+;; ---- current-adapter: ONE read, map-shaped (rf2-kuky.4 rider A-i) ----
 ;;
-;; Per Spec 006 §Adapter introspection: `current-adapter` returns the
-;; `:kind` discriminator keyword from the installed adapter spec map;
-;; `current-adapter-spec` returns the full map. The two questions are
-;; genuinely different — predicate / branch code vs tools that need fn
-;; handles — and each accessor answers exactly one.
+;; Per Spec 006 §Adapter introspection, folded under rf2-kuky.4: there is
+;; ONE adapter read and it answers the installed SPEC MAP. The former
+;; the second, keyword-returning read is gone, and with it the synthesised
+;; fallback kind — the discriminator is a KEY on the one map, so a kind-less
+;; adapter reads `(:kind (current-adapter))` as nil while the adapter is
+;; plainly present. That distinction is the reason the deletion is safe to
+;; make on a SURVIVING name: presence is a question about the MAP.
 
-(deftest current-adapter-returns-discriminator-keyword
-  (testing "current-adapter returns the :kind keyword per Spec 006 §Adapter introspection"
+(deftest current-adapter-returns-the-installed-map
+  (testing "current-adapter returns the spec map passed to install"
     (is (nil? (rf.substrate.adapter/current-adapter))
         "no adapter installed → current-adapter is nil")
     (rf/init! rf.substrate.plain-atom/adapter)
-    (is (= :rf.adapter/plain-atom (rf.substrate.adapter/current-adapter))
-        "current-adapter projects the :kind slot of the installed adapter")
-    (is (keyword? (rf.substrate.adapter/current-adapter))
-        "current-adapter returns a keyword, NOT the adapter spec map")
-    (is (= :rf.adapter/plain-atom (:kind rf.substrate.plain-atom/adapter))
-        "the plain-atom adapter spec map carries :kind :rf.adapter/plain-atom directly")))
-
-(deftest current-adapter-spec-returns-the-installed-map
-  (testing "current-adapter-spec returns the spec map passed to install"
-    (is (nil? (rf.substrate.adapter/current-adapter-spec))
-        "no adapter installed → current-adapter-spec is nil")
-    (rf/init! rf.substrate.plain-atom/adapter)
-    (is (identical? rf.substrate.plain-atom/adapter (rf.substrate.adapter/current-adapter-spec))
-        "current-adapter-spec returns the exact map identity passed to init!")
-    (is (map? (rf.substrate.adapter/current-adapter-spec))
-        "current-adapter-spec returns a map, NOT the discriminator keyword")
-    (is (fn? (:make-state-container (rf.substrate.adapter/current-adapter-spec)))
+    (is (identical? rf.substrate.plain-atom/adapter (rf.substrate.adapter/current-adapter))
+        "current-adapter returns the exact map identity passed to init!")
+    (is (map? (rf.substrate.adapter/current-adapter))
+        "current-adapter returns a MAP — the keyword-returning spelling is gone")
+    (is (fn? (:make-state-container (rf.substrate.adapter/current-adapter)))
         "the spec map carries the adapter contract fns")
-    (is (fn? (:replace-container! (rf.substrate.adapter/current-adapter-spec)))
+    (is (fn? (:replace-container! (rf.substrate.adapter/current-adapter)))
         "the spec map carries the adapter contract fns")
-    (is (fn? (:make-derived-value (rf.substrate.adapter/current-adapter-spec)))
+    (is (fn? (:make-derived-value (rf.substrate.adapter/current-adapter)))
         "the spec map carries the adapter contract fns")))
 
-(deftest current-adapter-falls-back-to-custom-when-kind-missing
-  (testing "an installed adapter lacking :kind reports as :custom per Spec 006"
+(deftest current-adapter-kind-is-a-key-not-a-second-read
+  (testing "the discriminator is (:kind (current-adapter)) per Spec 006"
+    (rf/init! rf.substrate.plain-atom/adapter)
+    (is (= :rf.adapter/plain-atom (:kind (rf.substrate.adapter/current-adapter)))
+        "branch code reads the :kind key off the one map")
+    (is (= :rf.adapter/plain-atom (:kind rf.substrate.plain-atom/adapter))
+        "which is literally the adapter spec map's own :kind slot")))
+
+(deftest current-adapter-synthesises-no-custom-kind-for-a-kindless-map
+  (testing "a kind-less adapter is PRESENT with a nil :kind — no :custom is
+            invented (rf2-kuky.4: the synthesised kind went with the keyword
+            spelling, and presence is a question about the MAP)"
     (let [kindless (dissoc rf.substrate.plain-atom/adapter :kind)]
       (rf.substrate.adapter/install-adapter! kindless)
-      (is (= :custom (rf.substrate.adapter/current-adapter))
-          "current-adapter falls back to :custom when the spec map omits :kind")
-      (is (identical? kindless (rf.substrate.adapter/current-adapter-spec))
-          "current-adapter-spec still returns the literal installed map"))))
+      (is (identical? kindless (rf.substrate.adapter/current-adapter))
+          "current-adapter returns the literal installed map")
+      (is (some? (rf.substrate.adapter/current-adapter))
+          "a presence check sees it — the map is there")
+      (is (nil? (:kind (rf.substrate.adapter/current-adapter)))
+          "and its :kind reads nil rather than a fabricated :custom"))))
 
 (deftest adapter-swap-resets-substrate-state-keeps-registrar
   (testing "dispose then install a different adapter — registrar survives, substrate state resets"
@@ -541,7 +543,7 @@
         (is (nil? (rf.substrate.adapter/current-adapter))
             "between swap steps the slot is empty")
         (rf.substrate.adapter/install-adapter! adapter-b)
-        (is (identical? adapter-b (rf.substrate.adapter/current-adapter-spec))
+        (is (identical? adapter-b (rf.substrate.adapter/current-adapter))
             "adapter B is now installed")
         ;; The registrar (events / subs / handlers) survives the swap.
         (is (= registrar-before @rf.registrar/kind->id->metadata)

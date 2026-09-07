@@ -782,7 +782,7 @@
                            wrap-applied?))]
     {:render-fn     render-fn
      :metadata      metadata
-     :adapter       (rf.substrate.adapter/current-adapter-spec)
+     :adapter       (rf.substrate.adapter/current-adapter)
      :wrap-applied? wrap-applied?
      :wrapper       wrapper
      :head          (apply-adapter-componentize-view id metadata wrapper)}))
@@ -792,7 +792,7 @@
   the installed one. Nil records a derivation made with no adapter installed,
   and matches only a still-empty slot."
   [adapter]
-  (let [current (rf.substrate.adapter/current-adapter-spec)]
+  (let [current (rf.substrate.adapter/current-adapter)]
     (if (nil? current)
       (nil? adapter)
       (rf.substrate.adapter/same-adapter? current adapter))))

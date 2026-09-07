@@ -755,21 +755,6 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
   (rf/init-platform :server)   ;; CLJS-on-Node SSR runtime
   ```
 
-### `install-adapter!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (install-adapter! adapter-map)
-  ```
-- **Description**: Must be called before any frame is created. **Lower-level than `init!`**; ordinary apps call `init!` instead. It installs once: a second call without an intervening `destroy-adapter!` raises `:rf.error/adapter-already-installed`. Use it for a custom boot pipeline with steps between adapter-install and first-frame creation.
-- **Example**:
-  ```clojure
-  (rf/install-adapter! reagent-adapter/adapter)   ;; seat the substrate (lower-level than init!)
-  ;; …custom boot steps between adapter-install and first-frame creation…
-  (rf/make-frame {:id :app/main :initial-events [[:app/boot]]})
-  ```
-
 ### `destroy-adapter!`
 
 - **Kind**: function
@@ -777,7 +762,7 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
   ```clojure
   (destroy-adapter!)
   ```
-- **Description**: Tear down the exact installed adapter generation. This is a one-way terminal boundary: it attempts all adapter-owned cleanup, preserves and rethrows the primary failure with later failures retained as diagnostic evidence, and finally clears only the generation it claimed. `adapter-disposed?` remains true even when cleanup throws. A fresh adapter may install afterward; stale finalization never clears a replacement. Symmetric with `install-adapter!` and with `destroy-frame!`.
+- **Description**: Tear down the exact installed adapter generation. This is a one-way terminal boundary: it attempts all adapter-owned cleanup, preserves and rethrows the primary failure with later failures retained as diagnostic evidence, and finally clears only the generation it claimed. The disposed breadcrumb (`re-frame.substrate.adapter/adapter-disposed?`) remains true even when cleanup throws. A fresh adapter may install afterward; stale finalization never clears a replacement. Symmetric with `rf/init!` and with `destroy-frame!`.
 - **Example**:
   ```clojure
   (rf/destroy-adapter!)                 ;; tear down the current substrate, clear the install slot
@@ -789,12 +774,17 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (current-adapter) → discriminator keyword
+  (current-adapter) → installed adapter spec map
   ```
-- **Description**: Which substrate is installed. Answers `:rf.adapter/reagent` / `:rf.adapter/reagent-slim` / `:rf.adapter/uix` / `:rf.adapter/hicasso` / `:rf.adapter/plain-atom` / `:rf.adapter/ssr` / `:custom` — or `nil` when no adapter is installed. (`:rf.adapter/ui` and `:rf.adapter/freehand` stay reserved and are never recycled, but the two donor view substrates were removed on 2026-08-16 and nothing produces either value now.) For predicate / branch code.
+- **Description**: The installed adapter spec map — the exact value passed to `rf/init!` — or `nil` when no adapter is installed. It carries the adapter contract fns (`:make-state-container`, `:replace-container!`, `:make-derived-value`, …) plus a `:kind` discriminator.
+
+  ONE read, map-shaped. Branch code asks for the discriminator as a KEY: `(:kind (rf/current-adapter))` answers `:rf.adapter/reagent` / `:rf.adapter/reagent-slim` / `:rf.adapter/uix` / `:rf.adapter/hicasso` / `:rf.adapter/plain-atom` / `:rf.adapter/ssr`, or `nil` for a custom adapter map that picked no canonical kind — nothing is synthesised for it. (`:rf.adapter/ui` and `:rf.adapter/freehand` stay reserved and are never recycled, but the two donor view substrates were removed on 2026-08-16 and nothing produces either value now.)
+
+  A PRESENCE check inspects the MAP, never `:kind`: a kind-less adapter is installed and present while `(:kind (rf/current-adapter))` reads `nil`.
 - **Example**:
   ```clojure
-  (rf/current-adapter)   ;; => :rf.adapter/reagent   (nil when no adapter is installed)
+  (rf/current-adapter)          ;; => the adapter spec map passed to (rf/init! …), or nil
+  (:kind (rf/current-adapter))  ;; => :rf.adapter/reagent
   ```
 - **On Hicasso**: this fn asks *which substrate*, and Hicasso is a view layer rather
   than one — it owns Hiccup interpretation and the render boundary, while the reactive
@@ -807,36 +797,6 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
   either way the value names the substrate the app booted on, never the layer its
   views are authored in. See
   [Hicasso needs a substrate adapter](../core/hicasso/00-installation.md#hicasso-needs-a-substrate-adapter).
-
-### `current-adapter-spec`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (current-adapter-spec) → installed adapter spec map
-  ```
-- **Description**: The adapter spec map passed to `(rf/init! ...)`, or `nil` when no adapter is installed. For tools / routing / identity checks across the install / dispose lifecycle. For the discriminator keyword, use `current-adapter`.
-- **Example**:
-  ```clojure
-  (rf/current-adapter-spec)   ;; => the adapter spec map passed to (rf/init! …), or nil when none
-  ```
-
-### `adapter-disposed?`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (adapter-disposed?) → boolean
-  ```
-- **Description**: Returns `true` iff terminal teardown of the most recent installed adapter generation has been claimed and no subsequent `install-adapter!` has fired. Cleanup success is not implied: it remains true when destruction rethrows a cleanup failure. `false` for never-installed (fresh process) AND after a fresh install. Read-only. Use to distinguish `:rf.error/no-adapter-installed` (fresh process) from `:rf.error/adapter-disposed` (torn down).
-- **Example**:
-  ```clojure
-  (rf/adapter-disposed?)               ;; => false  (fresh process — never installed)
-  (rf/destroy-adapter!)
-  (rf/adapter-disposed?)               ;; => true   (torn down, no reinstall yet)
-  (rf/init! reagent-adapter/adapter)
-  (rf/adapter-disposed?)               ;; => false  (a fresh install clears the breadcrumb)
-  ```
 
 ### `configure!`
 

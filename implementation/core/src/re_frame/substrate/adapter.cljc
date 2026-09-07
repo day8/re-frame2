@@ -22,13 +22,13 @@
   keyword. Canonical framework members live under the reserved
   `:rf.adapter/*` namespace (`:rf.adapter/reagent` / `:rf.adapter/reagent-slim`
   / `:rf.adapter/uix` / `:rf.adapter/plain-atom` / `:rf.adapter/ssr`);
-  user-supplied adapters report as `:custom` when they
-  don't pick a canonical kind. Retired members — `:rf.adapter/helix`,
-  `:rf.adapter/ui`, `:rf.adapter/freehand` — stay reserved and are never
-  recycled, per the Conventions tombstone rule; nothing here can produce
-  one. It is installed into the process via
-  install-adapter! and introspected via current-adapter (keyword) and
-  current-adapter-spec (the full map).
+  a user-supplied adapter that picks no canonical kind simply has no
+  `:kind` — nothing is synthesised for it. Retired members —
+  `:rf.adapter/helix`, `:rf.adapter/ui`, `:rf.adapter/freehand` — stay
+  reserved and are never recycled, per the Conventions tombstone rule;
+  nothing here can produce one. It is installed into the process via
+  install-adapter! and introspected via current-adapter, which answers
+  the full map; the discriminator is its `:kind` key.
 
   There is no default-adapter registry and no ns-load side-effect.
   Each adapter ns (re-frame.adapter.reagent / .reagent-slim / .uix,
@@ -178,32 +178,28 @@
     adapter))
 
 (defn current-adapter
-  "Return the discriminator keyword identifying the installed adapter, or
-  nil if none. Per Spec 006 §Adapter introspection: one of
-  `:rf.adapter/reagent`, `:rf.adapter/reagent-slim`,
-  `:rf.adapter/uix`, `:rf.adapter/hicasso`, `:rf.adapter/plain-atom`,
-  `:rf.adapter/ssr`, or `:custom` for user-supplied adapters that didn't
-  pick a canonical kind.
-
-  This answers \"what substrate am I on?\" — predicate / branch code.
-  For \"give me the adapter spec map\" (fn handles, hot-swap, identity
-  checks across install/dispose), use `current-adapter-spec`."
-  []
-  (let [entry (:installed @adapter-lifecycle-state)]
-    (when-not (:disposing? entry)
-      (when-let [a (:adapter entry)]
-        (:kind a :custom)))))
-
-(defn current-adapter-spec
-  "Return the installed adapter spec map, or nil if none. The map carries
-  the adapter contract fns (`:make-state-container`, `:replace-container!`,
+  "Return the installed adapter SPEC MAP — the exact value passed to
+  `init!` — or nil if none is installed. The map carries the adapter
+  contract fns (`:make-state-container`, `:replace-container!`,
   `:make-derived-value`, …) per Spec 006 §The reactive-substrate adapter
-  contract plus the `:kind` discriminator keyword (per `current-adapter`).
+  contract, plus a `:kind` discriminator keyword.
 
-  This answers \"give me the adapter fns to call\" — tools, routing,
-  identity checks across the install/dispose lifecycle. For the
-  human-readable discriminator (predicate / branch code), use
-  `current-adapter`."
+  ONE read, map-shaped. Branch code asks for the discriminator as a KEY:
+
+      (:kind (current-adapter))   ;; => :rf.adapter/reagent … or nil
+
+  A custom adapter map that picked no canonical `:kind` reads `nil`
+  there — nothing is synthesised for it. PRESENCE is therefore a question
+  about the MAP, never about `:kind`: a kind-less installed adapter is
+  present even though `(:kind (current-adapter))` is nil.
+
+  Returns nil during terminal disposal, so a caller mid-teardown reads
+  \"nothing installed\" rather than a half-torn-down spec.
+
+  Per rf2-kuky.4 (2026-09-06, rider A-i) this folded in the former
+  the former keyword-returning read, which was literally the `:kind` of
+  this same map with a synthesised fallback. One name cannot diverge
+  in return type from itself."
   []
   (let [entry (:installed @adapter-lifecycle-state)]
     (when-not (:disposing? entry)
@@ -692,7 +688,7 @@
 ;; Hook routing (below) and the public test-react `mount!` guard must answer
 ;; one question: "is the adapter THIS hook/driver belongs to the one
 ;; (rf/init!)-installed right now?" The original answer was raw object
-;; identity — `(identical? adapter-spec (current-adapter-spec))`. That is
+;; identity — `(identical? adapter-spec (current-adapter))`. That is
 ;; WRONG against a copied or wrapped canonical adapter map: a user (or the
 ;; already-tested adapter-swap pattern in `boot_test`) that
 ;; `assoc`/`merge`/`update`s a canonical adapter map for instrumentation or
@@ -712,16 +708,15 @@
 ;; discriminator (`:rf.adapter/reagent`, `:rf.adapter/uix`, …) — a value
 ;; that survives `assoc`/`merge`/copy, so a copied canonical map still
 ;; dispatches to its adapter's live hooks. A genuinely custom adapter that
-;; did NOT pick a canonical `:rf.adapter/*` kind (its `:kind` is absent or
-;; `:custom`) has no distinguishing token, so it falls back to object
-;; identity — two distinct `:custom` adapters can never be conflated by a
-;; shared `:custom` keyword.
+;; did NOT pick a canonical `:rf.adapter/*` kind (its `:kind` is absent)
+;; has no distinguishing token, so it falls back to object identity — two
+;; distinct kind-less adapters can never be conflated.
 
 (defn- canonical-kind?
   "True when `kind` is a canonical framework adapter kind — a keyword in the
   reserved `:rf.adapter/*` namespace (per Spec 006 §Adapter introspection /
-  Conventions §Reserved namespaces). `:custom` and `nil` are NOT canonical:
-  they carry no per-adapter distinguishing token, so routing for those
+  Conventions §Reserved namespaces). A `nil` / absent kind is NOT canonical:
+  it carries no per-adapter distinguishing token, so routing for it
   falls back to object identity."
   [kind]
   (and (keyword? kind) (= "rf.adapter" (namespace kind))))
@@ -732,9 +727,9 @@
   when both maps carry the same canonical `:rf.adapter/*` `:kind`, they are
   the same adapter even across a copy/`assoc`/`merge` (the token survives
   structural edits), so a copied canonical adapter map still routes to its
-  live hooks. Otherwise (a non-canonical / `:custom` / kindless adapter, or
+  live hooks. Otherwise (a non-canonical or kindless adapter, or
   mismatched kinds) it falls back to object identity so two distinct custom
-  adapters are never conflated by a shared `:custom` keyword. Nil-safe: a
+  adapters are never conflated. Nil-safe: a
   nil `b` (no adapter installed) is never the same as a non-nil `a`.
 
   Public so adapter-side driver guards that gate on \"is MY adapter the
@@ -836,18 +831,18 @@
        ;; as a ZERO-argument thunk.
        (fn routed-hook
          ([]
-          (if (same-adapter? adapter-spec (current-adapter-spec))
+          (if (same-adapter? adapter-spec (current-adapter))
             (impl-fn)
             (if previous (previous) (fallback-fn))))
          ([a]
-          (if (same-adapter? adapter-spec (current-adapter-spec))
+          (if (same-adapter? adapter-spec (current-adapter))
             (impl-fn a)
             (if previous (previous a) (fallback-fn))))
          ([a b]
-          (if (same-adapter? adapter-spec (current-adapter-spec))
+          (if (same-adapter? adapter-spec (current-adapter))
             (impl-fn a b)
             (if previous (previous a b) (fallback-fn))))
          ([a b & more]
-          (if (same-adapter? adapter-spec (current-adapter-spec))
+          (if (same-adapter? adapter-spec (current-adapter))
             (apply impl-fn a b more)
             (if previous (apply previous a b more) (fallback-fn)))))))))

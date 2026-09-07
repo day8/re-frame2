@@ -234,7 +234,7 @@
 
     H-FVID     `frame-value->id` on the result
     H-CACHE    `rf.late-bind/get-fn-cached` — the hook lookup alone
-    H-SPEC     `substrate-adapter/current-adapter-spec` — the state read alone
+    H-SPEC     `substrate-adapter/current-adapter` — the state read alone
     H-IMPL     `function-component-current-frame` — the routed impl alone
     H-SAMEH    `same-adapter?` on two HELD maps — the SHIPPED routing predicate
     H-SAMEFLAT the CANDIDATE flat re-spelling of the same predicate, in the
@@ -950,7 +950,7 @@
 ;; and `f` is `route-hook!`'s closure, which is itself three things:
 ;;
 ;;   (fn routed-hook [& args]
-;;     (if (same-adapter? spec (current-adapter-spec))   <- H-SAMEH + H-SPEC
+;;     (if (same-adapter? spec (current-adapter))   <- H-SAMEH + H-SPEC
 ;;       (apply impl-fn args)                            <- the RESIDUAL
 ;;       ...))
 ;;
@@ -1004,7 +1004,7 @@
 
 (defn- arm-h-spec []
   (let [{:keys [n]} @rig]
-    (dotimes [_ n] (keep! (rf.substrate.adapter/current-adapter-spec)))
+    (dotimes [_ n] (keep! (rf.substrate.adapter/current-adapter)))
     nil))
 
 (defn- arm-h-sameh []
@@ -1360,7 +1360,7 @@
                 :container src
                 ;; rf2-f70iq: the installed spec the routing predicate compares
                 ;; against, and the routed impl the calling-convention pair calls
-                :spec      (rf.substrate.adapter/current-adapter-spec)
+                :spec      (rf.substrate.adapter/current-adapter)
                 :impl      rf.adapter.context/function-component-current-frame
                 ;; the exact reaction the shipped `identical?` guard compares
                 ;; against, a SNAPSHOT of the real n-entry cache map for the
@@ -1483,7 +1483,7 @@
       ;; while it decides identically. Checked over the cases that discriminate
       ;; the branches: nil, a canonical-kind match, a canonical-kind mismatch, a
       ;; kindless map (object identity), and a copied canonical map.
-      (let [spec   (rf.substrate.adapter/current-adapter-spec)
+      (let [spec   (rf.substrate.adapter/current-adapter)
             copy   (assoc spec :rf.bench/copied true)
             other  {:kind :rf.adapter/ra-not-installed}
             custom {:kind :custom}
@@ -1818,7 +1818,7 @@
           (println ";;   and the route, part by part:")
           (row "H-FVID    frame-value->id on the result"   (net* "H-FVID")   "H-FVID")
           (row "H-CACHE   rf.late-bind/get-fn-cached, lookup only" (net* "H-CACHE") "H-CACHE")
-          (row "H-SPEC    current-adapter-spec alone"      (net* "H-SPEC")   "H-SPEC")
+          (row "H-SPEC    current-adapter alone"      (net* "H-SPEC")   "H-SPEC")
           (row "H-IMPL    function-component-current-frame" (net* "H-IMPL")  "H-IMPL")
           (row "H-SAMEH   same-adapter?, two HELD maps  (SHIPPED)" (net* "H-SAMEH") "H-SAMEH")
           (row "H-SAMEFLAT the CANDIDATE flat re-spelling" (net* "H-SAMEFLAT") "H-SAMEFLAT")
@@ -1866,7 +1866,7 @@
             (println (gstring/format ";;     apply at route-hook!'s polymorphic site     %10s  %s"
                              (fmt appl) (pctof appl)))
             (println ";;   and, at or under the floor, contributing nothing:")
-            (println (gstring/format ";;     the adapter-state read (current-adapter-spec) %9s  %s"
+            (println (gstring/format ";;     the adapter-state read (current-adapter) %9s  %s"
                              (fmt (net* "H-SPEC")) (pctof (net* "H-SPEC"))))
             (println (gstring/format ";;     the hook lookup (get-fn-cached)              %10s  %s"
                              (fmt (net* "H-CACHE")) (pctof (net* "H-CACHE"))))
