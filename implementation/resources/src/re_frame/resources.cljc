@@ -89,7 +89,9 @@
 ;; bridge, conformance, tests, examples) see one surface.
 
 (def reg-resource    rf.resources.registry/reg-resource)
-(def clear-resource  rf.resources.registry/clear-resource)
+;; rf2-kuky.80: no public `clear-resource` re-export here — the registrar inverse
+;; is the one kind-keyed `(rf/clear :resource id)`. The registry fn below stays as
+;; the late-bind hook target.
 (def resource-meta   rf.resources.registry/resource-meta)
 (def resource-ids    rf.resources.registry/resource-ids)
 
@@ -115,7 +117,9 @@
 ;; transport the resources use, with success-time resource invalidation /
 ;; patch / populate; `clear-mutation` is the registration-lifecycle removal.
 (def reg-mutation    rf.resources.mutation-registry/reg-mutation)
-(def clear-mutation  rf.resources.mutation-registry/clear-mutation)
+;; rf2-kuky.80: no public `clear-mutation` re-export here — the registrar inverse
+;; is the one kind-keyed `(rf/clear :mutation id)`. The registry fn below stays as
+;; the late-bind hook target.
 (def mutation-meta   rf.resources.mutation-registry/mutation-meta)
 (def mutation-ids    rf.resources.mutation-registry/mutation-ids)
 
@@ -132,7 +136,9 @@
 ;; resolution boundaries (`{:from-db ...}` scope, route entry, mutation
 ;; settle), per Spec 016 §Named resource-scope resolvers.
 (def reg-resource-scope     rf.resources.scope-registry/reg-resource-scope)
-(def clear-resource-scope   rf.resources.scope-registry/clear-resource-scope)
+;; rf2-kuky.80: no public `clear-resource-scope` re-export here — the registrar inverse
+;; is the one kind-keyed `(rf/clear :resource-scope id)`. The registry fn below stays as
+;; the late-bind hook target.
 (def resolve-resource-scope rf.resources.scope-registry/resolve-resource-scope)
 (def scope-resolver-meta    rf.resources.scope-registry/scope-resolver-meta)
 (def scope-resolver-ids     rf.resources.scope-registry/scope-resolver-ids)
@@ -713,7 +719,7 @@
 ;; absent.
 (rf.late-bind/set-fns!
   {:resources/reg-resource   reg-resource
-   :resources/clear-resource clear-resource
+   :resources/clear-resource rf.resources.registry/clear-resource
    :resources/resource-meta  resource-meta
    :resources/resource-state resource-state
    :resources/resources      resources
@@ -722,7 +728,7 @@
    ;; / `mutation-meta` / `mutation-state` / `mutations` wrappers reach the
    ;; producing impl without a static :require.
    :resources/reg-mutation   reg-mutation
-   :resources/clear-mutation clear-mutation
+   :resources/clear-mutation rf.resources.mutation-registry/clear-mutation
    :resources/mutation-meta  mutation-meta
    :resources/mutation-state mutation-state
    :resources/mutations      mutations
@@ -732,7 +738,7 @@
    ;; `resolve-resource-scope` wrappers reach the producing impl without a
    ;; static :require.
    :resources/reg-resource-scope     reg-resource-scope
-   :resources/clear-resource-scope   clear-resource-scope
+   :resources/clear-resource-scope   rf.resources.scope-registry/clear-resource-scope
    :resources/resolve-resource-scope resolve-resource-scope
    ;; OFF-BOX trace egress projector for a
    ;; `:rf.resource/scope-resolved` row — the central trace egress pipeline

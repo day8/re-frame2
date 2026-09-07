@@ -277,7 +277,7 @@
       ;; require a real browser-history. The route slice still updates
       ;; via :rf.route/transitioned dispatched from :rf.route/url-requested.
       (let [pushed (atom [])]
-        (rf/clear-fx :rf.nav/push-url)
+        (rf/clear :fx :rf.nav/push-url)
         (rf.fx/reg-fx :rf.nav/push-url
                    {:platforms #{:server :client}}
                    (fn [_ url] (swap! pushed conj url)))

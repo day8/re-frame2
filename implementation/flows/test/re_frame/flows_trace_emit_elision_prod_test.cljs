@@ -185,7 +185,7 @@
       (fn [w] (or w 0)))
     (let [traces (capture-traces
                  (fn []
-                   (rf.flows/clear-flow :prod-elision/clearable)))]
+                   (rf/clear :flow :prod-elision/clearable)))]
       (is (empty? traces)
           "no :rf.flow/cleared trace under prod"))
     (is (nil? (get-in (rf.flows/flows-snapshot) [:rf/default :prod-elision/clearable]))

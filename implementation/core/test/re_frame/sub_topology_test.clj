@@ -233,13 +233,13 @@
       (is (not (contains? topo :ghost))))))
 
 (deftest cleared-subs-are-removed
-  (testing "(rf/clear-sub id) removes the sub from the topology"
+  (testing "(rf/clear :sub id) removes the sub from the topology"
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
     (let [topo (rf.subs/sub-topology)]
       (is (contains? topo :a))
       (is (contains? topo :b)))
-    (rf.subs/clear-sub :a)
+    (rf/clear :sub :a)
     (let [topo (rf.subs/sub-topology)]
       (is (not (contains? topo :a)))
       (is (contains? topo :b)))))

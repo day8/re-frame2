@@ -157,6 +157,31 @@
   [x]
   (boolean (and (map? x) (get x object-marker))))
 
+(defn frame-opts?
+  "True when `opts` is EXACTLY `{:frame target}` — the sole key is `:frame`,
+  and its value is a PRESENT, non-nil frame TARGET (a frame-id keyword or a
+  live frame value). Rejects a missing `:frame`, a nil target, a misspelled or
+  unknown key, an extra key, `{}`, `nil`, and any non-map. Pure.
+
+  THE ONE VALIDATOR for the trailing `{:frame f}` opts map, shared by
+  `rf/clear`, `re-frame.flows/…/clear-flow` and
+  `re-frame.http.middleware/clear-http-interceptor` (rf2-kuky.80). It exists
+  because a TOLERANT destructure of the same map is a SILENT MIS-CLEAR:
+  `{:keys [frame]}` binds `frame` to nil on `{:fram :session}`, the ambient
+  frame is then resolved, and the WRONG frame's registration is cleared with
+  no signal at all. rf2-s32bf closed that for the HTTP arm; rf2-kuky.80 gave
+  the identical door on flows the same guard, from one copy rather than two.
+  Per [Principles §No silent swallow](../../../../../spec/Principles.md).
+
+  A frame VALUE is itself a map (it carries `:rf.frame/object`), so
+  `frame-value?` is what distinguishes it from a bare-keyword target."
+  [opts]
+  (and (map? opts)
+       (= #{:frame} (set (keys opts)))
+       (let [target (:frame opts)]
+         (or (keyword? target)
+             (frame-value? target)))))
+
 (defn frame-value->id
   "INTERNAL normalization primitive (API-shrink #1, rf2-csbbwu removed the
   public `rf/frame-value->id` facade accessor — every public surface accepts

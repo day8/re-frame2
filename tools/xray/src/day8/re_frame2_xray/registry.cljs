@@ -349,7 +349,7 @@
   (when (< from 5)
     (hicasso/install!))
   (when (< from 6)
-    (run! rf/clear-sub schema-5-subs-removed))
+    (run! #(rf/clear :sub %) schema-5-subs-removed))
   true)
 
 (defn- migrate-schema!
@@ -408,8 +408,8 @@
     ;; reaches schema 6's own clear below, where clearing an id it never
     ;; registered is a no-op.
     (do
-      (run! rf/clear-sub schema-3-subs-removed)
-      (run! rf/clear-event schema-3-events-removed)
+      (run! #(rf/clear :sub %) schema-3-subs-removed)
+      (run! #(rf/clear :event %) schema-3-events-removed)
       ;; The OWNERSHIP half does not migrate live, and this is where the
       ;; seam stops pretending. A schema-3 process acquired the
       ;; `re-frame.ui.tool.evidence` projection at boot; releasing it means

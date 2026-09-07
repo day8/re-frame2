@@ -67,7 +67,7 @@
   :sensitive projection-relative to the instance."
   ([] (reg-secret-mutation! {}))
   ([overrides]
-   (rf/clear-mutation :m/secret)
+   (rf/clear :mutation :m/secret)
    (rf/reg-mutation :m/secret
      (merge {:params-schema [:map [:slug :string] [:password {:optional true} [:maybe :string]]]
              :sensitive     [[:params :password]]}
@@ -138,7 +138,7 @@
           "the :source :effect entry survives the mutation reconcile"))))
 
 (deftest reconcile-mutation-no-classification-no-registry
-  (rf/clear-mutation :m/plain)
+  (rf/clear :mutation :m/plain)
   (rf/reg-mutation :m/plain {:params-schema [:map [:slug :string]]}
     (fn [_ _] {:request {:method :get :url "/x"}}))
   (testing "a mutation that declares no classification lowers nothing"
@@ -166,7 +166,7 @@
       (is (not (str/includes? (pr-str out) PW)) "no raw sentinel rides on the reply"))))
 
 (deftest redact-continuation-reply-unclassified-rides-verbatim
-  (rf/clear-mutation :m/plain)
+  (rf/clear :mutation :m/plain)
   (rf/reg-mutation :m/plain {:params-schema [:map [:slug :string]]}
     (fn [_ _] {:request {:method :get :url "/x"}}))
   (testing "a mutation that declares no classification rides the reply UNCHANGED"
@@ -293,7 +293,7 @@
       (is (not (str/includes? (pr-str out) PW)) "no raw sentinel rides the payload"))))
 
 (deftest project-execute-event-args-scope-rooted-decl
-  (rf/clear-mutation :m/scoped)
+  (rf/clear :mutation :m/scoped)
   (rf/reg-mutation :m/scoped
     {:params-schema [:map [:slug :string]]
      :sensitive     [[:scope :tenant]]}
@@ -310,7 +310,7 @@
       (is (= "r" (get-in out [:scope :region])) "the non-sensitive scope field rides"))))
 
 (deftest project-execute-event-args-data-rooted-skipped
-  (rf/clear-mutation :m/data-classified)
+  (rf/clear :mutation :m/data-classified)
   (rf/reg-mutation :m/data-classified
     {:params-schema [:map [:slug :string]]
      :sensitive     [[:data :token]]}
@@ -325,7 +325,7 @@
 (deftest project-execute-event-args-fail-open
   (testing "an unregistered :mutation id / a non-map payload rides UNCHANGED
             (the EP-0025 fail-open — no registration to read a declaration off)"
-    (rf/clear-mutation :m/ghost)
+    (rf/clear :mutation :m/ghost)
     (let [args {:mutation :m/ghost :params {:password PW}}]
       (is (identical? args (rf.resources.classification/project-execute-event-args
                              args rf.resources.mutation-registry/mutation-meta))))

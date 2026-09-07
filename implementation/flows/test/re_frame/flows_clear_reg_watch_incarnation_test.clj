@@ -102,7 +102,7 @@
         {:frame id :inputs [[:n]] :output-path [:out] :sensitive [[:out]]}
         (fn [n] (or n 0)))
       (reset! armed? true)
-      (is (nil? (rf.flows/clear-flow :flow.incarnation/f {:frame id}))
+      (is (nil? (rf/clear :flow :flow.incarnation/f {:frame id}))
           "clear-flow returns nil; its stale tail is aborted after the watch")
       (let [token-b @b-token]
         (is (some? token-b) "the mark-write watch published a same-id B")
@@ -207,7 +207,7 @@
       (rf.flows.registry/set-frame-flow-last-inputs! id :flow.incarnation/h [::a-input])
       (let [epoch-before (rf.frame/frame-commit-epoch id)]
         (reset! armed? true)
-        (is (nil? (rf.flows/clear-flow :flow.incarnation/h {:frame id}))
+        (is (nil? (rf/clear :flow :flow.incarnation/h {:frame id}))
             "clear-flow completes normally against the live owner")
         (is (= 1 @watch-runs) "the container watch fired on the mark write")
         (is (nil? (get-in (rf.flows.registry/flows-snapshot) [id :flow.incarnation/h]))
@@ -306,7 +306,7 @@
       ;; Capture A's physical container to prove the vacation linearized HERE.
       (reset! a-container (:frame-state (rf.frame/frame id)))
       (reset! armed? true)
-      (is (nil? (rf.flows/clear-flow :flow.incarnation/f {:frame id}))
+      (is (nil? (rf/clear :flow :flow.incarnation/f {:frame id}))
           "clear-flow returns nil; its stale tail is aborted after the vacation watch")
       (let [token-b @b-token]
         (is (some? token-b) "the app-db-vacation watch published a same-id B")
@@ -427,7 +427,7 @@
       (rf.frame/swap-frame-db! id assoc :out ::a-output)
       (let [epoch-before (rf.frame/frame-commit-epoch id)]
         (reset! armed? true)
-        (is (nil? (rf.flows/clear-flow :flow.incarnation/k {:frame id}))
+        (is (nil? (rf/clear :flow :flow.incarnation/k {:frame id}))
             "clear-flow completes normally against the live owner")
         (is (= 1 @watch-runs) "the container watch fired on the app-db vacation write")
         (is (not (contains? (rf.frame/frame-app-db-value id) :out))

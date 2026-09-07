@@ -141,8 +141,8 @@
           ;; each round starts from the frame's pre-cycle state (the
           ;; window the race needs). clear-flow no-ops cleanly on the id
           ;; that was rejected / never committed.
-          (rf.flows/clear-flow a-id {:frame frame-id})
-          (rf.flows/clear-flow b-id {:frame frame-id})))
+          (rf/clear :flow a-id {:frame frame-id})
+          (rf/clear :flow b-id {:frame frame-id})))
 
       ;; --- Invariant 1: no round ever admitted a cycle. ---------------
       (is (nil? @first-bad)

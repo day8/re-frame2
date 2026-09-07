@@ -175,7 +175,7 @@
     (rf/reg-flow :a {:inputs [[:w]] :output-path [:out :a]} (fn [w] w))
     (rf/reg-flow :b {:inputs [[:h]] :output-path [:out :b]} (fn [h] h))
     (is (contains? (rf.flows.tooling/flow-algebra-view :rf/default) :a))
-    (rf.flows/clear-flow :a)
+    (rf/clear :flow :a)
     (let [per-frame (rf.flows.tooling/flow-algebra-view :rf/default)]
       (is (not (contains? per-frame :a)))
       (is (contains? per-frame :b)))))

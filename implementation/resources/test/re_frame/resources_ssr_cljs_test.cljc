@@ -93,7 +93,7 @@
   global-scope slug resource)."
   ([id] (reg! id {}))
   ([id overrides]
-   (rf/clear-resource id)
+   (rf/clear :resource id)
    (let [spec (merge {:scope         :rf.scope/global
                       :params-schema [:map [:slug :string]]
                       :request       (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})

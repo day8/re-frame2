@@ -109,6 +109,7 @@
 
   Late-bound via `:http/clear-http-interceptor`. When the http artefact
   is absent the call raises `:rf.error/http-artefact-missing`."
-  {:hook :http/clear-http-interceptor :artefact http-artefact :on-absent :throw}
+  {:hook :http/clear-http-interceptor :artefact http-artefact :on-absent :throw
+   :where 'rf/clear}
   ([id]      :delegate)
   ([id opts] :delegate))
