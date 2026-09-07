@@ -244,3 +244,77 @@
   (testing "an absent frame is a silent no-op, not a throw"
     (is (= :probe/a (rf/clear :flow :probe/a {:frame :probe/never-registered}))
         "clear against an absent frame returns the id without throwing")))
+
+;; ---------------------------------------------------------------------------
+;; Malformed opts: the silent mis-clear that motivated the one-door rewrite
+;; ---------------------------------------------------------------------------
+;;
+;; rf2-kuky.80's motivating defect. `re-frame.flows/clear-flow` used to
+;; destructure its opts TOLERANTLY — `([id {:keys [frame] :as _opts}] …)` — so
+;; `{:fram :session}` bound `frame` to nil, fell through to the ambient-frame
+;; resolution, and cleared the WRONG frame's flow with no signal. That is the
+;; same silent mis-clear rf2-s32bf had already closed for
+;; `clear-http-interceptor`, still live on the identically-shaped door beside
+;; it.
+;;
+;; The pin below is deliberately shaped around what a tolerant destructure
+;; WOULD have done, because that is the only way to tell a fix from a
+;; coincidence: the typo names a frame that EXISTS and holds a flow of the
+;; SAME id as the ambient frame's. A tolerant implementation clears the
+;; AMBIENT one; a fail-closed one clears NEITHER. Asserting only that the call
+;; throws would pass against an implementation that threw AFTER clearing, so
+;; both frames are checked for residue — registration and app-db slot alike.
+
+(deftest direct-clear-malformed-opts-fail-closed-and-touch-nothing
+  (testing "rf2-kuky.80 — (rf/clear :flow id {:fram f}) THROWS
+            :rf.error/registrar-clear-bad-request and leaves BOTH the ambient
+            frame's flow and the named frame's flow registered, with neither
+            frame's output path vacated"
+    (rf/make-frame {:id :probe/named})
+    (rf/reg-event :seed (fn [_ _] {:db {:x 2}}))
+    ;; The SAME flow id on both frames — the ambient one is what a tolerant
+    ;; destructure would have cleared.
+    (rf/reg-flow :probe/a {:inputs [[:x]] :output-path [:a]} (fn [x] x))
+    (rf/reg-flow :probe/a
+      {:frame :probe/named :inputs [[:x]] :output-path [:a]}
+      (fn [x] x))
+    (rf/dispatch-sync [:seed])
+    (rf/dispatch-sync [:seed] {:frame :probe/named})
+
+    (is (= {:x 2 :a 2} (rf/app-db-value :rf/default))
+        "precondition — the ambient frame's flow is materialised")
+    (is (= {:x 2 :a 2} (rf/app-db-value :probe/named))
+        "precondition — the named frame's flow is materialised")
+
+    (let [thrown (try (rf/clear :flow :probe/a {:fram :probe/named})
+                      nil
+                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e e))
+          data   (ex-data thrown)]
+      (is (some? thrown)
+          "a near-miss opts key must SIGNAL, not resolve the ambient frame
+           (Principles §No silent swallow)")
+      (is (= :rf.error/registrar-clear-bad-request (:rf.error/id data))
+          "the canonical discriminator for clear's own argument validation")
+      (is (= :malformed-opts (:reason data))
+          "the machine reason distinguishes a bad opts MAP from a bad KIND")
+      (is (= :flow (:kind data))
+          "ex-data names the kind"))
+
+    (is (some? (rf.flows/flow-meta-at :probe/a))
+        "ZERO RESIDUE — the AMBIENT frame's flow is still registered; this is
+         the assertion the tolerant destructure failed")
+    (is (some? (rf.flows/flow-meta-at :probe/a {:frame :probe/named}))
+        "ZERO RESIDUE — the named frame's flow is still registered")
+    (is (= {:x 2 :a 2} (rf/app-db-value :rf/default))
+        "the ambient frame's output path was not vacated")
+    (is (= {:x 2 :a 2} (rf/app-db-value :probe/named))
+        "the named frame's output path was not vacated"))
+
+  (testing "the EXACT {:frame f} form still clears the frame it names, and
+            only that frame — the positive control for the refusal above"
+    (is (= :probe/a (rf/clear :flow :probe/a {:frame :probe/named}))
+        "a well-formed opts map clears and returns the id")
+    (is (nil? (rf.flows/flow-meta-at :probe/a {:frame :probe/named}))
+        "the named frame's flow is gone")
+    (is (some? (rf.flows/flow-meta-at :probe/a))
+        "the ambient frame's flow is untouched")))
