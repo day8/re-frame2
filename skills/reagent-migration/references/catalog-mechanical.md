@@ -291,7 +291,9 @@ an author-written one. Pass children positionally.
 
 (defn ^:export init! []
   (rf/init! reagent-adapter/adapter)                              ; still needed — see below
-  (reset! !root (h/mount! el {:frame ::frame :initial-events [[:app/init]]} [app {}])))
+  (reset! !root (h/mount! el {}
+                  [h/frame-root {:id ::frame :initial-events [[:app/init]]}
+                   [app {}]])))
 
 (defn ^:dev/after-load reload! []
   (h/render! @!root [app {}]))
@@ -299,14 +301,17 @@ an author-written one. Pass children positionally.
 
 Four things matter, and the first two are the ones a migration gets wrong:
 
-- **`h/mount!` takes a config map and ensures its frame.** Its arity is
-  `(container config hiccup)`, and the config carries `:frame` (the frame
-  keyword), optional `:initial-events` (ordinary events, run in order before the
-  first paint when this mount CREATES the frame — never when it joins one), and
-  optional `:identifier-prefix` (React's own, for a page with two roots). So the
-  Reagent pair `(rdom/render …)` + `(rf/dispatch-sync [:boot])` collapses into
-  one `h/mount!`. An explicit `rf/make-frame` beforehand still works, and is what
-  a shared frame — or one needing `:images` / `:fx-overrides` — wants.
+- **The frame is spelled IN THE TREE, exactly as `rf/frame-root` already is.**
+  `h/mount!`'s arity is `(container config hiccup)` and its config carries
+  **root options only** — `:identifier-prefix` (React's own, for a page with two
+  roots) — refusing `:frame` and `:initial-events` by name. `[h/frame-root
+  {:id … }]` is the ENSURE boundary and takes the WHOLE `rf/make-frame` option
+  map, `:initial-events` / `:images` / `:fx-overrides` and the rest; it creates
+  the frame if absent and reuses a live one without re-seeding.
+  `[h/frame-provider {:frame …}]` is its SCOPE-only sibling. So a Reagent tree's
+  `[rf/frame-root {:id …}]` wrapper is a RENAME, and the Reagent pair
+  `(rdom/render …)` + `(rf/dispatch-sync [:boot])` collapses into one mount with
+  one boundary.
 - **`(rf/init! …)` stays** — `make-frame` raises
   `:rf.error/no-adapter-installed` until a reactive adapter is installed, and
   nothing installs one for you: there is no default-adapter registry, so the

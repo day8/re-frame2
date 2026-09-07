@@ -83,18 +83,21 @@ run.
   (rf/make-frame {:id :app/main :platform :client})    ;; 1. the frame
   (ssr/hydrate! {:frame :app/main})                    ;; 2. state
   (h/hydrate! (js/document.getElementById "app")       ;; 3. DOM
-              {:frame :app/main :identifier-prefix "main"}
-              [views/page {}]))
+              {:identifier-prefix "main"}
+              [h/frame-provider {:frame :app/main}
+               [views/page {}]]))
 ```
 
 - **The install is per process, not per load.** `rf/init!` is idempotent,
   `run` is the page's one boot entry, and a hot-reload pass re-renders through
   the root handle (MIG-15's `h/render!` shape) rather than re-running `run` —
   the hydration/HMR path never re-runs `rf/init!`.
-- **`rf/make-frame` first of the three.** Unlike `h/mount!`, `h/hydrate!` does
-  **not** ensure the frame — an adopting root takes its state from the payload.
-  Skip it and the `:rf/hydrate` dispatch is a silent no-op: nothing throws and
-  the page renders empty.
+- **`rf/make-frame` first of the three.** An adopting root takes its state from
+  the payload, so its tree SCOPEs with `h/frame-provider` rather than ENSUREing
+  with `h/frame-root` — an ENSURE runs at commit, after the payload, and would
+  seed replacement state over what the server rendered from. Skip the
+  `make-frame` and the `:rf/hydrate` dispatch is a silent no-op; the adoption
+  is not, because `h/frame-provider` refuses a frame that is not live.
 - **`ssr/hydrate!` before `h/hydrate!`.** It reads the `__rf_payload` script,
   replaces that frame's state and verifies, so the first client render sees the
   state the server rendered from.

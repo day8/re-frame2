@@ -300,8 +300,8 @@ React props return to the Hicasso view as a normal props map with canonical
 names (`articleId` becomes `:article-id`) and identity-preserved values. The
 view retains its memoization, subscription reads, key identity, teardown, and
 frame from React context. Rendering it outside every frame raises
-`:rf.error/no-frame-context` — every frame, not every Hicasso root. `h/mount!`,
-`rf/frame-provider` and `rf/frame-root` all write the same frame context, so a
+`:rf.error/no-frame-context` — every frame, not every Hicasso root. `h/frame-root`,
+`h/frame-provider` and their `rf/`-prefixed twins all write the same frame context, so a
 bridged view inside a Reagent or UIx tree resolves that tree's frame and needs
 no root of its own.
 

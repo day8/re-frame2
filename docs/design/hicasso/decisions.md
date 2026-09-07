@@ -1476,6 +1476,21 @@ error, naming the intent. Witnessed, retry button and all, in
 
 ## HD-021 — The v0 execution contract: root, HMR, headless
 
+> **Amended 2026-09-07 (rf2-kuky.58) — the root door no longer owns the frame.**
+> HD-021(b)'s execution contract below is written with `h/mount!` as the one
+> frame door, ensuring its frame before `createRoot`. That half is superseded:
+> ENSURE and SCOPE are spelled in the tree by the public heads `h/frame-root`
+> and `h/frame-provider`, realising spec/002's cross-substrate contract over
+> core's shared commit-owned `frame-root-fc`, and the root doors carry
+> React-root options only, refusing `:frame` / `:initial-events` by name. What
+> the record below decides — one operation associating a DOM node and a tree, an
+> idempotent teardown, root-scoped doors, hot reload through `render!` — is
+> unchanged, and so is the *first paint is the seeded one* property: the layout
+> effect flips before paint and `h/mount!` renders inside `flushSync`, so the
+> door still returns with the seeded markup on the page (witnessed in
+> `re-frame.hicasso.frame-boundary-heads-dom-cljs-test`). The text below stands
+> as the record of what was decided; read the frame half through this note.
+
 **Ruling.** (a) **Headless rendering** covers hook-free tier-1 bodies through a
 pure read resolver (structural render as data, sub reads overridable); bodies
 using hooks and foreign regions are mounted-test territory — **no fake hook
