@@ -29,6 +29,9 @@
   All tests run on the JVM through the plain-atom substrate."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            ;; Loading `re-frame.machines` installs the artefact's late-bind
+            ;; hooks and reserved fx handlers, which `rf/reg-machine` requires.
+            [re-frame.machines]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace.tooling :as rf.trace.tooling]))
@@ -939,6 +942,9 @@
                                           (:operation %)))
                               first)]
           (is (some? any-failed) ":rf.machine.spawn-all/any-failed trace fired")
+          ;; Spec 005 §Spawn-and-join: the resolution payload is "the decisive
+          ;; child's :output-key value — its error payload on :on-any-failed".
+          ;; One value, taken from the child's finality.
           (is (= {:reason :boom :http-status 503}
                  (:reason (:tags any-failed)))
               ":reason key on trace carries the decisive child's :output-key result"))

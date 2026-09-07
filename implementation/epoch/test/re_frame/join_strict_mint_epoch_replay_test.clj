@@ -116,37 +116,40 @@
     (fn [] (swap! calls inc) value)))
 
 (defn- mk-completing-child
-  "The JOIN COMPLETION TARGET: member child whose completion action
-  (`:dispatch-done`, on `:go` → `:done`) DECLARES a generator-backed recordable
-  `:strictmint/roll` and forwards the minted value on its completion carrier
-  `[parent-id [:child/done :a <roll>]]`. The action runs only when its ensure
-  step satisfies `:rf.cofx/requires` under the effective mint policy."
-  [parent-id]
+  "The JOIN COMPLETION TARGET: a member child whose transition INTO its
+  `:final?` state (on `:go`) DECLARES a generator-backed recordable
+  `:strictmint/roll` and stamps the minted value into the `:data` slot its
+  `:output-key` names — so the roll rides the completion the runtime mints at
+  finality. The action runs only when its ensure step satisfies
+  `:rf.cofx/requires` under the effective mint policy.
+
+  Completion is finality (Spec 005 §Child completion protocol), so the child
+  names no parent and dispatches nothing: what the epoch records is the child's
+  OWN completing event, and replaying it re-drives the child to `:final?` and
+  re-mints an identical carrier."
+  []
   {:initial :running
    :data    {:id nil}
-   :actions {:record-id     (fn [{data :data ev :event}] {:data (assoc data :id (second ev))})
-             :dispatch-done {:rf.cofx/requires [:strictmint/roll]
-                             :fn (fn [{data :data cofx :rf.cofx}]
-                                   {:fx [[:dispatch [parent-id [:child/done (:id data)
-                                                                (:strictmint/roll cofx)]]]]})}}
+   :actions {:record-id  (fn [{data :data ev :event}] {:data (assoc data :id (second ev))})
+             :stamp-roll {:rf.cofx/requires [:strictmint/roll]
+                          :fn (fn [{data :data cofx :rf.cofx}]
+                                {:data (assoc data :roll (:strictmint/roll cofx))})}}
    :states  {:running {:on {:set-id {:action :record-id}
-                            :go     {:target :done :action :dispatch-done}}}
-             :done {}}})
+                            :go     {:target :done :action :stamp-roll}}}
+             :done {:final? true :output-key :roll}}})
 
 (defn- mk-plain-child
   "A member child with NO coeffect requirement — completes cleanly under any
   policy. Pairs with `mk-completing-child` so the two-child `:all` join stays
   OPEN after `:a` folds (a non-decisive fold, so `:a`'s terminal rides the
   `:rf.machine.spawn-all/child-completed` trace we assert on)."
-  [parent-id]
+  []
   {:initial :running
    :data    {:id nil}
-   :actions {:record-id     (fn [{data :data ev :event}] {:data (assoc data :id (second ev))})
-             :dispatch-done (fn [{data :data}]
-                              {:fx [[:dispatch [parent-id [:child/done (:id data)]]]]})}
+   :actions {:record-id (fn [{data :data ev :event}] {:data (assoc data :id (second ev))})}
    :states  {:running {:on {:set-id {:action :record-id}
-                            :go     {:target :done :action :dispatch-done}}}
-             :done {}}})
+                            :go     {:target :done}}}
+             :done {:final? true :output-key :id}}})
 
 (defn- reg-parent!
   "A two-child `:all` join parent: child `:a` is the generator-backed completion
@@ -160,8 +163,6 @@
                         {:children        [{:id :a :machine-id target-kw :start [:set-id :a]}
                                            {:id :b :machine-id plain-kw  :start [:set-id :b]}]
                          :join            :all
-                         :on-child-done   :child/done
-                         :on-child-error  :child/failed
                          :on-all-complete [:all/done]}
                         :on {:abort :idle}}}}))
 
@@ -170,8 +171,8 @@
   keyword triple and drive `[:start]` so both children are spawned and
   `:running`. Returns the pre-completion epoch id (the state to restore to)."
   [parent-kw target-kw plain-kw]
-  (rf/reg-machine target-kw (mk-completing-child parent-kw))
-  (rf/reg-machine plain-kw  (mk-plain-child parent-kw))
+  (rf/reg-machine target-kw (mk-completing-child))
+  (rf/reg-machine plain-kw  (mk-plain-child))
   (reg-parent! parent-kw target-kw plain-kw)
   (rf/dispatch-sync [parent-kw [:start]])
   ;; The last settled epoch after `[:start]` is the pre-completion frame state:
