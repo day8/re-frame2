@@ -51,7 +51,7 @@
     (is (identical? rf.adapter.reagent/adapter (rf.substrate.adapter/current-adapter))
         "explicit init! installed the Reagent adapter (map identity)")
     (is (= :rf.adapter/reagent (:kind (rf.substrate.adapter/current-adapter)))
-        "(:kind (current-adapter)) is the discriminator per Spec 006"))))
+        "(:kind (current-adapter)) is the discriminator per Spec 006")))
 
 (deftest init-no-arg-raises-arity-error
   (testing "(rf/init!) with no args raises a language-level arity error (rf2-3ubmv — no-arg arity cut)"
