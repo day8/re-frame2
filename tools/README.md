@@ -157,11 +157,13 @@ wired into the build, and consumers can use it today.
   runs; it resolves a classpath-relative source coordinate against the
   live JVM source paths at request time, so "open in editor" needs no
   checkout path configured anywhere. It is
-  not a published jar — no `deps.edn`/Clojars coord; it's wired into
+  not a published jar — no Clojars/publish coord; its local `deps.edn`
+  exists for JVM tests. It's wired into
   the testbed builds as an extra source path in
   `implementation/shadow-cljs.edn`. Bundle-isolated (nothing under
   `implementation/` `:require`s it). See
-  [`tools/testbed-support/README.md`](./testbed-support/README.md).
+  [`tools/testbed-support/README.md`](./testbed-support/README.md) for usage and
+  [`its spec`](./testbed-support/spec/README.md) for the host/editor contracts.
 
 - `tools/mcp-base/` — `day8/re-frame2-mcp-base`. Shared primitives
   for the MCP servers (`re-frame2-pair-mcp`, `story-mcp`): 13
@@ -206,17 +208,11 @@ wired into the build, and consumers can use it today.
   persistent nREPL socket. The one implementation of every pair
   operation — it replaced (and the project has since removed) the
   earlier bash-shim → babashka → nREPL transport.
-  The per-op set (`discover-app`, `eval-cljs`,
-  `dispatch`, `dispatch-dry-run`, `trace-window`, `watch-epochs`,
-  `tail-build`), the mega-op reads (`snapshot`, `get-path`), the
-  view-plane read `read-dom`, the signal recorder
-  (`record` / `read-recording` / `watch-until`), the reactive-sub-cache
-  read `list-subscriptions`, the write pair (`restore-epoch` /
-  `replace-app-db`, gated behind `--allow-writes`), the
-  registrar-introspection pair (`handler-meta` / `list-handlers`), and
-  `get-re-frame2-pair-instructions` (authoritative ordered catalogue:
-  `src/re_frame2_pair_mcp/tools/registry.cljs`);
-  per-op latency drops from ~700ms to ~5–50ms. Published to npm as
+  It provides runtime discovery, addressed state/view reads, pull-based
+  observation, event execution and gated writes. The
+  [owning catalogue](./re-frame2-pair-mcp/spec/003-Tool-Catalogue.md)
+  documents the current operations and their authority gates; its executable
+  registry owns the ordered wire inventory. Published to npm as
   `@day8/re-frame2-pair-mcp`. See
   [`tools/re-frame2-pair-mcp/README.md`](./re-frame2-pair-mcp/README.md).
 
@@ -232,14 +228,11 @@ wired into the build, and consumers can use it today.
 
 - `tools/story-mcp/` — `day8/re-frame2-story-mcp`. JVM-side stdio
   JSON-RPC MCP server that exposes Story's read (and gated write)
-  surface as MCP tools. Nineteen tools across 4 categories — Dev
-  (`get-story-instructions`, `preview-variant`, `list-substrates`),
-  Docs (`list-stories`, `get-story`, `get-variant`, `list-tags`,
-  `list-modes`, `list-decorators`, `list-assertions`, `variant->edn`,
-  `get-docs-markdown`), Testing (`run-variant`, `snapshot-identity`,
-  `read-a11y-violations`, `read-failures`), and Write (`register-variant`,
-  `unregister-variant`, gated on
-  `--allow-writes`). Lands as Stage 7 of the Story epic (`rf2-tgci`).
+  surface as MCP tools: inspect stories, preview/run variants, read evidence,
+  and author registrations behind `--allow-writes`. The
+  [owning registry contract](./story-mcp/spec/002-Tool-Registry.md)
+  documents the current catalogue without a second tool-name/count inventory
+  here. Lands as Stage 7 of the Story epic (`rf2-tgci`).
   See [`tools/story-mcp/README.md`](./story-mcp/README.md).
 
 - `tools/template/` — `day8/re-frame2-template`. The front-door
@@ -248,6 +241,9 @@ wired into the build, and consumers can use it today.
   invoke it via `clojure -Tnew create :template
   io.github.day8/re-frame2-template :name acme/my-app` and receive a
   working CLJS app wired against the alpha `day8/re-frame2-*` coords.
+  That `io.github.*` invocation is the post-split target; the current checkout
+  uses the [local-development invocation](./template/spec/API.md#local-development-invocation),
+  including the documented pre-publication coordinate setup before watch.
   Two substrate variants (Reagent / UIx) selectable via the top-level
   `:substrate :uix` k/v. Distribution is git-coord, not Clojars
   (rf2-dolpf §2.5).

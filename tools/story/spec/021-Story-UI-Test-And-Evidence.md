@@ -5,8 +5,8 @@
 > detail, schema-violation reporting, visual/a11y check results, the
 > result→evidence-spine linkage, and generated-failure promotion (distinct
 > from save-current-state). This spec **supersedes** the current
-> result-reading contract in [`009-Test-Mode.md`](009-Test-Mode.md) once
-> the substrate's unified run-result lands.
+> result-reading contract in [`009-Test-Mode.md`](009-Test-Mode.md).
+> The unified substrate and its Test-mode reader are current.
 
 ## Builds on
 
@@ -28,20 +28,18 @@
 ## Supersedes
 
 - **[`009-Test-Mode.md`](009-Test-Mode.md) result-reading contract.**
-  Once the substrate's unified run-result
-  ([`017-Testing-Story.md`](017-Testing-Story.md)) lands, Test mode MUST
-  migrate to that single status/result/evidence shape. The current pane's
-  split `:lifecycle` / `:assertions` reading is superseded by the unified
-  result; the migration is through one converged path, not a parallel
-  schema. The current pane's other contracts (read-only contract, Re-run
+  Test mode MUST use the single status/result/evidence shape in
+  [`017-Testing-Story.md`](017-Testing-Story.md). The older pane's
+  split `:lifecycle` / `:assertions` verdict is superseded by the unified
+  result, not retained as a parallel schema. The pane's other contracts
+  (read-only contract, Re-run
   semantics, chrome widget + sidebar dots, play step-debugger) are carried
   forward, not superseded.
 
 ## Depends on
 
-- The substrate's unified run-result and `:cannot-run` state (BLOCKED
-  until [`017-Testing-Story.md`](017-Testing-Story.md) lands; the UI MAY
-  adapt the current result shape until then — see §1).
+- The substrate's unified run-result and `:cannot-run` state (CURRENT,
+  [`017-Testing-Story.md`](017-Testing-Story.md); see §1).
 - The evidence-spine **display** for failure investigation — owned by
   [`020-Story-UI-Inspector-And-Xray.md`](020-Story-UI-Inspector-And-Xray.md)
   §3; this spec owns the result→span **linkage** (§2).
@@ -91,14 +89,11 @@ It MUST show:
 - source links;
 - re-run and richer-run affordances.
 
-The current test pane reads the existing runtime result shape (CURRENT;
-see [`009-Test-Mode.md`](009-Test-Mode.md)). When the substrate
-([`017-Testing-Story.md`](017-Testing-Story.md)) lands unified run
-results, Test mode MUST migrate to that shape **without** maintaining a
-parallel schema. This is the supersession recorded above; until the
-migration lands, the UI MUST treat the current `:lifecycle` /
-`:assertions` results as transitional/adapted input and MUST NOT pretend
-the false-green class is already impossible.
+The current test pane reads the unified result's `:status`, including
+`:cannot-run`; its per-record reader prefers each normalized assertion's
+`:status`. Compatibility with older raw assertion records does not make
+`:lifecycle` a second test verdict. The implementation lives in
+`re-frame.story.ui.test-mode.pure` and `re-frame.story.result`.
 
 `:cannot-run` is a first-class third result state, visually distinct from
 pass/fail/error (see [`018-Story-UI-North-Star.md`](018-Story-UI-North-Star.md)
@@ -295,9 +290,8 @@ The Test-mode and evidence-linkage contract is satisfied when:
   the runner selected vs required, checks grouped by check id, terminal +
   script-checkpoint assertions, schema violations (including consumed
   expected violations), and source links;
-- the current result shape is clearly treated as transitional until the
-  unified run-result lands, and the migration is one converged path with
-  no parallel schema;
+- the unified run-result is the single verdict/evidence shape, with no
+  parallel lifecycle-derived verdict;
 - cannot-run is visually distinct from pass/fail/error and explains what
   was required vs available;
 - a selected result row drives the evidence spine and (where coordinates

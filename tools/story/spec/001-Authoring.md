@@ -153,7 +153,7 @@ The five-layer precedence diagram, in strict later-wins order:
 Deep-merge for nested maps; override-by-replacement for vectors.
 This matches Storybook's convention and is the contract every
 authoring helper depends on. The canonical lookup is
-`(get-effective-args variant-id {:mode ... :overrides ...})` per
+`(story/resolve-args variant-id {:active-modes [...] :cell-overrides {...}})` per
 [`002-Runtime.md`](002-Runtime.md) §Args resolution precedence.
 
 Why five layers? Each layer scopes a different authoring intent.
@@ -296,13 +296,13 @@ cases](#when-to-write-argtypes-the-edge-cases) below.
 
 ```clojure
 ;; Author writes ONE schema on the view:
-(rf/reg-view :app.ui/button
-  [:map
+(rf/reg-view ^{:rf/id :app.ui/button
+               :rf/props [:map
    [:label    :string]
    [:variant  [:enum :primary :secondary :danger]]
    [:size     [:int {:min 8 :max 64}]]
-   [:disabled? :boolean]]
-  (fn [args] [:button.btn ...]))
+   [:disabled? :boolean]]} button [args]
+  [:button.btn (:label args)])
 
 ;; Every story of the view gets controls for free:
 (story/reg-story :story.ui.button
@@ -380,7 +380,7 @@ no fn-slots):
 
 ```clojure
 {:doc                   "..."
- :extends               <variant-id>             ; parent variant; merged at registration
+ :extends               <variant-id>             ; raw reference; resolved by the plan compiler
  :setup                 [[:event-id args ...]]   ; precondition events; phase 2 (PUBLIC)
  :script                {:script [...steps]      ; post-render rich-DSL behaviour under test; phase 4 (PUBLIC)
                          :auto-run? true
@@ -601,11 +601,11 @@ auto-config step — it dispatches `:rf.xray/select-panel` on mount,
 alongside `:open?` / `:filters` / `:focus` — not a second spelling of
 the embed default.
 
-Both the cross-package `:rf/variant` schema in
-[`Spec-Schemas.md`](../../../spec/Spec-Schemas.md) and Story's local
-`Variant` schema (`tools/story/src/re_frame/story/schemas.cljc`) are
-open by convention — the top-level `:xray-panel` keyword passes
-validation as an open-shape addition. See
+Story's local `Variant` schema
+(`tools/story/src/re_frame/story/schemas.cljc`) is closed and explicitly
+declares `:xray-panel`; a misspelled authoring slot fails registration.
+See the cross-package `:rf/variant` vocabulary in
+[`Spec-Schemas.md`](../../../spec/Spec-Schemas.md) and
 [`003-Render-Shell.md`](003-Render-Shell.md) §Right-hand pane and
 §Mount lifecycle for how the RHS embed consumes the slot.
 
@@ -1101,8 +1101,8 @@ Example:
 ```
 
 When a variant is rendered against mode M, M's `:args` deep-merge into
-the variant's effective args (precedence: global < mode < story <
-variant). Each `(variant × mode)` cell has an independent
+the variant's effective args (precedence: global < story < mode <
+variant < cell-overrides). Each `(variant × mode)` cell has an independent
 `snapshot-identity` — see [`002-Runtime.md`](002-Runtime.md) §Snapshot
 identity.
 
@@ -1150,13 +1150,13 @@ new author needs to know to write their first controlled variant.
 
 ```clojure
 ;; Author writes one schema on the view:
-(rf/reg-view :app.ui/button
-  [:map
+(rf/reg-view ^{:rf/id :app.ui/button
+               :rf/props [:map
    [:label    :string]
    [:variant  [:enum :primary :secondary :danger]]
    [:size     [:int {:min 8 :max 64}]]
-   [:disabled? :boolean]]
-  (fn [args] [:button.btn {:class (str "btn-" (name (:variant args)))} (:label args)]))
+   [:disabled? :boolean]]} button [args]
+  [:button.btn {:class (str "btn-" (name (:variant args)))} (:label args)])
 
 ;; Every story of the view gets controls for free — no :argtypes:
 (story/reg-story :story.ui.button
@@ -1231,14 +1231,12 @@ renders against the variant's frame) or assertions (which read through
 ### Worked example — counter at three different states
 
 ```clojure
-(rf/reg-view :app.ui/counter
-  (fn [_]
-    (let [n        @(rf/subscribe [:counter/value])
-          dispatch (:dispatch (rf/capture-frame))]   ;; frame captured at render — survives the deferred click
+(rf/reg-view ^{:rf/id :app.ui/counter} counter [_]
+    (let [n @(subscribe [:counter/value])]   ;; injected operations capture this render's frame
       [:div
        [:button {:on-click #(dispatch [:counter/decrement])} "−"]
        [:span.value n]
-       [:button {:on-click #(dispatch [:counter/increment])} "+"]])))
+       [:button {:on-click #(dispatch [:counter/increment])} "+"]]))
 
 (story/reg-story :story.counter
   {:component :app.ui/counter
@@ -1288,9 +1286,8 @@ Worked examples illustrating every aspect of the authoring grammar.
             [re-frame.story :as story]))
 
 ;; The view is registered under a keyword id (per spec/004 §reg-view).
-(rf/reg-view :app.ui/button
-  (fn [args]
-    [:button.btn (:label args)]))
+(rf/reg-view ^{:rf/id :app.ui/button} button [args]
+  [:button.btn (:label args)])
 
 (story/reg-story :story.ui.button
   {:doc       "Primary action button."
@@ -1309,13 +1306,12 @@ appears in the dev tool and docs page.
 
 ```clojure
 ;; The view ships a Spec 010 schema:
-(rf/reg-view :app.ui/button
-  [:map
+(rf/reg-view ^{:rf/id :app.ui/button
+               :rf/props [:map
    [:label :string]
    [:variant [:enum :primary :secondary :danger]]
-   [:disabled? :boolean]]
-  (fn [args]
-    [:button.btn {:class (str "btn-" (name (:variant args)))} (:label args)]))
+   [:disabled? :boolean]]} button [args]
+  [:button.btn {:class (str "btn-" (name (:variant args)))} (:label args)])
 
 ;; The story consults the registered schema to auto-derive argtypes:
 (story/reg-story :story.ui.button
@@ -1469,7 +1465,11 @@ fits in a single event, `:loaders-teardown` is the lightweight option.
    :tags    #{:dev :docs}})
 ```
 
-Resolution at registration time. Cycles raise
+The registrar preserves the raw `:extends` reference. Resolution happens
+at plan construction, using the single merge contract in
+[017 §Strict composition](017-Testing-Story.md#strict-composition): setup
+appends, context/checks inherit, and scripts/ordinary terminal assertions
+remain local. Cycles raise
 `:rf.error/story-extends-cycle`; an unknown parent id raises
 `:rf.error/story-extends-unknown`; an over-long chain raises
 `:rf.error/story-extends-chain-too-long`.

@@ -11,8 +11,8 @@
 > - **Runtime contract** — [Tool-Pair §Time-travel: epoch snapshots and undo](../../../spec/Tool-Pair.md#time-travel-epoch-snapshots-and-undo).
 >   The per-frame `:rf/epoch-record` ring buffer (`epoch-history`), the
 >   `(rf/configure! {:epoch-history {:depth N}})` knob, the
->   `register-epoch-listener!` / `unregister-epoch-listener!` listener
->   API, the `restore-epoch` rewind with its documented failure modes,
+>   `register-listener!` / `unregister-listener!` API with the `:epoch`
+>   stream key, the `restore-epoch!` rewind with its documented failure modes,
 >   and the redaction hook — all shipped in `day8/re-frame2-epoch`.
 > - **Xray id catalogue** — [014-Registry-Catalogue.md §Time-travel scrubber](./014-Registry-Catalogue.md#time-travel-scrubber).
 >   The surviving Xray-side ids: `:rf.xray/selected-epoch-record`,

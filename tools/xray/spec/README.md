@@ -26,13 +26,10 @@ main read.
 
 ### Per-tab content specs
 
-- [002-Time-Travel.md](002-Time-Travel.md) — time-travel scrubber:
-  passive scrubbing rebases panels; explicit rewind (the Epoch-panel
-  button → `:rf.xray/reset-to-epoch`) rewinds the runtime; 6 named
-  restore failures surface as a modal. (The `r` rewind key was trimmed
-  under rf2-f7748x — see [007-UX-IA.md §Trimmed pending demand](007-UX-IA.md);
-  the rewind feature itself ships.) Future: branch-and-explore; "find me
-  when path P last changed" walker.
+- [002-Time-Travel.md](002-Time-Travel.md) — redirect for the removed
+  standalone panel. Passive history inspection lives in the event spine;
+  explicit confirmed rewind uses `:rf.xray/reset-to-epoch`. The old
+  scrubber rail, pin chips and failure-modal flow do not ship.
 - [003-Machine-Inspector.md](003-Machine-Inspector.md) — the Machines
   tab. Event-driven Dynamic panel (rf2-y9xmf): blank when the focused
   event has no machine activity; per-machine section when it did
@@ -44,17 +41,14 @@ main read.
   re-host reference below the §STATIC RE-HOST REFERENCE divider
   (rf2-r4nao — landed). ELK+SVG primitive Xray-internal. The bug
   catalogue at the bottom (M.1–M.10) is the per-feature motivation.
-- [004-App-DB-Diff.md](004-App-DB-Diff.md) — slice-centric (not
-  tree-centric) app-db panel. Future: branch-aware diff (for Story
+- [004-App-DB-Diff.md](004-App-DB-Diff.md) — sectioned app-db inspector
+  with inline focused-epoch diff. Future: branch-aware diff (for Story
   sim-clones); cross-frame diff; pin-two-epochs side-by-side.
-- [005-Schema-Timeline.md](005-Schema-Timeline.md) — per-schema
-  timeline; empty→non-empty flash; full Malli explanation in detail.
-- [006-Hydration-Debugger.md](006-Hydration-Debugger.md) — the
-  hydration mismatch bisector. Hero SSR feature. Side-by-side server vs
-  client with sub-attribution + likely-cause hypothesis. Future
-  sections: server error projection trace; payload-policy verdict; head
-  model inspector; per-request frame teardown auditor; streaming SSR
-  boundary timeline; side-by-side SSR replay (post-v1 dream).
+- [005-Schema-Timeline.md](005-Schema-Timeline.md) — historical design
+  for the removed standalone schema timeline, not a current tab.
+- [006-Hydration-Debugger.md](006-Hydration-Debugger.md) — historical
+  design for the removed hydration bisector. Schema and hydration issues
+  use the Epoch/Trace and L2 issue surfaces; no dedicated renderer ships.
 - [007-UX-IA.md](007-UX-IA.md) — typography, colour tokens, animation
   timings, keyboard maps, density gradients — the pixels-that-feel-right
   reference.
@@ -65,8 +59,8 @@ main read.
 - [011-Launch-Modes.md](011-Launch-Modes.md) — in-app true-inline
   host and standalone-via-MCP remote-attach.
 - [012-Views.md](012-Views.md) — superseded by [021 §3](021-Dynamic-Panel-Designs.md#3-the-view-panel-reactive-perspective--steps-7-8)
-  (rf2-ee38b.2). The shipped Views panel is 021 §3's lean three-stacked-tables
-  design; 012's richer three-temporal-group surface is unimplemented historical
+  (rf2-ee38b.2). The shipped Views panel is 021 §3.2's reactive-flow graph
+  plus teardown/disclosure lists; 012's three-temporal-group surface is historical
   design exploration. Read 021 §3 for the normative Views design.
 - [013-Trace-Consumer.md](013-Trace-Consumer.md) — Xray's
   consumer-side contract on top of the framework's per-frame trace
@@ -79,12 +73,12 @@ main read.
   the framework's per-frame cascade-keyed rings. Future: trace
   fattening to enable context-at-position (Phase 5 prereq for
   per-instance replay).
-- [014-Registry-Catalogue.md](014-Registry-Catalogue.md) — normative
-  enumeration of every `:rf.xray/*` subscription, event, effect, and
-  instrumentation callback Xray registers (~155 ids), grouped by owning
-  panel.
+- [014-Registry-Catalogue.md](014-Registry-Catalogue.md) — registry
+  ownership and naming reference, principal live seams, historical
+  removals, and the exact-set executable membership contract.
 - [015-Configuration.md](015-Configuration.md) — `configure!`
-  entry-point contract. v1 ships ~5 keys; future: full 30+ keys
+  entry-point contract, its ten shipped keys and complete Settings shape;
+  separately labelled future keys
   (auto-hide filters, theme, retained-epochs, keybindings, factory-reset,
   ns-aliases and so on).
 - [016-Auxiliary-Panels.md](016-Auxiliary-Panels.md) — per-tab
@@ -93,16 +87,16 @@ main read.
   issue surfacing post rf2-gbz39 Option (c) — the Issues tab was
   removed), Routes content, Flows content. Future: wire-boundary diff per managed fx;
   `:on-match` event chain; pending-navigation card; route-chain
-  visualiser; head model inspector; retry timeline; full 6-section
-  Settings popup (Keybindings, Buffer, Popout, Actions in addition to
-  v1's 4).
+  visualiser; head model inspector; retry timeline. The shipped Settings
+  popup has General, Keybindings, Buffer and Diff; earlier six-tab plans
+  are explicitly historical.
 - [017-Test-Coverage-Matrix.md](017-Test-Coverage-Matrix.md) —
   browser-feature coverage matrix. Future: bug-class coverage column
   ensures every bug-class in spec has at least one test-row.
 - [023-Trace-Panel.md](023-Trace-Panel.md) — the Trace tab's
   dedicated redesign spec and Figma-handoff target: the complete
-  trace arc of one epoch across 4 phase bands (Dispatch · Event-handling ·
-  Effects/Fx · Reactive-rendering), row anatomy, the full Spec-009
+  trace arc of one epoch as a chronological flat list with stage labels
+  (not phase-band nesting), row anatomy, the full Spec-009
   op-handling matrix (Appendix A — the completeness contract), with
   colour/visual encoding delegated to Figma (§8). Supersedes
   [021 §5](021-Dynamic-Panel-Designs.md#5-the-trace-panel-per-epoch-raw-ops)
@@ -118,8 +112,9 @@ main read.
   pins no resource). No tool accessors: the five read-only resource
   accessors went with the Xray runtime seam (rf2-7htk7), and an
   out-of-process reader uses `re-frame2-pair.runtime` +
-  `tools/re-frame2-pair-mcp/` instead. Decoupled from the optional
-  Resources artefact.
+  `tools/re-frame2-pair-mcp/` instead. The panel reads registry/runtime
+  data without requiring Resources itself; the Xray artifact still
+  depends on Resources for its unified graph.
 - [025-Derivation-Graph-Panel.md](025-Derivation-Graph-Panel.md) — the
   Derivation-Graph tab: the Xray-side consumer contract for the EP-0014
   derivation/process algebra graph (framework
@@ -205,7 +200,7 @@ main read.
    Views, 013 Trace, 016 Auxiliary panels) for the specific surfaces. Each
    is independent of the others bar explicit cross-references.
 
-The 19-doc set is complete enough to one-shot the tool. Where v1's
+Where v1's
 shipping surface and the spec's destination differ, the spec wins as the
 direction-setter; v1's staged delivery is called out in "v1 ships X;
 future: Y" markers in the per-tab specs.

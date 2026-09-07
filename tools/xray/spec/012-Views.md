@@ -1,9 +1,10 @@
 # 012-Views
 
 > **SUPERSEDED by [`021-Dynamic-Panel-Designs.md` §3](021-Dynamic-Panel-Designs.md#3-the-view-panel-reactive-perspective--steps-7-8) (rf2-ee38b.2, 2026-05-23).**
-> The shipped Views panel implements 021 §3's lean **three-stacked-tables**
-> design (Level 1 subs / Level 2+ subs / Views — columns name · changed ·
-> inputs · read-by · code), per the rf2-8ve8z landing. The richer surface
+> The shipped Views panel implements 021 §3.2's **left-to-right reactive
+> flow graph** (app-db → Level-1 subs → derived subs → views), followed
+> by unmounted-view and destroyed-subscription lists and the unchanged-
+> sub disclosure. Earlier table layouts are superseded. The richer surface
 > this document describes below — three TEMPORAL groups (mounted /
 > re-rendered / unmounted), subs nested under views with inline return
 > values, ≥50 grid clustering, a component/sub group-by toggle, a

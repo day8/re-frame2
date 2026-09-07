@@ -7,6 +7,12 @@
 > The v2 equivalent of v1's
 > [`day8/re-frame-template`](https://github.com/day8/re-frame-template).
 
+For a monorepo checkout, start with the
+[local-development invocation](API.md#local-development-invocation).
+The `io.github.day8/re-frame2-template` commands below describe the post-split
+distribution target; they are not the checkout's invocation. The API also
+records the pre-publication framework-coordinate rewrite needed before watch.
+
 ## What this tool is
 
 `re-frame2-template` is the **front-door scaffolding tool** for new

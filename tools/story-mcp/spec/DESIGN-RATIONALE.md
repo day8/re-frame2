@@ -110,10 +110,10 @@ Rationale:
 ## §no-register-story-tool — why no v1.1 `register-story` tool
 
 Per [`002-Tool-Registry.md`](002-Tool-Registry.md) §What's NOT in the
-registry. The agent can implicitly land a parent story by ordering
-its variant registrations correctly (first variant carries `:doc`
-etc.). A separate `register-story` tool would duplicate that surface
-and add a registration ceremony agents seldom need.
+registry. Variants can be registered independently; the write tool does
+not synthesise parent-story metadata from them. Parent stories are
+authored through Story's existing `reg-story` / `reg-story*` surface
+in the application's loaded registration namespaces.
 
 When the self-healing loop matures and `register-story` proves load-bearing,
 it lands. Until then, the smaller surface is preferred.

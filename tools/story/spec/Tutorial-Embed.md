@@ -35,7 +35,7 @@ is the first step in writing embed code:
 | Surface | Source of truth | Encodes | Use case |
 |---|---|---|---|
 | `variant-share-url` | Args you pass in | Variant id + active modes + cell-overrides + substrate | Embed iframes; chat / bug-report links; the browser's live address bar (via `url-state` pushState) |
-| `url-from-state` | Live shell state | Workspace, mode tab, viewport, background, tag filter | Browser address bar during interactive use |
+| `url-from-state` | Live shell state | Selection, focused cell overrides, workspace, mode tab, viewport, background, tag filter | Browser address bar during interactive use |
 | `embed-flag-from-current-url` | Current `?embed=1` query param | The `:embed?` chrome-state flag | The embed-mode toggle (this tutorial) |
 
 The recipe below stitches `variant-share-url` together with the
@@ -50,7 +50,7 @@ iframe. The recipe covers:
 - Building the variant URL via `variant-share-url`.
 - Adding `?embed=1` for chrome-free presentation.
 - The iframe-attribute shape Story expects.
-- The hash-route shape (sharable across machines).
+- The query-state shape and preserved host hash route (sharable across machines).
 - Common pitfalls and gotchas.
 
 What this recipe is **not**: a normative spec page. The normative
@@ -75,20 +75,21 @@ modes / overrides / substrate to encode.
 (require '[re-frame.story :as story])
 
 (story/variant-share-url :story.counter/at-five)
-;; => "?variant=%3Astory.counter%2Fat-five"
+;; => "variant=story.counter%2Fat-five" ; query fragment, no leading ?
 
 (story/variant-share-url :story.counter/at-five
   "https://myproject.day8.com.au/stories/"
   {:active-modes #{:Mode.app/dark-desktop}
    :cell-overrides {:label "Custom label"}
    :substrate :reagent})
-;; => "https://myproject.day8.com.au/stories/?variant=%3Astory.counter%2Fat-five&modes=%3AMode.app%2Fdark-desktop&overrides=...&substrate=reagent"
+;; => "https://myproject.day8.com.au/stories/?variant=story.counter%2Fat-five&modes=Mode.app%2Fdark-desktop&overrides=..."
 ```
 
 The encoder:
 
-- URL-encodes every keyword (the leading `:` becomes `%3A`).
+- URL-encodes keyword names with namespaces, without the leading `:`.
 - Omits empty parts (no `modes`, no `modes=` param in the output).
+- Omits the default `:reagent` substrate.
 - Preserves hash routes — if `base-url` ends in `#/stories/foo`,
   params land *before* the hash so they remain readable via
   `window.location.search`.
@@ -180,8 +181,8 @@ re-reads. This matters for two scenarios:
 
 | Scenario | Behaviour |
 |---|---|
-| Reader clicks a variant in the sidebar of an embedded shell | No-op — the sidebar isn't rendered. They follow the hash route. |
-| Reader navigates to a different variant via `window.history.pushState` (e.g. from a docs-page link) | The shell re-resolves the variant. The `:embed?` flag persists for the lifetime of the page (no localStorage round-trip, but no reset either). |
+| Reader wants another variant in an embedded shell | The sidebar is hidden; follow another URL with the wanted `variant=` query. |
+| Reader changes only the URL via bare `window.history.pushState` | This browser call does not emit `popstate` or tell Story to hydrate. Use shell navigation or navigate the iframe to the new URL; do not use a URL write as a selection API. |
 | Reader reloads the iframe | `embed-flag-from-current-url` re-reads the query param. If the URL still has `&embed=1`, embed mode persists. |
 | Reader copies the iframe URL and opens it in a top-level tab | Embed mode persists in the new tab too. To drop it, edit the URL to remove `embed=1`. |
 
@@ -190,24 +191,24 @@ The flag is **not sticky** in the sense that it doesn't persist to
 "every Story shell on this machine is in embed mode forever" bug
 that a localStorage-backed flag would carry.
 
-## Hash-route shape (for content-addressed embedding)
+## Preserving the host's hash route
 
-If your shell is mounted under a hash route (`#/stories/...`),
+If your host mounts the shell under a hash route (`#/stories`),
 `variant-share-url` puts params *before* the hash:
 
 ```
-https://myproject.day8.com.au/stories/?variant=%3Astory.counter%2Fat-five&embed=1#/stories/:story.counter/at-five
+https://myproject.day8.com.au/stories/?variant=story.counter%2Fat-five&embed=1#/stories
 ```
 
-Both halves are read at mount:
+The two parts have different owners:
 
 - `window.location.search` carries the query params (variant id,
   modes, overrides, substrate, embed flag).
-- `window.location.hash` carries the canonical route for the
-  variant (consumed by the chrome's router).
+- `window.location.hash` is preserved for the host application's router.
+  Story does not decode a variant id from it.
 
 For a base URL with no hash route, the query params are
-sufficient — Story's URL parser handles both shapes.
+sufficient when that page directly mounts Story.
 
 ## Production-elided builds — embedding the static export
 
@@ -218,10 +219,12 @@ self-contained static HTML directory. The output:
 
 - Bundles the Story shell at `:advanced` optimisation.
 - Inlines the variant registry.
-- Carries the QR encoder + a11y opt-in surfaces (no
-  third-party fetches at runtime).
-- Drops the dev-time recorder, hot-reload, and live-validation
-  surfaces.
+- Keeps the share-URL and a11y opt-in surfaces. The QR encoder was retired;
+  an explicit axe-core CDN opt-in can still fetch its pinned runtime.
+- Disables registrar hot-reload polling and automatic first-visit help;
+  the release omits Shadow's dev-server connection. It does not promise
+  to remove all recorder, inspector or validation UI — see the exact
+  static-mode contract in [`013-Static-Build.md`](013-Static-Build.md).
 
 Deploy the static directory to GitHub Pages, Netlify, Vercel, or
 raw S3, then point your iframes at the deployed URL. The embed
@@ -267,7 +270,7 @@ A docs page embeds the counter's `:at-five` variant in dark mode:
 <!-- In your docs site's markdown or HTML template: -->
 <figure>
   <iframe
-    src="https://myproject.day8.com.au/stories/?variant=%3Astory.counter%2Fat-five&modes=%3AMode.app%2Fdark-desktop&embed=1#/stories/:story.counter/at-five"
+    src="https://myproject.day8.com.au/stories/?variant=story.counter%2Fat-five&modes=Mode.app%2Fdark-desktop&embed=1#/stories"
     title="Counter at five (dark mode) — Story variant"
     loading="lazy"
     width="100%"
@@ -283,12 +286,13 @@ To produce the URL programmatically rather than hand-rolling it:
 (require '[re-frame.story :as story])
 
 (defn embed-iframe-src [variant-id base-url & {:keys [modes overrides substrate]}]
-  (str (story/variant-share-url variant-id base-url
+  (let [url (js/URL. (story/variant-share-url variant-id base-url
          (cond-> {}
            modes      (assoc :active-modes modes)
            overrides  (assoc :cell-overrides overrides)
-           substrate  (assoc :substrate substrate)))
-       "&embed=1"))
+           substrate  (assoc :substrate substrate))))]
+    (.set (.-searchParams url) "embed" "1")
+    (.toString url)))
 
 (embed-iframe-src :story.counter/at-five
                   "https://myproject.day8.com.au/stories/"
@@ -296,8 +300,10 @@ To produce the URL programmatically rather than hand-rolling it:
 ;; => "https://myproject.day8.com.au/stories/?variant=...&modes=...&embed=1"
 ```
 
-The same builder runs JVM-side, CLJS-side, or in your docs site's
-build step.
+The share builder itself is portable. This wrapper is CLJS and takes an
+absolute base URL; the earlier JavaScript wrapper works in a docs build.
+Both set the query parameter before any fragment instead of appending
+`&embed=1` after a hash route.
 
 ## Cross-references
 

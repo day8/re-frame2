@@ -30,8 +30,8 @@ The pipeline is a **two-stage** gate that folds both sums in a **single pass** o
 4. **Pass-through or replace.** Under-budget responses pass through unchanged; over-budget responses are replaced with a fresh result carrying the `:rf.mcp/overflow` marker (built via `overflow/overflow-payload`).
 
 ```clojure
-(defn enforce-cap [io result cap]                  ; cap = (max-tokens raw-arg)
-  (if (nil? cap)
+(defn apply-cap [io result {:keys [tool cap hint]}] ; cap = resolved max-tokens
+  (if (or (nil? cap) (nil? result))
     result                                          ; nil cap ⇒ disabled
     (let [{:keys [tokens chars]}                    ; single-pass fold
           (transduce (filter string?)
@@ -44,10 +44,10 @@ The pipeline is a **two-stage** gate that folds both sums in a **single pass** o
       (if-not (over-cap? tokens chars cap)          ; token gate OR char gate
         result                                      ; under-budget
         (let [marker (overflow/overflow-payload
-                       {:tool        (extract-tool-id result)
+                       {:tool        tool
                         :token-count (reported-count tokens chars cap)
                         :cap         cap
-                        :hint        (resolve-hint io result)})]
+                        :hint        hint})]
           (build-overflow-result io marker result)))))) ; over-budget
 ```
 
@@ -101,7 +101,7 @@ A consumer that ships ONLY `:content[*].text` (no duplicated slot) surfaces just
          (map #(j/get % :text))))
   (build-overflow-result [_ marker original]
     (j/lit
-      {:isError true
+      {:isError false
        :content [{:type "text"
                   :text (pr-str marker)}]})))
 ```
@@ -118,12 +118,17 @@ Both server adapters account for `:structuredContent` whenever a result carries 
       (contains? result :structuredContent)
       (conj (pr-str (:structuredContent result)))))   ; the duplicated wire slot
   (build-overflow-result [_ marker original]
-    {:isError          true
+    {:isError          false
      :content          [{:type "text" :text (pr-str marker)}]
      :structuredContent marker}))
 ```
 
 Both reifies are ~10 lines each. The cap algorithm is unchanged.
+
+Overflow is a budget/retry signal, not a tool-execution failure: the shipped
+adapters return `isError: false` or omit it. An invalid `max-tokens` argument
+is different and remains an error result. See the
+[cross-MCP budget contract](../../mcp-conformance/TOKEN-BUDGETS.md#overflow).
 
 ## Replacement safety
 

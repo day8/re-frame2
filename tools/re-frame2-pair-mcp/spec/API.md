@@ -13,44 +13,26 @@ wins.
 
 ## Installation
 
-### npm — global install
-
-```bash
-npm install -g @day8/re-frame2-pair-mcp
-```
-
-Provides the `re-frame2-pair-mcp` binary on `$PATH`.
-
-### npm — one-off via npx
-
-```bash
-npx @day8/re-frame2-pair-mcp
-```
-
-No persistent install; useful for trying the server out and for
-CI configurations.
-
-### Project-local install
-
-```bash
-npm install --save-dev @day8/re-frame2-pair-mcp
-```
-
-The binary lands under `node_modules/.bin/re-frame2-pair-mcp`; the
-agent host's `command` slot points there.
+Build from a clone using [From source](#from-source), then configure the
+host to run the compiled `out/server.js` with Node. See the
+[tool README's installation status](../README.md#install) before using
+the package-name launch forms; npm installation requires publication.
 
 ## Configuration
 
 ### Claude Code
 
-Add to `~/.claude/settings.json` (or per-project
-`.claude/settings.json`):
+Add the server to `.mcp.json` at the project root (project scope), merging
+with any existing `mcpServers` entries. User- or local-scoped registrations
+use `claude mcp add`; see [Claude Code's MCP configuration](https://code.claude.com/docs/en/mcp).
+From a clone:
 
 ```json
 {
   "mcpServers": {
     "re-frame2-pair": {
-      "command": "re-frame2-pair-mcp",
+      "command": "node",
+      "args": ["<repo>/tools/re-frame2-pair-mcp/out/server.js"],
       "env": {
         "SHADOW_CLJS_BUILD_ID": "app"
       }
@@ -70,7 +52,7 @@ per the [MCP transport spec](https://modelcontextprotocol.io/specification/2025-
 | Variable | Default | Purpose |
 |---|---|---|
 | `SHADOW_CLJS_BUILD_ID` | `"app"` | Final-fallback build id passed to `cljs-eval`. See §Build-id resolution below for the full precedence ladder. |
-| `SHADOW_CLJS_NREPL_PORT` | (unset) | Explicit nREPL port; takes precedence over port-file discovery. |
+| `SHADOW_CLJS_NREPL_PORT` | (unset) | Explicit nREPL port; follows `--port-file` and precedes automatic port-file discovery. |
 
 ### Build-id resolution
 
@@ -181,8 +163,8 @@ session; this cache memoises only the resolved build-id.
 | Flag | Default | Purpose |
 |---|---|---|
 | `--no-eval`               | absent (eval-cljs ON) | Opt OUT of the `eval-cljs` tool (rf2-a0z0h; inverts the prior rf2-cxx5s default-OFF posture). Default is eval-cljs ENABLED — it is the REPL primitive of a pair-debug session. With this flag, `eval-cljs` calls return `{:ok? false :reason :rf.error/eval-cljs-disabled}` without touching the nREPL socket. |
-| `--allow-sensitive-reads` | OFF | Honour caller-supplied `:include-sensitive true` and `:elision false` on direct-read tools (`snapshot`, `get-path`, `trace-window`, `watch-epochs`), and ship verbatim payloads through the preload's `app-db-reset!` `tap>` emission. Without the flag, sensitive slots redact and large slots elide before any payload crosses the wire — and the `tap>` payloads route through `re-frame.core/elide-wire-value` before any registered tap consumer sees them (rf2-c2dtu). Canonical cross-MCP flag name shared with story-mcp (rf2-2x3ql). |
-| `--allow-writes` | OFF | Enable the state-mutating tools `restore-epoch` (time-travel undo) and `replace-app-db` (state injection), rf2-ee38b.18. Without the flag, both return `{:ok? false :reason :rf.error/writes-disabled}` without touching the nREPL socket. `dispatch` (which drives the app's own handlers) is unaffected. Note: this gate protects the named-write audit trail; it does NOT defend against eval-driven writes (eval-cljs can express the same writes), so for a true read-only posture compose with `--no-eval`. |
+| `--allow-sensitive-reads` | OFF | Enables each value-egress tool's documented per-call disclosure knobs; it is not a blanket raw-payload bypass. See the [canonical launch-gate contract](./003-Tool-Catalogue.md#universal-server-launch-flags) for independent app-db, epoch, effect-argument, and runtime-tap rules. |
+| `--allow-writes` | OFF | Enable the state-mutating tools `restore-epoch` (time-travel undo) and `replace-app-db` (state injection), rf2-ee38b.18. Without the flag, both return `{:ok? false :reason :rf.error/writes-disabled}` without touching the nREPL socket. `dispatch` (which drives the app's own handlers) is unaffected. Note: this gate protects the named-write audit trail; it does NOT defend against eval-driven writes (eval-cljs can express the same writes). `--no-eval` additionally removes eval-driven writes, but neither flag disables `dispatch` or `replay-epoch`; the combination is not a read-only mode. |
 
 Flags pass after the binary name:
 
@@ -256,63 +238,22 @@ node out/server.js
 
 ## Tool surface
 
-The full tool surface, in the order a typical session uses them
-(canonical count: [`003-Tool-Catalogue.md`](./003-Tool-Catalogue.md)).
-Argument schemas and result shapes are specified there.
-
-| Tool | Purpose |
-|---|---|
-| `discover-app` | Health-check the runtime; verify the shadow-cljs `:preloads` entry landed. Run first every session. |
-| `eval-cljs` | Evaluate a CLJS form; returns the EDN value. |
-| `dispatch` | Fire a re-frame event with `:origin :pair`. Modes: queued, sync, trace. |
-| `restore-epoch` | Time-travel undo — rewind a frame's whole frame-state (BOTH app-db and runtime-db) to a recorded prior epoch's `:frame-state-after` via `replace-frame-state!`; machines / routes / elision / SSR metadata revive alongside app-db (Tool-Pair §Time-travel). `epoch-id` is EDN (the runtime emits integer ids). **Gated behind `--allow-writes`** (rf2-ee38b.18). |
-| `replay-epoch` | Strict replay of a retained epoch in ONE call (rf2-ov144, Tool-Pair §Replay) — re-drive the recorded event through the app's own handlers with its raw `:trigger-event`, its recorded `:rf.cofx` under `:rf.cofx/mint-policy :strict`, and both recorded override maps, all resolved in-process; only the id crosses the wire. Same frame; no implicit restore; records a new epoch and returns `dispatch`'s consequence shape. Refuses before dispatch on an unknown / aged-out id, a halted / synthetic / incomplete record, or a recorded `:rf/fn-override`. `dispatch`'s authority — **not** `--allow-writes`-gated. |
-| `replace-app-db` | State injection — replace a frame's `app-db` with an arbitrary EDN value the runtime never recorded; the JSON-loaded-bug-repro case (Tool-Pair §Pair-tool writes). Records a synthetic epoch. **Gated behind `--allow-writes`** (rf2-ee38b.18). |
-| `trace-window` | Return epoch records from the last N ms. |
-| `watch-epochs` | Pull-mode poll for matching epochs since a given id. |
-| `tail-build` | Wait for a hot-reload to land by polling a probe form against a **caller-supplied pre-edit `baseline`** (rf2-1f60u) — captured with `eval-cljs` before the edit, so success is the first sample that differs from it and a reload landing before that first sample still reads as success. `baseline` is required whenever `probe` is supplied (`:reason :missing-baseline` otherwise; `:baseline` without `:probe` → `:reason :baseline-without-probe`). Probe-less calls are a 300ms `:soft? true` delay and prove nothing about the running code. |
-| `snapshot`   | Coarse-grained per-frame state read in one round-trip. Returns `:app-db` + `:sub-cache` + `:machines` + `:epochs` + `:traces` slices for every (or a subset of) frame(s). Mega-op for investigate-X workflows. **Partition-aware off-box redaction (EP-0001 rf2-jj1xer · Mike ruling #14):** the `:app-db` / `:sub-cache` slices route through `re-frame.core/elide-wire-value` (per-slot sensitive / large elision); the `:machines` slice is **runtime-db-partition** state (machine snapshots moved to runtime-db in rf2-vzld77) and is **redacted to `:rf/redacted` off-box by default** — it ships only when the operator opted in to richer reads via the trusted-local `--allow-sensitive-reads` gate (`include-sensitive`). |
-| `get-path` | Direct slice read at a path inside `app-db`. The deep-read peer of `snapshot`; agents drill in once a `:rf.mcp/summary` or elision marker names the path of interest. |
-| `read-dom` | View-plane read — query the **rendered DOM** by CSS selector; returns matched count + per-node `{:tag :text :attrs}` as EDN (rf2-nfjil). Read-only; per-node text + matched-node count capped browser-side (over-cap text → `:rf.size/large-elided` marker). Optional `sub-selector` scopes to descendants of each match; `attrs` picks attributes (default: structural set + `data-*` / `aria-*` sweep). Answers "did the UI update?" / "what does the rendered node say?". Pairs with `dispatch {:await-render true}` for deterministic `dispatch → settle → read`. |
-| `read-ui` | The typed **`ui/read`** op (rf2-3bu3d.1) — the complement to `read-dom`. Given a **view-id** (or a `point` / `selector`), return the rendered subtree **plus the producing re-frame2 entity** (`:view-id`, `:source-coord`, `:render-key`, `:subs-read`) in one round-trip. Rides the view-id↔DOM map (`data-rf-view="<id>"` — the same attribute the Xray hover-highlight uses), so it works on **any** re-frame2 app with **zero testids**. Read-only; `:text` elided like `snapshot` / `get-path` (`max-text` cap → `:rf.size/large-elided`). Answers "what does the thing I'm looking at SHOW, and what produced it?". |
-| `record` | First-class **signal recorder** (rf2-zo4b9) — install a read-only observer over a signal-set (`:app-db [path]` / `:sub [query-v]` / `:dom "sel"` / `:focus true`) with a stop condition (`:ms` / `:changes` / `:pred`), let the human interact, then read the change-log back. Returns immediately with a `:recording-id`; the runtime samples each signal per animation frame, records each change with a timestamp, dedups, and tears itself down at the stop condition — the rAF/dedup/teardown footguns solved once. The canonical move for intermittent / human-in-the-loop bugs (the rf2-yng0y render-timing race). |
-| `read-recording` | Read back a recording's change-log (rf2-zo4b9) — paired with `record`. `drain true` consumes the buffered entries (the live-watch poll→consume→repeat idiom); `stop true` reads-and-closes. Returns `:status` + per-change `:entries` with `:t` timestamps + rAF `:frame` counters. |
-| `watch-until` | Block until a **predicate over a signal holds** (rf2-zo4b9) — the blocking counterpart to `record` ("wait until `[:upload :status]` flips to `:done`"). Server-polls (~100 ms, like `tail-build`) until the data predicate (`{:signal 0 :equals <v>}` / `:changed` / `:path` / `:contains`) holds or `timeout-ms` elapses. Returns the satisfying `:sample`, or `:reason :watch-timeout` with the final `:last-sample`. |
-| `list-subscriptions` | List the **live reactive sub-cache** for a frame — "what subscriptions are active?" — reading the same source as `snapshot :sub-cache` (rf2-qicji). Returns the cached query-vectors (reflecting disposal); optional `include-values` adds value + ref-count. |
-| `handler-meta` | Return the registration-metadata map for a registered handler — `:source-coord`, `:doc`, `:tags`, and any custom slots from the reg-`*` macro. Fifteen accepted kinds: the fourteen registrar-backed kinds (event, sub, fx, cofx, interceptor, view, frame, route, flow, head, error-projector, resource, mutation, resource-scope — the three resources-artefact kinds are EP-0016 / rf2-f8s9g6; `interceptor` is EP-0022) plus the virtual `machine` kind. Answer "where is `:user/login` defined?" without an `eval-cljs` round-trip (rf2-cibp8). |
-| `list-handlers` | Discovery peer of `handler-meta` — return every registered id under a kind. Sorted, stable shape. Same fifteen accepted kinds as `handler-meta`: fourteen registrar-backed kinds plus the virtual `machine` kind (rf2-pctf8; renamed from `registry-list` per rf2-4y595). |
-| `get-re-frame2-pair-instructions` | Returns the agent-onboarding text — how re-frame2-pair connects, how `:origin :pair` works, the canonical workflow per dispatch / eval / snapshot. Read once at session start (rf2-fnpqg). |
-
-(Pre-rf2-7dvg drops also exposed `inject-runtime`. That tool is gone:
-the runtime ships into consumer apps via shadow-cljs `:devtools
-:preloads` now. See the skill's SKILL.md §Setup.)
-
-Each tool's JSONSchema is surfaced via `tools/list` per the MCP
-spec.
+The canonical [tool catalogue](./003-Tool-Catalogue.md) owns the complete
+inventory, argument schemas, result shapes, and cross-tool contracts.
+The running server also publishes its descriptors through `tools/list`.
 
 ## Mode flags (dispatch)
 
-The `dispatch` tool has three modes selected by the `sync` / `trace`
-flags:
+`dispatch` defaults to a synchronous, compact consequence response.
+Async transport acknowledgement is explicit: `queued true`, without a
+synchronous mode selected. `trace true` returns a projected epoch;
+`settle true` additionally performs the synchronous render flush and
+takes precedence over the other modes. `await-render true` forces a
+synchronous dispatch and waits for the adapter's after-render callback
+plus one animation frame, unless `settle` is selected.
 
-| `sync` | `trace` | Mode | Runtime call |
-|---|---|---|---|
-| `false` | `false` | queued | `rf/dispatch` |
-| `true` | `false` | sync | `rf/dispatch-sync` |
-| any | `true` | trace | sync + returns `:rf/epoch-record` |
-
-The trace mode is the workhorse for agent loops: dispatch, see what
-fired, decide next step. See
-[`003-Tool-Catalogue.md`](./003-Tool-Catalogue.md) § `dispatch`.
-
-The `await-render` flag (rf2-gfu33) is orthogonal to the mode table: set
-it and the tool resolves only AFTER the substrate has flushed the new
-state to the DOM and the next paint is scheduled, so `dispatch → observe`
-is one deterministic step. It forces synchronous dispatch and routes the
-flush through the substrate-agnostic `re-frame.interop/after-render`
-adapter primitive (Spec 006) + one `requestAnimationFrame`. See
-[`003-Tool-Catalogue.md`](./003-Tool-Catalogue.md) § dispatch §
-Render-settle.
+See [dispatch](./003-Tool-Catalogue.md#dispatch) for the authoritative
+precedence table, response fields, and render-settle semantics.
 
 ## Result shape
 
@@ -367,10 +308,10 @@ analogues. Listed here for reference:
 |---|---|---|
 | `js/globalThis.__re_frame2_pair_runtime` | preload/re_frame2_pair/runtime.cljs | Load-time marker probed by `ensure-runtime!`. |
 | `re-frame2-pair.runtime/session-id` | preload/re_frame2_pair/runtime.cljs | Per-session UUID; mirrored on the global marker. |
-| `re-frame2-pair.runtime/dispatch!` | preload/re_frame2_pair/runtime.cljs | Queued / sync / trace dispatch. |
+| `re-frame2-pair.runtime/dispatch-consequence!` | preload/re_frame2_pair/runtime.cljs | Default synchronous dispatch and compact consequence response. |
+| `re-frame2-pair.runtime/pair-dispatch!`, `dispatch-and-collect`, `dispatch-and-settle!` | preload/re_frame2_pair/runtime.cljs | Explicit queued, trace, and settle modes respectively. |
 | `re-frame2-pair.runtime/trace-window` | preload/re_frame2_pair/runtime.cljs | Last-N-ms epoch lookback. |
 | `re-frame2-pair.runtime/watch-epochs` | preload/re_frame2_pair/runtime.cljs | Poll for epochs after id. |
-| `re-frame2-pair.runtime/probe` | preload/re_frame2_pair/runtime.cljs | Hot-reload landed signal. |
 | `re-frame2-pair.runtime/snapshot-state` | preload/re_frame2_pair/runtime.cljs | Per-frame slice composer fed by `:include` / `:frames` opts; backs the `snapshot` MCP tool. |
 | `shadow.cljs.devtools.api/cljs-eval` | shadow-cljs | The CLJS bridge over the JVM-side nREPL socket. |
 | `:rf/epoch-record` | framework | The epoch record shape returned by trace mode. |

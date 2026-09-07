@@ -412,12 +412,13 @@ The Dynamic-side home for Routes — focused-event lens that surfaces
 
 ### Shape (per rf2-lq0ef + focused-event narrowing)
 
-The lens is a **focused-event slice** of the routing catalogue. It
-inherits the same flat-list catalogue + Simulate-URL surface
-documented under §Static Routes — same routes-map, same 6-rule rank
-contract — but adds the focused-cascade markers above the catalogue.
-The catalogue serves as orientation; the markers are the load-bearing
-signal.
+The lens is the current **topology-plus-navigation** projection
+(`routing_helpers/project-topology-data`, rf2-3kjlo): Current route,
+Navigation this epoch, and Route topology sections. Search and
+Simulate-URL belong to Static Routes; Dynamic Routing has no separate
+query, simulator, or expanded-row registration state. The focused
+cascade supplies the historical navigation markers; the current route
+supplies present orientation.
 
 ### Inputs
 
@@ -430,12 +431,8 @@ signal.
 - `:rf.xray/event-bundles` — the shared cascade projection. The composite
   scans the focused cascade's trace events for the routing-emit.
 - `:rf.xray/focus` — the spine's focused dispatch-id + epoch.
-- `:rf.xray.routing/query`, `:rf.xray.routing/sim-url`,
-  `:rf.xray.routing/expanded` — Dynamic-side UI-state slots
-  (separate from the Static slots so the two homes carry independent
-  filter / expand state).
 - `:rf.xray/routing-tab-data` — view-facing composite folding all
-  the above per `routing_helpers/project-data`.
+  the above per `routing_helpers/project-topology-data`.
 
 ### Per-focused-event highlighting
 
@@ -480,6 +477,9 @@ own trace events — never the live route slice.** Detection:
 
 ### Simulate-URL contract
 
+This subsection specifies the **Static Routes** simulator. Its location
+here preserves existing links; it is not a Dynamic Routing control.
+
 The simulator walks the registered-routes map, calls
 `re-frame.routing.match/match-against` on each route's compiled
 pattern (or compiles it on the fly for test-only fixtures), and
@@ -512,11 +512,14 @@ The result block surfaces:
 
 Query coercion and `:params` / `:query` schema validation are out of
 scope for the simulator — the lens is about exposing the rank
-cascade, not full match semantics. The same contract drives the
-Static Routes Simulate-URL surface; the difference is the cascade
-slice the markers are rendered against.
+cascade, not full match semantics.
 
 ### Active route slice — params + query + fragment
+
+**Historical flat-list layout.** The following grid belonged to the
+pre-topology lens. The current Current route section shows the route id,
+params, and matched path; query/fragment remain inspectable in the
+runtime-state and trace data rather than a promised three-row grid.
 
 Below the catalogue the panel renders a labelled grid for the active
 slice:
@@ -536,14 +539,13 @@ Static Routes empty state — the same registrar feeds both.
 
 ### Pre-rewrite app-db / trace overlap
 
-The transition FSM state (`:idle` / `:loading` / `:error`) is still
-part of the app-db slice (Spec 012) and still visible in the App-db
-tab's diff. The Routes lens is the dedicated home; the App-db tab
-shows the raw slice diff like any other key. Navigation trace events
+Routing's framework state belongs to runtime-db, not the host's
+app-db (EP-0001). The Routes lens is its dedicated projection.
+Navigation trace events
 (`:rf.route.nav-token/*` + `:rf.route/fragment-changed` (rf2-cj9fn) +
 `:rf.route/registered` / `:rf.route/cleared` / `:rf.route/activated` /
 `:rf.route/deactivated` (rf2-dn26r)) continue to
-appear in the Trace tab when the `event` chip is ON (default) —
+appear in the focused epoch's Trace tab without a separate event-chip filter —
 the Dynamic Routing lens does not duplicate the firehose, it
 projects the single nav-event that pertains to the focused cascade.
 
@@ -587,7 +589,7 @@ backfills what v1 actually ships.
 
 | Tab | What it carries |
 |---|---|
-| **General** (default) | Text-size slider (range 10–18 px; writes the `--rf-xray-text-size` CSS custom property on the shell root + `<html>` — the **user knob**, pre-existing) · Density radio (`:compact` / `:cosy`; writes the `--rf-xray-font-size` CSS custom property — the **type-scale anchor** per rf2-n8i2c, separately tracked from `--rf-xray-text-size`) · Panel-position radio (`:right-rail` / `:popout` / `:fullscreen` — routes to `mount/open!` / `mount/popout!` / `mount/open-overlay!` via the browser API exports) · Panel-width-px slot (number; default 480; written by the resize handle per [`007-UX-IA.md` §Resize affordance](./007-UX-IA.md#resize-affordance); no in-popup widget — the panel's drag handle is the affordance) · "Auto-open Xray when an issue is observed" checkbox |
+| **General** (default) | Density radio (`:compact` / `:cosy`, the `--rf-xray-font-size` type-scale anchor) · Panel-position radio (`:right-rail` / `:fullscreen`; popout has its own chrome button and `popout!` API) · "Auto-open Xray when an issue is observed" checkbox · Additional visibility, motion, colour, history and editor preferences. Text-size and panel-width remain configurable slots, not popup widgets; width defaults to 560 and is adjusted by the drag handle per [`007-UX-IA.md` §Resize affordance](./007-UX-IA.md#resize-affordance). |
 The Filters tab was retired per rf2-wknb3 — full pill management lives in the top-ribbon filter strip (`filters/pills.cljs`, per [`018-Event-Spine.md`](./018-Event-Spine.md) §7), the per-pill edit popup (`filters/edit_popup.cljs`, `:rf.xray.filters/edit-popup-*` events), and the mute manager modal (rf2-ikuwt). The settings tab's only widget was an "Open auto-filter UI" button dispatching `:rf.xray.filters/open` — an event with no handler registered anywhere — plus a static explainer paragraph. With the management surfaces all canonical elsewhere, the discoverability pointer was redundant.
 
 The Theme tab was retired per rf2-ou3pn — the top-ribbon sun/moon icon (`ribbon-theme-toggle` in `shell.cljs`) is now the canonical light/dark affordance. Both surfaces dispatched the identical `[:rf.xray/settings-update :theme nil <kw>]` event; the popup copy was pure redundancy. The `:use-system-colors?` HCM-override toggle relocated to **General → Power user** — the setting slot has always been `:general :use-system-colors?`; only its cosmetic home in the Theme section is gone with the tab.
@@ -629,9 +631,13 @@ density at `:cosy`.
 | `:general :text-size` | `13` (px) | Matches `theme/tokens.cljc :type-scale :body`. Writes `--rf-xray-text-size`. |
 | `:general :density` | `:cosy` | Matches `theme/tokens.cljc :font-size-default` (13 px). Writes `--rf-xray-font-size` per rf2-n8i2c. |
 | `:general :panel-position` | `:right-rail` | Matches the existing `:rf.xray/layout-host-selector` inline-host posture per [`015-Configuration.md`](./015-Configuration.md). |
-| `:general :panel-width-px` | `480` | Matches the default inline-host `--rf-xray-inline-width` band. Clamped `[320, 0.9 × viewport-width-px]` on every write. Set by the drag handle (rf2-x8h9y); double-click resets to this default. |
+| `:general :panel-width-px` | `560` | Matches the default inline-host `--rf-xray-inline-width` band. Clamped `[320, 0.9 × viewport-width-px]` on every write. Set by the drag handle (rf2-x8h9y); double-click resets to this default. |
 | `:general :auto-open-on-error?` | `false` | The user is in their app, not asking Xray to interrupt them. |
-| `:theme` | `:dark` | Xray is a dev tool; the canvas-and-chrome palette in `theme/tokens.cljc` is the dark one. |
+| `:theme` | `:light` | Matches the shipped light-default palette; the ribbon toggles light/dark. |
+
+These are the primary popup defaults, not the whole persisted schema.
+The complete nested map, including resize, disclosure, editor and motion
+preferences, is [015 §`:rf.xray/settings`](015-Configuration.md#rfxraysettings).
 
 ### Persistence
 
@@ -651,6 +657,11 @@ density at `:cosy`.
   reactive re-render of the popup's controls). Without the dual-write
   the popup's radio buttons would not redraw until the user closed
   and reopened the modal.
+- **Unreadable storage.** Invalid EDN or a non-map payload uses the
+  defaults plus the host's configured Settings seed in memory. Unknown
+  top-level sections are ignored. Loading does not erase the stored
+  payload or show a corruption toast; there is no whole-map Malli
+  validation step. Explicit reset is described below.
 
 ### Auto-open-on-error semantics
 
@@ -715,8 +726,10 @@ a corporate fork that wants light theme as the factory default).
 
 ### Reset to defaults
 
-`config/reset-settings-to-defaults!` clears the localStorage payload
-and resets the in-memory atom to `default-settings`. No popup
+`config/reset-settings!` clears the localStorage payload and the
+configured Settings seed, and resets the in-memory atom to
+`default-settings`. It is a state/storage helper, not a live-shell
+remount or an `apply-all!` command. No popup
 affordance ships in v1 — factory-reset stays **code-only**. The
 "Actions" tab that would have hosted a reset button was dropped per
 [`018-Event-Spine.md`](./018-Event-Spine.md) §9; the only destructive

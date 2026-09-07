@@ -10,7 +10,7 @@
 > upload dialogs, multi-tab flows, visual-regression pixel diffs).
 >
 > A minimum-viable Playwright probe for a Story-using app. Navigates
-> to `#/stories/<variant-id>`, waits for the canvas to mount, asserts
+> with the `variant=` query parameter, waits for the canvas to mount, asserts
 > a `[data-test=...]` selector, captures a screenshot keyed by
 > `snapshot-identity`. Pair this with the production-quality gates in
 > [`tools/story/test/story_browser_scenarios.cjs`](../test/story_browser_scenarios.cjs)
@@ -25,7 +25,7 @@ Playwright e2e probe of their own variants. The recipe covers:
 
 - Wiring Playwright to a shadow-cljs `npm run watch` (or a static
   `story:build` output) URL.
-- Navigating to a variant via its URL hash route.
+- Navigating to a variant via its share-URL query parameter.
 - Waiting for the canvas to mount and Story's chrome to settle.
 - Asserting against a `[data-test=...]` selector in the variant's
   rendered hiccup.
@@ -40,10 +40,8 @@ on-ramp.
 
 ## Prerequisites
 
-- Story 0.x shell mounted at the page root via `mount-shell!`. The
-  variant URL hash route (`#/stories/<variant-id>`) MUST be wired
-  through `re-frame.story.ui.url-state/hydrate!` at boot (the
-  shell's standard install does this — see
+- Story shell mounted via `mount-shell!`. Its standard mount hydrates
+  variant selection from `window.location.search` (see
   [`014-Chrome-Features.md`](014-Chrome-Features.md) §URL state).
 - Variants of interest carry stable `[data-test=...]` selectors in
   their rendered hiccup. The view, not the variant body, declares
@@ -72,10 +70,11 @@ const { test, expect } = require('@playwright/test');
 
 const BASE_URL = process.env.STORY_BASE_URL || 'http://localhost:8080';
 
-/** Navigate to a Story variant via its URL hash route. */
+/** BASE_URL names a page that mounts Story; preserve any host hash route. */
 async function gotoVariant(page, variantId) {
-  await page.goto(`${BASE_URL}/#/stories/${encodeURIComponent(variantId)}`,
-    { waitUntil: 'load' });
+  const url = new URL(BASE_URL);
+  url.searchParams.set('variant', variantId.replace(/^:/, ''));
+  await page.goto(url.toString(), { waitUntil: 'load' });
 
   // The shell mounts asynchronously; wait for the three landmark
   // regions Story always renders.
@@ -119,14 +118,14 @@ assert, screenshot) plus the canonical wait pattern.
 
 ## How it works
 
-### URL hash routing
+### Variant query and host routing
 
-Story's shell consumes `window.location.hash` to resolve which
-variant to mount. The hash format is `#/stories/<url-encoded
-variant-id>`. The fragment encoder is symmetric with
-`variant-share-url`'s output (per
-[`API.md`](API.md) §URL surfaces), so a URL pasted from the share
-popover navigates correctly.
+Story resolves the variant from the `variant=` query parameter. A host
+application may mount the shell at a route such as `#/stories`; that
+fragment belongs to the host, not Story's variant selector. Set `BASE_URL`
+to that complete host page (or a direct static shell). For example:
+`http://localhost:8080/counter-with-stories/?variant=story.counter%2Floaded#/stories`.
+The share builder preserves the fragment and writes params before it.
 
 ### Landmark waits
 
@@ -140,25 +139,22 @@ Three semantic landmarks always render once the shell is up:
 
 Waiting for `main` then for the canvas's `data-test-variant`
 selector is the correct gate — the canvas mounts only after the
-shell resolves the variant id from the URL hash.
+shell resolves the variant id from the query.
 
 ### The first-visit help overlay
 
 Story ships a one-shot first-visit help overlay (rf2-381i). On a
 fresh `localStorage` it covers the canvas with a modal dialog and
 intercepts pointer events. The recipe dismisses it if open; for CI
-runs that hit a persistent profile you can instead prime the
-"already-seen" key once at the start of the suite:
+runs you can instead prime the "already-seen" key before navigation in
+each test's own browser context:
 
 ```js
-test.beforeAll(async ({ browser }) => {
-  const ctx = await browser.newContext();
-  const page = await ctx.newPage();
-  await page.goto(BASE_URL);
-  await page.evaluate(() => {
+test.beforeEach(async ({ page }) => {
+  // Install before navigation, in the SAME context the test will use.
+  await page.addInitScript(() => {
     localStorage.setItem('re-frame.story/seen-help-v1', '1');
   });
-  await ctx.close();
 });
 ```
 
@@ -171,9 +167,11 @@ Story stamps two `data-*` attributes onto the canvas root:
 | `data-test-variant` | The variant id (`:story.counter/at-five`) | Probe scope — assert "I'm looking at the right cell." |
 | `data-snapshot-hash` | The content-hash from `snapshot-identity` | Visual-regression key — name screenshots by hash so a stable variant produces a stable filename. |
 
-The hash includes `:variant-id`, `:active-modes`, `:substrate`, and
-`:content-hash` (the canvas's rendered hiccup). Changing any of
-those changes the hash; pixel-diffing then compares like-for-like.
+The hash fingerprints the variant's declared render inputs, including
+resolved args, modes, substrate and schema digest. It is not a hash of
+rendered hiccup or pixels, and a view implementation can change while the
+input hash stays stable. Capture and compare pixels even for a matching
+input hash; use it to identify the input cell, not to skip the render.
 See [`002-Runtime.md`](002-Runtime.md) §Snapshot identity for the
 full hash recipe.
 
@@ -183,16 +181,14 @@ Selectors are the view's responsibility, not the variant body. The
 canonical pattern:
 
 ```clojure
-(rf/reg-view :app.ui/counter
-  (fn [_]
-    (let [n        @(rf/subscribe [:counter/value])
-          dispatch (:dispatch (rf/capture-frame))]   ;; frame captured at render — survives the deferred click
+(rf/reg-view ^{:rf/id :app.ui/counter} counter [_]
+    (let [n @(subscribe [:counter/value])] ;; injected operations capture the render's frame
       [:div
        [:button {:on-click  #(dispatch [:counter/decrement])
                  :data-test "counter-decrement"} "−"]
        [:span {:data-test "counter-value"} n]
        [:button {:on-click  #(dispatch [:counter/increment])
-                 :data-test "counter-increment"} "+"]])))
+                 :data-test "counter-increment"} "+"]]))
 ```
 
 Every variant of every story that mounts this view gets these
@@ -200,7 +196,7 @@ selectors. The variant body stays pure data.
 
 ## Driving state — Story's preferred path
 
-Playwright `userEvent.click(...)` works against Story canvases, but
+Playwright `locator.click()` works against Story canvases, but
 it is rarely the right tool for Story-driven probes. The variant
 body's `:script` slot is already a sequence of EDN steps that
 drive the variant's frame; let Story dispatch them and use Playwright
@@ -244,9 +240,9 @@ else.
 
 ## Common pitfalls
 
-- **Forgetting to URL-encode the variant id.** A variant id like
-  `:story.auth.login-form/happy-path` carries a `/`; without
-  `encodeURIComponent` it breaks the hash route.
+- **Constructing query state by string concatenation.** Use
+  `URL.searchParams` or the share builder so ids and override values
+  round-trip without colliding with query delimiters or the host route.
 - **Asserting before the canvas mounts.** The landmark waits are
   not optional. The shell's internal nav-to-mount latency is a
   few hundred ms on a warm dev server; without the wait the

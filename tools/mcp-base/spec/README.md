@@ -60,9 +60,9 @@ transport runtime deps either.
 
 The two shipped servers use different registry-handler arities —
 pair-mcp is 3-arity `(fn [conn args extra])`, story-mcp is 1-arity
-`(fn [args])`. The divergence is deliberate (pair-mcp needs `conn`
-for nREPL and `extra` for streaming; story-mcp is single-process and
-needs neither) and is documented in full at
+`(fn [args])`. Pair needs `conn` for nREPL; its dispatcher also passes
+`extra`, which all currently shipped handlers ignore. Story is single-process
+and needs neither slot. The current conventions are documented in full at
 [`handler-arity.md`](handler-arity.md).
 
 ## What deliberately does not live here

@@ -34,6 +34,15 @@ All tools dispatch through `re-frame.story-mcp.server`'s `tools/call`
 handler; their definitions live in
 `re-frame.story-mcp.tools.registry/tool-registry`.
 
+The shapes below use EDN notation for readability. JSON requests encode
+keyword ids as strings (for example `":story.button/primary"`), and
+sets are available through EDN-string bodies rather than JSON arrays.
+Every tool also accepts `max-tokens` (default 5000; `0` disables the
+wire cap). `preview-variant` and `run-variant` additionally accept
+`dedup` (default `true`); expand a returned `:rf.mcp/dedup-table`
+before reading their result fields. See
+[the wire-budget and dedup contracts](Principles.md#tight-token-budget-per-response).
+
 ## Run options (rf2-sw1d)
 
 `preview-variant`, `run-variant` and `snapshot-identity` share one
@@ -86,8 +95,8 @@ tuple.
 
 **Input.** `{}` — no arguments.
 
-**Output.** `{:content [{:type :text :text "..."}]}` — the
-agent-onboarding text.
+**Output.** Agent-onboarding text in `content`, plus
+`structuredContent {:instructions "..."}` carrying the same prose.
 
 **Spec.** [`002-Tool-Registry.md`](002-Tool-Registry.md) §Dev.
 
@@ -152,7 +161,7 @@ form disallows it.
  :app-db         map
  :assertions     [map]    ; unified records, each with a derived :status
  :checks         [map]
- :snapshot       {:variant-id ..., :mode ..., :substrate ..., :content-hash ...}
+ :snapshot       {:variant-id ..., :active-modes [...], :substrate ..., :content-hash ...}
  :elapsed-ms     number
  :effective-args map}
 ```
@@ -187,7 +196,7 @@ returns the **capability-unavailable error** instead (`isError true`,
 
 ### Pagination (rf2-76sf6)
 
-Every `list-*` tool accepts the cross-MCP pagination contract
+The five Docs-category `list-*` tools accept the cross-MCP pagination contract
 per spec/Principles.md §"Tight token budget":
 
 ```clojure
@@ -428,7 +437,7 @@ shape the human Story UI reads; `re-frame.story.result/run-result`):
  :effects            [map]
  :sub-runs           [map]
  :renders            [map]
- :narrative          map
+ :narrative          [map]    ; ordered narrative beats
  :app-db             map
  :snapshot           map
  :elapsed-ms         number}
@@ -480,7 +489,7 @@ believes. See [§Run options](#run-options-rf2-sw1d).
 
 ```clojure
 {:variant-id   keyword
- :mode         keyword | nil
+ :active-modes [keyword]
  :substrate    keyword | nil
  :content-hash string}
 ```
@@ -566,10 +575,10 @@ Pinned by the end-to-end conformance harness at
 `:include-sensitive` follows the same `--allow-sensitive-reads`
 boot gate as `preview-variant` / `run-variant`. Assertion records
 stamped `:sensitive? true` are dropped at egress by default; the
-`:status` aggregate runs against the SCRUBBED vec so an
-agent's view of the verdict is consistent with the records it
-actually sees (a dropped sensitive failure does not quietly flip
-`:status` to `:pass`).
+`:status` aggregate runs against the SCRUBBED vec: it describes only
+the visible records and may be `:pass` even when a sensitive failure
+was omitted. A non-zero `:dropped-sensitive` count reports that
+omission; use `run-variant` for the full run verdict.
 
 ## Write tools (gated)
 
@@ -612,15 +621,24 @@ When `:body` is a string, it's parsed as EDN under a hardened policy
 The JSON-object form is preferred when keywords aren't structurally
 required in the body — the EDN-string form exists for callers whose
 body shape (e.g. `:tags #{:dev}`) can't round-trip through JSON.
+Object-form bodies have the same depth ceiling and a maximum of 1024
+string keys across the tree, checked before those keys are keywordised;
+an over-width body returns `:rf.error :rf.story-mcp/body-too-wide`.
 
 **Output.** `{:registered? true :variant-id ...}` on success.
 
 **Errors.**
-- `isError: true` when gate is closed (`{:gated true :reason "..."}`).
+
+- `isError: true` when gate is closed
+  (`structuredContent {:gated true :tool "register-variant"}`).
 - `isError: true` when `:body` fails `:rf/variant` schema validation.
 - `isError: true` when `:body` is a string that fails the EDN reader
   hardening above (`"must be a map or a valid EDN string"`).
-- `isError: true` when the parent story is not registered.
+
+Variant registration neither requires nor creates a parent story.
+To publish parent-level metadata, load an application namespace that
+registers it through Story's `reg-story` / `reg-story*` surface; there
+is no `register-story` MCP tool.
 
 A schema-violation error carries the registrar's diagnostic on both
 slots: the `:content` text is `"Registration failed: "` plus the

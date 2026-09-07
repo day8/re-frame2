@@ -11,7 +11,7 @@ Persistent data structures share subtrees in memory; `pr-str` flattens the shari
 
 Both shipped servers emit the same kinds of duplicate-rich payloads:
 
-- **re-frame2-pair-mcp** — the `:epochs` slice (`:db-before` + a path-keyed `:db-after` diff against it) and the per-tick subscribe `:events` vector.
+- **re-frame2-pair-mcp** — the `:epochs` slice (`:db-before` + a path-keyed `:db-after` diff against it) in snapshot and polling results.
 - **story-mcp** — `run-variant` results (`:app-db` + `:snapshot` + the evidence slots, the same sensitive values reappearing across several derived trees) and assertion vectors.
 
 Both servers require `re-frame.mcp-base.dedup` directly. The shared `.cljc` transform and marker shape are exercised on JVM and CLJS by `re-frame.mcp-base.dedup-test`.

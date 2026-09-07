@@ -29,8 +29,9 @@ pre-connection write refusals, and JSON-RPC error codes.
 
 `test/end-to-end-story.cjs` starts story-mcp with writes enabled. It
 checks the catalogue and descriptors, then drives the closed-world reads
-and the complete register, inspect, preview, run, record, and unregister
-workflow.
+and the register, inspect, preview, run, explain, snapshot-identity and
+unregister workflow. It also proves the retired `record-as-variant` tool is
+absent and rejected; it does not exercise a live recorder bridge.
 
 `test/end-to-end-project-stories.cjs` starts story-mcp through a
 consumer project's own launch alias (`clojure -M:story-mcp` from the

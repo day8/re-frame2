@@ -186,9 +186,9 @@ was never installed.
 `snapshot`'s `:epochs` slot is held to the SAME projection
 contract as `trace-window` / `watch-epochs` (rf2-6wvh5): every
 epoch record in the slice is mapped through `projected-record`
-server-side when the slice expands to `:full`, gated by the
-`:include-sensitive` two-key opt-in (the launch flag AND the
-per-call arg). Before rf2-8fin7.1 the `:epochs` slice was
+server-side when the slice expands to `:full`. The
+`:include-sensitive` two-key opt-in (launch flag AND per-call arg)
+changes only the app-db sensitive axis within that projection. Before rf2-8fin7.1 the `:epochs` slice was
 `:redact-fn`-only — the client-side sensitive scrub merely DROPS
 whole epochs stamped `:rf.epoch/sensitive? true` and never
 redacts a sensitive slot inside a non-sensitive epoch — so a
@@ -205,10 +205,11 @@ and all three are now gated:
 - `trace` (`dispatch-and-collect`) and `settle`
   (`dispatch-and-settle!`) return the raw `:epoch` (+ `:render-events`
   for settle). Both route the result's epoch slots through
-  `re-frame.core/projected-record` server-side under the OFF default,
-  gated by the `:include-sensitive` two-key opt-in (the launch flag
-  AND the per-call arg) — identical to `trace-window` / `watch-epochs`
-  / `snapshot :epochs`. This projection runs on BOTH transports of the
+  `re-frame.core/projected-record` on every call. The
+  `:include-sensitive` two-key opt-in (launch flag AND per-call arg)
+  lifts only the app-db sensitive axis inside that projection — identical
+  to `trace-window` / `watch-epochs` / `snapshot :epochs`; it is not a raw
+  epoch bypass. This projection runs on BOTH transports of the
   epoch-bearing modes: the synchronous (non-await) path AND the
   `await-render` path (where an explicit `trace` still resolves to
   `dispatch-and-collect`'s raw `:epoch`) — the await-render epoch
@@ -686,8 +687,8 @@ CLI flags:
 | Flag                      | Default       | Effect when set |
 |---------------------------|---------------|------------------|
 | `--no-eval`               | absent (eval-cljs ON) | Disables `eval-cljs` (rf2-a0z0h; inverts the prior rf2-cxx5s default-OFF posture). Default is eval-cljs ENABLED — it is the REPL primitive of a pair-debug session. With this flag, `eval-cljs` returns `{:ok? false :reason :rf.error/eval-cljs-disabled}` without touching the nREPL socket. |
-| `--allow-sensitive-reads` | OFF           | Honours caller-supplied `:include-sensitive true` and `:elision false` on every off-box value-egress surface — the direct-read tools (`snapshot`, `get-path`, `read-sub`, `list-subscriptions :include-values`, `trace-window`, `watch-epochs`), the signal recorders (`record`/`read-recording`, `watch-until`), `dispatch`'s epoch-bearing `:trace`/`:settle` modes (rf2-olvr5 / rf2-m9duxl), AND `dispatch-dry-run` (rf2-z7roa), whose `:db-state-after-simulation` + `:would-fire-effects[*].args` slots are app-db/fx-derived egress. Also signals the preload runtime to ship verbatim payloads through `app-db-reset!`'s `tap>` emission. Canonical cross-MCP flag name shared with story-mcp (rf2-2x3ql). |
-| `--allow-writes`          | OFF           | Enables the state-mutating tools `restore-epoch` (time-travel undo) and `replace-app-db` (state injection). Without the flag, both return `{:ok? false :reason :rf.error/writes-disabled}` without touching the nREPL socket. `dispatch` (which drives the application's own handlers) is unaffected. The descriptors still appear in `tools/list`; the gate is enforced at `tools/call` time. Note: this gate protects the named-write audit trail; it does NOT defend against eval-driven writes (eval-cljs can express the same writes), so for a true read-only posture compose with `--no-eval`. |
+| `--allow-sensitive-reads` | OFF | Enables the per-call disclosure knobs documented by each value-egress tool; it does not reveal every payload class by itself. Direct app-db reads have independent `include-sensitive` and `elision` axes; epochs always use `projected-record` and `include-sensitive` lifts only its app-db sensitive axis. Dry-run effect arguments additionally require `include-fx-args true`. Also signals the preload's launch-time raw-state posture for `app-db-reset!` taps and compact cascade summaries. Canonical cross-MCP flag name shared with Story-MCP. |
+| `--allow-writes`          | OFF           | Enables the state-mutating tools `restore-epoch` (time-travel undo) and `replace-app-db` (state injection). Without the flag, both return `{:ok? false :reason :rf.error/writes-disabled}` without touching the nREPL socket. `dispatch` (which drives the application's own handlers) is unaffected. The descriptors still appear in `tools/list`; the gate is enforced at `tools/call` time. Note: this gate protects the named-write audit trail; it does NOT defend against eval-driven writes (eval-cljs can express the same writes). `--no-eval` additionally removes eval-driven writes, but neither flag disables `dispatch` or `replay-epoch`; the combination is not a read-only mode. |
 
 ### Launch-config validation (rf2-a0kxsb)
 
@@ -942,7 +943,7 @@ marker so consumers can branch.
 |-----------------------|-----------------------------------|-------|
 | `:epoch-id`           | `:any` (integer in ref runtime)   | The assembled epoch's id. |
 | `:event-id`           | keyword                           | The triggering event-id. Absent on synthetic / halted-trigger-less paths. |
-| `:event-vector`       | vector or `:rf/redacted`          | The original dispatch vector. Absent on synthetic paths. **Redacted to `:rf/redacted` when the source epoch is `:rf.epoch/sensitive? true` and `--allow-sensitive-reads` is OFF** (rf2-6nks4) — the raw trigger-event payload (auth tokens, passwords, …) must not cross the off-box boundary under the default posture. Rides verbatim only when the operator opted in via `--allow-sensitive-reads`. |
+| `:event-vector` | vector | The original dispatch vector, absent on synthetic paths. With `--allow-sensitive-reads` OFF, preserves the event id and replaces each argument with `:rf/redacted`, regardless of the epoch's sensitivity rollup. The runtime's launch-gated raw-state opt-in governs this compact-summary slot separately from projected epochs. |
 | `:frame`              | keyword                           | The frame-id the cascade settled in. |
 | `:outcome`            | `:ok` / `:blocked` / `:error`     | The consumer-facing tier per `outcome->consumer-facing`. Forced `:error` when the cascade contained a thrown handler / machine action — see §Contained throws below. |
 | `:db-diff`            | `{:changed-paths [...] :added-paths [...] :removed-paths [...]}` | Depth-1 path summary of the db delta. Each path is a one-key vector (e.g. `[:cart]`); drill in via `get-path`. |
@@ -992,7 +993,7 @@ rewound" need to know which side-effects already escaped the framework.
 
 ### Pending cascades (queued dispatch)
 
-Queued `dispatch` (the default `sync? false` `trace? false` mode) may
+Queued `dispatch` (explicit `queued true`, with no synchronous mode selected) may
 return BEFORE the cascade drains — the goog.async tick fires later.
 When the operating frame's epoch-history head did NOT advance during
 the call, the response carries `:cascade-summary-pending? true` and
@@ -1010,13 +1011,18 @@ the trace stream — the dev/prod boundary is the same as `watch-epochs`.
 
 ## dispatch
 
-Fire a re-frame2 event tagged with `:origin :pair`. Three modes:
+Fire a re-frame2 event tagged with `:origin :pair`. Mode precedence,
+from highest to lowest:
 
-| `sync`? | `trace`? | Mode |
-|---------|----------|------|
-| false   | false    | queued (`rf/dispatch`) |
-| true    | false    | sync (`rf/dispatch-sync`) |
-| any     | true     | trace (synchronous, returns the assembled `:rf/epoch-record`) |
+| Selection | Mode | Runtime call and result |
+|---|---|---|
+| `settle true` | settle | `dispatch-and-settle!`: synchronous dispatch + render flush, projected epoch and render events. Wins over every other mode. |
+| `trace true` (without settle) | trace | `dispatch-and-collect`: synchronous dispatch and projected epoch. |
+| `queued true`, with none of `sync`, `await-render`, `trace`, `settle` true | queued | `pair-dispatch!`: asynchronous transport acknowledgement. |
+| Otherwise, including no mode flags | sync | `dispatch-consequence!`: synchronous dispatch and compact consequence (`:db-changed?`, `:changed-paths`, `:effects-fired`, `:no-op?`, `:resolved`, `:cascade-summary`). |
+
+`sync true` explicitly selects the default consequence path and defeats
+`queued`; `sync false` alone does not request asynchronous dispatch.
 
 **Args**: `event` (string, required — EDN-encoded event vector),
 `sync` (bool), `trace` (bool), `settle` (bool, rf2-vk79g — the most
@@ -1032,7 +1038,7 @@ EDN map of scripted recordable coeffects, e.g.
 *Reproducible dispatch* below), `replay` (bool, default `false` —
 re-drive the recorded event under `:rf.cofx/mint-policy :strict`; see
 *Strict replay* below), `include-sensitive` (bool, default `false` — ship the
-raw `:epoch` / `:event-vector` verbatim; honoured ONLY under
+declared-sensitive app-db leaves in projected epochs; transient payload and runtime-partition floors remain; honoured ONLY under
 `--allow-sensitive-reads`, rf2-8fin7.3), `build` (string).
 
 The `frame` arg is colon-tolerant (rf2-ldfnx): both the documented
@@ -1050,43 +1056,25 @@ tool reported `{:mode :sync}`. That silent wrong-success is fixed.)
 every successful dispatch surfaces a `:cascade-summary` slot — see
 §Universal: cascade summary on state-mutating tools above for the
 shape and the `:cascade-summary-pending?` behaviour on queued mode.
-Trace mode additionally carries the full `:epoch` (the verbatim
-assembled record) alongside the compact summary; settle mode carries
-the settled `:epoch` plus `:render-events`.
+Trace mode additionally carries the projected `:epoch` alongside the
+compact summary; settle mode carries the projected settled `:epoch`
+plus `:render-events` derived from that projected record.
 
-**Epoch-egress privacy (rf2-8fin7.3).** `dispatch` egresses
-epoch-derived sensitive payloads on THREE paths, all governed by the
-`--allow-sensitive-reads` boot gate (OFF by default), with posture
-parity to `dispatch-dry-run`:
+**Epoch-egress privacy.** Trace and settle always route their epoch
+through `re-frame.core/projected-record` with the off-box-tool profile;
+settle's `:render-events` are selected from that projected epoch.
+The `--allow-sensitive-reads` + `include-sensitive true` combination
+only lifts declared-sensitive app-db leaves. It does not bypass
+runtime-db partition redaction, transient event/fx argument floors,
+large-value elision, or the app-installed `:redact-fn`.
 
-1. **`trace` `:epoch`** (`dispatch-and-collect`) and **`settle`
-   `:epoch` + `:render-events`** (`dispatch-and-settle!`) route the
-   result's epoch slots through `re-frame.core/projected-record`
-   server-side under the OFF default — sensitive leaves land as
-   `:rf/redacted`, large slots elide, the cascade stays structurally
-   useful (db deltas, fx-fired, sub-runs, renders, event-id all
-   survive). Raw rides only when the operator launched with
-   `--allow-sensitive-reads` AND passed `:include-sensitive true` (the
-   two-key opt-in shared with the pull-mode epoch tools). This mirrors
-   `trace-window` / `watch-epochs` / `snapshot :epochs` exactly.
-2. **The DEFAULT cascade-summary `:event-vector`** (any mode — it
-   copies the epoch's raw `:trigger-event`, e.g.
-   `[:auth/sign-in {:password "…"}]`) redacts to `:rf/redacted` for a
-   sensitive epoch. `dispatch` issues `configure-raw-state!`
-   (`raw-state/signal-runtime!`) between the preload probe and the
-   dispatch eval, so the runtime's `raw-state-config` flips out of its
-   permissive `{:allow-raw-state? true}` default and
-   `redact-sensitive-event-vector` fires. Before rf2-8fin7.3 `dispatch`
-   was the lone state-emitting tool that never signalled, so a
-   FIRST-in-session sensitive dispatch shipped its raw event vector
-   off-box even under the OFF gate — a fail-open default, not a
-   trace-mode-only leak. See §Universal: cascade summary (the
-   `:event-vector` redaction) + §`--allow-sensitive-reads` above, and
-   [Security §Epoch privacy posture](../../../spec/Security.md#epoch-privacy-posture--raw-in-process-records-vs-projected-egress)
-   / [Tool-Pair §Time-travel](../../../spec/Tool-Pair.md#time-travel-epoch-snapshots-and-undo).
-
-A non-sensitive epoch / event is byte-identical gated or not — there
-is no friction where there is nothing to protect.
+The compact cascade-summary's `:event-vector` is a separate runtime
+surface. Under the default gate-OFF posture it preserves the event id
+and replaces every argument with `:rf/redacted`, irrespective of the
+epoch's sensitivity rollup. `dispatch` signals the launch-time raw-state
+posture before its eval, including a first-in-session dispatch. See
+[the launch gate](#universal-server-launch-flags) and
+[Security's epoch privacy posture](../../../spec/Security.md#epoch-privacy-posture--raw-in-process-records-vs-projected-egress).
 
 **Success-vs-error contract (rf2-ldfnx).** The `:mode` slot is the
 caller's signal that the dispatch took effect, so it appears ONLY on a
@@ -1270,8 +1258,10 @@ Reagent or UIx.
 
 **Wire shape.** `:await-render` forces synchronous dispatch (the cascade
 must commit before the render can settle against the new state), so the
-result is the `pair-dispatch-sync!` envelope (`:cascade-summary`,
-`:epoch-id`, …) with `:mode :sync :settled? true` merged in. The runtime
+default result is the `dispatch-consequence!` envelope with
+`:mode :sync :settled? true` merged in. `trace true` instead keeps the
+trace result; `settle true` takes precedence and uses its own synchronous
+render-flush path. The runtime
 form's synchronous return is a browser-side Promise; the server awaits
 it through the shared await mailbox (the same plumbing `eval-cljs :await`
 uses — `re-frame2-pair-mcp.tools.await-promise`). The rf2-ldfnx
@@ -1283,8 +1273,9 @@ within `:timeout-ms` (default `5000`) returns
 
 | `await-render`? | dispatch fn | resolves after |
 |-----------------|-------------|----------------|
-| false (default) | per `sync`/`trace` mode | handler commit (today's semantics) |
-| true            | `pair-dispatch-sync!` (forced; `trace` still wins for the assembled epoch) | substrate flush (`after-render`) + next paint (`requestAnimationFrame`) |
+| false (default) | per resolved mode above | mode-specific boundary (queued is an acknowledgement only) |
+| true, without `settle` | `dispatch-consequence!`; `trace` selects `dispatch-and-collect` | substrate flush (`after-render`) + next paint (`requestAnimationFrame`) |
+| any, with `settle` | `dispatch-and-settle!` | synchronous render flush and settled epoch |
 
 ## dispatch-dry-run
 
@@ -1411,26 +1402,19 @@ as the direct-read surfaces (`snapshot` / `get-path`;
 see §`--allow-sensitive-reads`), reusing the existing model rather than
 minting a new confirmation gate:
 
-- **Default (gate OFF)**: `:db-state-after-simulation` and every
-  `:would-fire-effects[*].args` slot are run through the
-  size/sensitive elision walker (`re-frame.core/elide-wire-value`)
-  server-side, before the EDN crosses the wire. Large slots collapse
-  to `:rf.size/large-elided` markers; declared-`:sensitive?` slots
-  redact to `:rf/redacted`. The per-call `elision false` /
-  `include-sensitive true` knobs are forced safe.
-- **Gate ON (`--allow-sensitive-reads`)**: the per-call `elision` /
-  `include-sensitive` knobs win again, but the two axes are
-  independent and the walker FAILS CLOSED (EP-0015, rf2-t55hxg.13).
-  `elision false` opts large content back IN (`:rf.size/include-large?
-  true`) but, on its own, does NOT reveal sensitive slots — a
-  declared-`:sensitive?` slot still redacts to `:rf/redacted`. Revealing
-  sensitive data requires the explicit per-call `include-sensitive true`
-  opt-in. Only the deliberate full-raw combination — `elision false` AND
-  `include-sensitive true` — ships the raw simulation details verbatim
-  (the trusted-local `:rf.egress/local-raw` boundary).
-- `:cascade-summary` is a depth-bounded projection (path lists +
-  counts, not verbatim values) so it rides through unwalked, the same
-  as `dispatch` / `replace-app-db` / `restore-epoch` (rf2-6yqdl).
+- **App-db projection**: `:db-state-after-simulation` runs through
+  `re-frame.core/elide-wire-value`. With the launch gate OFF, the
+  per-call knobs are forced safe. With it ON, `elision false` includes
+  large app-db values and `include-sensitive true` includes declared-
+  sensitive app-db leaves; these are independent axes.
+- **Effect arguments**: every `:would-fire-effects[*].args` is
+  `:rf/redacted` by default, including with the launch gate ON.
+  These transient payloads are not in the app-db classification
+  keyspace. Revealing them requires the separate `include-fx-args true`
+  opt-in AND `--allow-sensitive-reads`; `include-sensitive` and
+  `elision` do not reveal them.
+- `:cascade-summary` uses the same compact projection and event-vector
+  posture as `dispatch` (see its epoch-egress privacy contract).
 
 Like the read surfaces, the tool also issues `configure-raw-state!`
 (`raw-state/signal-runtime!`) between the preload probe and the eval,
@@ -1440,18 +1424,19 @@ wire payload.
 
 **Args**: `event` (string, required — EDN-encoded event vector),
 `frame` (string, e.g. `":foo"`; defaults to the operating frame),
-`fx-overrides` (object — user-supplied overrides composed on top of
-the dry-run recorder set), `cofx` (string — EDN map of scripted
+`cofx` (string — EDN map of scripted
 recordable coeffects threaded into the simulated dispatch as
 `:rf.cofx`, e.g. `"{:rf/time-ms 1781078400123}"`; see §Composes with
 `cofx`), `elision` (boolean, default `true` —
-applies the elision walker to `:db-state-after-simulation` +
-`:would-fire-effects[*].args`; honoured as `false` only under
+controls large-value elision in `:db-state-after-simulation`;
+honoured as `false` only under
 `--allow-sensitive-reads`), `include-sensitive` (boolean, default
 `false` — pass declared-`:sensitive?` slots verbatim; honoured only
-under `--allow-sensitive-reads`), `build` (string).
+under `--allow-sensitive-reads`), `include-fx-args` (boolean, default
+`false` — reveal recorded effect arguments; honoured only under
+`--allow-sensitive-reads`), `build` (string).
 
-**Returns** (success):
+**Returns** (success, default disclosure posture):
 
 ```clojure
 {:ok?                       true
@@ -1461,8 +1446,8 @@ under `--allow-sensitive-reads`), `build` (string).
  :frame                     :rf/default
  :before-epoch-id           42
  :cascade-summary           {... per §Universal: cascade summary ...}
- :would-fire-effects        [{:fx-id :http :args {:url ...}}
-                             {:fx-id :navigate :args [:order-confirmation]}]
+ :would-fire-effects        [{:fx-id :http :args :rf/redacted}
+                             {:fx-id :navigate :args :rf/redacted}]
  :db-state-after-simulation {...}
  :elision                   true}
 ```
@@ -2168,8 +2153,9 @@ off the wire response rather than via `rf/restore-epoch!`). See
 
 **Full-mode record cap (rf2-lbm21).** When the `:epochs` slice resolves
 to `:full` lazy-summary mode (global `mode "full"` or per-slice `modes
-{"epochs": "full"}`), the slice ships each record **verbatim** —
-`:db-before` plus a full `:db-after` — so an unbounded 50-record
+{"epochs": "full"}`), the slice includes
+`:db-before` plus a full (not diff-encoded) `:db-after`, still subject to
+the off-box epoch projection — so an unbounded 50-record
 history pr-strs to ~50× the app-db and trips the global wire cap,
 replacing the **whole** snapshot with an `:rf.mcp/overflow` marker (and
 losing every other slice). To keep full mode usable, the slice is
@@ -2179,8 +2165,8 @@ dropped, the frame map carries a sibling
 `:rf.mcp/epochs-capped {:shown 10 :total <m> :dropped <d> :kept
 :most-recent :hint ...}` marker so the truncation is explicit, never
 silent. An agent that needs the full history pages via `trace-window`
-/ `watch-epochs` (cursor-bounded) or fetches one record by id via
-`restore-epoch`. The cap is a no-op in `:summary` mode (the slice is
+/ `watch-epochs` (cursor-bounded). `restore-epoch` is a state mutation,
+not a record-fetch operation. The cap is a no-op in `:summary` mode (the slice is
 already a one-line marker) and `:diff` `epochs-mode` (each `:db-after`
 is already a small patch).
 

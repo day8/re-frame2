@@ -59,6 +59,7 @@ registry).
 | `:guard-blocked-edge-ids` | no | `#{}` | rf2-fzrzlw / rf2-4nxgqq / rf2-tjm3u2. A **set** of canonical edge-ids (same scheme as `:fired-edge-ids`) whose **guard REJECTED** the event this epoch — a guard-blocked **no-op** (the runtime emitted `:rf.machine/guard-evaluated` fail/threw but **NO** `:rf.machine/transition`, so the fired set is empty for it). The matching **event-node** AND its **`__in` (source-state → event-node) half** get the guard-blocked treatment — emphasised **PINK** stroke + emphasised pink `IF <guard>` chip — which **WINS** over fired/focused/active (`theme.tokens/edge-color` ranks `blocked? > fired? > focused?/active? > quiet`), so the attempted-and-rejected arm stands out from the all-exits affordance-blue. **The highlight STOPS at the guard event-node** (rf2-4nxgqq): the **`__out` (event-node → target) half stays STATIC/resting** — a blocked no-op never reached the target, so an onward pink arrow would falsely imply the transition progressed (the `__out` topology edge still renders; only the live overlay is withheld). Without any of this a blocked no-op gives ZERO signal which edge the event hit. The host (Xray) resolves the set by **`(source-path, event, guard)`** when trace state is available — `panels.machines.trace-state/extract-guard-blocked-edge-ids` reads the active `:state` the `:rf.machine/guard-evaluated` trace carries and gates each candidate edge whose declaring `:from-path` is a PREFIX of the active path, so a sibling state reusing the same `(event, guard)` is NOT lit (rf2-tjm3u2); a trace with no `:state` falls back to the `(event, guard)` match. **DOM pins are the event-node (`data-guard-blocked`, unconditional) + the chart root (`data-guard-blocked-edge-ids`)** — NOT an edge-half attribute (see the DOM-pin note in §Events-as-nodes below). `nil` / `#{}` → no guard-blocked highlight. **SUPERSET of XState/Stately** (which highlights nothing on a block) — only possible because re-frame2 emits guard-evaluated. Colour = `:edge-guard-blocked` (pink `:magenta-pink`). |
 | `:sim?` | no | `nil` | Flips the highlight palette to amber for the simulator path. |
 | `:on-state-click` | no | `nil` | `(fn [path] ...)`. Fires when the user clicks a **real statechart-state node** — a **leaf state** (its body) or a **compound state** (its **title strip** only; the compound's body stays pointer-transparent so a click inside it falls through to the nested leaf). `path` is the clicked state's path. **Not** fired for the synthetic **machine-root** chip or **parallel-region** containers (no region-selection concept yet) — the projector threads the callback onto leaf + compound `:data` only (rf2-34ff3). No-op'd when `:read-only?` is true. |
+| `:on-edge-click` | no | `nil` | Called with a JavaScript object carrying `eventId`, `fromPath` and `toPath` when a fireable event-node label is clicked. Read fields with JS interop, not CLJS map destructuring. Hosts such as Xray's simulator use it to send the selected event; `:after` / `:always` nodes remain inert. No-op'd when `:read-only?` is true. |
 | `:read-only?` | no | `nil` | When `true`, all `:on-*` callbacks are no-op'd. The viewer page sets this. |
 | `:direction` | no | `:tb` | Layout axis. `:tb` (the **default**) lays the chart top-to-bottom; `:lr` left-to-right; both are fed to elkjs as `elk.direction`. **OPT-IN adaptive — `:auto`** (rf2-lamdfl + rf2-gnrkke): the default `:tb` and an explicit `:tb` / `:lr` take the historical path — the post-ELK adaptive subsystem is **NOT invoked** and the render is byte-identical to the pre-feature output. Pass **`:auto`** to OPT A MACHINE IN to (a) the **adaptive-aspect heuristic** (`chart.post-elk/aspect-direction`: a genuinely-branchy machine — a state fanning to ≥ 3 distinct targets, quiz / modal / gate — flows **landscape** `:lr`; a linear chain stays a **column** `:tb`; a parallel machine resolves `:tb` and gets the region transpose below), **plus** (b) the **post-ELK transforms** (`chart.post-elk/apply-post-elk`: the parallel-region stacking-axis transpose §4.3.2 + the back-edge return-route detour §4.3.1). A host resolves `:auto` from a machine's `:layout {:aspect :adaptive}` hint or its own layout intent. The resolved direction is fed to elkjs as `elk.direction`. The opt-in gate is the single predicate `chart.post-elk/adaptive?` (true ONLY for `:auto`). See `001-Topology-Parity.md` §4.3.1 + §4.3.2. |
 | `:layout-options` | no | `nil` | Host-side elkjs `layoutOptions` overrides merged on top of `default-elk-options` (`chart.cljs/default-elk-options`). `default-elk-options` carries `elk.edgeRouting ORTHOGONAL` + `elk.json.edgeCoords ROOT` (G2 bend-point routing) plus the edge-clearance keys (`elk.spacing.edgeNode` / `elk.layered.spacing.edgeNodeBetweenLayers` / `elk.spacing.edgeEdge`) and label-placement keys (`elk.edgeLabels.placement CENTER` / `elk.spacing.edgeLabel`) so ELK routes edges *around* nodes and *places* labels in reserved channels (rf2-rlq97). The `:direction` arg drives `elk.direction`, and the chart auto-sets `elk.hierarchyHandling INCLUDE_CHILDREN` on the root layout whenever the graph nests (parallel regions or compound substates) so elk routes edges ACROSS nesting levels (parity gap G5 / rf2-gpa9k — see `chart.cljs/elk-layout-options`). |
@@ -1207,8 +1208,8 @@ chrome-only tokens (`:chrome-ribbon-*`, `:diff-*`, `:syntax-*`,
 
 ### Resolution rules
 
-- `:theme nil` or an unrecognised value ≡ `:dark` (the Xray default
-  surface). Unlike `:density` (which throws on an unknown value),
+- `:theme nil` or an unrecognised value ≡ `:dark` (the chart's own
+  default; hosts pass their active theme). Unlike `:density` (which throws on an unknown value),
   `:theme` degrades to dark — a colour fallback is graceful, a geometry
   fallback would silently mis-size.
 - The resolved theme surfaces on the chart's root wrapper as
@@ -2041,8 +2042,9 @@ summarises the machine: id, current state, node count, transition count.
 The SVG carries the full viewport (state boxes + active-state
 affordance + edges, per [§What the image exporters capture](#what-the-image-exporters-capture-rf2-sr6l3))
 plus `<title>` and `<desc>` elements summarising the machine (same
-content as the PNG sidecar). Fonts are embedded so the SVG renders with
-the same typography when pasted into a doc or a Figma frame.
+content as the PNG sidecar). Font families are referenced by name, with
+system-monospace fallbacks; glyph data is not embedded. The receiving
+environment therefore determines the available font face.
 
 The `<title>` / `<desc>` text is **XML-escaped** (rf2-85a9do): the
 viewport clone is serialised with `XMLSerializer` (which escapes for us),
@@ -2101,6 +2103,9 @@ viewer someone actually serves is a dead link (rf2-8m344).
 (export/chart-as-mermaid chart-element)
 ;; => String — convenience wrapper that pulls `definition` off the
 ;;    bound chart-element and calls `mermaid/emit`
+
+(export/chart-as-mermaid chart-element {:fenced? false :header-comment? false})
+;; => String — the optional second argument is passed to `mermaid/emit`
 
 (export/copy-mermaid-to-clipboard! chart-element)
 ;; => Promise; clipboard contains the fenced markdown block as
@@ -2382,8 +2387,10 @@ sentence, and `ex-message` leads with the sentence and trails the
 
 ## AI-generate-a-machine (v1.1, rf2-1bncf)
 
-A pure library fn that takes a natural-language prompt and returns
-a normalised re-frame2 machine spec. The LLM call is pluggable —
+A library fn that takes a natural-language prompt and returns
+a validated re-frame2 machine spec, preserving the authored form (including
+`:timeout` / `:choice` sugar after validating its desugared shape).
+The LLM call is pluggable —
 the fn accepts an injected `:resolver` so callers wire in whichever
 LLM bridge fits their environment (Anthropic API / OpenAI API /
 local Ollama / Xray's chat seam / re-frame2-pair-mcp).
@@ -2552,10 +2559,12 @@ day8.re-frame2-machines-viz.export/copy-mermaid-to-clipboard!
 day8.re-frame2-machines-viz.export/copy-share-url-to-clipboard!
 ```
 
-No global state, no init function. The component is referentially
-transparent over its props; the share / export functions are pure
-(modulo the clipboard). The v1.1 SCXML + AI-generate surfaces are
-pure-data and JVM-callable.
+No framework init or registry subscription is required. The chart owns
+component-local layout state and consumes host-fed props. Mermaid and SCXML
+are pure-data functions; image exports read the rendered DOM, PNG export
+uses browser rasterisation, and clipboard helpers perform I/O. Share encoding
+also stamps creation time. AI generation is JVM-callable but invokes the
+caller-supplied resolver; its parsing/validation step is deterministic.
 
 ## See also
 

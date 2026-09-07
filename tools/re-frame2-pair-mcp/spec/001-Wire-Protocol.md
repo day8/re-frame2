@@ -26,10 +26,11 @@ the framing; we don't roll our own.
 
 ## Protocol version
 
-Server reports `2025-06-18` (the version supported by the npm SDK at
-v1.29.0 used in this build). Clients on older versions are accepted
-when the SDK negotiates a fallback; clients on newer versions receive
-our version and may disconnect per the spec's negotiation rule.
+Protocol-version negotiation is delegated to the npm MCP SDK; the
+server does not independently pin the negotiated version. Clients use
+the `protocolVersion` returned by `initialize`. The stdio integration
+test exercises a `2025-06-18` initialization request, not a promise that
+every compatible client receives that exact version.
 
 ## JSON-RPC error codes
 

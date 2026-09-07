@@ -135,7 +135,11 @@ exactly what it is handed.
                    :definition          (rf.machines/machine-meta :auth/login-flow)
                    :current-state       :authing
                    :on-state-click      (fn [path] ...)
-                   :on-edge-click       (fn [{:keys [event-id from-path to-path]}] ...)
+                   :on-edge-click       (fn [payload]
+                                          (let [event-id (aget payload "eventId")
+                                                from-path (aget payload "fromPath")
+                                                to-path (aget payload "toPath")]
+                                            ...))
                    :read-only?          false}]  ;; viewer page sets true
 ```
 

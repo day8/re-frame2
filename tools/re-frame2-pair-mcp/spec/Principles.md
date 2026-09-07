@@ -246,10 +246,10 @@ internals.
   published Anthropic rule-of-thumb for English / EDN. Not
   exact; the goal is a bounded wire payload, not a precise
   per-token meter.
-- **Per serialised response**: the cap applies to the sum of
-  every `:text` slot in the assembled MCP
-  `{:content [{:type "text" :text ...} ...]}` shape.
-  Multi-part responses share one cumulative budget rather
+- **Per serialised response**: the cap sums the token estimate of every
+  text block in `content` AND the JSON-serialised `structuredContent`,
+  when present. Mirroring one payload in both representations counts
+  both copies. Multi-part responses share one cumulative budget rather
   than per-key.
 - **Default cap**: `5000` tokens.
 - **Per-call override**: every tool accepts a `max-tokens`
@@ -872,16 +872,8 @@ shared with story-mcp. The shared verbs the pair pins are
 mega-op bare verbs (`snapshot`, `trace-window`, `watch-epochs`)
 reserved for derived projections that span multiple registry kinds.
 
-re-frame2-pair-mcp's current tools (`discover-app`, `orient`, `eval-cljs`,
-`dispatch`, `dispatch-dry-run`, `restore-epoch`, `replace-app-db`,
-`trace-window`, `watch-epochs`, `tail-build`, `snapshot`, `get-path`,
-`read-sub`, `read-dom`, `read-ui`, `record`, `read-recording`,
-`watch-until`, `list-subscriptions`,
-`handler-meta`, `list-handlers`,
-`set-operating-frame`, `reset-operating-frame`, `get-operating-frame`,
-`get-re-frame2-pair-instructions` — the canonical catalogue, in
-`tools/list` order, lives at
-[`003-Tool-Catalogue.md`](003-Tool-Catalogue.md)) are all conformant
+The tools in the canonical [catalogue](003-Tool-Catalogue.md), in
+`tools/list` order, are conformant
 against existing verbs. `list-subscriptions` reads the reactive sub-cache
 (the `list-<things>` enumeration verb); `list-handlers` came from
 the rf2-4y595 `registry-list` → `list-handlers` rename (see NAMING.md's

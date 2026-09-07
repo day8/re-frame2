@@ -1,11 +1,19 @@
 # 014-Registry-Catalogue
 
-The normative enumeration of every `:rf.xray/*` registration —
-subscriptions, events, and effects — that Xray installs into the
-process-global registrar. This doc is reference material: an AI agent
-or human reader handed only the Xray spec MUST be able to reconstruct
-the registry's surface from this catalogue alone, without reading
-`tools/xray/src/day8/re_frame2_xray/registry.cljs`.
+The contributor-facing ownership and naming reference for Xray's
+subscriptions, events, and effects. The complete executable membership
+contract is the exact `all-sub-names`, `all-event-names`, and
+`all-fx-names` sets in
+[`registry_cljs_test.cljs`](../test/day8/re_frame2_xray/registry_cljs_test.cljs),
+checked against the installed registry. The grouped tables below explain
+the principal seams; they are not a standalone exhaustive inventory.
+Panel-internal registrations are not automatically public host APIs —
+that boundary is defined by [`API.md`](./API.md).
+
+Rows explicitly described as test overrides require the panel's
+`install-test-overrides!` fixture path; they are not installed by the
+production `install!` path (rf2-e8330v). Historical sections below are
+retained as lineage, not names hosts may dispatch today.
 
 > **rf2-qy0nu drift notice (2026-05-18).** The 8-dead-panel sweep
 > deleted `mcp-server`, `hydration-debugger`, `performance`, `routes`,
@@ -60,7 +68,7 @@ this doc enumerates what sits inside it.
 | Prefix | Used for |
 |---|---|
 | `:rf.xray/<id>` | Every subscription, every cofx, and every cross-panel event (consumed from ≥2 panels) or shared-infrastructure event (trace-buffer pump, epoch-history pump, etc.). |
-| `:rf.xray.<panel>/<id>` | Every panel-internal event — owned by exactly one panel, never dispatched from another. The namespace itself encodes "panel-internal, no cross-panel callers"; renaming the panel renames the namespace. Per the rf2-nmc1f cleanup the issues-ribbon panel uses this convention (`:rf.xray.issues/clear-filters`, `:rf.xray.issues/toggle-severity`, etc.). Other panels MAY adopt the convention as their event surface stabilises. |
+| `:rf.xray.<panel>/<id>` | Panel-owned registrations, for example `:rf.xray.static.routes/set-query`. The namespace identifies ownership, not a prohibition on a coordinating shell or palette dispatching the event. |
 | `:rf.xray.fx/<id>` | Every effect (fx). The trailing `.fx/` segment is the canonical effect-id marker — agents grepping for the fx subset MAY use `:rf.xray.fx/` as the discriminator. |
 
 Xray MUST NOT register a handler under any non-`:rf.xray*/` keyword.
@@ -491,54 +499,39 @@ Spec: [`006-Hydration-Debugger.md`](./006-Hydration-Debugger.md).
 
 ## Views tab (incl. nested subs — replaces the pre-rewrite Subscriptions panel)
 
-Spec: [`012-Views.md`](./012-Views.md). Subs nest under views per the
-rewrite; the sub-cache + sub-graph primitives below continue to back
-the nested-sub-row renderer in the Views tab.
+Spec: [`021-Dynamic-Panel-Designs.md` §3.2](./021-Dynamic-Panel-Designs.md#32-layout--dag-visualised-as-indented-cascade).
+The current Views lens is a reactive flow graph with explicit unmounted,
+destroyed, and unchanged disclosures. The old sub-cache selection and
+chain modal registrations retired with the table-based layout.
 
 ### Subscriptions
 
 | Sub | Returns |
 |---|---|
-| `:rf.xray/sub-cache` | Target frame's live sub-cache via `rf/sub-cache`. CLJS-only; JVM returns `nil` (panel renders empty state). Test override via `:sub-cache-override` on Xray's db. |
-| `:rf.xray/sub-error-cache` | `{query-v <error-info>}`. v1 wiring keeps it empty until the error-collector plumbing lands. |
-| `:rf.xray/selected-sub` | Query-v of the user's selection (drives the chain affordance). |
-| `:rf.xray/sub-filters` | Set of active filter-chip statuses. |
-| `:rf.xray/sub-chain-open?` | Boolean — is the chain affordance open? |
-| `:rf.xray/subscriptions-data` | Composite — `{:rows :status-counts :total :selected-query-v :active-filters :chain-open? :chain}`. |
+| `:rf.xray/reactive-data` | Focused-epoch reactive projection consumed by `reactive_panel_view.cljs`: graph data, statuses, and the supporting disclosures. |
+| `:rf.xray/reactive-show-unchanged?` | Whether the unchanged-subscription disclosure is shown. |
 
 ### Events
 
 | Event | Vector shape | Behaviour |
 |---|---|---|
-| `:rf.xray/select-sub` | `[_ query-v]` | Sets selection. |
-| `:rf.xray/clear-selected-sub` | `[_]` | Clears selection + chain-open. |
-| `:rf.xray/toggle-sub-filter` | `[_ status]` | Adds / removes a status from the filter set. |
-| `:rf.xray/show-invalidation-chain` | `[_ query-v]` | Opens the chain affordance. Optional `query-v` sets selection in one shot. |
-| `:rf.xray/hide-invalidation-chain` | `[_]` | Closes the chain. |
-| `:rf.xray/set-sub-cache-override-for-test` | `[_ ov]` | Test-only override hook. Production code paths MUST NOT dispatch. `nil` clears. |
+| `:rf.xray/reactive-toggle-unchanged` | `[_]` | Toggles the unchanged disclosure in the owning Xray frame. |
+| `:rf.xray/reactive-set-unchanged` | `[_ show?]` | Sets the unchanged disclosure. |
 
 ## Issues ribbon
 
 Spec: [`000-Vision.md` L94](./000-Vision.md), [`spec/009-Instrumentation.md` §Error event catalogue](../../../spec/009-Instrumentation.md#error-namespace-convention--six-prefix-shapes).
 
-Unified feed across errors, warnings, schema violations, hydration
-mismatches. Filter axes: `:severities`, `:prefixes`, `:since-ms`. Each
-axis independent; empty / `nil` disables the axis.
+The dedicated Issues tab and its filter controls were removed under
+rf2-gbz39 Option (c). The focused-epoch projection survives for signal
+consumers; errors remain visible in Epoch, Trace, and the L2 signal
+surface. See [`016-Auxiliary-Panels.md` §Issues](./016-Auxiliary-Panels.md#issues--the-dedicated-tab-was-removed-rf2-gbz39-option-c).
 
 ### Subscriptions
 
 | Sub | Returns |
 |---|---|
-| `:rf.xray/issues-filters` | `{:severities :prefixes}` — single read for atomic re-render. |
-| `:rf.xray/issues-ribbon` | Composite — `{:issues :total :rendered :severity-counts :distinct-prefixes :filters :epoch-id :empty-kind}` over the focused epoch's `:trace-events`. `:empty-kind` ∈ `#{:no-focus :epoch-evicted :no-issues :no-matches nil}` per spec/021 §8 + §10.7 (rf2-jio48). |
-
-### Events
-
-| Event | Vector shape | Behaviour |
-|---|---|---|
-| `:rf.xray.issues/toggle-severity` | `[_ severity]` | Toggles a severity chip in/out. |
-| `:rf.xray.issues/toggle-prefix` | `[_ prefix]` | Toggles a prefix chip in/out. |
-| `:rf.xray.issues/clear-filters` | `[_]` | Clears every chip axis. |
+| `:rf.xray/issues-ribbon` | Focused-epoch issue feed projected from `:rf.xray/focus` and `:rf.xray/epoch-history`; no independent issues-filter state. |
 
 ## Flows panel
 
@@ -632,11 +625,10 @@ the scope, and the per-row payload-expand affordance is the drill-down.
 
 Spec: [`spec/012-Routing.md`](../../../spec/012-Routing.md) (framework
 substrate) + [`016-Auxiliary-Panels.md`](./016-Auxiliary-Panels.md)
-§Routes tab (Xray-side lens). Surfaces registered routes as a flat
-catalogue, the active `:rf/route` slice, and per-focused-event
-FROM/TO markers. Search + Simulate-URL drive the interactive
-surface; the previous URL-path-segmentation tree was dropped per
-rf2-lq0ef (audit verdict B).
+§Dynamic Routing (Xray-side lens). The live Routing lens projects route
+topology, the target runtime's current route, and frame-strict focused
+event navigation activity. Search and Simulate-URL belong to Static
+Routes, not this event-coupled lens.
 
 ### Subscriptions
 
@@ -644,20 +636,14 @@ rf2-lq0ef (audit verdict B).
 |---|---|
 | `:rf.xray/registered-routes` | `(rf/registrations :route)`. Test override via `:registered-routes-override`. |
 | `:rf.xray/registered-routes-override` | Test override slot. |
-| `:rf.xray/current-route-slice` | The `:rf/route` slot off the target-frame's `app-db`. |
+| `:rf.xray/current-route-slice` | The current route from the target frame's routing runtime-db. |
 | `:rf.xray/current-route-slice-override` | Test override slot. |
-| `:rf.xray/routing-tab-data` | View-facing composite per `routing_helpers/project-data` — `{:silent? :routes :total-routes :filtered? :current :from-id :to-id :navigated? :query :sim-url :sim-result}`. |
-| `:rf.xray.routing/query` | Substring search input value. |
-| `:rf.xray.routing/sim-url` | Simulate-URL input value. |
-| `:rf.xray.routing/expanded` | Set of route-ids whose meta-expander is open. |
+| `:rf.xray/routing-tab-data` | Topology-plus-navigation projection from `routing_helpers/project-topology-data`, using registered routes, current route, event bundles, and the complete focus map. |
 
 ### Events
 
 | Event | Vector shape | Behaviour |
 |---|---|---|
-| `:rf.xray.routing/set-query` | `[_ s]` | Sets the substring search filter; blank clears. |
-| `:rf.xray.routing/set-sim-url` | `[_ s]` | Sets the Simulate-URL input; blank clears. |
-| `:rf.xray.routing/toggle-row` | `[_ route-id]` | Toggles the meta-expander for a row. |
 | `:rf.xray/set-registered-routes-override-for-test` | `[_ ov]` | Test-only override hook. |
 | `:rf.xray/set-current-route-slice-override-for-test` | `[_ ov]` | Test-only slice override. |
 
@@ -670,15 +656,17 @@ registry, the live per-frame instance + work-ledger tables, the
 route/resource graph, the lifecycle timeline, the invalidation graph, the
 cache-growth view, and the scope audit + lints. Read-only — the panel
 registers NO `:rf.resource/*` event (observing pins no resource, Spec 016
-§Active owners and causes). Decoupled from the optional Resources artefact
-(reads `(rf/registrations :resource)` + the runtime-db slice; Xray never
-`:require`s `re-frame.resources`).
+§Active owners and causes). The panel reads registry and runtime-db data
+without requiring `re-frame.resources` itself. This does not make the
+Xray artifact dependency optional: its unified graph uses the Resources
+artifact (see 024's dependency boundary).
 
 ### Subscriptions
 
 | Sub | Returns |
 |---|---|
 | `:rf.xray/registered-resources` | `(rf/registrations :resource)` — the static registry. Test override via `:registered-resources-override`. |
+| `:rf.xray/registered-scope-resolvers` | Registered resource scope resolvers used by the scope audit. |
 | `:rf.xray/registered-resources-override` | Test override slot. |
 | `:rf.xray/resource-entries` | The live cache entries map from the target frame's runtime-db at `[:rf.runtime/resources :entries]`. Test override. |
 | `:rf.xray/resource-entries-override` | Test override slot. |
@@ -781,10 +769,10 @@ substrate.
 | Sub | Returns | Notes |
 |---|---|---|
 | `:rf.xray/mode` | `:dynamic` / `:static`. | Default `:dynamic`. Hydrated from `xray.mode` localStorage on boot. |
-| `:rf.xray.static/selected-tab` | Keyword sub-tab id (`:machines` / `:routes` / `:schemas` / `:views` / `:events`). | Default `:machines` per `static/shell.cljs`. |
+| `:rf.xray.static/selected-tab` | Keyword sub-tab id (`:machines` / `:routes` / `:schemas` / `:flows` / `:interceptors`). | Default `:machines` per `static/shell.cljs`. |
 | `:rf.xray.static.machines/selected-id` | Selected machine-id keyword for the Static Machines master-detail. | `nil` until first selection; persisted via the Static Machines persistence fx. |
 | `:rf.xray.static.machines/sub-mode` | Effective sub-mode keyword for the focused machine (`:topology` / `:sim` / `:instances` / `:cascade`). | Composite of `:rf.xray.static.machines/sub-mode-by-id` + the focused machine-id; default `:topology`. |
-| `:rf.xray.static.routes/expanded-id` | Set of route-ids whose meta-expander is open (per-row inline expand surface in the Static Routes panel). | Default `#{}`; sourced from the Static Routes panel's UI-state slot. |
+| `:rf.xray.static.routes/expanded` | Set of route-ids whose meta-expander is open (per-row inline expand surface in the Static Routes panel). | Default `#{}`; sourced from the Static Routes panel's UI-state slot. |
 
 ### Events
 
@@ -813,27 +801,36 @@ localStorage).
 
 | Sub | Returns | Notes |
 |---|---|---|
-| `:rf.xray.palette/open?` | Boolean — palette dialog mounted? | Toggled by the `Cmd-K` / `Ctrl-K` chord. |
-| `:rf.xray.palette/recents` | Vector of command-ids in MRU order, capped at 3. | Persisted under localStorage key `re-frame2.xray.palette.recents.v1`. Lazy-seeded from localStorage on first open. |
+| `:rf.xray/palette-open?` | Boolean — palette dialog mounted? | Toggled by the `Cmd-K` / `Ctrl-K` chord. |
+| `:rf.xray/palette-query` | Search text. | Empty on open. |
+| `:rf.xray/palette-cursor` | Active result index. | Reset when the query changes. |
+| `:rf.xray/palette-recents` | Vector of command-ids in MRU order, capped at 3. | Persisted under localStorage key `re-frame2.xray.palette.recents.v1`. Lazy-seeded from localStorage on first open. |
+| `:rf.xray/palette-index` | Mode-filtered command and navigation items. | Includes recents weighting. |
+| `:rf.xray/palette-results` | Query-ranked results. | Feeds the visible list. |
+| `:rf.xray/palette-active-item` | Item at the cursor. | Used by Enter / Ctrl-Enter. |
 
 ### Events
 
 | Event | Vector shape | Behaviour |
 |---|---|---|
-| `:rf.xray.palette/open` | `[_]` | Mounts the dialog + focuses the input. |
-| `:rf.xray.palette/close` | `[_]` | Unmounts the dialog. |
-| `:rf.xray.palette/invoke` | `[_ command-id]` | Fires the verb's dispatch + records the id into recents + persists the recents slot. |
+| `:rf.xray/palette-open` | `[_]` | Opens the dialog, seeds recents once, and resets query/cursor. |
+| `:rf.xray/palette-close` | `[_]` | Closes the dialog. |
+| `:rf.xray/palette-toggle` | `[_]` | Toggles open/closed state. |
+| `:rf.xray/palette-set-query` | `[_ text]` | Sets query and resets cursor. |
+| `:rf.xray/palette-cursor-up` | `[_]` | Moves up, clamped at zero. |
+| `:rf.xray/palette-cursor-down` | `[_ max-idx]` | Moves down, clamped at the last result. |
+| `:rf.xray/palette-cursor-set` | `[_ idx]` | Selects a result index. |
+| `:rf.xray/palette-invoke` | `[_ item popout?]` | Interprets the complete item's `:action` tuple, records command recents, and closes the dialog. Action tuples are not registrar event ids. |
 
 ### Command-item names (the 6 new verbs landed by rf2-ybjkx)
 
-| Command-id | Mode filter (`:modes`) | Behaviour |
-|---|---|---|
-| `:toggle-theme` | `#{:dynamic :static}` | Flips the Settings `:theme` slot between `:dark` and `:light` via `:rf.xray/settings-update`. |
-| `:toggle-reduced-motion` | `#{:dynamic :static}` | Flips the user-override reduced-motion axis (rides the axis-3 of theme/density/motion in §Settings). |
-| `:snapshot-db` | `#{:dynamic}` | Pins the current target-frame's app-db snapshot via `:rf.xray/pin-current`. |
-| `:clear-epoch-history` | `#{:dynamic}` | Drops Xray's own `:epoch-history` app-db slot via `[:palette/clear-epoch-history]`. It does **not** touch the framework's trace rings, the frameless secondary ring, or the framework's epoch ring — the sibling `:clear-trace-buffer` command is the one that runs `trace-collector/retroactive-scrub!`. |
-| `:toggle-mode` | `#{:dynamic :static}` | Dispatches `:rf.xray/toggle-mode` (the Cmd-Shift-M chord's verb form, surfaced as a palette entry for discoverability). |
-| `:jump-to-settings` | `#{:dynamic :static}` | Opens the Settings popup. |
+That landing expanded the catalogue; the complete current ten-item
+catalogue is owned by [`API.md` §Command palette verbs](./API.md#command-palette-verbs-catalogue).
+In particular, the shipped names are `:cycle-reduced-motion` and
+`:snapshot-app-db`, not `:toggle-reduced-motion` or `:snapshot-db`.
+Snapshot copies an egress-projected value to console/clipboard; it does
+not create a pin. Clear-epoch-history clears only Xray's local app-db
+history slot, not the framework's epoch ring.
 
 The `:modes` filter is the normative convention for palette command
 authoring: a command's `:modes` set MUST include every mode in which
@@ -842,7 +839,7 @@ without a `:modes` slot default to `#{:dynamic :static}` (both modes).
 
 ## Cross-references
 
-The catalogue is reference material; per-panel specs (000–013) are
+The catalogue is reference material; the linked per-panel specs are
 the normative source for *why* each panel registers what it does.
 Cross-reference structure:
 
@@ -852,8 +849,9 @@ Cross-reference structure:
   doc (`014-Registry-Catalogue.md#event-detail-panel` and peers).
 - This doc cross-refs back to the owning panel spec for *meaning*. The
   panel spec MUST own the panel's semantic contract (sub status
-  taxonomy, layout, locks); this doc MUST own the registry's surface
-  enumeration. Voice split: panel spec = *why and how*; this doc = *what is named*.
+  taxonomy, layout, locks). Voice split: panel spec = *why and how*;
+  this doc = *ownership and principal names*; the exact-set registry
+  tests linked above = *complete installed membership*.
 
 The naming convention itself is owned by
 [`008-Embedding-Contract.md` §Registry-key isolation](./008-Embedding-Contract.md#registry-key-isolation-via-rfxray-prefix);

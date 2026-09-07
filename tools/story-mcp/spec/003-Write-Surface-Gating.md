@@ -34,8 +34,9 @@ The Write category sits behind the gate (see
 - `register-variant`
 - `unregister-variant`
 
-Read tools are never gated. The 17 Dev / Docs / Testing tools (Dev 3 +
-Docs 10 + Testing 4) work regardless of `allow-writes?`.
+The 17 Dev / Docs / Testing tools (Dev 3 + Docs 10 + Testing 4) are
+not controlled by `allow-writes?`. This includes the two lifecycle
+tools; their adapter and host-capability prerequisites still apply.
 
 ## How the gate fails
 
@@ -94,8 +95,12 @@ When writes are open, the four-step self-healing loop becomes:
 3. Agent calls `register-variant {:variant-id ... :body ...}`.
 4. Agent calls `run-variant` → `read-failures` → adjusts → GOTO 3.
 
-When writes are closed, the loop is read-only — the agent can only
-*describe* what it would change, not enact the change.
+When writes are closed, the agent cannot change the registry through
+these two tools. This is not a read-only execution mode:
+`run-variant` and `preview-variant` remain available and execute the
+author's lifecycle, including unstubbed effects. Their
+[open-world annotations](002-Tool-Registry.md#preview-variant) describe
+that authority.
 
 ## Tests
 

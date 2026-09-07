@@ -4,7 +4,7 @@ The consolidated user-facing surface. Implementer-readable: every
 symbol a consumer of Xray might reach for.
 
 This doc is a **reference**; the normative descriptions live in the
-per-area specs (000–011). Where the two drift, the per-area spec
+per-area specs linked below. Where the two drift, the per-area spec
 wins.
 
 ## Installation API
@@ -28,8 +28,9 @@ carry no `goog.DEBUG` gate (§Force-disable):
 2. Registers the trace collector under `:rf.xray/trace-collector`
    via `re-frame.core/register-listener!` (sentinel-guarded).
 3. Registers the epoch-settle pump under `:rf.xray/epoch-collector`
-   via `re-frame.core/register-listener!` on the `:epoch` stream (sentinel-guarded; no-op
-   when the `day8/re-frame2-epoch` artefact is absent).
+   via `re-frame.core/register-listener!` on the `:epoch` stream
+   (sentinel-guarded). Xray hard-depends on `day8/re-frame2-epoch`, and
+   `install.cljs` loads its producer; see §Trace / epoch surfaces.
 4. Installs the dev-only browser API on `window.day8.re_frame2_xray.*`
    (`open!`, `toggle!`, `popout!`, `status`, …).
 5. Attaches the global keydown listener. The shipped chords (the
@@ -88,8 +89,9 @@ day8.re-frame2-xray.config/default-layout-host-selector
 day8.re-frame2-xray.config/default-layout-host-css-var
 ;; "--rf-xray-inline-width"
 ;; — the CSS custom property the recommended host snippet reads for
-;;   its flex-basis (rf2-um813). Xray never reads this property —
-;;   sizing is owned by the host's layout rule. Published so callers
+;;   its flex-basis (rf2-um813). The host owns the layout rule; Xray's
+;;   panel-width setting / resize effect writes the property's value.
+;;   Published so callers
 ;;   can re-emit the canonical name in their own diagnostics / docs
 ;;   generators / snippet helpers.
 
@@ -171,7 +173,8 @@ implementation reality — the facade is not the whole surface).
 
 ```clojure
 (xray/init!)
-;; Mount Xray manually (alternative to :preloads). Idempotent.
+;; Install Xray manually (alternative to :preloads). Idempotent.
+;; Installation and mounting are separate: call open! to show the shell.
 
 (xray/init! opts)
 ;; opts: {:target-frame  :app/main         ;; inspected HOST frame (EP-0002 rf2-bd4div)
@@ -188,11 +191,8 @@ implementation reality — the facade is not the whole surface).
 ;; default the target to :rf/default.
 ;; rf2-2thl2: each opt is wired end-to-end (no accept-but-ignore stubs).
 ;; Unknown keys are silently ignored for forward-compatibility.
-;; `:ai-provider` is documented in the persisted Settings shape (see
-;; §Settings keys below) but the backing infrastructure lands in a
-;; follow-on bead; until then `init!` does not accept it on the opts
-;; map (host hand-edits of the Settings shape via `(configure!
-;; {:rf.xray/settings ...})` remain forward-compatible).
+;; AI-provider, sidebar, launcher-pill and keybinding-map options are
+;; not shipped Settings slots or init! inputs. See §Settings keys.
 
 (xray/open!)        ;; Show the panel programmatically.
 (xray/close!)       ;; Hide the panel programmatically.
@@ -566,7 +566,7 @@ useful, expose it unconditionally).
 | Surface | Spelling | Notes |
 |---|---|---|
 | Toggle chord | `Cmd-Shift-M` / `Ctrl-Shift-M` | Global keydown listener; fires `:rf.xray/toggle-mode`. |
-| Mode pill | `data-testid="rf-xray-mode-pill"` | Mounts at ribbon-left in every host. Click flips mode; `aria-checked` + `data-active-mode` reflect state for stylesheet/automation hooks. |
+| Mode dropdown | `data-testid="rf-xray-mode-pill"` | Mounts at ribbon-left in every host. A native `<select>` dispatches `:rf.xray/set-mode` on change; its selected value and `data-active-mode` reflect state. The historical test id is retained. |
 | Persistence | `xray.mode` (localStorage) | Bare string `"dynamic"` / `"static"`. Hydrates on boot; missing/corrupt → `"dynamic"` fallback. |
 | Toggle event | `:rf.xray/toggle-mode` | Public dispatch surface (chord parity + the palette's `:toggle-mode` verb). |
 
@@ -587,7 +587,7 @@ required.
 |---|---|---|
 | CSS variable | `--rf-xray-font-size` | The anchor for every type-scale entry. Default `13px`, published on `:root` by `theme/global-styles/motion-css`. Below `10px`: refused (the `:micro` token sits at the floor). |
 | Host override | `:root { --rf-xray-font-size: 14px }` | A single stylesheet rule rescales every typographic surface ~1.08× without a code change. |
-| Density Settings consumer | `:density` (`:compact` / `:cosy` / `:comfy`) | The Settings → General Density radio is the in-shell consumer of the same var. Mapping: `:compact 12px`, `:cosy 13px` (default), `:comfy 14px` (catalogued; not surfaced in v1's radio). Persisted under `:density` in the Settings localStorage slot. |
+| Density Settings consumer | `[:general :density]` (`:compact` / `:cosy`) | The Settings → General Density radio is the in-shell consumer of the same var. Mapping: `:compact 12px`, `:cosy 13px` (default). The helper also maps `:comfy` to 14px, but it is not a shipped radio choice. Persisted inside `:general`, not as a top-level `:density`. |
 | Writer | `effects/apply-density-font-size!` | Idempotent; writes the resolved px value into `--rf-xray-font-size` on both the Xray shell root AND `<html>` (so popout/fullscreen mounts inherit). Re-runs on boot from `apply-all!` so a persisted density survives reload before first paint. |
 
 `--rf-xray-font-size` is **distinct** from `--rf-xray-text-size`
@@ -639,7 +639,7 @@ Closes on `Esc`, click-outside, or invocation of any item.
 |---|---|---|
 | Open chord | `Cmd-K` / `Ctrl-K` | Global keydown listener; mounts the palette dialog (`data-testid="rf-xray-palette-dialog"`). |
 | Recents localStorage key | `re-frame2.xray.palette.recents.v1` | Top-3 ring of command-ids only (verbs, tab-jumps) — never event-ids, handler-ids, or host-app data. Best-effort persistence; quota/availability failures swallowed. |
-| Recents app-db slot | `:rf.xray.palette/recents` | Hydrates on first palette open via `recents/load`; the reducer (`recents/record`) is pure `update + distinct + take 3`. |
+| Recents app-db slot | `:palette-recents` | Read through `:rf.xray/palette-recents`. Hydrates on first palette open via `recents/load`; the reducer (`recents/record`) is pure `update + distinct + take 3`. |
 | Reduced-motion override | `:cycle-reduced-motion` verb | Three-state cycle `:os → :always → :never` that overrides `prefers-reduced-motion: reduce` via the `--rf-xray-motion-scale` seam in `theme/global-styles/motion-css`. Persists across reloads. |
 | Mode-aware filter | `:modes` set per item | Every palette item carries `#{:dynamic}` / `#{:static}` / `#{:dynamic :static}`; the aggregator (`palette/sources/by-mode-pred`) filters by membership against the active `:rf.xray/mode`. Items missing `:modes` fall through to both modes. |
 
@@ -661,9 +661,9 @@ shape, and close behaviour.
 
 ### Command palette verbs (catalogue)
 
-The palette ships ten command verbs in total at v1; six are mode-agnostic
-(surface in both Dynamic and Static modes) and four are Dynamic-only
-(scoped to the event-coupled spine). Plus one palette-internal verb
+The palette ships ten command items: six mode-agnostic verbs
+(surface in both Dynamic and Static modes), three Dynamic-only verbs
+(scoped to the event-coupled spine), and one palette-internal verb
 (`:close-palette` — `Esc` keybind echo). Each row below mirrors the
 literal map shape in
 `tools/xray/src/day8/re_frame2_xray/palette/sources.cljc`
@@ -674,7 +674,7 @@ catalogue.
 
 | Verb id | Label | Hint | Action | Notes |
 |---|---|---|---|---|
-| `:toggle-theme` | Toggle theme (dark ↔ light) | `Settings · Theme` | `[:palette/toggle-theme]` | Dark ↔ Light cycle of the theme class. Popup radio is the canonical UI; this is the keyboard-first ergonomic shortcut. |
+| `:toggle-theme` | Toggle theme (dark ↔ light) | `Settings · Theme` | `[:palette/toggle-theme]` | Dark ↔ Light cycle of the theme class. The ribbon toggle is the canonical UI; this is the keyboard-first ergonomic shortcut. |
 | `:cycle-reduced-motion` | Cycle reduced-motion override (OS → always → never) | `user override of prefers-reduced-motion` | `[:palette/cycle-reduced-motion]` | Three-state cycle `:os → :always → :never → :os`. Overrides `prefers-reduced-motion: reduce` via the `--rf-xray-motion-scale` seam. Persists across reloads. |
 | `:snapshot-app-db` | Snapshot app-db | `→ console.log + clipboard` | `[:palette/snapshot-app-db]` | Drops the focused frame's app-db onto the JS console + clipboard for share-with-teammate capture. The console + clipboard are **off-box egress sinks**, so the payload routes through `egress/egress-value` FIRST (pinned to the focused frame via `with-frame` so that frame's own schema declarations govern) — sensitive slots ⇒ `:rf/redacted`, large slots ⇒ `:rf.size/large-elided`, fail-closed. The command surfaces no opt-in arg, so the command default is always the redacted/size-elided projection — never the raw db (rf2-mxzgg / rf2-6fgob). See §Off-box egress. |
 | `:jump-to-settings` | Jump to Settings | `,` | `[:palette/jump-to-settings]` | Opens the Settings popup at the General tab. Equivalent to the `,` bare-key shortcut. |
@@ -685,8 +685,8 @@ catalogue.
 
 | Verb id | Label | Hint | Action | Notes |
 |---|---|---|---|---|
-| `:clear-trace-buffer` | Clear trace buffer | `drops Xray's ring buffer` | `[:palette/clear-trace-buffer]` | Drops Xray's trace ring buffer. Dynamic-only — Static mode has no spine. |
-| `:clear-epoch-history` | Clear epoch history | `drops Xray's epoch snapshots` | `[:palette/clear-epoch-history]` | Drops Xray's per-frame epoch history. Dynamic-only. |
+| `:clear-trace-buffer` | Clear trace buffer | `drops Xray's ring buffer` | `[:palette/clear-trace-buffer]` | Runs the retroactive trace scrub: clears the framework's per-frame and frameless trace rings and Xray's mirrored trace buffer. Dynamic-only — Static mode has no spine. |
+| `:clear-epoch-history` | Clear epoch history | `drops Xray's epoch snapshots` | `[:palette/clear-epoch-history]` | Clears Xray's own `:epoch-history` app-db slot, not the framework's epoch ring or trace rings. It does not promise that a later history sync cannot repopulate the slot. Dynamic-only. |
 | `:reset-suppressed-counters` | Reset redacted-events counter | `clears the REDACTED N indicator` | `[:palette/reset-suppressed-counters]` | Clears the `REDACTED N` overlay counter that surfaces when filters elide events. Dynamic-only. |
 
 #### Palette-internal verb
@@ -707,11 +707,14 @@ catalogue.
    "No plugin registration API"). Hosts that need a new verb file
    a bead against `tools/xray/spec/API.md` §Command palette verbs.
 
-3. **Stable dispatch shape.** Each verb's `:action` vector
-   (`[:palette/<verb>]`) is a re-frame event dispatched into
-   `:rf/xray`; the event id is part of the public catalogue contract
-   and stable across patch releases. The handler implementations live
-   under `palette/events.cljs`.
+3. **Action data, not event ids.** Each verb's `:action` vector
+   (`[:palette/<verb>]`) is an internal action tuple interpreted by
+   `palette/events.cljs`. The registered event is
+   `[:rf.xray/palette-invoke item popout?]`, dispatched in the owning
+   Xray frame; it consumes the complete item, interprets `:action`, and
+   records recents. Dispatching `[:palette/toggle-theme]` directly is
+   not a supported re-frame event call. Hosts use the public facade,
+   not these internal palette action tuples.
 
 4. **Boost weighting.** Every command-source item carries `:boost 40`
    (the `boost-table :command` value); recently-invoked commands
@@ -850,35 +853,23 @@ render never leaves the box.
 
 ## Settings keys
 
-Settings persist in `localStorage` under the key
-`day8.re-frame2-xray/settings/v1`. Distinct from the boot-time
-`configure!` surface enumerated in
-[`015-Configuration.md`](./015-Configuration.md) (which writes
-process-global atoms) and from `(xray/init! opts)` above (which
-wires per-instance panel state). Shape (validated by Malli):
+Settings persist as one EDN map under `re-frame2.xray.settings.v1`.
+The canonical shape and defaults live at
+[`015-Configuration.md` §`:rf.xray/settings`](./015-Configuration.md#rfxraysettings);
+the popup, storage and reset behaviour live at
+[`016-Auxiliary-Panels.md` §Settings popup](./016-Auxiliary-Panels.md#settings-popup--v1-ships).
+The four top-level slots are `:general`, `:theme`, `:diff`, and `:buffer`;
+for example, density is `[:general :density]` and epoch depth is
+`[:general :epoch-history]`. Target-frame selection is Xray frame state,
+not a field in this persisted map. AI-provider configuration, a launcher
+pill, a sidebar mode and a configurable keybinding map are not shipped
+Settings slots. Unknown top-level slots are ignored.
 
-```clojure
-{:theme         :dark / :light / :high-contrast
- :density       :compact / :cosy
- :ai-provider   {:provider :claude / :openai / :gemini / :local / :custom
-                 :api-key      "sk-..."
-                 :model        "claude-3-5-sonnet"
-                 :system-prompt "..."
-                 :custom-url   "https://..."     ;; only when :provider = :custom
-                 :custom-headers {"X-..." "..."}}
- :buffer-depths {:trace 200 :epoch 50}
- :target-frame  :app/main                ;; EP-0002 (rf2-bd4div): inspected HOST
-                                         ;; frame; renamed from :default-frame
-                                         ;; (own-frame vs target-frame split)
- :sidebar-mode  :grouped / :show-all
- :launcher-pill {:hidden? false}
- :keybindings   {:toggle ["Ctrl+Shift+C"]   ;; vector for multiple binds
-                 ...}}
-```
-
-Corruption (schema fails) → Xray wipes the slot and writes the
-default shape, surfacing a one-time toast: "Settings were corrupted
-and have been reset to defaults."
+On unreadable EDN or a non-map payload, the loader uses the defaults
+plus the host's configured Settings seed in memory. It does not validate
+the whole payload with Malli, erase corrupt storage, or emit a corruption
+toast. Explicit `config/reset-settings!` clears storage and the configured
+seed; ordinary user changes use the popup's per-knob write path.
 
 > **rf2-e9tb0 — pinned-slices localStorage slot deprecated.** The
 > per-frame-app-db pinned-slices key (`day8.re-frame2-xray/pinned-

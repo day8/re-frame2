@@ -59,8 +59,9 @@ The shell honours a second compile-time flag —
   (`day8.re-frame2-xray.preload`) is wired via shadow-cljs's
   `:devtools/preloads` slot — which the documentation specifies
   applies to `watch`/`compile` only, NOT `release`. The static-export
-  build is a `release`, so Xray rides out of the bundle by
-  construction; no flag-side gate is required.
+  build is a `release`, so that devtools preload is omitted. This does
+  **not** remove the Xray panel embed that Story imports directly; the
+  published shell can retain its inspector without the devtools preload.
 - **Shadow-cljs hot-reload connection elided.** `release` builds
   don't include the websocket bridge to the dev server, so the bundle
   is self-contained the moment it leaves the compiler. The
@@ -270,13 +271,13 @@ their `staticwebapp.config.json` under Azure, etc.).
 | The chrome-level toolbar + mode-tabs strip | bundled |
 | The a11y panel (axe-core lazy-load endpoint stays the same) | bundled |
 | The per-variant trace-buffer infra (feeds the schema-validation panel) | bundled |
-| Xray (when the host build includes its preload) | bundled |
+| Story's directly imported Xray panel embed | bundled; distinct from the omitted devtools preload |
 
 ## What gets stripped
 
 | Surface | Why |
 |---|---|
-| `:devtools/preloads` (Xray preload) | `release` builds ignore the slot — Xray rides out by construction |
+| `:devtools/preloads` (Xray preload) | `release` builds ignore the preload slot; Story's direct Xray embed import is separate |
 | `shadow-cljs` websocket bridge | `release` builds don't include the dev-server connection |
 | Registrar-fingerprint poll (the 500ms `setInterval`) | gated on `(not static-mode?)`; DCEs under `:advanced` |
 | First-visit help overlay auto-open | gated on `(not static-mode?)` |

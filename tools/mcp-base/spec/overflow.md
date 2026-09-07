@@ -72,9 +72,9 @@ Example consumer registration:
 
 ```clojure
 (def overflow-hints
-  {"get-app-db" "Use :path opts to narrow the slice"
+  {"snapshot" "Narrow the snapshot or use get-path"
    "trace-window" "Lower the :window-ms or add a tighter filter"
-   "watch-epochs" "Decrease :depth or filter to a frame"})
+   "watch-epochs" "Decrease :limit or filter to a frame"})
 ```
 
 ## Why the cap exists

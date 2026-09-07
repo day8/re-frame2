@@ -110,7 +110,7 @@ All under `re-frame.story`.
 | Fn | Signature | Spec |
 |---|---|---|
 | `run-variant` | `(run-variant variant-id)` / `(run-variant variant-id opts)` | [`002-Runtime.md`](002-Runtime.md) §Programmatic API |
-| `reset-variant` | `(reset-variant variant-id)` | [`002-Runtime.md`](002-Runtime.md) §Programmatic API |
+| `reset-variant` | `(reset-variant variant-id)` / `(reset-variant variant-id opts)` | [`002-Runtime.md`](002-Runtime.md) §Programmatic API |
 | `watch-variant` | `(watch-variant variant-id callback)` — returns a 0-arity unsubscribe fn (call it to stop watching; there is no separate `unwatch-variant`). | [`002-Runtime.md`](002-Runtime.md) §Programmatic API |
 | `destroy-variant!` | `(destroy-variant! variant-id)` | [`002-Runtime.md`](002-Runtime.md) §Per-variant frame allocation |
 | `variants-with-tags` | `(variants-with-tags tags)` | [`002-Runtime.md`](002-Runtime.md) §Programmatic API |
@@ -121,17 +121,23 @@ All under `re-frame.story`.
 | `read-assertions` | `(read-assertions variant-id)` | [`004-Assertions.md`](004-Assertions.md) |
 | `assertions-passing?` | `(assertions-passing? result)` | [`004-Assertions.md`](004-Assertions.md) |
 | `valid-variant-id?` | `(valid-variant-id? [ns-part name-part])` — true iff the DECOMPOSED `[ns-part name-part]` strings name a canonical `:story.<path>/<variant>` id. STRING-shape grammar so an MCP write path validates a caller id BEFORE interning a keyword (the `fresh-keyword-checked` `shape-ok?` predicate). | [`001-Authoring.md`](001-Authoring.md) §Story id grammar |
-| `variant-share-url` | `(variant-share-url variant-id base-url opts)` | [`005-SOTA-Features.md`](005-SOTA-Features.md) §Share URL (retired QR popover) |
+| `variant-share-url` | `(variant-share-url variant-id)` / `(variant-share-url variant-id opts)` / `(variant-share-url variant-id base-url opts)` | [`005-SOTA-Features.md`](005-SOTA-Features.md) §Share URL (retired QR popover). The no-base forms return a query fragment without a leading `?`. |
+| `resolve-args` | `(resolve-args variant-id)` / `(resolve-args variant-id opts)` | Five-layer args resolution; opts use `:active-modes` and `:cell-overrides`, not `:mode` / `:overrides`. |
+| `resolve-decorators` | `(resolve-decorators variant-id)` / `(resolve-decorators variant-id opts)` | The compiled decorator stack; accepts the same run-arg layers. See [`002-Runtime.md`](002-Runtime.md). |
 
-### Execution verbs — `run` / `is` / `render-variant`
+### Execution verbs — `run` / `is` / `explain`
 
 The three public execution verbs (spec/017 §Public execution API). Each
 accepts a keyword (a registered variant) OR a map (an inline plan).
+`render-variant` is the separate workshop rendering operation, not a test
+execution verb.
 
 | Fn | Signature | Spec |
 |---|---|---|
 | `run` | `(run target)` / `(run target opts)` | [`017-Testing-Story.md`](017-Testing-Story.md) §Public execution API. Returns a promise/future of the unified run-result. |
 | `is` | `(is target)` / `(is target opts)` | [`017-Testing-Story.md`](017-Testing-Story.md) §Public execution API. Runs `target` + reports each assertion to `clojure.test` / `cljs.test`. |
+| `explain` | `(explain target)` / `(explain target opts)` | [`017-Testing-Story.md`](017-Testing-Story.md#explain-api). Pure plan explanation: resolution, composition, args, expectations and requirements. |
+| `variant-plan` | `(variant-plan target)` / `(variant-plan target opts)` | [`017-Testing-Story.md`](017-Testing-Story.md#compiler-api-and-normalization-contract). The normalized plan shared by execution and rendering. |
 | `render-variant` | `(render-variant target)` / `(render-variant target opts)` | [`017-Testing-Story.md`](017-Testing-Story.md) §Args, controls, and `render-variant`. |
 | `result-status` / `result-passed?` | `(result-status result)` / `(result-passed? result)` | [`017-Testing-Story.md`](017-Testing-Story.md) §Run result. The unified verdict (`:pass` / `:fail` / `:cannot-run` / `:error`). There is NO `:passing?` boolean. |
 | `assertion-record` / `assertion-records` | `(assertion-record raw)` / `(assertion-records raw-assertions)` | [`017-Testing-Story.md`](017-Testing-Story.md) §Run result — Assertion record. Normalize a raw assertion accumulator entry (or vector) into the unified assertion record(s) — stamps the derived `:status`, renames `:source-coord` → `:source`. Pure data → data. Exposed for tooling (story-mcp) that mints a synthetic record or stamps `:status` onto accumulator records without re-running. |
@@ -155,14 +161,33 @@ is load-bearing:
   ```
 
 - **CLJS** — the run is async and the caller cannot block, so `is`
-  returns the run **promise**. Chain `then` (or use `cljs.test`'s
-  `(async done …)` form) and call `(story/report-result! result)` when
-  it resolves. `:timeout-ms` is **inert on CLJS** — there is no blocking
+  returns a **promise** that reports the result before resolving. Chain
+  `then` (or use `cljs.test`'s `(async done …)` form) to finish the test;
+  do not call `report-result!` again, which would double-report. Use
+  `report-result!` after `story/run` when you want to run and report
+  separately. `:timeout-ms` is **inert on CLJS** — there is no blocking
   deref to bound; the caller's own async deadline governs.
 
 `opts` other than `:timeout-ms` thread through to `story/run` (the
 runner / plan-compiler seams); `:timeout-ms` is stripped before the
 run so the runner never sees a key it does not own.
+
+### Evidence, artifacts and test reports
+
+These shipped facade families share the normative contracts in
+[`017-Testing-Story.md`](017-Testing-Story.md); they are not separate
+runner or artifact models.
+
+| Facade family | Canonical contract |
+|---|---|
+| `canonicalize`, `canonical-hash`, `content-hash`, `plan-hash`, `run-hash` | [Canonicalization](017-Testing-Story.md#canonicalization); snapshot hashing and volatile-stripped run hashing are distinct uses of one primitive. |
+| `project-evidence`, `tape-shows-failure?`, `narrative-beats`, `beat-count`, `beat-at`, `beat-epoch-ids` | [Run-result evidence projection](017-Testing-Story.md#run-result-evidence-projection) and [Epoch tape and narrative](017-Testing-Story.md#epoch-tape-and-narrative). |
+| `make-run-artifact`, `run-artifact?`, `replay-run-artifact` | [Run artifact and replay](017-Testing-Story.md#run-artifact-and-replay). |
+| `materialize-variant-plan`, `promote-run-artifact!` | [Promotion](017-Testing-Story.md#promotion); registration is the explicit write operation. |
+| `check-property!`, `sweep-faults!` | [Generated runs and artifacts](017-Testing-Story.md#generated-runs-and-artifacts). |
+| `assert-deterministic`, `diff-run-artifacts` | [Determinism gate](017-Testing-Story.md#determinism-gate) and [Semantic diff](017-Testing-Story.md#semantic-diff). |
+| `capture-golden`, `golden-match?`, `compare-golden` | [Golden slices](017-Testing-Story.md#golden-slices). |
+| `run-result`, `run-result-schema`, `valid-run-result?`, `explain-run-result`, `result->reports`, `report-result!` | [Run result](017-Testing-Story.md#run-result). `report-result!` consumes an already-resolved result; it does not execute a plan. |
 
 ## Registry queries
 
@@ -220,7 +245,13 @@ canonical vocabulary is re-installed). The helper resets the framework
 runtime via registrar **snapshot/restore**, so framework registrations
 (including the `:rf/machine` sub) survive — closing the silent
 `:pre-mount` footgun a hand-rolled `registrar/clear-all!` reset opens.
-Stop hand-rolling `reset-all!`; use this.
+These Story helpers currently return the **synchronous fn fixture**. They
+do not forward the framework's `:async?` option. For a CLJS test containing
+`(async done …)`, use `re-frame.test-support/make-reset-runtime-fixture`
+with `:async? true` and Story setup in `:init-fn`; see the executable
+[CLJS-unit recipe](Tutorial-CLJS-Unit.md). The framework chooses the map
+fixture on CLJS and the fn fixture on JVM. Do not pass a literal map
+fixture to `clojure.test` or a synchronous fn fixture to an async CLJS test.
 
 ## Global decorators (`reg-global-decorator`) — rf2-835ey
 
@@ -349,14 +380,19 @@ is re-exported on the facade as `re-frame.story/recording->script-body`
 render-to-EDN surface `:require` `re-frame.story.recorder.play-export`
 directly.
 
-## Effects (fx) registered by Story
+## Historical effect vocabulary (not registered)
 
-| Fx id | Payload | Notes |
+The original design proposed the following ids; they are **not shipped
+effect registrations** and must not be dispatched as a public API. The
+supported operations are the facade and controls operations below. This
+table preserves the historical intent, not a second execution surface.
+
+| Historical id | Intended payload | Supported operation |
 |---|---|---|
-| `:story/set-arg` | `{:variant <id> :key <k> :value <v>}` | Dispatched by control widgets when args change. |
-| `:story/run-play` | `{:variant <id>}` | Run the play sequence (used by play-stepper). |
-| `:story/reset` | `{:variant <id>}` | Reset variant to post-events baseline. |
-| `:story/save-layout-as` | `{:workspace <id> :body <transit>}` | Persist the active layout as a registered workspace. |
+| `:story/set-arg` | `{:variant <id> :key <k> :value <v>}` | Controls edit cell-local overrides; programmatic callers pass `:cell-overrides` to `resolve-args` / `run` / `render-variant`. |
+| `:story/run-play` | `{:variant <id>}` | `run` / `run-variant` execute the variant lifecycle and script. |
+| `:story/reset` | `{:variant <id>}` | `reset-variant` destroys the old frame and reruns the variant. |
+| `:story/save-layout-as` | `{:workspace <id> :body <transit>}` | Author a workspace with `reg-workspace`; there is no registered effect of this name. Save-current-state-as-variant is a different operation — see [`019`](019-Story-UI-Controls-And-View-States.md). |
 
 ## Coeffects (cofx) registered by Story
 
@@ -516,23 +552,31 @@ code can see the three axes at a glance (rf2-zex19 follow-on, Finding
 | Surface | Lives in | Source of truth | Persistence | Encodes | Consumer |
 |---|---|---|---|---|---|
 | `variant-share-url` | `re-frame.story` (facade) / `re-frame.story.share` | The arguments passed in (variant-id + active modes + cell-overrides + substrate) | URL only — surfaced via the browser's address bar (`url-state` pushState wiring) | Variant id, active modes, cell-overrides, substrate | The browser's address bar (Cmd-L Cmd-C copies it); embed iframes; pasted into chat / docs / bug reports. Variant-scoped, includes cell-overrides. |
-| `url-from-state` (+ `params-from-state`) | `re-frame.story.ui.url-state` (sub-ns) | The live shell state (selected workspace, mode tab, viewport, background, tag filter) | URL + localStorage round-trip (see [`014-Chrome-Features.md`](014-Chrome-Features.md) §URL state) | Chrome-scoped state — no cell-overrides | Address bar; the chrome's own URL during interactive use. |
+| `url-from-state` (+ `params-from-state`) | `re-frame.story.ui.url-state` (sub-ns) | The live shell state | URL + localStorage fallback on a fresh mount without URL state | Selection, modes, framing, filters, substrate and the focused variant's cell-overrides | Address bar; uses the same encoder and query-ownership boundary as the share builder. |
 | `embed-flag-from-current-url` (+ `hydrate-embed-flag!`) | `re-frame.story.ui.url-state` (sub-ns) | The current page URL's `?embed=1` query string | URL only — never persisted to localStorage; one-shot at shell mount | The `:embed?` chrome-state flag (boolean) | The embed-mode flag (rf2-pucku). Hydrated once at mount, then ignored on subsequent navigations. |
 
 The cluster gives the user three different "URLs from one shell":
 the **share** URL (variant-scoped, includes cell-overrides — surfaced
 as the live browser address-bar URL per rf2-ymnfx Issue B; there is
 no separate Share button or QR popover),
-the **address-bar** URL (chrome-scoped, no cell-overrides), and
+the **address-bar** URL (the same shareable state, including the focused
+variant's cell-overrides), and
 the **embed flag** (chrome-state, URL-only, one-shot). A reader
 generating URL-handling code consults this table to find the right
 axis before reaching into the implementation.
+
+Variant selection is the `variant=` **query parameter**; any hash fragment
+belongs to the host application's routing and is preserved, not interpreted
+as a variant id by Story. Both writers use `share/apply-story-params`:
+existing Story-owned keys are replaced or cleared, unrelated query entries
+and the fragment survive. The full authoritative hydration contract is
+[022 §Human egress](022-Story-UI-Docs-And-Share.md#3-human-egress-and-the-reproducibility-contract).
 
 ## Configuration
 
 | Var / fn | Notes |
 |---|---|
-| `goog-define :rf.story/enabled?` | Compile-time DCE flag; `true` in dev, `false` in `:advanced`. See [`005-SOTA-Features.md`](005-SOTA-Features.md). |
+| `re-frame.story.config/enabled?` | CLJS `goog-define`, default `true`. Production app builds explicitly set `:closure-defines {re-frame.story.config/enabled? false}`; `:advanced` alone does not disable Story. Static playground builds deliberately keep it enabled. See [`005-SOTA-Features.md`](005-SOTA-Features.md). |
 | `configure!` | `(configure! {:rf.story/global-args {...} :rf.story/global-decorators [[<dec-id> & ref-args] ...] :rf.story/editor :vscode :rf.story/project-root "..." :rf.story/egress-profile :rf.egress/local-redacted})` — set global config at boot. Every key lives under `:rf.story/*` per the `:rf.<tool>/*` convention (spec/Conventions §Reserved namespaces). `:rf.story/global-decorators` replaces the global-decorators ref vector (rf2-9qpk3 — Storybook `preview.ts` `decorators: [...]` parity); each entry is `[decorator-id & ref-args]`, the same shape a `:decorators` slot takes, and the decorator bodies must already be registered via `reg-decorator` (or `reg-global-decorator`). The resolved per-variant stack is `(concat globals story variant)` with the earliest entry the outermost wrap; `nil` / `[]` clears it. See [Global decorators](#global-decorators-reg-global-decorator--rf2-835ey). `:rf.story/project-root` is bridged into Xray's slot via `re-frame.story.xray-preset/propagate-project-root!` so Xray-as-RHS source-coord chips share the same on-disk root (rf2-r1uod; symmetric to shop's rf2-6jyf6). `:rf.story/egress-profile` is Story's on-box dev-UI egress profile per EP-0015 (frame-owned egress policy, rf2-3t26eh) — one of the six ruled `:rf.egress/*` profiles; in practice `:rf.egress/local-redacted` (the default — suppress sensitive display, fail-closed) or `:rf.egress/local-raw` (the trusted-local opt-in). EP-0015 issue 7 retired the process-global `:rf.privacy/show-sensitive?` boolean toggle in favour of this named-boundary choice: there is no single on/off knob, only "which boundary is this?". Story's value-bearing surfaces project through the centralized `re-frame.core/project-egress` walker under this profile. An unknown profile raises `:rf.error/unknown-egress-profile`. The off-box wire-egress equivalents (`:rf.egress/off-box-tool` / `--allow-sensitive-reads` for MCP) are owned by `tools/story-mcp/`. |
 
 ## Privacy

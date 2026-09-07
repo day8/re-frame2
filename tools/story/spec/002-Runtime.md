@@ -12,16 +12,21 @@ Per
 [spec/007 §Relationship-with-frames](../../../spec/007-Stories.md)
 each variant *is* a frame. At variant-mount time the runtime:
 
-1. Calls `(rf/make-frame {:id variant-id :doc ... :app-db {} :substrate :reagent ...})`
+1. Calls `(rf/make-frame {:id variant-id ...})` with the resolved frame
+   options and images. A new frame starts with empty app/runtime state;
+   setup and `:db-seed` establish the variant's data
    (per
    [spec/002 atomic create-and-register](../../../spec/002-Frames.md)).
-2. Records side-table metadata (view id, decorators, play, tags,
-   modes, substrates) in `tools.story.registry/*variants*`.
+2. Stamps Story frame metadata. Authored bodies remain in
+   `re-frame.story.registrar`'s tool-owned side-table; the plan compiler
+   resolves their inherited/composed context.
 3. Runs the four-phase lifecycle (below).
 
 At variant-unmount the runtime calls `(rf/destroy-frame! variant-id)`.
-Hot-reload preserves the side-table; a re-registration of the same
-variant calls `reset-frame!` and re-runs the lifecycle.
+Hot-reload preserves the side-table. The shell prepares a fresh run when
+its run key changes; same-id preparation resets state in place so mounted
+view reactions remain attached. Explicit `reset-variant` destroys and
+recreates the frame; these are distinct lifecycle operations.
 
 ### Image composition + the Story runtime image (EP-0026)
 
@@ -161,17 +166,20 @@ anti-pattern.
 When the rendering layer asks "what args is this variant rendered
 with?", the runtime composes them in this strict order (later wins):
 
-1. **Global args** — `tools.story.config/*global-args*` (from
+1. **Global args** — `re-frame.story.config/get-global-args` (from
    `re-frame.story/configure!` at boot — theme, locale defaults).
 2. **Story args** — `:args` on the parent story.
 3. **Mode args** — the active `:mode`'s `:args` (deep-merge, not
    replace).
 4. **Variant args** — `:args` on the variant.
-5. **Cell-local args** — runtime overrides from controls
-   (`:story/set-arg`).
+5. **Cell-local args** — runtime overrides from controls, supplied as
+   `:cell-overrides` by programmatic callers.
 
-`(get-effective-args variant-id {:mode ... :overrides ...})` is the
-public lookup; Stage 3 owns the helper.
+`(story/resolve-args variant-id {:active-modes [...]
+                                :cell-overrides {...}})` is the facade
+lookup. `re-frame.story.args/get-effective-args` is the sub-namespace
+alias with the same options. Plan execution additionally resolves the
+variant's inherited/composed args through the single plan compiler.
 
 Deep-merge (per Storybook's convention) for nested maps;
 override-by-replacement for vectors. This convention matches Phase 1
@@ -701,9 +709,13 @@ the hash includes:
 - Active substrate (when computing per-substrate identity)
 - Active mode (when computing per-mode identity)
 
-The hash is `sha-256` of a transit-serialised canonical form (keys
-sorted, vectors stable). The identity changes iff any input changes;
-otherwise visual-regression services skip the cell.
+The content hash is the versioned **8-character hexadecimal** value from
+`re-frame.story.fingerprint/content-hash`, not SHA-256 or a Transit hash.
+The single canonicalization/hash contract is
+[017 §Concrete primitive contract](017-Testing-Story.md#concrete-primitive-contract).
+It fingerprints declared render inputs, not rendered pixels or a view's
+implementation body; visual regression must still capture and compare
+the rendered output. A matching input hash is not proof of unchanged pixels.
 
 `re-frame.story.identity/snapshot-identity` implements this (its
 `variant-body-slice` selects the hashed slots). The canonical form is
@@ -714,12 +726,17 @@ baselines.
 
 ```clojure
 (run-variant variant-id)
-(run-variant variant-id {:mode :Mode.app/dark :substrate :reagent})
-;; => {:frame           <variant-id>
+(run-variant variant-id {:active-modes [:Mode.app/dark] :substrate :reagent})
+;; => Promise (CLJS) / CompletableFuture (JVM) resolving to:
+;;    {:status          :pass ; :pass | :fail | :cannot-run | :error
+;;     :frame           <variant-id>
+;;     :lifecycle       :ready ; mount state, not the verdict
 ;;     :app-db          {...}
 ;;     :assertions      [{:assertion :rf.assert/path-equals :passed? true ...} ...]
 ;;     :elapsed-ms      <number>
-;;     :snapshot        {:variant-id ..., :mode ..., :substrate ..., :content-hash "..."}}
+;;     :checks          []
+;;     :consumed-selectors #{}
+;;     :snapshot        {:variant-id ..., :active-modes [...], :substrate ..., :content-hash "..."}}
 ```
 
 `run-variant` does not render. Rendering is `render-variant`'s job, and it
@@ -730,25 +747,25 @@ carries no rendering slot.
 
 `run-variant` runs the four-phase lifecycle:
 
-1. **Fresh-run boundary** (rf2-294yq5.3): if a frame already exists
-   under `variant-id`, `run-variant` DESTROYS it first, then allocates
-   a clean frame. `run-variant` never reuses an existing frame — a bare
-   `allocate!` against an existing frame goes through `make-frame`'s
-   surgical-update path, which preserves the prior app-db and sub-cache,
-   and (worse) leaves an already-`:ready` loader variant short-circuiting
-   its loaders on the second run. Two consecutive `run-variant` calls on
-   the same id therefore produce the SAME fresh app-db, and loader
-   variants rerun their loaders. Determinism by default.
+1. **Fresh-run boundary** (rf2-294yq5.3): an existing frame is reset to
+   fresh app/runtime state **in place**, after its Story teardown walks.
+   Frame identity, sub-cache and projection reactions survive so mounted
+   views stay reactive; the lifecycle snapshot does not, so loaders rerun.
+   A never-seen id gets a new frame. Fresh state does not mean replacing
+   the frame object on every run. Evidence is scoped to this run's epoch
+   baseline even when the frame-owned retained ring survives.
 2. Run `:loaders` (phase 1), wait for `:loaders-complete-when`
    predicate.
 3. Run `:setup` (phase 2).
-4. Optionally render (phase 3) and run `:script` / `:plays`
-   (phase 4).
-5. Tear down or persist per opts.
+4. Run `:script` / `:plays` (phase 4); this programmatic lifecycle does
+   not render. The live shell owns its prepare/render/resume boundary.
+5. Return the unified result. A registered variant's frame remains
+   caller-owned until `destroy-variant!`; `story/run` of an inline map
+   owns and destroys its anonymous frame on settlement.
 
-`run-variant` returns a promise-like object the host can await (it may
-resolve synchronously when no loaders are present and all fx in
-`:setup` are synchronous). The async return-shape is **locked**: a
+`run-variant` always returns an asynchronous container, even when its work
+completes immediately; it never returns the result map directly. The
+return-shape is **locked**: a
 native `js/Promise` on CLJS, and a `java.util.concurrent.CompletableFuture`
 on the JVM (manifold was considered and dropped — the two host runtimes
 already expose these, so no extra dependency is pulled). The two flavours
@@ -767,18 +784,16 @@ tests / REPL via `deref-blocking`, CLJS callers chain with `then` / await.
 (variant->edn variant-id)                        ; canonical-form serialised body
 (workspace->edn workspace-id)                    ; same, for workspace layouts
 (snapshot-identity variant-id)
-(snapshot-identity variant-id {:mode ... :substrate ...})
-;; => {:variant-id ..., :mode ..., :substrate ..., :content-hash "..."}
+(snapshot-identity variant-id {:active-modes [...] :substrate ...})
+;; => {:variant-id ..., :active-modes [...], :substrate ..., :content-hash "..."}
 ```
 
-## Effects (fx) registered by Story
+## Historical effect vocabulary
 
-| Fx id | Payload | Notes |
-|---|---|---|
-| `:story/set-arg` | `{:variant <id> :key <k> :value <v>}` | Dispatched by control widgets when args change. |
-| `:story/run-play` | `{:variant <id>}` | Run the play sequence (used by play-stepper). |
-| `:story/reset` | `{:variant <id>}` | Reset variant to post-events baseline. |
-| `:story/save-layout-as` | `{:workspace <id> :body <transit>}` | Persist the active layout as a registered workspace. |
+The original `:story/set-arg`, `:story/run-play`, `:story/reset` and
+`:story/save-layout-as` quartet is unimplemented historical design
+vocabulary, not registered effects. Use the supported facade/control
+operations listed in [API §Historical effect vocabulary](API.md#historical-effect-vocabulary-not-registered).
 
 ## Coeffects (cofx) registered by Story
 
@@ -805,11 +820,12 @@ each; substrate-specific failures show inline (see
 
 ```clojure
 (story/registrations :tag)                               ; all registered tags
-(story/registrations :tag #(contains? (:tags %) :auth))  ; filtered
+(into {} (filter (fn [[_ body]] (= :status (:axis body))))
+      (story/registrations :tag))                      ; filter the returned map
 ```
 
 `story/registrations` is the Public-query parity bridge over the
-tool-owned side-table at `tools.story.registry/*` (see
+tool-owned side-table in `re-frame.story.registrar` (see
 [spec/007 §Story-tool extension hook](../../../spec/007-Stories.md));
 it mirrors the framework's
 [spec/001 registrar query API](../../../spec/001-Registration.md)

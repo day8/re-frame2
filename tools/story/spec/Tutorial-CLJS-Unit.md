@@ -2,8 +2,8 @@
 
 > The recommended end-user testing recipe for a Story-using app:
 > drive `run-variant` from a `cljs.test` deftest, assert against the
-> result map's `:app-db` / `:assertions` slots, no browser, no
-> Playwright, sub-millisecond per case. This is THE tutorial for
+> resolved result map's `:status`, `:app-db` and `:assertions` slots,
+> without a browser for headless cases. This is the tutorial for
 > end-user variant testing; reach for [`Tutorial-Playwright.md`](Tutorial-Playwright.md)
 > only when a browser-only surface (real-pointer events, viewport
 > sizing, file-upload dialogs, multi-tab flows) is genuinely
@@ -32,8 +32,9 @@ Per the project's testing direction
 ([`feedback_xray_story_cljs_unit_tests_not_playwright`](https://github.com/day8/re-frame2)),
 Wave 1–4 migration moved 81% of Story's Playwright assertions to
 CLJS-unit tests. **New end-user tests default to CLJS-unit, not
-Playwright.** The CLJS test reaches every Story surface a Playwright
-spec reached, sub-millisecond, with no browser dependency.
+Playwright.** Headless tests cover state and event behavior; they do not
+replace browser layout, real input, or pixel checks. Runtime depends on
+the variant's work, including any waits or loaders.
 
 ## Prerequisites
 
@@ -47,8 +48,8 @@ spec reached, sub-millisecond, with no browser dependency.
   `implementation/shadow-cljs.edn`'s `:node-test` block as a
   reference.
 - `cljs.test` (shipped with ClojureScript; no extra dep needed).
-- `re-frame.story.async` for the `then` helper if the variant has
-  `:loaders` (otherwise `run-variant` returns synchronously).
+- `re-frame.story.async` for promise chaining: `run-variant` always
+  returns a `js/Promise`, including for a zero-loader variant.
 
 ## The starter test
 
@@ -62,36 +63,32 @@ build config points at).
 
    Each test drives one variant via `run-variant` and asserts
    against the returned result map's `:app-db` / `:assertions`
-   slots. No browser; no Playwright; sub-millisecond per case."
+   slots. No browser is needed for this headless state test."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story :as story]
             [re-frame.story.async :as async-lib]
-            [re-frame.story.test-support :as story-test]
+            [re-frame.test-support :as rf-test]
             [myapp.events]   ; loads :counter/* event handlers
             [myapp.stories.counter])) ; loads :story.counter/* variants
 
 ;; ---- fixture: full reset between tests ------------------------------------
 ;;
-;; Use the canonical helper `re-frame.story.test-support/use-fixtures` —
-;; do NOT hand-roll the reset. It resets the framework runtime (via
-;; registrar snapshot/restore — the framework `:rf/machine` sub survives,
-;; so variants are never trapped at `:pre-mount`), re-installs Story's
-;; canonical vocabulary, ensures the default frame, wipes the per-variant
-;; play run-state, then runs your `:install` thunks against the fresh
-;; registry. `:adapter` is REQUIRED (the JVM and browser want different
-;; substrate adapters, so the helper can't pick one for you).
-;;
-;; Declared with the FN form — the map form silently skips every deftest
-;; on the JVM half of a `.cljc` test (see `re-frame.story.meta-fixtures-test`).
+;; cljs.test async bodies require MAP fixtures. The framework's :async?
+;; option chooses that shape on CLJS (and the fn shape on JVM), while
+;; retaining its registrar/source-store reset and teardown contract.
+;; Story's own story-test/use-fixtures helper is synchronous-only today.
+;; These two application namespaces expose install! thunks. In particular,
+;; the Story thunk reinstalls variants after its separate side-table clear.
 
 (use-fixtures :each
-  (story-test/use-fixtures
+  (rf-test/make-reset-runtime-fixture
     {:adapter plain-atom/adapter
-     ;; Re-run your app's registration thunks each test so the freshly-
-     ;; reset registrar carries your event handlers + variant defs.
-     :install [myapp.events/install!
-               myapp.stories.counter/install!]}))
+     :async? true
+     :init-fn (fn []
+                (story/clear-all!)
+                (myapp.events/install!)
+                (myapp.stories.counter/install!))}))
 
 ;; ---- happy path: variant lands on the expected app-db --------------------
 
@@ -104,11 +101,10 @@ build config points at).
             (fn [result]
               (is (= :ready (:lifecycle result))
                   "lifecycle reached :ready after the four phases")
+              (is (story/result-passed? result)
+                  "unified verdict includes assertions and evidence failures")
               (is (= 5 (-> result :app-db :count))
                   ":counter/initialise 5 wrote :count 5")
-              (is (empty? (filter #(false? (:passed? %))
-                                  (:assertions result)))
-                  "no failed assertions on a clean run")
               (story/destroy-variant! :story.counter/at-five)
               (done)))))))
 ```
@@ -120,20 +116,21 @@ source, drive it from a deftest, assert against the result map.
 
 ### `run-variant` returns the whole shape
 
-Story's `run-variant` runs the four-phase lifecycle and returns a
-result map. The slots that matter for tests:
+Story's `run-variant` runs the lifecycle and returns a promise of the
+unified result map. The slots that matter for tests:
 
 | Slot | Shape | Use |
 |---|---|---|
-| `:lifecycle` | `:pre-mount` / `:mounting` / `:loading` / `:ready` | Did the variant reach `:ready`, or park earlier? |
+| `:status` | `:pass` / `:fail` / `:cannot-run` / `:error` | The verdict; read with `story/result-passed?`, not lifecycle or an empty assertion list. |
+| `:lifecycle` | `:pre-mount` / `:mounting` / `:loading` / `:ready` / `:error` | Mount/lifecycle progress, not the test verdict. |
 | `:app-db` | the post-lifecycle `app-db` of the variant's frame | Read with `get-in` / sub-equivalents to assert structural state |
 | `:assertions` | vector of `{:assertion :rf.assert/path-equals :passed? true ...}` maps | Did the in-variant `:script` assertions pass? |
 | `:elapsed-ms` | number | Performance budget assertions |
-| `:snapshot` | `{:variant-id ... :mode ... :substrate ... :content-hash ...}` | Visual-regression keying — see [`002-Runtime.md`](002-Runtime.md) §Snapshot identity |
+| `:snapshot` | `{:variant-id ... :active-modes [...] :substrate ... :content-hash ...}` | Declared-input identity — see [`002-Runtime.md`](002-Runtime.md) §Snapshot identity |
 
 The full shape is documented in [`002-Runtime.md`](002-Runtime.md)
-§Programmatic API. Tests typically assert on `:lifecycle` + `:app-db`
-+ `:assertions`.
+§Programmatic API. Tests assert the unified verdict and the state or
+individual records relevant to their regression.
 
 `run-variant` does not render, so there is no rendered-output slot to assert
 on. For DOM-shape assertions call `render-variant`, which returns its own
@@ -149,7 +146,7 @@ they answer different questions:
 | Mode | Where it runs | What it asserts | When to prefer |
 |---|---|---|---|
 | **In-variant** (`:script`) | Inside the variant's `:script` body via `:rf.assert/*` events | "Did this variant's own behaviour line up?" — record-don't-throw; the sequence continues | When the assertion is intrinsic to the variant's contract (e.g. "after three increments, `:count` is 3"). Ships with the variant; runs in every gate that drives `:script`. |
-| **Out-of-variant** (`cljs.test/is`) | In the deftest body, after `run-variant` resolves | "Does this variant satisfy MY app's regression bar?" — throw-on-fail | When the assertion is consumer-side (e.g. "this variant exists", "the result map's shape matches my expectation"). Lives in the test repo, not the variant body. |
+| **Out-of-variant** (`cljs.test/is`) | In the deftest body, after `run-variant` resolves | "Does this variant satisfy MY app's regression bar?" — reports to the test runner | When the assertion is consumer-side (e.g. "this variant exists", "the result map's shape matches my expectation"). Lives in the test repo, not the variant body. |
 
 The in-variant `:script` shape rides the share URL — pasting
 a `:story.counter/driven` URL into a colleague's browser runs the
@@ -175,8 +172,8 @@ assertions live in your test repo; they ride your CI.
             ;; Either assertion style passes here.
             (is (= 3 (-> result :app-db :count))
                 "out-of-variant: :count is 3 after three increments")
-            (is (every? :passed? (:assertions result))
-                "in-variant: the :rf.assert/sub-equals recorded :passed? true")
+            (is (story/result-passed? result)
+                "in-variant assertions and the run's evidence floor pass")
             (story/destroy-variant! :story.counter/driven)
             (done))))))
 ```
@@ -218,50 +215,35 @@ exercising the failure paths assert against the canonical keys per
 
 ### Sync vs. async
 
-`run-variant` returns synchronously when no loaders are present and
-all fx in `:setup` are synchronous; otherwise returns a promise-
-like the test must `then` against. The recipe above uses `async`
-unconditionally — it's correct in both cases and the cost (one
-extra `done` call) is negligible.
+Always use `async` + `then` for `run-variant` on CLJS. Immediate settlement
+does not change the return type. For a general keyword-or-inline-map
+target, `story/run` has the same promise contract. `story/is` additionally
+reports the result before its promise resolves; do not report it twice.
 
-For purely synchronous variants you can also write:
+On the JVM, await the `CompletableFuture` with
+`re-frame.story.async/deref-blocking`, or use `story/is`, which blocks and
+reports. See [API §Execution verbs](API.md#execution-verbs--run--is--explain).
 
-```clojure
-(deftest sync-variant
-  (let [result (story/run-variant :story.counter/empty)]
-    (is (= :ready (:lifecycle result)))
-    (is (= 0 (-> result :app-db :count)))
-    (story/destroy-variant! :story.counter/empty)))
-```
+### Per-test reset — match the host's fixture shape
 
-…but defaulting to `async` + `then` matches the production-grade
-patterns in `tools/story/test/` and won't break when a variant
-later acquires loaders.
+The starter uses the framework's existing async-capable fixture, with
+Story setup in `:init-fn`; it does not hand-roll registrar or frame resets.
+Build it after requiring your app namespaces so its stable baseline
+contains their registrations. Re-register Story variants after
+`story/clear-all!`, because Story's side-table is separate from the
+framework registrar. The first Story registration reinstalls its canonical
+vocabulary automatically.
 
-### Per-test reset is mandatory — use the canonical helper
+For synchronous tests, `re-frame.story.test-support/use-fixtures` and
+`with-clean-registry` remain the shorter Story-specific helpers. Their
+current implementation returns only a fn fixture; it does not forward
+`:async?`. A fn fixture cannot bracket a CLJS `(async done …)` test, and a
+literal map fixture cannot bracket a JVM test. The framework helper's
+`:async? true` selects the correct shape per host.
 
-`re-frame.story.test-support/use-fixtures` resets Story's side-table,
-the framework runtime (registrar / frames / adapter / trace listeners),
-the per-variant play run-state, and reinstalls the canonical vocabulary
-between tests. **Tests that share state run flaky.** Pass your app's
-registration thunks in `:install` so the freshly-reset registrar carries
-your event handlers + variant defs each test.
-
-Do NOT hand-roll the reset. The subtle gotcha the helper closes: a
-hand-rolled reset that clears the registrar with `registrar/clear-all!`
-(rather than snapshot/restore) wipes the framework's `:rf/machine`
-subscription, leaving the lifecycle machine's handler off the registry
-and trapping every subsequent variant at `:pre-mount` — a silent failure
-(the run never errors, it just never reaches `:ready` and the assertions
-come back empty). The helper resets the framework runtime via registrar
-**snapshot/restore**, so the `:rf/machine` sub (and every other
-ns-load-time framework registration) survives. That is the footgun the
-helper exists to close (rf2-lh99f).
-
-For a programmatic reset outside a `use-fixtures` declaration (e.g. a
-REPL probe or a single bracketed run), `story-test/with-clean-registry`
-takes the same `{:adapter … :install …}` opts and runs a thunk inside
-the reset, returning the thunk's value.
+The in-repo counter/login testbeds have an additional co-loaded image
+baseline constraint; their documented custom fixtures are not a second
+recipe for a standalone consumer app.
 
 ## Driving from `:setup` vs. `:script`
 
@@ -305,30 +287,26 @@ a property-based generator, etc.
 
 ## Common pitfalls
 
-- **Forgetting to pass your app's `install!` thunks to the helper.**
-  The reset wipes user registrations; your event handlers + variant
-  registrations must re-run each test — pass them in the helper's
-  `:install` vector.
-- **Asserting before the variant resolves.** Loader-bearing
-  variants are async; the `then` callback is the only valid
-  assertion site. The synchronous-form shortcut works only for
-  zero-loader variants.
+- **Forgetting to reinstall Story variants.** `story/clear-all!` clears
+  its side-table; call your story registration thunk in `:init-fn`.
+- **Asserting on the promise instead of its result.** Every
+  `run-variant` call returns a promise. Read result keys in `then`.
 - **Not calling `destroy-variant!` after each test.** The variant's
   frame leaks across tests if you don't; subsequent runs of the
-  same variant id hit a hot frame instead of a fresh one and can
-  surface stale state. The helper's per-test frame reset catches most
-  of this, but explicit destroy in the `then` body is the canonical
-  pattern.
-- **Hitting `:advanced`-compiled bundles.** Production-compiled
-  Story bundles elide all `reg-*` calls to `nil` (per
+  same variant id still reset their state, but unused frames and their
+  resources should not be kept alive. Explicit destroy after the run is
+  the caller's cleanup boundary.
+- **Disabling Story in the test build.** The production-app define
+  `re-frame.story.config/enabled? false` elides `reg-*` calls (per
   [`005-SOTA-Features.md`](005-SOTA-Features.md) §Production
   elision). Run tests against `:node-test` (no advanced
   compilation), not against your application's production bundle.
 - **Confusing in-variant and out-of-variant assertion modes.** The
   `:rf.assert/*` events in `:script` record into
   `(:assertions result)` and do NOT throw — `(is ...)` in your
-  deftest is the throw-on-fail path. Assert on `:passed?` if you
-  want to surface in-variant failures through the test runner.
+  deftest reports pass/fail to the test runner. Assert on the unified
+  verdict, or call `story/report-result!` on a `story/run` result for
+  per-assertion and run-level reports.
 
 ## Multi-frame e2e — when one variant isn't enough
 
@@ -336,9 +314,9 @@ For scenarios that exercise interactions across multiple variants
 (e.g. a routing flow that pivots from `:story.checkout/cart` to
 `:story.checkout/confirm`), reach for the
 `re-frame.story.test-helpers.e2e-multi-frame` helpers shipped under
-`tools/story/test/`. They mount N variants in parallel frames and
-let one deftest drive sequences across all of them — same sub-
-millisecond budget per case, no browser.
+`tools/story/test/`. These are repository test helpers, not included in
+the published jar's `src` path. They illustrate how one deftest can drive
+multiple frames; consumer tests own their equivalent setup and cleanup.
 
 See the worked examples in `tools/story/test/re_frame/story/panels_e2e/`
 — `variant_lifecycle_e2e_cljs_test.cljs` is the canonical reference
@@ -360,8 +338,8 @@ when the test genuinely needs a browser:
 
 For everything else — and that is the overwhelming majority of
 end-user variant coverage — the CLJS-unit recipe above is the
-right tool. Sub-millisecond per case; runs on every PR; no flaky
-browser teardown.
+right starting point. Choose browser coverage for the browser-only
+contract, not merely because the test subject is a UI component.
 
 ## Cross-references
 
