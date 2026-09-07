@@ -52,6 +52,15 @@
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
   (rf.schemas/clear-schemas-by-frame!)
+  ;; Cold-start the adapter slot, then seat plain-atom. The destroy is load-
+  ;; bearing rather than tidy-up: the SSR examples below swap in
+  ;; `re-frame.ssr/adapter` (see `init-ssr!`), and `init!` is idempotent only
+  ;; for the adapter it already seated (rf2-kuky.1) — so re-seating plain-atom
+  ;; over a live SSR adapter raises `:rf.error/adapter-already-installed`
+  ;; rather than silently doing nothing, which is the whole point of that
+  ;; change. Destroying first is what makes every test in this namespace start
+  ;; from the substrate it asks for, whatever its predecessor left seated.
+  (rf/destroy-adapter!)
   (rf/init! rf.substrate.plain-atom/adapter)
   ;; clear-all! also drops the framework's ONE built-in coeffect registration
   ;; (`:rf/time-ms` — recordable, provided; registered by a toplevel `reg-cofx`
@@ -153,6 +162,24 @@
 
 (use-fixtures :each reset-runtime)
 
+(defn- init-ssr!
+  "Seat the SSR adapter, replacing the plain-atom one `reset-runtime` installs.
+
+  These SSR examples exercise the SERVER flow, so they want
+  `re-frame.ssr/adapter` (`:kind :rf.adapter/ssr`) — the headless adapter that
+  binds its own `render-to-string` — rather than the plain-atom default the
+  shared fixture seats for the rest of this namespace.
+
+  A bare `(rf/init! rf.ssr/adapter)` is what these tests used to call, and it
+  did NOTHING: `init!`'s guard asked only \"is anything seated?\", so with
+  plain-atom already in the slot the call returned nil and every SSR example
+  below ran on the plain-atom substrate it does not name. rf2-kuky.1 made that
+  silent swallow the error it always was, which is what surfaced this. Destroy
+  first, then seat — the swap `init!` now tells you to make."
+  []
+  (rf/destroy-adapter!)
+  (rf/init! rf.ssr/adapter))
+
 ;; ============================================================================
 ;; ssr — exercises the server flow (per-request frame → :rf/server-init →
 ;; managed-HTTP via the canned stub → render to string → render-hash).
@@ -164,11 +191,11 @@
 (deftest ssr-example-runs-end-to-end
   (testing "examples/capabilities/ssr/ssr — the server flow renders the loaded articles"
     (require 'ssr.core :reload)
-    ;; Boot the runtime (idempotent) — installs the SSR adapter and the
-    ;; :rf/default frame. `re-frame.ssr` exports its own `adapter` var
-    ;; (the JVM-side counterpart of reagent/uix adapters); pass it
-    ;; explicitly.
-    (rf/init! rf.ssr/adapter)
+    ;; Swap the fixture's plain-atom adapter for the SSR one. `re-frame.ssr`
+    ;; exports its own `adapter` var (the JVM-side counterpart of the
+    ;; reagent/uix adapters); `init-ssr!` destroys first, because `init!` is
+    ;; idempotent only for the adapter it already seated.
+    (init-ssr!)
     ;; Stub `:rf.http/managed` so the test doesn't make real network
     ;; calls. The per-frame `:fx-overrides` redirect `:rf.http/managed`
     ;; to a per-test stub that delegates to the framework-shipped
@@ -244,7 +271,7 @@
             in the registry and no SSR request slot after it returns
             (Spec 011 §Per-request frame teardown contract)"
     (require 'ssr.core :reload)
-    (rf/init! rf.ssr/adapter)
+    (init-ssr!)
     (install-canned-articles-stub!)
     ;; The example's `:rf/server-init` fires `:rf.http/managed`; redirect it
     ;; to the canned stub via the lexical-scope `with-fx-overrides` so the
@@ -280,7 +307,7 @@
             leaks nothing (Spec 011 §Per-request frame teardown contract —
             cleanup runs on the throw path too)"
     (require 'ssr.core :reload)
-    (rf/init! rf.ssr/adapter)
+    (init-ssr!)
     (install-canned-articles-stub!)
     (let [handle-request (resolve 'ssr.core/handle-request)
           frames-before  (set (keys @rf.frame/frames))]
@@ -330,7 +357,7 @@
             :articles schema (the rf2-9wc2ed per-request registration) and
             validation runs ON THAT FRAME, not on :rf/default (rf2-i6p308)"
     (require 'ssr.core :reload)
-    (rf/init! rf.ssr/adapter)
+    (init-ssr!)
     (install-canned-articles-stub!)
     (let [articles-schema @(resolve 'ssr.core/ArticlesSchema)
           ;; Drive a per-request server frame exactly as handle-request does:
@@ -412,7 +439,7 @@
             under [:rf.runtime/ssr :hydration :server-hash] and replaces app-db
             with the :rf/app-db slice"
     (require 'ssr.core :reload)
-    (rf/init! rf.ssr/adapter)
+    (init-ssr!)
     (let [client-frame (rf.frame/make-anon-frame-record! {:doc "ssr-example client frame"
                                        :platform :client})
           payload      {:rf/version     1
@@ -434,7 +461,7 @@
   (testing "examples/capabilities/ssr/ssr — a client render-tree whose hash MATCHES the
             payload's :rf/render-hash emits NO :rf.ssr/hydration-mismatch"
     (require 'ssr.core :reload)
-    (rf/init! rf.ssr/adapter)
+    (init-ssr!)
     (let [client-frame (rf.frame/make-anon-frame-record! {:doc "ssr-example verify-match frame"
                                        :platform :client
                                        :ssr {:detect-mismatch? true}})
@@ -456,7 +483,7 @@
             from the payload's :rf/render-hash emits :rf.ssr/hydration-mismatch
             (the verify step the example's `run` wires via :render-tree-fn)"
     (require 'ssr.core :reload)
-    (rf/init! rf.ssr/adapter)
+    (init-ssr!)
     (let [client-frame (rf.frame/make-anon-frame-record! {:doc "ssr-example verify-divergent frame"
                                        :platform :client
                                        :ssr {:detect-mismatch? true}})
@@ -479,7 +506,7 @@
             unchanged (Spec 011 §The :rf/hydrate event — both partitions
             validate fail-closed before installation)"
     (require 'ssr.core :reload)
-    (rf/init! rf.ssr/adapter)
+    (init-ssr!)
     (let [client-frame (rf.frame/make-anon-frame-record! {:doc "ssr-example fail-closed frame"
                                        :platform :client})]
       ;; Seed a known app-db value first so we can prove it survives.
@@ -504,7 +531,7 @@
 (deftest ssr-streaming-example-runs-end-to-end
   (testing "examples/capabilities/ssr/ssr_streaming — the server stream produces shell + chunks + payload"
     (require 'ssr-streaming.core :reload)
-    (rf/init! rf.ssr/adapter)
+    (init-ssr!)
     (let [handle-request (resolve 'ssr-streaming.core/handle-request)
           result         (handle-request {:uri "/dashboard"})]
       ;; Shell carries the static header content + four template fallbacks.
@@ -587,7 +614,7 @@
             payload omits the per-request server frame-id) and seeds the
             client app-db with the server's articles (rf2-2pjgiq)"
     (require 'ssr.core :reload)
-    (rf/init! rf.ssr/adapter)
+    (init-ssr!)
     (install-canned-articles-stub!)
     (let [handle-request (resolve 'ssr.core/handle-request)
           resp           (rf/with-fx-overrides
@@ -618,7 +645,7 @@
             the client EDN reader unchanged (security audit 2026-05-14 §P1,
             rf2-7ksyr / rf2-2pjgiq)"
     (require 'ssr.core :reload)
-    (rf/init! rf.ssr/adapter)
+    (init-ssr!)
     ;; A canned stub whose article title carries a `</script>` breakout
     ;; precursor — the exact XSS shape the EDN-aware escaper exists to defang.
     (rf/reg-fx :ssr.http/canned-evil
@@ -657,7 +684,7 @@
             per-request server frame-id) and seeds the client app-db with the
             three streamed cards (rf2-2pjgiq)"
     (require 'ssr-streaming.core :reload)
-    (rf/init! rf.ssr/adapter)
+    (init-ssr!)
     (let [handle-request (resolve 'ssr-streaming.core/handle-request)
           result         (handle-request {:uri "/dashboard"})
           payload        (:final-payload result)]
@@ -684,7 +711,7 @@
             preloaded resource entry into the client `:rf.runtime/resources`
             slice (Spec 016 §SSR client hydration, rf2-2pjgiq)"
     (require 'resources-ssr.core :reload)
-    (rf/init! rf.ssr/adapter)
+    (init-ssr!)
     ;; Stub the resource's managed-HTTP fetch with a canned-success reply so
     ;; the example's blocking drain settles the page resource synchronously
     ;; (no real network; mirrors the plain-SSR canned-articles stub).
@@ -773,7 +800,7 @@
             payload — so a future drift back to the pre-EP-0012 vector-keyed /
             rotting-absolute-`:stale-at` shape fails here."
     (require 'resources-ssr.core :reload)
-    (rf/init! rf.ssr/adapter)
+    (init-ssr!)
     ;; Read the SHIPPED static host page off the classpath (the
     ;; `../../examples/capabilities/ssr` source root is a `:test` classpath
     ;; entry, so `resources_ssr/index.html` resolves next to `core.cljc`) and
@@ -945,7 +972,7 @@
             absent entry projects as `:idle`, which reads as a successful answer
             of zero articles. rf2-h3c9."
     (require 'resources-ssr.core :reload)
-    (rf/init! rf.ssr/adapter)
+    (init-ssr!)
     (let [calls (reg-counting-transport! :resources-ssr-test/pending {:reply? false})
           fid   (resources-ssr-client-frame! :resources-ssr-test/pending)
           owner @(resolve 'resources-ssr.core/page-owner)]
@@ -982,7 +1009,7 @@
             cache-hit path — it attaches the page owner and issues ZERO
             requests, and the server's markup still paints. rf2-h3c9."
     (require 'resources-ssr.core :reload)
-    (rf/init! rf.ssr/adapter)
+    (init-ssr!)
     (let [calls   (reg-counting-transport! :resources-ssr-test/canned {:reply? true})
           fid     (resources-ssr-client-frame! :resources-ssr-test/canned)
           owner   @(resolve 'resources-ssr.core/page-owner)
@@ -1020,7 +1047,7 @@
             background request while the last-known-good data stays visible.
             rf2-h3c9."
     (require 'resources-ssr.core :reload)
-    (rf/init! rf.ssr/adapter)
+    (init-ssr!)
     (let [calls   (reg-counting-transport! :resources-ssr-test/canned {:reply? true})
           fid     (resources-ssr-client-frame! :resources-ssr-test/canned)
           owner   @(resolve 'resources-ssr.core/page-owner)
@@ -1061,7 +1088,7 @@
             invalidation issues nothing and leaves the entry GC-eligible.
             rf2-h3c9."
     (require 'resources-ssr.core :reload)
-    (rf/init! rf.ssr/adapter)
+    (init-ssr!)
     (let [calls      (reg-counting-transport! :resources-ssr-test/canned {:reply? true})
           fid        (resources-ssr-client-frame! :resources-ssr-test/canned)
           owner      @(resolve 'resources-ssr.core/page-owner)
