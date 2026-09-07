@@ -62,13 +62,51 @@
   ;; call so a deferred publication is visible the next dispatch.
   (atom {}))
 
+(defn- cache-generation
+  "The `fn-cache` value's invalidation counter — bumped by every
+  `invalidate-cache!`, read by `cache-resolution!` to reject a memo resolved
+  before that invalidation (rf2-d9x8). Lives under a namespaced key IN the
+  cache map, so no hook key can collide with it and every invalidation
+  necessarily produces a distinct map value."
+  [cache]
+  (::generation cache 0))
+
 (defn invalidate-cache!
   "Drop the cached resolution for `hook-key`. Called from `set-fn!` and
   `chain-fn!` so the next `get-fn-cached` re-resolves through `hooks`.
   Public so test fixtures and dev-time refresh tooling can force a
   re-resolve."
   [hook-key]
-  (swap! fn-cache dissoc hook-key)
+  (swap! fn-cache (fn [c]
+                    (-> c
+                        (dissoc hook-key)
+                        (assoc ::generation (inc (cache-generation c))))))
+  nil)
+
+(defn- cache-resolution!
+  "Memoise `resolved` under `hook-key` — but ONLY while the cache is still on
+  `generation`, the generation the caller read BEFORE it resolved through
+  `hooks` (rf2-d9x8).
+
+  A cache miss is two steps: read `hooks`, then insert. `set-fn!` publishes
+  into `hooks` and THEN invalidates, so a reader whose two steps straddle a
+  publication holds a SUPERSEDED fn and, inserting it unconditionally,
+  repopulated the very slot the publication had just cleared — permanently,
+  until some later invalidation. The stale entry then served every subsequent
+  lookup while an uncached `get-fn` returned the replacement.
+
+  Every invalidation bumps the generation, so this `swap!` sees it in one of
+  two ways and both are coherent: the bump landed BEFORE the successful
+  CAS — the generations differ and nothing is written — or it lands AFTER,
+  and its `dissoc` removes what was written. The counter rides IN the cache
+  map rather than in a second atom precisely so an invalidation always yields
+  a distinct value: a `dissoc` of an absent key returns the identical map, so
+  a racing reader's CAS would otherwise succeed straight over it."
+  [hook-key generation resolved]
+  (swap! fn-cache (fn [c]
+                    (if (= generation (cache-generation c))
+                      (assoc c hook-key resolved)
+                      c)))
   nil)
 
 (defn set-fn!
@@ -130,9 +168,14 @@
   100-event drain would otherwise resolve each key ~100 times."
   [hook-key]
   (or (get @fn-cache hook-key)
-      (when-let [resolved (get @hooks hook-key)]
-        (swap! fn-cache assoc hook-key resolved)
-        resolved)))
+      ;; Read the generation BEFORE resolving through `hooks`: a publication
+      ;; that lands after this read is guaranteed to bump past it, so the
+      ;; memo insert below is rejected rather than resurrecting the fn this
+      ;; call resolved (rf2-d9x8).
+      (let [generation (cache-generation @fn-cache)]
+        (when-let [resolved (get @hooks hook-key)]
+          (cache-resolution! hook-key generation resolved)
+          resolved))))
 
 (defn chain-fn!
   "Wire `step-fn` into the chained hook under `hook-key` so calling the

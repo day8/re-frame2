@@ -265,3 +265,58 @@
       (rf.late-bind/chain-fn! k (fn [_] nil))
       (is (not (cached? k))
           "chain-fn! invalidated the cache slot so the next dispatch sees the chained hook"))))
+
+;; =============================================================================
+;; rf2-d9x8 — a lookup that overlaps a republication must not RESTORE the
+;; superseded fn after the replacement's invalidation has run.
+;;
+;; `set-fn!` publishes into `hooks` and THEN drops the cache slot. A reader
+;; that had already read the old fn out of `hooks` used to insert it
+;; unconditionally afterwards, repopulating the slot the publication had just
+;; cleared — permanently, until some later invalidation. On the JVM that is a
+;; supported hot-reload path: an event running while a developer reloads
+;; `re-frame.flows` keeps the OLD `:flows/run-flows-on-db` on every subsequent
+;; event, with an uncached lookup disagreeing with runtime behaviour.
+;;
+;; The interleaving is driven through the real `set-fn!` / `get-fn-cached`,
+;; parking the reader at the memo-insert seam (`cache-resolution!`) — the exact
+;; window — rather than by writing the atoms by hand.
+;; =============================================================================
+
+(deftest racing-lookup-cannot-restore-a-superseded-fn
+  (testing "rf2-d9x8: after a completed replacement publication, EVERY later
+            cached lookup serves the replacement — a reader that resumes
+            mid-insert holding the old fn cannot resurrect it"
+    (let [k       :test/d9x8-race
+          old-fn  (fn [] :old)
+          new-fn  (fn [] :new)
+          parked  (promise)
+          resume  (promise)
+          insert! @#'rf.late-bind/cache-resolution!]
+      (rf.late-bind/set-fn! k old-fn)
+      (is (not (cached? k)) "the slot starts empty")
+      (with-redefs [rf.late-bind/cache-resolution!
+                    (fn [& args]
+                      (deliver parked true)
+                      ;; Bounded: a wedged reader fails the test rather than
+                      ;; hanging the suite.
+                      (deref resume 3000 :timed-out)
+                      (apply insert! args))]
+        (let [reader (future (rf.late-bind/get-fn-cached k))]
+          (is (= true (deref parked 3000 :timed-out))
+              "the reader parked inside the memo insert, holding old-fn")
+          ;; The replacement publishes AND invalidates while the reader is
+          ;; parked — the publication completes before the reader resumes.
+          (rf.late-bind/set-fn! k new-fn)
+          (is (identical? new-fn (rf.late-bind/get-fn k))
+              "the replacement is published")
+          (deliver resume true)
+          ;; The racing call finishing with its captured fn is NOT the defect —
+          ;; an in-flight invocation is entitled to the fn it resolved.
+          (is (identical? old-fn (deref reader 3000 :timed-out))
+              "the racing reader returns the fn it captured")))
+      (dotimes [_ 3]
+        (is (identical? new-fn (rf.late-bind/get-fn-cached k))
+            "every lookup after the completed publication serves the replacement"))
+      (is (identical? new-fn (rf.late-bind/get-fn k))
+          "the uncached lookup agrees with the cached one"))))
