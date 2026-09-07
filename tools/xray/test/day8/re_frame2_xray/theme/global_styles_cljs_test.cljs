@@ -766,7 +766,7 @@
 (deftest set-host-theme-css-is-safe-without-document
   (testing "rf2-ee38b.2 — under node-test `js/document` is absent;
             `set-host-theme-css!` (the impl behind the public
-            `core/load-theme`) must no-op rather than throw, for any
+            `core/load-theme!`) must no-op rather than throw, for any
             input — a CSS string, an empty string, or nil. DOM-bearing
             behaviour (replace-in-place, clear-on-blank) is exercised by
             the browser target; here we pin the no-DOM safety contract."

@@ -406,7 +406,7 @@ What does *not* change between densities: icon weights, border radii, animation 
 
 ### Theming as a token system
 
-All values above are CSS custom properties under a single root. Themes are 50-line CSS files. Users can drop a custom theme via Settings → Theme → Load CSS. Default theme files are bundled; the runtime exposes `(rf.xray/load-theme css-string)` for programmatic loading (handy for editor-driven palette sync).
+All values above are CSS custom properties under a single root. Themes are 50-line CSS files. Users can drop a custom theme via Settings → Theme → Load CSS. Default theme files are bundled; the runtime exposes `(rf.xray/load-theme! css-string)` for programmatic loading (handy for editor-driven palette sync).
 
 ---
 

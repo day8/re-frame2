@@ -23,7 +23,7 @@ The canonical facade. The day-to-day require for host integrations: mount contro
 | `set-target-frame!` | `(set-target-frame! frame-id)` → nil | Set the inspected-host frame Xray targets. `nil` resets to the **unselected** state (not `:rf/default`). |
 | `focus!` | `(focus! command)` → map | Host-facing focus handoff. Story and other hosts use it to focus a panel, epoch, cascade row, app-db path, or source target without rebuilding Xray's diagnostic UI. |
 | `valid-focus-panels` | set value | Canonical focusable panel ids — one per live Dynamic L4 tab: `#{:epoch :app-db :views :trace :machines :routing :resources :derivation-graph :module-view :hicasso}`. The id is the internal registry key, not the visible label: `:routing` renders as "Routes", `:derivation-graph` as "Graph", `:module-view` as "Frames". A host that prefers the display noun may pass `:routes`, which normalises to `:routing`. |
-| `load-theme` | `(load-theme css-string)` → nil | Programmatic theme override. Installs or replaces a host CSS block; `nil` or blank clears the override. |
+| `load-theme!` | `(load-theme! css-string)` → nil | Programmatic theme override. Installs or replaces a host CSS block; `nil` or blank clears the override. |
 | `configure!` | `(configure! opts)` → nil | Top-level config — re-exported from `config`. See [Configuration keys](config-keys.md). |
 | `set-auto-open!` | `(set-auto-open! bool)` → nil | Re-exported from `config`. Whether the preload auto-opens. |
 | `set-editor!` | `(set-editor! editor)` → nil | Re-exported from `config`. Sets the "Open in editor" preference. |
