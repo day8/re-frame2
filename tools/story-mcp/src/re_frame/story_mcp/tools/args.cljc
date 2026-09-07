@@ -108,6 +108,14 @@
   []
   (rf.story/ids :variant))
 
+(defn- cell-override-base-args
+  "The variant's EFFECTIVE args under `active-modes` (no cell-overrides) —
+  the base a caller's `:cell-overrides` map is merged into. Its KEYS are
+  the bounded allowlist ([[cell-override-key-set]]); its VALUES are what
+  [[align-nested-override-keys]] aligns a nested override against."
+  [vk active-modes]
+  (rf.story/resolve-args vk {:active-modes active-modes}))
+
 (defn- cell-override-key-set
   "Bounded allowlist for `:cell-overrides` KEYS: the keys of the
   variant's EFFECTIVE-args map under the caller's `active-modes`
@@ -127,17 +135,68 @@
   with no active modes — every override key then rejects, which is the
   honest answer (nothing to override)."
   [vk active-modes]
-  (set (keys (rf.story/resolve-args vk {:active-modes active-modes}))))
+  (set (keys (cell-override-base-args vk active-modes))))
+
+(defn- align-nested-override-keys
+  "Align a caller-supplied override VALUE's wire keys with the keys the
+  base value ALREADY carries, recursively (rf2-49o8).
+
+  Story supports nested keyword-keyed args and deep-merges cell overrides
+  into them, but the JSON ingress deliberately leaves nested arg keys as
+  STRINGS (only the top-level override key was resolved). So a
+  `{\"settings\": {\"title\": \"Edited\"}}` override against a registered
+  `{:settings {:title \"Nested title\" :enabled? true}}` deep-merged to
+  `{:settings {:title \"Nested title\" :enabled? true \"title\" \"Edited\"}}` —
+  the consumer reading `[:settings :title]` still saw the OLD value, the
+  run evaluated an arg the agent had asked to change, and
+  `snapshot-identity` keyed the unintended mixed-key tuple. No unknown-id
+  guard fired, because the top-level `settings` key was perfectly valid.
+
+  The alignment is deliberately narrow:
+
+    - A key the base map ALREADY carries verbatim is kept verbatim. That
+      covers a legitimately string-keyed base map, whose keys must not be
+      converted — and it is also the explicit AMBIGUOUS policy: when the
+      base carries both `\"title\"` and `:title`, the exact match wins and
+      nothing is guessed.
+    - Otherwise the key resolves through `rf.mcp-base.args/safe-keyword`
+      against the base map's own KEYWORD keys — the only unambiguous
+      mapping available, and a bounded, registry-derived allowlist, so no
+      fresh keyword is ever interned.
+    - A key the base map has in neither form is left exactly as supplied.
+      A nested key that names nothing existing is data, not an identifier.
+
+  VALUES are never touched: only map keys are considered, and a
+  non-map override or base ends the recursion immediately, so
+  string-keyed payload DATA rides through verbatim."
+  [override base]
+  (if-not (and (map? override) (map? base))
+    override
+    (let [keyword-keys (into #{} (filter keyword?) (keys base))]
+      (persistent!
+       (reduce-kv
+        (fn [acc k v]
+          (let [k' (if (contains? base k)
+                     k
+                     (or (rf.mcp-base.args/safe-keyword k keyword-keys) k))]
+            (assoc! acc k' (align-nested-override-keys v (get base k')))))
+        (transient {})
+        override)))))
 
 (defn- safe-cell-overrides
   "Coerce a caller-supplied `:cell-overrides` map (string-keyed off the
   JSON wire via the no-intern ingress, or keyword-keyed from a
   direct-invoke caller) into a keyword-keyed override map, routing
-  every KEY through `rf.mcp-base.args/safe-keyword` against `allowed` — the
-  variant's declared arg-key set. A key outside the set is DROPPED (no
-  intern), so an attacker cannot mint fresh keywords by streaming unique
-  override keys. Values pass through verbatim — they are data, not
-  identifiers. Non-map input yields `nil` (no overrides).
+  every KEY through `rf.mcp-base.args/safe-keyword` against the keys of
+  `base` — the variant's effective args under the active modes. A key
+  outside that set is DROPPED (no intern), so an attacker cannot mint
+  fresh keywords by streaming unique override keys. Non-map input yields
+  `nil` (no overrides).
+
+  A MAP value is walked by [[align-nested-override-keys]] against the
+  base value it overrides, so a nested wire key reaches the keyword-keyed
+  arg it names instead of landing beside it (rf2-49o8). Everything else
+  passes through verbatim — values are data, not identifiers.
 
   The drop is DEFENCE IN DEPTH, not the boundary contract. This
   docstring used to add 'a typo'd override simply doesn't apply', which
@@ -148,16 +207,17 @@
   tuple. By the time this coercer sees a map from a handler, every key
   has already resolved; the drop survives only so a direct-invoke caller
   that skips the guard still cannot intern."
-  [overrides allowed]
+  [overrides base]
   (when (map? overrides)
-    (persistent!
-     (reduce-kv
-      (fn [acc k v]
-        (if-let [kw (rf.mcp-base.args/safe-keyword k allowed)]
-          (assoc! acc kw v)
-          acc))
-      (transient {})
-      overrides))))
+    (let [allowed (set (keys base))]
+      (persistent!
+       (reduce-kv
+        (fn [acc k v]
+          (if-let [kw (rf.mcp-base.args/safe-keyword k allowed)]
+            (assoc! acc kw (align-nested-override-keys v (get base kw)))
+            acc))
+        (transient {})
+        overrides)))))
 
 (defn require-collection
   "Guard a collection-shaped MCP arg against a caller-supplied SCALAR.
@@ -475,7 +535,7 @@
 
       (some? (:cell-overrides arguments))
       (assoc :cell-overrides (safe-cell-overrides (:cell-overrides arguments)
-                                                  (cell-override-key-set vk active-modes))))))
+                                                  (cell-override-base-args vk active-modes))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Shared lifecycle timeout
