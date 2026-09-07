@@ -20,10 +20,9 @@
       dissoc'd entirely.
 
    3. **Auth-flow scenario without `:data :pending` bookkeeping.** A spec
-      whose `:on-spawn` does NOT record the id in any `:data` slot
-      still has the spawned actor cleanly destroyed on state exit —
-      the runtime tracks the id internally rather than reading `:data`
-      to find it.
+      that does NOT record the id in any user `:data` slot still has the
+      spawned actor cleanly destroyed on state exit — the runtime tracks
+      the id internally rather than reading `:data` to find it.
 
    4. **Multi-child independent tracking.** A parent that has two
       different `:spawn`-bearing states (different invoke-ids) tracks
@@ -52,24 +51,13 @@
 
 (deftest spawn-writes-runtime-registry-slot
   (testing "entering a :spawn-bearing state binds [:rf.runtime/machines :spawned <parent> <invoke-id>] to the spawned-id"
-    (let [;; The :on-spawn callback is purely advisory — its return value
-          ;; is ignored. We capture the id via a side-effect atom to verify
-          ;; the callback fires; the runtime tracks the id at
-          ;; [:rf.runtime/machines :spawned ...] regardless.
-          observed (atom nil)
-          child  {:initial :running
+    (let [child  {:initial :running
                   :data    {}
                   :states  {:running {}}}
           parent {:initial :idle
-                  :on-spawn-actions
-                  ;; Observational body — side-effect into an atom, returns
-                  ;; nil (the advisory contract drops the return; returning
-                  ;; nil keeps the dev-warn quiet).
-                  {:record (fn [{:keys [id]}] (reset! observed id) nil)}
                   :states
                   {:idle      {:on {:start :working}}
-                   :working   {:spawn {:machine-id :worker/proc
-                                        :on-spawn   :record}
+                   :working   {:spawn {:machine-id :worker/proc}
                                :on    {:done :idle}}}}]
       (rf/reg-machine :worker/proc child)
       (rf/reg-machine :sup/flow parent)
@@ -80,9 +68,7 @@
         (is (= :worker/proc#1 spawned-id)
             "the spawn registry slot is bound to the deterministic actor id")
         (is (some? (get-in db [:rf.runtime/machines :snapshots spawned-id]))
-            "the spawned actor's snapshot lives at [:rf.runtime/machines :snapshots <spawned-id>]")
-        (is (= :worker/proc#1 @observed)
-            ":on-spawn callback still fires (advisory) and observed the id via side-effect")))))
+            "the spawned actor's snapshot lives at [:rf.runtime/machines :snapshots <spawned-id>]")))))
 
 ;; ---- (2) destroy clears the slot AND prunes lazy-allocation roots ---------
 
@@ -92,12 +78,9 @@
                   :data    {}
                   :states  {:running {}}}
           parent {:initial :idle
-                  :on-spawn-actions
-                  {:record (fn [{:keys [id]}] (tap> [::recorded id]))}
                   :states
                   {:idle      {:on {:start :working}}
-                   :working   {:spawn {:machine-id :worker/proc
-                                        :on-spawn   :record}
+                   :working   {:spawn {:machine-id :worker/proc}
                                :on    {:done :idle}}}}]
       (rf/reg-machine :worker/proc child)
       (rf/reg-machine :sup/flow parent)
@@ -219,18 +202,16 @@
                (get-in (snapshot :sup/finalize) [:data :rf/spawned [:working]]))
             "registry slot and :data slot mirror exactly after finalize — both absent")))))
 
-;; ---- (3) auth-flow scenario WITHOUT user-side :on-spawn bookkeeping -------
+;; ---- (3) auth-flow scenario WITHOUT user-side :data bookkeeping ----------
 ;;
-;; A :spawn whose user-supplied :on-spawn doesn't write the id under any
-;; :data slot still has the spawned actor cleanly destroyed on state-exit:
-;; the runtime tracks the id internally, so the destroy cascade works
-;; correctly without any `:data :pending` to read.
+;; A :spawn that writes the id into no user `:data` slot still has the
+;; spawned actor cleanly destroyed on state-exit: the runtime tracks the id
+;; internally, so the destroy cascade works correctly without any
+;; `:data :pending` to read.
 
 (deftest auth-flow-without-data-pending-magic
-  (testing "a :spawn without any :on-spawn :data write still has the actor destroyed on state-exit"
+  (testing "a :spawn writing no user :data still has the actor destroyed on state-exit"
     (let [child  {:initial :running :data {} :states {:running {}}}
-          ;; Note: NO :on-spawn-actions and NO :on-spawn key. The user
-          ;; doesn't care about the id user-side; the runtime tracks it.
           parent {:initial :idle
                   :states
                   {:idle           {:on {:submit :authenticating}}
@@ -241,8 +222,8 @@
       (rf/reg-machine :http/post child)
       (rf/reg-machine :auth/main parent)
       (rf/dispatch-sync [:auth/main [:submit]])
-      ;; Spawn happened — actor live, registry slot set, parent's :data
-      ;; untouched (no :on-spawn callback to write to it).
+      ;; Spawn happened — actor live, registry slot set, parent's user
+      ;; :data untouched.
       (let [db (frame-db)
             spawned-id (get-in db [:rf.runtime/machines :spawned :auth/main [:authenticating]])]
         (is (= :http/post#1 spawned-id))
@@ -255,12 +236,12 @@
                (get-in (snapshot :auth/main) [:data]))
             "user domain :data untouched; runtime stamps only the reserved :rf/spawned id capture")
         (is (empty? (dissoc (get-in (snapshot :auth/main) [:data]) :rf/spawned))
-            "no user-domain :data key was written — :on-spawn still not required"))
+            "no user-domain :data key was written"))
       ;; Mid-flight abandon → :idle.
       (rf/dispatch-sync [:auth/main [:auth/failed]])
       (let [db (frame-db)]
         (is (nil? (get-in db [:rf.runtime/machines :snapshots :http/post#1]))
-            "the spawned actor was destroyed despite no :on-spawn having recorded the id")
+            "the spawned actor was destroyed with no user-side id bookkeeping")
         (is (not (contains? (get-in db [:rf.runtime/machines]) :spawned))
             "the registry slot is cleared")))))
 
@@ -484,15 +465,17 @@
                   ;; directly — the canonical imperative destroy shape.
                   {:tear-down (fn [_ctx]
                                 {:fx [[:rf.machine/destroy @recorded]]})}
-                  :on-spawn-actions
-                  ;; Sidechannel-atom capture — returns nil (advisory; the
-                  ;; runtime drops the return).
-                  {:record (fn [{:keys [id]}] (reset! recorded id) nil)}
                   :states
                   {:idle    {:on {:start :working}}
-                   :working {:spawn {:machine-id :worker/proc
-                                      :on-spawn   :record}
-                             :on    {:done {:target :idle :action :tear-down}}}}}]
+                   :working {:spawn  {:machine-id :worker/proc}
+                             ;; Sidechannel-atom capture from the entry
+                             ;; cascade — the reducer has already bound the
+                             ;; id under [:data :rf/spawned <invoke-id>].
+                             :entry  (fn [{data :data}]
+                                       (reset! recorded
+                                               (get-in data [:rf/spawned [:working]]))
+                                       data)
+                             :on     {:done {:target :idle :action :tear-down}}}}}]
       (rf/reg-machine :worker/proc child)
       (rf/reg-machine :sup/imperative parent)
       (rf/dispatch-sync [:sup/imperative [:start]])
@@ -545,79 +528,6 @@
             snap       (get-in (frame-db) [:rf.runtime/machines :snapshots spawned-id])]
         (is (= {:foo :bar :version 7} (:meta snap))
             "spec-declared :meta is propagated to the spawned actor's snapshot")))))
-
-;; ---- dev-warn when :on-spawn returns a dropped value ---------
-;;
-;; `:on-spawn` is advisory: its return is DROPPED. A callback that returns a
-;; non-nil value (the canonical-looking `(assoc data :pending id)` trap) has
-;; that value silently swallowed. Per the no-silent-swallow principle the
-;; runtime turns the silent drop into a loud one — a dev-only
-;; `:rf.warning/on-spawn-return-ignored` trace naming the working
-;; id-recording alternatives. `trace/emit!` is gated on
-;; `interop/debug-enabled?` (true on the JVM by default) so the warn fires
-;; here; production CLJS bundles DCE it entirely.
-
-(defn- capture-warn-ops!
-  "Run `thunk` while a trace listener records every emitted `:operation`.
-  Returns the vector of operations seen during the body. Routed through the
-  shared `rf.machines.test-support/with-trace-capture` — guaranteed unregister in a `finally`
-  — then projects each envelope to its `:operation`."
-  [thunk]
-  (rf.machines.test-support/with-trace-capture seen
-    (thunk)
-    (mapv :operation @seen)))
-
-(deftest on-spawn-returning-a-value-warns-exactly-once
-  (testing "an :on-spawn callback that returns a non-nil (dropped) value
-   emits exactly one :rf.warning/on-spawn-return-ignored"
-    (let [child  {:initial :running :data {} :states {:running {}}}
-          parent {:initial :idle
-                  :on-spawn-actions
-                  ;; The canonical TRAP body — returns a :data map that the
-                  ;; runtime drops. The warn is what flags it.
-                  {:record (fn [{data :data id :id}] (assoc data :pending id))}
-                  :states
-                  {:idle    {:on {:start :working}}
-                   :working {:spawn {:machine-id :worker/warn
-                                      :on-spawn   :record}}}}]
-      (rf/reg-machine :worker/warn child)
-      (rf/reg-machine :sup/warn parent)
-      (let [ops (capture-warn-ops!
-                  #(rf/dispatch-sync [:sup/warn [:start]]))]
-        (is (= 1 (count (filter #{:rf.warning/on-spawn-return-ignored} ops)))
-            "exactly one on-spawn-return-ignored warn for a non-nil return")))))
-
-(deftest on-spawn-returning-nil-is-silent
-  (testing "an :on-spawn callback that returns nil (observation-only) emits
-   NO :rf.warning/on-spawn-return-ignored — no false positive"
-    (let [child  {:initial :running :data {} :states {:running {}}}
-          parent {:initial :idle
-                  :on-spawn-actions
-                  ;; Honest observational body — side-effect, returns nil.
-                  {:observe (fn [{:keys [id]}] (tap> [::spawned id]) nil)}
-                  :states
-                  {:idle    {:on {:start :working}}
-                   :working {:spawn {:machine-id :worker/quiet
-                                      :on-spawn   :observe}}}}]
-      (rf/reg-machine :worker/quiet child)
-      (rf/reg-machine :sup/quiet parent)
-      (let [ops (capture-warn-ops!
-                  #(rf/dispatch-sync [:sup/quiet [:start]]))]
-        (is (zero? (count (filter #{:rf.warning/on-spawn-return-ignored} ops)))
-            "no warn when :on-spawn returns nil")))))
-
-(deftest no-on-spawn-callback-is-silent
-  (testing "a :spawn with NO :on-spawn at all emits no on-spawn-return-ignored warn"
-    (let [child  {:initial :running :data {} :states {:running {}}}
-          parent {:initial :idle
-                  :states  {:idle    {:on {:start :working}}
-                            :working {:spawn {:machine-id :worker/none}}}}]
-      (rf/reg-machine :worker/none child)
-      (rf/reg-machine :sup/none parent)
-      (let [ops (capture-warn-ops!
-                  #(rf/dispatch-sync [:sup/none [:start]]))]
-        (is (zero? (count (filter #{:rf.warning/on-spawn-return-ignored} ops)))
-            "no callback ⇒ no warn")))))
 
 (deftest grandchild-spawn-allocates-from-childs-snapshot-counter
   (testing "a grandchild's id allocates from the child's :rf/spawn-counter, not the defensive fnil-inc backstop"

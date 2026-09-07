@@ -39,7 +39,6 @@
             [clojure.java.io :as io]
             [clojure.edn :as edn]
             [clojure.string :as str]
-            [re-frame.conformance :as rf.conformance]
             [re-frame.machines :as rf.machines]))
 
 ;; ---- fixture discovery ----------------------------------------------------
@@ -262,10 +261,7 @@
 
 (defn- realise-machine-handlers
   "Walk `:fixture/handlers :machine-action` + `:machine-guard` and produce
-  `{:actions {id fn} :guards {id fn} :on-spawn-actions {id fn}}`. The
-  `:on-spawn-actions` map mirrors `:machine-action` bodies realised as
-  on-spawn callbacks `(fn [data spawned-id] new-data)` — the corpus uses
-  the same DSL body for both surfaces (per `re-frame.conformance/realise-on-spawn-handler`)."
+  `{:actions {id fn} :guards {id fn}}`."
   [fixture]
   (let [handlers (or (:fixture/handlers fixture) {})]
     {:actions
@@ -275,11 +271,7 @@
      :guards
      (into {}
            (for [[id steps] (:machine-guard handlers)]
-             [id (realise-machine-guard steps)]))
-     :on-spawn-actions
-     (into {}
-           (for [[id steps] (:machine-action handlers)]
-             [id (rf.conformance/realise-on-spawn-handler steps)]))}))
+             [id (realise-machine-guard steps)]))}))
 
 ;; ---- single :machine-transition call --------------------------------------
 
@@ -287,16 +279,15 @@
   "Execute one `:machine-transition` call. Returns
   `{:passed? bool :detail msg}` matching the core runner's contract."
   [call realised]
-  (let [{:keys [actions guards on-spawn-actions]} realised
+  (let [{:keys [actions guards]} realised
         ;; Merge fixture-registered handlers into the definition's
         ;; named-binding maps (same shape as core's run-call). Fixture
         ;; bindings live alongside any short-names the def declares;
         ;; the engine follows short-name → registered-id → fn through
         ;; the combined map.
         definition (-> (:definition call)
-                       (update :actions          #(merge actions %))
-                       (update :guards           #(merge guards %))
-                       (update :on-spawn-actions #(merge on-spawn-actions %)))
+                       (update :actions #(merge actions %))
+                       (update :guards  #(merge guards %)))
         r          (try (rf.machines/machine-transition definition
                                                      (:snapshot call)
                                                      (:event call))

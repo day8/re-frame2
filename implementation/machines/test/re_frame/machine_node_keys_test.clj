@@ -72,6 +72,18 @@
           "surfaces the valid vocabulary (which includes the intended :spawn)")
       (is (= :idle (:state d)) "names the declaring state"))))
 
+(deftest retired-on-spawn-actions-root-key-rejected
+  (testing "the retired `:on-spawn-actions` root registration slot is now an
+            unknown BARE key — the EXISTING closed-vocabulary diagnostic, no
+            bespoke retired-key nag (rf2-kuky.15 ruled A: the family is
+            deleted, and the reducer binds the spawned id under
+            [:data :rf/spawned <invoke-id>])"
+    (is (= :rf.error/machine-unknown-node-key
+           (reg-error-id {:initial :idle
+                          :on-spawn-actions {:record (fn [_] nil)}
+                          :states {:idle {:on {:go :done}}
+                                   :done {}}})))))
+
 (deftest namespaced-node-key-passes
   (testing "a NAMESPACED user key on a state node passes — the open extension
             carve-out (only BARE unknown keys are typos)"
@@ -102,6 +114,29 @@
                                           :on-all-complete [:all]}
                               :on {:go :done}}
                        :done {}}})))))
+
+(deftest retired-on-spawn-spawn-key-rejected
+  (testing "the retired `:on-spawn` spawn-spec key is now an unknown BARE
+            key — the EXISTING closed-vocabulary diagnostic catches it on
+            both the single `:spawn` and a `:spawn-all` child (rf2-kuky.15
+            ruled A)"
+    (is (= :rf.error/machine-unknown-spawn-key
+           (reg-error-id {:initial :idle
+                          :states {:idle {:spawn {:machine-id :child
+                                                  :on-spawn   (fn [_] nil)}
+                                          :on {:go :done}}
+                                   :done {}}}))
+        ":on-spawn on a single :spawn is rejected")
+    (is (= :rf.error/machine-unknown-spawn-key
+           (reg-error-id
+             {:initial :idle
+              :states {:idle {:spawn-all {:children [{:id         :c1
+                                                      :machine-id :child
+                                                      :on-spawn   (fn [_] nil)}]
+                                          :on-all-complete [:all]}
+                              :on {:go :done}}
+                       :done {}}}))
+        ":on-spawn on a :spawn-all child is rejected")))
 
 (deftest namespaced-spawn-key-passes
   (testing "a NAMESPACED key on a :spawn spec passes (the runtime itself stamps

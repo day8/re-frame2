@@ -13,7 +13,7 @@
   Implementation strategy: each region is treated as a synthetic
   single-machine spec (`region-machine`) whose `:states` / `:initial`
   come from the region body, sharing `:guards` / `:actions` /
-  `:on-spawn-actions` / `:rf/parent-id` / `:rf/platform` / `:rf/frame`
+  `:rf/parent-id` / `:rf/platform` / `:rf/frame`
   with the parent. The parent selects complete regional sets, invokes the
   single-transition APPLY seam against each slice, and merges results. Spawn /
   destroy / after-schedule /
@@ -260,7 +260,6 @@
     (-> region-body
         (assoc :guards            (:guards parent-machine))
         (assoc :actions           (:actions parent-machine))
-        (assoc :on-spawn-actions  (:on-spawn-actions parent-machine))
         (assoc :rf/parent-id      (:rf/parent-id parent-machine))
         (assoc :rf/platform       (:rf/platform parent-machine))
         (assoc :rf/frame          (:rf/frame parent-machine))
@@ -279,7 +278,7 @@
 (defn region-machine
   "Synthetic single-machine spec for a region of `parent-machine`.
 
-  Inherits `:guards` / `:actions` / `:on-spawn-actions` from the parent so
+  Inherits `:guards` / `:actions` from the parent so
   region transitions can reference the parent's named guards / actions
   without redeclaring them. Inherits `:rf/parent-id` / `:rf/platform` /
   `:rf/frame` so the post-action `:rf.machine/spawn` / `:after-schedule`

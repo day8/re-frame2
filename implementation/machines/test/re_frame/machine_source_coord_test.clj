@@ -2,13 +2,13 @@
   "Per-element source-coord stamping for machine specs. Per Spec 005
   §Source-coord stamping — the
   `reg-machine` macro walks the literal spec form at expansion time and
-  CO-LOCATES per-element source onto each guard / action / on-spawn-action
+  CO-LOCATES per-element source onto each guard / action
   entry (`:guards {<id> {:fn .. :source-coords {...} :source-code \"..\"}}`),
   and CO-LOCATES a reference-site `:source-coords` onto each MAP node inside
   the `:states` tree (state-node / transition map) at its spec-path.
 
-  Definition sites: each fn literal under `:guards` / `:actions` /
-  `:on-spawn-actions` carries its `:source-coords` (and `:source-code`) ON
+  Definition sites: each fn literal under `:guards` / `:actions`
+  carries its `:source-coords` (and `:source-code`) ON
   its co-located entry — read at `(get-in spec [:guards <id> :source-coords])`.
 
   Reference sites: each MAP node inside the `:states` tree (state-node,
@@ -16,7 +16,7 @@
   `(get-in spec [:states :idle :source-coords])` for the `:idle` state-node
   and `(get-in spec [:states :idle :on :submit :source-coords])` for the
   `:submit` transition map. Inline-fn / keyword slots (`:entry` / `:exit`
-  / `:guard` / `:action` / `:on-spawn`) hold a value, not a map, so they
+  / `:guard` / `:action`) hold a value, not a map, so they
   carry no coord of their own; a tool reads the nearest enclosing map's
   coord (mirroring the keyword-reference rule).
 
@@ -29,7 +29,7 @@
   attaches `:line` / `:column` metadata to *list* forms (fn-bodies) —
   not to map or vector literals. So on JVM, the walker captures
   definition-site fn literals (the co-located entries under `:guards` /
-  `:actions` / `:on-spawn-actions`) reliably; state-node and transition-map
+  `:actions`) reliably; state-node and transition-map
   `:source-coords` are not available on JVM because the source map forms
   don't carry the reader meta the walker reads. The CLJS reader
   (cljs.tools.reader) enriches maps/vectors, so the CLJS counterpart test
@@ -44,7 +44,7 @@
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; Helper: read a co-located element entry's source-coords off a
-;; registered machine. `slot` is :guards / :actions / :on-spawn-actions.
+;; registered machine. `slot` is :guards / :actions.
 (defn- element-coords [machine-id slot id]
   (get-in (rf.machines/machine-meta machine-id) [slot id :source-coords]))
 
@@ -68,7 +68,7 @@
       (is (integer? (:column meta)))
       (is (string? (:file meta))))))
 
-;; ---- definition-site stamping for :guards / :actions / :on-spawn-actions --
+;; ---- definition-site stamping for :guards / :actions --------------------
 
 (deftest reg-machine-stamps-guard-definitions
   (testing "each fn literal under :guards co-locates its source-coord at the
@@ -104,16 +104,6 @@
     (let [c (element-coords :rf2-8bp3/action-defs :actions :bump)]
       (is (= 're-frame.machine-source-coord-test (:ns c)))
       (is (integer? (:line c))))))
-
-(deftest reg-machine-stamps-on-spawn-action-definitions
-  (testing "each fn literal under :on-spawn-actions co-locates its source-coord"
-    (rf/reg-machine :rf2-8bp3/on-spawn-defs
-      {:initial :idle
-       :data    {}
-       :on-spawn-actions {:capture-id (fn [{data :data id :id}] (assoc data :pending id))}
-       :states  {:idle {}}})
-    (is (some? (element-coords :rf2-8bp3/on-spawn-defs :on-spawn-actions :capture-id))
-        "the :capture-id on-spawn-action fn-form carries co-located :source-coords")))
 
 ;; ---- inline-fn :source-code co-location ----------------------
 ;;
@@ -386,18 +376,6 @@
        {:a {:always [{:guard :enough? :target :b}]}
         :b {}}})
     (is (some? (element-coords :rf2-8bp3/always :guards :enough?)))))
-
-(deftest reg-machine-stamps-invoke-on-spawn-via-definition
-  (testing ":spawn {:on-spawn :id}: keyword references resolve through
-  the [:on-spawn-actions <id>] definition coord, where the fn-form lives"
-    (rf/reg-machine :rf2-8bp3/invoke-os
-      {:initial :idle
-       :data    {}
-       :on-spawn-actions {:cap (fn [{data :data id :id}] (assoc data :pending id))}
-       :states
-       {:idle {:spawn {:machine-id :child :on-spawn :cap}}}})
-    ;; Definition coord co-located.
-    (is (some? (element-coords :rf2-8bp3/invoke-os :on-spawn-actions :cap)))))
 
 (deftest reg-machine-recurses-hierarchical-states
   (testing "nested :states recurse — on JVM, state-node maps carry no

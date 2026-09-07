@@ -5,9 +5,8 @@
   mechanism for a machine to send a message to its spawned child actor
   addressed by `:system-id`: a machine ACTION emits
   `[:rf.machine/dispatch-to-system [<system-id> <event-vector>]]` from its
-  `:fx` vector. (Actions can't read app-db and `:on-spawn`'s return is
-  dropped, so the fx form — not a captured-id dispatch — is how an action
-  reaches a NAMED child.)
+  `:fx` vector. (Actions can't read app-db, so the fx form — not a
+  captured-id dispatch — is how an action reaches a NAMED child.)
 
   The fx is registered in `re-frame.machines`. The headline property here:
   a machine action emits the fx and the spawned actor's snapshot shows the

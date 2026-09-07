@@ -466,17 +466,15 @@
         :view id
         {:handler-fn (rf.conformance/realise-view-handler steps)}))
     ;; machine registrations (rf2-msd4). Merge the fixture's realised action /
-    ;; guard / on-spawn bodies into each machine-spec before reg-machine*.
+    ;; guard bodies into each machine-spec before reg-machine*.
     (let [machine-registry (get-in fixture [:fixture/registry :machine] {})]
       (when (seq machine-registry)
-        (let [{:keys [actions guards on-spawn-actions]}
-              (realise-machine-handlers fixture)
+        (let [{:keys [actions guards]} (realise-machine-handlers fixture)
               reg-machine rf.machines/reg-machine*]
           (doseq [[machine-id machine-spec] machine-registry]
             (let [merged (-> machine-spec
-                             (update :actions          #(merge actions %))
-                             (update :guards           #(merge guards %))
-                             (update :on-spawn-actions #(merge on-spawn-actions %)))]
+                             (update :actions #(merge actions %))
+                             (update :guards  #(merge guards %)))]
               (reg-machine machine-id merged))))))))
 
 (defn- realise-app-schemas!
@@ -741,7 +739,7 @@
                               request-fn))))
 
 (defn- realise-machine-handlers
-  "Build `{action-id → fn}` / `{guard-id → fn}` / `{on-spawn-id → fn}` from a
+  "Build `{action-id → fn}` / `{guard-id → fn}` from a
   fixture's `:machine-action` / `:machine-guard` buckets. Per Spec 005
   §Guards / §Actions (rf2-grw4i / rf2-v0rrr) the user-facing fn receives one
   context-map arg."
@@ -781,14 +779,9 @@
                       (let [step (first steps)]
                         (when (and (vector? step) (= :fn (first step)))
                           (boolean
-                            (rf.conformance/eval-value* step {:data data :event event})))))]))
-        on-spawn-by-id
-        (into {}
-              (for [[id steps] (:machine-action handlers-map)]
-                [id (rf.conformance/realise-on-spawn-handler steps)]))]
-    {:actions          actions-by-id
-     :guards           guards-by-id
-     :on-spawn-actions on-spawn-by-id}))
+                            (rf.conformance/eval-value* step {:data data :event event})))))]))]
+    {:actions actions-by-id
+     :guards  guards-by-id}))
 
 ;; ---- :fixture/calls execution ---------------------------------------------
 
@@ -895,11 +888,9 @@
     :machine-transition
     (let [actions-by-id  (or (:actions fixture-machines) {})
           guards-by-id   (or (:guards  fixture-machines) {})
-          on-spawn-by-id (or (:on-spawn-actions fixture-machines) {})
           definition     (-> (:definition call)
-                             (update :actions          #(merge actions-by-id %))
-                             (update :guards           #(merge guards-by-id %))
-                             (update :on-spawn-actions #(merge on-spawn-by-id %)))
+                             (update :actions #(merge actions-by-id %))
+                             (update :guards  #(merge guards-by-id %)))
           r             (try (rf.machines/machine-transition definition (:snapshot call) (:event call))
                              (catch #?(:clj Throwable :cljs :default) e
                                {:snapshot nil

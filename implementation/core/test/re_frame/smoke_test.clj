@@ -689,12 +689,8 @@
            :states  {:idle    {:on    {:start :working}}
                      :working {:spawn {:machine-id :worker
                                         :id-prefix  :worker
-                                        :start      [:begin]
-                                        :on-spawn   :record}
-                               :on    {:done :idle}}}
-           ;; Per Spec 005 §Declarative :spawn (rf2-een2 / rf2-smba):
-           ;; on-spawn callback signature is (fn [data spawned-id] new-data).
-           :on-spawn-actions {:record (fn [{data :data}] data)}}
+                                        :start      [:begin]}
+                               :on    {:done :idle}}}}
           handler (rf.machines/make-machine-handler machine)]
       ;; rf2-ywv74m — the spawned child TYPE must be REGISTERED before it is
       ;; spawned (the implicit "spec-less spawn" path is removed; an
@@ -755,8 +751,7 @@
       (rf/reg-event :do-spawn
         (fn [_ _] {:fx [[:rf.machine/spawn {:machine-id :worker
                                             :id-prefix  :worker
-                                            :start      [:begin]
-                                            :on-spawn   :record}]
+                                            :start      [:begin]}]
                         [:rf.machine/destroy :worker#1]]}))
       (rf/dispatch-sync [:do-spawn])
       (rf/unregister-listener! :trace ::spawn)

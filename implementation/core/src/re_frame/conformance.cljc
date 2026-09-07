@@ -665,34 +665,6 @@
           ctx         {:event (vec args) :db nil}]
       (when tree (walk-hiccup tree ctx)))))
 
-(defn realise-on-spawn-handler
-  "DSL → an on-spawn callback fn. Signature `(fn [{:keys [data id]}] _)`
-  per Spec 005 §Declarative :spawn (rf2-grw4i / rf2-v0rrr — single
-  context-map arg, advisory return).
-
-  The on-spawn callback receives the parent machine's `:data` and the
-  just-allocated actor id; the return value is advisory only — the
-  runtime tracks the spawned id at `[:rf.runtime/machines :spawned <parent> <invoke-id>]`
-  regardless. The DSL body's `:set` ops are realised here for body
-  inspection / trace symmetry with regular actions; the resulting map is
-  RETURNED for compatibility with corpus authors who want to observe
-  `:set`-effects via the conformance harness's structural diff, but the
-  RUNTIME ignores the return value entirely."
-  [steps]
-  (fn [{:keys [data id]}]
-    (let [synthetic-event [::on-spawn id]]
-      (reduce
-        (fn [d step]
-          (case (first step)
-            :set (let [[_ path v] step
-                       resolved (resolve-value v {:event synthetic-event
-                                                  :data d
-                                                  :db   d})]
-                   (if (empty? path) resolved (assoc-in d path resolved)))
-            d))
-        data
-        steps))))
-
 (defn realise-fx-handler
   "DSL → an fx handler fn. fx handlers receive ({:frame frame-id} args).
 

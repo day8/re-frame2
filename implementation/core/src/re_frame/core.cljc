@@ -708,7 +708,7 @@
    (defmacro reg-machine
      "Register a machine as an event handler. Captures source-coords
      (Spec 001) at this call site plus co-located per-element source on
-     each `:guards` / `:actions` / `:on-spawn-actions` entry (`{:fn ..
+     each `:guards` / `:actions` entry (`{:fn ..
      :source-coords .. :source-code ..}`) and a reference-site
      `:source-coords` co-located onto each `:states`-tree map node
      (state-node / transition map) at its spec-path (Spec 005 §Source-coord
@@ -747,7 +747,7 @@
 ;; compile-time literal-walk captures nothing (the spec form is not a map
 ;; literal). `defmachine` is the `def`-replacement that walks the inline
 ;; literal AT THE DEFINITION SITE and co-locates per-element source onto each
-;; `:guards` / `:actions` / `:on-spawn-actions` entry (plus a reference-site
+;; `:guards` / `:actions` entry (plus a reference-site
 ;; `:source-coords` on each `:states`-tree map node), so the per-element
 ;; source travels WITH the value into `reg-machine`. Per Spec 005
 ;; §Source-coord stamping (value-registered machines; rf2-npvsx / rf2-vqja2).
@@ -768,7 +768,7 @@
 
      Walks the literal spec at expansion time and co-locates per-element
      source — `{:fn .. :source-coords .. :source-code ..}` — onto each
-     `:guards` / `:actions` / `:on-spawn-actions` entry, plus a
+     `:guards` / `:actions` entry, plus a
      reference-site `:source-coords` onto each `:states`-tree map node
      (state-node / transition map; rf2-npvsx / rf2-vqja2) of the def'd
      value. When that value is later passed to `reg-machine`, the source is

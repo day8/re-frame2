@@ -254,9 +254,8 @@
 ;;
 ;; Per Spec 005 §Cross-machine messaging by name + §Named addressing via
 ;; `:system-id`: a machine ACTION addresses its spawned child actor by
-;; `:system-id`. Actions can't read app-db and `:on-spawn`'s return is
-;; dropped, so the fx form is how an action sends a message to a NAMED
-;; actor. Retained as the one named-addressing escape (advanced/parity
+;; `:system-id`. Actions can't read app-db, so the fx form is how an
+;; action sends a message to a NAMED actor. Retained as the one named-addressing escape (advanced/parity
 ;; tier): zero in-repo consumers as of 2026-07-10, kept for XState v6
 ;; actor-system parity (systemId addressing — behavioural parity); the
 ;; facade audit at API-freeze rules on deletion with full information. The

@@ -166,7 +166,7 @@
   map until it hits a fn (or fails). Tolerates one level of indirection
   like {:short-name :registered-id} where :registered-id resolves to a fn.
 
-  Every `:guards` / `:actions` / `:on-spawn-actions` entry
+  Every `:guards` / `:actions` entry
   is the co-located `{:fn <fn> ...}` map (the `:source-*` slots are
   dev-only). A registry VALUE may therefore be that entry map, a bare fn
   (programmatic `reg-machine*` with raw fns, or a `(constantly …)`
@@ -276,15 +276,14 @@
 ;;                                         (+ :tags :all-state for a region —
 ;;                                          see the cross-region note below)
 ;;   :on-done                            → :data :result
-;;   :on-spawn                           → :data :id
 ;;   :after  (delay-fn)                  → :snapshot
 ;;   :spawn :data (init-fn)              → :snapshot :event
 ;;
 ;; Return shapes are slot-specific (Spec 005 §Return shapes):
 ;;   :guard                                                → boolean
 ;;   :action / :entry / :exit / :on-done / :spawn :data    → new :data map
-;;   :on-spawn / :after                                    → see slot docs
-;;     (on-spawn: advisory, nil; after: positive-int ms delay)
+;;   :after                                                → see slot docs
+;;     (positive-int ms delay)
 ;;
 ;; Uniform input shape: future slot additions extend the ctx keys without
 ;; expanding the arity-permutation matrix. Destructuring at the call site
@@ -2344,9 +2343,9 @@
 ;; Per Spec 005 §Spawn-and-join via :spawn-all, `:spawn-all` is "spawn-
 ;; and-join sugar over N parallel :spawn's plus a join condition". The
 ;; impl mirrors the concept: both handlers compose `allocate-one` (id
-;; allocation), `spawn-one` (`:data` materialisation + spawn-fx build),
-;; and `apply-on-spawn` (advisory callback). The mode-specific spawn-args
-;; wiring is the only delta — a small `args-builder` closure per mode.
+;; allocation) and `spawn-one` (`:data` materialisation + spawn-fx build).
+;; The mode-specific spawn-args wiring is the only delta — a small
+;; `args-builder` closure per mode.
 
 (defn- allocate-one
   "Allocate one spawned-id from `spawn-spec`'s `:machine-id` (the registered
@@ -2360,70 +2359,6 @@
     [snap explicit]
     (allocate-spawned-id snap (:machine-id spawn-spec))))
 
-(defn- apply-on-spawn
-  "Run `spawn-spec`'s `:on-spawn` advisory callback against `snap`'s `:data`.
-  Per Spec 005 §Declarative `:spawn`, the signature
-  is `(fn [{:keys [data id]}] _)` — context-map input, advisory return
-  (any return value is DROPPED). The
-  runtime tracks the spawn-id at `[:rf.runtime/machines :spawned parent-id invoke-id]`;
-  `:on-spawn` is purely observational — callers needing snapshot-level
-  side effects emit `[:rf.machine/update-snapshot {:rf/machine-id <id>
-  :rf/patch {...}}]` from a regular `:action`'s `:fx` vector instead (the
-  fx is registered in `re-frame.machines` and handled by
-  `re-frame.machines.lifecycle-fx.update-snapshot`).
-
-  No-silent-swallow: the snapshot is returned UNCHANGED — a
-  callback that returns a non-nil value (e.g. the canonical-looking
-  `(assoc data :pending id)`) has that value silently dropped, which is the
-  exact trap the advisory contract sets. Surface it: emit a dev-only
-  `:rf.warning/on-spawn-return-ignored` advisory naming the three working
-  id-recording alternatives. `rf.trace/emit!` is gated on
-  `interop/debug-enabled?` (Closure DCE / JVM flag) so this is production-
-  free and adds no module-level mutable state — the engine stays a pure
-  function of `[machine snapshot event]`.
-
-  Error contract: the `:on-spawn` callback is a machine
-  action like any other, so a THROW must route through the documented
-  machine action exception contract — NOT escape as a generic
-  `:rf.error/handler-exception`. Mirroring `run-action` / `materialise-data`,
-  the call is wrapped in try/catch: on throw, return a `rf.machines.result/fail`
-  Result stamped with the stable action id `:rf.machine.spawn/on-spawn` plus
-  enough context to locate the spawn (`:spawned-id`; the caller adds
-  `:invoke-id` / `:child-id`, and `apply-transition-once` stamps
-  `:decl-path` / `:transition` / `:state-path`). The lifecycle boundary
-  (`registration/trace-action-failure!`) then emits exactly one
-  `:rf.error/machine-action-exception` and drops the accumulated effects —
-  so a throwing observer never commits the parent/child snapshot or the
-  spawned registry slot. On SUCCESS the snapshot is returned UNCHANGED.
-  (No `:rf.machine/action-ran` activity trace fires here on either
-  path: `:on-spawn` is an advisory observer, not a cascade action — adding
-  it would introduce a novel `:phase` outside the documented closed set,
-  Spec-Schemas.md §`action-ran`.)"
-  [machine snap spawn-spec spawned-id]
-  (if-let [f (let [aref (:on-spawn spawn-spec)]
-               (when aref
-                 (or (chase-ref (:on-spawn-actions machine) aref)
-                     (chase-ref (:actions machine) aref))))]
-    (try
-      (let [ret (f {:data (:data snap) :id spawned-id})]
-        (when (some? ret)
-          (rf.trace/emit! :warning :rf.warning/on-spawn-return-ignored
-                       ;; The spawning parent is a LIVE actor
-                       ;; INSTANCE; address it by `:actor-id`. `:spawned-id`
-                       ;; is the freshly-spawned child's instance address.
-                       {:actor-id   (or (:rf/parent-id machine) (:id machine))
-                        :spawned-id spawned-id
-                        :returned   ret
-                        :remedy     [:system-id
-                                     [:rf.runtime/machines :spawned :<parent> :<invoke-id>]
-                                     :rf.machine/update-snapshot]}))
-        snap)
-      (catch #?(:clj Throwable :cljs :default) e
-        (rf.machines.result/fail {:action-ref :rf.machine.spawn/on-spawn
-                      :spawned-id spawned-id
-                      :exception  e})))
-    snap))
-
 (defn- spawn-one
   "Single-spawn primitive shared by `:spawn` and `:spawn-all` per-child.
   Materialises any `:data` fn-form against `mat-snap` + `event` (Spec 005
@@ -2431,11 +2366,7 @@
   stamped with `failure-extra`. On success builds the spawn-args via
   `args-builder` (mode-specific wiring of `:rf/parent-id` /
   `:rf/invoke-id` / `:rf/spawn-all-id` keys) and returns a `rf.machines.result/ok`
-  Result carrying the single-element `[[:rf.machine/spawn args]]` fx vec.
-
-  `:on-spawn` is intentionally NOT invoked here — the caller threads it
-  separately because `:spawn-all`'s on-spawn callbacks thread `:data`
-  writes across siblings."
+  Result carrying the single-element `[[:rf.machine/spawn args]]` fx vec."
   [spawn-spec mat-snap event spawned-id args-builder failure-extra]
   (let [mat-result (if (contains? spawn-spec :data)
                      (materialise-data (:data spawn-spec) mat-snap event)
@@ -2453,19 +2384,16 @@
 
 (defn- handle-spawn-decl
   "Handle the `:spawn` branch of the spawn reducer in
-  `apply-transition-once`. Allocates one spawned-id, delegates the
-  `:data` materialisation and spawn-args assembly to `spawn-one`, then
-  runs the `:on-spawn` advisory callback.
+  `apply-transition-once`. Allocates one spawned-id and delegates the
+  `:data` materialisation and spawn-args assembly to `spawn-one`.
 
   Returns `[snap-after acc-fx']` for the reducer, or a `reduced` wrapper
   around a `rf.machines.result/fail` Result on failure. The failure is stamped
-  `:action-ref :rf.machine.spawn/data-fn` + `:invoke-id` for a `:data`-fn throw,
-  or `:action-ref :rf.machine.spawn/on-spawn` + `:invoke-id`
-  (carried up from `apply-on-spawn`) for a throwing `:on-spawn` callback,
-  so the lifecycle boundary routes BOTH through the machine action
-  exception contract rather than letting an `:on-spawn` throw escape as a
-  generic handler exception."
-  [machine parent-id s acc-fx prefix n event]
+  `:action-ref :rf.machine.spawn/data-fn` + `:invoke-id` for a `:data`-fn
+  throw, so the lifecycle boundary routes it through the machine action
+  exception contract rather than letting it escape as a generic handler
+  exception."
+  [parent-id s acc-fx prefix n event]
   (let [spawn-spec   (:spawn n)
         invoke-id    (vec prefix)
         [s-alloc id] (allocate-one s spawn-spec)
@@ -2480,23 +2408,13 @@
                                  :invoke-id  invoke-id})]
     (if (rf.machines.result/fail? spawn-r)
       (reduced spawn-r)
-      (let [spawn-fx (rf.machines.result/fx spawn-r)
-            ;; A throwing `:on-spawn` callback returns a
-            ;; `rf.machines.result/fail` (not a snapshot) — short-circuit the spawn
-            ;; reducer so no parent/child snapshot or registry slot commits
-            ;; and the accumulated fx is dropped at the lifecycle boundary.
-            s'       (apply-on-spawn machine s-alloc spawn-spec id)]
-        (if (rf.machines.result/fail? s')
-          (reduced (rf.machines.result/fail-with s' {:invoke-id invoke-id}))
-          ;; Bind the assigned actor id into the parent's
-          ;; own `:data` under `[:rf/spawned <invoke-id>]` (XState-context
-          ;; parity). Threaded onto the parent snapshot AFTER the advisory
-          ;; `:on-spawn` ran (the bind never depends on `:on-spawn`, which
-          ;; cannot carry the id back — its return is dropped) so a later
-          ;; action can read the id and imperatively
-          ;; `[:rf.machine/destroy <id>]` with no external-atom side-channel.
-          [(bind-spawned-id-into-parent-data s' invoke-id id)
-           (into acc-fx spawn-fx)])))))
+      (let [spawn-fx (rf.machines.result/fx spawn-r)]
+        ;; Bind the assigned actor id into the parent's
+        ;; own `:data` under `[:rf/spawned <invoke-id>]` (XState-context
+        ;; parity) so a later action can read the id and imperatively
+        ;; `[:rf.machine/destroy <id>]` with no external-atom side-channel.
+        [(bind-spawned-id-into-parent-data s-alloc invoke-id id)
+         (into acc-fx spawn-fx)]))))
 
 (defn- handle-spawn-all-decl
   "Handle the `:spawn-all` branch of the spawn reducer in
@@ -2517,14 +2435,12 @@
       invoke-level admission preflight decides over (`:child-args`). It is
       built after (3) because it carries (3)'s output; it is EMITTED first,
       ahead of every per-child `:rf.machine/spawn`.
-   5. Run each child's `:on-spawn` advisory callback in declaration order,
-      threading `:data` writes across siblings.
 
   Returns `[snap-after acc-fx']` for the reducer, or a `reduced` wrapper
   around a `rf.machines.result/fail` Result (stamped with
   `:action-ref :rf.machine.spawn-all/data-fn`, `:invoke-id`, and the failing
   `:child-id`) on `:data` failure."
-  [machine parent-id s acc-fx prefix n event]
+  [parent-id s acc-fx prefix n event]
   (let [spawn-all-spec (:spawn-all n)
         children  (:children spawn-all-spec)
         invoke-id (vec prefix)
@@ -2570,13 +2486,6 @@
           children-with-ids)]
     (if (rf.machines.result/fail? spawn-fxs-r)
       (reduced spawn-fxs-r)
-      ;; (4) Thread :on-spawn advisory callbacks across siblings. Per
-      ;; A throwing child `:on-spawn` returns a `rf.machines.result/fail`
-      ;; (not the threaded snapshot); short-circuit the sibling reduce on
-      ;; the FIRST throw — stamping the failing `:child-id` + `:invoke-id`
-      ;; onto the failure — so the reducer never terminates mid-spawn
-      ;; without a machine-scoped trace, and no parent/child snapshot or
-      ;; registry slot commits.
       (let [;; (2) The `:rf.machine/spawn-all-init` fx — built HERE, after the
             ;; per-child fxs, so it can carry them. `spawn-one` emits exactly
             ;; one `[:rf.machine/spawn args]` per child, so `spawn-fxs-r`'s
@@ -2596,24 +2505,13 @@
                      {:rf/parent-id parent-id
                       :rf/invoke-id invoke-id
                       :join-state   join-state
-                      :child-args   (mapv second spawn-fxs-r)}]
-            s' (reduce
-                 (fn [snap child]
-                   (let [r (apply-on-spawn machine snap child (:rf/spawned-id child))]
-                     (if (rf.machines.result/fail? r)
-                       (reduced (rf.machines.result/fail-with r {:invoke-id invoke-id
-                                                     :child-id (:id child)}))
-                       r)))
-                 s-alloc
-                 children-with-ids)]
-        (if (rf.machines.result/fail? s')
-          (reduced s')
-          ;; Bind the `:spawn-all`'s children id-map into the
-          ;; parent's own `:data` under `[:rf/spawned <invoke-id>]` (the whole
-          ;; `{<child-id> <spawned-id>}` map, mirroring the join-state's
-          ;; `:children`), so an action can read it without an external atom.
-          [(bind-spawned-id-into-parent-data s' invoke-id children-map)
-           (-> acc-fx (conj init-fx) (into spawn-fxs-r))])))))
+                      :child-args   (mapv second spawn-fxs-r)}]]
+        ;; Bind the `:spawn-all`'s children id-map into the
+        ;; parent's own `:data` under `[:rf/spawned <invoke-id>]` (the whole
+        ;; `{<child-id> <spawned-id>}` map, mirroring the join-state's
+        ;; `:children`), so an action can read it without an external atom.
+        [(bind-spawned-id-into-parent-data s-alloc invoke-id children-map)
+         (-> acc-fx (conj init-fx) (into spawn-fxs-r))]))))
 
 (defn final-state-node?
   "Per Spec 005 §Final states: true iff the state-node declares
@@ -3454,10 +3352,10 @@
                    (fn [[s acc-fx] [prefix n]]
                      (cond
                        (:spawn n)
-                       (handle-spawn-decl machine parent-id s acc-fx prefix n event)
+                       (handle-spawn-decl parent-id s acc-fx prefix n event)
 
                        (:spawn-all n)
-                       (handle-spawn-all-decl machine parent-id s acc-fx prefix n event)
+                       (handle-spawn-all-decl parent-id s acc-fx prefix n event)
 
                        :else
                        [s acc-fx]))

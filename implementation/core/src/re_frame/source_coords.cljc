@@ -302,9 +302,9 @@
 
 ;; ---- co-located per-element machine source (rf2-npvsx) -------------------
 ;;
-;; The registered machine spec carries ONE cohesive map per guard / action /
-;; on-spawn-action: `:guards {<id> {:fn <fn> :source-coords {...} :source-code
-;; "..."}}` (and likewise `:actions` / `:on-spawn-actions`). The `:fn` slot is
+;; The registered machine spec carries ONE cohesive map per guard / action:
+;; `:guards {<id> {:fn <fn> :source-coords {...} :source-code
+;; "..."}}` (and likewise `:actions`). The `:fn` slot is
 ;; ALWAYS present — it's the function the transition engine invokes. The
 ;; `:source-coords` / `:source-code` slots are DEBUG-only: the reg-machine
 ;; macro emits them via [[collocate-element-source]] under an
@@ -796,8 +796,8 @@
 ;; the `:states` tree (the same parallel-side-index anti-pattern rf2-npvsx
 ;; removed for guards/actions, now removed for STATES).
 ;;
-;; The DEFINITION-site coords (where a guard / action / on-spawn-action fn
-;; literal lives — the `:guards` / `:actions` / `:on-spawn-actions` map
+;; The DEFINITION-site coords (where a guard / action fn
+;; literal lives — the `:guards` / `:actions` map
 ;; values) live on each element entry per rf2-npvsx (`:guards {<id> {:fn ..
 ;; :source-coords .. :source-code ..}}`). See [[walk-element-source]] +
 ;; [[collocate-element-source]].
@@ -805,7 +805,7 @@
 ;; What lives here is the reference-site co-location: each MAP node inside
 ;; `:states` (state-node, `:spawn` map, transition map) carries its own
 ;; `:source-coords`. Inline-fn slots (`:entry` / `:exit` / `:guard` /
-;; `:action` / `:on-spawn`) hold a fn or keyword VALUE — there is no map to
+;; `:action`) hold a fn or keyword VALUE — there is no map to
 ;; hang a key on — so they are NOT stamped directly; a tool resolving an
 ;; inline-fn slot reads the `:source-coords` off the nearest enclosing map
 ;; (its state-node / transition map), which IS stamped. This mirrors Mike's
@@ -882,8 +882,8 @@
   spec-path from the spec's root. Adds an entry into the mutable `acc`
   transient for each MAP node (state-node, `:spawn` map, transition map)
   that carries reader-position metadata — `{<map-spec-path> <coord-map>}`.
-  Inline-fn / keyword slots (`:entry` / `:exit` / `:guard` / `:action` /
-  `:on-spawn`) are NOT stamped: they hold a fn or keyword value, not a map,
+  Inline-fn / keyword slots (`:entry` / `:exit` / `:guard` /
+  `:action`) are NOT stamped: they hold a fn or keyword value, not a map,
   so there is no node to co-locate `:source-coords` onto (a tool resolving
   such a slot reads the enclosing map's coord). Per rf2-vqja2.
 
@@ -909,7 +909,7 @@
           ;; The state-node map itself carries its co-located coord.
           (stamp-map! node-path node)
           (when (map? node)
-            ;; :spawn map (its inline `:on-spawn` fn slot is not stamped).
+            ;; :spawn map.
             (when-let [inv (:spawn node)]
               (stamp-map! (conj node-path :spawn) inv))
             ;; :on transitions — map of event-id → transition-or-vector.
@@ -959,7 +959,7 @@
   map inside the `:states` tree is keyed by its full spec path, e.g.
   `[:states :idle :on :submit]` for the `:submit` transition map and
   `[:states :idle]` for the `:idle` state-node. Inline-fn / keyword slots
-  (`:entry` / `:exit` / `:guard` / `:action` / `:on-spawn`) are NOT keyed —
+  (`:entry` / `:exit` / `:guard` / `:action`) are NOT keyed —
   they hold a value, not a map, so there is no node to co-locate a coord
   on; a tool reads the enclosing map's coord (per rf2-vqja2, mirroring the
   keyword-reference rule).
@@ -970,8 +970,8 @@
   `:source-coords` directly on each state-node / transition map rather than
   in a flat side-index.
 
-  Definition-site coords (each fn literal under `:guards` / `:actions` /
-  `:on-spawn-actions`) are NOT produced here — per rf2-npvsx they are
+  Definition-site coords (each fn literal under `:guards` / `:actions`)
+  are NOT produced here — per rf2-npvsx they are
   co-located on each element entry via [[walk-element-source]].
 
   When the spec form is not a map literal (a symbol, a let-bound expr),
@@ -1176,8 +1176,8 @@
 
 ;; ---- co-located per-element source walk (rf2-npvsx) ----------------------
 ;;
-;; The reg-machine macro walks the literal `:guards` / `:actions` /
-;; `:on-spawn-actions` maps at expansion time and produces, per id, the
+;; The reg-machine macro walks the literal `:guards` / `:actions`
+;; maps at expansion time and produces, per id, the
 ;; definition-site source coords (the fn-form's reader position) AND the
 ;; `pr-str` of the fn-form. These are merged onto each element entry's
 ;; `{:fn .. :source-coords .. :source-code ..}` co-located map at registration
@@ -1191,7 +1191,7 @@
 
 (defn walk-element-source
   "Compile-time helper. Walk a literal machine-spec form's `slot-key` map
-  (`:guards` / `:actions` / `:on-spawn-actions`) and return per-id source
+  (`:guards` / `:actions`) and return per-id source
   data:
 
       {<id> {:source-coords <coord-form>   ;; the fn-form's reader position

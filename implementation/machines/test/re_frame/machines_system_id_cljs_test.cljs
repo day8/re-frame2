@@ -32,14 +32,10 @@
                  :states  {:running {:on {:ping {:action :bump}}}}}
           ;; A parent that spawns the child with a :system-id under :spawn.
           parent {:initial :idle
-                  :on-spawn-actions
-                  {:auth/record-actor (fn [{data :data actor-id :id}]
-                                        (assoc data :pending actor-id))}
                   :states
                   {:idle      {:on {:start :working}}
                    :working   {:spawn {:machine-id :worker/proc
-                                        :system-id  :worker
-                                        :on-spawn   :auth/record-actor}
+                                        :system-id  :worker}
                                :on    {:done :idle}}}}]
       (rf/reg-machine :worker/proc child)
       (rf/reg-machine :sup/flow parent)
@@ -77,13 +73,10 @@
                                       {:data {:msgs (conj (:msgs data) msg)}})}
                   :states  {:running {:on {:notify {:action :record}}}}}
           parent {:initial :idle
-                  :on-spawn-actions
-                  {:auth/record-actor (fn [{data :data id :id}] (assoc data :pending id))}
                   :states
                   {:idle    {:on {:go :running}}
                    :running {:spawn {:machine-id :notifier/proc
-                                      :system-id  :notifier
-                                      :on-spawn   :auth/record-actor}}}}]
+                                      :system-id  :notifier}}}}]
       (rf/reg-machine :notifier/proc child)
       (rf/reg-machine :sup2/flow parent)
       (rf/dispatch-sync [:sup2/flow [:go]])

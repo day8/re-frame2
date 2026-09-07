@@ -1037,7 +1037,6 @@
                     :spawned-id spawned-id
                     :id-prefix  (:id-prefix args)
                     :start      (:start args)
-                    :on-spawn   (:on-spawn args)
                     :system-id  system-id
                     :parent-id  parent-id
                     :invoke-id  invoke-id})
