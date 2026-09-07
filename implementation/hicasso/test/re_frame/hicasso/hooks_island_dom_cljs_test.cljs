@@ -838,7 +838,13 @@
                         own concurrent root actually uses"
                 (is (= #{kb} (rf.hicasso.roots-frames-support/cell-keys)))
                 (is (= 1 (count (readers-of kb))))
-                (is (empty? (readers-of ka))
+                ;; Counted rather than `empty?`, unlike W5c's identical
+                ;; claim: a reader is a React registration object, and on
+                ;; FAILURE `cljs.test` prints the actual value — which blows
+                ;; the stack on that object's cycles and turns a legible
+                ;; failure into a RangeError. (Measured on the sabotage run
+                ;; that proved this row bites.)
+                (is (zero? (count (readers-of ka)))
                     "alpha has no reader at all, although it is the frame the
                      persistent ambient scope names")
                 (is (= "beta-price"
