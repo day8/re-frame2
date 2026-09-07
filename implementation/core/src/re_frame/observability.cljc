@@ -92,9 +92,10 @@
   → `frame` require would close a load cycle; the late-bind seam is the
   same cycle-break the sibling always-on substrates use). `re-frame.core`
   requires this ns at boot, so the hooks are bound before any dispatch."
-  (:require [re-frame.frame      :as rf.frame]
-            [re-frame.late-bind  :as rf.late-bind]
-            [re-frame.projection :as rf.projection]))
+  (:require [re-frame.frame                :as rf.frame]
+            [re-frame.frame-classification :as rf.frame-classification]
+            [re-frame.late-bind            :as rf.late-bind]
+            [re-frame.projection           :as rf.projection]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -137,6 +138,82 @@
   (reset! sinks {})
   nil)
 
+;; ---- process-default sink policy (rf2-kuky.67) ----------------------------
+;;
+;; A frame's `:observability` says who observes THAT frame. The process
+;; default says who observes the PROCESS — declared once, at boot, beside
+;; every other `configure!` knob.
+;;
+;; It exists for two reasons, and the second is the one that made it
+;; structural rather than a convenience:
+;;
+;;   1. A multi-frame app restated its Sentry policy on every `make-frame`
+;;      call. Policy is a deployment property, not a per-frame one.
+;;   2. Three producers emit records with NO resolvable frame owner, so no
+;;      frame policy can ever route them: `:rf.error/no-frame-context` (by
+;;      construction there is no frame), the pre-frame SSR hydration-parse
+;;      arm of `:rf.error/malformed-hydration-payload`, and hicasso's
+;;      compute-sub `:rf.error/sub-exception` (stamped `:frame nil` BY
+;;      CONSTRUCTION). Before this default those records reached only the
+;;      corpus-wide `register-listener!` `:errors` stream — the door
+;;      rf2-kuky.69 retires. The default is where they land instead, so the
+;;      retirement closes a door that is no longer the only one.
+;;
+;; `defonce` for the same reason the sink registry is: a hot reload of THIS
+;; ns must not silently drop the policy a long-lived production process
+;; declared at boot. nil is the CLEARED state, and it is distinct from `{}`
+;; only in spelling — both route nothing.
+
+(defonce ^:private process-default (atom nil))
+
+(defn configure!
+  "Install the PROCESS-DEFAULT `:observability` sink policy — the subsystem
+  configurator behind `(rf/configure! {:observability …})`. Returns nil.
+
+  Takes the SAME closed value a frame's `:observability` key takes:
+
+      {:errors         [{:sink :app/sentry}]
+       :handled-events [{:sink :app/datadog
+                         :rf.egress/profile :rf.egress/off-box-observability}]}
+
+  and it is validated by the SAME validator `make-frame` uses
+  (`frame-classification/validate-observability-policy!`), fail-loud at CALL
+  time with `:rf.error/bad-frame-classification` and `:where 'rf/configure!`.
+  One grammar, two scopes — see that fn for why there is no second error
+  category.
+
+  `nil` CLEARS the default. That is the whole of the absent/empty
+  distinction at this door: absent from the `configure!` map leaves the
+  default untouched (every other `configure!` key behaves this way), and an
+  explicit `nil` removes it. The `[]` opt-out is a FRAME-level spelling —
+  see [[resolve-route]] — because only a frame has something to opt out OF.
+
+  Whole-map replacement, not a merge: a second call REPLACES the policy.
+  Merging would make the clear unspellable and leave no way to remove one
+  stream without knowing what the previous call installed."
+  [observability]
+  (rf.frame-classification/validate-observability-policy! observability)
+  (reset! process-default observability)
+  nil)
+
+(defn current-observability-config
+  "The process-default `:observability` policy currently in effect, or nil.
+  The read twin of [[configure!]], behind `rf/current-config`'s
+  `:observability` key. Returns the declared value VERBATIM — no frame
+  resolution, no defaults synthesised."
+  []
+  @process-default)
+
+(defn clear-observability-default!
+  "Drop the process-default `:observability` policy. Test-isolation only,
+  and deliberately NOT exported on the `re-frame.core` facade — a `clear-*`
+  whose only caller is a fixture stays at its owning ns (per Conventions
+  §Fixture-tier surfaces), exactly as [[clear-observability-sinks!]] does.
+  Returns nil."
+  []
+  (reset! process-default nil)
+  nil)
+
 ;; ---- routing --------------------------------------------------------------
 ;;
 ;; The default egress profile when a sink entry omits `:rf.egress/profile`.
@@ -146,14 +223,55 @@
 
 (def ^:const default-profile :rf.egress/off-box-observability)
 
-(defn- frame-observability
-  "Read `frame-id`'s validated `:observability` sink-policy config off its
-  frame record, or nil when the frame is unresolved (destroyed / never-
-  registered — the fail-closed branch) or declares no `:observability`."
-  [frame-id]
-  (when frame-id
-    (when-let [f (rf.frame/frame frame-id)]
-      (get-in f [:config :observability]))))
+(defn- resolve-route
+  "Resolve the ONE policy source for `stream` (`:handled-events` / `:errors`)
+  and the frame whose classification GOVERNS the projection. Returns
+  `[entries governing-frame]`.
+
+  Two questions, deliberately separated — conflating them is what made the
+  frameless case unroutable:
+
+  **Which entries?** Per-STREAM precedence. A frame that DECLARES the stream
+  uses its own entries for it; a frame that OMITS the stream inherits the
+  process default's. Declaration is read by KEY PRESENCE, not truthiness, so
+  `{:errors []}` is the frame's OPT-OUT — it declares the stream and names no
+  sinks, which is a different statement from omitting it. Exactly ONE source
+  is ever consulted per record per stream, so a sink id named by BOTH the
+  frame and the default is invoked once; the duplicate-delivery rule is a
+  consequence of this shape rather than a check bolted onto it.
+
+  **Which classification governs?** The frame, whenever there IS one. A frame
+  inheriting the default's entries is still projected under its OWN
+  classification — inheritance moves the sink list, never the redaction
+  authority.
+
+  `frame-authority?` false means NO FRAME MAY BE CONSULTED for this record,
+  and it is the producer's statement rather than a fact this fn could
+  rediscover. `rf.frame/frame` cannot tell `never-registered` from
+  `dissociated`, so an unresolved-id test here would pass a SAME-ID SUCCESSOR
+  and hand A's teardown report to B's sink — the exact confusion
+  `capture_frame_reincarnation_sink_route_cljs_test` pins against. The
+  authority bit is therefore carried from the producer seam
+  (`error-emit`'s `route-frame?`), never inferred.
+
+  With no frame authority — a frameless `:frame nil` record, or a producer
+  that revoked it — the process default is the only source and the governing
+  frame is EXPLICITLY nil. `project-egress` reads `:frame` by KEY PRESENCE
+  (rf2-kuky.5), so an explicit nil FAILS CLOSED: tree slots project to
+  `:rf/redacted` and the summary ids stay intact. That is the whole reason
+  `route-frame? false` can now mean *no frame authority — the process default
+  still delivers* rather than *no sink route*: the record reaches an operator
+  without any frame's classification vouching for its contents."
+  [frame-id stream frame-authority?]
+  (let [owner (when (and frame-authority? frame-id)
+                (rf.frame/frame frame-id))]
+    (if owner
+      (let [declared (get-in owner [:config :observability])]
+        [(if (contains? declared stream)
+           (get declared stream)
+           (get @process-default stream))
+         frame-id])
+      [(get @process-default stream) nil])))
 
 (defn- deliver-to-sink!
   "Resolve `sink-id`'s registered sink fn and deliver the ALREADY-PROJECTED
@@ -185,15 +303,24 @@
   Returns the NUMBER of registered sinks the record was delivered to — 0 for
   nil / empty `entries`, and 0 for entries that name only sinks the app has
   not registered. Declaring a policy is not routing: that distinction is the
-  whole of the second ownership arm in `error-emit`'s console fallback."
-  [frame-id record entries]
+  whole of the second ownership arm in `error-emit`'s console fallback.
+
+  `governing-frame` is the frame whose classification the projector applies —
+  [[resolve-route]]'s second return, NOT the record's own `:frame` slot. The
+  two diverge for exactly the records this route exists to reach: a frameless
+  or stale-owner record keeps its `:frame` slot as a DIAGNOSTIC (a stale id
+  still tells an operator which frame died) while projecting under an
+  explicitly nil governing frame, which fails closed. Passing the record's
+  `:frame` here instead would re-resolve a stale id against the live
+  registry — the same-id-successor confusion [[resolve-route]] refuses."
+  [governing-frame record entries]
   (reduce
     (fn [n entry]
       (if-some [sink-id (:sink entry)]
         (let [profile   (get entry :rf.egress/profile default-profile)
               projected (rf.projection/project-egress
                           record
-                          {:frame             frame-id
+                          {:frame             governing-frame
                            :rf.egress/profile profile})]
           (+ n (deliver-to-sink! sink-id projected)))
         n))
@@ -213,9 +340,12 @@
   (EP-0015 issue 4); a trusted-local profile keeps it PROJECTED (never raw).
   Each sink receives the ALREADY-PROJECTED record.
 
-  Fail-closed: a NO-OP when `frame-id` is unresolved (destroyed / never-
-  registered) or declares no `:handled-events` policy — the common case, so
-  a frame with no observability policy allocates nothing here. Returns nil.
+  Fail-closed: a NO-OP when neither `frame-id` nor the process default names
+  a `:handled-events` sink — the common case, so a frame with no
+  observability policy allocates nothing here. A frame that declares no
+  `:handled-events` INHERITS the process default's for that stream, and one
+  that declares `{:handled-events []}` opts out ([[resolve-route]]). Returns
+  nil.
 
   `effects` is the seq of effect keys the cascade walked; `correlation` is
   the `{:work-id ... :dispatch-id ...}` correlation map (or nil — the slot
@@ -223,8 +353,7 @@
   cascade trailers via the `:observability/route-handled-event` late-bind
   hook, ALONGSIDE the always-on `event-emit` fan-out."
   [event event-id frame-id status elapsed-ms effects correlation]
-  (let [observability (frame-observability frame-id)
-        entries       (:handled-events observability)]
+  (let [[entries governing-frame] (resolve-route frame-id :handled-events true)]
     (when (seq entries)
       (let [record (cond-> {:kind       :rf.observe/handled-event
                             :frame      frame-id
@@ -234,7 +363,7 @@
                             :elapsed-ms elapsed-ms}
                      (some? effects)     (assoc :effects effects)
                      (some? correlation) (assoc :correlation correlation))]
-        (route-stream! frame-id record entries))))
+        (route-stream! governing-frame record entries))))
   nil)
 
 (def ^:private attribution-summary-keys
@@ -284,17 +413,27 @@
   `:time`, and `:correlation`. Each sink receives the ALREADY-PROJECTED
   record.
 
-  Fail-closed: a NO-OP when `frame-id` is unresolved or declares no
-  `:errors` policy. Called from `error-emit/dispatch-on-error!` via the
+  Called from `error-emit/dispatch-on-error!` via the
   `:observability/route-error` late-bind hook, ALONGSIDE the always-on
   corpus-wide error-listener fan-out.
 
-  Returns the NUMBER of registered sinks this record was DELIVERED to (0
-  when the frame is unresolved, declares no `:errors` policy, or names only
-  sinks the app never registered). `error-emit` takes its dev console
-  fallback decision off that count (rf2-kuky.18): a record the owning
-  frame's policy actually handed to a sink is owned, and printing it beside
-  the sink would be the duplicate the fallback exists to avoid — while a
+  `frame-authority?` (trailing, default true — rf2-kuky.67) is the producer's
+  statement that `frame-id` MAY be consulted for policy. False for a
+  known-dead incarnation, where the bare id must never resolve to a same-id
+  successor's sink. It no longer suppresses the route: the record goes to the
+  PROCESS DEFAULT under an explicitly nil governing frame ([[resolve-route]]),
+  so a teardown report reaches the operator without any successor's
+  classification vouching for it. Before this, `route-frame? false` meant no
+  sink route at all and the record's only channel was the corpus-wide
+  `:errors` stream rf2-kuky.69 retires.
+
+  Returns the NUMBER of registered sinks this record was DELIVERED to (0 when
+  neither the frame nor the process default names a sink, or when the entries
+  name only sinks the app never registered). `error-emit` takes its dev
+  console fallback decision off that count (rf2-kuky.18): a record a policy
+  actually handed to a sink is owned — the PROCESS DEFAULT owns it on exactly
+  the same terms as a frame's policy, which is Q7 — and printing it beside
+  the sink would be the duplicate the fallback exists to avoid, while a
   policy that routed NOWHERE leaves the console the only channel it has.
 
   `raw-event?` (trailing, default false — #6441 / rf2-zwgqe) marks `:event` as
@@ -323,14 +462,17 @@
   an attribution slot of the same name, exactly as they do at the producer."
   ([error-kw event event-id frame-id exception elapsed-ms time correlation]
    (route-error! error-kw event event-id frame-id exception elapsed-ms time
-                 correlation false nil))
+                 correlation false nil true))
   ([error-kw event event-id frame-id exception elapsed-ms time correlation raw-event?]
    (route-error! error-kw event event-id frame-id exception elapsed-ms time
-                 correlation raw-event? nil))
+                 correlation raw-event? nil true))
   ([error-kw event event-id frame-id exception elapsed-ms time correlation raw-event?
     attrs]
-   (let [observability (frame-observability frame-id)
-         entries       (:errors observability)]
+   (route-error! error-kw event event-id frame-id exception elapsed-ms time
+                 correlation raw-event? attrs true))
+  ([error-kw event event-id frame-id exception elapsed-ms time correlation raw-event?
+    attrs frame-authority?]
+   (let [[entries governing-frame] (resolve-route frame-id :errors frame-authority?)]
      (if (seq entries)
        (let [attribution (into {} (remove (comp nil? val)) attrs)
              summary     (select-keys attribution attribution-summary-keys)
@@ -348,7 +490,7 @@
                       tags                (assoc :tags tags)
                       (some? correlation) (assoc :correlation correlation)
                       raw-event?          (assoc :re-frame.projection/raw-event? true))]
-         (route-stream! frame-id record entries))
+         (route-stream! governing-frame record entries))
        0))))
 
 ;; ---- non-event union record route (EP-0008) -------------------------------
@@ -399,37 +541,53 @@
   SSR `error-emit-projection-listener` performs — so the projected record the
   sink sees is structurally consistent across the event and non-event paths.
 
-  Fail-closed: a NO-OP when the record's `:frame` is unresolved (destroyed /
-  never-registered — incl. the FRAMELESS `:frame nil` records, which carry no
-  frame-owned sink policy by definition) or declares no `:errors` policy.
+  This is the route the THREE FRAMELESS PRODUCERS reach (rf2-kuky.67):
+  `:rf.error/no-frame-context`, the pre-frame SSR hydration-parse arm of
+  `:rf.error/malformed-hydration-payload`, and hicasso's compute-sub
+  `:rf.error/sub-exception` — all stamped `:frame nil` BY CONSTRUCTION, so no
+  frame policy can ever route them. They go to the PROCESS DEFAULT
+  ([[configure!]]) under an explicitly nil governing frame, which fails
+  closed: tree slots project to `:rf/redacted`, summary ids stay intact. A
+  record whose `:frame` no longer RESOLVES takes the same arm and keeps its
+  stale id in the summary as a diagnostic — the id is never re-resolved
+  against the live registry.
+
   Called from `error-emit/dispatch-error-record!` via the
   `:observability/route-error-record` late-bind hook, ALONGSIDE the always-on
   corpus-wide error-listener fan-out.
 
+  `frame-authority?` (trailing, default true) carries the producer's
+  route-frame? bit — see [[route-error!]] and [[resolve-route]] for why it
+  cannot be inferred here.
+
   Returns the NUMBER of registered sinks this record was DELIVERED to, on the
-  same terms as [[route-error!]] — so a frameless record always returns 0 and
-  keeps the console fallback, which is the untooled case the fallback exists
-  for."
-  [record]
-  (let [frame-id      (:frame record)
-        observability (frame-observability frame-id)
-        entries       (:errors observability)]
-    (if (seq entries)
-      (let [summary  (select-keys record error-record-summary-keys)
-            ;; Everything that is NOT a summary slot, the literal :error
-            ;; category, or the (separately-handled) :exception rides :tags so
-            ;; the projector walks + redacts it under frame classification.
-            tags     (dissoc record :error :exception
-                             :frame :event-id :elapsed-ms :time :correlation)
-            observe  (cond-> (assoc summary
-                                    :kind  :rf.observe/error
-                                    :error (:error record)
-                                    :frame frame-id)
-                       (seq tags)              (assoc :tags tags)
-                       (contains? record :exception)
-                       (assoc :exception (:exception record)))]
-        (route-stream! frame-id observe entries))
-      0)))
+  same terms as [[route-error!]] — so a frameless record returns 0 only when
+  the process default names no `:errors` sink either, which is the untooled
+  case the console fallback exists for."
+  ([record] (route-error-record! record true))
+  ([record frame-authority?]
+   (let [frame-id (:frame record)
+         [entries governing-frame] (resolve-route frame-id :errors frame-authority?)]
+     (if (seq entries)
+       (let [summary  (select-keys record error-record-summary-keys)
+             ;; Everything that is NOT a summary slot, the literal :error
+             ;; category, or the (separately-handled) :exception rides :tags so
+             ;; the projector walks + redacts it under frame classification.
+             tags     (dissoc record :error :exception
+                              :frame :event-id :elapsed-ms :time :correlation)
+             ;; `:frame` keeps the record's OWN id — stale or nil — as the
+             ;; summary diagnostic. `governing-frame` is what the projector
+             ;; redacts under, and the two differ for exactly the frameless /
+             ;; stale-owner records this arm exists to carry.
+             observe  (cond-> (assoc summary
+                                     :kind  :rf.observe/error
+                                     :error (:error record)
+                                     :frame frame-id)
+                        (seq tags)              (assoc :tags tags)
+                        (contains? record :exception)
+                        (assoc :exception (:exception record)))]
+         (route-stream! governing-frame observe entries))
+       0))))
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
