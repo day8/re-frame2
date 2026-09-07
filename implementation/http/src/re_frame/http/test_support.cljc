@@ -80,8 +80,18 @@
   chain's own `:sensitive-of` reducer still recomputes the EFFECTIVE
   sensitivity from the threaded ctx (so a `:before` that MARKS the request
   sensitive is honoured); seeding the floor here matches production's
-  pre-chain reading."
+  pre-chain reading.
+
+  rf2-kuky.12 — this is also where the canned paths refuse MIXED reply
+  addressing (`:reply-to` beside `:on-success` / `:on-failure`). All three
+  test-path entry points — `canned-success-handler`, `canned-failure-handler`
+  and the route-map `stub-handler` — call this fn first, so one call gives
+  the same `:rf.error/http-bad-reply-target` the live fx raises, and raises it
+  BEFORE any `:before` interceptor's side effects fire. A map the live fx
+  refuses must not be silently interpreted by a stub: that is how a test
+  green-lights a call site production would reject."
   [frame-ctx args-map]
+  (rf.http.encoding/validate-reply-addressing! args-map)
   (let [;; EP-0002 carried invariant — the canned stub runs inside a
         ;; cascade, so the fx context carries the envelope frame as
         ;; `:frame`; a nil stamp is an invariant failure
@@ -177,13 +187,11 @@
     (dispatch-canned-reply!
       {:origin-event   origin-event
        ;; rf2-et4c1s — the canned stub honours the SAME reply-addressing keys
-       ;; as the live fx: `:on-success` (this branch's sugar) else the unified
-       ;; `:reply-to` (both branches). The co-located default is retired, so an
+       ;; as the live fx, through the SAME lowering fn (rf2-kuky.12): the
+       ;; unified `:reply-to` when present (both branches), else this branch's
+       ;; `:on-success` sugar. The co-located default is retired, so an
        ;; unaddressed stub reply is silenced (build-reply-event nil).
-       :explicit-on    (cond
-                         (contains? args-map :on-success) {:supplied? true  :value (:on-success args-map)}
-                         (contains? args-map :reply-to)   {:supplied? true  :value (:reply-to args-map)}
-                         :else                            {:supplied? false :value nil})
+       :explicit-on    (rf.http.encoding/reply-target args-map :on-success)
        :reply-payload  reply
        :kind           :success
        :frame          frame-id
@@ -217,12 +225,9 @@
                        {:status :error :error failure})]
     (dispatch-canned-reply!
       {:origin-event   origin-event
-       ;; rf2-et4c1s — same reply-addressing keys as the live fx: `:on-failure`
-       ;; (this branch's sugar) else the unified `:reply-to` (both branches).
-       :explicit-on    (cond
-                         (contains? args-map :on-failure) {:supplied? true  :value (:on-failure args-map)}
-                         (contains? args-map :reply-to)   {:supplied? true  :value (:reply-to args-map)}
-                         :else                            {:supplied? false :value nil})
+       ;; rf2-et4c1s — same reply-addressing keys as the live fx, through the
+       ;; same lowering fn (rf2-kuky.12).
+       :explicit-on    (rf.http.encoding/reply-target args-map :on-failure)
        :reply-payload  reply
        :kind           :failure
        :frame          frame-id

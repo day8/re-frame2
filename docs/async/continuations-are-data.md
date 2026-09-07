@@ -110,7 +110,7 @@ Naming the continuation makes it a value, and values are governable. Five proper
 
 !!! warning "Gotcha — silencing a reply on purpose stays honest"
 
-    You *can* decline the continuation: `:on-success nil` / `:on-failure nil` is fire-and-forget, the right shape for a telemetry beacon you genuinely don't care about. But silence is the one place this model could quietly regrow the bug it kills — a dropped failure is an error nobody sees. So the runtime keeps it honest: the first time a *real* (non-aborted) failure is dropped by `:on-failure nil`, it emits a one-shot dev-only `:rf.warning/failure-swallowed` trace, naming the silence rather than letting it vanish. Even your deliberate silences leave a line in the record.
+    You *can* decline the continuation: `:reply-to nil` is fire-and-forget, the right shape for a telemetry beacon you genuinely don't care about. But silence is the one place this model could quietly regrow the bug it kills — a dropped failure is an error nobody sees. So the runtime keeps it honest: the first time a *real* (non-aborted) failure is dropped by `:on-failure nil`, it emits a one-shot dev-only `:rf.warning/failure-swallowed` trace, naming the silence rather than letting it vanish. Even your deliberate silences leave a line in the record.
 
 !!! note "Do, observe"
 
@@ -153,7 +153,7 @@ Here's how the one envelope is addressed. The app-facing call-site key is **`:re
 | What you write | What lands |
 |---|---|
 | **`:reply-to [:event …]`** — the unified spelling, everywhere ([HTTP](http.md), [resources](../resources/concepts.md), mutations). One target for **both** the success and the failure reply; the app branches on the canonical envelope's `:status`. (For a resource read, omitting it lets the reply flow into the **work ledger** for [subscriptions](../resources/concepts.md) instead.) | The canonical envelope appended as the event's last argument — `{:status :ok :value …}`, `{:status :error :error {:kind …}}`, `{:status :cancelled …}`. A superseded / stale generation never delivers. |
-| **`:on-success [:loaded]` / `:on-failure [:load-error]`** — HTTP-only split routing sugar over `:reply-to`. A named target per branch; both receive the identical envelope. | Both handlers get the canonical envelope: `{:status :ok :value …}` on success, `{:status :error :error {:kind :rf.http/… …}}` on failure. |
+| **`:on-success [:loaded]` / `:on-failure [:load-error]`** — HTTP-only split routing sugar, exclusive with `:reply-to`. A named target per branch; both receive the identical envelope. | Both handlers get the canonical envelope: `{:status :ok :value …}` on success, `{:status :error :error {:kind :rf.http/… …}}` on failure. |
 
 [Machines](../machines/concepts.md) don't spell a reply target at all: `:on-done` / `:on-error` on a spawned child (and `:after` for timers) are ordinary **statechart grammar** — the machine runtime folds the awaited completion into a state transition and lowers it onto the same envelope internally. A reply from an actor whose owning state has already exited is dropped.
 

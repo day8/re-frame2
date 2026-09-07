@@ -114,9 +114,21 @@
       ;; address its reply back to THIS event with `:reply-to`. `rf.http/get`
       ;; builds the same `[:rf.http/managed args-map]` vector a hand-written
       ;; `:method :get` entry would — just in one tidy line.
-      :else
+      ;;
+      ;; Note this arm tests for the ABSENCE of a reply rather than sitting in
+      ;; the `:else` slot. A reply-to-self handler is two handlers in one, and
+      ;; the question that separates them is "is there a reply?", not "is the
+      ;; status one I listed". Written the other way, a status the `cond` does
+      ;; not enumerate — `:cancelled` is neither `:ok` nor `:error` — would
+      ;; fall through to the initiation arm and RE-ISSUE the request.
+      (nil? reply)
       {:db (assoc db :http-counter/status :loading :http-counter/error nil)
-       :fx [(rf.http/get "api/inc.json" {:decode :json :reply-to [:http-counter/+1]})]})))
+       :fx [(rf.http/get "api/inc.json" {:decode :json :reply-to [:http-counter/+1]})]}
+
+      ;; A reply arrived carrying some other status (a cancellation, say).
+      ;; Settle the UI; never re-issue.
+      :else
+      {:db (assoc db :http-counter/status :idle)})))
 
 ;; ============================================================================
 ;; Fail  —  real 404 from the http-server
@@ -144,9 +156,16 @@
       ;; `:decode :json`. We leave :decode at its `:auto` default to show the
       ;; everyday case: a JSON endpoint that 404s with a load-balancer's HTML
       ;; error page. The classification order is in docs/async/http.md.
-      :else
+      ;;
+      ;; As in `:http-counter/+1`, the initiation arm asks whether a reply is
+      ;; ABSENT rather than serving as the catch-all — so an unenumerated
+      ;; status cannot be mistaken for "no reply yet" and re-issue the request.
+      (nil? reply)
       {:db (assoc db :http-counter/status :loading :http-counter/error nil)
-       :fx [(rf.http/get "api/does-not-exist" {:reply-to [:http-counter/fail]})]})))
+       :fx [(rf.http/get "api/does-not-exist" {:reply-to [:http-counter/fail]})]}
+
+      :else
+      {:db (assoc db :http-counter/status :idle)})))
 
 ;; ============================================================================
 ;; Retry-recover  —  canned-stub at app level
@@ -166,7 +185,9 @@
                (update :http-counter/count + (or (:delta (:value reply)) 0))
                (assoc :http-counter/status :idle :http-counter/error nil))}
 
-      :else
+      ;; Initiation is guarded on the ABSENCE of a reply — see the note in
+      ;; `:http-counter/+1` for why that is not the same as `:else`.
+      (nil? reply)
       {:db (assoc db :http-counter/status :loading)
        ;; The stub conjures the reply directly. We still spell out the
        ;; :request and :decode so the call site reads like the real thing —
@@ -176,7 +197,10 @@
              {:request  {:method :get :url "api/flaky"}
               :decode   :json
               :value    {:delta 5}
-              :reply-to [:http-counter/retry-recover]}]]})))
+              :reply-to [:http-counter/retry-recover]}]]}
+
+      :else
+      {:db (assoc db :http-counter/status :idle)})))
 
 ;; ============================================================================
 ;; Start long / Cancel  —  managed-abort over a seeded registry handle
