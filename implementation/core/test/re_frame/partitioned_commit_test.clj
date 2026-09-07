@@ -50,7 +50,7 @@
             [re-frame.schemas]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.trace :as rf.trace]
+            [re-frame.trace.tooling :as rf.trace.tooling]
             ;; rf2-szbzei — the partition-injection mutators
             ;; (replace-runtime-db! / replace-frame-state!) are now
             ;; epoch-backed Tool-Pair writes that delegate to the epoch
@@ -66,7 +66,7 @@
   (reset! rf.frame/frames {})
   (when-let [clear-schemas! (rf.late-bind/get-fn :schemas/clear-by-frame!)]
     (clear-schemas!))
-  (rf.trace/clear-listeners!)
+  (rf.trace.tooling/clear-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)
   ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
   ;; framework operation surfaces require a carried frame stamp. Register

@@ -47,6 +47,7 @@
             [re-frame.frame :as rf.frame]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
+            [re-frame.trace.tooling :as rf.trace.tooling]
             [re-frame.trace :as rf.trace]))
 
 (use-fixtures :each
@@ -85,7 +86,7 @@
     ;; and publishes same-id B, exactly once (one-shot CAS), then snapshots B's
     ;; stores for the byte-identical assertions. This is the trace-internal loss
     ;; the ytpeqf mark-write seam cannot reach.
-    (rf.trace/register-listener!
+    (rf.trace.tooling/register-listener!
       ::destroyer
       (fn [ev]
         (when (and (= :rf.flow/registered (:operation ev))
@@ -102,7 +103,7 @@
     ;; Listener 2 (registered SECOND → fans out AFTER the destroyer): the
     ;; SUBSEQUENT observer. Absent the fence it receives A's stale
     ;; :rf.flow/registered after B owns the bare id; the fence suppresses it.
-    (rf.trace/register-listener!
+    (rf.trace.tooling/register-listener!
       ::observer
       (fn [ev]
         (when (= :rf.flow/registered (:operation ev))
@@ -157,8 +158,8 @@
       (is (= b-flow-id (get-in (first @observer-regs) [:tags :flow-id]))
           "the sole post-loss registration observed is B's own")
       (finally
-        (rf.trace/unregister-listener! ::destroyer)
-        (rf.trace/unregister-listener! ::observer)))))
+        (rf.trace.tooling/unregister-listener! ::destroyer)
+        (rf.trace.tooling/unregister-listener! ::observer)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Green control / over-fence tooth — when A retains ownership through a
@@ -177,12 +178,12 @@
         touched  (atom 0)
         observed (atom [])]
     (rf/make-frame {:id id})
-    (rf.trace/register-listener!
+    (rf.trace.tooling/register-listener!
       ::live-touch
       (fn [ev]
         (when (= :rf.flow/registered (:operation ev))
           (swap! touched inc))))          ;; observe only — A stays live
-    (rf.trace/register-listener!
+    (rf.trace.tooling/register-listener!
       ::live-observer
       (fn [ev]
         (when (= :rf.flow/registered (:operation ev))
@@ -200,8 +201,8 @@
         (is (= [:out]  (:path tags))    "A's own :output-path")
         (is (= id      (:frame tags))   "A's own frame"))
       (finally
-        (rf.trace/unregister-listener! ::live-touch)
-        (rf.trace/unregister-listener! ::live-observer)))))
+        (rf.trace.tooling/unregister-listener! ::live-touch)
+        (rf.trace.tooling/unregister-listener! ::live-observer)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The reserved-effect `:rf.fx/reg-flow` route already runs the first-

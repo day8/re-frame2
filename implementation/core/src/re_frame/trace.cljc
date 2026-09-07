@@ -18,34 +18,31 @@
   `re-frame.trace.tooling`, which is loaded only when a test fixture,
   tool, or dev preload requires it.
 
-  Per rf2-ic1sv pick c: the app-facing registration surface lives on
-  `re-frame.trace` (this ns) — the `register-listener!` / `unregister-
-  listener!` / `clear-listeners!` defs at the bottom of this file are
-  the canonical names. The `-trace-` infix dropped from the function
-  names because the namespace already says `trace`. JVM and CLJS both
-  see the same shape.
+  This ns publishes NO listener/buffer surface of its own (rf2-kuky.52).
+  The rf2-ic1sv pick-c aliases that once re-exported the six tooling
+  names from here were deleted once the stream-parameterized facade verb
+  superseded them (rf2-9flalp): applications call
+  `rf/register-listener! :trace …` / `rf/unregister-listener! :trace …`
+  / `rf/trace-buffer` / `rf/clear-trace-buffer!` /
+  `(rf/configure! {:trace-buffer …})`, and fixtures and tools that need
+  the registry directly reach `re-frame.trace.tooling/<name>`.
 
-  CLJS production DCE: the listener registration fns are tiny (atom
-  swap), but the buffer machinery is heavier. Production builds rely
-  on user-side `goog.DEBUG` gating around registration call sites so
-  the entire `(when goog.DEBUG (rf/register-listener! :trace …))` block is
-  dead-coded. The buffer + configure surface remains accessible only
-  via `re-frame.trace.tooling/<name>` directly so production counter
-  bundles can still DCE the heavier machinery.
+  CLJS production DCE: production builds rely on user-side `goog.DEBUG`
+  gating around registration call sites so the entire
+  `(when goog.DEBUG (rf/register-listener! :trace …))` block is
+  dead-coded, keeping the heavier buffer machinery out of counter
+  bundles.
 
   `deliver!` reaches the tooling fan-out through the single
   `:trace.tooling/deliver!` late-bind hook (mirroring the existing
   `:epoch/capture-event` shape)."
   (:require [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
-            ;; Per rf2-ic1sv pick c: `re-frame.trace/register-listener!`
-            ;; et al. are the canonical app-facing names. Bringing the
-            ;; tooling sibling in on both CLJS and JVM allows the
-            ;; consolidated surface. Production CLJS DCE depends on
-            ;; user-side `goog.DEBUG` gating of registration call sites
-            ;; — the trivial registration fns survive otherwise, but
-            ;; the heavier buffer machinery only enters the bundle when
-            ;; explicitly used.
+            ;; Required for `call-with-deferred-fanout` (JVM, below);
+            ;; this ns re-exports nothing from the sibling. Production
+            ;; CLJS DCE depends on user-side `goog.DEBUG` gating of
+            ;; registration call sites — the heavier buffer machinery
+            ;; only enters the bundle when explicitly used.
             [re-frame.trace.tooling :as rf.trace.tooling])
   #?(:cljs (:require-macros [re-frame.trace])))
 
@@ -939,19 +936,3 @@
 
 (rf.late-bind/set-fn! :trace/emit!       emit!)
 (rf.late-bind/set-fn! :trace/emit-error! emit-error!)
-
-;; ---- Public listener-registration surface (rf2-ic1sv pick c) -------------
-;;
-;; Per pick c: `re-frame.trace/register-listener!` etc. are the
-;; canonical app-facing names — the `-trace-` infix dropped because
-;; the namespace already says `trace`. Available on both JVM and CLJS;
-;; production CLJS bundles rely on user-side `goog.DEBUG` gating of
-;; registration call sites for DCE.
-
-(def register-listener!     rf.trace.tooling/register-listener!)
-(def unregister-listener!   rf.trace.tooling/unregister-listener!)
-(def clear-listeners!       rf.trace.tooling/clear-listeners!)
-
-(def trace-buffer           rf.trace.tooling/trace-buffer)
-(def clear-trace-buffer!    rf.trace.tooling/clear-trace-buffer!)
-(def configure-trace-buffer! rf.trace.tooling/configure-trace-buffer!)

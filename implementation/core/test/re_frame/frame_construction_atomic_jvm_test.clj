@@ -47,6 +47,7 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace.tooling :as rf.trace.tooling]
             [re-frame.trace :as rf.trace]))
 
 ;; ---------------------------------------------------------------------------
@@ -152,7 +153,7 @@
 (defn reset-runtime [test-fn]
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
-  (rf.trace/clear-listeners!)
+  (rf.trace.tooling/clear-listeners!)
   (rf.trace/clear-frame-no-emit!)
   ;; Cold the process-owned adapter slot so each test installs its OWN tracking
   ;; adapter (NOT a global dispose used as rollback — this is fixture setup;

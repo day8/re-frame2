@@ -152,7 +152,7 @@
             [re-frame.ssr.head :as rf.ssr.head]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
             [re-frame.subs :as rf.subs]
-            [re-frame.trace :as rf.trace]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; The shared reset fixture is `:each` — every fixture in the corpus
 ;; runs against a clean registrar / frame table / side-channel slot.
@@ -475,14 +475,14 @@
   "Register a DEV trace listener for the fixture's run; the returned atom
   accumulates every captured trace event.
 
-  DEV-ONLY BY CONSTRUCTION. `trace/register-listener!` feeds the
+  DEV-ONLY BY CONSTRUCTION. `re-frame.trace.tooling/register-listener!` feeds the
   development trace bus, and every emit site on it sits inside
   `interop/debug-enabled?` — a load-time gate. Under
   `-Dre-frame.debug=false` this atom stays EMPTY for every fixture, which
   is why the always-on captures below exist alongside it."
   [fixture-id]
   (let [traces (atom [])]
-    (rf.trace/register-listener! [fixture-id]
+    (rf.trace.tooling/register-listener! [fixture-id]
                               (fn [ev] (swap! traces conj ev)))
     traces))
 
@@ -1015,7 +1015,7 @@
                 {:misses misses
                  :html   html
                  :passed? (empty? misses)}))]
-        (rf.trace/clear-listeners!)
+        (rf.trace.tooling/clear-listeners!)
         {:fixture-id        fid
          :passed?           (and (or (nil? expected-db) (submap? expected-db final-db))
                                  (every? #(= (:expected %) (:actual %)) sub-checks)

@@ -11,9 +11,10 @@
   the spec in a CLJS REPL got `nil` / an undeclared-var warning.
 
   The stated reason was production DCE, and the tree already refuted it:
-  `re-frame.trace/trace-buffer` is an UNCONDITIONAL alias to the same
-  `re-frame.trace.tooling` fn on both platforms, so the facade adds an
-  alias of a shape every CLJS build already carries. `npm run
+  the facade def is an UNCONDITIONAL alias of
+  `re-frame.trace.tooling/trace-buffer` on both platforms (rf2-kuky.52
+  retired the intermediate `re-frame.trace/…` re-export it used to name),
+  so the facade adds an alias of a shape every CLJS build already carries. `npm run
   test:bundle-isolation` (family `trace-tooling`, sentinel
   `trace-events`) is the proof, not the require graph.
 

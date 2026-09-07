@@ -15,7 +15,7 @@
   synthetic ctx fires the swallow-detection path without needing a runtime."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.http.transport :as rf.http.transport]
-            [re-frame.trace :as rf.trace]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; Private surface reached via #' (same discipline as http_decode_test.clj).
 (def ^:private dispatch-failure!         @#'rf.http.transport/dispatch-failure!)
@@ -34,10 +34,10 @@
   (let [captured (atom [])
         cb-id    ::http-swallowed-failure-cap]
     (try
-      (rf.trace/register-listener! cb-id (fn [ev] (swap! captured conj ev)))
+      (rf.trace.tooling/register-listener! cb-id (fn [ev] (swap! captured conj ev)))
       (body-fn captured)
       (finally
-        (rf.trace/unregister-listener! cb-id)))))
+        (rf.trace.tooling/unregister-listener! cb-id)))))
 
 (defn- swallowed-warnings [captured]
   (filter #(= :rf.warning/failure-swallowed (:operation %)) @captured))

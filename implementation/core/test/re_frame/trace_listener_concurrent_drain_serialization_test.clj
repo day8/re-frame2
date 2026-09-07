@@ -60,6 +60,7 @@
             [re-frame.frame :as rf.frame]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
+            [re-frame.trace.tooling :as rf.trace.tooling]
             [re-frame.trace :as rf.trace])
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
@@ -117,7 +118,7 @@
             a-entered  (CountDownLatch. 1)
             b-entered  (CountDownLatch. 1)
             release-a  (CountDownLatch. 1)]
-        (rf.trace/register-listener! ::probe
+        (rf.trace.tooling/register-listener! ::probe
           (fn [ev]
             (when (= :rf.event/run-start (:operation ev))
               (when-let [f (#{frame-alpha frame-beta} (rf.trace/frame-of ev))]
@@ -168,7 +169,7 @@
             (.countDown release-a)
             (.join t1 join-timeout-ms)
             (.join t2 join-timeout-ms)
-            (rf.trace/unregister-listener! ::probe)
+            (rf.trace.tooling/unregister-listener! ::probe)
 
             (is (not (.isAlive t1))
                 (str "iter " iter ": frame ALPHA's dispatch-sync never completed"))

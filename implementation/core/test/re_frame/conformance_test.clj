@@ -39,7 +39,7 @@
             ;; leaf reaches the same outcomes without it.
             [re-frame.schemas.malli]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.trace :as rf.trace]
+            [re-frame.trace.tooling :as rf.trace.tooling]
             [re-frame.late-bind :as rf.late-bind]
             ;; Side-effect requires — publish registrations the fixtures
             ;; reference. reset-runtime! `:reload`s these between fixtures.
@@ -236,9 +236,9 @@
   :reload)`), matching the pre-consolidation JVM behaviour."
   {:reset-runtime!             reset-runtime!
    :register-trace-listener!   (fn [fixture-id listener]
-                                 (rf.trace/register-listener! [fixture-id] listener))
+                                 (rf.trace.tooling/register-listener! [fixture-id] listener))
    :unregister-trace-listener! (fn [_fixture-id]
-                                 (rf.trace/clear-listeners!))})
+                                 (rf.trace.tooling/clear-listeners!))})
 
 ;; ---- the test entrypoint --------------------------------------------------
 

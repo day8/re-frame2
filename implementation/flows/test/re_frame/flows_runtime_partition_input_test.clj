@@ -42,7 +42,7 @@
             [re-frame.frame :as rf.frame]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace :as rf.trace]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; ---- per-test reset / trace recorder -------------------------------------
 ;;
@@ -61,7 +61,7 @@
   [test-fn]
   (let [captured (atom [])]
     (binding [*captured* captured]
-      (rf.trace/register-listener!
+      (rf.trace.tooling/register-listener!
         ::flow-trace-recorder
         (fn [ev]
           (when (= :flow (:op-type ev))
@@ -69,7 +69,7 @@
       (try
         (test-fn)
         (finally
-          (rf.trace/unregister-listener! ::flow-trace-recorder))))))
+          (rf.trace.tooling/unregister-listener! ::flow-trace-recorder))))))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})

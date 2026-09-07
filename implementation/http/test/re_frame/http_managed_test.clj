@@ -25,7 +25,7 @@
             [re-frame.http.test-support :as rf.http.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace :as rf.trace])
+            [re-frame.trace.tooling :as rf.trace.tooling])
   (:import [com.sun.net.httpserver HttpServer HttpHandler HttpExchange]
            [java.net InetSocketAddress]
            [java.util.concurrent CountDownLatch TimeUnit]))
@@ -297,7 +297,7 @@
     (let [traces      (atom [])
           listener-id ::j1mo4-after-ms]
       (try
-        (rf.trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
+        (rf.trace.tooling/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
         (canned-success-reply-event {:value {:n 3} :after-ms 30})
         ;; The reply must NOT be present synchronously — the dispatch-sync
         ;; drain only schedules the :dispatch-later; nothing has delivered yet.
@@ -321,7 +321,7 @@
                     later)
               "the deferred dispatch is the framework canned-reply deliverer"))
         (finally
-          (rf.trace/unregister-listener! listener-id))))))
+          (rf.trace.tooling/unregister-listener! listener-id))))))
 
 (deftest after-ms-positive-on-failure-defers
   (testing ":after-ms N also defers the canned-FAILURE reply by a
@@ -613,7 +613,7 @@
               ;; (NOT in the :on set, so non-retryable).
               (write-response! ex 200 "application/json" "{\"ok\":true}")))]
       (try
-        (rf.trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
+        (rf.trace.tooling/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
         (rf/reg-event :upexd3/load
           (fn [{:keys [db]} [_ msg reply]]
             (if reply
@@ -639,7 +639,7 @@
                      (count retry-traces) " — "
                      (pr-str (mapv #(get-in % [:tags :failure :kind]) retry-traces))))))
         (finally
-          (rf.trace/unregister-listener! listener-id)
+          (rf.trace.tooling/unregister-listener! listener-id)
           (stop-server! srv))))))
 
 (deftest jvm-retry-eligible-exhaustion-still-emits-retry-attempts
@@ -667,7 +667,7 @@
             (fn [^HttpExchange ex]
               (write-response! ex 500 "application/json" "{\"err\":true}")))]
       (try
-        (rf.trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
+        (rf.trace.tooling/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
         (rf/reg-event :upexd3b/load
           (fn [{:keys [db]} [_ msg reply]]
             (if reply
@@ -711,7 +711,7 @@
                      "phantom `:retried`; saw "
                      (pr-str (mapv :recovery terminal))))))
         (finally
-          (rf.trace/unregister-listener! listener-id)
+          (rf.trace.tooling/unregister-listener! listener-id)
           (stop-server! srv))))))
 
 ;; ---- 5d. Content-Type lookup is case-insensitive (rf2-6hbo8) -------------
@@ -938,7 +938,7 @@
           traces       (atom [])
           listener-id  ::kdwnq-trace]
       (try
-        (rf.trace/register-listener! listener-id
+        (rf.trace.tooling/register-listener! listener-id
                                   (fn [ev] (swap! traces conj ev)))
         ;; If a reply ever dispatches the test will catch it (silently
         ;; ignored handler) — but the load-bearing assertion is that no
@@ -969,7 +969,7 @@
               (str "no :rf.error/* trace fired for the abort no-op; saw: "
                    (mapv :operation errors))))
         (finally
-          (rf.trace/unregister-listener! listener-id))))))
+          (rf.trace.tooling/unregister-listener! listener-id))))))
 
 ;; ---- 9. abort by request-id -----------------------------------------------
 
@@ -1873,7 +1873,7 @@
               (.await latch 5 TimeUnit/SECONDS)
               (write-response! ex 200 "application/json" "{\"ok\":true}")))]
       (try
-        (rf.trace/register-listener! cb-id
+        (rf.trace.tooling/register-listener! cb-id
                                   (fn [ev]
                                     (when (= :rf.http/aborted (:operation ev))
                                       (swap! events conj ev))))
@@ -1913,7 +1913,7 @@
 
         (.countDown latch)
         (finally
-          (rf.trace/unregister-listener! cb-id)
+          (rf.trace.tooling/unregister-listener! cb-id)
           (stop-server! srv))))))
 
 (deftest jvm-non-superseded-abort-still-fires-reply
@@ -2472,7 +2472,7 @@
       (rf.late-bind/set-fn! :router/dispatch!
                          (fn [ev opts] (swap! recorded conj [ev opts])))
       (try
-        (rf.trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
+        (rf.trace.tooling/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
         ;; A :before that throws AFTER the chain starts.
         (rf/reg-http-interceptor :xmp74u/boom
           {:before (fn [_ctx] (throw (ex-info "kaboom" {})))})
@@ -2509,7 +2509,7 @@
               ":sensitive? stamped on the stub-path failure trace, matching production"))
         (finally
           (re-frame.http.test-support/uninstall-managed-request-stubs!)
-          (rf.trace/unregister-listener! listener-id)
+          (rf.trace.tooling/unregister-listener! listener-id)
           (rf.late-bind/set-fn! :router/dispatch! original))))))
 
 (deftest stub-request-chain-failure-non-sensitive-leaves-query-value-rf2-xmp74u
@@ -2524,7 +2524,7 @@
       (rf.late-bind/set-fn! :router/dispatch!
                          (fn [ev opts] (swap! recorded conj [ev opts])))
       (try
-        (rf.trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
+        (rf.trace.tooling/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
         (rf/reg-http-interceptor :xmp74u/boom2
           {:before (fn [_ctx] (throw (ex-info "kaboom" {})))})
         (re-frame.http.test-support/install-managed-request-stubs!
@@ -2547,7 +2547,7 @@
               ":sensitive? not stamped for a non-sensitive request"))
         (finally
           (re-frame.http.test-support/uninstall-managed-request-stubs!)
-          (rf.trace/unregister-listener! listener-id)
+          (rf.trace.tooling/unregister-listener! listener-id)
           (rf.late-bind/set-fn! :router/dispatch! original))))))
 
 ;; ---- rf2-k47b3d — issuance-counter eviction bounds the map -----------------

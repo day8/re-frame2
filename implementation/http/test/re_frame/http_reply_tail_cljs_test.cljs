@@ -23,7 +23,7 @@
             [re-frame.frame :as rf.frame]
             [re-frame.http.managed :as rf.http.managed]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace :as rf.trace]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (defn- fake-200-json-response
   "A minimal Fetch `Response` stand-in that 200s a JSON body."
@@ -57,9 +57,9 @@
             resp        (fake-200-json-response)
             restore     (fn []
                           (set! (.-fetch js/globalThis) orig)
-                          (rf.trace/unregister-listener! cb-id)
+                          (rf.trace.tooling/unregister-listener! cb-id)
                           (rf.http.managed/clear-all-http-interceptors!))]
-        (rf.trace/register-listener! cb-id (fn [ev] (swap! traces conj ev)))
+        (rf.trace.tooling/register-listener! cb-id (fn [ev] (swap! traces conj ev)))
         (set! (.-fetch js/globalThis)
               (fn [_url _init] (swap! fetch-count inc) (js/Promise.resolve resp)))
         ;; EP-0002: reg-http-interceptor is context-required frame-local.

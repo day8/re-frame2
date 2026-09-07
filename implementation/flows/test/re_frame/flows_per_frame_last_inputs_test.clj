@@ -30,7 +30,7 @@
             [re-frame.flows.registry :as rf.flows.registry]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace :as rf.trace])
+            [re-frame.trace.tooling :as rf.trace.tooling])
   (:import [java.util.concurrent CountDownLatch]
            [java.util.concurrent.atomic AtomicLong]))
 
@@ -158,7 +158,7 @@
 
       ;; Count B's :rf.flow/computed traces (the spurious-recompute symptom).
       (let [b-computed (AtomicLong. 0)]
-        (rf.trace/register-listener!
+        (rf.trace.tooling/register-listener!
           ::b-computed-watch
           (fn [ev]
             (when (and (= :rf.flow/computed (:operation ev))
@@ -196,7 +196,7 @@
           (is (not= ::timeout (deref fut-b 120000 ::timeout))
               "thread B completed within 120s")
 
-          (rf.trace/unregister-listener! ::b-computed-watch)
+          (rf.trace.tooling/unregister-listener! ::b-computed-watch)
 
           ;; THE INVARIANT: B's :derive fired exactly once. A concurrent
           ;; rollback clobbering B's row would push this above 1.

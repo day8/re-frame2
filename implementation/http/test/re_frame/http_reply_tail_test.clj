@@ -31,7 +31,7 @@
             [re-frame.http.managed :as rf.http.managed]
             [re-frame.test-support :as rf.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.trace :as rf.trace])
+            [re-frame.trace.tooling :as rf.trace.tooling])
   (:import [com.sun.net.httpserver HttpServer HttpHandler HttpExchange]
            [java.net InetSocketAddress]
            [java.util.concurrent.atomic AtomicInteger]))
@@ -66,10 +66,10 @@
   (let [captured (atom [])
         cb-id    (gensym "reply-tail-cap-")]
     (try
-      (rf.trace/register-listener! cb-id (fn [ev] (swap! captured conj ev)))
+      (rf.trace.tooling/register-listener! cb-id (fn [ev] (swap! captured conj ev)))
       (body-fn captured)
       (finally
-        (rf.trace/unregister-listener! cb-id)))))
+        (rf.trace.tooling/unregister-listener! cb-id)))))
 
 (defn- ops [captured op]
   (filter #(= op (:operation %)) @captured))

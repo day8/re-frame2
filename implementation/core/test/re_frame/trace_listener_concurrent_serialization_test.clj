@@ -30,6 +30,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
+            [re-frame.trace.tooling :as rf.trace.tooling]
             [re-frame.trace :as rf.trace])
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
@@ -78,7 +79,7 @@
             a-entered (CountDownLatch. 1)
             b-entered (CountDownLatch. 1)
             release-a (CountDownLatch. 1)]
-        (rf.trace/register-listener! ::probe
+        (rf.trace.tooling/register-listener! ::probe
           (fn [ev]
             (let [op (:operation ev)]
               (when (or (= op probe-a) (= op probe-b))
@@ -116,7 +117,7 @@
           (.countDown release-a)
           (.join t1 5000)
           (.join t2 5000))
-        (rf.trace/unregister-listener! ::probe)
+        (rf.trace.tooling/unregister-listener! ::probe)
         (is (= 1 @max-conc)
             (str "iter " iter ": the listener callback was invoked concurrently "
                  "with itself across two emits (max concurrent invocations "
@@ -147,7 +148,7 @@
           n-threads  6
           per-thread (quot stress-iters n-threads)
           total      (* n-threads per-thread)]
-      (rf.trace/register-listener! ::always-on
+      (rf.trace.tooling/register-listener! ::always-on
         (fn [_ev]
           (let [n (swap! in-flight inc)]
             (swap! max-conc max n))
@@ -162,8 +163,8 @@
                       (let [toggle (atom false)]
                         (while (not @stop)
                           (if (swap! toggle not)
-                            (rf.trace/register-listener! ::churned (fn [_ev] nil))
-                            (rf.trace/unregister-listener! ::churned))
+                            (rf.trace.tooling/register-listener! ::churned (fn [_ev] nil))
+                            (rf.trace.tooling/unregister-listener! ::churned))
                           (Thread/yield)))))
             emitters (mapv (fn [t]
                              (Thread.
@@ -181,8 +182,8 @@
         (reset! stop true)
         (.join churn 5000)
         (let [stragglers (filterv (fn [^Thread e] (.isAlive e)) emitters)]
-          (rf.trace/unregister-listener! ::always-on)
-          (rf.trace/unregister-listener! ::churned)
+          (rf.trace.tooling/unregister-listener! ::always-on)
+          (rf.trace.tooling/unregister-listener! ::churned)
           (is (empty? stragglers)
               (str "an emitter thread did not finish within the deadline — "
                    "possible deadlock; " (count stragglers) " still alive"))

@@ -113,7 +113,7 @@
             [re-frame.subs :as rf.subs]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace :as rf.trace]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; ---- runtime reset --------------------------------------------------------
 ;;
@@ -385,7 +385,7 @@
   accumulates every captured trace event."
   [fixture-id]
   (let [traces (atom [])]
-    (rf.trace/register-listener! [fixture-id]
+    (rf.trace.tooling/register-listener! [fixture-id]
                               (fn [ev] (swap! traces conj ev)))
     traces))
 
@@ -725,7 +725,7 @@
             expected-err     (:error-emit-records expect)
             err-failures     (when expected-err
                                (check-trace-stream @err-records expected-err))]
-        (rf.trace/clear-listeners!)
+        (rf.trace.tooling/clear-listeners!)
         (rf.error-emit/clear-error-listeners!)
         {:fixture-id        fid
          :passed?           (and (or (nil? expected-db)  (submap? expected-db final-db))

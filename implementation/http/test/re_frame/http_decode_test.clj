@@ -13,7 +13,7 @@
   schema branch exercises the real Malli decode + coerce + validate."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.http.decode :as rf.http.decode]
-            [re-frame.trace :as rf.trace]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; `decode-response-body` is public; `malli-decode` is private — reach it
 ;; via #' so we can pin the lowest-level decode+validate behaviour without
@@ -315,10 +315,10 @@
   (let [captured (atom [])
         cb-id    ::http-decode-test-cap]
     (try
-      (rf.trace/register-listener! cb-id (fn [ev] (swap! captured conj ev)))
+      (rf.trace.tooling/register-listener! cb-id (fn [ev] (swap! captured conj ev)))
       (body-fn captured)
       (finally
-        (rf.trace/unregister-listener! cb-id)))))
+        (rf.trace.tooling/unregister-listener! cb-id)))))
 
 ;; ---- Malli-absent degradation warning (rf2-ee38b.7 / rf2-ynjts.9) ---------
 ;;

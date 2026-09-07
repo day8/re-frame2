@@ -67,7 +67,7 @@
             ;; calls below would throw :rf.error/routing-artefact-missing.
             [re-frame.routing]
             [re-frame.routing-test-support :as rf.routing-test-support]
-            [re-frame.trace :as rf.trace])
+            [re-frame.trace.tooling :as rf.trace.tooling])
   (:import [java.util.concurrent CountDownLatch]
            [java.util.concurrent.atomic AtomicLong]))
 
@@ -76,7 +76,7 @@
 ;; (the stress invariants register/deref listeners), so layer that on top of
 ;; the shared rf.registrar/runtime/cache reset.
 (defn- reset-runtime [test-fn]
-  (rf.trace/clear-listeners!)
+  (rf.trace.tooling/clear-listeners!)
   (rf.routing-test-support/reset-runtime test-fn))
 
 (use-fixtures :each reset-runtime)

@@ -47,14 +47,14 @@
             [re-frame.router.diagnostics :as rf.router.diagnostics]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace :as rf.trace]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
 (defn reset-runtime [test-fn]
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
-  (rf.trace/clear-listeners!)
+  (rf.trace.tooling/clear-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)
   (rf.frame/ensure-default-frame!)
   (binding [rf.frame/*current-frame* :rf/default]

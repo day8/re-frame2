@@ -30,6 +30,7 @@
             [re-frame.machines]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace.tooling :as rf.trace.tooling]
             [re-frame.trace :as rf.trace]))
 
 (use-fixtures :each
@@ -39,7 +40,7 @@
 
 (defn- capture-traces [id]
   (let [a (atom [])]
-    (rf.trace/register-listener! id (fn [ev] (swap! a conj ev)))
+    (rf.trace.tooling/register-listener! id (fn [ev] (swap! a conj ev)))
     a))
 
 ;; ===========================================================================
@@ -111,7 +112,7 @@
                 (is (= [:loading] (-> corr :current :path)))
                 (is (not= scheduled-epoch (-> corr :current :rf/after-epoch))
                     "current epoch advanced — the gate mismatch")))))
-        (finally (rf.trace/unregister-listener! ::after-stale))))))
+        (finally (rf.trace.tooling/unregister-listener! ::after-stale))))))
 
 (deftest after-live-still-fires
   (testing "behavioural parity: a LIVE :after timer still fires its transition (lowering did not perturb the live path)"
@@ -179,7 +180,7 @@
             (is (not (contains? tags :work/id))
                 "no bare :work/id duplicate on the reply-envelope done trace")
             (is (= :machine (:rf.reply/work-kind tags)))))
-        (finally (rf.trace/unregister-listener! ::done-ok))))))
+        (finally (rf.trace.tooling/unregister-listener! ::done-ok))))))
 
 (deftest spawned-error-drives-on-error-transition
   (testing "a child reaching an :error? terminal forms a :status :error reply and drives the parent's :on-error TRANSITION (raw payload on :event preserved)"
@@ -226,7 +227,7 @@
             (is (true? (:error? tags)))
             (is (= :error (:rf.reply/status tags)))
             (is (= :failed (:rf.reply/work-status tags)))))
-        (finally (rf.trace/unregister-listener! ::done-err))))))
+        (finally (rf.trace.tooling/unregister-listener! ::done-err))))))
 
 ;; ===========================================================================
 ;; (3) spawn-stale — parent destroyed BEFORE the child finishes.
@@ -321,7 +322,7 @@
               (is (nil? (-> corr :generation :current))
                   "current generation is nil — the spawn slot is gone (no live counterpart)")
               (is (= :rl/schild#1 (:actor-id corr))))))
-        (finally (rf.trace/unregister-listener! ::spawn-stale))))))
+        (finally (rf.trace.tooling/unregister-listener! ::spawn-stale))))))
 
 (deftest spawn-live-parent-still-drives-on-done
   (testing "behavioural parity: with the parent STILL alive, the child's completion is :ok and :on-done runs (the rf2-lohbfg stale detection did not perturb the live path)"
@@ -407,7 +408,7 @@
             ;; sanity: the rest of the canonical envelope is intact.
             (is (= :ok (:rf.reply/status tags)))
             (is (= :completed (:rf.reply/work-status tags)))))
-        (finally (rf.trace/unregister-listener! ::completed-at))))))
+        (finally (rf.trace.tooling/unregister-listener! ::completed-at))))))
 
 (deftest unscripted-completion-omits-completed-at
   (testing "adversarial: an UNSCRIPTED completion (no :rf.cofx) carries NO :completed-at — the fact is OMITTED, never nil-filled or stamped from an ambient clock (Managed-Effects §The reply map)"
@@ -454,4 +455,4 @@
           (is (not (and (contains? tags :rf.reply/completed-at)
                         (nil? (:rf.reply/completed-at tags))))
               ":rf.reply/completed-at is never an explicit nil sentinel"))
-        (finally (rf.trace/unregister-listener! ::no-completed-at))))))
+        (finally (rf.trace.tooling/unregister-listener! ::no-completed-at))))))

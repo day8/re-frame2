@@ -83,7 +83,7 @@
             [re-frame.router :as rf.router]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace :as rf.trace]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (def ^:private build-envelope
   "Pull the private envelope builder — the dispatch envelope is not
@@ -112,7 +112,7 @@
       (is (= 1 (:n (app-db-of :rf/default)))
           "WITNESS: the dispatch ran its handler and committed — so the
            empty buffer below is elision, not a dead dispatch")
-      (is (empty? (rf.trace/trace-buffer :rf/default))
+      (is (empty? (rf.trace.tooling/trace-buffer :rf/default))
           "trace buffer is empty under disabled gate — no event
            landed despite dispatch firing"))))
 

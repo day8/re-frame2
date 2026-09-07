@@ -37,8 +37,7 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.schemas :as rf.schemas]
             [re-frame.flows :as rf.flows]
-            [re-frame.trace :as rf.trace]
-            [re-frame.trace.tooling]
+            [re-frame.trace.tooling :as rf.trace.tooling]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (defn reset-runtime [test-fn]
@@ -46,7 +45,7 @@
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
   (rf.schemas/clear-schemas-by-frame!)
-  (rf.trace/clear-listeners!)
+  (rf.trace.tooling/clear-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)
   (rf.frame/ensure-default-frame!)
   (rf/with-frame :rf/default
@@ -181,7 +180,7 @@
                                    (= :rf.warning/unknown-registration-key
                                       (:operation ev)))
                                  @acc))]
-      (rf.trace/register-listener! ::inputs-warnings (fn [ev] (swap! acc conj ev)))
+      (rf.trace.tooling/register-listener! ::inputs-warnings (fn [ev] (swap! acc conj ev)))
       (try
         (rf/reg-sub :a (fn [db _] (:a db)))
         ;; Public path: `:inputs` is stripped before the check (see above), so
@@ -199,7 +198,7 @@
         (reset! acc [])
         (rf.subs/lower-inline-sub :typo {:inpts [[:a]]} (fn [db _] db))
         (is (warned?) "control: an unknown bare key still warns")
-        (finally (rf.trace/unregister-listener! ::inputs-warnings))))))
+        (finally (rf.trace.tooling/unregister-listener! ::inputs-warnings))))))
 
 (deftest a-literal-declaration-does-not-require-its-upstream-to-exist-yet
   (testing "the literal check is SHAPE-only — never a registry lookup"

@@ -50,7 +50,7 @@
             ;; Load the tooling sibling so the late-bind hooks behind the
             ;; listener API resolve on both runtimes (mirrors
             ;; trace-listener-test).
-            [re-frame.trace.tooling]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; ---- fixture --------------------------------------------------------------
 ;; Cold-start each test with the plain-atom adapter installed: the choke
@@ -75,11 +75,11 @@
   [body-fn]
   (let [seen (atom [])
         k    ::derived-replaced-capture]
-    (rf.trace/register-listener! k (fn [ev]
+    (rf.trace.tooling/register-listener! k (fn [ev]
                                   (when (= :error (:op-type ev))
                                     (swap! seen conj ev))))
     (try (body-fn)
-         (finally (rf.trace/unregister-listener! k)))
+         (finally (rf.trace.tooling/unregister-listener! k)))
     @seen))
 
 ;; ---- tests ----------------------------------------------------------------

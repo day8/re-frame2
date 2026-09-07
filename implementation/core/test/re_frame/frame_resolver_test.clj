@@ -23,7 +23,7 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.trace :as rf.trace]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; ---- fixture --------------------------------------------------------------
 ;; Cold-start each test: install the plain-atom adapter (needed to allocate
@@ -35,7 +35,7 @@
   (reset! rf.frame/frames {})
   (rf.substrate.adapter/dispose-adapter!)
   (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
-  (rf.trace/clear-listeners!)
+  (rf.trace.tooling/clear-listeners!)
   (rf.error-emit/clear-error-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)
   (test-fn)
@@ -43,7 +43,7 @@
   (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
-  (rf.trace/clear-listeners!)
+  (rf.trace.tooling/clear-listeners!)
   (rf.error-emit/clear-error-listeners!))
 
 (use-fixtures :each cold-start)

@@ -50,6 +50,7 @@
             [re-frame.source-coords :as rf.source-coords]
             [re-frame.trace :as rf.trace
              #?@(:cljs [:include-macros true])]
+            [re-frame.trace.tooling :as rf.trace.tooling]
             [re-frame.trace.projection :as rf.trace.projection]
             ;; JVM-only autoload for the focused-event-only cascade-DAG
             ;; aggregator (rf2-931pm). CLJS deliberately omits the
@@ -2279,9 +2280,10 @@
 ;; `re-frame.trace.tooling`; the reader + clear pair is re-exported below on
 ;; BOTH platforms (rf2-kuky.51) so `rf/trace-buffer` is the one documented
 ;; ring reader for tools / story / xray / re-frame-10x. Production CLJS
-;; bundles still DCE the machinery — the alias is unused there, exactly as
-;; the identical unconditional alias `re-frame.trace/trace-buffer` already
-;; is (the `bundle-isolation` gate is the proof, not the require graph).
+;; bundles still DCE the machinery — the alias is unused there, and the
+;; `bundle-isolation` gate is the proof of that, not the require graph
+;; (rf2-kuky.52 deleted the `re-frame.trace/…` re-exports these arms used
+;; to route through; they now name the owning sibling directly).
 
 (def ^:private listener-streams
   "Closed vocabulary for `register-listener!` / `unregister-listener!`."
@@ -2340,7 +2342,7 @@
   observability sink policy."
   [stream id f]
   (case stream
-    :trace  (rf.trace/register-listener! id f)
+    :trace  (rf.trace.tooling/register-listener! id f)
     :events (rf.event-emit/register-event-listener! id f)
     :errors (rf.error-emit/register-error-listener! id f)
     :epoch  (rf.core-epoch/register-epoch-listener! id f)
@@ -2354,7 +2356,7 @@
   §Observation listeners."
   [stream id]
   (case stream
-    :trace  (rf.trace/unregister-listener! id)
+    :trace  (rf.trace.tooling/unregister-listener! id)
     :events (rf.event-emit/unregister-event-listener! id)
     :errors (rf.error-emit/unregister-error-listener! id)
     :epoch  (rf.core-epoch/unregister-epoch-listener! id)
@@ -2389,12 +2391,12 @@
   in production (the ring is never allocated under
   `goog.DEBUG=false`). Per Spec 009 §Per-frame trace rings
   (event-keyed, dev-only)."}
-  trace-buffer           rf.trace/trace-buffer)
+  trace-buffer           rf.trace.tooling/trace-buffer)
 
 (def ^{:doc "Empty the named frame's event-keyed trace ring.
   Tooling uses this between sessions. No-op for an unknown frame,
   no-op in production. Per Spec 009 §`trace-buffer` API."}
-  clear-trace-buffer!    rf.trace/clear-trace-buffer!)
+  clear-trace-buffer!    rf.trace.tooling/clear-trace-buffer!)
 
 ;; The always-on event-emit / error-emit listener registries are NO LONGER
 ;; facade exports. They are reached through the stream-parameterized

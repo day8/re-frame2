@@ -28,7 +28,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.trace :as rf.trace]
+   [re-frame.trace.tooling :as rf.trace.tooling]
    [re-frame.test-support :as rf.test-support]
    #?(:clj  [re-frame.substrate.plain-atom :as substrate]
       :cljs [re-frame.adapter.reagent :as substrate])))
@@ -44,7 +44,7 @@
 (defn- record-flow-traces!
   "Capture every `:flow`-op-type trace event into `sink`."
   [sink]
-  (rf.trace/register-listener!
+  (rf.trace.tooling/register-listener!
     ::flow-trace-recorder
     (fn [ev]
       (when (= :flow (:op-type ev))

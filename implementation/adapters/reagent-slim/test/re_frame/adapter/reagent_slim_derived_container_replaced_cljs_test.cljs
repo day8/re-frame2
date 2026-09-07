@@ -28,10 +28,9 @@
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace :as rf.trace]
             ;; Load the tooling sibling so the listener API's late-bind
             ;; hooks resolve (mirrors the plain-atom suite + trace-listener-test).
-            [re-frame.trace.tooling]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; ---- fixture --------------------------------------------------------------
 ;; Cold-start each test with the reagent-slim adapter installed so the
@@ -65,11 +64,11 @@
 (defn- capture-errors [body-fn]
   (let [seen (atom [])
         k    ::reagent-slim-derived-replaced-capture]
-    (rf.trace/register-listener! k (fn [ev]
+    (rf.trace.tooling/register-listener! k (fn [ev]
                                   (when (= :error (:op-type ev))
                                     (swap! seen conj ev))))
     (try (body-fn)
-         (finally (rf.trace/unregister-listener! k)))
+         (finally (rf.trace.tooling/unregister-listener! k)))
     @seen))
 
 (defn- with-derived

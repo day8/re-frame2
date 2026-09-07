@@ -41,7 +41,7 @@
             [re-frame.machines]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace :as rf.trace])
+            [re-frame.trace.tooling :as rf.trace.tooling])
   (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
            [java.net InetSocketAddress]
            [java.util.concurrent CountDownLatch TimeUnit]))
@@ -106,7 +106,7 @@
           replies (atom [])
           traces  (atom [])]
       (try
-        (rf.trace/register-listener! ::wvkn-1 (fn [ev] (swap! traces conj ev)))
+        (rf.trace.tooling/register-listener! ::wvkn-1 (fn [ev] (swap! traces conj ev)))
         (rf/reg-event :reply/recorder
           (fn [_ [_ payload]]
             (swap! replies conj payload)
@@ -164,7 +164,7 @@
             "actor index is empty after the abort")
         (.countDown latch)
         (finally
-          (rf.trace/unregister-listener! ::wvkn-1)
+          (rf.trace.tooling/unregister-listener! ::wvkn-1)
           (stop-server! srv))))))
 
 ;; ---- (2) multiple in-flight requests from one actor → all abort ----------
@@ -176,7 +176,7 @@
           replies (atom [])
           traces  (atom [])]
       (try
-        (rf.trace/register-listener! ::wvkn-2 (fn [ev] (swap! traces conj ev)))
+        (rf.trace.tooling/register-listener! ::wvkn-2 (fn [ev] (swap! traces conj ev)))
         (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
         (rf/reg-machine :worker/multi
@@ -223,7 +223,7 @@
         (is (empty? (rf.http.managed/actor-in-flight-snapshot)))
         (.countDown latch)
         (finally
-          (rf.trace/unregister-listener! ::wvkn-2)
+          (rf.trace.tooling/unregister-listener! ::wvkn-2)
           (stop-server! srv))))))
 
 ;; ---- (3) sibling actors are NOT affected ----------------------------------
@@ -567,7 +567,7 @@
           replies (atom [])
           traces  (atom [])]
       (try
-        (rf.trace/register-listener! ::n877mb (fn [ev] (swap! traces conj ev)))
+        (rf.trace.tooling/register-listener! ::n877mb (fn [ev] (swap! traces conj ev)))
         (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
         ;; Worker machine: on entry to :running its action fires an
@@ -643,5 +643,5 @@
             "actor index is empty after the imperative-destroy abort")
         (.countDown latch)
         (finally
-          (rf.trace/unregister-listener! ::n877mb)
+          (rf.trace.tooling/unregister-listener! ::n877mb)
           (stop-server! srv))))))

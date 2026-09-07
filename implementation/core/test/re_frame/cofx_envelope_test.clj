@@ -67,11 +67,10 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.router :as rf.router]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.trace :as rf.trace]
             ;; rf2-zq5zj2 / rf2-qwm0a — load the tooling sibling so the
             ;; late-bind hooks behind the listener API resolve (the
             ;; diagnostic-differs test registers a trace listener).
-            [re-frame.trace.tooling]
+            [re-frame.trace.tooling :as rf.trace.tooling]
             ;; rf2-zq5zj2 — side-effect require: `re-frame.epoch` publishes
             ;; the `:epoch/settle!` + `:epoch/epoch-history` +
             ;; `:epoch/clear-history!` late-bind hooks at ns-load, so each
@@ -93,7 +92,7 @@
   ;; hook is published once `re-frame.epoch` is loaded, above).
   (when-let [clear-history! (rf.late-bind/get-fn :epoch/clear-history!)]
     (clear-history!))
-  (rf.trace/clear-listeners!)
+  (rf.trace.tooling/clear-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)
   (test-fn))
 

@@ -41,7 +41,7 @@
             [re-frame.machines]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace :as rf.trace])
+            [re-frame.trace.tooling :as rf.trace.tooling])
   (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
            [java.net InetSocketAddress]
            [java.util.concurrent CountDownLatch TimeUnit]))
@@ -130,7 +130,7 @@
           replies (atom [])
           traces  (atom [])]
       (try
-        (rf.trace/register-listener! ::cross (fn [ev] (swap! traces conj ev)))
+        (rf.trace.tooling/register-listener! ::cross (fn [ev] (swap! traces conj ev)))
         (register-two-frame-app! port replies)
         (rf/dispatch-sync [:articles/fetch] {:frame :frame/a})
         (await-condition! #(live-in? :frame/a))
@@ -160,7 +160,7 @@
         (is (= #{shared-id} (set (map #(get-in % [:correlation :request-id]) @replies)))
             "each reply echoes the CALLER'S raw :request-id, not a compound key")
         (finally
-          (rf.trace/unregister-listener! ::cross)
+          (rf.trace.tooling/unregister-listener! ::cross)
           (.countDown latch)
           (stop-server! srv)
           (rf.http.managed/clear-all-in-flight!))))))
@@ -184,7 +184,7 @@
         (await-condition! #(live-in? :frame/b))
         (let [b-handle (rf.http.registry/lookup-in-flight :frame/b shared-id)]
           ;; Listen only from here, so the rows we count belong to the reissue.
-          (rf.trace/register-listener! ::reissue (fn [ev] (swap! traces conj ev)))
+          (rf.trace.tooling/register-listener! ::reissue (fn [ev] (swap! traces conj ev)))
           (rf/dispatch-sync [:articles/fetch] {:frame :frame/a})
           (await-condition! #(seq (stale-rows @traces)))
           (let [rows (stale-rows @traces)
@@ -212,7 +212,7 @@
         (is (= #{:frame/a :frame/b} (set (map :rf.frame/id @replies)))
             "one reply per frame")
         (finally
-          (rf.trace/unregister-listener! ::reissue)
+          (rf.trace.tooling/unregister-listener! ::reissue)
           (.countDown latch)
           (stop-server! srv)
           (rf.http.managed/clear-all-in-flight!))))))

@@ -6,7 +6,7 @@
  * framework's trace bus and/or epoch history via the Xray preload's
  * mirror — every testbed wires `day8.re-frame2-xray.preload` through
  * shadow-cljs `:devtools/:preloads`, which registers a trace-collector
- * cb against `re-frame.trace/register-listener!`. Reading the
+ * cb against `re-frame.trace.tooling/register-listener!`. Reading the
  * Xray-side mirror is therefore reading the framework's emitted
  * stream (Xray's collector is push-on-emit, not opt-in).
  *

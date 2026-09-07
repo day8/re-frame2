@@ -70,7 +70,7 @@
 
   ## What the drop-in does NOT do
 
-  - It does NOT register a `re-frame.trace/register-listener!`
+  - It does NOT register a `re-frame.trace.tooling/register-listener!`
     callback. The host is by definition not using the framework's
     trace emit path; there is nothing to listen to.
   - It does NOT change Xray's ingest filters: the privacy gate

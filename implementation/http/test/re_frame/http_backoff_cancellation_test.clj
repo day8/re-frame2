@@ -35,7 +35,7 @@
             [re-frame.machines]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace :as rf.trace])
+            [re-frame.trace.tooling :as rf.trace.tooling])
   (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
            [java.net InetSocketAddress]
            [java.util.concurrent.atomic AtomicInteger]))
@@ -282,7 +282,7 @@
           traces  (atom [])
           lid     ::supersede-backoff-stale]
       (try
-        (rf.trace/register-listener! lid (fn [ev] (swap! traces conj ev)))
+        (rf.trace.tooling/register-listener! lid (fn [ev] (swap! traces conj ev)))
         (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
         (rf/reg-event :issue-old
@@ -349,7 +349,7 @@
         (is (every? #(not= :request-id-superseded (get-in % [:error :reason])) @replies)
             "no :request-id-superseded reply is dispatched to the user")
         (finally
-          (rf.trace/unregister-listener! lid)
+          (rf.trace.tooling/unregister-listener! lid)
           (stop-server! srv)
           (stop-server! new-srv))))))
 

@@ -40,7 +40,7 @@
             [re-frame.http.handlers :as rf.http.handlers]
             [re-frame.http.managed :as rf.http.managed]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace :as rf.trace])
+            [re-frame.trace.tooling :as rf.trace.tooling])
   (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
            [java.net InetSocketAddress]
            [java.util.concurrent CountDownLatch TimeUnit]))
@@ -210,7 +210,7 @@
           stale-traces (atom [])
           cb-id        ::q8vbna-stale]
       (try
-        (rf.trace/register-listener! cb-id
+        (rf.trace.tooling/register-listener! cb-id
           (fn [ev]
             (when (= :rf.http/stale-suppressed (:operation ev))
               (swap! stale-traces conj ev))))
@@ -260,6 +260,6 @@
           (is (= :rf.http/request-id-superseded (:rf.reply/stale-reason tags))
               ":stale-reason names the supersession"))
         (finally
-          (rf.trace/unregister-listener! cb-id)
+          (rf.trace.tooling/unregister-listener! cb-id)
           (.countDown release)
           (stop-server! srv))))))

@@ -63,7 +63,7 @@
             [re-frame.machines]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace :as rf.trace])
+            [re-frame.trace.tooling :as rf.trace.tooling])
   (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
            [java.net InetSocketAddress]
            [java.util.concurrent.atomic AtomicInteger]))
@@ -144,7 +144,7 @@
         listener-id ::retry-timeline-honesty
         fired?      (atom false)]
     (try
-      (rf.trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
+      (rf.trace.tooling/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
       (rf/reg-event :reply/recorder
         (fn [_ [_ payload]] (swap! replies conj payload) {}))
       (rf/reg-event :issue
@@ -200,7 +200,7 @@
                                          :next-backoff-ms (get-in ev [:tags :next-backoff-ms])})
                                retried)))))
       (finally
-        (rf.trace/unregister-listener! listener-id)
+        (rf.trace.tooling/unregister-listener! listener-id)
         (rf.http.transport/set-test-interleave-hook! nil)
         (stop-server! srv)))))
 

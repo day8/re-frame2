@@ -33,13 +33,13 @@
             [re-frame.trace :as rf.trace]
             ;; rf2-qwm0a: the public-tooling surface
             ;; (`register-listener!` / `clear-listeners!` / `trace-buffer`
-            ;; / …) lives in `re-frame.trace.tooling`. `re-frame.trace`
-            ;; ships thin wrappers delegating via late-bind so production
-            ;; bundles DCE the buffer/listener machinery — but the hooks
+            ;; / …) lives in `re-frame.trace.tooling`, and since
+            ;; rf2-kuky.52 that is the ONLY namespace publishing it —
+            ;; `re-frame.trace` re-exports nothing. Its late-bind hooks
             ;; only publish once `trace.tooling` loads. This test does
             ;; not use `re-frame.test-support` (which transitively loads
             ;; the tooling ns), so we require it directly here.
-            [re-frame.trace.tooling]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; ---- fixtures --------------------------------------------------------------
 
@@ -48,7 +48,7 @@
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
   (rf.schemas/clear-schemas-by-frame!)
-  (rf.trace/clear-listeners!)
+  (rf.trace.tooling/clear-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)
   ;; Framework events / fx are registered at namespace-load time in
   ;; routing.cljc; clear-all! wiped them. Re-eval those registrations

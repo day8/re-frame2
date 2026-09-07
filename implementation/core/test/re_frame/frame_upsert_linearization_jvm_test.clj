@@ -42,7 +42,7 @@
 (defn reset-runtime [test-fn]
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
-  (rf.trace/clear-listeners!)
+  (rf.trace.tooling/clear-listeners!)
   ;; Clear the process-global trace-policy stores so a frame-scoped no-emit /
   ;; retention override written by one test never leaks into the next
   ;; (rf2-umsyo9 — these stores are SEPARATE from `frames`, which the reset

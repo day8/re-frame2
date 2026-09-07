@@ -29,7 +29,7 @@
             [re-frame.http.managed :as rf.http.managed]
             [re-frame.http.middleware :as rf.http.middleware]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace :as rf.trace])
+            [re-frame.trace.tooling :as rf.trace.tooling])
   (:import [com.sun.net.httpserver HttpServer HttpHandler HttpExchange]
            [java.net InetSocketAddress]))
 
@@ -328,7 +328,7 @@
               (swap! server-hits inc)
               (write-response! ex 200 "application/json" "{}")))]
       (try
-        (rf.trace/register-listener! listener-id
+        (rf.trace.tooling/register-listener! listener-id
                                   (fn [ev] (swap! traces conj ev)))
         (rf/reg-http-interceptor :boom
           {:before (fn [_ctx]
@@ -360,7 +360,7 @@
                   @traces)
             ":rf.error/http-interceptor-failed appears on the trace stream")
         (finally
-          (rf.trace/unregister-listener! listener-id)
+          (rf.trace.tooling/unregister-listener! listener-id)
           (stop-server! srv))))))
 
 ;; ---- 4a. rf2-1jcpm — interceptor-failure URL redaction --------------------
@@ -374,7 +374,7 @@
     (let [traces      (atom [])
           listener-id (gensym "interceptor-redact-")]
       (try
-        (rf.trace/register-listener! listener-id
+        (rf.trace.tooling/register-listener! listener-id
                                   (fn [ev] (swap! traces conj ev)))
         (rf/reg-http-interceptor :boom
           {:before (fn [_ctx]
@@ -403,7 +403,7 @@
             (is (true? (:sensitive? w))
                 ":sensitive? stamped on the trace (denylist hit = signal)")))
         (finally
-          (rf.trace/unregister-listener! listener-id))))))
+          (rf.trace.tooling/unregister-listener! listener-id))))))
 
 ;; ---- 5. clear-http-interceptor unregisters cleanly ------------------------
 
@@ -871,7 +871,7 @@
     (let [traces      (atom [])
           listener-id (gensym "rznrz-mark-sensitive-")]
       (try
-        (rf.trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
+        (rf.trace.tooling/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
         ;; First :before marks the request sensitive.
         (rf/reg-http-interceptor :mark-sensitive
           {:before (fn [ctx] (assoc-in ctx [:request :sensitive?] true))})
@@ -907,7 +907,7 @@
           (is (true? (:sensitive? w))
               ":sensitive? stamped because the effective request is sensitive"))
         (finally
-          (rf.trace/unregister-listener! listener-id))))))
+          (rf.trace.tooling/unregister-listener! listener-id))))))
 
 ;; ---- rf2-rznrz — CLJS-only-key check runs on the POST-:before request -----
 ;;
@@ -929,7 +929,7 @@
             (fn [^HttpExchange ex]
               (write-response! ex 200 "application/json" "{\"ok\":true}")))]
       (try
-        (rf.trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
+        (rf.trace.tooling/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
         ;; The request as DISPATCHED carries no CLJS-only key; the :before
         ;; adds :credentials into the request map.
         (rf/reg-http-interceptor :add-credentials
@@ -951,7 +951,7 @@
                warning — proving check-cljs-only-keys! ran on the post-chain
                request, not the original (key-free) args"))
         (finally
-          (rf.trace/unregister-listener! listener-id)
+          (rf.trace.tooling/unregister-listener! listener-id)
           (stop-server! srv))))))
 
 ;; ===========================================================================

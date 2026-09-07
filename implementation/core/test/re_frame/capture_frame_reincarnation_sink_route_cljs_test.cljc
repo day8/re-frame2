@@ -76,7 +76,7 @@
             [re-frame.privacy       :as rf.privacy]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support  :as rf.test-support]
-            [re-frame.trace         :as rf.trace]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; Rebuild registrar / frames / runtime per test; additionally clear the corpus
 ;; error-listener registry AND the observability sink registry so a listener /
@@ -139,14 +139,14 @@
         tkey   (keyword "test" (name (gensym "qjfrw-trace")))]
     (rf.error-emit/register-error-listener!
       ekey (fn [r] (when (= :rf.error/frame-destroyed (:error r)) (swap! recs conj r))))
-    (rf.trace/register-listener!
+    (rf.trace.tooling/register-listener!
       tkey (fn [ev] (when (= :rf.error/frame-destroyed (:operation ev)) (swap! traces conj ev))))
     (try
       (let [result (thunk)]
         {:records @recs :traces @traces :result result})
       (finally
         (rf.error-emit/unregister-error-listener! ekey)
-        (rf.trace/unregister-listener! tkey)))))
+        (rf.trace.tooling/unregister-listener! tkey)))))
 
 (defn- assert-preserved-record!
   "The route suppression must NOT drop the corpus record or the dev trace, nor

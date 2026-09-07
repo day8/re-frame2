@@ -42,6 +42,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.machines :as rf.machines]
             [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.trace.tooling :as rf.trace.tooling]
             [re-frame.trace :as rf.trace]))
 
 (def auth-flow-spec
@@ -165,9 +166,9 @@
           ;; scope-macro form cannot express the with/without comparison.
           seen          (atom [])
           r-with-listener
-          (do (rf.trace/register-listener! ::purity-probe (fn [ev] (swap! seen conj ev)))
+          (do (rf.trace.tooling/register-listener! ::purity-probe (fn [ev] (swap! seen conj ev)))
               (try (rf.machines/machine-transition m input [:go])
-                   (finally (rf.trace/unregister-listener! ::purity-probe))))]
+                   (finally (rf.trace.tooling/unregister-listener! ::purity-probe))))]
       (is (= r-no-listener r-with-listener)
           "the reduction (snapshot + fx) does not depend on listener presence")
       (is (= :done (-> r-with-listener :snapshot :state))
