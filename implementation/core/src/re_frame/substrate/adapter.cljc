@@ -152,7 +152,7 @@
                (rf.error/throw-error!
                 :rf.error/adapter-already-installed
                 'rf/init!
-                "A second install-adapter! was called without an intervening (rf/destroy-adapter!); the existing adapter remains installed (per Spec 006 §Single adapter per process)."
+                "A second install-adapter! — or an (rf/init!) with a DIFFERENT adapter — was called without an intervening (rf/destroy-adapter!); the existing adapter remains installed (per Spec 006 §Single adapter per process). Re-calling init! with the SAME adapter stays an idempotent no-op; to swap substrates, destroy the seated adapter first."
                 {:extra {:installed (:adapter installed)
                          :attempted adapter}}))
              (assoc state :installed entry :disposed? false)))

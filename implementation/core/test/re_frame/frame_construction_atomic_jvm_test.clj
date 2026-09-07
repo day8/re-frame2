@@ -163,9 +163,10 @@
     (test-fn)
     (finally
       ;; Restore the shared plain-atom baseline every OTHER test namespace
-      ;; expects. `rf/init!` is idempotent (installs only when no adapter is
-      ;; seated), so a custom tracking adapter left installed here would leak
-      ;; into later namespaces and be silently reused. Cold + reinstall
+      ;; expects. `rf/init!` is idempotent for the adapter it seated (rf2-kuky.1
+      ;; — a DIFFERENT adapter raises `:rf.error/adapter-already-installed`), so
+      ;; a custom tracking adapter left installed here would make the next
+      ;; namespace's plain-atom boot throw. Cold + reinstall
       ;; plain-atom leaves the process exactly as neighbouring fixtures assume.
       (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
       (rf/init! rf.substrate.plain-atom/adapter))))
