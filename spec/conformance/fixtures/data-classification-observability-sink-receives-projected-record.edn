@@ -80,4 +80,31 @@
                        :frame    :obs/main
                        :error    :rf.error/handler-exception
                        :event-id :auth/login
-                       :event    [:auth/login {:auth {:token :rf/redacted}}]}}]}
+                       :event    [:auth/login {:auth {:token :rf/redacted}}]}}
+
+  ;; 3. rf2-kuky.65 — the producer's COMPONENT ATTRIBUTION on an error record.
+    ;; The structural identifiers (:failing-id here; :flow-id / :where on the
+    ;; flow-eval category are the same class) are SUMMARY slots: they pass the
+    ;; projector unchanged, which is what makes the attribution SURVIVE
+    ;; :rf.egress/public-error — the profile that DROPS :exception. `:reason` is
+    ;; NOT a summary slot: it is prose that interpolates app values, so it rides
+    ;; the :tags tree slot and is walked under frame classification.
+  {:call              :project-egress
+   :frame             :obs/main
+   :rf.egress/profile :rf.egress/public-error
+   :value             {:kind         :rf.observe/error
+                       :frame        :obs/main
+                       :error        :rf.error/interceptor-exception
+                       :event-id     :auth/login
+                       :failing-id   :app/audit-interceptor
+                       :source-coord {:ns app.interceptors :file "src/app/interceptors.cljs" :line 42}
+                       :tags         {:reason "Interceptor `:app/audit-interceptor` threw in :after."}
+                       :event        [:auth/login {:auth {:token "super-secret-token"}}]}
+   :expect            {:kind         :rf.observe/error
+                       :frame        :obs/main
+                       :error        :rf.error/interceptor-exception
+                       :event-id     :auth/login
+                       :failing-id   :app/audit-interceptor
+                       :source-coord {:ns app.interceptors :file "src/app/interceptors.cljs" :line 42}
+                       :tags         {:reason "Interceptor `:app/audit-interceptor` threw in :after."}
+                       :event        [:auth/login {:auth {:token :rf/redacted}}]}}]}
