@@ -28,7 +28,7 @@
     \"Per Spec 013 §Lifecycle: clear a flow from a frame's registry.
     Late-bound via :flows/clear-flow.\"
     {:hook      :flows/clear-flow
-     :where     'rf/clear-flow
+     :where     'rf/clear
      :artefact  flows-artefact
      :on-absent :throw
      :ex-data   {:flow-id id}}
@@ -41,7 +41,7 @@
   | Key          | Required? | Meaning                                                                                  |
   |--------------|-----------|------------------------------------------------------------------------------------------|
   | `:hook`      | yes       | late-bind hook key (e.g. `:flows/clear-flow`)                                            |
-  | `:where`     | no        | quoted user-facing fn symbol (e.g. `'rf/clear-flow`) stamped on the missing-artefact throw. Defaults to `'rf/<name>` (the common case) |
+  | `:where`     | no        | quoted user-facing fn symbol (e.g. `'rf/clear`) stamped on the missing-artefact throw. Defaults to `'rf/<name>` (the common case) |
   | `:artefact`  | yes       | symbol resolving to an `artefact-info` map (see below) — typically a `def` in the same ns |
   | `:on-absent` | yes       | absent-fn policy — `:throw` / `:nil` / `:false` / `:empty-vec` / `:empty-map`, or any literal value |
   | `:ex-data`   | no        | extra ex-data slots merged onto the throw map (only meaningful when `:on-absent :throw`). Symbol values resolve in the arity's local scope and are dropped from shorter arities that don't bind the symbol |

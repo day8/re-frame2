@@ -334,7 +334,7 @@ The fx variant is the common one because most toggling happens *inside* event ha
 (let [[id metadata derive-fn] can-submit-flow]
   (rf/reg-flow id (assoc metadata :frame :scratch) derive-fn))
 
-(flows/clear-flow :editor/can-submit? {:frame :scratch})  ;; clear lives on re-frame.flows
+(rf/clear :flow :editor/can-submit? {:frame :scratch})  ;; clear lives on re-frame.flows
 ```
 
 `clear-flow` keeps the settle boundary when you call it this way. It returns having vacated the output path *and* recomputed anything that read it, so the next line of your boot code or test can trust `app-db` — you never dispatch an unrelated event to nudge the graph into agreement. (`reg-flow`'s direct form does not make the matching promise about a newly registered flow's *initial* output; inside a handler, use the `:rf.fx/reg-flow` effect, which does — it evaluates the flow right then, so that event needs the flow's inputs to be present already, or to seed them itself.) That difference is deliberate, and it is the one place on this page where the two lifecycle calls part company: clearing removes a value nothing owns any more, so it can be repaired on the spot, while registering declares a flow that has never run — and boot code registers *before* it seeds, so evaluating there would hand your `:derive` the absent inputs it was never written to expect. Registration declares; the next drain evaluates.

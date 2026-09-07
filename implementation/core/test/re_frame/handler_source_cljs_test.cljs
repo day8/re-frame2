@@ -27,7 +27,7 @@
   legacy forms"
     (rf/reg-event :rf2-xhfxcs.cljs/event
                   (fn [{:keys [db]} _ev] {:db db}))
-    (let [m   (rf/handler-meta :event :rf2-xhfxcs.cljs/event)
+    (let [m   (rf/handler-meta {:source :store :kind :event :id :rf2-xhfxcs.cljs/event})
           src (:rf.handler/source m)]
       (is (string? src) ":rf.handler/source should be a string under DEBUG=true")
       (is (str/includes? src "reg-event"))
@@ -44,7 +44,7 @@
     (rf/reg-event :rf2-xgfuy.cljs/event-fx
                      (fn [_cofx _ev] {:db {:n 0}}))
     (let [src (:rf.handler/source
-               (rf/handler-meta :event :rf2-xgfuy.cljs/event-fx))]
+               (rf/handler-meta {:source :store :kind :event :id :rf2-xgfuy.cljs/event-fx}))]
       (is (string? src))
       (is (str/includes? src "reg-event"))
       (is (str/includes? src ":db {:n 0}")))))
@@ -56,6 +56,6 @@
                   {:interceptors [:rf2-xgfuy.cljs/ctx-probe]}
                   (fn [_ _] {}))
     (let [src (:rf.handler/source
-               (rf/handler-meta :event :rf2-xgfuy.cljs/event-ctx))]
+               (rf/handler-meta {:source :store :kind :event :id :rf2-xgfuy.cljs/event-ctx}))]
       (is (string? src))
       (is (str/includes? src "reg-event")))))

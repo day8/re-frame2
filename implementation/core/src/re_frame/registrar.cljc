@@ -12,8 +12,7 @@
   machine spec's `:guards` / `:actions` maps are the single source of
   truth — the runtime resolves them through the machine spec, never the
   registrar.
-  Their dev-only fn-source handler-meta surface (`(rf/handler-meta
-  :machine-guard [machine-id guard-id])`, consumed by Xray's
+  Their dev-only fn-source handler-meta surface (`(rf/handler-meta {:source :store :kind :machine-guard :id [machine-id guard-id]})`, consumed by Xray's
   focused-transition lens + re-frame-pair source-jump) is DERIVED on
   demand from the machine's existing `:event` registration spec (the
   co-located `:guards` / `:actions` entries each carry `:source-code` /
@@ -74,7 +73,7 @@
   through, so the strip lives here: under `:advanced` + `goog.DEBUG=false`
   (`rf.interop/debug-enabled?` constant-folds to `false`) `strip-pure-
   documentation` drops the pure-documentation keys from the metadata
-  before it is stored, so `(rf/handler-meta kind id)` carries no `:doc`
+  before it is stored, so `(rf/handler-meta {:source :store :kind kind :id id})` carries no `:doc`
   in production — consistent with the source-coords already being absent
   there (Spec 001 §Production elision contract, Policy A). The outermost
   `rf.interop/debug-enabled?` gate lets Closure constant-fold the strip away
@@ -603,7 +602,7 @@
     (rf.source-coords/remember-error-coords! kind id pc))
   ;; Pure-documentation metadata elision. Under `:advanced` +
   ;; `goog.DEBUG=false` strip the pure-documentation keys (`:doc`) BEFORE the
-  ;; metadata is stored, so `(rf/handler-meta kind id)` carries no `:doc` in
+  ;; metadata is stored, so `(rf/handler-meta {:source :store :kind kind :id id})` carries no `:doc` in
   ;; production — consistent with source-coords already being absent there
   ;; (Spec 001 §Production elision contract). The `rf.interop/debug-enabled?`
   ;; gate inside `strip-pure-documentation` is the OUTERMOST form, so Closure
@@ -912,6 +911,48 @@
   "Public alias for lookup. Used by tooling."
   [kind id]
   (lookup kind id))
+
+;; ---- SOURCE-STORE reads (generation-bypassing) ----------------------------
+;;
+;; `store-registrations` / `store-lookup` are the `{:source :store}` half of the
+;; public registrar query grammar (`rf/registrations` / `rf/handler-meta`, Spec
+;; API.md §Public registrar query API). They read the `active-registrar` ATOM
+;; and NEVER consult `*generation*`.
+;;
+;; Why they exist as separate fns rather than as a rebinding of `*generation*`
+;; at the facade: `registrations` / `lookup` / `ids` / `handler-meta` above are
+;; the runtime's resolution path — every dispatch, sub build, fx and view
+;; resolution routes through them, and they MUST stay generation-routed. The
+;; source/frame distinction is a property of the PUBLIC INSPECTION boundary, so
+;; it is implemented there, with these two reads as the store-side primitive.
+;; Binding `*generation*` to nil around a facade call would work on the JVM but
+;; is fragile in async CLJS (a binding does not survive a `go` block or a
+;; callback), so the atom is read directly instead.
+;;
+;; Before this pair existed, a tool that needed the process store from inside a
+;; frame-resolved context had no public door and reached into
+;; `kind->id->metadata` directly (Xray's deleted `host_registry.cljs`).
+
+(defn store-registrations
+  "The `{id metadata}` map for `kind` in the process SOURCE STORE — the
+  `active-registrar` atom — or `{}` when the kind has no registrations.
+
+  UNLIKE `registrations`, this NEVER consults `*generation*`: it is the
+  `{:source :store}` read, and it returns the same answer whether or not a
+  frame's image generation is bound around the call. That is the whole point —
+  an inspector running inside its own frame needs to see what the PROCESS
+  registered, not what its own image resolves."
+  [kind]
+  (get @(active-registrar) kind {}))
+
+(defn store-lookup
+  "The metadata map registered for `(kind, id)` in the process SOURCE STORE —
+  the `active-registrar` atom — or nil.
+
+  The `store-registrations` counterpart of `lookup`: paired `get` on the atom,
+  `*generation*` never consulted. See the section comment above."
+  [kind id]
+  (-> @(active-registrar) (get kind) (get id)))
 
 (defn ids
   "Just the id set for a kind."

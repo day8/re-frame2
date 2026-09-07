@@ -105,11 +105,9 @@ Those records are what Xray renders. You can also tap the stream yourself in dev
 Machine guards and actions are addressable through handler metadata.
 
 ```clojure
-(rf/handler-meta :machine-guard
-                 [:auth.login/flow :under-retry-limit])
+(rf/handler-meta {:source :store :kind :machine-guard :id [:auth.login/flow :under-retry-limit]})
 
-(rf/handler-meta :machine-action
-                 [:auth.login/flow :issue-request])
+(rf/handler-meta {:source :store :kind :machine-action :id [:auth.login/flow :issue-request]})
 ```
 
 In development this can include captured source, file, line, and handler function metadata. Production builds elide development-only source details.

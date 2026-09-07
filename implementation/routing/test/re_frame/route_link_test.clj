@@ -51,7 +51,7 @@
     ;; routing artefact registers a view at id `:route/link` on
     ;; ns-load, on both platforms — `.cljc` render trees that embed
     ;; `[rf/route-link ...]` resolve identically client- and server-side.
-    (is (some? (rf/handler-meta :view :route/link))
+    (is (some? (rf/handler-meta {:source :store :kind :view :id :route/link}))
         ":route/link is registered when re-frame.routing is loaded")
     (is (fn? (:handler-fn (rf.registrar/lookup :view :route/link)))
         "the registered slot carries a callable :handler-fn")))

@@ -830,26 +830,22 @@
   (reset! settle-frame-flows-fn f)
   nil)
 
-(defn clear-flow
-  "Deregister a flow and remove its output leaf from the selected frame.
+(defn- clear-flow*
+  "The shared body of both `clear-flow` arities. `frame` is an
+  already-validated frame TARGET (a frame-id keyword or a live frame value)
+  or nil; nil means the AMBIENT frame, which is then required.
 
-  Without an explicit `:frame`, the ambient frame is required. Vacation is
-  leaf-only: empty ancestors remain because the flow does not own them.
-
-  Called OUTSIDE an event drain, this settles the frame's remaining flows
-  before returning, so a dependent cannot still publish a value derived from
-  the slot just removed (Spec 013 §Sequencing). A remaining flow whose
-  `:derive` throws during that settle propagates the ordinary
-  `:rf.error/flow-eval-exception` to this caller; the deregistration and
-  vacation — already committed, and what the caller asked for — stand, and the
-  settle's candidate db is discarded unwritten."
-  ([id] (clear-flow id {}))
-  ([id {:keys [frame] :as _opts}]
+  Split out by rf2-kuky.80 so the public 1-arity reaches the ambient path
+  DIRECTLY. It used to call `(clear-flow id {})`, which was harmless while the
+  2-arity destructured tolerantly and fatal the moment it stopped: the exact
+  validator rejects `{}`, so the old delegation would have made every
+  ambient clear throw."
+  [id frame]
    (let [;; Normalize frame values before registry access.
          frame-id (or (some-> frame rf.frame/frame-target->id)
                       (rf.frame/require-current-frame!
                         :clear-flow
-                        {:where    'rf/clear-flow
+                        {:where    'rf/clear
                          :event-id id}))]
      ;; Read the path, deregister, and EMIT the :rf.flow/cleared evidence all
      ;; INSIDE the drain lock: a concurrent replacement cannot make us vacate
@@ -952,7 +948,50 @@
                ;; about to replace, and count a second pass.
                (when-let [settle! (and (not in-drain?) @settle-frame-flows-fn)]
                  (settle! frame-id pinned)))))))
-     nil)))
+     nil))
+
+(defn clear-flow
+  "Deregister a flow and remove its output leaf from the selected frame.
+
+  Without an explicit `:frame`, the ambient frame is required. Vacation is
+  leaf-only: empty ancestors remain because the flow does not own them.
+
+  Called OUTSIDE an event drain, this settles the frame's remaining flows
+  before returning, so a dependent cannot still publish a value derived from
+  the slot just removed (Spec 013 §Sequencing). A remaining flow whose
+  `:derive` throws during that settle propagates the ordinary
+  `:rf.error/flow-eval-exception` to this caller; the deregistration and
+  vacation — already committed, and what the caller asked for — stand, and the
+  settle's candidate db is discarded unwritten.
+
+  NOT a public NAME: the public door is `(rf/clear :flow id)` /
+  `(rf/clear :flow id {:frame f})`. This fn is the `:flows/clear-flow`
+  late-bind hook target, which `rf/clear` and the `:rf.fx/clear-flow` effect
+  both reach.
+
+  THE OPTS MAP IS EXACT (rf2-kuky.80): `{:frame f}`, sole key, value a
+  frame-id keyword or a live frame value. It used to destructure
+  `{:keys [frame]}` TOLERANTLY, so `(clear-flow :cart/total {:fram :session})`
+  bound `frame` to nil, fell through to `require-current-frame!`, and cleared
+  the AMBIENT frame's flow with no signal — the exact silent mis-clear
+  rf2-s32bf had already closed for `clear-http-interceptor`, still live on the
+  identically-shaped door beside it. `rf.frame/frame-opts?` is the ONE shared
+  validator (`rf/clear` and the http arm use the same one), and it runs BEFORE
+  any frame is resolved. Per Principles §No silent swallow."
+  ([id] (clear-flow* id nil))
+  ([id opts]
+   (when-not (rf.frame/frame-opts? opts)
+     (rf.error/throw-error!
+       :rf.error/registrar-clear-bad-request
+       'rf/clear
+       (str "rf/clear :flow " (pr-str id) ": the opts map must be EXACTLY "
+            "{:frame f}, where f is a frame-id keyword or a live frame value. "
+            "Received " (pr-str opts) ". A tolerated near-miss here would "
+            "resolve the AMBIENT frame and clear the wrong frame's flow "
+            "silently.")
+       {:recovery :fix-the-clear-call
+        :extra    {:kind :flow :reason :malformed-opts :flow-id id}}))
+   (clear-flow* id (:frame opts))))
 
 ;; ---- frame-destroy teardown ---------------------------------------------
 

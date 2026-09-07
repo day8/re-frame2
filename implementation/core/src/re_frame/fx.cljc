@@ -105,7 +105,7 @@
   Optional metadata keys:
 
       :doc        one-sentence what-and-why; surfaces via
-                  `(rf/handler-meta :fx id)`.
+                  `(rf/handler-meta {:source :store :kind :fx :id id})`.
       :schema     Malli schema for `args` (per Spec 010 §:schema on fx
                   registrations; rf2-ieu0i).
       :platforms  set of `#{:client :server}`; default
@@ -131,7 +131,7 @@
   Framework-shipped fx (`:dispatch`, `:dispatch-later`, `:rf.http/managed`,
   `:rf.nav/push-url`, ...) are documented in `spec/API.md §Effect-map
   shape` and their per-feature Spec; introspect via
-  `(rf/handler-meta :fx <id>)`.
+  `(rf/handler-meta {:source :store :kind :fx :id <id>})`.
 
   See also: `reg-cofx` (the input-side counterpart), `clear-fx`,
   `reg-event` (the consumer)."
@@ -159,15 +159,12 @@
     (register-with-classification! :fx id meta handler-fn nil)
     id))
 
-(defn clear-fx
-  "Unregister an fx handler. Zero-arity clears every registered fx;
-  one-arity clears the named one. Hot-reload tools and test fixtures
-  call this between rebuilds.
-
-  Returns nil. See also: `reg-fx`, the user-facing surface `rf/clear-fx`
-  (this is the underlying fn — they point at the same value)."
-  ([] (rf.registrar/clear-kind! :fx))
-  ([id] (rf.registrar/unregister! :fx id)))
+;; rf2-kuky.80: no `clear-fx` fn here. `:fx` owns no tear-down lifecycle of
+;; its own — removal IS `rf.registrar/unregister!`, which forgets provenance,
+;; marks the live-frame projection dirty and emits `:rf.registry/handler-cleared`
+;; — so the kind-keyed `(rf/clear :fx id)` calls the registrar directly and this
+;; one-line indirection is gone. The nilary clear-all went with it: its only
+;; callers were fixtures, which use `rf.registrar/clear-kind!`.
 
 ;; ---- EP-0023 inline-registration lowering (rf2-ffc6s0) --------------------
 ;;

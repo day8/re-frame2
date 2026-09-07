@@ -3334,7 +3334,7 @@
 ;; The authored chain is NOT recoverable from the trace stream — the
 ;; substrate emits no per-interceptor "ran" trace for a clean chain (the
 ;; chain runs as one unit). It IS recoverable from the REGISTRY:
-;; `(rf/handler-meta :event event-id)` returns `:interceptors` carrying the
+;; `(rf/handler-meta {:source :store :kind :event :id event-id})` returns `:interceptors` carrying the
 ;; authored refs (a bare keyword `:auth/required` or an `[id arg]` 2-vector
 ;; like `[:rf.interceptor/path [:cart]]`) PLUS the framework auto-wrapper
 ;; interceptor map (`:rf/event-handler`, `:rf/default? true`) at its tail

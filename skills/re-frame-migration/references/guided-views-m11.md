@@ -11,7 +11,7 @@ This is the **canonical migration recipe** for the Form-3 routes and the capture
 **Identify**:
 
 1. Find every React-context frame boundary — the SCOPE-only `(rf/frame-provider {:frame <id>} …)` and the ENSURE `(rf/frame-root {:id <id>} …)` — **regardless of which frame it establishes, the root/default boundary included**. (Two components, one verb each — *roots ensure; providers scope* — so match both component names when sweeping.) A single-frame app has exactly **one** such boundary at its root — walk it too. The footgun is not confined to non-default frames; under EP-0002 a plain fn can't read **any** provider's frame from context.
-2. Walk the hiccup subtree under each such provider. List every Var-referenced function (or anonymous lambda) that is **not** registered via `rf/reg-view`. Cross-reference the `(rf/registrations :view)` registry.
+2. Walk the hiccup subtree under each such provider. List every Var-referenced function (or anonymous lambda) that is **not** registered via `rf/reg-view`. Cross-reference the `(rf/registrations {:source :store :kind :view})` registry.
 
 **Risk**: a plain Reagent function rendered inside a `frame-provider` can't read the provider's frame (no `:contextType`), so its internal `(subscribe ...)` / `(dispatch ...)` calls carry no frame and raise `:rf.error/no-frame-context` (EP-0002 — no silent `:rf/default` routing; the old one-time warning is superseded by this loud error). The failure surfaces at runtime when the component renders.
 

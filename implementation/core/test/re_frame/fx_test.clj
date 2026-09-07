@@ -556,8 +556,9 @@
 
 ;; ---- clear-fx round-trip (rf2-634y) --------------------------------------
 ;;
-;; Per Spec 002 / API.md §Lifecycle and `core.cljc:869`: `rf/clear-fx` is
-;; an alias of `rf.fx/clear-fx`. Used by hot-reload tooling and by
+;; Per Spec 002 / API.md §Clearing registrations: `(rf/clear :fx id)` is the
+;; `:fx` arm of the one kind-keyed registrar inverse, routing to
+;; `rf.registrar/unregister!`. Used by hot-reload tooling and by
 ;; `http_managed.cljc:1606` for stub uninstall. Pre-rf2-634y no test
 ;; pinned this behaviour.
 ;;
@@ -579,7 +580,7 @@
       (is (= 1 @counter) "registered :test.634y/touch fired on dispatch")
 
       ;; 2. Clear via the public alias.
-      (rf/clear-fx :test.634y/touch)
+      (rf/clear :fx :test.634y/touch)
       (is (nil? (rf.registrar/lookup :fx :test.634y/touch))
           "registry slot is gone after clear-fx")
 
@@ -614,9 +615,9 @@
     ;; Tooling calls clear-fx defensively before re-registering; a
     ;; second clear on an already-gone slot must not throw.
     (rf/reg-fx :test.634y/once (fn [_ _] nil))
-    (rf/clear-fx :test.634y/once)
+    (rf/clear :fx :test.634y/once)
     ;; Second clear on the already-gone slot.
-    (is (nil? (rf/clear-fx :test.634y/once))
+    (is (= :test.634y/once (rf/clear :fx :test.634y/once))
         "double-clear is a no-op, not an exception")
     (is (nil? (rf.registrar/lookup :fx :test.634y/once))
         "the slot stays gone")))

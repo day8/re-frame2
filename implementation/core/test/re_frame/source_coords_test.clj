@@ -164,7 +164,7 @@
     ;; `source-coords/merge-coords` returns user-meta unchanged under
     ;; `-Dre-frame.debug=false`, so the coord keys are absent there.
     (when rf.interop/debug-enabled?
-      (assert-coords (rf/handler-meta :event :rf2-k84s/reg-event-sample)
+      (assert-coords (rf/handler-meta {:source :store :kind :event :id :rf2-k84s/reg-event-sample})
                      :event :rf2-k84s/reg-event-sample))))
 
 (deftest source-coords-on-reg-event-db-return
@@ -176,7 +176,7 @@
     ;; `source-coords/merge-coords` returns user-meta unchanged under
     ;; `-Dre-frame.debug=false`, so the coord keys are absent there.
     (when rf.interop/debug-enabled?
-      (assert-coords (rf/handler-meta :event :rf2-k84s/reg-event-db-sample)
+      (assert-coords (rf/handler-meta {:source :store :kind :event :id :rf2-k84s/reg-event-db-sample})
                      :event :rf2-k84s/reg-event-db-sample))))
 
 (deftest source-coords-on-reg-event-fx-return
@@ -188,7 +188,7 @@
     ;; `source-coords/merge-coords` returns user-meta unchanged under
     ;; `-Dre-frame.debug=false`, so the coord keys are absent there.
     (when rf.interop/debug-enabled?
-      (assert-coords (rf/handler-meta :event :rf2-k84s/reg-event-fx-sample)
+      (assert-coords (rf/handler-meta {:source :store :kind :event :id :rf2-k84s/reg-event-fx-sample})
                      :event :rf2-k84s/reg-event-fx-sample))))
 
 (deftest source-coords-on-reg-event-with-interceptor
@@ -202,7 +202,7 @@
     ;; `source-coords/merge-coords` returns user-meta unchanged under
     ;; `-Dre-frame.debug=false`, so the coord keys are absent there.
     (when rf.interop/debug-enabled?
-      (assert-coords (rf/handler-meta :event :rf2-k84s/reg-event-ctx-sample)
+      (assert-coords (rf/handler-meta {:source :store :kind :event :id :rf2-k84s/reg-event-ctx-sample})
                      :event :rf2-k84s/reg-event-ctx-sample))))
 
 (deftest source-coords-on-reg-sub
@@ -214,7 +214,7 @@
     ;; `source-coords/merge-coords` returns user-meta unchanged under
     ;; `-Dre-frame.debug=false`, so the coord keys are absent there.
     (when rf.interop/debug-enabled?
-      (assert-coords (rf/handler-meta :sub :rf2-k84s/reg-sub-sample)
+      (assert-coords (rf/handler-meta {:source :store :kind :sub :id :rf2-k84s/reg-sub-sample})
                      :sub :rf2-k84s/reg-sub-sample))))
 
 (deftest source-coords-on-reg-fx
@@ -226,7 +226,7 @@
     ;; `source-coords/merge-coords` returns user-meta unchanged under
     ;; `-Dre-frame.debug=false`, so the coord keys are absent there.
     (when rf.interop/debug-enabled?
-      (assert-coords (rf/handler-meta :fx :rf2-k84s/reg-fx-sample)
+      (assert-coords (rf/handler-meta {:source :store :kind :fx :id :rf2-k84s/reg-fx-sample})
                      :fx :rf2-k84s/reg-fx-sample))))
 
 (deftest source-coords-on-reg-cofx
@@ -238,7 +238,7 @@
     ;; `source-coords/merge-coords` returns user-meta unchanged under
     ;; `-Dre-frame.debug=false`, so the coord keys are absent there.
     (when rf.interop/debug-enabled?
-      (assert-coords (rf/handler-meta :cofx :rf2-k84s/reg-cofx-sample)
+      (assert-coords (rf/handler-meta {:source :store :kind :cofx :id :rf2-k84s/reg-cofx-sample})
                      :cofx :rf2-k84s/reg-cofx-sample))))
 
 (deftest no-source-coords-on-make-frame
@@ -276,7 +276,7 @@
     ;; `source-coords/merge-coords` returns user-meta unchanged under
     ;; `-Dre-frame.debug=false`, so the coord keys are absent there.
     (when rf.interop/debug-enabled?
-      (assert-coords (rf/handler-meta :view :rf2-k84s/reg-view-sample)
+      (assert-coords (rf/handler-meta {:source :store :kind :view :id :rf2-k84s/reg-view-sample})
                      :view :rf2-k84s/reg-view-sample))))
 
 (deftest source-coords-on-reg-machine
@@ -289,7 +289,7 @@
     ;; `source-coords/merge-coords` returns user-meta unchanged under
     ;; `-Dre-frame.debug=false`, so the coord keys are absent there.
     (when rf.interop/debug-enabled?
-      (assert-coords (rf/handler-meta :event :rf2-k84s/reg-machine-sample)
+      (assert-coords (rf/handler-meta {:source :store :kind :event :id :rf2-k84s/reg-machine-sample})
                      :event :rf2-k84s/reg-machine-sample))))
 
 (deftest source-coords-on-reg-flow
@@ -317,7 +317,7 @@
     ;; `source-coords/merge-coords` returns user-meta unchanged under
     ;; `-Dre-frame.debug=false`, so the coord keys are absent there.
     (when rf.interop/debug-enabled?
-      (assert-coords (rf/handler-meta :route :rf2-k84s/reg-route-sample)
+      (assert-coords (rf/handler-meta {:source :store :kind :route :id :rf2-k84s/reg-route-sample})
                      :route :rf2-k84s/reg-route-sample))))
 
 (deftest source-coords-on-reg-app-schema
@@ -349,8 +349,7 @@
     ;; `source-coords/merge-coords` returns user-meta unchanged under
     ;; `-Dre-frame.debug=false`, so the coord keys are absent there.
     (when rf.interop/debug-enabled?
-      (assert-coords (rf/handler-meta :error-projector
-                                      :rf2-k84s/reg-error-projector-sample)
+      (assert-coords (rf/handler-meta {:source :store :kind :error-projector :id :rf2-k84s/reg-error-projector-sample})
                      :error-projector :rf2-k84s/reg-error-projector-sample))))
 
 ;; ---- user-supplied :ns / :line / :file override auto-capture --------------
@@ -361,7 +360,7 @@
                      {:ns 'my.ns :line 42 :file "elsewhere.cljc"
                       :doc "hand-stamped coords from a code-gen pass"}
                      (fn [{:keys [db]} _] {:db db}))
-    (let [meta (rf/handler-meta :event :rf2-k84s/explicit-coords)]
+    (let [meta (rf/handler-meta {:source :store :kind :event :id :rf2-k84s/explicit-coords})]
       ;; ALWAYS-ON: user-supplied coords are USER-META, and `merge-coords`
       ;; returns user-meta unchanged in production — so a code-gen pass that
       ;; hand-stamps the originating coordinates keeps them in both postures.
@@ -382,7 +381,7 @@
   meaningless coords from inside the framework)"
     (let [reg-fn (requiring-resolve 're-frame.subs/reg-sub)]
       (reg-fn :rf2-k84s/no-coords (fn [db _] db)))
-    (let [meta (rf/handler-meta :sub :rf2-k84s/no-coords)]
+    (let [meta (rf/handler-meta {:source :store :kind :sub :id :rf2-k84s/no-coords})]
       (is (some? meta))
       ;; rf2-d2841 — ALWAYS-ON witness, and the assertion that actually
       ;; discriminates. The three public-meta nil checks below are class-4
@@ -561,7 +560,7 @@
       (is (.endsWith ^String ef "re_frame/source_coords_test.clj")
           "error-coord :file should end with the classpath-relative tail"))
     (when rf.interop/debug-enabled?
-      (let [meta (rf/handler-meta :event :rf2-wvsxg/absolute-file-sample)
+      (let [meta (rf/handler-meta {:source :store :kind :event :id :rf2-wvsxg/absolute-file-sample})
             f    (:file meta)]
         (is (string? f) ":file should be present")
         ;; The host's `re_frame/source_coords_test.clj` lives at
@@ -582,7 +581,7 @@
 ;; ---- rf2-quir9: reg-view PUBLIC meta carries the absolutised coord --------
 ;;
 ;; The asymmetry being fixed: `reg-event-*` ships an ABSOLUTE `:file` in its
-;; public `(rf/handler-meta :event id)` (above), but `reg-view` was shipping
+;; public `(rf/handler-meta {:source :store :kind :event :id id})` (above), but `reg-view` was shipping
 ;; a CLASSPATH-RELATIVE `:file`. Root cause: the CLJS analyzer's indexing
 ;; reader stamps `:file` / `:line` / `:column` (+ `:source` / `:end-*`) onto
 ;; the view SYMBOL with a classpath-relative `:file`; the macro treated that
@@ -600,7 +599,7 @@
   IDE open-in-editor resolves the path the same way for views)."
     (rf/reg-view ^{:rf/id :rf2-quir9/absolute-view-sample} quir9-view []
       [:div "hi"])
-    (let [pub  (rf/handler-meta :view :rf2-quir9/absolute-view-sample)
+    (let [pub  (rf/handler-meta {:source :store :kind :view :id :rf2-quir9/absolute-view-sample})
           errc (rf.source-coords/error-coords-for :view :rf2-quir9/absolute-view-sample)
           ef   (:file errc)
           f    (:file pub)]

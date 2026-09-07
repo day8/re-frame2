@@ -6,7 +6,7 @@
   production runtime use, zero production observability use. Under the
   JVM debug-gate-off posture (`rf.interop/debug-enabled?` rebound to `false`,
   semantically equivalent to CLJS `:advanced` + `goog.DEBUG=false`),
-  `(rf/handler-meta kind id)` MUST NOT carry `:doc`; in dev (default gate
+  `(rf/handler-meta {:source :store :kind kind :id id})` MUST NOT carry `:doc`; in dev (default gate
   on) `:doc` is retained for tooling / agent inspection.
 
   Load-bearing keys (`:tags`, `:schema`, `:sensitive?` / `:large?`, the
@@ -66,7 +66,7 @@
       (rf/reg-event :rf2-9wwkcm/prod-event
                        {:doc "elided in prod" :schema :int :tags #{:probe}}
                        (fn [{:keys [db]} _] {:db db}))
-      (let [meta (rf/handler-meta :event :rf2-9wwkcm/prod-event)]
+      (let [meta (rf/handler-meta {:source :store :kind :event :id :rf2-9wwkcm/prod-event})]
         (is (some? meta))
         (is (not (contains? meta :doc))
             ":doc absent from handler-meta in prod")
@@ -82,7 +82,7 @@
     (rf/reg-event :rf2-9wwkcm/dev-event
                      {:doc "kept in dev"}
                      (fn [{:keys [db]} _] {:db db}))
-    (let [meta (rf/handler-meta :event :rf2-9wwkcm/dev-event)]
+    (let [meta (rf/handler-meta {:source :store :kind :event :id :rf2-9wwkcm/dev-event})]
       ;; PRODUCTION WITNESS (rf2-d2841). The dev claim below is about a key
       ;; the gate elides, so guarded alone it would leave this deftest
       ;; executing NOTHING under `-Dre-frame.debug=false`. The always-on
@@ -121,11 +121,11 @@
       (rf/reg-cofx :rf2-9wwkcm/prod-cofx
                    {:doc "cofx doc elided"}
                    (fn [ctx] ctx))
-      (is (not (contains? (rf/handler-meta :sub  :rf2-9wwkcm/prod-sub)  :doc))
+      (is (not (contains? (rf/handler-meta {:source :store :kind :sub :id :rf2-9wwkcm/prod-sub})  :doc))
           ":doc absent from sub handler-meta in prod")
-      (is (not (contains? (rf/handler-meta :fx   :rf2-9wwkcm/prod-fx)   :doc))
+      (is (not (contains? (rf/handler-meta {:source :store :kind :fx :id :rf2-9wwkcm/prod-fx})   :doc))
           ":doc absent from fx handler-meta in prod")
-      (is (not (contains? (rf/handler-meta :cofx :rf2-9wwkcm/prod-cofx) :doc))
+      (is (not (contains? (rf/handler-meta {:source :store :kind :cofx :id :rf2-9wwkcm/prod-cofx}) :doc))
           ":doc absent from cofx handler-meta in prod"))))
 
 ;; ---- the strip helper, in isolation -------------------------------------

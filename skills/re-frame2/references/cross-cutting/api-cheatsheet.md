@@ -45,7 +45,7 @@ The `reg-event` metadata-map is the one **superset** middle slot — reflection 
 
 | Surface | Shape |
 |---|---|
-| `rf/defmachine` | `(name [doc] spec)` — **macro**, `def`-shape: defines a Var holding the spec value with per-element source stamped at the **definition** site. Does **not** register — pair it with `(reg-machine :id name)`. This is the `def`-then-register shape: `reg-machine` sees only the symbol at its call site, so a plain `(def m {…})` + `(reg-machine :id m)` captures nothing per-element and `(rf/handler-meta :machine-guard [id guard-id])`, the Xray machine inspector and the Epoch machine-cascade have no source to render. Identical capture to the inline-literal `reg-machine`; the choice is only whether the spec value is named |
+| `rf/defmachine` | `(name [doc] spec)` — **macro**, `def`-shape: defines a Var holding the spec value with per-element source stamped at the **definition** site. Does **not** register — pair it with `(reg-machine :id name)`. This is the `def`-then-register shape: `reg-machine` sees only the symbol at its call site, so a plain `(def m {…})` + `(reg-machine :id m)` captures nothing per-element and `(rf/handler-meta {:source :store :kind :machine-guard :id [id guard-id]})`, the Xray machine inspector and the Epoch machine-cascade have no source to render. Identical capture to the inline-literal `reg-machine`; the choice is only whether the spec value is named |
 | `[:rf/machine machine-id]` | subscription vector → reaction `{:state :data :tags}` (the canonical machine read) |
 | `[:rf.machine/has-tag? machine-id tag]` | subscription vector → reaction (boolean) |
 | `re-frame.machines/machines` / `re-frame.machines/machine-meta` | id list / registered spec — owned-ns surface, **not** on the `rf/` façade |

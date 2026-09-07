@@ -25,7 +25,10 @@
   now, so the façade artefact-missing contract no longer applies to them.
   rf2-bcjpq5 then deleted the dormant `re-frame.core-routing` wrappers for
   `match-url` / `route-url`, and rf2-sy7zr the `clear-route` / `current-url`
-  pair, along with all four late-bind hooks — nothing consumed them. The
+  pair, along with all four late-bind hooks — nothing consumed them. rf2-kuky.80
+  restored the `clear-route` wrapper and its hook, because `(rf/clear :route id)`
+  is now a consumer and route removal must go through the owning fn to keep
+  the `:rf.route/cleared` trace; the public NAME stays deleted. The
   façade surfaces that remain are the `reg-route` registration MACRO
   (source-coord capture) and `route-link` (no owned-ns peer); their
   missing-artefact contracts are tested below."
@@ -162,7 +165,7 @@
   (testing "neither clear-route nor current-url is public in re-frame.core"
     (let [facade (ns-publics 're-frame.core)]
       (is (nil? (get facade 'clear-route))
-          "clear-route is NOT a re-frame.core export — call rf.routing/clear-route")
+          "clear-route is NOT a re-frame.core export — call (rf/clear :route id)")
       (is (nil? (get facade 'current-url))
           "current-url is NOT a re-frame.core export — call rf.routing/current-url")
       ;; Positive control: the façade IS loaded and DOES export the routing
@@ -171,21 +174,36 @@
           "control — reg-route IS a re-frame.core export (the registration macro stays)")
       (is (some? (get facade 'route-link))
           "control — route-link IS a re-frame.core export (no owned-ns peer)")))
-  (testing "both remain public on their owning namespace, re-frame.routing"
+  (testing "current-url remains public on its owning namespace; clear-route
+            does NOT — rf2-kuky.80 deleted every per-kind registrar-inverse
+            NAME in favour of the one kind-keyed (rf/clear :route id)"
     (let [owning (ns-publics 're-frame.routing)]
-      (is (some? (get owning 'clear-route))
-          "re-frame.routing/clear-route is the canonical home")
+      (is (nil? (get owning 'clear-route))
+          "re-frame.routing/clear-route is GONE (rf2-kuky.80)")
       (is (some? (get owning 'current-url))
-          "re-frame.routing/current-url is the canonical home"))))
+          "control — re-frame.routing/current-url IS still the canonical home,
+           so the nil above is a deletion rather than an unloaded namespace")))
+  (testing "the public door is (rf/clear :route id)"
+    (is (some? (get (ns-publics 're-frame.core) 'clear))
+        "rf/clear is the one registrar inverse")))
 
 (deftest dormant-core-routing-wrappers-are-gone-rf2-sy7zr
   (testing "the re-frame.core-routing wrapper vars are deleted, not shimmed"
     (let [wrappers (ns-publics 're-frame.core-routing)]
-      (doseq [gone '[clear-route current-url match-url route-url]]
+      (doseq [gone '[current-url match-url route-url]]
         (is (nil? (get wrappers gone))
             (str "re-frame.core-routing/" gone " is GONE — no wrapper, no alias, "
                  "no forwarding shim")))
-      ;; Positive control: the namespace IS loaded and the two live wrappers
+      ;; rf2-kuky.80: clear-route's wrapper is BACK, and deliberately so. The
+      ;; rf2-sy7zr sweep deleted it as DORMANT — correct at the time, because
+      ;; nothing consumed it. `(rf/clear :route id)` is now a consumer, and it
+      ;; must route through the OWNING lifecycle fn (which emits
+      ;; `:rf.route/cleared`) rather than short-cutting to
+      ;; `re-frame.registrar/unregister!`. A restored wrapper is not a restored
+      ;; NAME: `re-frame.routing/clear-route` stays deleted (above).
+      (is (some? (get wrappers 'clear-route))
+          "re-frame.core-routing/clear-route is the (rf/clear :route id) delegate")
+      ;; Positive control: the namespace IS loaded and the live wrappers
       ;; still resolve, so the nil assertions above mean "deleted", not
       ;; "namespace never loaded".
       (is (some? (get wrappers 'reg-route))
@@ -195,10 +213,13 @@
 
 (deftest dormant-routing-late-bind-hooks-are-unpublished-rf2-sy7zr
   (testing "routing publishes no hook for the four demoted surfaces"
-    (doseq [hook [:routing/clear-route :routing/current-url
-                  :routing/match-url :routing/route-url]]
+    (doseq [hook [:routing/current-url :routing/match-url :routing/route-url]]
       (is (nil? (rf.late-bind/get-fn hook))
           (str hook " is unpublished — core has no wrapper to late-bind to")))
+    ;; rf2-kuky.80: :routing/clear-route is published again — (rf/clear :route id)
+    ;; is the consumer this sweep correctly found absent at the time.
+    (is (some? (rf.late-bind/get-fn :routing/clear-route))
+        ":routing/clear-route IS published — the (rf/clear :route id) hook")
     ;; Positive control: routing IS loaded and DOES publish its live hooks, so
     ;; the nils above are real deletions rather than an unloaded artefact.
     (is (some? (rf.late-bind/get-fn :routing/reg-route))

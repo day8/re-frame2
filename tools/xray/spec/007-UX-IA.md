@@ -451,7 +451,8 @@ namespaces, exactly as Xray already reads `re-frame.frame` / `re-frame.registrar
   expanded raw-EDN payload (§3), not the primary row model.
 - **Static-registry browse — process registrar.** The static browse panels read
   registrations off the process-global registrar via
-  `host-registry/registrations` (the generation-bypassing read — see
+  `(rf/registrations {:source :store :kind k})` — the SOURCE-STORE read, which
+  never consults a bound image generation (see
   [`026`](./026-Module-View-Panel.md) §8.4). There is no realm dimension to
   qualify by: a registration belongs to the process registrar, full stop. The
   former realm-qualified browse (`static/shared/realm.cljs` —

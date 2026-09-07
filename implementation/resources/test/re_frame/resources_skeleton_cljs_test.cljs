@@ -24,6 +24,7 @@
   GC, invalidation, hydration) is exercised by the sibling runtime tests
   (`resources_runtime_cljs_test`, `resources_work_ledger_cljs_test`, …)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [re-frame.core :as rf]
             [re-frame.features :as rf.features]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.registrar :as rf.registrar]
@@ -56,7 +57,9 @@
 (deftest artefact-loads
   (testing "the resources façade ns loaded (the require is the smoke)"
     (is (fn? rf.resources/reg-resource))
-    (is (fn? rf.resources/clear-resource))
+    ;; rf2-kuky.80: no `rf.resources/clear-resource` NAME — the registrar
+    ;; inverse is the one kind-keyed `(rf/clear :resource id)`.
+    (is (fn? rf/clear))
     (is (fn? rf.resources/resource-meta))
     (is (fn? rf.resources/resources))))
 
@@ -69,7 +72,7 @@
       (is (= "test resource" (:doc (rf.resources/resource-meta :test/article))))
       (is (= :rf.scope/global (:scope (rf.resources/resource-meta :test/article)))))
     (testing "clear-resource removes the entry"
-      (rf.resources/clear-resource :test/article)
+      (rf/clear :resource :test/article)
       (is (not (contains? (rf.registrar/registrations :resource) :test/article))))))
 
 (deftest gc-after-ms-normalizes-at-registration
@@ -218,7 +221,7 @@
           (str label " must still register — the gate must not reject working code"))
       (is (some? (rf.resources/resource-meta :test/good-request))
           (str label " is introspectable after registration"))
-      (rf.resources/clear-resource :test/good-request))
+      (rf/clear :resource :test/good-request))
     (is (var? #'defn-request)
         "control: `#'defn-request` really is a Var, so the Var row above is
          not vacuously just another ordinary fn")

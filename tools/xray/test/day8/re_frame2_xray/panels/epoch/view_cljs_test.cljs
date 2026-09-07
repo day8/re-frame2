@@ -1306,8 +1306,7 @@
             affordance for the `reg-fx` registration (parity with the
             SUBSCRIPTIONS / VIEWS rows + the HANDLER verb).
 
-            The chip's <button> mounts when `(rf/handler-meta :fx
-            fx-id)` resolves a `:file` coord. CLJS macro-form `reg-fx`
+            The chip's <button> mounts when `(rf/handler-meta {:source :store :kind :fx :id fx-id})` resolves a `:file` coord. CLJS macro-form `reg-fx`
             captures `:file`/`:line` at the test call-site (the same
             `defreg-macro` → `coords-form` absolutisation path
             `reg-sub` uses) so the integration round-trip is testable
@@ -1316,7 +1315,7 @@
     (rf/with-frame :rf/xray
       (rf/reg-fx :rf.g1mfc-fixture/ping
         (fn [_ctx _args] nil))
-      (let [meta-resolved? (boolean (some-> (rf/handler-meta :fx :rf.g1mfc-fixture/ping)
+      (let [meta-resolved? (boolean (some-> (rf/handler-meta {:source :store :kind :fx :id :rf.g1mfc-fixture/ping})
                                             :file string?))
             step (side-effects-step
                    [{:fx-id :rf.g1mfc-fixture/ping :status :ok}])
@@ -2582,8 +2581,7 @@
             coord-chip affordance at all — the call-site itself was
             missing.
 
-            The chip's <button> mounts when `(rf/handler-meta :sub
-            sub-id)` resolves a `:file` coord. CLJS macro-form
+            The chip's <button> mounts when `(rf/handler-meta {:source :store :kind :sub :id sub-id})` resolves a `:file` coord. CLJS macro-form
             `reg-sub` captures `:file`/`:line` at the test call-site
             so the integration round-trip is testable here."
     (epoch-orchestrator/install!)
@@ -2591,7 +2589,7 @@
     (rf/with-frame :rf/xray
       (rf/reg-sub :rf.uo4e2-fixture/items
         (fn [db _] (get db :items [])))
-      (let [meta-resolved? (boolean (some-> (rf/handler-meta :sub :rf.uo4e2-fixture/items)
+      (let [meta-resolved? (boolean (some-> (rf/handler-meta {:source :store :kind :sub :id :rf.uo4e2-fixture/items})
                                             :file string?))
             step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
                   :rows []
@@ -2630,8 +2628,7 @@
             link)` glyph with no coord resolution + no click handler —
             it never dispatched `:rf.xray/open-in-editor`.
 
-            The chip's <button> mounts when `(rf/handler-meta :sub
-            sub-id)` resolves a `:file` coord. CLJS macro-form `reg-sub`
+            The chip's <button> mounts when `(rf/handler-meta {:source :store :kind :sub :id sub-id})` resolves a `:file` coord. CLJS macro-form `reg-sub`
             captures `:file`/`:line` at the test call-site so the
             integration round-trip is testable here."
     (epoch-orchestrator/install!)
@@ -2639,7 +2636,7 @@
     (rf/with-frame :rf/xray
       (rf/reg-sub :rf.aesni-fixture/items
         (fn [db _] (get db :items [])))
-      (let [meta-resolved? (boolean (some-> (rf/handler-meta :sub :rf.aesni-fixture/items)
+      (let [meta-resolved? (boolean (some-> (rf/handler-meta {:source :store :kind :sub :id :rf.aesni-fixture/items})
                                             :file string?))
             ;; A parameterized sub-vec drives the LABEL but the coord
             ;; lookup must still key off `sub-id` (the registration
@@ -2692,12 +2689,10 @@
       ;; regression in handler-meta resolution can't silently no-op the
       ;; assertions below.
       (is (= [[:rf.87c8a-fixture/chain-root]]
-             (:input-signals (rf/handler-meta
-                               :sub :rf.87c8a-fixture/chain-root>?)))
+             (:input-signals (rf/handler-meta {:source :store :kind :sub :id :rf.87c8a-fixture/chain-root>?})))
           "the parameterized sub's `:input-signals` resolves by sub-id
            (arg-free) to the input sub's query-v")
-      (is (= [] (:input-signals (rf/handler-meta
-                                 :sub :rf.87c8a-fixture/chain-root)))
+      (is (= [] (:input-signals (rf/handler-meta {:source :store :kind :sub :id :rf.87c8a-fixture/chain-root})))
           "the L1 root has empty `:input-signals` (genuine app-db reader)")
       (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
                   :rows [{;; the PARAMETERIZED instance — arg in the
@@ -2763,7 +2758,7 @@
     (rf/with-frame :rf/xray
       ;; UNREGISTERED sub-id → `sub-input-signals` resolves nil → the cell
       ;; reads the row's realized `:inputs` slot (the cause-sub path).
-      (is (nil? (rf/handler-meta :sub :article/headline))
+      (is (nil? (rf/handler-meta {:source :store :kind :sub :id :article/headline}))
           "precondition: the sub is NOT registered, so the inputs cell
            cannot resolve a static `:input-signals` topology and must
            fall through to the row's realized `:inputs` slot")

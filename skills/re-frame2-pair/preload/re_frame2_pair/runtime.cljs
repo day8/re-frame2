@@ -595,10 +595,10 @@
 ;; ---------------------------------------------------------------------------
 
 (defn registrar-list
-  "Enumerate registered ids under a kind. (rf/registrations kind) returns
+  "Enumerate registered ids under a kind. (rf/registrations {:source :store :kind kind}) returns
    `{id meta}`; we return the sorted id vector."
   [kind]
-  (-> (rf/registrations kind) keys sort vec))
+  (-> (rf/registrations {:source :store :kind kind}) keys sort vec))
 
 ;; ---------------------------------------------------------------------------
 ;; Call-time id validation
@@ -636,7 +636,7 @@
    doesn't exist yields an empty known set, so an unknown id there still
    reports structured-unknown with `:known-count 0`."
   [kind id]
-  (let [known (vec (or (try (keys (rf/registrations kind)) (catch :default _ nil)) []))]
+  (let [known (vec (or (try (keys (rf/registrations {:source :store :kind kind})) (catch :default _ nil)) []))]
     (pure/validate-against-known kind id known)))
 
 (defn validate-event-id
@@ -710,7 +710,7 @@
     :else           x))
 
 (defn registrar-describe
-  "Return public handler metadata for kind+id. (rf/handler-meta kind id)
+  "Return public handler metadata for kind+id. (rf/handler-meta {:source :store :kind kind :id id})
    already gives the source coords (:ns :line :file :column), the
    :handler-fn, the :rf/machine? flag where applicable, and any extra
    keys the registrar carries (e.g. retained source forms when present).
@@ -733,7 +733,7 @@
    resource-scope's `:inputs` map + `:whole-db?` flag, a mutation's
    declared consequences, a resource's scope policy) survives on the wire."
   [kind id]
-  (if-let [m (rf/handler-meta kind id)]
+  (if-let [m (rf/handler-meta {:source :store :kind kind :id id})]
     (-> m
         (assoc :handler-fn-hash (handler-fn-hash m))
         (dissoc :handler-fn)
@@ -745,7 +745,7 @@
    as a hot-reload probe: capture before edit, compare after. The hash
    changes on every re-registration (new fn ref, new source coords)."
   [kind id]
-  (handler-fn-hash (rf/handler-meta kind id)))
+  (handler-fn-hash (rf/handler-meta {:source :store :kind kind :id id})))
 
 ;; ---------------------------------------------------------------------------
 ;; Frame-derived registrar introspection
@@ -1934,7 +1934,7 @@
 ;;      machine spawn/destroy, flow registration, and any frame-image /
 ;;      inline / hot-registered fx. No registrar enumeration: the
 ;;      guarantee is executor-sited, so an image-only fx absent from
-;;      `(rf/registrations :fx)` cannot slip past it.
+;;      `(rf/registrations {:source :store :kind :fx})` cannot slip past it.
 ;;   3. dispatch-sync — the reducer + interceptor chain run normally
 ;;      (this is where schema validation lives, where the would-be db
 ;;      shape comes from, where sub-runs / renders / machine
@@ -2000,7 +2000,7 @@
    composition left open:
 
      1. A frame-image / inline fx absent from the process-global
-        `(rf/registrations :fx)` used to receive no recording override
+        `(rf/registrations {:source :store :kind :fx})` used to receive no recording override
         and its REAL body ran; the sink covers it because interception is
         executor-sited, not registrar-enumerated.
      2. The reject-tier reserved fx (`:rf.machine/spawn`,
@@ -2871,7 +2871,7 @@
           attr-coord (some-> (.getAttribute view-root "data-rf2-source-coord")
                              parse-rf2-coord)
           meta-coord (when (some? view-id)
-                       (try (rf/handler-meta :view view-id) (catch :default _ nil)))
+                       (try (rf/handler-meta {:source :store :kind :view :id view-id}) (catch :default _ nil)))
           coord      (when (or attr-coord meta-coord)
                        (merge (select-keys meta-coord [:ns :line :column :file])
                               attr-coord))
@@ -3886,7 +3886,7 @@
   "Count of registered ids under `kind`, defensively zero on a registrar
    that doesn't exist (an app that registered nothing of that kind)."
   [kind]
-  (count (try (keys (rf/registrations kind)) (catch :default _ nil))))
+  (count (try (keys (rf/registrations {:source :store :kind kind})) (catch :default _ nil))))
 
 (defn- process-registry-view
   "The PROCESS-WIDE registry view — counts for every registrar kind plus the

@@ -78,7 +78,7 @@
 (deftest registrar-round-trip
   (testing "registering and looking up a handler"
     (rf/reg-event :counter/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (let [meta (rf/handler-meta :event :counter/inc)]
+    (let [meta (rf/handler-meta {:source :store :kind :event :id :counter/inc})]
       (is (some? meta))
       (is (fn? (:handler-fn meta)))
       ;; EP-0018 collapsed the event family to one form — no :event/kind sub-tag.
@@ -1087,20 +1087,16 @@
 
     ;; ---- (1) the id set per kind — the (set (keys (registrations kind)))
     ;;          projection that replaced the removed rf/handler-ids (rf2-i4hk4b)
-    (testing "(set (keys (rf/registrations kind))) enumerates ids per kind"
-      (let [ids-of          (comp set keys rf/registrations)
+    (testing "(set (keys (rf/registrations {:source :store :kind kind}))) enumerates ids per kind"
+      (let [ids-of          (fn [kind]
+                              (set (keys (rf/registrations {:source :store
+                                                            :kind   kind}))))
             event-ids       (ids-of :event)
             sub-ids         (ids-of :sub)
             fx-ids          (ids-of :fx)
             cofx-ids        (ids-of :cofx)
             view-ids        (ids-of :view)
             route-ids       (ids-of :route)
-            ;; Per rf2-en00bk `:flow` is a RESERVED-but-empty registrar kind —
-            ;; reg-flow writes only to the flows artefact's per-frame store, so
-            ;; the registrar :flow id set is empty (same pattern as
-            ;; `:http-interceptor`). Flow introspection reads
-            ;; `rf.flows/flow-meta-at` / `rf.flows/flows-snapshot`.
-            flow-ids        (ids-of :flow)
             ep-ids          (ids-of :error-projector)]
         (is (set? event-ids) "the id projection returns a set")
         (is (contains? event-ids :rf2-o1bp/evt1))
@@ -1112,12 +1108,13 @@
         (is (contains? cofx-ids :rf2-o1bp/cofx1))
         (is (contains? view-ids :rf2-o1bp/view1))
         (is (contains? route-ids :rf2-o1bp/route1))
-        ;; Per rf2-en00bk `:flow` is RESERVED-but-empty — the registrar
-        ;; :flow id set does NOT carry the flow (it lives in the
-        ;; flows artefact's per-frame store). Asserted via `rf.flows/flow-meta-at`
-        ;; below instead.
-        (is (not (contains? flow-ids :rf2-o1bp/flow1))
-            "registrar :flow id set is empty — flows own their per-frame store (rf2-en00bk)")
+        ;; Per rf2-en00bk `:flow` is a RESERVED-but-EMPTY registrar kind —
+        ;; reg-flow writes only to the flows artefact's per-frame store. Per
+        ;; rf2-kuky.30 the query path no longer answers `{}` for it (an
+        ;; authoritative-looking empty catalogue over a store that lives
+        ;; elsewhere); it THROWS, naming the owning read.
+        (is (thrown? clojure.lang.ExceptionInfo (ids-of :flow))
+            "querying the reserved-empty :flow slot throws rather than answering {}")
         (is (some? (rf.flows/flow-meta-at :rf2-o1bp/flow1))
             "the flow IS introspectable via rf.flows/flow-meta-at (the per-frame store)")
         (is (contains? ep-ids :rf2-o1bp/err1))
@@ -1128,8 +1125,8 @@
             ":app-schema is NOT a registrar kind (rf2-cq1ak)")))
 
     ;; ---- (2) registrations returns {id → metadata} per kind -----------
-    (testing "(rf/registrations kind) returns {id → metadata}"
-      (let [events (rf/registrations :event)]
+    (testing "(rf/registrations {:source :store :kind kind}) returns {id → metadata}"
+      (let [events (rf/registrations {:source :store :kind :event})]
         (is (map? events))
         (is (contains? events :rf2-o1bp/evt1))
         (let [meta (get events :rf2-o1bp/evt1)]
@@ -1138,30 +1135,33 @@
               "metadata carries :handler-fn — the registered handler fn"))))
 
     ;; ---- (3) handler-meta returns the metadata for a single id -------
-    (testing "(rf/handler-meta kind id) returns the metadata map"
-      (let [m (rf/handler-meta :event :rf2-o1bp/evt1)]
+    (testing "(rf/handler-meta {:source :store :kind kind :id id}) returns the metadata map"
+      (let [m (rf/handler-meta {:source :store :kind :event :id :rf2-o1bp/evt1})]
         (is (map? m))
         (is (fn? (:handler-fn m)))
         (is (not (contains? m :event/kind))
             ":event metadata carries NO :event/kind sub-tag (EP-0018 — one form)"))
       ;; A machine carries :rf/machine? true and :rf/machine <spec>.
-      (let [m (rf/handler-meta :event :rf2-o1bp/mach1)]
+      (let [m (rf/handler-meta {:source :store :kind :event :id :rf2-o1bp/mach1})]
         (is (true? (:rf/machine? m))
             "machine event metadata is tagged :rf/machine? true")
         (is (map? (:rf/machine m))
             "machine spec is stored at :rf/machine"))
       ;; Routes carry the :path field.
-      (let [m (rf/handler-meta :route :rf2-o1bp/route1)]
+      (let [m (rf/handler-meta {:source :store :kind :route :id :rf2-o1bp/route1})]
         (is (= "/rf2-o1bp/landing" (:path m))
             ":route metadata carries :path"))
       ;; Flows carry :output-path and :inputs. Per rf2-en00bk they are NOT in
-      ;; the registrar (`handler-meta :flow` is nil); the per-frame store is
-      ;; the single source of truth, read via `rf.flows/flow-meta-at`.
-      (is (nil? (rf/handler-meta :flow :rf2-o1bp/flow1))
-          "registrar handler-meta :flow is nil — flows are not a registrar slot (rf2-en00bk)")
+      ;; the registrar; the per-frame store is the single source of truth, read
+      ;; via `rf.flows/flow-meta-at`. Per rf2-kuky.30 a `:flow` query THROWS
+      ;; and names that door, rather than answering the nil which reads as
+      ;; "no such flow".
+      (is (thrown? clojure.lang.ExceptionInfo
+            (rf/handler-meta {:source :store :kind :flow :id :rf2-o1bp/flow1}))
+          "a :flow query throws :rf.error/registrar-kind-not-queryable (rf2-kuky.30)")
       (let [m (rf.flows/flow-meta-at :rf2-o1bp/flow1)]
         (is (= [:rf2-o1bp/flow-output] (:output-path m)))
         (is (= [] (:inputs m))))
       ;; Unknown id → nil.
-      (is (nil? (rf/handler-meta :event :no-such-event))
+      (is (nil? (rf/handler-meta {:source :store :kind :event :id :no-such-event}))
           "handler-meta on an unknown id returns nil"))))

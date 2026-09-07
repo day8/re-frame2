@@ -425,7 +425,7 @@
     (rf/reg-flow :area {:inputs [[:rect :w] [:rect :h]] :output-path [:rect :area]} (fn [w h] (* w h)))
     (rf/dispatch-sync [:seed])
     (reset! *captured* [])
-    (rf.flows/clear-flow :area)
+    (rf/clear :flow :area)
     (let [evs (by-op :rf.flow/cleared)]
       (is (= 1 (count evs)))
       (let [tags (:tags (first evs))]
@@ -435,7 +435,7 @@
 
 (deftest clear-flow-on-unknown-id-emits-nothing
   (testing "clear-flow on an unregistered id is a no-op and emits no trace"
-    (rf.flows/clear-flow :no-such-flow)
+    (rf/clear :flow :no-such-flow)
     (is (zero? (count (by-op :rf.flow/cleared))))))
 
 ;; ---------------------------------------------------------------------------
@@ -690,7 +690,7 @@
     (rf/dispatch-sync [:init])
     (rf/dispatch-sync [:replace-n 3])     ;; same → skip
     (rf/dispatch-sync [:replace-n 4])     ;; change → compute
-    (rf.flows/clear-flow :double)
+    (rf/clear :flow :double)
     (is (= 1 (count (by-op :rf.flow/registered))))
     (is (pos?  (count (by-op :rf.flow/computed))))
     (is (= 1 (count (by-op :rf.flow/skip))))
@@ -1554,6 +1554,6 @@
       (is (some #(= :flow (:source %)) (owners)) "the flow claim SURVIVES the effect clear")
       ;; re-add the effect, then clear-flow — the effect survives the flow teardown
       (rf/dispatch-sync [:flow-union/classify])
-      (rf.flows/clear-flow :creds {:frame :rf/default})
+      (rf/clear :flow :creds {:frame :rf/default})
       (is (contains? (owners) {:source :effect}) "the effect claim SURVIVES clear-flow")
       (is (not (some #(= :flow (:source %)) (owners))) "the flow owner is dropped by clear-flow"))))

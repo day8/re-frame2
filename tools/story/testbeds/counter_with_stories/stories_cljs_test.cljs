@@ -224,7 +224,7 @@
             same requires that bring in the variant — and carries
             `:sensitive? true` in its registry meta, with NO reliance on
             elision-demo being booted by core.cljs."
-    (let [m (rf/handler-meta :event :counter/sign-in)]
+    (let [m (rf/handler-meta {:source :store :kind :event :id :counter/sign-in})]
       (is (some? m)
           ":counter/sign-in registration meta is populated by
            counter-with-stories.events (required here; elision-demo is not)")

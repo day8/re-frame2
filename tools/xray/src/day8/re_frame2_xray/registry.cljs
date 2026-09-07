@@ -349,7 +349,7 @@
   (when (< from 5)
     (hicasso/install!))
   (when (< from 6)
-    (run! rf/clear-sub schema-5-subs-removed))
+    (run! #(rf/clear :sub %) schema-5-subs-removed))
   true)
 
 (defn- migrate-schema!
@@ -408,8 +408,8 @@
     ;; reaches schema 6's own clear below, where clearing an id it never
     ;; registered is a no-op.
     (do
-      (run! rf/clear-sub schema-3-subs-removed)
-      (run! rf/clear-event schema-3-events-removed)
+      (run! #(rf/clear :sub %) schema-3-subs-removed)
+      (run! #(rf/clear :event %) schema-3-events-removed)
       ;; The OWNERSHIP half does not migrate live, and this is where the
       ;; seam stops pretending. A schema-3 process acquired the
       ;; `re-frame.ui.tool.evidence` projection at boot; releasing it means
@@ -1338,14 +1338,15 @@
     ;; Static Schemas sub-tab — browse every registered
     ;; Malli schema across app-db slots + events + subs. Reads the
     ;; public `re-frame.schemas` façade (`rf/frame-ids` +
-    ;; `app-schemas` + `app-schema-meta-at`) + `(rf/registrations
-    ;; :event)` / `(rf/registrations :sub)` `:spec` slots. Source-coord
+    ;; `app-schemas` + `app-schema-meta-at`) + the
+    ;; `(rf/registrations {:source :store :kind :event})` / `:sub` `:spec`
+    ;; slots. Source-coord
     ;; chip dispatches `:rf.xray/open-in-editor` (open-in-editor
     ;; installed above).
     (static-schemas-panel/install!)
     ;; Static Flows sub-tab — browse every flow registered
     ;; via `re-frame.flows/reg-flow`. Reads the public
-    ;; `(rf/registrations :flow)` surface, regrouping the flat
+    ;; `re-frame.flows/flows-snapshot` surface, regrouping the flat
     ;; `{flow-id meta}` shape by each entry's stamped `:frame`. Flows
     ;; are frame-scoped per Spec 013 — the sub flattens the two-level
     ;; shape into a single row vector for the view.

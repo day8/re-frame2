@@ -255,7 +255,7 @@ A middleware surface that mirrors the rest of the `reg-*` family. Use it to inje
   - The frame-first `(frame id)` spelling is a separate artefact-internal seam (`clear-http-interceptor*`), reached directly by internal cleanup that already holds a resolved frame — e.g. the `:rf.fx/clear-http-interceptor` fx — **not** a public arity of `clear-http-interceptor`.
 - **Example**:
   ```clojure
-  (rf/clear-http-interceptor :auth-header)
+  (rf/clear :http-interceptor :auth-header)
   ```
 
 ### `[:rf.fx/reg-http-interceptor args-map]`
@@ -414,7 +414,7 @@ All test-support surfaces live in `re-frame.http.test-support` — one namespace
 
 ## Schema-reflection metadata
 
-Handlers may declare `:rf.http/decode-schemas [<schema> ...]` in their `reg-event` metadata-map; pair tools and generators read it via `(rf/handler-meta :event id)`. Optional, never enforced — pure metadata for tooling. See [re-frame.schemas.md](re-frame.schemas.md).
+Handlers may declare `:rf.http/decode-schemas [<schema> ...]` in their `reg-event` metadata-map; pair tools and generators read it via `(rf/handler-meta {:source :store :kind :event :id id})`. Optional, never enforced — pure metadata for tooling. See [re-frame.schemas.md](re-frame.schemas.md).
 
 ## Privacy and classification
 

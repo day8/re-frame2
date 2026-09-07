@@ -2553,7 +2553,7 @@ tagged ancestor (the producing view — "what's under the cursor?");
 `:selector` runs `querySelector` then walks up to the view. The
 `:entity` slot is the headline — `:view-id`, `:source-coord` (`{:ns
 :handler-id :line :col}` from the attribute, augmented with `:file` via
-`(rf/handler-meta :view <id>)`), `:render-key` (a stable node hash), and
+`(rf/handler-meta {:source :store :kind :view :id <id>})`), `:render-key` (a stable node hash), and
 `:subs-read` (the frame's live materialised sub-cache query-vectors).
 
 **Privacy — elide like `snapshot` / `get-path`.** The rendered `:text`

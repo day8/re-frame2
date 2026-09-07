@@ -92,7 +92,7 @@
   "The registration metadata for `id` under the `:view` kind, read back
   through the public seam a tool would use."
   [id]
-  (rf/handler-meta :view id))
+  (rf/handler-meta {:source :store :kind :view :id id}))
 
 (def ^:private coord-keys [:ns :file :line :column])
 
@@ -202,13 +202,13 @@
   ;; exactly what a reloaded namespace does.
   (let [reloaded  (fn reloaded-row [_] nil)
         coords    (select-keys (slot ::aliased-row) coord-keys)
-        before    (count (rf/registrations :view))]
+        before    (count (rf/registrations {:source :store :kind :view}))]
 
     (rf.hicasso.impl.collector/publish-view-alias! ::aliased-row coords reloaded)
 
     (testing "one entry, not two — the registrar replaces the slot behind
               the id it already holds"
-      (is (= before (count (rf/registrations :view)))))
+      (is (= before (count (rf/registrations {:source :store :kind :view})))))
 
     (testing "and it is the FRESH head that is reachable, so a story
               resolving late picks up the reloaded view"

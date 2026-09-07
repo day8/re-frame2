@@ -12,7 +12,7 @@
      map has a `:source-coord` slot whose value carries a usable
      `:file` string, the URI is spliced on the OUTER map at
      `:rf.mcp/source-uri`.
-  2. **Flat-key carrier** — `(rf/handler-meta kind id)` / `(rf/frame-
+  2. **Flat-key carrier** — `(rf/handler-meta {:source :store :kind kind :id id})` / `(rf/frame-
      meta id)` returns merge source-coords flat onto the registration-
      metadata map (`:ns` / `:line` / `:column` / `:file` at the top
      level — per Spec-Schemas `:rf/source-coord-meta`).

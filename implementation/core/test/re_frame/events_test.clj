@@ -141,7 +141,7 @@
         (fn [{:keys [db]} _] {:db db}))
       (is (empty? (warning-events recorded :rf.warning/interceptors-in-metadata-map))
           "the superset form does NOT fire the retired metadata-misuse warning")
-      (let [meta (rf/handler-meta :event :test.bpmszk/super)
+      (let [meta (rf/handler-meta {:source :store :kind :event :id :test.bpmszk/super})
             ids  (chain-ids (:interceptors meta))]
         ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). `:doc` is
         ;; retained for tooling in dev and ELIDED in production; the chain
@@ -297,7 +297,7 @@
            (rf/reg-event :test.bpmszk/empty-ok
              {:doc "no chain" :interceptors []}
              (fn [{:keys [db]} _] {:db db}))))
-    (let [ids (mapv :id (:interceptors (rf/handler-meta :event :test.bpmszk/empty-ok)))]
+    (let [ids (mapv :id (:interceptors (rf/handler-meta {:source :store :kind :event :id :test.bpmszk/empty-ok})))]
       (is (= [:rf/event-handler] ids) "no user interceptors; only the runtime wrapper"))))
 
 (deftest canonical-metadata-form-stays-silent
@@ -318,19 +318,21 @@
 
 ;; ---- clear-event round-trip (rf2-6z20) -----------------------------------
 ;;
-;; Per Spec 002 / API.md row §Lifecycle: `rf/clear-event` is the public
-;; alias of `rf.events/clear-event` (re-exported at `core.cljc:867`), used
-;; by hot-reload tooling and per-test isolation fixtures. Two arities:
+;; Per Spec 002 / API.md §Clearing registrations, the registrar inverse is
+;; the ONE kind-keyed `(rf/clear :event id)`, used by hot-reload tooling and
+;; per-test isolation fixtures.
 ;;
-;;   (rf/clear-event)        ;; clear every registered :event
-;;   (rf/clear-event :id)    ;; clear one event by id
+;; rf2-kuky.80 retired the nilary clear-all: its only callers were fixtures,
+;; and the fixture-side bulk verb is `rf.registrar/clear-kind!`. The tests
+;; below that used to exercise `(rf/clear-event)` now call that directly,
+;; which is what they were really testing all along.
 ;;
-;; Pre-rf2-6z20 neither arity was touched in any test. A regression
-;; that left the registry slot populated would only surface through
-;; integration symptoms (a stale handler still firing).
+;; Pre-rf2-6z20 neither shape was touched in any test. A regression that
+;; left the registry slot populated would only surface through integration
+;; symptoms (a stale handler still firing).
 
 (deftest clear-event-removes-a-single-handler
-  (testing "(rf/clear-event id) removes the registered :event slot;
+  (testing "(rf/clear :event id) removes the registered :event slot;
             a subsequent dispatch traces :rf.error/no-such-handler"
     ;; `runs` is the production-visible witness (rf2-d2841): the integration
     ;; symptom this deftest exists to catch — "a stale handler still firing"
@@ -348,7 +350,7 @@
       (is (= 1 @runs) "exactly one handler body ran pre-clear")
 
       ;; Clear.
-      (rf/clear-event :test.6z20/foo)
+      (rf/clear :event :test.6z20/foo)
 
       ;; Post-clear: gone from the registry, dispatch traces no-such-handler.
       (is (nil? (rf.registrar/lookup :event :test.6z20/foo))
@@ -367,7 +369,9 @@
                 ":rf.trace/event-id carries the cleared handler's id")))))))
 
 (deftest clear-event-no-arg-clears-every-event
-  (testing "(rf/clear-event) with no args clears every registered :event id"
+  (testing "(rf.registrar/clear-kind! :event) clears every registered :event id
+            — the fixture-side bulk verb that replaced the retired nilary
+            `clear-event` arity (rf2-kuky.80)"
     ;; Per events.cljc:227, the no-arg form is documented:
     ;;   ([] (rf.registrar/clear-kind! :event))
     ;; This tests confirms the contract.
@@ -378,7 +382,7 @@
     (is (some? (rf.registrar/lookup :event :test.6z20/b)))
     (is (some? (rf.registrar/lookup :event :test.6z20/c)))
 
-    (rf/clear-event)
+    (rf.registrar/clear-kind! :event)
 
     (is (nil? (rf.registrar/lookup :event :test.6z20/a))
         "all :event slots cleared by no-arg form")
@@ -392,7 +396,7 @@
     (rf/reg-sub :test.6z20/sub (fn [_ _] :stub))
     (rf/reg-fx :test.6z20/fx (fn [_ _] nil))
     (rf/reg-cofx :test.6z20/cofx (fn [] :stub))
-    (rf/clear-event)
+    (rf.registrar/clear-kind! :event)
     (is (nil? (rf.registrar/lookup :event :test.6z20/ev))
         ":event was cleared")
     (is (some? (rf.registrar/lookup :sub :test.6z20/sub))
@@ -519,7 +523,7 @@
         (fn [{:keys [db]} _] {:db (assoc db :test.fuudi/touched-1? true)}))
       (rf/dispatch-sync [:test.fuudi/shape-1])
       (is (true? (:test.fuudi/touched-1? (rf/app-db-value :rf/default))))
-      (let [meta (rf/handler-meta :event :test.fuudi/shape-1)]
+      (let [meta (rf/handler-meta {:source :store :kind :event :id :test.fuudi/shape-1})]
         (is (not (contains? meta :event/kind))
             "the :event/kind sub-tag is gone")
         (is (= 1 (count (:interceptors meta)))
@@ -531,7 +535,7 @@
         (fn [{:keys [db]} _] {:db (assoc db :test.fuudi/touched-2? true)}))
       (rf/dispatch-sync [:test.fuudi/shape-2])
       (is (true? (:test.fuudi/touched-2? (rf/app-db-value :rf/default))))
-      (let [meta (rf/handler-meta :event :test.fuudi/shape-2)]
+      (let [meta (rf/handler-meta {:source :store :kind :event :id :test.fuudi/shape-2})]
         ;; rf2-d2841 — dev-instrumentation arm (see ns docstring): `:doc` is
         ;; tooling metadata, retained in dev and elided in production. That the
         ;; SHAPE was accepted at all is the `:test.fuudi/touched-2?` assertion
@@ -548,7 +552,7 @@
         (fn [{:keys [db]} _] {:db (assoc db :test.fuudi/touched-3? true)}))
       (rf/dispatch-sync [:test.fuudi/shape-3])
       (is (true? (:test.fuudi/touched-3? (rf/app-db-value :rf/default))))
-      (let [meta (rf/handler-meta :event :test.fuudi/shape-3)
+      (let [meta (rf/handler-meta {:source :store :kind :event :id :test.fuudi/shape-3})
             ids  (chain-ids (:interceptors meta))]
         (is (= [:test.fuudi/marker :rf/event-handler] ids)
             "the user interceptor ref sits before the runtime wrapper in registration order")))
@@ -559,7 +563,7 @@
         (fn [{:keys [db]} _] {:db (assoc db :test.fuudi/touched-4? true)}))
       (rf/dispatch-sync [:test.fuudi/shape-4])
       (is (true? (:test.fuudi/touched-4? (rf/app-db-value :rf/default))))
-      (let [meta (rf/handler-meta :event :test.fuudi/shape-4)
+      (let [meta (rf/handler-meta {:source :store :kind :event :id :test.fuudi/shape-4})
             ids  (chain-ids (:interceptors meta))]
         ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
         (when rf.interop/debug-enabled?
@@ -594,7 +598,7 @@
     (rf/dispatch-sync [:test.fuudi/ctx-shape-4])
     (is (true? (:test.fuudi/ctx-touched? (rf/app-db-value :rf/default)))
         "the interceptor :before ran and its db mutation committed via the handler")
-    (let [meta (rf/handler-meta :event :test.fuudi/ctx-shape-4)
+    (let [meta (rf/handler-meta {:source :store :kind :event :id :test.fuudi/ctx-shape-4})
           ids  (chain-ids (:interceptors meta))]
       (is (not (contains? meta :event/kind)))
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
@@ -639,13 +643,13 @@
 ;; map itself; self-describing.
 ;;
 ;; Xray, Story, and the Event lens redesign (rf2-zh2qc) read
-;; `(rf/handler-meta :event id) :interceptors` and filter
+;; `(rf/handler-meta {:source :store :kind :event :id id}) :interceptors` and filter
 ;; `(remove :rf/default?)` to surface only the user's interceptor chain.
 
 (deftest auto-wrapper-carries-rf-default-tag
   (testing "reg-event auto-wrapper has :rf/default? true"
     (rf/reg-event :test.twt7m/handler (fn [{:keys [db]} _] {:db db}))
-    (let [interceptors (-> (rf/handler-meta :event :test.twt7m/handler)
+    (let [interceptors (-> (rf/handler-meta {:source :store :kind :event :id :test.twt7m/handler})
                            :interceptors)
           auto-wrapper (last interceptors)]
       (is (= :rf/event-handler (:id auto-wrapper))
@@ -660,7 +664,7 @@
     (rf/reg-event :test.twt7m/with-user-icpt
       {:interceptors [:test.twt7m/user]}
       (fn [{:keys [db]} _] {:db db}))
-    (let [interceptors (-> (rf/handler-meta :event :test.twt7m/with-user-icpt)
+    (let [interceptors (-> (rf/handler-meta {:source :store :kind :event :id :test.twt7m/with-user-icpt})
                            :interceptors)
           user-slot    (first interceptors)
           auto-wrapper (last interceptors)]
@@ -683,7 +687,7 @@
     (rf/reg-event :test.twt7m/filtering
       {:interceptors [:test.twt7m/a :test.twt7m/b]}
       (fn [{:keys [db]} _] {:db db}))
-    (let [interceptors (-> (rf/handler-meta :event :test.twt7m/filtering)
+    (let [interceptors (-> (rf/handler-meta {:source :store :kind :event :id :test.twt7m/filtering})
                            :interceptors)
           user-only    (vec (remove :rf/default? interceptors))]
       (is (= 3 (count interceptors)) "two user refs + one framework auto-wrapper")
@@ -973,7 +977,7 @@
              (rf/reg-event :test.3ut12/good-interceptors
                {:interceptors [:test.3ut12/bare]}
                (fn [{:keys [db]} _] {:db db}))))
-      (let [{:keys [interceptors]} (rf/handler-meta :event :test.3ut12/good-interceptors)
+      (let [{:keys [interceptors]} (rf/handler-meta {:source :store :kind :event :id :test.3ut12/good-interceptors})
             ids (set (chain-ids interceptors))]
         (is (contains? ids :test.3ut12/bare)
             "the interceptor ref reached the registered chain (NOT dropped)")))
@@ -985,7 +989,7 @@
                {:doc "metadata + interceptor ref vector"
                 :interceptors [:test.3ut12/bare]}
                (fn [_ _] {}))))
-      (let [{:keys [interceptors]} (rf/handler-meta :event :test.3ut12/good-meta-interceptors)]
+      (let [{:keys [interceptors]} (rf/handler-meta {:source :store :kind :event :id :test.3ut12/good-meta-interceptors})]
         (is (contains? (set (chain-ids interceptors)) :test.3ut12/bare))))
 
     (testing "absent interceptors (bare handler) still works"

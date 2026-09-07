@@ -43,9 +43,9 @@
     (rf/reg-route :route/account             {} "/account")
     (rf/reg-route :route/account.settings    {:parent :route/account} "/account/settings")
     (rf/reg-route :route/account.billing     {:parent :route/account} "/account/billing")
-    (let [settings-meta (rf/handler-meta :route :route/account.settings)
-          billing-meta  (rf/handler-meta :route :route/account.billing)
-          account-meta  (rf/handler-meta :route :route/account)]
+    (let [settings-meta (rf/handler-meta {:source :store :kind :route :id :route/account.settings})
+          billing-meta  (rf/handler-meta {:source :store :kind :route :id :route/account.billing})
+          account-meta  (rf/handler-meta {:source :store :kind :route :id :route/account})]
       (is (= :route/account (:parent settings-meta))
           ":route/account.settings carries :parent :route/account")
       (is (= :route/account (:parent billing-meta))

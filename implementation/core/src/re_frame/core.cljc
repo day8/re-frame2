@@ -772,8 +772,9 @@
      reference-site `:source-coords` onto each `:states`-tree map node
      (state-node / transition map; rf2-npvsx / rf2-vqja2) of the def'd
      value. When that value is later passed to `reg-machine`, the source is
-     already present on the stamped spec, so `(rf/handler-meta :machine-guard
-     [machine-id guard-id])` (and the Epoch machine-cascade source rendering)
+     already present on the stamped spec, so `(rf/handler-meta {:source :store
+     :kind :machine-guard :id [machine-id guard-id]})` (and the Epoch
+     machine-cascade source rendering)
      light up for value-registered machines exactly as for inline ones
      (rf2-gwj8l) — the source is derived from the `:event` registration spec
      (rf2-ftrcv), no registrar side-table involved. The dev-only `:source-*`
@@ -1111,8 +1112,8 @@
 ;; The flows + schemas QUERY / LIFECYCLE / VALIDATOR-INSTALL helpers are NO
 ;; LONGER re-exported from `re-frame.core` (rf2-wad2fl — front-porch shrink).
 ;; They are optional-feature surfaces whose owned namespace is the better
-;; public home: reach them through `re-frame.flows` (`clear-flow`) and
-;; `re-frame.schemas` (`app-schema-at`, `app-schema-meta-at`, `app-schemas`,
+;; public home: reach them through `re-frame.schemas` (`app-schema-at`,
+;; `app-schema-meta-at`, `app-schemas`,
 ;; `app-schemas-digest`, `set-schema-validator!`, `set-schema-explainer!`,
 ;; `set-schema-printer!`, `set-schema-fns!`) — the owned namespaces already
 ;; publish them. The `reg-flow` / `reg-app-schema` / `reg-app-schemas`
@@ -1135,27 +1136,147 @@
 
 ;; ---- clearing ------------------------------------------------------------
 
-(def ^{:doc "Unregister an event handler. Zero-arity clears every
-  registered event handler in the registrar; one-arity clears the named
-  one. For hot-reload tools and test fixtures. Per spec/API.md §Clearing
-  registrations."}
-  clear-event rf.events/clear-event)
-
-(def ^{:doc "Unregister a subscription. Zero-arity clears every
-  registered sub in the registrar; one-arity clears the named one. For
-  hot-reload tools and test fixtures. Per spec/API.md §Clearing
-  registrations."}
-  clear-sub   rf.subs/clear-sub)
-
-(def ^{:doc "Unregister an fx handler. Zero-arity clears every registered
-  fx; one-arity clears the named one. For hot-reload tools and test
-  fixtures. Per spec/API.md §Clearing registrations."}
-  clear-fx    rf.fx/clear-fx)
-
 (def ^{:doc "Dispose every cached entry in a frame's runtime sub-cache
   and clear the cache. Disposal is synchronous and unconditional. For
-  tests and hot-reload. Per spec/API.md §Clearing registrations."}
+  tests and hot-reload. Per spec/API.md §Clearing registrations.
+
+  NOT a registrar inverse — this clears a runtime CACHE, and keeps its
+  bang. The registrar inverse is `clear` (below)."}
   clear-sub-cache! rf.subs.cache/clear-sub-cache!)
+
+;; ---- the registrar inverse: (clear kind id) ------------------------------
+;;
+;; The registrar is ONE map, `(kind, id) -> metadata` (Spec 001). The read side
+;; already speaks that grammar. Until rf2-kuky.80 the inverse did not: NINE
+;; public names in three shapes, differing on FOUR axes — where the name lived
+;; (seven on the facade, two off it), whether a nilary clear-all existed (three
+;; of nine), how the frame was named (not at all / tolerantly / exactly), and
+;; what came back (nil for five, the id for four) — while SIX registrar kinds
+;; (`:cofx` `:interceptor` `:view` `:head` `:error-projector`) had no public
+;; inverse at all, though `rf.registrar/unregister!` has always taken
+;; `(kind id)` for every one of them.
+;;
+;; One door, one grammar, and the six holes close with zero new names.
+
+(def ^:private clear-frame-scoped-kinds
+  "The kinds whose tear-down is PER-FRAME, and so the only kinds whose
+  `{:frame f}` opts map is accepted. Every other kind clears a process-wide
+  registrar row, where a frame would be meaningless."
+  #{:flow :http-interceptor})
+
+(def ^:private clear-kinds
+  "The closed kind set of `clear` — the registrar's own kind set MINUS
+  `:frame` (a frame is a live runtime object torn down by `destroy-frame!`,
+  not a registrar row) PLUS `:http-interceptor` (a per-frame side table owned
+  by the http artefact rather than a registrar kind).
+
+  `:app-schema` is deliberately absent: it is not a registrar kind either, and
+  nobody has asked for a per-path public inverse — the demand bar. Spec 001's
+  kind table carries the per-kind `clear` column this set is the code half of."
+  (-> (into #{:http-interceptor} rf.registrar/kinds)
+      (disj :frame)))
+
+(defn- clear-bad-request!
+  "Fail loud (`:rf.error/registrar-clear-bad-request`) for `clear`'s own
+  argument validation: an unknown kind, a malformed opts map, or opts on a
+  kind that is not frame-scoped. Never returns normally."
+  [kind reason detail]
+  (rf.error/throw-error!
+    :rf.error/registrar-clear-bad-request
+    'rf/clear
+    (str "rf/clear: " detail)
+    {:recovery :fix-the-clear-call
+     :extra    {:kind        kind
+                :reason      reason
+                :clear-kinds (vec (sort clear-kinds))}}))
+
+(defn- clear-frame-target
+  "Validate `clear`'s trailing opts for `kind` and return the frame target it
+  names. `opts` is EXACTLY `{:frame f}`, accepted only for the two
+  frame-scoped kinds. A tolerant destructure here would be the silent
+  mis-clear rf2-s32bf closed for http — `{:fram :session}` binding `frame` to
+  nil and clearing the AMBIENT frame instead — so validation happens BEFORE
+  any frame is resolved or any registry is touched."
+  [kind opts]
+  (when-not (contains? clear-frame-scoped-kinds kind)
+    (clear-bad-request!
+      kind :opts-on-a-non-frame-scoped-kind
+      (str ":kind " (pr-str kind) " is not frame-scoped, so it takes no opts. "
+           "Only " (pr-str (vec (sort clear-frame-scoped-kinds))) " clear "
+           "per-frame state; every other kind clears one process-wide "
+           "registrar row.")))
+  (when-not (rf.frame/frame-opts? opts)
+    (clear-bad-request!
+      kind :malformed-opts
+      (str "the opts map must be EXACTLY {:frame f}, where f is a frame-id "
+           "keyword or a live frame value. Received " (pr-str opts) ". A "
+           "tolerated near-miss here would resolve the AMBIENT frame and "
+           "clear the wrong frame's registration silently.")))
+  (:frame opts))
+
+(defn clear
+  "Remove ONE registration, `(clear kind id)` — the inverse of the `reg-*`
+  verbs, and the mirror of the `(kind, id)` grammar the read side already
+  speaks. Returns `id`, for every kind. Per spec/API.md §Clearing
+  registrations and Spec 001 §Registry model.
+
+    (rf/clear :sub  :cart/total)                    ;; => :cart/total
+    (rf/clear :cofx :now)                           ;; every registrar kind
+    (rf/clear :flow :cart/total)                    ;; ambient frame
+    (rf/clear :flow :cart/total {:frame :session})  ;; explicit frame
+
+  Each kind routes to its OWNING lifecycle fn, never short-cutting a kind that
+  owns runtime state straight to `rf.registrar/unregister!`: `:flow` vacates
+  the output path and settles dependents (Spec 013 §Sequencing),
+  `:http-interceptor` rebuilds the frame's chain, `:route` emits
+  `:rf.route/cleared`, and the resources trio disposes per-frame resource
+  runtime state. The plain registrar kinds — `:event` `:sub` `:fx` `:cofx`
+  `:interceptor` `:view` `:head` `:error-projector` — have no owning
+  lifecycle fn, so `unregister!` (which forgets provenance, marks the
+  live-frame projection dirty, and emits `:rf.registry/handler-cleared`) IS
+  the owner.
+
+  OPTS. The trailing `{:frame f}` map is accepted for `:flow` and
+  `:http-interceptor` ONLY — the two per-frame kinds — and is EXACT: the sole
+  key is `:frame`, its value a frame-id keyword or a live frame value.
+  Anything else fails closed with `:rf.error/registrar-clear-bad-request`,
+  BEFORE any frame is resolved. `(rf/clear :flow id {:fram f})` therefore
+  THROWS where a tolerant destructure would have silently cleared the ambient
+  frame's flow (rf2-s32bf, Principles §No silent swallow). Omitting opts
+  reaches the owning fn's own AMBIENT arity — it is never normalised to `{}`
+  and forwarded, which the validator would reject.
+
+  An unknown kind fails closed too, with the message naming the closed set.
+  Clearing a kind owned by an artefact that is not on the classpath raises
+  that artefact's documented `:rf.error/<artefact>-artefact-missing`, because
+  the dispatch goes THROUGH the existing optional-capability wrappers.
+
+  There is NO clear-all arity: `re-frame.test-support` and
+  `rf.registrar/clear-kind!` are the fixture-side bulk verbs, and they are
+  the only callers bulk clearing ever had. `clear-sub-cache!` (above) and the
+  other cache / buffer `clear-*!` names are a different axis — they clear
+  runtime state, not registrations — and are untouched."
+  ([kind id]
+   (case kind
+     :flow             (rf.core-flows/clear-flow id)
+     :http-interceptor (rf.core-http/clear-http-interceptor id)
+     :route            (rf.core-routing/clear-route id)
+     :resource         (rf.core-resources/clear-resource id)
+     :mutation         (rf.core-resources/clear-mutation id)
+     :resource-scope   (rf.core-resources/clear-resource-scope id)
+     (:event :sub :fx :cofx :interceptor :view :head :error-projector)
+     (rf.registrar/unregister! kind id)
+     (clear-bad-request!
+       kind :unknown-kind
+       (str ":kind " (pr-str kind) " is not a clearable registry kind. The "
+            "closed set is " (pr-str (vec (sort clear-kinds))) ".")))
+   id)
+  ([kind id opts]
+   (let [frame (clear-frame-target kind opts)]
+     (case kind
+       :flow             (rf.core-flows/clear-flow id {:frame frame})
+       :http-interceptor (rf.core-http/clear-http-interceptor id {:frame frame}))
+     id)))
 
 ;; ---- dispatch and subscribe ----------------------------------------------
 ;;
@@ -1566,13 +1687,6 @@
 ;; through the late-bind table and throws `:rf.error/resources-artefact-missing`
 ;; when the artefact is absent. Per Spec 016 §Public API.
 
-(def ^{:doc "Remove a registered resource (a registration-lifecycle
-  operation — NOT cache invalidation; for data lifecycle use
-  `:rf.resource/invalidate-tags` / `:rf.resource/remove` /
-  `:rf.resource/clear-scope`). Per Spec 016 §Registration. Implementation
-  ships in `day8/re-frame2-resources`."}
-  clear-resource  rf.core-resources/clear-resource)
-
 (def ^{:doc "Return the registered resource's spec map (`:params-schema`,
   `:data-schema`, `:request`, `:scope`, `:transport`, `:stale-after-ms`,
   `:gc-after-ms`, `:tags`, `:doc`), or `nil`. Per Spec 016 §Introspection.
@@ -1594,12 +1708,6 @@
 ;; Mutations (rf2-dwme29, EP-0003 §Mutations — first public-beta gate).
 ;; `reg-mutation` is a macro (above, for source-coord capture) + a CLJS
 ;; fn-alias; the non-registration surface is plain re-exports below.
-
-(def ^{:doc "Remove a registered mutation (a registration-lifecycle
-  operation — NOT a form-error reset; for the causal runtime-instance reset
-  use the `[:rf.mutation/clear …]` event). Per Spec 016 §Deferred slices /
-  EP-0003 §Mutations. Implementation ships in `day8/re-frame2-resources`."}
-  clear-mutation  rf.core-resources/clear-mutation)
 
 (def ^{:doc "Return the registered mutation's spec map (`:request`,
   `:params-schema`, `:invalidates`, `:patches`, `:populates`, `:scope`,
@@ -1623,12 +1731,6 @@
 ;; is a macro (above, for source-coord capture) + a CLJS fn-alias; the
 ;; non-registration surface is plain re-exports below.
 
-(def ^{:doc "Remove a registered resource-scope resolver (a
-  registration-lifecycle removal — the `clear-` decrement counterpart of
-  `reg-resource-scope`). Per Spec 016 §Named resource-scope resolvers.
-  Implementation ships in `day8/re-frame2-resources`."}
-  clear-resource-scope rf.core-resources/clear-resource-scope)
-
 (def ^{:doc "Resolver helper: resolve the named resolver `scope-id` against
   the supplied `db` value, returning a canonical concrete scope or nil — a
   plain function over the resolver registry, NOT an effect (no app-state /
@@ -1647,22 +1749,49 @@
 
 ;; ---- introspection (Spec 002 §The public registrar query API) -----------
 ;;
-;; The registrar query workhorses. Post-EP-0023 (rf2-10nggz) the public read
-;; grammar has exactly TWO shapes per registrar-query member (`registrations` /
-;; `handler-meta`):
+;; The registrar query workhorses. Each of `registrations` / `handler-meta` takes
+;; exactly ONE argument: a QUERY MAP naming its source explicitly (rf2-kuky.30).
 ;;
-;;   * the POSITIONAL-KEYWORD arity — the UNFRAMED default source-store read
-;;     `(registrations :event)` / `(handler-meta :event id)` over the
-;;     process-global registrar;
-;;   * the `{:frame f :kind k …}` MAP arity — the FRAME-TARGETED read resolved
-;;     through a live frame's OWN sealed image generation.
+;;   (registrations {:source :store :kind :event})     ; the process source store
+;;   (registrations {:frame f      :kind :event})      ; frame f's sealed image
+;;   (handler-meta  {:source :store :kind :event :id i})
+;;   (handler-meta  {:frame f      :kind :event :id i})
 ;;
-;; A MAP argument is ALWAYS a frame-targeted read: a registrar-query map WITHOUT
-;; `:frame` is an error (`:rf.error/registrar-query-needs-frame`,
-;; `assert-registrar-query-has-frame!`). There is no realm coordinate in the
-;; public read grammar; a generation-bypassing process-global registrar read
-;; (e.g. Xray's host-registry) reads `re-frame.registrar` directly, not a facade
-;; arity.
+;; `:source` and `:frame` are the two SOURCE SELECTORS and they are exclusive:
+;; a query carrying BOTH, or NEITHER, or a non-map argument, is an error
+;; (`:rf.error/registrar-query-needs-source`, `assert-registrar-query-source!`).
+;; `:source` admits only `:store` today; the key exists so a future source can
+;; be added without another arity.
+;;
+;; WHY THE SOURCE IS EXPLICIT (rf2-kuky.30). The retired positional-keyword
+;; arity — `(registrations :event)` — DOCUMENTED itself as "the default source
+;; store", but it delegated to `rf.registrar/registrations` / `lookup`, which
+;; consult `rf.registrar/*generation*` FIRST. `re-frame.live-frame/call-with-
+;; frame-resolution` binds that around every subscribe build, dispatch, fx and
+;; view resolution against an image-loaded frame, and `make-frame` seals a
+;; generation unconditionally — so a "store" read issued from inside a sub
+;; computation or an event handler silently read THAT FRAME'S IMAGE instead. A
+;; tool that genuinely needed the host process's registrations had no public
+;; door at all: Xray shipped a `host_registry.cljs` that deref'd the private
+;; `re-frame.registrar/kind->id->metadata` atom, and spec/API.md blessed it.
+;; Both are gone. `{:source :store}` reads the atom via
+;; `rf.registrar/store-registrations` / `store-lookup`, which never consult
+;; `*generation*`, so the answer does not depend on the caller's context.
+;;
+;; NOT-QUERYABLE KINDS. `:flow` and `:frame` are RESERVED-BUT-EMPTY registrar
+;; slots (`rf.registrar/kinds`) — nothing writes rows there. Returning `{}` for
+;; them handed the caller an apparently authoritative empty catalogue while the
+;; real store lived elsewhere (it bit Xray's flow panel). Both now throw
+;; `:rf.error/registrar-kind-not-queryable`, whose message NAMES THE REAL DOOR
+;; (`re-frame.flows/flows-snapshot` / `flow-meta-at`; `rf/frame-ids` /
+;; `rf/frame-meta`). A kind outside the queryable set throws the registrar's
+;; own `:rf.error/unknown-registry-kind`.
+;;
+;; THE DISTINCTION IS IMPLEMENTED HERE, AT THE PUBLIC INSPECTION BOUNDARY, and
+;; NOT by changing `rf.registrar/registrations` / `lookup` / `ids` /
+;; `handler-meta`: those are the runtime's own resolution path (dispatch, sub
+;; build, fx, view) and MUST stay generation-routed. There is no realm
+;; coordinate in the public read grammar.
 ;;
 ;; EP-0023 (rf2-wkw8na) — the FRAME-TARGETED map form reads the registrations
 ;; resolved through a live frame's OWN sealed image generation (EP-0023
@@ -1726,34 +1855,110 @@
          :extra    {:frame          frame-target
                     :live-frame-ids (vec (rf.live-frame/live-frame-ids))}}))))
 
-(defn- assert-registrar-query-has-frame!
-  "Fail loud (`:rf.error/registrar-query-needs-frame`) when a map-shaped
-  registrar query (`rf/registrations` / `rf/handler-meta`)
-  carries NO `:frame` — OR when `arg` is not a map at all (e.g. a bare keyword
-  reaching a map-only single-arg arity, per `rf/handler-meta`'s rf2-wa38hs
-  guard). Post-EP-0023 (rf2-10nggz) the public read grammar has exactly two
-  shapes per trio member: the POSITIONAL-KEYWORD arity is the unframed default
-  source-store read, and a MAP is ALWAYS a frame-targeted read resolved through
-  a live frame's sealed image generation. There is no realm coordinate — the
-  retired pre-EP-0023 `:realm` map arity (and the absence-as-default
-  `{:kind …}` spelling it implied) is GONE — so a registrar query map without
-  `:frame` is an error, not a default-realm read. `arg` may be ANY value here
-  (not necessarily a map), so `:received-keys` is computed defensively —
-  `(keys arg)` on a non-map throws — rather than assumed map-shaped. Never
-  returns normally."
-  [arg where-sym]
+(defn- assert-registrar-query-source!
+  "Fail loud (`:rf.error/registrar-query-needs-source`) when a registrar query
+  (`rf/registrations` / `rf/handler-meta`) does not name EXACTLY ONE source.
+
+  Fires when `arg` is not a map at all (e.g. a bare keyword left over from the
+  retired positional arity), when the map carries BOTH `:source` and `:frame`,
+  when it carries NEITHER, or when `:source` carries a value other than
+  `:store`. `arg` may be ANY value here, so `:received-keys` is computed
+  defensively — `(keys arg)` on a non-map throws — rather than assumed
+  map-shaped. Never returns normally."
+  [arg where-sym reason]
   (rf.error/throw-error!
-    :rf.error/registrar-query-needs-frame
+    :rf.error/registrar-query-needs-source
     where-sym
-    (str where-sym ": a map-shaped registrar query MUST carry :frame. "
-         "Post-EP-0023 a map is ALWAYS a frame-targeted read resolved through "
-         "a live frame's sealed image generation; the default source store is "
-         "read by the positional-keyword arity (e.g. (" where-sym " :event)), "
-         "and the retired :realm map arity has been removed — there is no realm "
-         "coordinate in the public read grammar. Pass {:frame f :kind k …} for a "
-         "frame-targeted read, or the bare kind for the default source store.")
-    {:recovery :pass-a-frame-or-use-the-keyword-arity
-     :extra    {:received-keys (if (map? arg) (vec (keys arg)) arg)}}))
+    (str where-sym ": a registrar query is a MAP naming EXACTLY ONE source — "
+         "{:source :store …} for the process source store, or {:frame f …} for "
+         "a read resolved through live frame f's own sealed image generation. "
+         (case reason
+           :not-a-map    (str "Received " (pr-str arg) ", which is not a map. "
+                              "The positional arity ((" where-sym " :event) and "
+                              "friends) has been retired — pass a query map.")
+           :both         (str "Received BOTH :source and :frame; they are "
+                              "exclusive — a read has one source, not two.")
+           :neither      (str "Received NEITHER :source nor :frame; a bare "
+                              "{:kind …} map is not a default read, because "
+                              "\"the default\" is exactly the ambiguity this "
+                              "grammar exists to remove.")
+           :bad-source   (str "Received :source " (pr-str (:source arg))
+                              "; the only source value is :store."))
+         " There is no realm coordinate in the public read grammar.")
+    {:recovery :name-exactly-one-of-source-store-or-frame
+     :extra    {:received-keys (if (map? arg) (vec (keys arg)) arg)
+                :reason        reason}}))
+
+;; The kinds a public registrar query may address. The registrar's own closed
+;; kind set, MINUS the two reserved-but-empty slots (`:flow` / `:frame` — see
+;; `not-queryable-kinds` below), PLUS the two DERIVED machine kinds, which are
+;; not registrar kinds at all: `handler-meta` serves them from the enclosing
+;; machine's `:event` registration spec (`rf.core-machines/machine-handler-meta`),
+;; and `registrations` returns `{}` for them because there is no side-table to
+;; enumerate — documented behaviour, per Spec 005 §`:machine-guard` /
+;; `:machine-action` handler-meta surfaces.
+(def ^:private queryable-kinds
+  (into #{:machine-guard :machine-action} rf.registrar/kinds))
+
+;; Reserved-but-empty registrar slots. A query naming one of these is a caller
+;; asking a real question at the wrong door, so the answer names the right door
+;; rather than being a `{}` that reads as "there are none".
+(def ^:private not-queryable-kinds
+  {:flow  "re-frame.flows/flows-snapshot (the whole per-frame store) or re-frame.flows/flow-meta-at (one flow)"
+   :frame "rf/frame-ids (the live frame ids) or rf/frame-meta (one frame's config)"})
+
+(defn- assert-queryable-kind!
+  "Validate the `:kind` of a registrar query. `:flow` / `:frame` throw
+  `:rf.error/registrar-kind-not-queryable` naming the real door; a kind outside
+  `queryable-kinds` throws the registrar's own
+  `:rf.error/unknown-registry-kind`, with `where` naming the QUERY fn rather
+  than `register!`. Returns `kind` when it is queryable."
+  [kind where-sym]
+  (cond
+    (contains? not-queryable-kinds kind)
+    (rf.error/throw-error!
+      :rf.error/registrar-kind-not-queryable
+      where-sym
+      (str where-sym ": :kind " (pr-str kind) " is a RESERVED-BUT-EMPTY registrar "
+           "slot — nothing is ever registered under it, so this query could only "
+           "ever answer \"none\", which would read as an authoritative empty "
+           "catalogue while the real store sits elsewhere. Read "
+           (get not-queryable-kinds kind) " instead.")
+      {:recovery :use-the-owning-read
+       :extra    {:kind kind
+                  :read (get not-queryable-kinds kind)}})
+
+    (not (contains? queryable-kinds kind))
+    (rf.error/throw-error!
+      :rf.error/unknown-registry-kind
+      where-sym
+      (str where-sym ": :kind " (pr-str kind) " is not a registry kind. The "
+           "queryable set is " (pr-str (vec (sort queryable-kinds))) ".")
+      {:recovery :fix-registration
+       :extra    {:kind kind
+                  :reason :not-a-queryable-registry-kind}})
+
+    :else kind))
+
+(defn- registrar-query-source
+  "Resolve a registrar query map to `[:store nil]` or `[:frame frame-object]`,
+  validating the one-source rule and the `:kind` on the way. Every public
+  registrar query enters through here, so the grammar is stated once."
+  [arg where-sym]
+  (when-not (map? arg)
+    (assert-registrar-query-source! arg where-sym :not-a-map))
+  (let [has-source? (contains? arg :source)
+        has-frame?  (contains? arg :frame)]
+    (cond
+      (and has-source? has-frame?) (assert-registrar-query-source! arg where-sym :both)
+      (not (or has-source? has-frame?)) (assert-registrar-query-source! arg where-sym :neither)
+      (and has-source? (not= :store (:source arg)))
+      (assert-registrar-query-source! arg where-sym :bad-source)
+      :else
+      (do (assert-queryable-kind! (:kind arg) where-sym)
+          (if has-source?
+            [:store nil]
+            [:frame (resolve-live-frame-object (:frame arg) where-sym)])))))
 
 (defn frame-generation
   "Return the SEALED, resolved image GENERATION a live frame is running — the
@@ -1794,8 +1999,8 @@
   declared-winner keys: define the winner in a later image, image order decides,
   and read this report to assert on (or log / ignore) what each later image
   shadowed. A tool wanting fuller detail (source namespace, etc.) reads the live
-  registration's `:rf.provenance/*` via the `:frame` arity of `rf/registrations`
-  / `rf/handler-meta`.
+  registration's `:rf.provenance/*` via the `{:frame f …}` form of
+  `rf/registrations` / `rf/handler-meta`.
 
   (EP-0026, rf2-dlvmpc: `:rf.gen/requires` was retired with the image-capability
   feature; the shadow report `:rf.gen/shadows` is rf2-ke7w5j.)
@@ -1803,7 +2008,7 @@
   FAILS LOUD (`:rf.error/frame-no-generation`) when `frame-target` does not
   resolve to a live frame carrying a generation: NO nil-as-default, NO fallback
   to the default/realm registrar — a frame-generation read needs a live EP-0023
-  frame. Use the `:frame` arity of `registrations` / `handler-meta` for
+  frame. Use the `{:frame f …}` form of `registrations` / `handler-meta` for
   per-`(kind, id)` resolution WITH provenance; use this when a view needs the
   whole generation (selected registrations, kinds, shadow report) without
   per-kind round-trips. Per Spec 002 §The public registrar query API; EP-0023
@@ -1838,57 +2043,47 @@
   generation-diff rf.live-frame/generation-diff)
 
 (defn registrations
-  "Return all ids registered under `kind` with their metadata — the
+  "Return all ids registered under `:kind` with their metadata — the
   introspection workhorse used by tools, agents, and storybook resolution.
   Per Spec 002 §The public registrar query API.
 
-  Arities:
-    `(registrations kind)`        — the full `{id metadata}` for `kind` in the
-                                     default source store (process-global
-                                     registrar), `{}` if none.
-    `(registrations kind pred-fn)` — same, filtered to entries whose metadata
-                                     satisfies `pred-fn`.
+  ONE argument: a query map naming EXACTLY ONE source.
+
+    `(registrations {:source :store :kind k})` — the `{id metadata}` for `k` in
+        the process SOURCE STORE, `{}` if none. This read NEVER consults a bound
+        image generation, so it returns the same answer from inside a sub
+        computation, an event handler or an inspector frame as it does from the
+        REPL. It is the read a tool wants when it is asking what the HOST
+        PROCESS registered.
+
     `(registrations {:frame f :kind k})` — FRAME-TARGETED (EP-0023, rf2-wkw8na):
-                                     the `{id metadata}` for `:kind` resolved
-                                     through live frame `:frame`'s OWN sealed
-                                     image generation — only the ids that frame's
-                                     image carries, with the `:rf.provenance/ns`
-                                     + inline/image + replacement/standard facts
-                                     the resolved descriptors carry. `:frame` is
-                                     a REGISTERED frame id (keyword) OR a direct
-                                     live frame OBJECT (the same target shapes
-                                     `rf/frame-generation` accepts). An optional
-                                     `:pred` filters by metadata as above. FAILS
-                                     LOUD when `:frame` does not resolve to a live
-                                     frame generation (`:rf.error/frame-no-
-                                     generation` — NO default fallback).
+        the `{id metadata}` for `k` resolved through live frame `f`'s OWN sealed
+        image generation — only the ids that frame's image carries, with the
+        `:rf.provenance/ns` + inline/image + replacement/standard facts the
+        resolved descriptors carry. `f` is a REGISTERED frame id (keyword) OR a
+        direct live frame OBJECT (the same target shapes `rf/frame-generation`
+        accepts). FAILS LOUD when `f` does not resolve to a live frame
+        generation (`:rf.error/frame-no-generation` — NO default fallback).
 
-  A map argument is ALWAYS a frame-targeted read (EP-0023, rf2-10nggz): a map
-  WITHOUT `:frame` is an error (`:rf.error/registrar-query-needs-frame`). The
-  retired pre-EP-0023 `:realm` map arity is GONE — there is no realm coordinate
-  in the public read grammar; the keyword arity reads the default source store
-  and the map arity reads a frame's resolved generation. The map-shaped form is
-  unambiguous against the keyword arities (a `kind` is a keyword, never a map) —
-  the byte-identical default source-store path is unchanged for every existing
-  keyword caller."
-  ([arg]
-   (cond
-     (and (map? arg) (contains? arg :frame))
-     (let [frame (resolve-live-frame-object (:frame arg) 'rf/registrations)
-           {:keys [kind pred]} arg]
-       (rf.live-frame/call-with-frame-resolution
-         frame
-         #(if pred
-            (rf.registrar/registrations kind pred)
-            (rf.registrar/registrations kind))))
+  Filtering is `filter` over the returned map — there is no `:pred` key and no
+  predicate arity:
 
-     (map? arg)
-     (assert-registrar-query-has-frame! arg 'rf/registrations)
+    (into {} (filter (fn [[_ m]] (:rf/machine? m)))
+              (registrations {:source :store :kind :event}))
 
-     :else
-     (rf.registrar/registrations arg)))
-  ([kind pred-fn]
-   (rf.registrar/registrations kind pred-fn)))
+  Errors: both source selectors, neither, a non-map argument, or a `:source`
+  other than `:store` → `:rf.error/registrar-query-needs-source`. `:kind :flow`
+  or `:kind :frame` (reserved-but-empty slots) →
+  `:rf.error/registrar-kind-not-queryable`, naming the real door. Any other
+  non-registry kind → `:rf.error/unknown-registry-kind`."
+  [arg]
+  (let [[source frame] (registrar-query-source arg 'rf/registrations)
+        kind           (:kind arg)]
+    (if (= :frame source)
+      (rf.live-frame/call-with-frame-resolution
+        frame
+        #(rf.registrar/registrations kind))
+      (rf.registrar/store-registrations kind))))
 
 (defn handler-meta
   "Return the registration metadata map for `[kind id]`, or `nil`. The
@@ -1896,67 +2091,56 @@
   source-jump) read to find a (kind, id)'s definition. Per Spec 002 §The
   public registrar query API.
 
-  Arities:
-    `(handler-meta kind id)` — the default-realm (process-global) metadata for
-      `[kind id]`. For the registrar kinds (`:event :sub :fx :cofx :interceptor
-      :view :frame :route :head :error-projector :flow :resource`) this is
-      `rf.registrar/lookup`. For `:interceptor` the metadata carries the registered
-      `:rf/interceptor-descriptor` plus source coords + `:doc` (EP-0022).
+  ONE argument: a query map naming EXACTLY ONE source.
+
+    `(handler-meta {:source :store :kind k :id id})` — the metadata for
+      `[k id]` in the process SOURCE STORE, or nil. For the registrar kinds
+      (`:event :sub :fx :cofx :interceptor :view :route :head :error-projector
+      :resource :mutation :resource-scope`) this reads the registrar atom
+      directly and NEVER consults a bound image generation. For `:interceptor`
+      the metadata carries the registered `:rf/interceptor-descriptor` plus
+      source coords + `:doc` (EP-0022).
+
     `(handler-meta {:frame f :kind k :id id})` — FRAME-TARGETED (EP-0023,
       rf2-wkw8na): the metadata for `[k id]` resolved through live frame `f`'s
       OWN sealed image generation (surfacing `:rf.provenance/ns` + inline/image +
       replacement/standard facts the resolved descriptor carries), or `nil` when
-      that frame's image carries no such `[k id]`. `:frame` is a REGISTERED frame
+      that frame's image carries no such `[k id]`. `f` is a REGISTERED frame
       id (keyword) OR a direct live frame OBJECT (the same target shapes
-      `rf/frame-generation` accepts). The frame form is for the REGISTRAR kinds
-      (the machine kinds are not registrar kinds and are not in the generation
-      resolver — a machine kind through the frame form is `nil`). FAILS LOUD when
-      `:frame` does not resolve to a live frame generation
-      (`:rf.error/frame-no-generation` — NO default fallback).
-
-  A map argument is ALWAYS a frame-targeted read (rf2-10nggz): a map WITHOUT
-  `:frame` is an error (`:rf.error/registrar-query-needs-frame`). The retired
-  pre-EP-0023 `:realm` map arity is GONE — there is no realm coordinate in the
-  public read grammar. A machine-kind read uses the positional
-  `(handler-meta :machine-guard [machine-id guard-id])` arity (machine kinds are
-  not frame-targeted).
+      `rf/frame-generation` accepts). FAILS LOUD when `f` does not resolve to a
+      live frame generation (`:rf.error/frame-no-generation` — NO default
+      fallback).
 
   The two machine kinds `:machine-guard` / `:machine-action` are NOT
-  registrar kinds (rf2-ftrcv, supersedes rf2-ypu5i / rf2-npvsx) — `id` is
+  registrar kinds (rf2-ftrcv, supersedes rf2-ypu5i / rf2-npvsx) — `:id` is
   the 2-vector `[<machine-id> <guard-or-action-id>]`, and the dev-only
   fn-source meta (`:rf.handler/source` + coords) is DERIVED on demand from
   the machine's `:event` registration spec's co-located `:guards` /
   `:actions` entries (see `re-frame.core-machines/machine-handler-meta`).
-  The addressing is uniform: callers read
-  `(handler-meta :machine-guard [machine-id guard-id])` exactly as before.
+  They are read through `{:source :store …}`:
+
+    (handler-meta {:source :store :kind :machine-guard :id [:auth/login :form-valid?]})
+
   Production-elided per Spec 009 (the derivation returns nil when the
-  `:source-*` slots are absent).
+  `:source-*` slots are absent). A machine kind through the `{:frame f …}` form
+  is `nil` — machine kinds are not in the generation resolver.
 
-  The map-shaped form is unambiguous against the `(kind id)` arity (a `kind`
-  is a keyword, never a map) — the byte-identical default source-store path is
-  unchanged for every existing keyword caller.
-
-  This 1-arg arity is the map-only form — unlike `registrations` (whose 1-arg
-  arity ALSO serves the default-source-store keyword read),
-  `handler-meta`'s positional read needs `id` too and so lives on the separate
-  `([kind id] …)` arity below. A single non-map arg here (e.g. a bare `(handler-
-  meta :event)` missing `id`) is therefore never a valid default-store read; the
-  `map?` guard (rf2-wa38hs) routes it to the SAME catalogued
-  `:rf.error/registrar-query-needs-frame` as a map without `:frame`, rather than
-  crashing on `(contains? arg :frame)` (CLJ) or mis-erroring inside the shared
-  assert helper (CLJS)."
-  ([arg]
-   (if (and (map? arg) (contains? arg :frame))
-     (let [frame (resolve-live-frame-object (:frame arg) 'rf/handler-meta)
-           {:keys [kind id]} arg]
-       (rf.live-frame/call-with-frame-resolution
-         frame
-         #(rf.registrar/handler-meta kind id)))
-     (assert-registrar-query-has-frame! arg 'rf/handler-meta)))
-  ([kind id]
-   (case kind
-     (:machine-guard :machine-action) (rf.core-machines/machine-handler-meta kind id)
-     (rf.registrar/handler-meta kind id))))
+  Errors: both source selectors, neither, a non-map argument (including a bare
+  keyword left over from the retired `(handler-meta :event id)` arity), or a
+  `:source` other than `:store` → `:rf.error/registrar-query-needs-source`.
+  `:kind :flow` or `:kind :frame` → `:rf.error/registrar-kind-not-queryable`,
+  naming the real door. Any other non-registry kind →
+  `:rf.error/unknown-registry-kind`."
+  [arg]
+  (let [[source frame] (registrar-query-source arg 'rf/handler-meta)
+        {:keys [kind id]} arg]
+    (if (= :frame source)
+      (rf.live-frame/call-with-frame-resolution
+        frame
+        #(rf.registrar/handler-meta kind id))
+      (case kind
+        (:machine-guard :machine-action) (rf.core-machines/machine-handler-meta kind id)
+        (rf.registrar/store-lookup kind id)))))
 
 (def ^{:doc "Return the set of registered, non-destroyed frame ids. Per
   Spec 002 §The public registrar query API."}
@@ -2582,23 +2766,6 @@
   `re-frame.http.test-support` (rf2-lwmgw). Per Spec 014 §Testing. Late-bound
   via `:http/with-managed-request-stubs*`."}
   with-managed-request-stubs*      rf.core-http/with-managed-request-stubs*)
-
-(def ^{:doc "Clear an HTTP interceptor by `id` from a frame's
-  `:rf.http/managed` middleware chain. EP-0002 context-required
-  frame-local. The public surface is EXACT: `(clear-http-interceptor id)`
-  clears in ambient scope (resolved through the carried-invariant scope
-  chain; under no scope raises `:rf.error/no-frame-context`, never a
-  synthesised `:rf/default`), and `(clear-http-interceptor id {:frame target})`
-  names the frame explicitly (the *override*) — `target` is a frame-id
-  keyword or a live frame value. The opts map is FAIL-CLOSED: it must be
-  EXACTLY `{:frame target}` with a present, non-nil target; a missing
-  `:frame`, a nil target, a misspelled/unknown or extra key, and a non-map
-  second argument all raise the typed `:rf.error/http-bad-interceptor`
-  before any ambient frame is touched (rf2-s32bf). Two-scalar frame-first
-  `(frame id)` is not a public shape. Implementation ships in
-  `day8/re-frame2-http`. Per Spec 014 §Middleware. Late-bound via
-  `:http/clear-http-interceptor`."}
-  clear-http-interceptor           rf.core-http/clear-http-interceptor)
 
 ;; reg-http-interceptor is a macro (per the defreg-macro form above) so
 ;; source-coords are captured at the call site like every other reg-*.

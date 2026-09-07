@@ -213,7 +213,7 @@
     (is (fn? (:request (rf/mutation-meta :m/save))))
     (is (fn? (:invalidates (rf/mutation-meta :m/save)))))
   (testing "clear-mutation removes the registration"
-    (rf/clear-mutation :m/save)
+    (rf/clear :mutation :m/save)
     (is (nil? (rf/mutation-meta :m/save)))))
 
 (deftest reg-mutation-fail-closed
@@ -302,7 +302,7 @@
           (str label " must still register — the gate must not reject working code"))
       (is (some? (rf/mutation-meta :m/good-request))
           (str label " is introspectable after registration"))
-      (rf/clear-mutation :m/good-request)))
+      (rf/clear :mutation :m/good-request)))
   ;; The Var row above is the load-bearing one, and ONLY the JVM proves it:
   ;; `clojure.lang.Var` implements `IFn` but NOT `Fn`, so `(fn? #'defn-write)`
   ;; is FALSE there — a bare `fn?` gate would reject a working handler. In
@@ -344,11 +344,11 @@
       (rf/reg-mutation :m/ok (save-article-spec {:invalidate-timing timing}) save-article-request)
       (is (= timing (:invalidate-timing (rf/mutation-meta :m/ok)))
           (str "valid timing " timing " registered"))
-      (rf/clear-mutation :m/ok)))
+      (rf/clear :mutation :m/ok)))
   (testing "an OMITTED :invalidate-timing is valid (nil → :after-success at runtime)"
     (rf/reg-mutation :m/default (save-article-spec) save-article-request)
     (is (nil? (:invalidate-timing (rf/mutation-meta :m/default))))
-    (rf/clear-mutation :m/default)))
+    (rf/clear :mutation :m/default)))
 
 (deftest execute-unregistered-refuses-and-names-the-id
   ;; rf2-06lp. This test was previously named `execute-unregistered-is-loud`

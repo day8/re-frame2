@@ -302,7 +302,7 @@
     (rf/reg-event :rf2-3nn8/registration-site
                      (fn [_cofx _event]
                        (throw (ex-info "boom" {}))))
-    (let [reg-meta (rf/handler-meta :event :rf2-3nn8/registration-site)
+    (let [reg-meta (rf/handler-meta {:source :store :kind :event :id :rf2-3nn8/registration-site})
           {:keys [traces errors]} (record-both
                                     #(rf/dispatch-sync [:rf2-3nn8/registration-site]))
           [exc]    (errors-of traces :rf.error/handler-exception)

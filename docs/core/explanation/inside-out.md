@@ -75,13 +75,13 @@ Neither of those touches the DOM, a clock, the network, or a component. So neith
 ;; rf/handler-meta returns the registration map; :handler-fn is your function,
 ;; exactly as you wrote it.
 (deftest counter-inc
-  (let [handler (:handler-fn (rf/handler-meta :event :counter/inc))]
+  (let [handler (:handler-fn (rf/handler-meta {:source :store :kind :event :id :counter/inc}))]
     (is (= {:db {:counter/value 6}}
            (handler {:db {:counter/value 5}} [:counter/inc])))))
 
 ;; Test the derivation the same way — it's just a function of app-db.
 (deftest counter-value
-  (let [handler (:handler-fn (rf/handler-meta :sub :counter/value))]
+  (let [handler (:handler-fn (rf/handler-meta {:source :store :kind :sub :id :counter/value}))]
     (is (= 6 (handler {:counter/value 6} [:counter/value])))))
 ```
 

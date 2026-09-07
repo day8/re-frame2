@@ -261,7 +261,7 @@
                 id  (keyword (subs raw 1))]
             (is (= (keyword view-ns "plain-root") id)
                 "the walker's documented read-back — `(keyword (subs s 1))`")
-            (is (some? (rf/handler-meta :view id))
+            (is (some? (rf/handler-meta {:source :store :kind :view :id id}))
                 "and that id has a `:view` registrar entry, so the coordinate
                  is recoverable even for the exempt shapes above")))
         (finally (rf.hicasso.impl.mount/release! handle))))))

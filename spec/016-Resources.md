@@ -179,7 +179,7 @@ Per the canonical [Spec 001 §Registration grammar](001-Registration.md#registra
     (when username
       [:rf.scope/session {:username username}])))
 
-(rf/clear-resource-scope :realworld/session)   ;; registration-lifecycle removal
+(rf/clear :resource-scope :realworld/session)   ;; registration-lifecycle removal
 ```
 
 A resolver is **pure**. It derives a resource scope; it does **not** fetch, dispatch, mutate state, read ambient host state, or perform transport work. The runtime evaluates the metadata's declared inputs and calls the resolver with the resolved input map. A `:resolve` left INSIDE the metadata map, or a non-fn value slot, or a non-map metadata slot, is rejected loudly (`:rf.error/invalid-resource-scope-spec`) — the third slot is the resolver's one home.
@@ -603,19 +603,19 @@ config metadata map:
 
 ```clojure
 (rf/reg-resource resource-id metadata request-fn)
-(rf/clear-resource resource-id)
+(rf/clear :resource resource-id)
 
 (rf/reg-mutation mutation-id metadata request-fn)
-(rf/clear-mutation mutation-id)
+(rf/clear :mutation mutation-id)
 
 (rf/reg-resource-scope scope-id metadata resolve-fn)   ;; named db-derived scope resolver (EP-0016 D3); :inputs in metadata, :resolve is the value slot
-(rf/clear-resource-scope scope-id)               ;; registration-lifecycle removal
+(rf/clear :resource-scope scope-id)               ;; registration-lifecycle removal
 (rf/resolve-resource-scope db scope-id)          ;; resolver helper: PURELY resolve a named scope against a db value (no trace)
 ```
 
 `clear-resource` is a **registration-lifecycle** operation — the `clear-` registrar-removal inverse of `reg-resource`, per the [Conventions tear-down verb axis](Conventions.md#tear-down-verb-axis--clear--vs-destroy-) — **not** the normal cache-invalidation API. Application code uses the data-lifecycle **events** `:rf.resource/invalidate-tags`, `:rf.resource/remove`, or `:rf.resource/clear-scope` for cache work. The vocabulary overlap is settled: `clear-resource` (a registration-lifecycle **function**, no bang) and `:rf.resource/clear-scope` (a causal cache **event vector**) live in different registers — a registrar-removal verb vs. a dispatched event — so they never collide at a call site, and the registration trio keeps the same `clear-*` spelling as the rest of the registrar family (`clear-event`, `clear-sub`, `clear-fx`, …). When a resource registration is cleared, the implementation MUST also dispose resource-runtime state for that resource id in each affected frame: release owner indexes, cancel timers/host handles, abort in-flight requests where possible, suppress late replies by generation, remove tag-index rows, and emit a trace.
 
-Three registrar kinds belong to this artefact: **`:resource`** (`reg-resource` / `clear-resource`), **`:mutation`** (`reg-mutation` / `clear-mutation`), and **`:resource-scope`** (`reg-resource-scope` / `clear-resource-scope`) — each a distinct kind in the [Spec 001 kind taxonomy](001-Registration.md#registry-model--the-canonical-kind-keyword-set), late-bound by the optional Resources artefact (an app that omits the artefact registers none of them), enumerable via `(rf/registrations :resource)` / `(rf/registrations :mutation)` / `(rf/registrations :resource-scope)` and inspectable via `(rf/handler-meta :resource-scope <id>)`. Do **not** add a `:query` public kind (it collides with route query params and prior-art names).
+Three registrar kinds belong to this artefact: **`:resource`** (`reg-resource` / `clear-resource`), **`:mutation`** (`reg-mutation` / `clear-mutation`), and **`:resource-scope`** (`reg-resource-scope` / `clear-resource-scope`) — each a distinct kind in the [Spec 001 kind taxonomy](001-Registration.md#registry-model--the-canonical-kind-keyword-set), late-bound by the optional Resources artefact (an app that omits the artefact registers none of them), enumerable via `(rf/registrations {:source :store :kind :resource})` / `(rf/registrations {:source :store :kind :mutation})` / `(rf/registrations {:source :store :kind :resource-scope})` and inspectable via `(rf/handler-meta {:source :store :kind :resource-scope :id <id>})`. Do **not** add a `:query` public kind (it collides with route query params and prior-art names).
 
 `reg-resource-scope` registers a **pure** named scope resolver (see [§Named resource-scope resolvers](#named-resource-scope-resolvers-reg-resource-scope)); `clear-resource-scope` is its `clear-` counterpart (the registrar decrement, per [Conventions §Tear-down verb axis](Conventions.md#tear-down-verb-axis--clear--vs-destroy-)). `resolve-resource-scope` is a **pure resolver helper** (a plain function over the resolver registry, resolving a named scope against a supplied db value) — it is **not** an effect, has **no app-state / dispatch side effects**, and emits **no** `:rf.resource/scope-resolved` trace either, because it is a passive read advertised as pure: a helper that resolves a scope from a db value must not mutate observability state. The `:rf.resource/scope-resolved` dev-trace evidence is emitted at the **causal** resolution boundaries — a resource event's `{:from-db …}` scope, route entry, and mutation settle — where the resolution is part of a recorded causal step; subscription key resolution, like `resolve-resource-scope`, resolves trace-free (a sub re-keys on every frame-state change, so a traced read would flood the trace bus). Its canonical use is the logout/account-switch idiom of [§`clear-scope` resolves the concrete scope from the coeffect db](#clear-scope-resolves-the-concrete-scope-from-the-coeffect-db-not-a-snapshot). Both `reg-resource-scope` and `resolve-resource-scope` are facade exports classified at [API §Resources](API.md#resources-spec-016).
 
@@ -836,7 +836,7 @@ fn is the third VALUE slot; the middle slot is the reflection + config metadata:
     {:request {:method :put :url (str "/api/articles/" slug) :body article}
      :decode  :app/article}))
 
-(rf/clear-mutation :article/save)        ;; registration-lifecycle removal (NOT a form-error reset)
+(rf/clear :mutation :article/save)        ;; registration-lifecycle removal (NOT a form-error reset)
 ```
 
 Run a mutation with the `:rf.mutation/execute` event and observe it through the passive `:rf.mutation/*` subs, keyed by an **instance** id:

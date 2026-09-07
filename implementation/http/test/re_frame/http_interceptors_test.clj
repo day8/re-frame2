@@ -400,7 +400,7 @@
         (is (= "Bearer A" @seen-auth) "first request carried the auth header")
         ;; Clear + dispatch again.
         (reset! seen-auth nil)
-        (rf/clear-http-interceptor :auth-header)
+        (rf/clear :http-interceptor :auth-header)
         (rf/dispatch-sync [:load])
         (await-reply! #(= 2 (count (:replies %))) 5000)
         (is (nil? @seen-auth)
@@ -413,19 +413,19 @@
 ;; old facade floor (`clear-http-interceptor` single-arity used to recurse
 ;; `[:rf/default id]`, synthesising the default before delegating). This test
 ;; clears the ambient scope (`*current-frame* nil`) so NO frame is carried,
-;; then invokes the single-arity facade and asserts it raises the always-on
+;; then invokes the no-opts facade form and asserts it raises the always-on
 ;; `:rf.error/no-frame-context` rather than silently clearing against a
 ;; synthesised `:rf/default` chain. Proves the EP-0002 carried invariant is
-;; live on the public `rf/clear-http-interceptor` surface — the floor is gone.
+;; live on the public `(rf/clear :http-interceptor id)` surface — the floor is gone.
 
 (deftest clear-http-interceptor-single-arity-fails-closed-under-no-scope
-  (testing "rf2-vl5xsp — single-arity `rf/clear-http-interceptor` under NO
+  (testing "rf2-vl5xsp — no-opts `(rf/clear :http-interceptor id)` under NO
             ambient frame raises :rf.error/no-frame-context (fails closed);
             it does NOT synthesise a :rf/default target. The facade must
             delegate frame resolution to the impl's require-current-frame!,
             never inject :rf/default from absence."
     (binding [rf.frame/*current-frame* nil]
-      (let [thrown (try (rf/clear-http-interceptor :some-id)
+      (let [thrown (try (rf/clear :http-interceptor :some-id)
                         nil
                         (catch clojure.lang.ExceptionInfo e e))]
         (is (some? thrown)
@@ -460,7 +460,7 @@
     ;; the natural `(clear id {:frame f})` guess from the reg shape that USED to
     ;; silently no-op under the old public frame-first arity. It now binds
     ;; :fa/other correctly.
-    (rf/clear-http-interceptor :fa/on-other {:frame :fa/other})
+    (rf/clear :http-interceptor :fa/on-other {:frame :fa/other})
     (is (zero? (count (rf.http.managed/interceptors-snapshot :fa/other)))
         "opts {:frame :fa/other} cleared the named frame's slot (misbind closed)")
     (is (= [:fa/on-default] (mapv :id (rf.http.managed/interceptors-snapshot :rf/default)))
@@ -474,50 +474,87 @@
 
 ;; ---- 5c. rf2-s32bf — the public opts form is EXACT + FAIL-CLOSED ----------
 ;;
-;; The public 2-arity is ONLY `(clear-http-interceptor id {:frame target})`.
-;; A malformed opts map (empty, nil :frame, misspelled/unknown key, extra
-;; key), a non-map second arg, and the old two-scalar frame-first spelling
-;; all fail closed with the typed `:rf.error/http-bad-interceptor` BEFORE any
-;; ambient state is touched — the old `(or (:frame opts) ambient-frame)`
-;; resolution silently mis-cleared the ambient frame on any of these.
+;; The opts map is ONLY `{:frame target}`.  A malformed one (empty, nil
+;; :frame, misspelled/unknown key, extra key), a non-map second arg, and the
+;; old two-scalar frame-first spelling all fail closed BEFORE any ambient
+;; state is touched — the old `(or (:frame opts) ambient-frame)` resolution
+;; silently mis-cleared the ambient frame on any of these.
+;;
+;; rf2-kuky.80 put TWO doors on that rule, and this test pins both, because
+;; each is reachable on its own and they raise DIFFERENT typed errors by
+;; design.  The public front door `(rf/clear :http-interceptor id opts)`
+;; validates in `clear` itself and raises
+;; `:rf.error/registrar-clear-bad-request` — one error id for the one verb,
+;; covering an unknown kind and opts on a non-frame-scoped kind as well.  The
+;; artefact-level `re-frame.http.middleware/clear-http-interceptor`, which
+;; survives as the `:http/clear-http-interceptor` hook target and so is still
+;; reached by the `:rf.fx/clear-http-interceptor` fx, keeps its own
+;; `:rf.error/http-bad-interceptor` for its own arg validation.  Both now
+;; share ONE validator (`re-frame.frame/frame-opts?`), which is what stopped
+;; the identically-shaped flows door carrying the tolerant destructure this
+;; one had already been fixed for.
 
 (deftest clear-http-interceptor-opts-form-fail-closed-rf2-s32bf
-  (testing "rf2-s32bf — the public 2-arity opts map must be EXACTLY
-            {:frame target}; malformed opts, a non-map second arg, and the old
-            two-scalar frame-first shape fail closed with
-            :rf.error/http-bad-interceptor and leave the ambient interceptor
-            untouched; the exact {:frame target} form still clears."
-    (letfn [(threw-bad? [thunk]
+  (testing "rf2-s32bf — the opts map must be EXACTLY {:frame target}; malformed
+            opts, a non-map second arg, and the old two-scalar frame-first
+            shape fail closed at BOTH doors and leave the ambient interceptor
+            untouched — :rf.error/registrar-clear-bad-request through the public
+            (rf/clear :http-interceptor id opts), and
+            :rf.error/http-bad-interceptor through the artefact-level fn the
+            :rf.fx/clear-http-interceptor fx reaches (rf2-kuky.80). The exact
+            {:frame target} form still clears."
+    (letfn [(threw-with? [error-id thunk]
               (let [ex (try (thunk) nil
                             (catch clojure.lang.ExceptionInfo e e))]
                 (and (some? ex)
-                     (= :rf.error/http-bad-interceptor
-                        (:rf.error/id (ex-data ex))))))]
+                     (= error-id (:rf.error/id (ex-data ex))))))
+            ;; the public front door: `clear`'s own validator fires first
+            (threw-bad? [thunk]
+              (threw-with? :rf.error/registrar-clear-bad-request thunk))
+            ;; the artefact-level fn the fx path still reaches
+            (artefact-threw-bad? [opts]
+              (threw-with? :rf.error/http-bad-interceptor
+                           #(rf.http.middleware/clear-http-interceptor
+                              :s32bf/ambient opts)))]
       ;; ambient scope is :rf/default (fixture) — seed a slot there.
       (rf/reg-http-interceptor :s32bf/ambient {:before (fn [c] c)})
       (is (= [:s32bf/ambient]
              (mapv :id (rf.http.managed/interceptors-snapshot :rf/default))))
       ;; every malformed 2-arg form fails closed
-      (is (threw-bad? #(rf/clear-http-interceptor :s32bf/ambient {}))
+      (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient {}))
           "empty opts map (no :frame) fails closed")
-      (is (threw-bad? #(rf/clear-http-interceptor :s32bf/ambient {:frame nil}))
+      (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient {:frame nil}))
           "nil :frame fails closed")
-      (is (threw-bad? #(rf/clear-http-interceptor :s32bf/ambient {:fram :rf/default}))
+      (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient {:fram :rf/default}))
           "misspelled opts key fails closed")
-      (is (threw-bad? #(rf/clear-http-interceptor :s32bf/ambient {:frame :rf/default :extra 1}))
+      (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient {:frame :rf/default :extra 1}))
           "extra opts key fails closed (map must be exactly {:frame target})")
-      (is (threw-bad? #(rf/clear-http-interceptor :s32bf/ambient "not-a-map"))
+      (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient "not-a-map"))
           "non-map second arg fails closed")
-      (is (threw-bad? #(rf/clear-http-interceptor :s32bf/ambient 42))
+      (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient 42))
           "non-map scalar second arg fails closed")
-      (is (threw-bad? #(rf/clear-http-interceptor :s32bf/ambient :some-frame))
+      (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient :some-frame))
           "old two-scalar frame-first is not a public shape — fails closed")
+      ;; the SECOND door — the artefact-level fn the `:rf.fx/clear-http-interceptor`
+      ;; fx reaches — keeps its own typed error over the same shared validator.
+      (is (artefact-threw-bad? {})
+          "artefact door: empty opts map fails closed with :rf.error/http-bad-interceptor")
+      (is (artefact-threw-bad? {:frame nil})
+          "artefact door: nil :frame fails closed")
+      (is (artefact-threw-bad? {:fram :rf/default})
+          "artefact door: misspelled opts key fails closed")
+      (is (artefact-threw-bad? {:frame :rf/default :extra 1})
+          "artefact door: extra opts key fails closed")
+      (is (artefact-threw-bad? "not-a-map")
+          "artefact door: non-map second arg fails closed")
+      (is (artefact-threw-bad? :some-frame)
+          "artefact door: old two-scalar frame-first fails closed")
       ;; NO rejected call touched the ambient chain
       (is (= [:s32bf/ambient]
              (mapv :id (rf.http.managed/interceptors-snapshot :rf/default)))
           "no malformed clear touched the ambient :rf/default interceptor")
       ;; the exact opts form still clears the ambient frame
-      (rf/clear-http-interceptor :s32bf/ambient {:frame :rf/default})
+      (rf/clear :http-interceptor :s32bf/ambient {:frame :rf/default})
       (is (zero? (count (rf.http.managed/interceptors-snapshot :rf/default)))
           "the exact {:frame target} form clears the named frame"))))
 
@@ -579,7 +616,7 @@
         (rf/reg-http-interceptor :c {:before (fn [ctx] (swap! order conj :c) ctx)})
 
         ;; Clear :a — slot is removed entirely.
-        (rf/clear-http-interceptor :a)
+        (rf/clear :http-interceptor :a)
         ;; Re-register :a. Per the contract this is a FRESH registration,
         ;; not a position-preserving replace — it appends to the end.
         (rf/reg-http-interceptor :a {:before (fn [ctx] (swap! order conj :a-fresh) ctx)})
@@ -621,7 +658,7 @@
         "bare re-reg preserves position (Spec 014 §Chain order, replace-in-place)")
 
     ;; Clear-then-reg of :a — appends to end; order changes.
-    (rf/clear-http-interceptor :a)
+    (rf/clear :http-interceptor :a)
     (rf/reg-http-interceptor :a {:before (fn [c] c)})
     (is (= [:b :a] (mapv :id (rf.http.managed/interceptors-snapshot :rf/default)))
         "clear-then-reg lands at the end (rf2-kg5nw contract)")))

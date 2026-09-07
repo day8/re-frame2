@@ -224,7 +224,7 @@
         ;; ALWAYS-ON (rf2-d2841): the out-of-band WORK is production behaviour —
         ;; only its trace is not. The frame exists and the handler is registered.
         (is (some? (rf/frame-meta :test/outside)) "the frame was created")
-        (is (some? (rf/handler-meta :event :foo)) "the handler was registered")
+        (is (some? (rf/handler-meta {:source :store :kind :event :id :foo})) "the handler was registered")
         (when rf.interop/debug-enabled?
           (let [out-of-band (filter #(or (= :rf.frame/created (:operation %))
                                          (= :rf.registry/handler-registered (:operation %)))

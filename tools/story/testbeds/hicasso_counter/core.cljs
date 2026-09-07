@@ -68,7 +68,7 @@
   "Register the `:hicasso` render fn with Story. Three decisions ride in
   these lines and each is ruled on rf2-2dbpd:
 
-  - resolve LATE, per render, off `(rf/handler-meta :view id)`, so
+  - resolve LATE, per render, off `(rf/handler-meta {:source :store :kind :view :id id})`, so
     re-evaluating a `defview` — which replaces the registrar entry behind
     the same id — reaches the deck with no deck change;
   - read `:hicasso/component`, because the alias entry deliberately
@@ -80,7 +80,7 @@
   []
   (rf.story/register-substrate! :hicasso
     (fn [_variant-id view-id args]
-      (if-let [head (:hicasso/component (rf/handler-meta :view view-id))]
+      (if-let [head (:hicasso/component (rf/handler-meta {:source :store :kind :view :id view-id}))]
         (rf.hicasso/as-element [head args])
         [:div (str ":component " (pr-str view-id)
                    " is not registered as a hicasso view")]))))

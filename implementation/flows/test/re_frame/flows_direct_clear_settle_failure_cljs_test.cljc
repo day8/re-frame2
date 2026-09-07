@@ -100,7 +100,7 @@
           "precondition — both flows materialised on the seeding drain")
 
       (let [derives-before @derives
-            thrown         (caught #(rf.flows/clear-flow :probe/a))
+            thrown         (caught #(rf/clear :flow :probe/a))
             observed       (rf/app-db-value :rf/default)]
 
         (is (not= ::no-throw thrown)
@@ -196,7 +196,7 @@
           "precondition — [:v] is now a vector and B did not rewrite it")
 
       (let [derives-before @derives
-            thrown         (caught #(rf.flows/clear-flow :probe/a))
+            thrown         (caught #(rf/clear :flow :probe/a))
             observed       (rf/app-db-value :rf/default)]
 
         (is (not= ::no-throw thrown)

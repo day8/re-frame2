@@ -12,23 +12,42 @@
    :maven         "day8/re-frame2-routing"
    :require-ns    "re-frame.routing"})
 
-;; rf2-bcjpq5 / rf2-sy7zr / rf2-wad2fl: `match-url`, `route-url`,
-;; `clear-route` and `current-url` are NOT facade exports. Per the czn2m0
-;; D1 ruling the tiering rule is reg-* macros + primary ergonomic verbs on
-;; `rf/`, advanced query / codec / registry-lifecycle functions in their
-;; owning namespace — so all four live only as `re-frame.routing/<name>`
-;; (consistent with resources / machines / schemas). The dormant
-;; `defwrapper`s that used to sit here — and their `:routing/match-url`,
-;; `:routing/route-url`, `:routing/clear-route` and `:routing/current-url`
-;; late-bind hooks — are GONE; `re-frame.core` never exported them, so
-;; nothing consumed them. A routing app already requires `re-frame.routing`
-;; at boot, so there is no second public home to justify.
+;; rf2-bcjpq5 / rf2-sy7zr / rf2-wad2fl: `match-url`, `route-url` and
+;; `current-url` are NOT facade exports. Per the czn2m0 D1 ruling the tiering
+;; rule is reg-* macros + primary ergonomic verbs on `rf/`, advanced query /
+;; codec functions in their owning namespace — so those three live only as
+;; `re-frame.routing/<name>` (consistent with resources / machines /
+;; schemas). Their dormant `defwrapper`s, and their `:routing/match-url`,
+;; `:routing/route-url` and `:routing/current-url` late-bind hooks, are GONE;
+;; `re-frame.core` never exported them, so nothing consumed them.
 ;;
-;; What remains below is exactly the two surfaces that still NEED a
-;; core-side wrapper: `reg-route` (the façade registration macro's fn-form
-;; delegate — source-coord capture, no owned-ns macro form) and
+;; `clear-route` is the EXCEPTION, and its wrapper is BACK (rf2-kuky.80).
+;; That same D1 sweep deleted it as dormant — correctly, at the time: nothing
+;; consumed it. `rf/clear` is now a consumer. `(rf/clear :route id)` routes
+;; here so the removal goes through the OWNING lifecycle fn, which emits
+;; `:rf.route/cleared`, rather than short-cutting to
+;; `rf.registrar/unregister!` and losing the trace event. The wrapper is not
+;; a second public home: `re-frame.routing/clear-route` is deleted too, so
+;; `rf/clear` is the only public door.
+;;
+;; What remains below is therefore three surfaces that NEED a core-side
+;; wrapper: `reg-route` (the façade registration macro's fn-form delegate —
+;; source-coord capture, no owned-ns macro form), `clear-route` (above), and
 ;; `route-link` (a view with no owned-namespace peer). Pre-alpha, no
 ;; back-compat shim.
+
+(defwrapper clear-route
+  "Per Spec 012 §Trace events: remove a registered route, emitting
+  `:rf.route/cleared` so tools subscribing to route lifecycle observe the
+  removal (symmetric with `:rf.flow/cleared`). A no-op when the route id was
+  not registered. Late-bound via `:routing/clear-route`.
+
+  Not a public name of its own — the public door is `(rf/clear :route id)`,
+  which is why `:where` names it."
+  {:hook :routing/clear-route :artefact routing-artefact :on-absent :throw
+   :where 'rf/clear
+   :ex-data {:route-id id}}
+  ([id] :delegate))
 
 (defwrapper reg-route
   "Fn-form delegate that performs the late-bind lookup for `reg-route`.

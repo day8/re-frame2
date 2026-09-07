@@ -118,7 +118,7 @@ Run it with your project's JVM test runner (`clojure -M:test`). Both tests cover
 
 `:rf/time-ms` is stamped onto every dispatch automatically, which is why the second test runs fine without ever mentioning it. But left alone its value is the live clock, and an assertion on `:session/attempted-at` would flake. So the first test pins it. Facts supplied under `:rf.cofx` in the dispatch opts **win**: the runtime fills only what's missing and never overwrites. With the clock supplied there's no ambient time left to read, so the test gives the same answer at 14:00 and at 23:59:59.
 
-A handler only ever receives the facts it asked for — exactly the ones its `:rf.cofx/requires` vector names, handed over flat in the coeffects map, and nothing else, the clock included. So that `requires` vector is effectively the test's **fixture checklist**; you can read it off `(rf/handler-meta :event :session/login)`. This part trips people up, so it's worth saying plainly: a declared fact the runtime can't satisfy fails loudly with `:rf.error/missing-required-cofx`, never a silent `nil`. And note this is the *same* `reg-event` as a pure state handler — declaring a coeffect is metadata, not a different registration form.
+A handler only ever receives the facts it asked for — exactly the ones its `:rf.cofx/requires` vector names, handed over flat in the coeffects map, and nothing else, the clock included. So that `requires` vector is effectively the test's **fixture checklist**; you can read it off `(rf/handler-meta {:source :store :kind :event :id :session/login})`. This part trips people up, so it's worth saying plainly: a declared fact the runtime can't satisfy fails loudly with `:rf.error/missing-required-cofx`, never a silent `nil`. And note this is the *same* `reg-event` as a pure state handler — declaring a coeffect is metadata, not a different registration form.
 
 !!! note "Why generated facts are stricter than the clock"
 
@@ -152,7 +152,7 @@ Both tests above assert the *settled* state — the reply has already folded in 
 ```clojure
 (deftest login-shows-pending-then-authed
   (rf/with-new-frame [f (rf/make-frame {})]
-    (let [canned (:handler-fn (rf/handler-meta :fx :rf.http/managed-canned-success))]
+    (let [canned (:handler-fn (rf/handler-meta {:source :store :kind :fx :id :rf.http/managed-canned-success}))]
       (rf/dispatch-sync [:session/login {:email "alice@example.com" :password "x"}]
                         {:rf.cofx      {:rf/time-ms 1781078400000}
                          :fx-overrides {:rf.http/managed

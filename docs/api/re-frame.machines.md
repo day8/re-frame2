@@ -84,7 +84,7 @@ The snapshot lives at `[:rf.runtime/machines :snapshots :session]` in the frame'
   ```
 - **Description**: Defines a machine-spec *value* with per-element source captured. It is a drop-in for `def` whose body is a literal machine-spec map.
     - Walks the literal spec at expansion time. It attaches per-element source (`{:fn .. :source-coords .. :source-code ..}`) to each `:guards` / `:actions` / `:on-spawn-actions` entry, and a reference-site `:source-coords` to each `:states`-tree map node.
-    - The source is stamped on the value itself. When the value is later passed to `reg-machine`, `(rf/handler-meta :machine-guard [machine-id guard-id])` and the Xray machine-cascade source rendering light up for value-registered machines exactly as for inline ones.
+    - The source is stamped on the value itself. When the value is later passed to `reg-machine`, `(rf/handler-meta {:source :store :kind :machine-guard :id [machine-id guard-id]})` and the Xray machine-cascade source rendering light up for value-registered machines exactly as for inline ones.
     - Needed because a plain `(def m {…})` + `(reg-machine :id m)` hands `reg-machine` only the symbol, so its literal-walk captures nothing. `defmachine` captures at the definition site.
     - The dev-only `:source-*` slots DCE under `:advanced` + `goog.DEBUG=false`.
     - Reached on the `re-frame.core` facade as `rf/defmachine`.

@@ -23,7 +23,7 @@
 
 (deftest story-active-modes-cofx-returns-vector
   (testing ":story/active-modes supplier returns the active-modes vector"
-    (let [meta     (rf/handler-meta :cofx :story/active-modes)
+    (let [meta     (rf/handler-meta {:source :store :kind :cofx :id :story/active-modes})
           supplier (:handler-fn meta)
           result   (supplier)]
       (is (vector? result)
@@ -31,7 +31,7 @@
 
 (deftest story-active-args-cofx-returns-map
   (testing ":story/active-args supplier returns the deep-merged args map"
-    (let [meta     (rf/handler-meta :cofx :story/active-args)
+    (let [meta     (rf/handler-meta {:source :store :kind :cofx :id :story/active-args})
           supplier (:handler-fn meta)
           result   (supplier)]
       (is (map? result)

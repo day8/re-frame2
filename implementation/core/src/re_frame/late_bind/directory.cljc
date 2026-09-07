@@ -271,7 +271,7 @@
     :description "Validate a make-frame config's surviving frame-owned policy key (:observability sink policy). Fails loud (:rf.error/bad-frame-classification) on an unknown observability key / malformed sink entry; the retired :sensitive (HTTP carriers moved to :rf.http/managed; app-db moved to commit-plane effects) and :large frame keys now fail loud here (EP-0025). Pure, installs nothing — called EARLY by the frame engine (before the container exists) so a bad declaration leaves no half-registered frame (EP-0015 §9). EP-0025: the :frame-classification/http-carriers resolver hook is GONE — HTTP carrier classification moved onto the :rf.http/managed reg-fx registration (:carriers block), resolved by the http artefact (re-frame.http.privacy/managed-carriers reads registrar/handler-meta directly)."}
 
    ;; ---- re-frame.flows -------------------------------------------------------
-   ;; Both the public `rf/reg-flow` / `rf/clear-flow` surfaces AND the
+   ;; Both the public `rf/reg-flow` / `(rf/clear :flow id)` surfaces AND the
    ;; `:rf.fx/reg-flow` / `:rf.fx/clear-flow` runtime fxs route through
    ;; the same two hooks. The api-shape `(arg opts)` carries the `:frame`
    ;; opt the fx-side path needs, so no separate `*-fx!` hook pair is
@@ -504,6 +504,10 @@
    {:key         :routing/reg-route
     :producer-ns 're-frame.routing
     :description "Register a route pattern and handler."}
+   {:key         :routing/clear-route
+    :producer-ns 're-frame.routing
+    :design-bead "rf2-kuky.80"
+    :description "Remove a registered route, emitting `:rf.route/cleared` (Spec 012 §Trace events) so route-lifecycle subscribers observe the removal; a no-op when the id was not registered. The dispatch target of `(rf/clear :route id)`. Restored by rf2-kuky.80: the czn2m0 D1 sweep deleted this hook as dormant when `clear-route` had no facade consumer, and the kind-keyed `clear` made it one — routing `:route` removal MUST go through the owning fn rather than short-cutting to `re-frame.registrar/unregister!`, which would drop the trace event."}
    {:key         :routing/reset-counters!
     :producer-ns 're-frame.routing
     :description "Reset the route-registration counter (test isolation)."}

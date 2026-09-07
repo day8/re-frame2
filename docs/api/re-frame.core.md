@@ -147,51 +147,25 @@ Every entry here registers a named handler into the frame's registrar.
 
 ### Clearing registrations
 
-Each `clear-*` removes an entry from the registrar; the no-arg form clears the whole kind. Used in tests (the `make-reset-runtime-fixture` registrar snapshot/restore relies on these), REPL workflows, and teardown.
+One verb, keyed by kind. The registrar is one `(kind, id) → metadata` map, and `clear` is its inverse in the same grammar the read side already speaks. It replaced the nine per-kind `clear-*` names. Used in tests, REPL workflows, and teardown.
 
-### `clear-event`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (clear-event)
-  (clear-event id)
-  ```
-- **Description**: Forget one event-handler. No-arg clears the whole `:event` registry.
-- **Example**:
-  ```clojure
-  (rf/clear-event :counter/inc)   ;; forget one handler
-  (rf/clear-event)                ;; forget every registered :event
-  ```
-
-### `clear-sub`
+### `clear`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (clear-sub)
-  (clear-sub id)
+  (clear kind id)
+  (clear kind id {:frame f})
   ```
-- **Description**: Forget one sub. This clears the registrar side — the inverse of `reg-sub`. To decrement the runtime cache instead, use `unsubscribe`.
+- **Description**: Remove ONE registration and return its `id`. `kind` is the registrar's kind set minus `:frame` (a live runtime object, torn down by `destroy-frame!`) plus `:http-interceptor` (a per-frame side table). Each kind routes to its owning lifecycle fn — `:flow` vacates its output path and settles dependents, `:route` emits `:rf.route/cleared`, the resources kinds dispose per-frame runtime state — while the plain registrar kinds (`:event` `:sub` `:fx` `:cofx` `:interceptor` `:view` `:head` `:error-projector`) go to `re-frame.registrar/unregister!`, which is their owner. There is no clear-all arity: bulk clearing is a fixture concern owned by `re-frame.test-support` and `re-frame.registrar/clear-kind!`.
+- **Opts**: the trailing `{:frame f}` map is accepted for the two per-frame kinds `:flow` and `:http-interceptor` only, and it is EXACT — sole key `:frame`, value a frame-id keyword or a live frame value. Anything else raises `:rf.error/registrar-clear-bad-request` **before any frame is resolved**, so a near-miss like `{:fram :session}` throws rather than silently clearing the ambient frame's registration. An unknown kind fails closed the same way, naming the closed set.
 - **Example**:
   ```clojure
-  (rf/clear-sub :counter/value)   ;; forget one sub registration
-  (rf/clear-sub)                  ;; forget every registered :sub
-  ```
-
-### `clear-fx`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (clear-fx)
-  (clear-fx id)
-  ```
-- **Description**: Forget one fx. No-arg clears the whole `:fx` registry.
-- **Example**:
-  ```clojure
-  (rf/clear-fx :app/scroll-to-top)   ;; forget one fx
-  (rf/clear-fx)                      ;; forget every registered :fx
+  (rf/clear :event :counter/inc)                 ;; => :counter/inc
+  (rf/clear :sub   :counter/value)               ;; the registrar side; `unsubscribe` decrements the cache
+  (rf/clear :cofx  :now)                         ;; kinds that never had a public inverse
+  (rf/clear :flow  :cart/total)                  ;; ambient frame
+  (rf/clear :flow  :cart/total {:frame :session}) ;; explicit frame
   ```
 
 ## Dispatch and subscribe
@@ -1279,22 +1253,25 @@ Epoch-settled listeners are the `:epoch` stream of the stream-parameterized list
 
 ## Registrar queries
 
-The registrar holds every registered handler — events, subs, fx, cofx, flows, machines, views, schemas — as a queryable data structure, which is what makes the framework's tools possible. This is the read-side surface; the write-side is `reg-*` / `clear-*` above. Everything here is JVM-runnable.
+The registrar holds every registered handler — events, subs, fx, cofx, flows, machines, views, schemas — as a queryable data structure, which is what makes the framework's tools possible. This is the read-side surface; the write-side is `reg-*` / `clear` above. Everything here is JVM-runnable.
 
 ### `registrations`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (registrations kind) → {id metadata-map}
-  (registrations kind pred-fn) → {id metadata-map}
+  (registrations {:source :store :kind k}) → {id metadata-map}
+  (registrations {:frame f      :kind k}) → {id metadata-map}
   ```
-- **Description**: Walk the registrar, returning the full metadata map per id: source-coords, `:rf/sensitive`, `:rf/machine?`, `:platforms`, the doc string. Use it when you want metadata; the optional `pred-fn` filters by the metadata map.
-  - The frame-targeted form `(registrations {:frame :tenants/acme :kind :sub})` returns only the ids that frame's image carries, resolved through the frame's sealed image generation (EP-0023). An optional `:pred` filters as above.
-  - A map argument is always a frame-targeted read: a map without `:frame` raises `:rf.error/registrar-query-needs-frame`; a `:frame` that does not resolve to a live frame carrying a generation raises `:rf.error/frame-no-generation`.
+- **Description**: Walk the registrar, returning the full metadata map per id: source-coords, `:rf/sensitive`, `:rf/machine?`, `:platforms`, the doc string. The argument is ALWAYS a map, and it must name **exactly one source**.
+  - `{:source :store …}` reads the process-global registrar and never consults a bound image generation, so it answers the same whatever frame's sub build the call sits inside — this is what a tool inspecting a host application wants. `:store` is the only accepted `:source` value.
+  - `{:frame f …}` returns only the ids that frame's image carries, resolved through the frame's own sealed image generation (EP-0023). `f` is a frame-id keyword or a live frame value; one that does not resolve to a live frame carrying a generation raises `:rf.error/frame-no-generation`.
+  - Naming BOTH `:source` and `:frame`, naming NEITHER, passing a `:source` other than `:store`, or passing a non-map argument (most often a leftover positional call) all raise `:rf.error/registrar-query-needs-source`. There is no default source: "the default" is precisely the ambiguity this grammar removes.
+  - `:kind :flow` and `:kind :frame` are reserved-EMPTY registrar slots and raise `:rf.error/registrar-kind-not-queryable` naming the real door (`re-frame.flows/flows-snapshot` / `flow-meta-at`; `frame-ids` / `frame-meta`) rather than returning a misleadingly authoritative `{}`.
+  - Filtering is `filter` over the returned map — there is no predicate arity.
 - **Example**:
   ```clojure
-  (rf/registrations :event)
+  (rf/registrations {:source :store :kind :event})
   ;; => {:counter/inc {:ns my-app.events :line 12 :file "my_app/events.cljs"} ...}
   (rf/registrations {:frame :tenants/acme :kind :sub})
   ```
@@ -1304,17 +1281,17 @@ The registrar holds every registered handler — events, subs, fx, cofx, flows, 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (handler-meta kind id) → registration-metadata map (or nil)
-  (handler-meta {:frame f :kind k :id id}) → metadata resolved through frame f's image (or nil)
+  (handler-meta {:source :store :kind k :id id}) → registration-metadata map (or nil)
+  (handler-meta {:frame f      :kind k :id id}) → metadata resolved through frame f's image (or nil)
   ```
 - **Description**: What `reg-*` stamped at this id. View registrations include source-coord keys (`:ns` / `:line` / `:column` / `:file`); pair tools resolve `data-rf2-source-coord` DOM annotations to `:file` via this lookup.
   - Registrar kinds: `:event`, `:sub`, `:fx`, `:cofx`, `:interceptor`, `:view`, `:frame`, `:route`, `:head`, `:error-projector`, `:flow`, `:resource`.
-  - The two machine kinds `:machine-guard` / `:machine-action` are additionally accepted on the positional arity with a 2-vector id: `(handler-meta :machine-guard [machine-id guard-id])`. They are derived on demand from the machine's registration spec (a dev-only source; not frame-targetable).
-  - The map arity is the frame-targeted read; the same map-arity errors as `registrations` apply (`:rf.error/registrar-query-needs-frame`, `:rf.error/frame-no-generation`).
+  - The two machine kinds `:machine-guard` / `:machine-action` take a 2-vector id: `(handler-meta {:source :store :kind :machine-guard :id [machine-id guard-id]})`. They are derived on demand from the machine's registration spec (a dev-only source; not frame-targetable, so `:frame` returns `nil` for them).
+  - The same source grammar and the same errors as `registrations` apply (`:rf.error/registrar-query-needs-source`, `:rf.error/frame-no-generation`, `:rf.error/registrar-kind-not-queryable`).
   - App-db schemas are **not** a registrar kind — look them up via `(app-schema-meta-at path)` in [re-frame.schemas.md](re-frame.schemas.md).
 - **Example**:
   ```clojure
-  (rf/handler-meta :sub :counter/value)
+  (rf/handler-meta {:source :store :kind :sub :id :counter/value})
   ;; => {:ns my-app.subs :line 8 :column 1 :file "my_app/subs.cljs"}
   ```
 

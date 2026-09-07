@@ -316,7 +316,7 @@
     ;; The public form names + registers the interceptor so it is referenced by id.
     (is (= :pub/authored
            (rf/reg-interceptor :pub/authored {:doc "public form"} {:before identity})))
-    (is (some? (rf/handler-meta :interceptor :pub/authored))
+    (is (some? (rf/handler-meta {:source :store :kind :interceptor :id :pub/authored}))
         "reg-interceptor produced a registered, addressable program member")
     ;; The lowering constructor lives ONLY on its owning namespace
     ;; (rf2-93sxp — the facade no longer carries `->interceptor*`; the absence

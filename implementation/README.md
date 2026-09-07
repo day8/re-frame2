@@ -434,7 +434,7 @@ disambiguate names that look interchangeable at a glance.
 
 - id-only enumeration vs `rf/registrations` — for just the ids
   under a kind, project `registrations`' keys
-  (`(-> (rf/registrations :event) keys set) → #{...}`). `registrations`
+  (`(-> (rf/registrations {:source :store :kind :event}) keys set) → #{...}`). `registrations`
   returns the full id→metadata map; use it directly when the caller
   needs the per-handler value (`:doc`, source coords, route template,
   fx fn, flow def). (The dedicated `rf/handler-ids` projection was
@@ -448,7 +448,7 @@ disambiguate names that look interchangeable at a glance.
 - `story/ids` vs `rf/registrations` — both enumerate registered
   ids for a kind. `story/ids` is Story's re-export of
   `registrar/ids` colocated with the Story facade so test-driver
-  code does not pull `re-frame.core`; `(-> (rf/registrations kind)
+  code does not pull `re-frame.core`; `(-> (rf/registrations {:source :store :kind kind})
   keys set)` is the public route for application code (the dedicated
   `rf/handler-ids` projection was removed — rf2-i4hk4b). They return
   the same id set for the same kind.

@@ -431,7 +431,7 @@
     (rf/reg-resource :a/x (article-spec) article-spec-request)
     (rf/reg-resource :b/y (article-spec) article-spec-request)
     (is (contains? (rf.resources.tooling/resource-algebra-view) :a/x))
-    (rf/clear-resource :a/x)
+    (rf/clear :resource :a/x)
     (let [view (rf.resources.tooling/resource-algebra-view)]
       (is (not (contains? view :a/x)))
       (is (contains? view :b/y)))))

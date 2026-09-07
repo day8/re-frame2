@@ -40,7 +40,7 @@
            AND the per-thread counter atom. Both bump exactly once
            per dirty evaluation (the dirty-check guarantees `:derive`
            runs once per input change).
-        3. `(rf/clear-flow ...)` against the per-thread frame — must
+        3. `(rf/clear :flow ...)` against the per-thread frame — must
            dissoc the flow's per-frame registry slot, pruning the
            frame-id key once its last flow is cleared. Cleanup is the
            leak-invariant test surface.
@@ -232,10 +232,10 @@
                           ;; the leak invariant can pass. (`:cyc-b`
                           ;; never registered because the cycle
                           ;; throw rolled it back.)
-                          (rf.flows/clear-flow cyc-a {:frame frame-id})
+                          (rf/clear :flow cyc-a {:frame frame-id})
                           ;; Clear the main flow so the leak
                           ;; invariant can pass.
-                          (rf.flows/clear-flow flow-id {:frame frame-id})
+                          (rf/clear :flow flow-id {:frame frame-id})
                           ;; Surface the thread idx for diagnostics
                           ;; if a future hangs.
                           idx)))]

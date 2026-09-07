@@ -203,7 +203,7 @@ dispatch login:
      (if-let [{:keys [id]} (nav-target (get-in ctx [:coeffects :event])
                                        (get-in ctx [:coeffects :rf.db/runtime
                                                     :rf.runtime/routing :current]))]
-       (let [needs-auth? (contains? (:tags (rf/handler-meta :route id)) :requires-auth)
+       (let [needs-auth? (contains? (:tags (rf/handler-meta {:source :store :kind :route :id id})) :requires-auth)
              signed-in?  (some? (get-in ctx [:coeffects :db :auth :user]))]
          (if (and needs-auth? (not signed-in?))
            (-> ctx

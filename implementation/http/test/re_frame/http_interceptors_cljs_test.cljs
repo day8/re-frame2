@@ -47,7 +47,7 @@
     (let [chain (rf.http.managed/interceptors-snapshot :rf/default)]
       (is (= 1 (count chain)))
       (is (= :a (:id (first chain)))))
-    (rf/clear-http-interceptor :a)
+    (rf/clear :http-interceptor :a)
     (let [chain (rf.http.managed/interceptors-snapshot :rf/default)]
       (is (zero? (count chain))))))
 
@@ -61,11 +61,11 @@
 ;; closed and the :rf/default floor is gone.
 
 (deftest clear-http-interceptor-single-arity-fails-closed-under-no-scope
-  (testing "rf2-vl5xsp — single-arity `rf/clear-http-interceptor` under NO
+  (testing "rf2-vl5xsp — no-opts `(rf/clear :http-interceptor id)` under NO
             ambient frame raises :rf.error/no-frame-context; it does NOT
             synthesise a :rf/default target."
     (binding [rf.frame/*current-frame* nil]
-      (let [thrown (try (rf/clear-http-interceptor :some-id)
+      (let [thrown (try (rf/clear :http-interceptor :some-id)
                         nil
                         (catch :default e e))]
         (is (some? thrown)
@@ -144,7 +144,7 @@
     (is (= [:on-default] (mapv :id (rf.http.managed/interceptors-snapshot :rf/default))))
     (is (= [:on-other]   (mapv :id (rf.http.managed/interceptors-snapshot :other))))
     ;; clear-http-interceptor on :rf/default doesn't touch :other
-    (rf/clear-http-interceptor :on-default)
+    (rf/clear :http-interceptor :on-default)
     (is (zero? (count (rf.http.managed/interceptors-snapshot :rf/default))))
     (is (= [:on-other] (mapv :id (rf.http.managed/interceptors-snapshot :other))))))
 
@@ -170,7 +170,7 @@
     ;; this is exactly the natural guess `(clear id {:frame f})` from the reg
     ;; shape that used to SILENTLY NO-OP under the old frame-first arity. It now
     ;; binds :fa/other correctly.
-    (rf/clear-http-interceptor :fa/on-other {:frame :fa/other})
+    (rf/clear :http-interceptor :fa/on-other {:frame :fa/other})
     (is (zero? (count (rf.http.managed/interceptors-snapshot :fa/other)))
         "opts {:frame :fa/other} cleared the named frame's slot (misbind closed)")
     (is (= [:fa/on-default] (mapv :id (rf.http.managed/interceptors-snapshot :rf/default)))
@@ -185,38 +185,41 @@
 ;; ---- 4b. rf2-s32bf — the public opts form is EXACT + FAIL-CLOSED -----------
 
 (deftest clear-http-interceptor-opts-form-fail-closed-rf2-s32bf
-  (testing "rf2-s32bf — the public 2-arity opts map must be EXACTLY
-            {:frame target}; malformed opts, a non-map second arg, and the old
-            two-scalar frame-first shape fail closed with
-            :rf.error/http-bad-interceptor and leave the ambient interceptor
-            untouched; the exact {:frame target} form still clears."
+  (testing "rf2-s32bf — the opts map must be EXACTLY {:frame target}; malformed
+            opts, a non-map second arg, and the old two-scalar frame-first
+            shape fail closed with :rf.error/registrar-clear-bad-request —
+            `clear`'s own validator, which runs BEFORE any frame is resolved
+            (rf2-kuky.80) — and leave the ambient interceptor untouched; the
+            exact {:frame target} form still clears. The grammar is identical
+            on both runtimes; the JVM twin additionally pins the
+            artefact-level door's own :rf.error/http-bad-interceptor."
     (letfn [(threw-bad? [thunk]
               (let [ex (try (thunk) nil (catch :default e e))]
                 (and (some? ex)
-                     (= :rf.error/http-bad-interceptor
+                     (= :rf.error/registrar-clear-bad-request
                         (:rf.error/id (ex-data ex))))))]
       ;; ambient scope is :rf/default (fixture) — seed a slot there.
       (rf/reg-http-interceptor :s32bf/ambient {:before (fn [c] c)})
       (is (= [:s32bf/ambient]
              (mapv :id (rf.http.managed/interceptors-snapshot :rf/default))))
-      (is (threw-bad? #(rf/clear-http-interceptor :s32bf/ambient {}))
+      (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient {}))
           "empty opts map (no :frame) fails closed")
-      (is (threw-bad? #(rf/clear-http-interceptor :s32bf/ambient {:frame nil}))
+      (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient {:frame nil}))
           "nil :frame fails closed")
-      (is (threw-bad? #(rf/clear-http-interceptor :s32bf/ambient {:fram :rf/default}))
+      (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient {:fram :rf/default}))
           "misspelled opts key fails closed")
-      (is (threw-bad? #(rf/clear-http-interceptor :s32bf/ambient {:frame :rf/default :extra 1}))
+      (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient {:frame :rf/default :extra 1}))
           "extra opts key fails closed (map must be exactly {:frame target})")
-      (is (threw-bad? #(rf/clear-http-interceptor :s32bf/ambient "not-a-map"))
+      (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient "not-a-map"))
           "non-map second arg fails closed")
-      (is (threw-bad? #(rf/clear-http-interceptor :s32bf/ambient 42))
+      (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient 42))
           "non-map scalar second arg fails closed")
-      (is (threw-bad? #(rf/clear-http-interceptor :s32bf/ambient :some-frame))
+      (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient :some-frame))
           "old two-scalar frame-first is not a public shape — fails closed")
       (is (= [:s32bf/ambient]
              (mapv :id (rf.http.managed/interceptors-snapshot :rf/default)))
           "no malformed clear touched the ambient :rf/default interceptor")
-      (rf/clear-http-interceptor :s32bf/ambient {:frame :rf/default})
+      (rf/clear :http-interceptor :s32bf/ambient {:frame :rf/default})
       (is (zero? (count (rf.http.managed/interceptors-snapshot :rf/default)))
           "the exact {:frame target} form clears the named frame"))))
 

@@ -791,14 +791,14 @@ sections that read top-to-bottom as the developer scans.
    defaults posture. Each row: `<:cofx-id>  <inspected-value>`.
 4. **INTERCEPTORS** — non-standard chain only, **silent when zero**
    (the section is ABSENT entirely, NOT '(none)'). Reads
-   `(rf/handler-meta :event id) :interceptors` and filters out anything
+   `(rf/handler-meta {:source :store :kind :event :id id}) :interceptors` and filters out anything
    carrying `:rf/default? true` (rf2-twt7m Change 3) plus the known
    auto-wrapper id (`:rf/event-handler` — EP-0018 unified the former
    per-kind `:rf/db-handler` / `:rf/fx-handler` / `:rf/ctx-handler` ids)
    as a belt-and-braces fallback.
 5. **HANDLER** — `reg-event · src/file.cljs:N [code]`. Per
    Q2: does NOT duplicate the event-id (already shown in §2). Reads
-   `(rf/handler-meta :event id)`.
+   `(rf/handler-meta {:source :store :kind :event :id id})`.
 6. **FLOWS** — silent-by-default when no flows fired (rf2-lo37i —
    peer section sitting RIGHT AFTER the handler, before the
    handler-driven effects). Flows fire automatically at the OUTERMOST
@@ -819,7 +819,7 @@ sections that read top-to-bottom as the developer scans.
    - `read <input-path-1> <input-path-2> …` — input paths recovered
      from the per-frame flows store via
      `(re-frame.flows/flow-meta-at flow-id {:frame frame-id})` (the
-     `(rf/handler-meta :flow id)` replacement after framework rf2-en00bk
+     `(rf/handler-meta {:source :store :kind :flow :id id})` replacement after framework rf2-en00bk
      made the flows atom the sole store and emptied the registrar `:flow`
      slot; the flow's frame rides the `:rf.flow/computed` trace's `:frame`
      tag, and flows are frame-divergent-per-id so the read is frame-scoped).

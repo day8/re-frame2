@@ -31,7 +31,7 @@
     ;; Step 4 — the route gets its loader.
     (rf/reg-route :app/article
       {:params [:map [:id :string]] :on-match [[:app/load-article]]} "/articles/:id")
-    (is (= [[:app/load-article]] (:on-match (rf/handler-meta :route :app/article)))
+    (is (= [[:app/load-article]] (:on-match (rf/handler-meta {:source :store :kind :route :id :app/article})))
         "Step 4 registered the loader")
 
     ;; The BUG shape — Step 7 re-registers with :parent + :params but NO :on-match.
@@ -39,7 +39,7 @@
     ;; must repeat :on-match; it is the regression rf2-1lu666 guards.
     (rf/reg-route :app/article
       {:parent :app/articles :params [:map [:id :string]]} "/articles/:id")
-    (is (nil? (:on-match (rf/handler-meta :route :app/article)))
+    (is (nil? (:on-match (rf/handler-meta {:source :store :kind :route :id :app/article})))
         "re-registration without :on-match deletes the loader — full replacement")
 
     ;; The FIXED Step 7 — carries :on-match forward alongside :parent.
@@ -47,7 +47,7 @@
       {:parent   :app/articles
        :params   [:map [:id :string]]
        :on-match [[:app/load-article]]} "/articles/:id")
-    (let [meta (rf/handler-meta :route :app/article)]
+    (let [meta (rf/handler-meta {:source :store :kind :route :id :app/article})]
       (is (= :app/articles (:parent meta))
           "final registration keeps :parent")
       (is (= [[:app/load-article]] (:on-match meta))

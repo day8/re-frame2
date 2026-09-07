@@ -34,7 +34,7 @@
 
   Three decisions ride in those five lines, all ruled on rf2-2dbpd:
 
-  - **resolve LATE, per render**, off `(rf/handler-meta :view id)` — so
+  - **resolve LATE, per render**, off `(rf/handler-meta {:source :store :kind :view :id id})` — so
     re-evaluating a `defview` (which replaces the registrar entry behind
     the same id) reaches the story with no story change;
   - **read `:hicasso/component`**, because the alias entry deliberately
@@ -152,8 +152,8 @@
   helper honest about what it restores: whatever `defview` actually wrote
   is what each test reads, so a change to the alias shape reaches these
   rows instead of being papered over by a hand-built stand-in."
-  {card-id  (rf/handler-meta :view card-id)
-   panel-id (rf/handler-meta :view panel-id)})
+  {card-id  (rf/handler-meta {:source :store :kind :view :id card-id})
+   panel-id (rf/handler-meta {:source :store :kind :view :id panel-id})})
 
 ;; ---------------------------------------------------------------------------
 ;; THE RECIPE UNDER TEST — the consumer's five lines
@@ -163,7 +163,7 @@
   "The `:hicasso` substrate render fn, exactly as a host writes it (and
   exactly as `multi-substrate`'s ns docstring writes it out)."
   [_variant-id view-id args]
-  (if-let [head (:hicasso/component (rf/handler-meta :view view-id))]
+  (if-let [head (:hicasso/component (rf/handler-meta {:source :store :kind :view :id view-id}))]
     (rf.hicasso/as-element [head args])
     [:div (str ":component " (pr-str view-id)
                " is not registered as a hicasso view")]))
@@ -583,7 +583,7 @@
       (is (identical? (.-type a) (.-type b)) "riding one stable type"))))
 
 (deftest resolution-is-late-so-a-hot-reload-reaches-the-story
-  (testing "the render fn reads `(rf/handler-meta :view id)` on EVERY
+  (testing "the render fn reads `(rf/handler-meta {:source :store :kind :view :id id})` on EVERY
             render rather than capturing a head. Re-evaluating a `defview`
             replaces the registrar entry behind the same id; the story
             must pick the new head up with no story change. Simulated the
@@ -642,9 +642,9 @@
             function in head position, which Hicasso refuses loudly and
             Reagent would call with the wrong ABI."
     (is (nil? (rf/view card-id)))
-    (is (some? (rf/handler-meta :view card-id))
+    (is (some? (rf/handler-meta {:source :store :kind :view :id card-id}))
         "the entry EXISTS — the nil above is the shape, not an absence")
-    (is (nil? (:handler-fn (rf/handler-meta :view card-id))))
+    (is (nil? (:handler-fn (rf/handler-meta {:source :store :kind :view :id card-id}))))
     (is (identical? hicasso-card
-                    (:hicasso/component (rf/handler-meta :view card-id)))
+                    (:hicasso/component (rf/handler-meta {:source :store :kind :view :id card-id})))
         "and `:hicasso/component` is the very value the `def` binds")))
