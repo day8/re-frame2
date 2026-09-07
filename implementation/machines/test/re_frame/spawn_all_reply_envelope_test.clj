@@ -225,23 +225,38 @@
           (is (some? (:rf.reply/work-id (:tags late)))
               "the suppressed late completion carries the canonical :work/id"))))))
 
-;; ---- rf2-tj3l6a: reap already-terminal join children without a 2nd terminal
+;; ---- rf2-tj3l6a: a terminal join child is never re-classified :cancelled
 ;;
 ;; #5763 closed the completed-children lifecycle leak by tearing down EVERY
 ;; child at join resolution. But it routed the COMPLETED children through the
 ;; ordinary `:explicit` `[:rf.machine/destroy spawned-id]` fx, whose
 ;; `emit-destroyed!` treats every explicit destroy as CANCELLATION of an
 ;; in-progress actor — so a child that ALREADY closed its attempt as a
-;; `join-child-reply` `:completed` / `:failed` got a SECOND, contradictory
+;; `join-child-reply` `:completed` / `:failed` got a SECOND, CONTRADICTORY
 ;; `:cancelled` terminal for the same work-id. #5763's fixture only checked
 ;; that snapshots disappear, not the reply facts, so it stayed green.
 ;;
-;; These tests group reply facts by `:rf.reply/work-id` (a durable
-;; work-ledger / Xray projection's view) and pin: a completed / failed join
-;; child has EXACTLY ONE terminal work-reply (its completion), never a later
-;; `:cancelled`; a surviving sibling still emits its cancellation. Reverting
-;; the join reap (routing completed children back through the `:explicit`
-;; keyword destroy) fires the "exactly one terminal" assertions.
+;; Completion-is-finality retired that teardown entirely: a child that folds
+;; into a join reached a `:final?` state and destroyed ITSELF at that moment
+;; with `:reason :rf.machine/finished`, so the join has nothing left to reap
+;; and only SURVIVORS are destroyed at resolution.
+;;
+;; That also changed WHO publishes a terminal for a join child's work-id, and
+;; the tests below pin the new shape exactly. Under the retired protocol the
+;; child never reached `:final?`, so the join's fold was the ONLY terminal
+;; authority. Now there are TWO, and they AGREE:
+;;
+;;   [:rf.machine/done                       :completed]  ;; the child's own
+;;                                                        ;; finality reply
+;;   [:rf.machine.spawn-all/some-completed   :completed]  ;; the join's
+;;                                                        ;; decisive fold
+;;
+;; The property rf2-tj3l6a guards is unchanged and is what these assertions
+;; still enforce: every terminal on a completed / failed child's work-id
+;; AGREES with its completion, and NONE of them is a `:cancelled` — while a
+;; surviving sibling still emits its own genuine cancellation. Routing a
+;; completed child back through the `:explicit` keyword destroy would add a
+;; third, contradictory row and fire these assertions.
 
 (defn- work-statuses-for-spawned
   "Every `:rf.reply/work-status` carried by a captured trace whose
@@ -249,8 +264,8 @@
   spawned instance address), across ALL trace ops. This is how a durable
   work-ledger / Xray projection groups one child attempt's terminal reply
   facts: one child attempt, one work-id (EP-0007). rf2-tj3l6a's contract is
-  that this list holds EXACTLY ONE terminal status for a completed / failed
-  child — never a completion AND a later cancellation."
+  that every terminal in this list agrees — a completed / failed child is
+  never ALSO cancelled."
   [captured spawned-id]
   (into []
         (comp (map :tags)
@@ -259,10 +274,11 @@
         @captured))
 
 (defn- work-reply-rows
-  "`work-statuses-for-spawned`'s diagnostic twin: `[<trace-op>
-  <work-status>]` pairs for `spawned-id`'s work-id, so a failure message
-  names WHICH authority published each status rather than only how many
-  there were."
+  "`work-statuses-for-spawned` with the publishing AUTHORITY attached:
+  `[<trace-op> <work-status>]` pairs for `spawned-id`'s work-id. Asserting on
+  these rather than on bare statuses pins WHICH trace published each terminal,
+  so a spurious teardown cancellation is named in the failure rather than
+  merely counted."
   [captured spawned-id]
   (into []
         (comp (filter #(= spawned-id (second (:rf.reply/work-id (:tags %)))))
@@ -272,22 +288,31 @@
         @captured))
 
 (def ^:private terminal-work-statuses
-  "The closed TERMINAL work-status set — a child attempt closes on exactly
-  one of these (`:suppressed` is the stale/late non-terminal fold)."
+  "The closed TERMINAL work-status set (`:suppressed` is the stale/late
+  non-terminal fold)."
   #{:completed :failed :cancelled})
 
-(deftest completed-any-child-is-reaped-not-cancelled
-  (testing "rf2-tj3l6a — success-side :any: the decisive COMPLETED child A emits
-            EXACTLY ONE terminal work-reply (:completed) and is NEVER
-            re-classified :cancelled by the join teardown, while the surviving
+(defn- terminal-reply-rows
+  "`work-reply-rows` narrowed to the TERMINAL statuses — the rows a durable
+  work ledger would close the attempt on."
+  [captured spawned-id]
+  (filterv (comp terminal-work-statuses second)
+           (work-reply-rows captured spawned-id)))
+
+(deftest completed-any-child-terminals-all-agree-never-cancelled
+  (testing "rf2-tj3l6a — success-side :any: every terminal work-reply on the
+            decisive COMPLETED child A's work-id is :completed — its own
+            finality reply and the join's decisive fold — and A is NEVER
+            re-classified :cancelled by teardown, while the surviving
             sibling B still emits its cancelled-on-join-resolution cancellation"
     (let [child  (mk-child)
           parent {:initial :idle
                   :states
                   {:idle   {:on {:start :racing}}
                    ;; NO :on for :race/won → the parent STAYS in :racing when
-                   ;; the :any join resolves (internal/self resolution — the
-                   ;; join reap is the SOLE teardown of the completed child).
+                   ;; the :any join resolves (internal/self resolution), so
+                   ;; no parent state exit can contribute a teardown: A's own
+                   ;; finality is the ONLY thing that destroys A.
                    :racing {:spawn-all
                             {:children         [{:id :a :machine-id :tjok/a :start [:set-id :a]}
                                                 {:id :b :machine-id :tjok/b :start [:set-id :b]}]
@@ -305,16 +330,19 @@
           ;; :a completes → the :any join resolves; :b survives.
           (rf/dispatch-sync [a-id [:go]])
           (let [a-statuses  (work-statuses-for-spawned captured a-id)
-                a-terminals (filterv terminal-work-statuses a-statuses)
+                a-terminals (terminal-reply-rows captured a-id)
                 b-statuses  (set (work-statuses-for-spawned captured b-id))]
-            ;; A: EXACTLY ONE terminal, :completed — the reap emits NO second
-            ;; (cancellation) terminal. This FIRES on the pre-fix code, where
-            ;; the completed child's :explicit destroy adds a :cancelled
-            ;; terminal for the same work-id.
-            (is (= [:completed] a-terminals)
-                (str "completed child A emits EXACTLY ONE terminal work-reply "
-                     "(:completed), NOT a subsequent :cancelled; saw "
-                     (work-reply-rows captured a-id)))
+            ;; A: two terminals for one work-id, both :completed and both
+            ;; legitimate — A's own `:final?` completion reply, then the join's
+            ;; decisive fold. NO teardown cancellation joins them. This FIRES on
+            ;; the pre-fix code, where the completed child's :explicit destroy
+            ;; adds a third, contradictory :cancelled row for the same work-id.
+            (is (= [[:rf.machine/done                     :completed]
+                    [:rf.machine.spawn-all/some-completed :completed]]
+                   a-terminals)
+                (str "completed child A's work-id carries ONLY agreeing "
+                     ":completed terminals (its finality reply + the join's "
+                     "decisive fold), never a :cancelled; saw " a-terminals))
             (is (not (contains? (set a-statuses) :cancelled))
                 "the completed child A is never classified :cancelled by teardown")
             ;; B: survivor still closes :cancelled (legitimate cancellation).
