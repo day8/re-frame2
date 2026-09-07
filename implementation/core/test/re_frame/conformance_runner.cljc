@@ -982,7 +982,7 @@
           want-error  (:expect-error call)
           thrown      (try (rf.resources/reg-resource resource-id (:spec call) request-fn) nil
                            (catch #?(:clj Throwable :cljs :default) e e))
-          _           (try (rf.resources/clear-resource resource-id)
+          _           (try (rf/clear :resource resource-id)
                            (catch #?(:clj Throwable :cljs :default) _ nil))]
       (if want-error
         (let [got-id (:rf.error/id (ex-data thrown))

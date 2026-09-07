@@ -179,7 +179,7 @@ Per the canonical [Spec 001 §Registration grammar](001-Registration.md#registra
     (when username
       [:rf.scope/session {:username username}])))
 
-(rf/clear-resource-scope :realworld/session)   ;; registration-lifecycle removal
+(rf/clear :resource-scope :realworld/session)   ;; registration-lifecycle removal
 ```
 
 A resolver is **pure**. It derives a resource scope; it does **not** fetch, dispatch, mutate state, read ambient host state, or perform transport work. The runtime evaluates the metadata's declared inputs and calls the resolver with the resolved input map. A `:resolve` left INSIDE the metadata map, or a non-fn value slot, or a non-map metadata slot, is rejected loudly (`:rf.error/invalid-resource-scope-spec`) — the third slot is the resolver's one home.
@@ -603,13 +603,13 @@ config metadata map:
 
 ```clojure
 (rf/reg-resource resource-id metadata request-fn)
-(rf/clear-resource resource-id)
+(rf/clear :resource resource-id)
 
 (rf/reg-mutation mutation-id metadata request-fn)
-(rf/clear-mutation mutation-id)
+(rf/clear :mutation mutation-id)
 
 (rf/reg-resource-scope scope-id metadata resolve-fn)   ;; named db-derived scope resolver (EP-0016 D3); :inputs in metadata, :resolve is the value slot
-(rf/clear-resource-scope scope-id)               ;; registration-lifecycle removal
+(rf/clear :resource-scope scope-id)               ;; registration-lifecycle removal
 (rf/resolve-resource-scope db scope-id)          ;; resolver helper: PURELY resolve a named scope against a db value (no trace)
 ```
 
@@ -836,7 +836,7 @@ fn is the third VALUE slot; the middle slot is the reflection + config metadata:
     {:request {:method :put :url (str "/api/articles/" slug) :body article}
      :decode  :app/article}))
 
-(rf/clear-mutation :article/save)        ;; registration-lifecycle removal (NOT a form-error reset)
+(rf/clear :mutation :article/save)        ;; registration-lifecycle removal (NOT a form-error reset)
 ```
 
 Run a mutation with the `:rf.mutation/execute` event and observe it through the passive `:rf.mutation/*` subs, keyed by an **instance** id:

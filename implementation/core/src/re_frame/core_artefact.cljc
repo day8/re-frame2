@@ -28,7 +28,7 @@
     \"Per Spec 013 §Lifecycle: clear a flow from a frame's registry.
     Late-bound via :flows/clear-flow.\"
     {:hook      :flows/clear-flow
-     :where     'rf/clear-flow
+     :where     'rf/clear
      :artefact  flows-artefact
      :on-absent :throw
      :ex-data   {:flow-id id}}

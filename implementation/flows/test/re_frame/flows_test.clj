@@ -109,13 +109,13 @@
     (rf/dispatch-sync [:seed])
     (is (= 12 (get-in (rf/app-db-value :rf/default) [:rect :area]))
         "flow ran on the drain after :seed and materialised :rect/:area")
-    (rf.flows/clear-flow :area)
+    (rf/clear :flow :area)
     (is (not (contains? (get (rf.flows/flows-snapshot) :rf/default) :area))
         "the per-frame registry no longer carries :area")
     (is (not (contains? (get (rf/app-db-value :rf/default) :rect) :area))
         "clear-flow dissoc'd the leaf at the flow's :output-path"))
   (testing "calling clear-flow on an unknown id is a no-op (does not throw)"
-    (rf.flows/clear-flow :no-such-flow)))
+    (rf/clear :flow :no-such-flow)))
 
 (deftest clear-flow-prunes-empty-frame-slot-from-registry
   ;; Clearing the LAST flow on a frame dissocs the frame-id key from the
@@ -127,7 +127,7 @@
     (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* (or w 0) (or h 0))))
     (is (contains? (rf.flows/flows-snapshot) :rf/default)
         "precondition: the frame slot exists while a flow is registered")
-    (rf.flows/clear-flow :area)
+    (rf/clear :flow :area)
     (is (not (contains? (rf.flows/flows-snapshot) :rf/default))
         "the frame-id key is GONE from @flows — no {frame-id {}} husk remains")))
 
@@ -148,7 +148,7 @@
     (rf/dispatch-sync [:touch-wizard])
     (is (= 42 (get-in (rf/app-db-value :rf/default) [:wizard :result]))
         "flow materialised its output at the leaf")
-    (rf.flows/clear-flow :wizard/result)
+    (rf/clear :flow :wizard/result)
     (let [db (rf/app-db-value :rf/default)]
       (is (not (contains? (get db :wizard) :result))
           "the leaf value is fully vacated")
@@ -168,7 +168,7 @@
   (testing "clear-flow on nested-path flow before first compute leaves app-db unchanged"
     (rf/reg-flow :pending {:inputs [[:n]] :output-path [:step-2 :result]} (fn [_] "never-runs"))
     (let [db-before (rf/app-db-value :rf/default)]
-      (rf.flows/clear-flow :pending)
+      (rf/clear :flow :pending)
       (let [db-after (rf/app-db-value :rf/default)]
         (is (= db-before db-after)
             "app-db is unchanged when clearing a never-materialised nested-path flow")
@@ -197,7 +197,7 @@
     (rf/dispatch-sync [:seed])
     (rf/reg-flow :pending {:inputs [[:n]] :output-path [:step-2 :result]} (fn [_] "never-runs"))
     (let [db-ref-before (rf/app-db-value :rf/default)]
-      (rf.flows/clear-flow :pending)
+      (rf/clear :flow :pending)
       (let [db-ref-after (rf/app-db-value :rf/default)]
         (is (identical? db-ref-before db-ref-after)
             "the app-db container reference is UNCHANGED — clear-flow skipped replace-container! for the no-op dissoc (rf2-2vpac)"))))
@@ -209,7 +209,7 @@
     (rf/dispatch-sync [:seed2])
     (rf/reg-flow :absent-top {:inputs [[:n]] :output-path [:never-written]} (fn [_] "never-runs")) ;; single-element path, never materialised
     (let [db-ref-before (rf/app-db-value :rf/default)]
-      (rf.flows/clear-flow :absent-top)
+      (rf/clear :flow :absent-top)
       (is (identical? db-ref-before (rf/app-db-value :rf/default))
           "single-element absent key: container reference unchanged (no rewrite)")))
   (testing "POSITIVE control — clearing a MATERIALISED slot DOES rewrite the container (guard must not over-suppress real clears)"
@@ -223,7 +223,7 @@
     (is (= 12 (get-in (rf/app-db-value :rf/default) [:rect :area]))
         "precondition: the flow materialised [:rect :area]")
     (let [db-ref-before (rf/app-db-value :rf/default)]
-      (rf.flows/clear-flow :area3)
+      (rf/clear :flow :area3)
       (let [db-ref-after (rf/app-db-value :rf/default)]
         (is (not (identical? db-ref-before db-ref-after))
             "the container WAS rewritten — a real dissoc installs a fresh reference")
@@ -252,7 +252,7 @@
     ;; entry to clear; its `:output-path` [:step-2 :result] never materialised.
     (rf/reg-flow :pending {:inputs [[:foo]] :output-path [:step-2 :result]} (fn [_] "never-stored"))
     ;; Clear must NOT throw, and must leave the scalar parent intact.
-    (is (nil? (rf.flows/clear-flow :pending))
+    (is (nil? (rf/clear :flow :pending))
         "clear-flow returns nil (no throw) when the intermediate is a non-map")
     (is (= 1 (:step-2 (rf/app-db-value :rf/default)))
         ":step-2 is preserved as its scalar value — clear-flow did not corrupt it")
@@ -271,7 +271,7 @@
     (rf/dispatch-sync [:seed])
     (is (= 12 (get (rf/app-db-value :rf/default) :area))
         "flow ran on the drain after :seed and materialised :area")
-    (rf.flows/clear-flow :area)
+    (rf/clear :flow :area)
     (let [db (rf/app-db-value :rf/default)]
       (is (not (contains? db :area))
           "single-element :output-path is dissoc'd cleanly")
@@ -541,7 +541,7 @@
     ;; a real app-db root is just an ordinary keyword key and must still pass.
     (is (some? (rf/reg-flow :deep {:inputs [[:n]] :output-path [:app rf.flows.registry/runtime-partition-key]} identity))
         "a non-leading :rf.db/runtime segment registers cleanly")
-    (rf.flows/clear-flow :deep)))
+    (rf/clear :flow :deep)))
 
 (deftest reg-flow-accepts-shared-domain-path-elements
   (testing "path elements across the SHARED EP-0012 segment domain all pass
@@ -566,7 +566,7 @@
       (let [flow-id (keyword "elt" (name label))]
         (is (some? (rf/reg-flow flow-id {:inputs [[:root elt]] :output-path [:out elt]} identity))
             (str "shared-domain path segment " (pr-str elt) " is accepted"))
-        (rf.flows/clear-flow flow-id)))))
+        (rf/clear :flow flow-id)))))
 
 (deftest reg-flow-accepts-empty-inputs-vector
   (testing ":inputs [] is allowed (one-shot flow with no app-db dependencies)"
@@ -1335,7 +1335,7 @@
 
   (testing "clear-flow on one frame leaves the sibling frame's registry slot intact"
     ;; Branch 1: per-frame registry routing.
-    (rf.flows/clear-flow :compute {:frame :left})
+    (rf/clear :flow :compute {:frame :left})
     (is (not (contains? (get (rf.flows/flows-snapshot) :left)  :compute))
         ":left's slot was removed")
     (is (contains? (get (rf.flows/flows-snapshot) :right) :compute)
@@ -1373,7 +1373,7 @@
         "the :flow registrar slot is RESERVED-but-empty throughout (rf2-en00bk)"))
 
   (testing "clearing from the second (last) frame drops the final per-frame entry"
-    (rf.flows/clear-flow :compute {:frame :right})
+    (rf/clear :flow :compute {:frame :right})
     (is (not (contains? (get (rf.flows/flows-snapshot) :right) :compute))
         ":right's slot is now gone")
     (is (nil? (rf.flows/flow-meta-at :compute {:frame :right}))
@@ -1429,7 +1429,7 @@
     (testing "clear-flow with an explicit FRAME-VALUE `:frame` clears the flow
               registered under the frame-id (does not silently miss it)"
       (let [frame-val (rf/make-frame {:id :fv/host})]  ; idempotent re-make; same id
-        (rf.flows/clear-flow :area {:frame frame-val})
+        (rf/clear :flow :area {:frame frame-val})
         (is (nil? (rf.flows/flow-meta-at :area {:frame :fv/host}))
             "clear-by-value removed the flow observed by id")
         (is (nil? (rf.flows/flow-meta-at :area {:frame frame-val}))
@@ -1540,7 +1540,7 @@
       (rf/reg-flow :shared {:frame :left :inputs [[:n]] :output-path [:result]} f-left)
       (rf/reg-flow :shared {:frame :right :inputs [[:n]] :output-path [:result]} f-right)
       ;; Clear :right. :left still holds :shared — its entry is unchanged.
-      (rf.flows/clear-flow :shared {:frame :right})
+      (rf/clear :flow :shared {:frame :right})
       (is (nil? (rf.flows/flow-meta-at :shared {:frame :right}))
           ":right's per-frame entry is gone")
       (is (= f-left (:derive (rf.flows/flow-meta-at :shared {:frame :left})))
@@ -1555,7 +1555,7 @@
     (rf/reg-flow :shared {:frame :right :inputs [[:n]] :output-path [:result]} (fn [n] n))
     ;; :left never registered :shared — clearing it is a frame-local no-op for
     ;; :right's entry.
-    (rf.flows/clear-flow :shared {:frame :left})
+    (rf/clear :flow :shared {:frame :left})
     (is (some? (rf.flows/flow-meta-at :shared {:frame :right}))
         ":right's entry survives — the clear on :left could not touch it")
     (is (nil? (rf.flows/flow-meta-at :shared {:frame :left}))
@@ -1567,7 +1567,7 @@
     (is (some? (rf.flows/flow-meta-at :solo {:frame :rf/default})))
     (is (nil? (rf.registrar/lookup :flow :solo))
         "registrar :flow slot is RESERVED-but-empty even while the flow is live")
-    (rf.flows/clear-flow :solo)
+    (rf/clear :flow :solo)
     (is (nil? (rf.flows/flow-meta-at :solo {:frame :rf/default}))
         "the per-frame entry is gone after the clear")
     (is (nil? (rf.registrar/lookup :flow :solo))

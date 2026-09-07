@@ -313,7 +313,7 @@
     (rf/reg-route :route/a {} "/a")
     (rf/reg-route :route/b {} "/b")
     (is (contains? (rf.routing.tooling/route-algebra-view) :route/a))
-    (rf.routing/clear-route :route/a)
+    (rf/clear :route :route/a)
     (let [view (rf.routing.tooling/route-algebra-view)]
       (is (not (contains? view :route/a)))
       (is (contains? view :route/b)))))

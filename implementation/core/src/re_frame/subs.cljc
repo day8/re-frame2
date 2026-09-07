@@ -444,16 +444,12 @@
   ([id meta handler-fn]
    (register-single-source-sub! id meta handler-fn :frame-state)))
 
-(defn clear-sub
-  "Unregister a subscription. Zero-arity clears every registered sub
-  in the registrar; one-arity clears the named one. Hot-reload tools
-  and test fixtures call this between rebuilds; production code rarely
-  needs it.
-
-  Returns nil. See also: `reg-sub`, `clear-sub-cache!`
-  (the runtime-cache counterpart)."
-  ([] (rf.registrar/clear-kind! :sub))
-  ([id] (rf.registrar/unregister! :sub id)))
+;; rf2-kuky.80: no `clear-sub` fn here. `:sub` owns no tear-down lifecycle of
+;; its own — removal IS `rf.registrar/unregister!`, which forgets provenance,
+;; marks the live-frame projection dirty and emits `:rf.registry/handler-cleared`
+;; — so the kind-keyed `(rf/clear :sub id)` calls the registrar directly and this
+;; one-line indirection is gone. The nilary clear-all went with it: its only
+;; callers were fixtures, which use `rf.registrar/clear-kind!`.
 
 ;; ---- parametric input production ------------------------------------------
 ;;

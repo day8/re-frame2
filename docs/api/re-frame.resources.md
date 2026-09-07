@@ -120,7 +120,7 @@ See [Guide ch.27 §Scope](../resources/concepts.md).
 
 ```clojure
 ;; deregister a resource (registration-lifecycle — e.g. on hot-reload / teardown)
-(rf/clear-resource :feed/timeline)
+(rf/clear :resource :feed/timeline)
 ```
 
 A mutation is the causal-WRITE counterpart of a resource: a named write to remote state. On success it invalidates, patches, or populates cached resource reads. The write lowers through the same `:rf.http/managed` transport as resources. The runtime owns reply addressing and stale-suppression (work-id + generation) exactly as for reads. Runtime state is keyed by mutation **instance** id, so concurrent submissions of the same mutation never clobber each other. See [Guide ch.27 §Mutations](../resources/concepts.md).
@@ -199,7 +199,7 @@ The inverse is runtime-recorded: the author supplies no `:rollback` registration
 
 ```clojure
 ;; deregister a mutation (registration-lifecycle — NOT the runtime-instance reset)
-(rf/clear-mutation :article/save)
+(rf/clear :mutation :article/save)
 ```
 
 ## Named scope resolvers
@@ -251,7 +251,7 @@ A resource (or payload, or route) references a named resolver as `{:from-db <sco
 
 ```clojure
 ;; deregister a named scope resolver (registration-lifecycle — e.g. on hot-reload / teardown)
-(rf/clear-resource-scope :realworld/session)
+(rf/clear :resource-scope :realworld/session)
 ```
 
 ### `resolve-resource-scope`

@@ -1112,8 +1112,8 @@
 ;; The flows + schemas QUERY / LIFECYCLE / VALIDATOR-INSTALL helpers are NO
 ;; LONGER re-exported from `re-frame.core` (rf2-wad2fl — front-porch shrink).
 ;; They are optional-feature surfaces whose owned namespace is the better
-;; public home: reach them through `re-frame.flows` (`clear-flow`) and
-;; `re-frame.schemas` (`app-schema-at`, `app-schema-meta-at`, `app-schemas`,
+;; public home: reach them through `re-frame.schemas` (`app-schema-at`,
+;; `app-schema-meta-at`, `app-schemas`,
 ;; `app-schemas-digest`, `set-schema-validator!`, `set-schema-explainer!`,
 ;; `set-schema-printer!`, `set-schema-fns!`) — the owned namespaces already
 ;; publish them. The `reg-flow` / `reg-app-schema` / `reg-app-schemas`
@@ -1136,27 +1136,147 @@
 
 ;; ---- clearing ------------------------------------------------------------
 
-(def ^{:doc "Unregister an event handler. Zero-arity clears every
-  registered event handler in the registrar; one-arity clears the named
-  one. For hot-reload tools and test fixtures. Per spec/API.md §Clearing
-  registrations."}
-  clear-event rf.events/clear-event)
-
-(def ^{:doc "Unregister a subscription. Zero-arity clears every
-  registered sub in the registrar; one-arity clears the named one. For
-  hot-reload tools and test fixtures. Per spec/API.md §Clearing
-  registrations."}
-  clear-sub   rf.subs/clear-sub)
-
-(def ^{:doc "Unregister an fx handler. Zero-arity clears every registered
-  fx; one-arity clears the named one. For hot-reload tools and test
-  fixtures. Per spec/API.md §Clearing registrations."}
-  clear-fx    rf.fx/clear-fx)
-
 (def ^{:doc "Dispose every cached entry in a frame's runtime sub-cache
   and clear the cache. Disposal is synchronous and unconditional. For
-  tests and hot-reload. Per spec/API.md §Clearing registrations."}
+  tests and hot-reload. Per spec/API.md §Clearing registrations.
+
+  NOT a registrar inverse — this clears a runtime CACHE, and keeps its
+  bang. The registrar inverse is `clear` (below)."}
   clear-sub-cache! rf.subs.cache/clear-sub-cache!)
+
+;; ---- the registrar inverse: (clear kind id) ------------------------------
+;;
+;; The registrar is ONE map, `(kind, id) -> metadata` (Spec 001). The read side
+;; already speaks that grammar. Until rf2-kuky.80 the inverse did not: NINE
+;; public names in three shapes, differing on FOUR axes — where the name lived
+;; (seven on the facade, two off it), whether a nilary clear-all existed (three
+;; of nine), how the frame was named (not at all / tolerantly / exactly), and
+;; what came back (nil for five, the id for four) — while SIX registrar kinds
+;; (`:cofx` `:interceptor` `:view` `:head` `:error-projector`) had no public
+;; inverse at all, though `rf.registrar/unregister!` has always taken
+;; `(kind id)` for every one of them.
+;;
+;; One door, one grammar, and the six holes close with zero new names.
+
+(def ^:private clear-frame-scoped-kinds
+  "The kinds whose tear-down is PER-FRAME, and so the only kinds whose
+  `{:frame f}` opts map is accepted. Every other kind clears a process-wide
+  registrar row, where a frame would be meaningless."
+  #{:flow :http-interceptor})
+
+(def ^:private clear-kinds
+  "The closed kind set of `clear` — the registrar's own kind set MINUS
+  `:frame` (a frame is a live runtime object torn down by `destroy-frame!`,
+  not a registrar row) PLUS `:http-interceptor` (a per-frame side table owned
+  by the http artefact rather than a registrar kind).
+
+  `:app-schema` is deliberately absent: it is not a registrar kind either, and
+  nobody has asked for a per-path public inverse — the demand bar. Spec 001's
+  kind table carries the per-kind `clear` column this set is the code half of."
+  (-> (into #{:http-interceptor} rf.registrar/kinds)
+      (disj :frame)))
+
+(defn- clear-bad-request!
+  "Fail loud (`:rf.error/registrar-clear-bad-request`) for `clear`'s own
+  argument validation: an unknown kind, a malformed opts map, or opts on a
+  kind that is not frame-scoped. Never returns normally."
+  [kind reason detail]
+  (rf.error/throw-error!
+    :rf.error/registrar-clear-bad-request
+    'rf/clear
+    (str "rf/clear: " detail)
+    {:recovery :fix-the-clear-call
+     :extra    {:kind        kind
+                :reason      reason
+                :clear-kinds (vec (sort clear-kinds))}}))
+
+(defn- clear-frame-target
+  "Validate `clear`'s trailing opts for `kind` and return the frame target it
+  names. `opts` is EXACTLY `{:frame f}`, accepted only for the two
+  frame-scoped kinds. A tolerant destructure here would be the silent
+  mis-clear rf2-s32bf closed for http — `{:fram :session}` binding `frame` to
+  nil and clearing the AMBIENT frame instead — so validation happens BEFORE
+  any frame is resolved or any registry is touched."
+  [kind opts]
+  (when-not (contains? clear-frame-scoped-kinds kind)
+    (clear-bad-request!
+      kind :opts-on-a-non-frame-scoped-kind
+      (str ":kind " (pr-str kind) " is not frame-scoped, so it takes no opts. "
+           "Only " (pr-str (vec (sort clear-frame-scoped-kinds))) " clear "
+           "per-frame state; every other kind clears one process-wide "
+           "registrar row.")))
+  (when-not (rf.frame/frame-opts? opts)
+    (clear-bad-request!
+      kind :malformed-opts
+      (str "the opts map must be EXACTLY {:frame f}, where f is a frame-id "
+           "keyword or a live frame value. Received " (pr-str opts) ". A "
+           "tolerated near-miss here would resolve the AMBIENT frame and "
+           "clear the wrong frame's registration silently.")))
+  (:frame opts))
+
+(defn clear
+  "Remove ONE registration, `(clear kind id)` — the inverse of the `reg-*`
+  verbs, and the mirror of the `(kind, id)` grammar the read side already
+  speaks. Returns `id`, for every kind. Per spec/API.md §Clearing
+  registrations and Spec 001 §Registry model.
+
+    (rf/clear :sub  :cart/total)                    ;; => :cart/total
+    (rf/clear :cofx :now)                           ;; every registrar kind
+    (rf/clear :flow :cart/total)                    ;; ambient frame
+    (rf/clear :flow :cart/total {:frame :session})  ;; explicit frame
+
+  Each kind routes to its OWNING lifecycle fn, never short-cutting a kind that
+  owns runtime state straight to `rf.registrar/unregister!`: `:flow` vacates
+  the output path and settles dependents (Spec 013 §Sequencing),
+  `:http-interceptor` rebuilds the frame's chain, `:route` emits
+  `:rf.route/cleared`, and the resources trio disposes per-frame resource
+  runtime state. The plain registrar kinds — `:event` `:sub` `:fx` `:cofx`
+  `:interceptor` `:view` `:head` `:error-projector` — have no owning
+  lifecycle fn, so `unregister!` (which forgets provenance, marks the
+  live-frame projection dirty, and emits `:rf.registry/handler-cleared`) IS
+  the owner.
+
+  OPTS. The trailing `{:frame f}` map is accepted for `:flow` and
+  `:http-interceptor` ONLY — the two per-frame kinds — and is EXACT: the sole
+  key is `:frame`, its value a frame-id keyword or a live frame value.
+  Anything else fails closed with `:rf.error/registrar-clear-bad-request`,
+  BEFORE any frame is resolved. `(rf/clear :flow id {:fram f})` therefore
+  THROWS where a tolerant destructure would have silently cleared the ambient
+  frame's flow (rf2-s32bf, Principles §No silent swallow). Omitting opts
+  reaches the owning fn's own AMBIENT arity — it is never normalised to `{}`
+  and forwarded, which the validator would reject.
+
+  An unknown kind fails closed too, with the message naming the closed set.
+  Clearing a kind owned by an artefact that is not on the classpath raises
+  that artefact's documented `:rf.error/<artefact>-artefact-missing`, because
+  the dispatch goes THROUGH the existing optional-capability wrappers.
+
+  There is NO clear-all arity: `re-frame.test-support` and
+  `rf.registrar/clear-kind!` are the fixture-side bulk verbs, and they are
+  the only callers bulk clearing ever had. `clear-sub-cache!` (above) and the
+  other cache / buffer `clear-*!` names are a different axis — they clear
+  runtime state, not registrations — and are untouched."
+  ([kind id]
+   (case kind
+     :flow             (rf.core-flows/clear-flow id)
+     :http-interceptor (rf.core-http/clear-http-interceptor id)
+     :route            (rf.core-routing/clear-route id)
+     :resource         (rf.core-resources/clear-resource id)
+     :mutation         (rf.core-resources/clear-mutation id)
+     :resource-scope   (rf.core-resources/clear-resource-scope id)
+     (:event :sub :fx :cofx :interceptor :view :head :error-projector)
+     (rf.registrar/unregister! kind id)
+     (clear-bad-request!
+       kind :unknown-kind
+       (str ":kind " (pr-str kind) " is not a clearable registry kind. The "
+            "closed set is " (pr-str (vec (sort clear-kinds))) ".")))
+   id)
+  ([kind id opts]
+   (let [frame (clear-frame-target kind opts)]
+     (case kind
+       :flow             (rf.core-flows/clear-flow id {:frame frame})
+       :http-interceptor (rf.core-http/clear-http-interceptor id {:frame frame}))
+     id)))
 
 ;; ---- dispatch and subscribe ----------------------------------------------
 ;;
@@ -1567,13 +1687,6 @@
 ;; through the late-bind table and throws `:rf.error/resources-artefact-missing`
 ;; when the artefact is absent. Per Spec 016 §Public API.
 
-(def ^{:doc "Remove a registered resource (a registration-lifecycle
-  operation — NOT cache invalidation; for data lifecycle use
-  `:rf.resource/invalidate-tags` / `:rf.resource/remove` /
-  `:rf.resource/clear-scope`). Per Spec 016 §Registration. Implementation
-  ships in `day8/re-frame2-resources`."}
-  clear-resource  rf.core-resources/clear-resource)
-
 (def ^{:doc "Return the registered resource's spec map (`:params-schema`,
   `:data-schema`, `:request`, `:scope`, `:transport`, `:stale-after-ms`,
   `:gc-after-ms`, `:tags`, `:doc`), or `nil`. Per Spec 016 §Introspection.
@@ -1596,12 +1709,6 @@
 ;; `reg-mutation` is a macro (above, for source-coord capture) + a CLJS
 ;; fn-alias; the non-registration surface is plain re-exports below.
 
-(def ^{:doc "Remove a registered mutation (a registration-lifecycle
-  operation — NOT a form-error reset; for the causal runtime-instance reset
-  use the `[:rf.mutation/clear …]` event). Per Spec 016 §Deferred slices /
-  EP-0003 §Mutations. Implementation ships in `day8/re-frame2-resources`."}
-  clear-mutation  rf.core-resources/clear-mutation)
-
 (def ^{:doc "Return the registered mutation's spec map (`:request`,
   `:params-schema`, `:invalidates`, `:patches`, `:populates`, `:scope`,
   `:invalidate-timing`, `:transport`, `:doc`), or `nil`. Per EP-0003
@@ -1623,12 +1730,6 @@
 ;; Named resource-scope resolvers (rf2-hls77w, EP-0016 D3). `reg-resource-scope`
 ;; is a macro (above, for source-coord capture) + a CLJS fn-alias; the
 ;; non-registration surface is plain re-exports below.
-
-(def ^{:doc "Remove a registered resource-scope resolver (a
-  registration-lifecycle removal — the `clear-` decrement counterpart of
-  `reg-resource-scope`). Per Spec 016 §Named resource-scope resolvers.
-  Implementation ships in `day8/re-frame2-resources`."}
-  clear-resource-scope rf.core-resources/clear-resource-scope)
 
 (def ^{:doc "Resolver helper: resolve the named resolver `scope-id` against
   the supplied `db` value, returning a canonical concrete scope or nil — a
@@ -2665,23 +2766,6 @@
   `re-frame.http.test-support` (rf2-lwmgw). Per Spec 014 §Testing. Late-bound
   via `:http/with-managed-request-stubs*`."}
   with-managed-request-stubs*      rf.core-http/with-managed-request-stubs*)
-
-(def ^{:doc "Clear an HTTP interceptor by `id` from a frame's
-  `:rf.http/managed` middleware chain. EP-0002 context-required
-  frame-local. The public surface is EXACT: `(clear-http-interceptor id)`
-  clears in ambient scope (resolved through the carried-invariant scope
-  chain; under no scope raises `:rf.error/no-frame-context`, never a
-  synthesised `:rf/default`), and `(clear-http-interceptor id {:frame target})`
-  names the frame explicitly (the *override*) — `target` is a frame-id
-  keyword or a live frame value. The opts map is FAIL-CLOSED: it must be
-  EXACTLY `{:frame target}` with a present, non-nil target; a missing
-  `:frame`, a nil target, a misspelled/unknown or extra key, and a non-map
-  second argument all raise the typed `:rf.error/http-bad-interceptor`
-  before any ambient frame is touched (rf2-s32bf). Two-scalar frame-first
-  `(frame id)` is not a public shape. Implementation ships in
-  `day8/re-frame2-http`. Per Spec 014 §Middleware. Late-bound via
-  `:http/clear-http-interceptor`."}
-  clear-http-interceptor           rf.core-http/clear-http-interceptor)
 
 ;; reg-http-interceptor is a macro (per the defreg-macro form above) so
 ;; source-coords are captured at the call site like every other reg-*.

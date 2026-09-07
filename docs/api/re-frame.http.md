@@ -255,7 +255,7 @@ A middleware surface that mirrors the rest of the `reg-*` family. Use it to inje
   - The frame-first `(frame id)` spelling is a separate artefact-internal seam (`clear-http-interceptor*`), reached directly by internal cleanup that already holds a resolved frame — e.g. the `:rf.fx/clear-http-interceptor` fx — **not** a public arity of `clear-http-interceptor`.
 - **Example**:
   ```clojure
-  (rf/clear-http-interceptor :auth-header)
+  (rf/clear :http-interceptor :auth-header)
   ```
 
 ### `[:rf.fx/reg-http-interceptor args-map]`

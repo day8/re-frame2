@@ -41,6 +41,7 @@
   resource-runtime state for the id in each affected frame. Late-bound via
   `:resources/clear-resource`."
   {:hook :resources/clear-resource :artefact resources-artefact :on-absent :throw
+   :where 'rf/clear
    :ex-data {:resource-id resource-id}}
   ([resource-id] :delegate))
 
@@ -99,6 +100,7 @@
   for the causal runtime-instance reset use the `[:rf.mutation/clear …]`
   event). Late-bound via `:resources/clear-mutation`."
   {:hook :resources/clear-mutation :artefact resources-artefact :on-absent :throw
+   :where 'rf/clear
    :ex-data {:mutation-id mutation-id}}
   ([mutation-id] :delegate))
 
@@ -164,6 +166,7 @@
   per-frame runtime state of its own, so nothing beyond the registrar entry
   is disposed. Late-bound via `:resources/clear-resource-scope`."
   {:hook :resources/clear-resource-scope :artefact resources-artefact :on-absent :throw
+   :where 'rf/clear
    :ex-data {:scope-id scope-id}}
   ([scope-id] :delegate))
 

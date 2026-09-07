@@ -116,8 +116,8 @@ An `:inputs` path is read against the pending **frame-state**, which has two par
 `clear-flow` — whose primary arg IS the flow-id it removes — keeps its trailing `opts` map for the `:frame` override (there is no metadata slot on a teardown surface):
 
 ```clojure
-(rf/clear-flow :rectangle/area)
-(rf/clear-flow :rectangle/area {:frame :scratch})
+(rf/clear :flow :rectangle/area)
+(rf/clear :flow :rectangle/area {:frame :scratch})
 ```
 
 ## Frame-scoping

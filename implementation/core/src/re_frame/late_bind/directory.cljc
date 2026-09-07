@@ -504,6 +504,10 @@
    {:key         :routing/reg-route
     :producer-ns 're-frame.routing
     :description "Register a route pattern and handler."}
+   {:key         :routing/clear-route
+    :producer-ns 're-frame.routing
+    :design-bead "rf2-kuky.80"
+    :description "Remove a registered route, emitting `:rf.route/cleared` (Spec 012 §Trace events) so route-lifecycle subscribers observe the removal; a no-op when the id was not registered. The dispatch target of `(rf/clear :route id)`. Restored by rf2-kuky.80: the czn2m0 D1 sweep deleted this hook as dormant when `clear-route` had no facade consumer, and the kind-keyed `clear` made it one — routing `:route` removal MUST go through the owning fn rather than short-cutting to `re-frame.registrar/unregister!`, which would drop the trace event."}
    {:key         :routing/reset-counters!
     :producer-ns 're-frame.routing
     :description "Reset the route-registration counter (test isolation)."}

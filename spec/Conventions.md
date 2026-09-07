@@ -1333,7 +1333,7 @@ The bang (`!`) suffix on a public surface marks **process-level state mutation t
 
 ```clojure
 (rf/reg-event :cart.item/add  (fn [{:keys [db]} [_ item]] {:db ...}))   ;; no bang
-(rf/clear-event :cart.item/add)                                         ;; no bang
+(rf/clear :event :cart.item/add)                                         ;; no bang
 ```
 
 ### 2. Listener registrations — **bang**
@@ -1604,8 +1604,8 @@ The `:frame` keyword is **the mounting concern** for `reg-*` surfaces whose regi
 
 ;; `clear-flow` is `re-frame.flows/clear-flow`, not a `re-frame.core` façade
 ;; export (rf2-wad2fl) — the opts-map shape is the same wherever it is reached
-(rf.flows/clear-flow :flow-id)
-(rf.flows/clear-flow :flow-id {:frame :session})
+(rf/clear :flow :flow-id)
+(rf/clear :flow :flow-id {:frame :session})
 ```
 
 The convention extends `dispatch` / `subscribe`'s opts-map shape — `:frame` is the same mounting key in the same kwarg position across the dispatch/subscribe/`reg-*`/`clear-*` family. Most `reg-*` surfaces adopt this shape: `:frame` lives in the trailing `opts` kwarg, not inside the registration's primary argument. The one principled exception is `reg-http-interceptor` (`(rf/reg-http-interceptor id interceptor-map)`): because HTTP interceptors are themselves data — a registration IS an interceptor-map carrying `:before` / `:after` / `:frame` / `:rf/registration-metadata` — the shape mirrors the event-interceptor `{:id :before :after}` mental model (Spec 002) and folds `:frame` into the interceptor-map alongside its sibling slots. The family is uniform on intent (`:frame` is a kwarg, never a positional arg); the HTTP surface differs only in that its primary argument IS a map of kwargs.

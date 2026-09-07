@@ -75,7 +75,9 @@
 
 ;; Registry
 (def reg-route                  rf.routing.registry/reg-route)
-(def clear-route                rf.routing.registry/clear-route)
+;; rf2-kuky.80: no public `clear-route` re-export here — the registrar inverse
+;; is the one kind-keyed `(rf/clear :route id)`. The registry fn below stays as
+;; the late-bind hook target.
 (def match-url                  rf.routing.registry/match-url)
 (def route-url                  rf.routing.registry/route-url)
 (def malformed-url?             rf.routing.registry/malformed-url?)
@@ -199,8 +201,8 @@
 ;; normal reload. So the façade IDEMPOTENTLY unregisters exactly these three
 ;; retired framework ids on every load/reload. This targets ONLY the framework's
 ;; own retired ids: it resets no registry and clears no user registration.
-(rf.events/clear-event :rf.route.internal/settle-transition)
-(rf.events/clear-event :rf.route.internal/on-match-error)
+(rf.registrar/unregister! :event :rf.route.internal/settle-transition)
+(rf.registrar/unregister! :event :rf.route.internal/on-match-error)
 (rf.emit/unregister-error-listener! :rf.route/on-match-error-trap)
 
 ;; The two recordable allocation coeffects read host-side high-water marks and
@@ -482,12 +484,18 @@
 ;; integration points without reversing that dependency.
 
 (rf.late-bind/set-fn! :routing/reg-route          reg-route)
-;; rf2-bcjpq5 / rf2-sy7zr: no :routing/match-url, :routing/route-url,
-;; :routing/clear-route or :routing/current-url hooks — none of those four is
-;; a facade export (czn2m0 D1), so core has nothing to late-bind to. Callers
-;; use `re-frame.routing/match-url` / `route-url` / `clear-route` /
-;; `current-url` directly; a routing app requires this namespace at boot
-;; regardless.
+;; rf2-kuky.80: :routing/clear-route is BACK. The czn2m0 D1 sweep dropped it
+;; as dormant, correctly at the time; `rf/clear` is now a consumer, and
+;; routing `:route` removal through the OWNING fn is what keeps the
+;; :rf.route/cleared trace event. The hook target is the registry fn, not a
+;; `re-frame.routing` re-export — that re-export is deleted, because
+;; `(rf/clear :route id)` is the one public door.
+(rf.late-bind/set-fn! :routing/clear-route       rf.routing.registry/clear-route)
+;; rf2-bcjpq5 / rf2-sy7zr: still no :routing/match-url, :routing/route-url or
+;; :routing/current-url hooks — none of those three is a facade export
+;; (czn2m0 D1), so core has nothing to late-bind to. Callers use
+;; `re-frame.routing/match-url` / `route-url` / `current-url` directly; a
+;; routing app requires this namespace at boot regardless.
 (rf.late-bind/set-fn! :routing/reset-counters!    reset-counters!)
 ;; Reset hooks clear host-side routing state that a raw frame-container reset
 ;; cannot reach.

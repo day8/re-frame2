@@ -48,13 +48,19 @@
   (testing "rf/unsubscribe resolves to a Var (carve-out: NOT renamed)"
     (is (some? (find-var 're-frame.core/unsubscribe))
         "rf/unsubscribe is retained as the singular un- surface (rf2-cmabc carve-out)"))
-  (testing "rf/clear-sub also resolves (the existing registrar decrement)"
-    (is (some? (find-var 're-frame.core/clear-sub))
-        "rf/clear-sub is the symmetric inverse of reg-sub — registrar decrement"))
-  (testing "rf/unsubscribe and rf/clear-sub are DIFFERENT fns (different semantics)"
+  (testing "rf/clear also resolves (the registrar decrement, now kind-keyed)"
+    (is (some? (find-var 're-frame.core/clear))
+        "(rf/clear :sub id) is the symmetric inverse of reg-sub — registrar
+         decrement. rf2-kuky.80 replaced the nine per-kind `clear-*` names
+         with this one door; `clear-sub` is gone.")
+    (is (nil? (find-var 're-frame.core/clear-sub))
+        "rf/clear-sub is GONE (no back-compat alias)"))
+  (testing "rf/unsubscribe and rf/clear are DIFFERENT fns (different semantics)"
     (is (not (identical? @(find-var 're-frame.core/unsubscribe)
-                         @(find-var 're-frame.core/clear-sub)))
-        "unsubscribe decrements the sub CACHE ref-count; clear-sub decrements the REGISTRAR — distinct operations"))
+                         @(find-var 're-frame.core/clear)))
+        "unsubscribe decrements the sub CACHE ref-count; (clear :sub id)
+         decrements the REGISTRAR — distinct operations, which is why
+         `clear-sub-cache!` keeps a name of its own"))
   (testing "rf/unsubscribe carries NO :deprecated meta (it's a carve-out, not deprecated)"
     (is (nil? (:deprecated (meta (find-var 're-frame.core/unsubscribe))))
         "unsubscribe is a load-bearing surface kept as-is, not a deprecated alias")))

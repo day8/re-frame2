@@ -21,6 +21,7 @@
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    ;; load-bearing side-effecting requires: register the resources runtime + the
    ;; late-bound :routing/* integration hooks.
+   [re-frame.core :as rf]
    [re-frame.resources :as rf.resources]
    [re-frame.resources.route :as rf.resources.route]))
 
@@ -32,7 +33,7 @@
     {:scope :rf.scope/global :params-schema [:map]}
     (fn [_params _ctx] {:request {:method :get :url "/api/warm"}}))
   (try (f)
-       (finally (rf.resources/clear-resource res-id))))
+       (finally (rf/clear :resource res-id))))
 
 (use-fixtures :each with-resource)
 

@@ -160,7 +160,7 @@ Each `clear-*` removes an entry from the registrar; the no-arg form clears the w
 - **Description**: Forget one event-handler. No-arg clears the whole `:event` registry.
 - **Example**:
   ```clojure
-  (rf/clear-event :counter/inc)   ;; forget one handler
+  (rf/clear :event :counter/inc)   ;; forget one handler
   (rf/clear-event)                ;; forget every registered :event
   ```
 
@@ -175,7 +175,7 @@ Each `clear-*` removes an entry from the registrar; the no-arg form clears the w
 - **Description**: Forget one sub. This clears the registrar side — the inverse of `reg-sub`. To decrement the runtime cache instead, use `unsubscribe`.
 - **Example**:
   ```clojure
-  (rf/clear-sub :counter/value)   ;; forget one sub registration
+  (rf/clear :sub :counter/value)   ;; forget one sub registration
   (rf/clear-sub)                  ;; forget every registered :sub
   ```
 
@@ -190,7 +190,7 @@ Each `clear-*` removes an entry from the registrar; the no-arg form clears the w
 - **Description**: Forget one fx. No-arg clears the whole `:fx` registry.
 - **Example**:
   ```clojure
-  (rf/clear-fx :app/scroll-to-top)   ;; forget one fx
+  (rf/clear :fx :app/scroll-to-top)   ;; forget one fx
   (rf/clear-fx)                      ;; forget every registered :fx
   ```
 

@@ -318,19 +318,21 @@
 
 ;; ---- clear-event round-trip (rf2-6z20) -----------------------------------
 ;;
-;; Per Spec 002 / API.md row §Lifecycle: `rf/clear-event` is the public
-;; alias of `rf.events/clear-event` (re-exported at `core.cljc:867`), used
-;; by hot-reload tooling and per-test isolation fixtures. Two arities:
+;; Per Spec 002 / API.md §Clearing registrations, the registrar inverse is
+;; the ONE kind-keyed `(rf/clear :event id)`, used by hot-reload tooling and
+;; per-test isolation fixtures.
 ;;
-;;   (rf/clear-event)        ;; clear every registered :event
-;;   (rf/clear-event :id)    ;; clear one event by id
+;; rf2-kuky.80 retired the nilary clear-all: its only callers were fixtures,
+;; and the fixture-side bulk verb is `rf.registrar/clear-kind!`. The tests
+;; below that used to exercise `(rf/clear-event)` now call that directly,
+;; which is what they were really testing all along.
 ;;
-;; Pre-rf2-6z20 neither arity was touched in any test. A regression
-;; that left the registry slot populated would only surface through
-;; integration symptoms (a stale handler still firing).
+;; Pre-rf2-6z20 neither shape was touched in any test. A regression that
+;; left the registry slot populated would only surface through integration
+;; symptoms (a stale handler still firing).
 
 (deftest clear-event-removes-a-single-handler
-  (testing "(rf/clear-event id) removes the registered :event slot;
+  (testing "(rf/clear :event id) removes the registered :event slot;
             a subsequent dispatch traces :rf.error/no-such-handler"
     ;; `runs` is the production-visible witness (rf2-d2841): the integration
     ;; symptom this deftest exists to catch — "a stale handler still firing"
@@ -348,7 +350,7 @@
       (is (= 1 @runs) "exactly one handler body ran pre-clear")
 
       ;; Clear.
-      (rf/clear-event :test.6z20/foo)
+      (rf/clear :event :test.6z20/foo)
 
       ;; Post-clear: gone from the registry, dispatch traces no-such-handler.
       (is (nil? (rf.registrar/lookup :event :test.6z20/foo))
@@ -367,7 +369,9 @@
                 ":rf.trace/event-id carries the cleared handler's id")))))))
 
 (deftest clear-event-no-arg-clears-every-event
-  (testing "(rf/clear-event) with no args clears every registered :event id"
+  (testing "(rf.registrar/clear-kind! :event) clears every registered :event id
+            — the fixture-side bulk verb that replaced the retired nilary
+            `clear-event` arity (rf2-kuky.80)"
     ;; Per events.cljc:227, the no-arg form is documented:
     ;;   ([] (rf.registrar/clear-kind! :event))
     ;; This tests confirms the contract.
@@ -378,7 +382,7 @@
     (is (some? (rf.registrar/lookup :event :test.6z20/b)))
     (is (some? (rf.registrar/lookup :event :test.6z20/c)))
 
-    (rf/clear-event)
+    (rf.registrar/clear-kind! :event)
 
     (is (nil? (rf.registrar/lookup :event :test.6z20/a))
         "all :event slots cleared by no-arg form")
@@ -392,7 +396,7 @@
     (rf/reg-sub :test.6z20/sub (fn [_ _] :stub))
     (rf/reg-fx :test.6z20/fx (fn [_ _] nil))
     (rf/reg-cofx :test.6z20/cofx (fn [] :stub))
-    (rf/clear-event)
+    (rf.registrar/clear-kind! :event)
     (is (nil? (rf.registrar/lookup :event :test.6z20/ev))
         ":event was cleared")
     (is (some? (rf.registrar/lookup :sub :test.6z20/sub))

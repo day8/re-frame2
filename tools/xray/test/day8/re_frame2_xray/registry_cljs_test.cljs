@@ -1258,7 +1258,7 @@
   app-db key its deleted event handler wrote. Poses the registrar only —
   `simulate-registration-at-schema!` poses the sentinels."
   []
-  (run! rf/clear-sub schema-4-sub-ids)
+  (run! #(rf/clear :sub %) schema-4-sub-ids)
   (rf/reg-event schema-3-donor-event-id
     {:rf.trace/no-emit? true}
     (fn [{:keys [db]} [_ revision]]

@@ -274,7 +274,7 @@
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
     (is (contains? (rf.subs.tooling/sub-algebra-view) :a))
-    (rf.subs/clear-sub :a)
+    (rf/clear :sub :a)
     (let [view (rf.subs.tooling/sub-algebra-view)]
       (is (not (contains? view :a)))
       (is (contains? view :b)))))

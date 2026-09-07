@@ -45,8 +45,8 @@ Use a **subscription** when the value is consumed only by views. Use a **state m
 
 (rf/reg-flow :rectangle/area {:inputs … :output-path … :frame :scratch} derive-fn)
                                            ;; explicit frame = :frame key in the metadata slot
-(flows/clear-flow :rectangle/area)         ;; dissoc-in's the output :output-path
-(flows/clear-flow :rectangle/area {:frame :scratch})
+(rf/clear :flow :rectangle/area)         ;; dissoc-in's the output :output-path
+(rf/clear :flow :rectangle/area {:frame :scratch})
 ```
 
 The 3-slot grammar is `(reg-flow flow-id metadata derive-fn)` — id first, the pure derive fn last, `metadata` carrying `:inputs` / `:output-path` (both required) plus optional `:doc` / `:schema` / `:frame`. A `:derive` left inside the metadata map is rejected loudly (`:rf.error/invalid-flow-metadata`). `:inputs` order matches the positional args to the derive fn. `reg-flow` returns the flow-id (family-wide reg-* convention). Flows ship in `day8/re-frame2-flows` — the consuming ns must `(:require [re-frame.flows :as flows])` to publish the artefact's late-bind hooks, or `rf/reg-flow` raises `:rf.error/flows-artefact-missing` (same require-to-register convention as schemas / machines / routing). The `reg-flow` **registration macro** stays on the `re-frame.core` façade (`rf/`); the `clear-flow` **lifecycle helper** lives on `re-frame.flows` — it is not on the `re-frame.core` façade.

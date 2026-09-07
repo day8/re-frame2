@@ -311,9 +311,9 @@
   (testing "clear-flow against a destroyed / never-registered frame is a silent no-op"
     (rf/make-frame {:id :fc/gone :doc "frame to destroy"})
     (rf.frame/destroy-frame! :fc/gone)
-    (is (nil? (rf.flows/clear-flow :whatever {:frame :fc/gone}))
+    (is (nil? (rf/clear :flow :whatever {:frame :fc/gone}))
         "clear-flow on a DESTROYED frame returns nil (idempotent no-op)")
-    (is (nil? (rf.flows/clear-flow :whatever {:frame :fc/never-existed}))
+    (is (nil? (rf/clear :flow :whatever {:frame :fc/never-existed}))
         "clear-flow on a NEVER-registered frame returns nil (idempotent no-op)")))
 
 ;; ---------------------------------------------------------------------------
