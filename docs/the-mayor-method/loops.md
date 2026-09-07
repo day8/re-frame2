@@ -1469,6 +1469,29 @@ passed](dispatch-prompt-template.md#quality-gates--how-a-gate-is-run); the inver
 defect and reads even better, because a scan returning EVERYTHING looks like corroboration rather
 than like silence. Ask what the instrument compared, not what it answered.
 
+**Containment is not the only question, and the other one has its own reassuring failure: a branch
+carrying unlanded commits and no proposed change may be a DELIBERATELY RETAINED RECORD rather than
+residue.** A spike is the standard case — its findings are promoted to the trunk as prose and its
+diff is meant never to land, so *pushed, unlanded, no change proposed* describes the design rather
+than an oversight. Ask the tracker who owns a branch before filing it as orphaned; the retention, if
+there is one, is written down. **But ask with CLOSED items INCLUDED, because a retention ruling
+lives on a closed item by definition** — the item that closed saying *"retained as the experiment's
+record"* IS the artefact you are looking for. Where the tracker hides closed items by default, and
+most do, the obvious query returns nothing, or returns the sweep's OWN earlier filing, and *nobody
+owns this branch* is precisely the answer that authorises deleting it. Measured here: the default
+search for one such branch returned a single hit — a previous sweep's item — while the same search
+over all statuses returned the rulings that had already settled it twice.
+
+**And do not stop at widening the status, because that swaps one blind spot for another.** Filtering
+to closed items alone hides an OPEN item carrying the standing decision, which is where a live
+release condition tends to sit; ask for all statuses, not for closed ones. **Then check what the
+search reads at all.** Where it matches titles only — again the common default — a retention
+recorded in a CLOSE REASON is invisible to it at every status, and that is exactly where such
+rulings are written. So when the answer would authorise a destructive act, search the tracker's full
+export, which carries descriptions, notes and close reasons, rather than its title index. The
+asymmetry from the `-`/`+` rule above governs here too: mistaking a record for residue destroys it,
+while mistaking residue for a record costs a branch nobody was using.
+
 **Key destructive operations on identity, never on a name.** Branch names repeat across sessions and
 prefix-match each other. A search for `head:feature-x` also returns the change for `feature-x2`, and
 may rank the sibling *first*, so a loop reading the top row reads one branch's state as another's.
