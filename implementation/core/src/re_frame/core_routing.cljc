@@ -12,14 +12,20 @@
    :maven         "day8/re-frame2-routing"
    :require-ns    "re-frame.routing"})
 
-;; rf2-bcjpq5 / rf2-sy7zr / rf2-wad2fl: `match-url`, `route-url` and
-;; `current-url` are NOT facade exports. Per the czn2m0 D1 ruling the tiering
-;; rule is reg-* macros + primary ergonomic verbs on `rf/`, advanced query /
-;; codec functions in their owning namespace — so those three live only as
+;; rf2-bcjpq5 / rf2-sy7zr / rf2-wad2fl: `match-url` and `route-url` are NOT
+;; facade exports. Per the czn2m0 D1 ruling the tiering rule is reg-* macros
+;; + primary ergonomic verbs on `rf/`, advanced query / codec functions in
+;; their owning namespace — so those two live only as
 ;; `re-frame.routing/<name>` (consistent with resources / machines /
-;; schemas). Their dormant `defwrapper`s, and their `:routing/match-url`,
-;; `:routing/route-url` and `:routing/current-url` late-bind hooks, are GONE;
-;; `re-frame.core` never exported them, so nothing consumed them.
+;; schemas). `current-url` was demoted with them and then deleted OUTRIGHT by
+;; rf2-kuky.36: it re-exported `history-url-strategy`'s own `:decode` under a
+;; general name and had no caller, so it is on neither the facade NOR
+;; `re-frame.routing` — a caller that wants the current path-form URL reads
+;; it off the frame's strategy, or calls
+;; `re-frame.routing.history/current-url`. Their dormant `defwrapper`s, and
+;; their `:routing/match-url`, `:routing/route-url` and
+;; `:routing/current-url` late-bind hooks, are GONE; `re-frame.core` never
+;; exported them, so nothing consumed them.
 ;;
 ;; `clear-route` is the EXCEPTION, and its wrapper is BACK (rf2-kuky.80).
 ;; That same D1 sweep deleted it as dormant — correctly, at the time: nothing

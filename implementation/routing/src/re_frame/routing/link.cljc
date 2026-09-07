@@ -174,18 +174,32 @@
   `link-model` seam a view artefact's route-link consumes, so the navigation
   identity the two surfaces dispatch cannot drift.
 
-  `address` is the EXTRACTED address (`rf.routing.address/extract-address`), never a
-  bespoke destructuring of the caller's props, so the payload names the same
-  destination the rendered `:href` was built from; `path-url` is the PATH-FORM
-  url `route-url` built from it (the cascade is path-form throughout, so a
-  strategy's `:encode` touches only the `:href`). Empty `:params` / `:query`
-  and an absent `:fragment` are omitted, not carried as empty values."
-  [{:keys [to params query fragment]} path-url]
-  [:rf.route/url-requested
-   (cond-> {:url path-url :to to}
-     (seq params) (assoc :params params)
-     (seq query)  (assoc :query query)
-     fragment     (assoc :fragment fragment))])
+  `path-url` is the PATH-FORM url `route-url` built from the EXTRACTED address
+  (`rf.routing.address/extract-address`, never a bespoke destructuring of the
+  caller's props), so the payload names the same destination the rendered
+  `:href` was built from. The cascade is path-form throughout, so a strategy's
+  `:encode` touches only the `:href`.
+
+  ONE key, and that is the request grammar's own rule rather than a trim for
+  its own sake: `:url` EXCLUDES `:params` / `:query` because a raw URL IS the
+  address (Spec 012 §The request grammar). The `:to` / `:params` / `:query` /
+  `:fragment` this payload used to carry beside it were a second spelling of
+  one destination — re-derived from `:url` by the match the handler runs
+  anyway — and nothing read them: `handle-url-change` destructures `url` /
+  `replace?` / `bypass-leave?`, `normalize-policy` selects `[:replace?
+  :scroll]`, and `decide` takes its `:target` from `(target-of-url app-url)`,
+  never from the request. Carrying them made the grammar false at the one
+  door that dispatches it, and invited a reader to believe an address key
+  here could disagree with the URL and still be honoured (rf2-kuky.36).
+
+  That shrink is why this fn takes only `path-url`: the extracted address it
+  used to take as well is now upstream of the payload rather than in it. It
+  stays a named definition — rather than an inlined map literal at each of
+  its two call sites — because being the ONE synthesiser is the whole of its
+  job: `rf/route-link` and the `link-model` seam dispatch the same navigation
+  identity by construction, and a future key added here reaches both."
+  [path-url]
+  [:rf.route/url-requested {:url path-url}])
 
 #?(:cljs
    (defn- compose-intent-handler
@@ -359,12 +373,13 @@
            ;; the click dispatch — the cascade is path-form throughout, so the
            ;; encode touches ONLY the href. One of the four consult points.
            encode (:encode (rf.routing.strategy/url-strategy-for-frame-id render-frame))
-           [url base-attrs address] (href-attrs props encode)
+           [url base-attrs _address] (href-attrs props encode)
            ;; The click payload comes from the ONE synthesiser
-           ;; (`url-requested-payload`) over the address `href-attrs` already
-           ;; extracted — the href and the payload therefore name the same
-           ;; destination by construction, not by two readings of `props`.
-           payload (url-requested-payload address url)
+           ;; (`url-requested-payload`) over the PATH-FORM url `href-attrs`
+           ;; built from the address it extracted — so the href and the
+           ;; payload name the same destination by construction, not by two
+           ;; readings of `props`.
+           payload (url-requested-payload url)
            ;; Anchors carrying native-handling attributes
            ;; (`target="_blank"`, `download`) must let the browser handle
            ;; the click — SPA interception would defeat new-tab / download.
@@ -442,8 +457,11 @@
 ;;
 ;;   `link-model`     — PURE, both hosts. The whole routing calculation for one
 ;;                      link render: strategy-encoded href, the path-form
-;;                      `:rf.route/url-requested` dispatch payload, and native?
-;;                      (target≠_self / download → the browser owns the click).
+;;                      `:rf.route/url-requested` dispatch payload, native?
+;;                      (target≠_self / download → the browser owns the click),
+;;                      and the prefetch warm-up pair (the
+;;                      `[:rf.route/prefetch …]` vector, or nil for a passive
+;;                      link, plus the intent positions it belongs at).
 ;;   `activate-link!` — CLJS only. THE router-attributed click decision (run the
 ;;                      caller `:on-click`, defer on defaultPrevented / native? /
 ;;                      modifier / auxiliary-button, else preventDefault + dispatch
@@ -461,18 +479,39 @@
   native-handling HTML attrs `:target` / `:download`) and the ui view's
   captured `render-frame` id, compute the rendered link model:
 
-    {:href    <strategy-encoded href — one of the four strategy consult
-              points, on BOTH hosts>
-     :payload <the FULL `[:rf.route/url-requested {...}]` dispatch vector,
-              path-form throughout — the navigation identity>
-     :native? <true when the anchor carries native-handling attrs the
-              framework must not intercept even on a plain left click>}
+    {:href          <strategy-encoded href — one of the four strategy consult
+                    points, on BOTH hosts>
+     :payload       <the `[:rf.route/url-requested {:url …}]` dispatch vector,
+                    path-form throughout — the navigation identity>
+     :native?       <true when the anchor carries native-handling attrs the
+                    framework must not intercept even on a plain left click>
+     :prefetch      <the `[:rf.route/prefetch {address}]` warm-up vector when
+                    the link opted in with `:prefetch :intent`, else nil —
+                    `prefetch-payload`, the ONE prefetch calculation>
+     :prefetch-keys <the credible-intent positions that vector belongs at:
+                    `prefetch-intent-keys`>}
 
   Bundles route-url synthesis, strategy encode, the shared
-  `url-requested-payload`, and native-attr detection, so the ui artefact reaches
-  route-link semantics through this one seam without exposing routing internals
-  (strategy encode, frame capture, source stamping) as separate hooks — and
-  reaches the SAME payload synthesiser `rf/route-link` uses, not a copy of it.
+  `url-requested-payload`, native-attr detection and the prefetch warm-up, so
+  the consuming view artefact reaches route-link semantics through this one
+  seam without exposing routing internals (strategy encode, frame capture,
+  source stamping) as separate hooks — and reaches the SAME synthesisers
+  `rf/route-link` uses, not copies of them.
+
+  **The prefetch pair is a PAIR on purpose.** `:prefetch` is what to
+  dispatch; `:prefetch-keys` is where. A consumer cannot statically require
+  routing (the packaging graph is `<view artefact> -> core late-bind <-
+  routing`), so a consumer that wrote the three positions out again would be
+  restating routing's law in a second file, and a position added to
+  `prefetch-intent-keys` would reach `rf/route-link`'s anchors and silently
+  not the consumer's — the exact drift `prefetch-intent-keys`' own docstring
+  exists to refuse. Carrying them here rather than as a second late-bind hook
+  keeps the seam ONE hook: `:routing/prefetch-intent-keys` was retired for
+  want of a reader (rf2-6r9j.15) and is deliberately not re-published.
+
+  A nil `:prefetch` is the passive link, and it is what an ABSENT `:prefetch`
+  key produces — never a partially-warm one. A consumer fills every
+  `:prefetch-keys` position or none.
   `render-frame`'s `:url-strategy` supplies `:encode` on both hosts (a nil
   `render-frame` resolves to the history default), so the server shell's href
   is the one the hydrated client renders — SSR skips the strategy's browser
@@ -489,9 +528,12 @@
   ;;
   ;; EP-0037 R3: `link-model` is the one link calculation a view artefact's
   ;; route-link runs on BOTH hosts, so the `:prefetch` value is validated
-  ;; here too. Its `prefetch-payload` call is CLJS-only (the JVM/SSR shell
-  ;; installs no intent handlers), which left the server render accepting an
-  ;; unsupported mode the client rejected.
+  ;; here too — through the `prefetch-payload` call below, which validates
+  ;; before it reads, so the seam cannot compute a warm-up without having
+  ;; rejected a bad mode. `prefetch-payload` is PURE and runs on both hosts:
+  ;; the JVM/SSR shell drops the event props it lands at, along with every
+  ;; other `on-*`, so the server emits what the client emits minus handlers
+  ;; and rejects exactly what the client rejects (rf2-kuky.37).
   ;;
   ;; DELIBERATE DUPLICATION — the `route-url` + `encode` pair below is also
   ;; derived by `href-attrs` (top of this file, the `rf/route-link` internal),
@@ -507,13 +549,19 @@
   ;; afternoon unifying them — but if a shared home appears for another reason,
   ;; collapse both onto it. (The same wall rf2-wzqtu hit for the readiness
   ;; projectors.)
-  (validate-prefetch! target)
-  (let [{:keys [to params query fragment] :as addr} (rf.routing.address/extract-address target)
+  (let [{:keys [to params query fragment]} (rf.routing.address/extract-address target)
         path-url (rf.routing.registry/route-url {:to to :params (or params {}) :query (or query {}) :fragment fragment})
         encode   (:encode (rf.routing.strategy/url-strategy-for-frame-id render-frame))]
-    {:href    (encode path-url)
-     :payload (url-requested-payload addr path-url)
-     :native? (native-anchor? target)}))
+    {:href          (encode path-url)
+     :payload       (url-requested-payload path-url)
+     :native?       (native-anchor? target)
+     ;; `prefetch-payload` validates `:prefetch` itself (it calls
+     ;; `validate-prefetch!` before it reads the value), so this seam rejects
+     ;; an unsupported mode on BOTH hosts through the same one call that
+     ;; computes the warm-up — no separate validation step to fall out of
+     ;; step with it.
+     :prefetch      (prefetch-payload target)
+     :prefetch-keys prefetch-intent-keys}))
 
 #?(:cljs
    (defn prefetch-on-intent!
@@ -534,7 +582,18 @@
      `prefetch-intent-attrs` composes the same behaviour from
      `compose-intent-handler` at every `prefetch-intent-keys` position. Kept as
      routing's one statement of the intent-dispatch law, for a view artefact
-     that needs it to call directly."
+     that needs it to call directly.
+
+     rf2-g8pf kept this fn on the ground that retiring it would leave a
+     `link-model` consumer able to ACCEPT `:prefetch :intent` with no
+     published way to honour it. rf2-kuky.37 closed that hole from the other
+     side — `link-model` now carries `:prefetch` / `:prefetch-keys`, and
+     `re-frame.hicasso`'s route-link honours the key from there — so this fn
+     is no longer the ONLY published route. It stays for the consumer shape
+     the seam keys do not serve: a closure-based one. Hicasso takes the data
+     route because its anchors carry intents as vectors its own lowering
+     walks; a view artefact that installs real handler functions instead
+     wants this composition, and would otherwise write it again."
      [e caller-handler render-frame payload]
      (when caller-handler (caller-handler e))
      (when payload

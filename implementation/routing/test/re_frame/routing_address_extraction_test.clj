@@ -196,7 +196,14 @@
                                  :rf/default)]
       (is (= "/articles/x" (:href model))
           "the DOM attrs did not leak into the synthesised href")
-      (is (= [:rf.route/url-requested {:url "/articles/x" :to :route/article :params {:slug "x"}}]
-             (:payload model)))
+      ;; rf2-kuky.36: the payload is ONE key. `=` on the whole map is the
+      ;; pin — an address key creeping back in (`:to`, `:params`, `:query`,
+      ;; `:fragment`) fails here rather than being silently tolerated. The
+      ;; address is not lost, it is IN the url: `/articles/x` is what
+      ;; `{:to :route/article :params {:slug "x"}}` synthesised, and
+      ;; `match-url` is what reads it back.
+      (is (= [:rf.route/url-requested {:url "/articles/x"}]
+             (:payload model))
+          "the url-requested payload carries the url and nothing else")
       (is (true? (:native? model))
           "native-anchor? still reads the FULL target (target=_blank / download)"))))

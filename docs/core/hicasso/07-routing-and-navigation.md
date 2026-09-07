@@ -199,9 +199,33 @@ exit. A link veto covers only that link.
 
 Warming a destination on hover, focus, or touch is an event,
 `[:rf.route/prefetch address]`, dispatched from the intent that signals the
-interest. `h/route-link` does not read a `:prefetch` key — the link installs
-none of routing's prefetch handlers — because that event needs nothing the link
-does not already give you:
+interest. Write `:prefetch :intent` and the link fills the three intent
+positions with that event, built from the address the link already carries:
+
+```clojure
+(h/route-link {:to :app/article :params {:id "intro"} :prefetch :intent}
+  "Read more")
+```
+
+renders
+
+```clojure
+[:a {:href           "/articles/intro"
+     :on-click       [...]                       ;; the navigation, as always
+     :on-mouse-enter [:rf.route/prefetch {:to :app/article :params {:id "intro"}}]
+     :on-focus       [:rf.route/prefetch {:to :app/article :params {:id "intro"}}]
+     :on-touch-start [:rf.route/prefetch {:to :app/article :params {:id "intro"}}]}
+ "Read more"]
+```
+
+`:intent` is the only accepted value, and **omitting** `:prefetch` is the only
+way to opt out — a key present with any other value (`true`, `nil`, or a mode
+borrowed from another router such as `:render`) raises
+`:rf.error/route-link-bad-prefetch` at the render site rather than quietly
+rendering a passive link. Omit it and none of the three positions is touched.
+
+The sugar abbreviates a form you can always write yourself, and that longer
+form is the answer whenever a position must carry something else:
 
 ```clojure
 (h/route-link {:to             :app/article
@@ -211,9 +235,17 @@ does not already give you:
   "Read more")
 ```
 
-The address takes `:to`, `:params`, `:query` and `:fragment` and nothing else.
-`:on-focus` carries the same vector for keyboard intent, and application code
-may dispatch the event directly.
+The address takes `:to`, `:params`, `:query` and `:fragment` and nothing else
+(`:fragment` is dropped from the prefetch — a fragment is never a resource
+input). Application code may dispatch the event directly.
+
+**Do not write both.** `:prefetch :intent` *claims* `:on-mouse-enter`,
+`:on-focus` and `:on-touch-start`, and a value of your own at any of them
+raises `:rf.error/hicasso-route-link-claimed-intent-position` at render.
+Hicasso carries one intent per position, so there is nothing to compose with,
+and half-applying the warm-up would leave a link that prefetches at two
+positions out of three — indistinguishable from a working one until you
+measure. Pick a side per link: the sugar, or the explicit vectors.
 
 Prefetch does not navigate. It does not change the URL, run guards, apply
 scroll/focus policy, or block activation. A later click uses ordinary resource
@@ -409,7 +441,7 @@ and activation pipeline as route links:
 | Links change the page but the address bar never moves, and a refresh loses the route | No frame carries `:url-bound? true`, so nothing owns the browser URL | Declare it on the frame — [Boot a routed application](#boot-a-routed-application) |
 | The page loads and behaves but is unstyled after a deep link or a refresh | Relative asset paths in the host page resolve against the current route | Make host-page asset paths absolute, or add `<base href="/">` |
 | `route-link` rejects a bare `:on-click` vector | The click would produce two semantic events | Use `[::h/prevent [:app/event]]`, `h/event`, or a plain function according to the intended veto |
-| A link carrying `:prefetch` warms nothing | `route-link` installs none of routing's prefetch handlers | Dispatch `[:rf.route/prefetch address]` from `:on-mouse-enter` |
+| A link carrying `:prefetch :intent` raises `:rf.error/hicasso-route-link-claimed-intent-position` | The link also supplies `:on-mouse-enter`, `:on-focus` or `:on-touch-start`, and `:prefetch` claims all three | Drop `:prefetch` and dispatch `[:rf.route/prefetch address]` by hand from the positions you are not otherwise using |
 | Every attempt to leave is rejected and the guard is named | `:rf.error/can-leave-non-boolean` | Return strict `true` or `false` from the guard subscription |
 | Back/Forward restores to the top | Scroll restoration ran before content restored page height | Block activation on required resources or keep previous content visible |
 | Focus stays on the old navigation link | Main region was not keyed/focusable or its ref did not run | Key by page identity, add `:tab-index -1`, and focus from the callback ref |
