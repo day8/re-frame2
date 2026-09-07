@@ -114,7 +114,6 @@
   below."
   {:rf.machine.lifecycle/destroyed #{:parent-frame-destroyed}
    :rf.machine/destroyed           #{:rf.machine/finished
-                                     :rf.machine/join-reaped
                                      :explicit}})
 
 (def ^:private destroy-operations
@@ -153,8 +152,10 @@
 
     - `:rf.machine/finished`   — natural termination; the actor closed
                                  its attempt through `:rf.machine/done`.
-    - `:rf.machine/join-reaped` — post-terminal cleanup of an already
-                                 `:done ∪ :failed` `:spawn-all` child.
+                                 This covers a `:spawn-all` join child
+                                 too: completion is finality, so a folded
+                                 child tore itself down there, and only
+                                 SURVIVORS are cancelled at resolution.
 
   Membership here is necessary but NOT sufficient for an anchor — the
   (channel, reason) tuple must also be emittable. See
@@ -220,8 +221,7 @@
   cancellation — i.e. both halves must hold:
 
     1. the (channel, reason) tuple is one the runtime emits, and
-    2. that reason is a cancellation (not `:rf.machine/finished` /
-       `:rf.machine/join-reaped`).
+    2. that reason is a cancellation (not `:rf.machine/finished`).
 
   Checking the tuple rather than channel-membership and
   reason-membership independently is what keeps the impossible
