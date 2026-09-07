@@ -247,7 +247,7 @@
             `nil` disables every validation surface — including the
             boundary interceptor. The handler runs on a wildly malformed
             payload because validation has been opted out."
-    (rf.schemas/set-schema-validator! nil)
+    (rf.schemas/set-schema-fns! {:validate nil})
     (try
       (let [calls (atom 0)]
         (rf/reg-event :api/disabled
@@ -258,7 +258,7 @@
         (is (= 1 @calls)
             "handler ran — nil validator means no boundary check, even in production"))
       (finally
-        (rf.schemas/reset-schema-validator!)))))
+        (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)))))
 
 ;; ---- rf2-tiymn — the humanizer is NOT published in production ------------
 ;;
@@ -309,8 +309,8 @@
             false verdict rejects the event and the handler is not invoked"
     (let [seen  (atom [])
           calls (atom 0)]
-      (rf.schemas/set-schema-validator!
-        (fn [schema _value] (swap! seen conj schema) false))
+      (rf.schemas/set-schema-fns!
+        {:validate (fn [schema _value] (swap! seen conj schema) false)})
       (try
         (rf/reg-event :wire/custom
           {:schema       nil
@@ -321,4 +321,4 @@
         (is (= [nil] @seen)
             "the validator RECEIVED the exact nil token in the production path")
         (finally
-          (rf.schemas/reset-schema-validator!))))))
+          (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns))))))

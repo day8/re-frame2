@@ -1042,18 +1042,18 @@
            (rf.schemas/app-schemas-digest :test/o2))
         "same schema set, different registration order → same digest")))
 
-;; ---- rf2-froe — set-schema-validator! seam -------------------------------
+;; ---- rf2-froe — the validator-install seam --------------------------------
 ;;
 ;; Per Spec 010 §Non-Malli validators (rf2-froe) the validator and
-;; explainer fns are pluggable via `(rf/set-schema-validator! ...)` /
-;; `(rf/set-schema-explainer! ...)`. Default delegates to Malli; apps
+;; explainer fns are pluggable through `(set-schema-fns! {:validate ...})` /
+;; `(set-schema-fns! {:explain ...})`. Default delegates to Malli; apps
 ;; that want to drop the ~24 KB gzipped Malli surface (rf2-qnxf bundle
 ;; audit) substitute another fn (or `nil` for no-op).
 
 (deftest default-validator-delegates-to-malli
   (testing "Per Spec 010 §Non-Malli validators — out of the box the
-            validator delegates to Malli; apps that don't call
-            set-schema-validator! get the same behaviour they had
+            validator delegates to Malli; apps that never install a
+            validator of their own get the same behaviour they had
             before the seam landed."
     (rf/reg-app-schema [:n] [:int])
     (with-trace-recorder! [traces]
@@ -1066,7 +1066,7 @@
             "default Malli validator catches the type mismatch")))))
 
 (deftest custom-validator-is-invoked-instead-of-malli
-  (testing "Per Spec 010 §Non-Malli validators — set-schema-validator! swaps
+  (testing "Per Spec 010 §Non-Malli validators — a `:validate` install swaps
             in any (fn [schema value] truthy?); the framework calls it on
             every validation site instead of the default."
     (let [calls (atom [])
@@ -1076,7 +1076,7 @@
           custom (fn [schema value]
                    (swap! calls conj [schema value])
                    (not (and (string? value) (str/includes? value "bad"))))]
-      (rf.schemas/set-schema-validator! custom)
+      (rf.schemas/set-schema-fns! {:validate custom})
       (rf/reg-app-schema [:label] :string)
       (with-trace-recorder! [traces]
         (rf.schemas/validate-app-schema! {:label "hello"} :h/ok)        ;; passes
@@ -1091,12 +1091,12 @@
 
 (deftest nil-validator-disables-validation-on-every-surface
   (testing "Per Spec 010 §Non-Malli validators (rf2-rbbmt dedup D1) —
-            passing nil to set-schema-validator! disables validation
+            installing an explicit nil `:validate` disables validation
             entirely; every meta-bearing validate-*! fn AND the app-db
             walker return true without inspecting the schema, and no
             trace fires. Parameterised over the surfaces that previously
             duplicated the no-op assertion as separate deftests."
-    (rf.schemas/set-schema-validator! nil)
+    (rf.schemas/set-schema-fns! {:validate nil})
     (with-trace-recorder! [traces]
       (rf/reg-app-schema [:n] [:int])
       ;; Each malformed value would fire a trace under the default
@@ -1120,7 +1120,7 @@
             also holds through a live dispatch: the handler runs even on
             a payload that would fail the registered :schema, and no
             pre-handler validation trace fires."
-    (rf.schemas/set-schema-validator! nil)
+    (rf.schemas/set-schema-fns! {:validate nil})
     (let [calls (atom 0)]
       (rf/reg-event :user/strict
         {:schema [:cat [:= :user/strict] :int]}
@@ -1171,30 +1171,30 @@
       (is (= "::BUNDLE-PRINTER::" (rf.schemas.validator/run-printer :int))
           "printer reaches the hot path"))))
 
-(deftest set-schema-validator-is-honest-validator-only
-  (testing "rf2-13meg — set-schema-validator! sets ONLY the validator.
-            The misleading map-arity that ALSO set explainer + printer is
-            gone: passing a map installs that literal map AS the validator
-            fn-value (a single-purpose setter), it does NOT bundle-install.
-            The explainer/printer are left at their defaults."
+(deftest a-validate-only-install-leaves-explainer-and-printer-untouched
+  (testing "rf2-13meg / rf2-kuky.39 — an install writes ONLY the keys it
+            carries. `{:validate f}` swaps the validator and leaves the
+            explainer and printer at their defaults, which is what makes
+            a per-fn setter unnecessary: the subset IS the single-purpose
+            call."
     (let [default-explainer @rf.schemas.validator/explainer-fn
           default-printer   @rf.schemas.validator/printer-fn
           v-fn (fn [_ _] true)]
-      (rf.schemas/set-schema-validator! v-fn)
+      (rf.schemas/set-schema-fns! {:validate v-fn})
       (is (= v-fn @rf.schemas.validator/validator-fn) "validator installed")
       (is (= default-explainer @rf.schemas.validator/explainer-fn)
-          "explainer untouched — set-schema-validator! does not touch it")
+          "explainer untouched — an omitted key is not a write")
       (is (= default-printer @rf.schemas.validator/printer-fn)
-          "printer untouched — set-schema-validator! does not touch it"))))
+          "printer untouched — an omitted key is not a write"))))
 
-(deftest set-schema-explainer-only-leaves-validator-untouched
-  (testing "set-schema-explainer! swaps just the explainer; the validator
+(deftest an-explain-only-install-leaves-the-validator-untouched
+  (testing "an `:explain` install swaps just the explainer; the validator
             (default Malli) keeps catching real failures."
     (let [explained (atom nil)
           custom-e  (fn [_s v] (reset! explained v) {:custom-said v})]
       ;; Validator stays at its default (Malli); only the explainer is
       ;; substituted.
-      (rf.schemas/set-schema-explainer! custom-e)
+      (rf.schemas/set-schema-fns! {:explain custom-e})
       (rf/reg-app-schema [:n] [:int])
       (with-trace-recorder! [traces]
         (rf.schemas/validate-app-schema! {:n "broken"} :h/oops)
@@ -1204,7 +1204,7 @@
           (is (= {:custom-said "broken"} (-> v :tags :explain))))))))
 
 (deftest nil-explainer-fires-trace-with-nil-explain
-  (testing "rf2-ynjts.12 — when set-schema-explainer! is nil, the
+  (testing "rf2-ynjts.12 — when the installed `:explain` is nil, the
             VALIDATOR still catches failures and the trace still fires;
             run-explainer's nil arm returns nil so the trace's :explain
             slot is nil (the explainer seam is independent of the
@@ -1218,8 +1218,8 @@
     ;; Custom validator that fails everything; explainer nilled. The
     ;; default Malli explainer is replaced by nil so the failure branch
     ;; threads `nil` through `:explain` rather than a Malli explanation.
-    (rf.schemas/set-schema-validator! (fn [_ _] false))
-    (rf.schemas/set-schema-explainer! nil)
+    (rf.schemas/set-schema-fns! {:validate (fn [_ _] false)})
+    (rf.schemas/set-schema-fns! {:explain nil})
     (rf/reg-app-schema [:n] [:int])
     (with-trace-recorder! [traces]
       ;; app-db walk emit site.
@@ -1242,14 +1242,14 @@
           (is (nil? (-> v :tags :explain))
               ":explain is nil — run-explainer's nil-explainer arm returned nil"))))))
 
-(deftest reset-schema-validator-restores-defaults
-  (testing "reset-schema-validator! brings the framework default back —
-            test-support helper for cleaning up after a custom
-            registration. After reset, the default Malli behaviour
-            resumes."
+(deftest installing-default-schema-fns-restores-defaults
+  (testing "`(set-schema-fns! default-schema-fns)` brings the framework
+            default back — the whole of what a reset verb used to do, as
+            an ordinary install of a public value. After it, the default
+            Malli behaviour resumes."
     ;; Install a sabotage validator: passes everything (so a known-bad
     ;; value would slip past).
-    (rf.schemas/set-schema-validator! (fn [_ _] true))
+    (rf.schemas/set-schema-fns! {:validate (fn [_ _] true)})
     (rf/reg-app-schema [:n] [:int])
     ;; First confirm the sabotage is in effect.
     (with-trace-recorder! [traces]
@@ -1258,7 +1258,7 @@
                           @traces))
           "sabotage validator passes everything — no trace"))
     ;; Reset back to default Malli, retry the bad value, expect a trace.
-    (rf.schemas/reset-schema-validator!)
+    (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)
     (with-trace-recorder! [traces]
       (rf.schemas/validate-app-schema! {:n "bad"} :h/back-to-default)
       (is (= 1 (count (filter #(= :rf.error/schema-validation-failure (:operation %))
@@ -1271,7 +1271,7 @@
             does NOT consult interop/debug-enabled? (the boundary
             interceptor runs in production by design); it routes through
             the registered validator the same way the dev hot path does."
-    (rf.schemas/set-schema-validator! (fn [_ v] (= v :good)))
+    (rf.schemas/set-schema-fns! {:validate (fn [_ v] (= v :good))})
     (with-redefs [rf.interop/debug-enabled? false]
       (is (true?  (rf.schemas/validate-with-registered-fn :keyword :good))
           "valid value passes — debug gate ignored")
@@ -1279,36 +1279,35 @@
           "invalid value fails — debug gate ignored"))))
 
 (deftest validator-set-via-public-api-is-visible-on-schemas-ns
-  (testing "The public re-export rf/set-schema-validator! flows through to
-            the schemas namespace's validator-fn atom."
+  (testing "A `:validate` install on the public `re-frame.schemas` door
+            flows through to the namespace's validator-fn atom."
     (let [my-fn (fn [_ _] :sentinel)]
-      (rf.schemas/set-schema-validator! my-fn)
+      (rf.schemas/set-schema-fns! {:validate my-fn})
       (is (= my-fn @rf.schemas.validator/validator-fn)
           "the atom carries the fn the user registered"))))
 
-;; ---- rf2-pk8ur — set-schema-printer! public-surface contract -------------
+;; ---- rf2-pk8ur — the `:print` public-surface contract ---------------------
 ;;
 ;; Per Spec 010 §Schema digest line 491 (rf2-wla45) the printer fn is the
 ;; third leg of the validator-surface seam: substitute-Malli ports register
 ;; their own (validate, explain, print) triple so the digest reflects the
 ;; port's own serialisation contract rather than the framework's Malli-EDN
 ;; default. The artefact-side contract — atom swap, default fallback,
-;; map-arity, hot-path read — is locked by `printer_seam_test.clj`.
+;; hot-path read — is locked by `printer_seam_test.clj`.
 ;;
-;; This file pins the PUBLIC-SURFACE contract: a call to the re-exported
-;; `re-frame.core/set-schema-printer!` flows through the late-bind directory
-;; and reaches the schemas artefact's printer atom + run-printer hot path
-;; + digest pipeline. Parallel to `validator-set-via-public-api-is-visible-
-;; on-schemas-ns` above; closes the rf2-kp835 Phase-1 audit gap (the public
-;; symbol had no end-to-end caller exercising the wiring).
+;; This file pins the PUBLIC-SURFACE contract: a `:print` install on the
+;; public `re-frame.schemas` door reaches the artefact's printer atom +
+;; run-printer hot path + digest pipeline. Parallel to `validator-set-via-
+;; public-api-is-visible-on-schemas-ns` above; closes the rf2-kp835 Phase-1
+;; audit gap (the public symbol had no end-to-end caller exercising the
+;; wiring).
 
 (deftest printer-set-via-public-api-is-visible-on-schemas-ns
-  (testing "rf2-pk8ur — the public re-export rf/set-schema-printer! flows
-            through the late-bind directory to the schemas artefact's
-            printer-fn atom. Parallels the rf/set-schema-validator! /
-            rf/set-schema-explainer! end-to-end pins above."
+  (testing "rf2-pk8ur — a `:print` install on the public door reaches the
+            schemas artefact's printer-fn atom. Parallels the `:validate`
+            and `:explain` end-to-end pins above."
     (let [my-fn (fn [_schema-value] "::PUBLIC-SURFACE::")]
-      (rf.schemas/set-schema-printer! my-fn)
+      (rf.schemas/set-schema-fns! {:print my-fn})
       (is (= my-fn @rf.schemas.validator/printer-fn)
           "the atom carries the printer the public-surface caller registered")
       (is (= "::PUBLIC-SURFACE::" (rf.schemas.validator/run-printer :int))
@@ -1316,7 +1315,7 @@
 
 (deftest printer-set-via-public-api-flips-digest-bytes
   (testing "rf2-pk8ur — the canonical end-to-end use of the public surface:
-            a custom printer registered via rf/set-schema-printer! changes
+            a custom printer registered through the `:print` key changes
             the digest pipeline's output. This is what a non-Malli port
             (a Zod port, a clojure.spec port) does at boot — and what the
             existing 0-caller audit on the public symbol failed to
@@ -1325,7 +1324,7 @@
             construction'."
     (rf/reg-app-schema [:n] :int)
     (let [default-digest (rf.schemas/app-schemas-digest)]
-      (rf.schemas/set-schema-printer! (fn [_] "::CUSTOM-PORT::"))
+      (rf.schemas/set-schema-fns! {:print (fn [_] "::CUSTOM-PORT::")})
       (let [custom-digest (rf.schemas/app-schemas-digest)]
         (is (re-matches #"^sha256:[0-9a-f]{16}$" custom-digest)
             "digest is still the wire-form '\"sha256:\" + 16-hex'")
@@ -1335,15 +1334,15 @@
              are what the digest pipeline hashes")))))
 
 (deftest printer-set-via-public-api-nil-restores-default
-  (testing "rf2-pk8ur — passing nil to the public rf/set-schema-printer!
+  (testing "rf2-pk8ur — installing a nil `:print` on the public door
             reinstalls the default EDN canonicaliser. The digest is
             never undefined for a present schema set, even after a
             port-specific printer has been registered and then
-            withdrawn. Mirrors the artefact-side `set-schema-printer!-
-            nil-falls-back-to-default` test on the public symbol."
-    (rf.schemas/set-schema-printer! (fn [_] "::TRANSIENT::"))
+            withdrawn. Mirrors the artefact-side
+            `set-schema-fns!-nil-print-coerces-to-default` test."
+    (rf.schemas/set-schema-fns! {:print (fn [_] "::TRANSIENT::")})
     (is (= "::TRANSIENT::" (rf.schemas.validator/run-printer :int)))
-    (rf.schemas/set-schema-printer! nil)
+    (rf.schemas/set-schema-fns! {:print nil})
     (is (= ":int" (rf.schemas.validator/run-printer :int))
         "nil through the public surface falls back to default-edn-print")))
 
@@ -1362,42 +1361,44 @@
       (is (= "::FROM-PUBLIC-BUNDLE::" (rf.schemas.validator/run-printer :int))
           "the printer installed via the bundle setter reaches the hot path"))))
 
-;; ---- rf2-l4ljvr — bundle snapshot / restore ------------------------------
+;; ---- rf2-l4ljvr / rf2-kuky.39 — capture and reinstate a bundle -----------
 ;;
 ;; The validator/explainer/printer BUNDLE companion to the registry's
 ;; snapshot-schemas-by-frame / restore-schemas-by-frame! (tested below).
-;; Before rf2-l4ljvr only `reset-schema-validator!` existed (resets to the
-;; framework DEFAULT), so a test wanting to capture a custom bundle and
-;; later restore the PRIOR custom bundle hand-rolled the snapshot via raw
+;; rf2-l4ljvr first closed the asymmetry — before it there was only a verb
+;; that restored the framework DEFAULT, so a test wanting to capture a
+;; custom bundle and later reinstate it hand-rolled the read from raw
 ;; `@validator-fn` derefs (the routing/ssr/ssr-ring `with-stub-validator`
-;; fixtures). `snapshot-schema-fns` / `restore-schema-fns!` close that
-;; asymmetry so consumers never touch the raw atoms.
+;; fixtures). rf2-kuky.39 then dropped the dedicated snapshot/restore verbs:
+;; `schema-fns` is the read, `set-schema-fns!` is the install, and the pair
+;; round-trips, so capture-and-reinstate is a `let` over a value and
+;; consumers still never touch the raw atoms.
 
-(deftest snapshot-schema-fns-captures-live-bundle
-  (testing "rf2-l4ljvr — snapshot-schema-fns returns the live
+(deftest schema-fns-captures-live-bundle
+  (testing "rf2-l4ljvr — `schema-fns` returns the live
             validator/explainer/printer triple in set-schema-fns! shape"
     (let [v-fn (fn [_ _] true)
           e-fn (fn [_ _] {:explained true})
           p-fn (fn [_] "::SNAPSHOT-ME::")]
       (rf.schemas/set-schema-fns! {:validate v-fn :explain e-fn :print p-fn})
-      (let [snap (rf.schemas/snapshot-schema-fns)]
+      (let [snap (rf.schemas/schema-fns)]
         (is (= #{:validate :explain :print} (set (keys snap)))
             "snapshot is the {:validate :explain :print} bundle shape")
         (is (= v-fn (:validate snap)) "captures the live validator")
         (is (= e-fn (:explain snap))  "captures the live explainer")
         (is (= p-fn (:print snap))    "captures the live printer")))))
 
-(deftest restore-schema-fns-reinstates-custom-bundle
-  (testing "rf2-l4ljvr — restore-schema-fns! faithfully round-trips a
-            custom validator+explainer+printer bundle: snapshot a custom
-            bundle, mutate to a different bundle, restore reinstates the
-            captured one (all three fns + the run-printer hot path)"
+(deftest installing-a-captured-bundle-reinstates-it
+  (testing "rf2-l4ljvr — a captured bundle faithfully round-trips through
+            the installer: read a custom bundle, mutate to a different one,
+            install the captured value and it is reinstated (all three fns
+            + the run-printer hot path)"
     (let [v1 (fn [_ _] true)
           e1 (fn [_ _] {:reason :first})
           p1 (fn [_] "::FIRST::")]
       ;; Install bundle 1 and snapshot it.
       (rf.schemas/set-schema-fns! {:validate v1 :explain e1 :print p1})
-      (let [snap (rf.schemas/snapshot-schema-fns)]
+      (let [snap (rf.schemas/schema-fns)]
         ;; Mutate to a completely different bundle.
         (rf.schemas/set-schema-fns! {:validate (fn [_ _] false)
                              :explain  (fn [_ _] {:reason :second})
@@ -1405,22 +1406,22 @@
         (is (= "::SECOND::" (rf.schemas.validator/run-printer :int))
             "mid-state: the second bundle is live")
         ;; Restore bundle 1.
-        (let [ret (rf.schemas/restore-schema-fns! snap)]
+        (let [ret (rf.schemas/set-schema-fns! snap)]
           (is (= v1 @rf.schemas.validator/validator-fn) "validator restored")
           (is (= e1 @rf.schemas.validator/explainer-fn) "explainer restored")
           (is (= p1 @rf.schemas.validator/printer-fn)   "printer restored")
           (is (= "::FIRST::" (rf.schemas.validator/run-printer :int))
               "run-printer's hot path observes the restored printer")
           (is (= snap ret)
-              "restore-schema-fns! returns the installed bundle (set-schema-fns! return)"))))))
+              "the install returns the bundle it installed"))))))
 
-(deftest restore-schema-fns-coerces-nil-print-to-default
-  (testing "rf2-l4ljvr + rf2-ee38b.6 — restoring a bundle whose :print is
+(deftest installing-a-bundle-with-nil-print-coerces-to-default
+  (testing "rf2-l4ljvr + rf2-ee38b.6 — installing a bundle whose :print is
             nil coerces it to default-edn-print (the printer-never-nil
-            invariant run-printer relies on), exactly like set-schema-fns!"
-    ;; A hand-built bundle with an explicit nil :print (snapshot-schema-fns
-    ;; never produces nil :print, but the restore path must stay safe).
-    (rf.schemas/restore-schema-fns! {:validate (fn [_ _] true)
+            invariant run-printer relies on)"
+    ;; A hand-built bundle with an explicit nil :print (`schema-fns`
+    ;; never produces nil :print, but the install path must stay safe).
+    (rf.schemas/set-schema-fns! {:validate (fn [_ _] true)
                              :explain  nil
                              :print    nil})
     (is (some? @rf.schemas.validator/printer-fn)
@@ -1439,21 +1440,84 @@
       (rf.schemas/set-schema-fns! {:validate v-fn :print p-fn})
       (rf/reg-app-schema [:n] [:int])
       ;; Capture BOTH the bundle and the registry.
-      (let [bundle-snap   (rf.schemas/snapshot-schema-fns)
+      (let [bundle-snap   (rf.schemas/schema-fns)
             registry-snap (rf.schemas/snapshot-schemas-by-frame)]
         ;; Tear the whole runtime down to a different state.
-        (rf.schemas/reset-schema-validator!)
+        (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)
         (rf.schemas/clear-schemas-by-frame!)
         (is (not= v-fn @rf.schemas.validator/validator-fn) "bundle was reset away")
         (is (= {} @rf.schemas.storage/schemas-by-frame)  "registry was cleared")
         ;; Restore BOTH through the encapsulated API.
-        (rf.schemas/restore-schema-fns! bundle-snap)
+        (rf.schemas/set-schema-fns! bundle-snap)
         (rf.schemas/restore-schemas-by-frame! registry-snap)
         (is (= v-fn @rf.schemas.validator/validator-fn) "bundle validator restored")
         (is (= "::COMPOSED::" (rf.schemas.validator/run-printer :int))
             "bundle printer restored on the hot path")
         (is (= [:int] (rf.schemas/app-schema-at [:n]))
             "registry schema restored — the two pairs compose")))))
+
+;; ---- rf2-kuky.39 — the validator port as a value --------------------------
+;;
+;; Three names carry the whole port: `set-schema-fns!` installs,
+;; `schema-fns` reads, `default-schema-fns` is the framework's own bundle.
+;; These pin the properties that let the other six names go.
+
+(deftest default-schema-fns-is-a-plain-three-key-bundle
+  (testing "rf2-kuky.39 — `default-schema-fns` is an ordinary map carrying
+            exactly the three keys the installer accepts, so it can be
+            passed straight back to `set-schema-fns!` and destructured by
+            a port that wants to wrap one of the defaults."
+    (is (map? rf.schemas/default-schema-fns))
+    (is (= #{:validate :explain :print} (set (keys rf.schemas/default-schema-fns)))
+        "exactly the installer's key set — no extras, none missing")
+    (is (every? fn? (vals rf.schemas/default-schema-fns))
+        "every default is a callable fn; the framework default never nils a key")))
+
+(deftest installing-default-schema-fns-restores-using-default-validator?
+  (testing "rf2-kuky.39 — `using-default-validator?` (the
+            :rf.warning/schema-validator-unavailable discriminator) answers
+            true again after installing `default-schema-fns`, because the
+            value carries the SAME fn objects the atoms were seeded with.
+            An equal-but-distinct fn would fail this — the check is
+            `identical?` — which is why the defaults are exposed as a value
+            rather than rebuilt by the caller."
+    (rf.schemas/set-schema-fns! {:validate (fn [_ _] true)})
+    (is (false? (rf.schemas.validator/using-default-validator?))
+        "a custom validator is not the framework default")
+    (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)
+    (is (true? (rf.schemas.validator/using-default-validator?))
+        "installing the defaults value restores the identity, not just the shape")))
+
+(deftest an-omitted-key-differs-from-an-explicit-nil
+  (testing "rf2-kuky.39 — the distinction the installer is built on: an
+            OMITTED key leaves the live registration alone, while an
+            EXPLICIT nil writes nil (disabling that fn). Collapsing the two
+            would make a partial install unsafe."
+    (let [v-fn (fn [_ _] true)
+          e-fn (fn [_ _] {:explained true})]
+      (rf.schemas/set-schema-fns! {:validate v-fn :explain e-fn})
+      ;; Omit :validate entirely — it must survive.
+      (rf.schemas/set-schema-fns! {:explain nil})
+      (is (= v-fn (:validate (rf.schemas/schema-fns)))
+          "the omitted :validate key kept its prior value")
+      (is (nil? (:explain (rf.schemas/schema-fns)))
+          "the explicit nil :explain disabled the explainer")
+      ;; Now nil the validator explicitly.
+      (rf.schemas/set-schema-fns! {:validate nil})
+      (is (nil? (:validate (rf.schemas/schema-fns)))
+          "an explicit nil :validate disables validation"))))
+
+(deftest schema-fns-round-trips-through-the-installer
+  (testing "rf2-kuky.39 — `(set-schema-fns! (schema-fns))` is a no-op, which
+            is what makes let + finally the whole of test isolation."
+    (rf.schemas/set-schema-fns! {:validate (fn [_ _] false)
+                                 :explain  nil
+                                 :print    (fn [_] "::ROUND-TRIP::")})
+    (let [before (rf.schemas/schema-fns)]
+      (is (= before (rf.schemas/set-schema-fns! before))
+          "installing the read value returns that same value")
+      (is (= before (rf.schemas/schema-fns))
+          "and leaves the live state untouched"))))
 
 ;; ---- rf2-r2uh — :rf.schema/at-boundary interceptor ---------------------
 ;;
@@ -1616,7 +1680,7 @@
                    (swap! validator-calls inc)
                    (= value [:api/custom :good]))
           handler-calls (atom 0)]
-      (rf.schemas/set-schema-validator! custom)
+      (rf.schemas/set-schema-fns! {:validate custom})
       (rf/reg-event :api/custom
         {:schema :rf/any                     ;; opaque to the custom validator
          :interceptors [:rf.schema/at-boundary]}
@@ -1637,10 +1701,10 @@
               "custom validator was invoked at least once per boundary check"))))))
 
 (deftest boundary-interceptor-noop-when-validator-is-nil
-  (testing "Per Spec 010 §Non-Malli validators — set-schema-validator! nil
+  (testing "Per Spec 010 §Non-Malli validators — set-schema-fns! {:validate nil}
             disables every validation surface, including the boundary
             interceptor. The handler runs even with a malformed payload."
-    (rf.schemas/set-schema-validator! nil)
+    (rf.schemas/set-schema-fns! {:validate nil})
     (let [calls (atom 0)]
       (rf/reg-event :api/disabled
         {:schema [:cat [:= :api/disabled] :int]

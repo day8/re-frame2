@@ -331,8 +331,8 @@
             exact nil token to a custom validator at the bootstrap commit;
             the false verdict emits :where :machine-data and rolls back"
     (let [seen (atom [])]
-      (re-frame.schemas/set-schema-validator!
-        (fn [schema _value] (swap! seen conj schema) false))
+      (re-frame.schemas/set-schema-fns!
+        {:validate (fn [schema _value] (swap! seen conj schema) false)})
       (try
         (let [spec {:initial :idle
                     :data    {:n 1}
@@ -351,7 +351,7 @@
                                :rf.machine-schema/nil-declared]))
                 "rolled back: the violating snapshot never installed")))
         (finally
-          (re-frame.schemas/reset-schema-validator!))))))
+          (re-frame.schemas/set-schema-fns! re-frame.schemas/default-schema-fns))))))
 
 (deftest present-nil-data-schema-fails-closed-under-default-malli
   (testing "with the DEFAULT Malli validator a present nil [:schemas :data]

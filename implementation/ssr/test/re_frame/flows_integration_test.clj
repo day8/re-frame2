@@ -102,14 +102,14 @@
 (defn- reset-runtime [test-fn]
   (rf.ssr.test-fixture/reset-runtime
     (fn []
-      (rf.schemas/reset-schema-validator!)
+      (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)
       (rf.error-emit/clear-error-listeners!)
       (with-trace-recorder! [captured]
         (binding [*captured* captured]
           (try
             (test-fn)
             (finally
-              (rf.schemas/reset-schema-validator!))))))))
+              (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns))))))))
 
 (use-fixtures :each reset-runtime)
 

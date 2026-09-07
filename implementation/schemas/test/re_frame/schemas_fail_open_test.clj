@@ -232,7 +232,7 @@
         (is (some? v) "the failure trace still fired")
         (is (= :app-db (-> v :tags :where)))
         (is (nil? (-> v :tags :explain)) ":explain degraded to nil — explainer threw"))
-      (finally (rf.schemas/reset-schema-validator!)))))
+      (finally (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)))))
 
 (deftest sub-return-explainer-throw-preserves-failure
   (testing "rf2-a5kzs (finding 3) — a throwing explainer on the meta-bearing
@@ -254,7 +254,7 @@
         (is (some? v) "the sub-return failure trace fired")
         (is (= :sub-return (-> v :tags :where)))
         (is (nil? (-> v :tags :explain)) ":explain degraded to nil"))
-      (finally (rf.schemas/reset-schema-validator!)))))
+      (finally (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)))))
 
 (deftest direct-validate-event-explainer-throw-preserves-false
   (testing "rf2-a5kzs (finding 3) — validate-event! returns false (not a
@@ -272,16 +272,16 @@
         (is (some? v))
         (is (= :event (-> v :tags :where)))
         (is (nil? (-> v :tags :explain))))
-      (finally (rf.schemas/reset-schema-validator!)))))
+      (finally (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)))))
 
 (deftest boundary-explain-seam-isolates-explainer-throw
   (testing "rf2-a5kzs (finding 3, boundary seam) — explain-with-registered-fn
             degrades a throwing explainer to nil rather than propagating."
-    (rf.schemas/set-schema-explainer! throwing-explainer)
+    (rf.schemas/set-schema-fns! {:explain throwing-explainer})
     (try
       (is (nil? (rf.schemas/explain-with-registered-fn [:int] "bad"))
           "explainer throw → nil, not a propagated exception")
-      (finally (rf.schemas/reset-schema-validator!)))))
+      (finally (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)))))
 
 ;; ===========================================================================
 ;; Belt-and-braces — a non-throwing default explainer still attaches :explain

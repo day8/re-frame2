@@ -103,7 +103,7 @@
   bundle afterwards. The two deliberately conflicting schema ids make it
   observable whether a frame resolved the image or global registration."
   [calls body]
-  (let [snapshot (rf.schemas/snapshot-schema-fns)]
+  (let [snapshot (rf.schemas/schema-fns)]
     (rf.schemas/set-schema-fns!
       {:validate (fn [schema value]
                    (swap! calls conj [schema value])
@@ -114,7 +114,7 @@
        :explain  (fn [schema value]
                    {:schema schema :value value})})
     (try (body)
-         (finally (rf.schemas/restore-schema-fns! snapshot)))))
+         (finally (rf.schemas/set-schema-fns! snapshot)))))
 
 (defn- collect-error-events
   "Run `body` while collecting typed error trace events."

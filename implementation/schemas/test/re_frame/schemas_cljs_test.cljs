@@ -331,16 +331,16 @@
              (rf.schemas/app-schemas-digest :test/empty-cljs))
           "empty-set digest is byte-identical with the JVM path"))))
 
-;; ---- rf2-froe — set-schema-validator! seam under CLJS ---------------------
+;; ---- rf2-froe — the validator-install seam under CLJS ---------------------
 
 (deftest custom-validator-runs-under-reagent
   (testing "Per Spec 010 §Non-Malli validators (rf2-froe): a custom
-            validator installed via rf/set-schema-validator! is invoked
+            validator installed via `set-schema-fns!` is invoked
             on the Reagent reactive substrate just as it is on the JVM.
             Locks the cross-substrate seam contract."
     (let [calls (atom 0)
           custom (fn [_s v] (swap! calls inc) (= v 42))]
-      (rf.schemas/set-schema-validator! custom)
+      (rf.schemas/set-schema-fns! {:validate custom})
       (try
         (rf/reg-app-schema [:n] :int)
         (rf/reg-event :n/init  (fn [_ _] {:db {:n 42}}))
@@ -357,13 +357,13 @@
                 "the custom validator's falsey result fired the failure trace once
                  — for the :n/break commit; :n/init's value of 42 passed.")))
         (finally
-          (rf.schemas/reset-schema-validator!))))))
+          (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns))))))
 
 (deftest nil-validator-disables-reagent-validation
   (testing "Per Spec 010 §Non-Malli validators (rf2-froe): nil validator
             disables every validation site under Reagent — including
             the live :db commit that would otherwise fire."
-    (rf.schemas/set-schema-validator! nil)
+    (rf.schemas/set-schema-fns! {:validate nil})
     (try
       (rf/reg-app-schema [:n] :int)
       (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "definitely-not-an-int")}))
@@ -374,7 +374,7 @@
                             @traces))
             "no validation trace fires when the validator is nil"))
       (finally
-        (rf.schemas/reset-schema-validator!)))))
+        (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)))))
 
 ;; ---- rf2-r2uh — :rf.schema/at-boundary dev-mode no-op (rf2-84e9) ---------
 ;;
