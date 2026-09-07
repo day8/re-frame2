@@ -63,9 +63,10 @@
    `[:value :token]` and is therefore refused at `:auth.login/succeeded`'s
    schema boundary — leaving the canonical screenshot stuck in `:submitting`.
    PR #9386 fixed the SOURCE by giving the variant its own `:network` route
-   fixture; the final section of this ns guards that fixture, and records what
-   the acceptance found when it tried to drive it."
-  (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
+   fixture; the final section of this ns guards that fixture at TWO altitudes —
+   the compiled plan, and a live `run-variant` drive of the registered variant
+   that watches the whole cascade arrive."
+  (:require [cljs.test :refer-macros [deftest testing use-fixtures is async]]
             [malli.core :as m]
             [re-frame.registrar :as rf.registrar]
             [re-frame.core :as rf]
@@ -95,6 +96,13 @@
             ;; release bundles — is untouched: no production build requires this
             ;; namespace.
             [re-frame.story.plan :as rf.story.plan]
+            ;; rf2-cckg (the acceptance half) — the LIVE runner. `run-variant`
+            ;; allocates the variant's own frame, realizes the compiled
+            ;; `:network` fixture onto the managed-HTTP seam and drives the
+            ;; four-phase lifecycle; `rf.story.async/then` is Story's
+            ;; host-neutral promise combinator (a `js/Promise` on CLJS).
+            [re-frame.story :as rf.story]
+            [re-frame.story.async :as rf.story.async]
             [login.model]
             [login.stories :as login-stories])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
@@ -285,30 +293,39 @@
 ;; stuck in `:submitting`. PR #9386's fix gave the variant its own `:network`
 ;; route fixture, and this section guards it.
 ;;
-;; WHAT IS GUARDED HERE, AND WHY IT IS THE PLAN RATHER THAN A LIVE DRIVE.
-;; rf2-cckg asked for the end-to-end drive: run the registered variant and
-;; assert it reaches `:authed`. That was written, run against the whole
-;; node-test lane, and it FAILS at this tip - not because the fixture is absent
-;; but because `:network` is INERT on a live `run-variant`. The plan compiler
-;; lowers `:network` to `:fx-overrides {:rf.http/managed
-;; :rf.http/managed-test-stub}` (`re-frame.story.plan/lower-network`), and
-;; `:rf.http/managed-test-stub` is registered ONLY by
-;; `re-frame.http.test-support/install-managed-request-stubs!` - which, across
-;; `tools/story/src`, is called by artifact REPLAY (`re-frame.story.artifact`)
-;; and by nothing on the `run-variant` path. So the override names a target
-;; that does not resolve, the preset's generic stub answers, and the drive
-;; reproduces the PRE-FIX symptom exactly: machine `:submitting`,
-;; `:auth/authenticated` false, no token stored, and one
-;; `:rf.error/schema-validation-failure :where :event` naming `[1 :value :token]`
-;; as a missing key.
+;; TWO ALTITUDES, AND BOTH ARE LOAD-BEARING.
 ;;
-;; The repair belongs in the Story runtime, which this namespace may not reach.
-;; Until it lands, the guard that CAN hold from here is the one below: the
-;; registered variant's COMPILED PLAN must carry the token-bearing route and
-;; must lower it onto the managed-HTTP seam. Delete the `:network` slot from
-;; examples/core/login/stories.cljs and every assertion below goes red, which is
-;; the regression rf2-cckg exists to hold. What it cannot yet witness is the
-;; cascade actually arriving; that is the follow-on.
+;; (1) THE PLAN GUARD. The registered variant's COMPILED PLAN must carry the
+;;     token-bearing route for the POST the form really makes, that reply must
+;;     satisfy the REGISTERED `:auth.login/succeeded` schema, and the plan must
+;;     lower onto the managed-HTTP seam. This altitude is pure data -> data: no
+;;     frame, no host, no promise. It names WHICH slot is wrong when the drive
+;;     below goes red, which a live drive alone cannot.
+;;
+;; (2) THE LIVE DRIVE - the acceptance rf2-cckg / rf2-hz8u actually asked for.
+;;     Allocate the variant's own Story frame, run the real four-phase
+;;     lifecycle, and assert the cascade ARRIVES: the machine reaches `:authed`,
+;;     the `:auth/authenticated` tag the Welcome banner branches on reads true,
+;;     the session token reaches `:auth.session/store`, and the default
+;;     development validator refuses nothing on the way. The plan guard cannot
+;;     witness any of that - a plan is a description, and a description of a
+;;     working fixture is exactly what a BROKEN runtime also produces.
+;;
+;; That second altitude was unreachable when this section was first written:
+;; `lower-network` is pure, so it emitted the `{:rf.http/managed
+;; :rf.http/managed-test-stub}` redirect while registering nothing, and the only
+;; caller of `re-frame.http.test-support/install-managed-request-stubs!` in
+;; Story was artifact REPLAY. A live `run-variant` therefore reached the real
+;; transport and reproduced the PRE-FIX symptom exactly. PR #9398 (rf2-shx4)
+;; added `re-frame.story.network`, which the runtime calls on BOTH live paths
+;; (registered and inline) and releases at frame teardown - so the drive below
+;; runs.
+;;
+;; Delete the `:network` slot from examples/core/login/stories.cljs and BOTH
+;; altitudes go red: the plan guard on the missing route, the drive on a machine
+;; still sitting in `:submitting` with the token nowhere and one
+;; `:rf.error/schema-validation-failure :where :event` naming `[1 :value :token]`
+;; as a missing key. That is the regression rf2-cckg exists to hold.
 
 (def ^:private story-fixture-token
   "The token `:story.login/success`'s `:network` route fixture hands back - the
@@ -359,3 +376,159 @@
              (get-in plan [:world :frame :fx-overrides :rf.http/managed]))
           ":network lowered to the managed-request stub override
            (re-frame.story.plan/lower-network)"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-cckg / rf2-hz8u - THE LIVE DRIVE (the acceptance)
+;; ---------------------------------------------------------------------------
+;;
+;; Everything above reads the compiled plan. This part RUNS it: `run-variant`
+;; allocates the variant's own frame, installs the `:network` route map on the
+;; managed-HTTP seam (`re-frame.story.network/install-for-frame!`, on both live
+;; paths since rf2-shx4), then drives the four-phase lifecycle - so what is
+;; asserted below is the real cascade the Story canvas performs, not a
+;; description of one:
+;;
+;;     [:login.story/submit good-creds]
+;;       -> [:auth.login/edit-field :email ...] + [:auth.login/edit-password ...]
+;;       -> [:auth.login/submit-form]          (validates the draft)
+;;            -> [:auth.login/flow [:auth.login/submit]]      (-> :submitting)
+;;            -> [:rf.http/managed ...]        (redirected to the route fixture)
+;;                 -> [:auth.login/succeeded {:status :ok :value {... :token}}]
+;;                      -> [:auth.session/store {:token ...}]
+;;                      -> [:auth.login/flow [:auth.login/success]]  (-> :authed)
+;;
+;; STORAGE IS STUBBED, NOT REPLACED. `:auth.session/store`'s real body writes
+;; `js/globalThis.localStorage`, and that write is the one thing the acceptance
+;; wants to watch, so the JS global is swapped for a capture-only stand-in and
+;; put back. Re-registering the fx from THIS namespace would be the wrong tool
+;; twice over: it would skip the very handler body under test, and a second
+;; provenance namespace registering `[:fx :auth.session/store]` collides in the
+;; source store, which the default image projection refuses outright
+;; (`:rf.error/image-duplicate-id`).
+
+(def ^:private stored-token-key
+  "The localStorage key `:auth.session/store` writes under."
+  "auth/token")
+
+(defn- install-stub-storage!
+  "Swap `js/globalThis.localStorage` for a capture-only stand-in for the extent
+   of one drive. Returns `[captured restore!]` - `captured` is an atom of
+   `{key -> value}` recording every `setItem`, and `restore!` puts the prior
+   global back. Node ships no Web Storage, so the real fx is a silent no-op
+   here and the drive would otherwise have nothing to observe."
+  []
+  (let [captured (atom {})
+        prior    (.-localStorage js/globalThis)]
+    (set! (.-localStorage js/globalThis)
+          #js {:setItem    (fn [k v] (swap! captured assoc k v) nil)
+               :getItem    (fn [k] (get @captured k))
+               :removeItem (fn [k] (swap! captured dissoc k) nil)})
+    [captured (fn [] (set! (.-localStorage js/globalThis) prior))]))
+
+(defn- event-schema-refusals
+  "Every `:rf.error/schema-validation-failure` trace raised at the EVENT
+   boundary - the refusal the pre-fix generic `{:stubbed true}` payload earns
+   at `:auth.login/succeeded`. Empty is the assertion; a non-empty vector is
+   the pre-fix symptom."
+  [traces]
+  (filterv #(and (= :rf.error/schema-validation-failure (:operation %))
+                 (= :event (get-in % [:tags :where])))
+           traces))
+
+(defn- authenticated?
+  "The exact question `login.core/login-banner` asks before it renders the
+   'Welcome!' span, computed off the variant frame's own state - so this is the
+   view's own branch condition rather than a restatement of it."
+  [frame-id]
+  (rf/compute-sub [:rf.machine/has-tag? :auth.login/flow :auth/authenticated]
+                  (rf/frame-state-value frame-id)))
+
+(defn- drive-variant!
+  "Register the example's deck, run `variant-id` to settlement, and call `k`
+   with the unified result map, the captured storage map and the captured trace
+   vector. `k` runs with the trace probe already unregistered and the storage
+   global already restored. The variant frame is torn down afterwards, so the
+   next drive allocates a fresh one and `re-frame.story.network` releases the
+   route map this frame owned."
+  [variant-id k]
+  (login-stories/register-all!)
+  (let [[captured restore!] (install-stub-storage!)
+        traces              (record-traces!)]
+    (-> (rf.story/run-variant variant-id)
+        (rf.story.async/then
+          (fn [result]
+            (rf/unregister-listener! :trace ::probe)
+            (restore!)
+            (try
+              (k result @captured @traces)
+              (finally
+                (rf.story/destroy-variant! variant-id))))))))
+
+(deftest story-success-variant-drives-to-authed-with-the-token-stored
+  (testing "running the REGISTERED :story.login/success variant end to end
+            reaches the machine's authenticated state and the Welcome banner's
+            own branch condition, with the fixture's token reaching
+            :auth.session/store and the development validator refusing nothing"
+    (async done
+      (drive-variant! :story.login/success
+        (fn [result stored traces]
+          (is (= :ready (:lifecycle result))
+              "the four-phase lifecycle completed cleanly")
+          (is (empty? (event-schema-refusals traces))
+              (str "no event-schema refusal on the way - the pre-fix generic "
+                   "{:stubbed true} payload is refused at "
+                   ":auth.login/succeeded's [:value :token]; got "
+                   (pr-str (mapv :tags (event-schema-refusals traces)))))
+          (is (= :authed (machine-state :story.login/success))
+              ":auth.login/flow reached :authed - the canonical screenshot's
+               state, not the :submitting a missing fixture leaves it in")
+          (is (true? (authenticated? :story.login/success))
+              "the :auth/authenticated tag reads true, which is exactly what
+               login.core/login-banner branches on to render 'Welcome!'")
+          (is (= {stored-token-key story-fixture-token} stored)
+              "the fixture's session token travelled the whole cascade and
+               reached :auth.session/store, which persisted it under the
+               auth/token key")
+          (done))))))
+
+;; ---- the two controls -----------------------------------------------------
+;;
+;; These are what make the drive above a MEASUREMENT rather than a coincidence.
+;; Both run the same runner over the same deck in the same lane; neither carries
+;; a `:network` fixture, and neither reaches `:authed` or stores a token. So a
+;; runner that authenticated everything - or a stub-storage helper that captured
+;; something ambient - shows up HERE as a red, and the success drive's green
+;; cannot be explained by either.
+
+(deftest story-submitting-variant-stays-in-flight-with-no-token-stored
+  (testing ":story.login/submitting force-stubs :rf.http/managed and answers
+            NOTHING, so the flow freezes mid-request: no reply, no token, and
+            the machine is still :submitting when the run settles"
+    (async done
+      (drive-variant! :story.login/submitting
+        (fn [_result stored _traces]
+          (is (= :submitting (machine-state :story.login/submitting))
+              "the request is in flight and no reply ever came")
+          (is (false? (authenticated? :story.login/submitting))
+              "the Welcome banner's condition is false - the form is on screen")
+          (is (= {} stored)
+              ":auth.session/store never ran, so nothing was persisted")
+          (done))))))
+
+(deftest story-invalid-credentials-variant-never-submits
+  (testing ":story.login/invalid-credentials is turned away by submit-form's
+            own pre-submit Credentials validation, so the machine never leaves
+            :idle and no request is ever issued"
+    (async done
+      (drive-variant! :story.login/invalid-credentials
+        (fn [result stored _traces]
+          (is (= :idle (machine-state :story.login/invalid-credentials))
+              "nothing was dispatched at the machine - the draft never passed
+               the pre-submit check")
+          (is (false? (authenticated? :story.login/invalid-credentials))
+              "the Welcome banner's condition is false")
+          (is (seq (get-in result [:app-db :auth :login-form :errors]))
+              "the field errors surfaced in the slice, under each input")
+          (is (= {} stored)
+              "no request, no reply, no token")
+          (done))))))
