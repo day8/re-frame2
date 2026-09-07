@@ -29,7 +29,7 @@
 
  :fixture/registry
  {:event {:rf/server-init {:platforms #{:server}}
-          :test/m         {:doc "Machine-as-event-handler under :ssr-server."}}
+          :test/m         {:doc "Machine-as-event-handler under a :platform :server frame."}}
   :machine-action
   {:boom {:doc "Action body throws — exercises §11 inside an SSR drain."}}
   ;; :actions populated by the runner from :fixture/handlers :machine-action.

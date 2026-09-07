@@ -150,7 +150,8 @@ And establishing the app frame at boot (the runtime infers no frame, so you regi
 The frame config map (`make-frame`) accepts:
 
 - `:doc` — one-sentence what-and-why.
-- `:preset` — one of `:default :test :story :ssr-server`; expands at registration into a fixed metadata bundle.
+- `:preset` — one of `:default :test :story`; expands at registration into a fixed metadata bundle.
+- `:platform` — `:server` or `:client`. Overrides the host default (`:client` on CLJS, `:server` on the JVM) for THIS frame; a per-request server render tags its frame `{:platform :server}`.
 - `:fx-overrides` — `{original-id replacement-id-or-fn}`. Two active override forms (resolved by `fx/resolve-fx-with-overrides`): a **keyword** redirects the lookup to another registered fx (portable, SSR-safe pattern-level form), and a **function** `(fn [m args] ...)` runs inline with no registry lookup (one-shot CLJS-reference convenience for test fixtures and story decorators). A value that is neither (and an absent key) is treated as no override — the original fx-id flows through. The id-redirect form is preferred when the stub is reused; the fn form when one test wants a bespoke response without registering a parallel fx. Per-call `:fx-overrides` in `dispatch` / `dispatch-sync` opts accepts the same forms.
 - `:platform` — `:client` or `:server`; gates fx whose `:platforms` set excludes the active platform.
 - `:drain-depth` — bound on dispatch-cascade depth (default 100; `:story` preset tightens to 16).

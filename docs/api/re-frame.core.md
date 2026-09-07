@@ -739,22 +739,6 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
   (rf/init! reagent-adapter/adapter)
   ```
 
-### `init-platform`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (init-platform platform)   ;; :server | :client
-  ```
-- **Description**: Set the host-wide active-platform marker. The runtime tracks the active platform so `reg-fx` / `reg-cofx` `:platforms` metadata can gate execution.
-  - CLJS hosts default to `:client`, JVM hosts to `:server`; call this at boot to override (e.g. a CLJS-on-Node SSR runtime sets `:server`; a JVM-runnable browser-simulating test sets `:client`).
-  - Anything other than `:server` / `:client` raises `:rf.error/invalid-platform`. Idempotent / re-callable.
-  - Per-frame `:config :platform` (set by the `:ssr-server` preset) is the finer-grained alternative and wins over the host-wide marker.
-- **Example**:
-  ```clojure
-  (rf/init-platform :server)   ;; CLJS-on-Node SSR runtime
-  ```
-
 ### `destroy-adapter!`
 
 - **Kind**: function

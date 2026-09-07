@@ -4287,7 +4287,7 @@ Returned by `(frame-meta frame-id)`. The `:preset` field, when present, records 
    [:map
     [:id           :keyword]
     [:created-at   :any]                                                   ;; timestamp
-    [:preset       {:optional true} [:enum :default :test :story :ssr-server]] ;; per 002 §Frame presets
+    [:preset       {:optional true} [:enum :default :test :story]] ;; per 002 §Frame presets
     ;; The recorded setup-event script (EP-0027): an ordered vector of steps, each
     ;; a bare event vector OR a `{:event … :opts …}` map (`:opts` is ordinary
     ;; dispatch-sync opts, with `:frame` forbidden). A bare event vector is NOT a
@@ -4388,7 +4388,7 @@ Host-transient *state* is still a first-class storage class: the framework-owned
 > **Owner:** [002-Frames §Frame presets](002-Frames.md#frame-presets--capability-bundles-for-common-configurations)
 > **Status:** v1-required
 
-The fixed, closed expansion table for `:preset` values. Each preset expands to a metadata sub-map; the runtime merges user-supplied metadata over the expansion. Known presets: `:default`, `:test`, `:story`, `:ssr-server`. Unknown values raise `:rf.error/unknown-preset` at registration time.
+The fixed, closed expansion table for `:preset` values. Each preset expands to a metadata sub-map; the runtime merges user-supplied metadata over the expansion. Known presets: `:default`, `:test`, `:story`. Unknown values raise `:rf.error/unknown-preset` at registration time.
 
 ```clojure
 (def PresetExpansion
@@ -4399,9 +4399,7 @@ The fixed, closed expansion table for `:preset` values. Each preset expands to a
                   [:drain-depth  [:= 100]]]]
    [:story       [:map
                   [:fx-overrides [:= {:rf.http/managed :rf.http/managed-canned-success}]] ;; exact pair fixed by 002 §`:story` preset
-                  [:drain-depth  [:= 16]]]]
-   [:ssr-server  [:map
-                  [:platform     [:= :server]]]]])
+                  [:drain-depth  [:= 16]]]]])
 ```
 
 The fully-expanded metadata returned from `frame-meta` conforms to `:rf/frame-meta`; the schema for the expansion *table itself* is `:rf/preset-expansion`. Implementations must produce the same expansion the table specifies, modulo user-supplied overrides.

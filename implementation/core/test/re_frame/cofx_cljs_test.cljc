@@ -942,7 +942,7 @@
       (when rf.interop/debug-enabled?
         (let [skips (filter #(= :rf.cofx/skipped-on-platform (:operation %)) @traces)]
           (is (= 1 (count skips)) "exactly one skipped-on-platform trace")
-          (is (= :cofx-test/browser-locale (get-in (first skips) [:tags :rf.cofx/id])))))))
+          (is (= :cofx-test/browser-locale (get-in (first skips) [:tags :rf.cofx/id]))))))))
 
 ;; ===========================================================================
 ;; 10. handler-meta surfaces :rf.cofx/requires as authored (reflection)

@@ -98,7 +98,7 @@ _As-of 2026-07-04._
 3. View ergonomics section's narrative still reads CLJS-context-primary; needs a top-down rewrite to lead with explicit-frame.
 4. View invocation has two forms — Var canonical, `(view :id)` for late-binding. (Tracked as **G-E**; the `h` macro draft was dropped, so two forms is the v1 surface.)
 
-**`:preset` audit row.** Frames declare a `:preset` (`:default`, `:test`, `:story`, `:ssr-server`); the runtime expands and `(frame-meta <id>)` records the applied preset. AI-amenable scaffolding should:
+**`:preset` audit row.** Frames declare a `:preset` (`:default`, `:test`, `:story`); the runtime expands and `(frame-meta <id>)` records the applied preset. AI-amenable scaffolding should:
 
 - ✓ Use the locked closed set; never invent unknown preset values (would emit `:rf.error/unknown-preset` at registration).
 - ✓ Read the *expanded* metadata to see the effective config rather than re-deriving from the preset name.
