@@ -4,7 +4,7 @@
   The check owns these human-facing API reference surfaces:
 
     * `spec/Privacy.md`   — the EP-0015 cross-artefact privacy inventory;
-    * `docs/core/api/**` — the per-chapter human API reference;
+    * `docs/api/**`       — the per-namespace human API reference;
     * `docs/story/api/**` — the Story human API reference.
 
   It uses the same call-position discipline as the guide check: every
@@ -25,6 +25,14 @@
                         all three trees;
     * `(story/<var>`  — the `re-frame.story` alias, used in the Story API
                         reference (`docs/story/api/**`).
+
+  ALIAS SCOPE — narrower than it looks, and NOT established as contractual.
+  Only those two aliases are extracted, so a call written under a
+  sub-namespace alias (`(rf.machines/…`, `(rf.http/…`, `(rf.routing/…`) is
+  outside this check entirely. Measured 2026-09-07 and offered as a dated
+  snapshot rather than an invariant: the narrowness is not load-bearing today
+  — every such call site in `docs/api/` resolves against the manifest
+  bare-name set, so widening the anchor would not redden the gate at this tip.
 
   RESOLUTION LATITUDE. A reference resolves when its bare var name is carried
   by ANY manifest row — `check!` below builds exactly that: a BARE-NAME SET
@@ -87,12 +95,16 @@
 (def ^:private privacy-file-segs ["spec" "Privacy.md"])
 
 (def ^:private min-references
-  "Non-vacuous floor (rf2-utvst-style). The three trees together carry ~50
-   call-position references today (docs/core/api ~35, spec/Privacy ~22,
-   docs/story/api ~15). This floor sits well below that combined live count,
-   so it trips only on a near-total collapse (a tree moved/renamed, the
+  "Non-vacuous floor (rf2-utvst-style) — the aggregate floor across all three
+   trees (`spec/Privacy.md`, `docs/api/`, `docs/story/api/`), which together
+   carry several hundred call-position references, the bulk of them in
+   `docs/api/`. No per-tree count is stated here on purpose: a figure in a
+   docstring goes stale silently, and the one this replaced had drifted far
+   enough to contradict its own total. The floor sits far below the live
+   count, so it trips only on a near-total collapse (a tree moved/renamed, the
    `(alias/<var>` extraction broke, the alias convention changed) — never on
-   ordinary content churn. It is the aggregate floor across all three trees."
+   ordinary content churn. To re-measure, run the check and read the count it
+   reports."
   20)
 
 (defn reconcile
