@@ -85,13 +85,13 @@ The shape is identical; the registration surface differs by adapter (cross-ref t
 | Adapter | Ordinary (Form-1) view | Lifecycle-bearing view |
 |---|---|---|
 | **Reagent** / **Reagent-slim** | `reg-view` (defn-shape, Form-1) | `reg-view*` + `create-class` (Form-3) |
-| **UIx** | ordinary `defui`; subs via `use-subscribe`, frame via `use-frame`; `reg-view*` optional (registry addressing only) | same + `use-effect` (deps vector) |
+| **UIx** | ordinary `defui`; subs via `use-sub`, frame via `use-frame`; `reg-view*` optional (registry addressing only) | same + `use-effect` (deps vector) |
 
-The `reg-view` macro (and its injected locals) is **Reagent-only** — it does not cover UIx ([`spec/006-ReactiveSubstrate.md` §CLJS reference: UIx as alternative substrate](https://github.com/day8/re-frame2/blob/main/spec/006-ReactiveSubstrate.md#cljs-reference-uix-as-alternative-substrate), decision 4). On the hooks adapter a UIx component is an ordinary `defui`: it reads subs through the adapter's `use-subscribe` hook (no injected `subscribe`) and carries the frame — for dispatch, and for any async callback that fires after render — through the **`use-frame`** hook (the hook-position spelling of `capture-frame`, reading the surrounding `frame-provider` / `frame-root` from React context). `reg-view*` on this adapter is optional, only when a component needs registry-keyed view addressing — never the source of the frame wiring.
+The `reg-view` macro (and its injected locals) is **Reagent-only** — it does not cover UIx ([`spec/006-ReactiveSubstrate.md` §CLJS reference: UIx as alternative substrate](https://github.com/day8/re-frame2/blob/main/spec/006-ReactiveSubstrate.md#cljs-reference-uix-as-alternative-substrate), decision 4). On the hooks adapter a UIx component is an ordinary `defui`: it reads subs through the adapter's `use-sub` hook (no injected `subscribe`) and carries the frame — for dispatch, and for any async callback that fires after render — through the **`use-frame`** hook (the hook-position spelling of `capture-frame`, reading the surrounding `frame-provider` / `frame-root` from React context). `reg-view*` on this adapter is optional, only when a component needs registry-keyed view addressing — never the source of the frame wiring.
 
 ## Hicasso — the re-frame-native peer
 
-Everything above is the **adapter** story: re-frame2 drives a React view layer someone else wrote (Reagent, reagent-slim, UIx), and each adapter has its own spelling for frame awareness — `reg-view` on Reagent, the `use-subscribe` / `use-frame` hooks on UIx. Those adapters are first-class and stay that way.
+Everything above is the **adapter** story: re-frame2 drives a React view layer someone else wrote (Reagent, reagent-slim, UIx), and each adapter has its own spelling for frame awareness — `reg-view` on Reagent, the `use-sub` / `use-frame` hooks on UIx. Those adapters are first-class and stay that way.
 
 **Hicasso** (`re-frame.hicasso`, conventionally aliased `h`) is the other option — a view layer re-frame2 owns, so the view tier stays in the same data story as the rest of the app. A view is an `h/defview` mounted in brackets and never called; subscriptions are read with `(h/sub …)`, which returns the value rather than something to deref; and handlers lift to event vectors as data, so a structural test can assert what a button does with `=`.
 

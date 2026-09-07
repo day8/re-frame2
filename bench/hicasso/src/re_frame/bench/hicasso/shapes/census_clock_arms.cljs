@@ -423,8 +423,8 @@
 ;; ARM: direct UIx — the amendment's anchor
 ;; ===========================================================================
 ;;
-;; The hd8 frontier arm's shape, on the census pages: `use-current-frame`
-;; (the narrow context read) feeding the two-arity `use-subscribe`, and
+;; The hd8 frontier arm's shape, on the census pages: `use-frame`
+;; (the hook-shaped frame read) feeding the explicit `use-sub` opts form, and
 ;; the primed [[dispatch-for]] lookup for handlers — adapter-independent,
 ;; which is what lets this arm ride the Reagent run unchanged for a
 ;; mount-only row.
@@ -520,12 +520,12 @@
   shape (five coarse reads) is NOT the census's (141 per-instance) —
   the stamp says so on every row."
   [_props]
-  (let [frame      (rf.adapter.uix/use-current-frame)
-        order      (rf.adapter.uix/use-subscribe frame [:conduit/slugs])
-        articles   (rf.adapter.uix/use-subscribe frame [:census56/articles])
-        tags       (rf.adapter.uix/use-subscribe frame [:conduit/tags])
-        your-feed? (rf.adapter.uix/use-subscribe frame [:conduit/your-feed?])
-        pending    (rf.adapter.uix/use-subscribe frame [:census56/pending])
+  (let [frame      (:frame (rf.adapter.uix/use-frame))
+        order      (rf.adapter.uix/use-sub [:conduit/slugs] {:frame frame})
+        articles   (rf.adapter.uix/use-sub [:census56/articles] {:frame frame})
+        tags       (rf.adapter.uix/use-sub [:conduit/tags] {:frame frame})
+        your-feed? (rf.adapter.uix/use-sub [:conduit/your-feed?] {:frame frame})
+        pending    (rf.adapter.uix/use-sub [:census56/pending] {:frame frame})
         d          (dispatch-for frame)]
     (ux-chrome your-feed? tags d
                (for [slug order]
@@ -536,19 +536,19 @@
   "SHAPE 3's card in UIx — one component per card, the census's own
   per-instance read pair, three hooks."
   [{:keys [slug]}]
-  (let [frame    (rf.adapter.uix/use-current-frame)
-        article  (rf.adapter.uix/use-subscribe frame [:conduit/article slug])
-        pending? (rf.adapter.uix/use-subscribe frame [:conduit/favorite-pending? slug])
+  (let [frame    (:frame (rf.adapter.uix/use-frame))
+        article  (rf.adapter.uix/use-sub [:conduit/article slug] {:frame frame})
+        pending? (rf.adapter.uix/use-sub [:conduit/favorite-pending? slug] {:frame frame})
         d        (dispatch-for frame)]
     (ux-card-body slug article pending? d frame)))
 
 (defui ux-feed-page
   "SHAPE 3 in UIx — the same feed, one boundary per card."
   [_props]
-  (let [frame      (rf.adapter.uix/use-current-frame)
-        order      (rf.adapter.uix/use-subscribe frame [:conduit/slugs])
-        tags       (rf.adapter.uix/use-subscribe frame [:conduit/tags])
-        your-feed? (rf.adapter.uix/use-subscribe frame [:conduit/your-feed?])
+  (let [frame      (:frame (rf.adapter.uix/use-frame))
+        order      (rf.adapter.uix/use-sub [:conduit/slugs] {:frame frame})
+        tags       (rf.adapter.uix/use-sub [:conduit/tags] {:frame frame})
+        your-feed? (rf.adapter.uix/use-sub [:conduit/your-feed?] {:frame frame})
         d          (dispatch-for frame)]
     (ux-chrome your-feed? tags d
                (for [slug order]
@@ -560,10 +560,10 @@
   edge the census page charges only to the reader's own (the dogfood UIx
   rendering records the same limit)."
   [{:keys [id]}]
-  (let [frame    (rf.adapter.uix/use-current-frame)
-        c        (rf.adapter.uix/use-subscribe frame [:conduit/comment id])
-        user     (rf.adapter.uix/use-subscribe frame [:conduit/user])
-        deleting? (rf.adapter.uix/use-subscribe frame [:conduit/delete-pending? id])
+  (let [frame    (:frame (rf.adapter.uix/use-frame))
+        c        (rf.adapter.uix/use-sub [:conduit/comment id] {:frame frame})
+        user     (rf.adapter.uix/use-sub [:conduit/user] {:frame frame})
+        deleting? (rf.adapter.uix/use-sub [:conduit/delete-pending? id] {:frame frame})
         d        (dispatch-for frame)
         {:keys [body createdAt author]} c
         mine?    (= (:username user) (:username author))
@@ -586,9 +586,9 @@
                ($ :i.ion-trash-a)))))))
 
 (defui ux-comment-form [_props]
-  (let [frame    (rf.adapter.uix/use-current-frame)
-        pending? (rf.adapter.uix/use-subscribe frame [:conduit/comment-pending?])
-        draft    (rf.adapter.uix/use-subscribe frame [:conduit/draft rf.bench.hicasso.shapes.model/comment-draft-key])
+  (let [frame    (:frame (rf.adapter.uix/use-frame))
+        pending? (rf.adapter.uix/use-sub [:conduit/comment-pending?] {:frame frame})
+        draft    (rf.adapter.uix/use-sub [:conduit/draft rf.bench.hicasso.shapes.model/comment-draft-key] {:frame frame})
         d        (dispatch-for frame)]
     ($ :form.card.comment-form {:data-testid "comment-form"
                                 :on-submit   (fn [e]
@@ -613,8 +613,8 @@
   "SHAPE 1 in UIx — the article page's comment column, the roster's own
   seven-boundary decomposition."
   [_props]
-  (let [frame (rf.adapter.uix/use-current-frame)
-        ids   (rf.adapter.uix/use-subscribe frame [:conduit/comment-ids])]
+  (let [frame (:frame (rf.adapter.uix/use-frame))
+        ids   (rf.adapter.uix/use-sub [:conduit/comment-ids] {:frame frame})]
     ($ :div.article-page
        ($ :div.container.page
           ($ :div.row

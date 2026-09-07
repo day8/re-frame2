@@ -36,7 +36,7 @@
 
   ## It is `p0-uix-views`' spine, on this page
 
-  `rf.adapter.uix/use-subscribe` — the published spine — one read per boundary, no
+  `rf.adapter.uix/use-sub` — the published spine — one read per boundary, no
   `use-memo` around the subscription args, no `set-hiccup-emitter!`. The
   reasons are that namespace's and are not repeated here; what matters is
   that this arm is the same UIx the red zones were derived from, so a
@@ -60,8 +60,8 @@
   (rf/with-frame rf.bench.hicasso.jsfb-model/frame-id (rf/dispatch-sync event)))
 
 (defui row [{:keys [id]}]
-  (let [{:keys [label]} (rf.adapter.uix/use-subscribe [:jsfb/row id])
-        selected?       (rf.adapter.uix/use-subscribe [:jsfb/selected? id])]
+  (let [{:keys [label]} (rf.adapter.uix/use-sub [:jsfb/row id])
+        selected?       (rf.adapter.uix/use-sub [:jsfb/selected? id])]
     ($ :tr {:class (when selected? "danger")}
        ($ :td.col-md-1 id)
        ($ :td.col-md-4
@@ -73,7 +73,7 @@
 
 (defui table []
   ($ :tbody
-     (for [id (rf.adapter.uix/use-subscribe [:jsfb/order])]
+     (for [id (rf.adapter.uix/use-sub [:jsfb/order])]
        ($ row {:key id :id id}))))
 
 (defui button [{:keys [id label event]}]

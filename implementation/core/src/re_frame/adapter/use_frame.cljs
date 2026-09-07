@@ -16,7 +16,7 @@
   ## Why here (core, CLJS-only)
 
   The hook body is substrate-agnostic — it uses `React/useContext` /
-  `React/useRef` directly (like the spine's `use-subscribe`, the established
+  `React/useRef` directly (like the spine's `use-sub`, the established
   shared-hook precedent), not any UIx-specific
   hook — so the UIx `use-frame` surface re-exports this ONE
   implementation with zero drift. It lives in the core artefact because
@@ -26,7 +26,7 @@
 
   ## Frame resolution
 
-  Identical to the spine's ambient `use-subscribe` (Spec 006 §Frame
+  Identical to the spine's ambient `use-sub` (Spec 006 §Frame
   resolution (1-arg form), EP-0002): the hook subscribes to the shared
   frame React-context so a `frame-provider` swap re-renders the caller, but
   DISCARDS the raw context value and resolves through the carried-invariant
@@ -74,12 +74,12 @@
        :subscribe     (fn [query-v])}
 
       (defui counter-buttons []
-        (let [count              (use-subscribe [:counter/value])
+        (let [count              (use-sub [:counter/value])
               {:keys [dispatch]} (use-frame)]
           ($ :button {:on-click #(dispatch [:counter/inc])} \"+\")))
 
   The ambient frame resolves through the same carried-invariant chain as
-  the ambient `use-subscribe` — dynamic-var tier first, then the
+  the ambient `use-sub` — dynamic-var tier first, then the
   surrounding `frame-provider` / `frame-root` via React context — and with
   no scope in effect raises `:rf.error/no-frame-context` (never a synthetic
   `:rf/default`). The captured frame is authoritative: a per-call `:frame`
@@ -98,7 +98,7 @@
   []
   ;; Hook subscription to provider-value changes (re-render when the
   ;; surrounding frame-provider swaps frames) — same discipline as the
-  ;; spine's ambient `use-subscribe`: the raw context value (which may be
+  ;; spine's ambient `use-sub`: the raw context value (which may be
   ;; the no-provider sentinel) is DISCARDED; resolution runs through the
   ;; carried-invariant chain below.
   (React/useContext rf.adapter.context/frame-context)

@@ -261,7 +261,7 @@
 
 (defui cell-view [{:keys [i door converge?]}]
   (swap! !body-runs inc)
-  (let [v                                (rf.adapter.uix/use-subscribe [:cgrid/cell i])
+  (let [v                                (rf.adapter.uix/use-sub [:cgrid/cell i])
         {:keys [dispatch dispatch-sync]} (rf.adapter.uix/use-frame)
         send                             (if (= :queued door) dispatch dispatch-sync)]
     (swap! !rendered assoc i v)

@@ -69,7 +69,7 @@
 
     - after-render: ns-load smoke (node-safe) + mount/schedule/drain
       act-driven behaviour (rf2-334d9)
-    - use-subscribe: useSyncExternalStore post-dispatch values
+    - use-sub: useSyncExternalStore post-dispatch values
       (rf2-518sp), frame-provider 1-arg resolution, 2-arg explicit-frame
       pinning (rf2-rcgsc / rf2-y0db2), refcount cleanup on unmount
       (rf2-7g959), stable-deps-key one-subscribe-across-N-renders spy
@@ -2508,11 +2508,11 @@
 ;; (rf2-6j09b).
 ;;
 ;; WHAT THESE PIN. Every BEHAVIOUR is asserted elsewhere in this suite +
-;; the DOM twins, but two published surfaces — `use-current-frame` and
-;; `flush-views!` — are referenced by NO behavioural test, and a
-;; copy-paste spine-key mis-wire (two surfaces bound to the same spine
-;; fn) would pass every behavioural test for whichever one happened to
-;; forward the asserted behaviour. These four assertions pin the WIRING
+;; the DOM twins, but some published surfaces — `flush-views!`, and on a
+;; substrate that publishes it the raw context read — are referenced by NO
+;; behavioural test, and a copy-paste spine-key mis-wire (two surfaces bound to
+;; the same spine fn) would pass every behavioural test for whichever one
+;; happened to forward the asserted behaviour. These four assertions pin the WIRING
 ;; the behaviour tests cannot see: presence + kind of every published
 ;; surface, cross-wiring distinctness, the node-safe flush-views!
 ;; contract, and the 9-key adapter-map shape + :kind of the adapter map
@@ -2537,7 +2537,7 @@
 ;; own :kind), so no extra cfg key is needed for the adapter-map shape
 ;; assertion.
 ;;
-;; Node-safe. The hook Vars (`use-current-frame` / `use-subscribe`) are
+;; Node-safe. The hook Vars (`use-sub` / `use-frame`) are
 ;; only asserted for KIND + IDENTITY, never INVOKED outside a render (the
 ;; DOM twins own invocation). `flush-views!` is the one hook-adjacent Var
 ;; that IS node-safe to call (spine resolve-act-fn → nil when act() is
@@ -2546,8 +2546,8 @@
 
 (defn assert-public-vars-present-and-callable
   "Every surface the adapter's cfg roster names is bound and fn-shaped (a
-  dropped/renamed re-export trips this — incl. use-current-frame +
-  flush-views!, which no behavioural test references). The roster and the
+  dropped/renamed re-export trips this — incl. flush-views!, which no
+  behavioural test references). The roster and the
   `:public-surface` map are also asserted to name the SAME keys, so a row
   quietly added to (or dropped from) one side cannot leave the other
   decorative."
@@ -2563,7 +2563,8 @@
 
 (defn assert-public-vars-distinct-fns
   "No two public Vars are the SAME fn object — guards a copy-paste
-  spine-key mis-wire (e.g. use-current-frame ← :use-subscribe).
+  spine-key mis-wire (e.g. a substrate's raw context read bound to
+  `:use-sub`).
   Behavioural tests would still pass for whichever Var happened to forward
   the asserted behaviour."
   [{:keys [public-surface public-surface-keys name]}]
@@ -2789,7 +2790,7 @@
 ;; DOM / browser twins (rf2-5or96 — DOM-split remainder of rf2-p4736)
 ;;
 ;; React-hook adapters define substrate-specific component vars via
-;; `defui` + `$` (and, for use-subscribe, the substrate's hooks).
+;; `defui` + `$` (and, for use-sub, the substrate's hooks).
 ;; The suite cannot mint those at runtime, so each entry file builds the
 ;; probe components + their observation atoms + a `:render-element` thunk
 ;; (the substrate's `$`) and hands them in. The orchestration (make-frame,
@@ -3438,9 +3439,9 @@
              (try (.unmount root) (catch :default _ nil))
              (when-let [p (.-parentNode node)] (.removeChild p node)))))))))
 
-;; ---- use-subscribe (rf2-518sp / rf2-7g959 / rf2-mwft2 / rf2-rcgsc) --------
+;; ---- use-sub (rf2-518sp / rf2-7g959 / rf2-mwft2 / rf2-rcgsc) --------
 ;;
-;; The probe components read the sub via `use-subscribe` and push the
+;; The probe components read the sub via `use-sub` and push the
 ;; observed value into a side-channel atom owned by the entry file. After
 ;; a dispatch we re-render under `act` and assert the side-channel
 ;; reflects the new value. The 2-arg form pins the frame explicitly; the
@@ -3449,8 +3450,8 @@
 ;; they line up with what the entry file's probe vars closed over at
 ;; compile time.
 
-(defn assert-use-subscribe-tracks-app-db-changes
-  "rf2-518sp: use-subscribe sees post-dispatch values via
+(defn assert-use-sub-tracks-app-db-changes
+  "rf2-518sp: use-sub sees post-dispatch values via
   useSyncExternalStore.
 
   cfg keys:
@@ -3460,12 +3461,12 @@
     :us-frame          frame-id keyword the Probe's query resolves under
     :us-query          query-v keyword the Probe subscribes to"
   [{:keys [name probe-element probe-observed refcount-target us-frame us-query]}]
-  (testing (str name " — use-subscribe sees post-dispatch values (rf2-518sp)")
+  (testing (str name " — use-sub sees post-dispatch values (rf2-518sp)")
     (with-browser-act
      (fn [act-fn]
       (reset! probe-observed [])
       (reset! refcount-target us-frame)
-      (rf/make-frame {:id us-frame :doc "use-subscribe probe frame"})
+      (rf/make-frame {:id us-frame :doc "use-sub probe frame"})
       (rf/reg-event ::us-seed (fn [{:keys [db]} _] {:db {:n 1}}))
       (rf/reg-event ::us-inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
       (rf/dispatch-sync [::us-seed] {:frame us-frame})
@@ -3509,7 +3510,7 @@
   AS the flush thunk so the 1-arity `dispatch → commit` contract is what's
   proven.
 
-  cfg keys (reuses the use-subscribe probe wiring):
+  cfg keys (reuses the use-sub probe wiring):
     :adapter           the installed adapter spec map (for flush-render!)
     :probe-element     thunk → the 2-arg-form Probe element
     :refcount-target   atom the Probe reads its target frame-id from
@@ -3555,8 +3556,8 @@
                   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
                   (try (.unmount root) (catch :default _ nil)))))))))))
 
-(defn assert-use-subscribe-frame-provider-resolution
-  "rf2-518sp: use-subscribe 1-arg form resolves through the surrounding
+(defn assert-use-sub-frame-provider-resolution
+  "rf2-518sp: use-sub 1-arg form resolves through the surrounding
   frame-provider.
 
   rf2-z7hfp — MOVE THE SEAM UP. The adapter's `frame-provider` is now a
@@ -3585,11 +3586,11 @@
                                     subscribes to"
   [{:keys [name frame-provider-mount-element probe-frame-provider-element
            probe-frame-provider-observed frame-provider-frame frame-provider-query]}]
-  (testing (str name " — use-subscribe 1-arg resolves via frame-provider (rf2-518sp / rf2-z7hfp)")
+  (testing (str name " — use-sub 1-arg resolves via frame-provider (rf2-518sp / rf2-z7hfp)")
     (with-browser-act
      (fn [act-fn]
       ;; rf2-4mi2zj: CLEAR the fixture's ambient `:rf/default` dynamic scope.
-      ;; The 1-arg `use-subscribe` resolves dynamic-var FIRST (tier 1), then
+      ;; The 1-arg `use-sub` resolves dynamic-var FIRST (tier 1), then
       ;; the React-context tier (tier 2). With the fixture's ambient
       ;; `*current-frame*` :rf/default left bound, tier 1 ALWAYS wins and the
       ;; provider tier is never the decider — the sub would read :rf/default's
@@ -3600,7 +3601,7 @@
       ;; the React-context tier the genuine decider. Per the bead's masking note.
       (binding [rf.frame/*current-frame* nil]
         (reset! probe-frame-provider-observed [])
-        (rf/make-frame {:id frame-provider-frame :doc "use-subscribe frame-provider probe frame"})
+        (rf/make-frame {:id frame-provider-frame :doc "use-sub frame-provider probe frame"})
         (rf/reg-event ::frame-provider-seed (fn [{:keys [db]} _] {:db {:k :wrapped}}))
         (rf/dispatch-sync [::frame-provider-seed] {:frame frame-provider-frame})
         (rf/reg-sub frame-provider-query (fn [db _] (:k db)))
@@ -3615,16 +3616,16 @@
                   (frame-provider-mount-element
                     frame-provider-frame (probe-frame-provider-element)))))
             (is (some #{:wrapped} @probe-frame-provider-observed)
-                "use-subscribe 1-arg form read from the wrapped frame, not :rf/default")
+                "use-sub 1-arg form read from the wrapped frame, not :rf/default")
             (finally
               (try (.unmount root) (catch :default _ nil))))))))))
 
 ;; ---- the ambient hook under react-dom/server (rf2-5rqn) --------------------
 ;;
-;; THE COVERAGE GAP THIS CLOSES. Every `use-subscribe` witness that exercises
-;; the AMBIENT (1-arg) form ran on the BROWSER lane — `assert-use-subscribe-
+;; THE COVERAGE GAP THIS CLOSES. Every `use-sub` witness that exercises
+;; the AMBIENT (1-arg) form ran on the BROWSER lane — `assert-use-sub-
 ;; frame-provider-resolution` above is wrapped in `with-browser-act`, and the
-;; only node-lane SSR row (`assert-use-subscribe-ssr-render-without-commit-
+;; only node-lane SSR row (`assert-use-sub-ssr-render-without-commit-
 ;; nets-zero-at-the-horizon`) drives the EXPLICIT 2-arg probe. So the ambient
 ;; form's server behaviour had never been executed anywhere, and an
 ;; application server-rendering a UIx tree met the refusal on its first page.
@@ -3645,14 +3646,14 @@
 ;; `react-dom/server`'s `renderToString` directly, and part 2 reads the two
 ;; private slots so a green run names WHICH slot answered.
 
-(defn assert-use-subscribe-ambient-under-ssr
-  "rf2-5rqn: the AMBIENT (1-arg) `use-subscribe` resolves its frame under
+(defn assert-use-sub-ambient-under-ssr
+  "rf2-5rqn: the AMBIENT (1-arg) `use-sub` resolves its frame under
   `react-dom/server` beneath the adapter's own `frame-provider` — and the
   frame laws that guard the ambient tier survive the repair that made it so.
 
   Five parts, measured on the node lane under React 19.2:
 
-    1. THE REPAIR — an ambient `use-subscribe` inside a `frame-provider`
+    1. THE REPAIR — an ambient `use-sub` inside a `frame-provider`
        server-renders the subscribed value. It used to throw
        `:rf.error/no-frame-context`, an error whose own recovery ladder told
        the author to establish a scope they had already established.
@@ -3662,7 +3663,7 @@
        SENTINEL while the SECONDARY `_currentValue2` slot holds the real
        frame, and the PUBLIC `useContext` return answers with the real frame.
        `function-component-current-frame` (the `:adapter/current-frame`
-       reader the WHOLE ambient chain funnels through — 1-arg use-subscribe,
+       reader the WHOLE ambient chain funnels through — 1-arg use-sub,
        `use-frame`, ambient subscribe/dispatch inside render,
        `rf/current-frame-id`) now reads the primary, sees the untouched
        sentinel, and falls back to the secondary. Asserting on that reader
@@ -3700,11 +3701,11 @@
            probe-frame-provider-observed ssr-ambient-frame frame-provider-query
            probe-element refcount-target us-query substrate-kw
            ssr-dynamic-frame probe-ssr-slots-element ssr-slot-observed]}]
-  (testing (str name " — ambient use-subscribe under react-dom/server (rf2-5rqn)")
+  (testing (str name " — ambient use-sub under react-dom/server (rf2-5rqn)")
     ;; Clear the fixture's ambient `:rf/default` dynamic scope: the 1-arg form
     ;; resolves tier 1 (dynamic var) FIRST, so a bound `*current-frame*` would
     ;; answer before the React-context tier and mask the very resolution this
-    ;; row measures — the same masking note `assert-use-subscribe-frame-
+    ;; row measures — the same masking note `assert-use-sub-frame-
     ;; provider-resolution` carries.
     (binding [rf.frame/*current-frame* nil]
       (reset! probe-frame-provider-observed [])
@@ -3719,7 +3720,7 @@
                      (frame-provider-mount-element
                        ssr-ambient-frame (probe-frame-provider-element)))]
           (is (str/includes? html "k=:wrapped")
-              "the ambient use-subscribe server-rendered the value it read from
+              "the ambient use-sub server-rendered the value it read from
                the frame the enclosing frame-provider established — this render
                threw :rf.error/no-frame-context before rf2-5rqn")
           (is (some #{:wrapped} @probe-frame-provider-observed)
@@ -3753,7 +3754,7 @@
         (reset! refcount-target ssr-ambient-frame)
         (let [html (.renderToString react-dom-server (probe-element))]
           (is (str/includes? html "n=7")
-              "an explicitly-framed use-subscribe server-renders its value —
+              "an explicitly-framed use-sub server-renders its value —
                the explicit route the repair had to leave alone")))
       (testing "4a. NEGATIVE CONTROL — no provider still refuses on the server"
         (reset! probe-frame-provider-observed [])
@@ -3927,7 +3928,7 @@
        byte-matching `(rf/capture-frame frame-id)`'s key set.
     2. RESOLUTION — `:frame` is the surrounding provider's frame (the raw
        context read is discarded; the carried-invariant chain decides —
-       same chain as the ambient `use-subscribe`).
+       same chain as the ambient `use-sub`).
     3. LOCK — an op pulled off the held map dispatches into the captured
        frame from outside the render (the hold survives).
     4. STABILITY — a re-render under the same provider frame returns the
@@ -3937,7 +3938,7 @@
   cfg keys:
     :frame-provider-mount-element  thunk (fn [frame-kw child-el]) → the
                                    substrate `($ frame-provider {…} child)`
-                                   element (reused from the use-subscribe
+                                   element (reused from the use-sub
                                    cluster)
     :probe-use-frame-element       thunk → the ProbeUseFrame element
     :use-frame-observed            atom the probe pushes each render's ops
@@ -4090,9 +4091,9 @@
               (finally
                 (try (.unmount root) (catch :default _ nil)))))))))))
 
-(defn assert-use-subscribe-2-arg-pins-explicit-frame
-  "rf2-rcgsc / rf2-y0db2: use-subscribe's 2-arg form
-  `(use-subscribe frame-kw query-v)` reads from the named frame's app-db,
+(defn assert-use-sub-2-arg-pins-explicit-frame
+  "rf2-rcgsc / rf2-y0db2: use-sub's 2-arg form
+  `(use-sub frame-kw query-v)` reads from the named frame's app-db,
   bypassing the React-context tier. Two probes pinning two different
   frames in the same render tree must see each frame's distinct seed
   value.
@@ -4104,7 +4105,7 @@
     :explicit-pin-query  query-v keyword both probes subscribe to"
   [{:keys [name probe-2arg-element probe-2arg-a-observed probe-2arg-b-observed
            tenant-a-frame tenant-b-frame explicit-pin-query]}]
-  (testing (str name " — use-subscribe 2-arg pins explicit frame (rf2-rcgsc)")
+  (testing (str name " — use-sub 2-arg pins explicit frame (rf2-rcgsc)")
     (with-browser-act
      (fn [act-fn]
       (reset! probe-2arg-a-observed [])
@@ -4131,12 +4132,13 @@
             (try (.unmount root) (catch :default _ nil)))))))))
 
 ;; ===========================================================================
-;; rf2-4mi2zj — use-subscribe 1-arg FULL frame-resolution chain.
+;; rf2-4mi2zj — use-sub 1-arg FULL frame-resolution chain.
 ;;
-;; The shared spine's 1-arg `use-subscribe` used to short-circuit through
-;; `(use-subscribe-2 (use-current-frame) query-v)`: it took the NARROW raw
+;; The shared spine's 1-arg `use-sub` used to short-circuit through
+;; `(use-subscribe-2 (use-current-frame) query-v)` — the spine's internal
+;; names, which rf2-kuky.57 left alone: it took the NARROW raw
 ;; `use-context` read (React-context tier ONLY) and fed it straight into
-;; the EXPLICIT 2-arg path. Two correctness breaks followed (Spec 006 §734
+;; the EXPLICIT path. Two correctness breaks followed (Spec 006 §734
 ;; / §1058; EP-0002):
 ;;
 ;;   1. A surrounding `frame-provider` beat a `with-frame` dynamic scope —
@@ -4147,7 +4149,7 @@
 ;;      destroyed-frame outcome instead of the specified
 ;;      `:rf.error/no-frame-context`.
 ;;
-;; The existing `assert-use-subscribe-frame-provider-resolution` proves
+;; The existing `assert-use-sub-frame-provider-resolution` proves
 ;; provider resolution under the fixture's ambient `:rf/default` dynamic
 ;; scope — which MASKS the tier order (the dynamic var is always bound, so
 ;; the React-context tier is never the decider). These three assertions
@@ -4156,9 +4158,9 @@
 ;; coverage never had: dynamic-var precedence, and no-scope failure.
 ;; ===========================================================================
 
-(defn assert-use-subscribe-provider-tier-resolution-ambient-cleared
+(defn assert-use-sub-provider-tier-resolution-ambient-cleared
   "rf2-4mi2zj — provider-tier resolution with the AMBIENT dynamic scope
-  CLEARED. The 1-arg `use-subscribe` under a `frame-provider`, with
+  CLEARED. The 1-arg `use-sub` under a `frame-provider`, with
   `rf.frame/*current-frame*` bound to nil, must still resolve to the
   provider's frame via the React-context tier (tier 2). The fixture's
   default `:rf/default` ambient scope would mask this — with it cleared,
@@ -4168,7 +4170,7 @@
 
   Reuses the 1-arg ProbeFrameProvider (`:frame-provider-query`)
   observation surface; isolates onto its own frame id so it can't collide
-  with `assert-use-subscribe-frame-provider-resolution`.
+  with `assert-use-sub-frame-provider-resolution`.
 
   cfg keys:
     :frame-provider-mount-element   thunk (fn [frame-kw child-el])
@@ -4178,7 +4180,7 @@
     :frame-provider-query           query-v keyword the probe subscribes to"
   [{:keys [name frame-provider-mount-element probe-frame-provider-element
            probe-frame-provider-observed provider-tier-frame frame-provider-query]}]
-  (testing (str name " — use-subscribe 1-arg provider-tier resolution, ambient scope cleared (rf2-4mi2zj)")
+  (testing (str name " — use-sub 1-arg provider-tier resolution, ambient scope cleared (rf2-4mi2zj)")
     (with-browser-act
      (fn [act-fn]
       ;; Clear the fixture's ambient :rf/default dynamic scope so the
@@ -4199,18 +4201,18 @@
                   (frame-provider-mount-element
                     provider-tier-frame (probe-frame-provider-element)))))
             (is (some #{:from-provider} @probe-frame-provider-observed)
-                "use-subscribe 1-arg resolved via the React-context tier (provider frame)
+                "use-sub 1-arg resolved via the React-context tier (provider frame)
                  even with the dynamic var cleared — tier 2 is live")
             (is (not (some #{:rf.frame/no-provider} @probe-frame-provider-observed))
                 "the no-provider sentinel never leaked into the subscription")
             (finally
               (try (.unmount root) (catch :default _ nil))))))))))
 
-(defn assert-use-subscribe-dynamic-var-precedence-over-provider
+(defn assert-use-sub-dynamic-var-precedence-over-provider
   "rf2-4mi2zj — the ADVERSARIAL precedence case. With BOTH a dynamic-var
   scope (`rf.frame/*current-frame*` bound to the dynamic frame) AND a
   surrounding `frame-provider` naming a DIFFERENT frame, the 1-arg
-  `use-subscribe` MUST resolve to the DYNAMIC frame (tier 1 wins over tier
+  `use-sub` MUST resolve to the DYNAMIC frame (tier 1 wins over tier
   2). The buggy spine — raw `use-context` fed into the explicit path —
   read the PROVIDER's frame, inverting the spec tier order; this is the
   case the fix is for.
@@ -4233,7 +4235,7 @@
   [{:keys [name frame-provider-mount-element probe-frame-provider-element
            probe-frame-provider-observed dynamic-precedence-provider-frame
            dynamic-precedence-dynamic-frame frame-provider-query]}]
-  (testing (str name " — use-subscribe 1-arg: dynamic-var beats provider (rf2-4mi2zj)")
+  (testing (str name " — use-sub 1-arg: dynamic-var beats provider (rf2-4mi2zj)")
     (with-browser-act
      (fn [act-fn]
       (reset! probe-frame-provider-observed [])
@@ -4256,14 +4258,14 @@
                   (frame-provider-mount-element
                     dynamic-precedence-provider-frame (probe-frame-provider-element))))))
           (is (some #{:from-dynamic} @probe-frame-provider-observed)
-              "1-arg use-subscribe resolved to the DYNAMIC frame (tier 1 wins over the provider)")
+              "1-arg use-sub resolved to the DYNAMIC frame (tier 1 wins over the provider)")
           (is (not (some #{:from-provider} @probe-frame-provider-observed))
               "the surrounding provider's frame did NOT win — tier order is dynamic-var → React-context")
           (finally
             (try (.unmount root) (catch :default _ nil)))))))))
 
-(defn assert-use-subscribe-no-provider-no-dynamic-raises-no-frame-context
-  "rf2-4mi2zj — the second ADVERSARIAL case. A 1-arg `use-subscribe` with
+(defn assert-use-sub-no-provider-no-dynamic-raises-no-frame-context
+  "rf2-4mi2zj — the second ADVERSARIAL case. A 1-arg `use-sub` with
   NO surrounding `frame-provider` and NO dynamic scope must resolve to nil
   and emit `:rf.error/no-frame-context` (EP-0002 — no `:rf/default`
   floor), NOT subscribe against the no-provider sentinel
@@ -4288,7 +4290,7 @@
     :frame-provider-query           query-v keyword the probe subscribes to"
   [{:keys [name substrate-kw probe-frame-provider-element probe-frame-provider-observed
            no-scope-frame frame-provider-query]}]
-  (testing (str name " — use-subscribe 1-arg with no scope raises no-frame-context (rf2-4mi2zj)")
+  (testing (str name " — use-sub 1-arg with no scope raises no-frame-context (rf2-4mi2zj)")
     (with-browser-act
      (fn [act-fn]
       (binding [rf.frame/*current-frame* nil]
@@ -4321,8 +4323,8 @@
                 (rf.trace.tooling/unregister-listener! lk)
                 (try (.unmount root) (catch :default _ nil)))))))))))
 
-(defn assert-use-subscribe-cleanup-decrements-refcount
-  "rf2-7g959: use-subscribe pairs subscribe with rf.subs/unsubscribe on
+(defn assert-use-sub-cleanup-decrements-refcount
+  "rf2-7g959: use-sub pairs subscribe with rf.subs/unsubscribe on
   unmount so the sub-cache ref-count for the (frame, query) pair returns
   to 0 (or the entry is dropped) after unmount.
 
@@ -4334,7 +4336,7 @@
     :rc-frame                frame-id keyword for the refcount probe
     :rc-query                query-v keyword ProbeRefcount subscribes to"
   [{:keys [name probe-refcount-element refcount-target rc-frame rc-query]}]
-  (testing (str name " — use-subscribe cleanup decrements sub-cache refcount (rf2-7g959)")
+  (testing (str name " — use-sub cleanup decrements sub-cache refcount (rf2-7g959)")
     (with-browser-act
      (fn [act-fn]
       (reset! refcount-target rc-frame)
@@ -4361,7 +4363,7 @@
           (finally
             (try (.unmount root) (catch :default _ nil)))))))))
 
-(defn assert-use-subscribe-siblings-same-query-both-invalidate
+(defn assert-use-sub-siblings-same-query-both-invalidate
   "rf2-e4pyb finding 1: two INDEPENDENT sibling components subscribing to
   the SAME (frame, query) pair must BOTH receive invalidation after a
   single dispatch, and BOTH must clean up on unmount.
@@ -4441,7 +4443,7 @@
           (finally
             (try (.unmount root) (catch :default _ nil)))))))))
 
-(defn assert-use-subscribe-stable-deps-key
+(defn assert-use-sub-stable-deps-key
   "rf2-mwft2 (+ rf2-es09qq lifecycle): a stable-literal query-v across N
   re-renders must not cause the sub-cache ref-count to CHURN — it stays
   pinned at exactly 1 throughout and returns to 0 on unmount.
@@ -4462,12 +4464,12 @@
     :probe-stable-deps-element  thunk → the ProbeStableDepsParent element.
                           The parent owns a tick state + stashes its
                           set-tick fn into :stable-deps-set-tick on mount;
-                          the child reads a fixed query-v via use-subscribe.
+                          the child reads a fixed query-v via use-sub.
     :stable-deps-set-tick atom the parent stashes its setter into
     :stable-deps-frame    frame-id keyword the child resolves under
     :stable-deps-query    query-v keyword the child subscribes to"
   [{:keys [name probe-stable-deps-element stable-deps-set-tick stable-deps-frame stable-deps-query]}]
-  (testing (str name " — use-subscribe stable deps key: one subscribe across N renders (rf2-mwft2)")
+  (testing (str name " — use-sub stable deps key: one subscribe across N renders (rf2-mwft2)")
     (with-browser-act
      (fn [act-fn]
       (reset! stable-deps-set-tick nil)
@@ -4570,7 +4572,7 @@
 ;;
 ;; React 19's createRoot + <StrictMode> is the DEFAULT dev scaffold
 ;; (Vite/CRA/Next). StrictMode intentionally double-invokes effects on
-;; mount: run-effect → run-cleanup → run-effect-again. For use-subscribe
+;; mount: run-effect → run-cleanup → run-effect-again. For use-sub
 ;; that drives subscribe → unsubscribe (refcount 1 → 0, which per
 ;; rf2-cmfln disposes the cached reaction SYNCHRONOUSLY) → subscribe again
 ;; (fresh cache miss, rebuild). Because StrictMode is the default dev
@@ -4582,8 +4584,8 @@
 ;; disposed-then-derefed reaction, a watch leaked because remove-watch ran
 ;; against a stale reaction identity, or a ref-count driven below zero).
 
-(defn assert-use-subscribe-strictmode-double-mount-refcount-balances
-  "rf2-nymuy: mount the use-subscribe refcount probe wrapped in
+(defn assert-use-sub-strictmode-double-mount-refcount-balances
+  "rf2-nymuy: mount the use-sub refcount probe wrapped in
   `React.StrictMode` under `act()`. StrictMode double-invokes the mount
   effect (effect → cleanup → effect), driving the spine's
   subscribe/unsubscribe refcount dance through a momentary 1 → 0 → 1
@@ -4608,7 +4610,7 @@
     :rc-frame                frame-id keyword for the refcount probe
     :rc-query                query-v keyword ProbeRefcount subscribes to"
   [{:keys [name probe-refcount-element refcount-target rc-frame rc-query]}]
-  (testing (str name " — use-subscribe StrictMode double-mount keeps refcount balanced (rf2-nymuy)")
+  (testing (str name " — use-sub StrictMode double-mount keeps refcount balanced (rf2-nymuy)")
     (with-browser-act
      (fn [act-fn]
       (reset! refcount-target rc-frame)
@@ -4722,7 +4724,7 @@
 ;; ---- render-phase ref-count-leak regressions (rf2-879fe + rf2-8u8tx.2 +
 ;;      rf2-es09qq) ----
 ;;
-;; The shared spine's `use-subscribe` reads the cached reaction during render
+;; The shared spine's `use-sub` reads the cached reaction during render
 ;; (a render-phase `rf.subs/subscribe`) but — since rf2-es09qq — IMMEDIATELY
 ;; balances it with `rf.subs/unsubscribe`, so the render phase nets ZERO ref-count
 ;; whether or not it commits. The DURABLE ref is taken/released only in the
@@ -4741,7 +4743,7 @@
 ;;     ref-count stayed pinned at exactly 1 (the committed durable ref, not N)
 ;;     and dropped to 0 on unmount.
 ;;
-;;   • rf2-879fe — a render that runs `use-subscribe` multiple times across
+;;   • rf2-879fe — a render that runs `use-sub` multiple times across
 ;;     interrupt/restart before its eventual commit. Each render-phase
 ;;     acquisition is now self-balancing, and the single committed mount takes
 ;;     exactly one durable ref. We simulate the multi-acquisition shape by
@@ -4752,13 +4754,13 @@
 ;;     unwind). React discards the never-committed fiber, so the old ledger +
 ;;     effects could not reclaim its render-phase +1. With the balanced
 ;;     round-trip the abandoned render acquires nothing. Asserted by
-;;     `assert-use-subscribe-suspense-abort-before-commit-no-refcount-leak`.
+;;     `assert-use-sub-suspense-abort-before-commit-no-refcount-leak`.
 
-(defn assert-use-subscribe-memo-recompute-no-refcount-leak
+(defn assert-use-sub-memo-recompute-no-refcount-leak
   "rf2-8u8tx.2: a `useMemo` factory re-run on UNCHANGED deps (React's
   documented perf-opt discard) must NOT leak a sub-cache ref-count. Patches
   `React.useMemo` so its factory re-runs every render, drives several
-  committed re-renders of the use-subscribe refcount probe, and asserts the
+  committed re-renders of the use-sub refcount probe, and asserts the
   (frame, query) cache ref-count stays pinned at exactly 1 throughout — then
   drops to 0/absent on unmount.
 
@@ -4771,7 +4773,7 @@
   cfg keys: reuses the refcount-probe surface
     :probe-refcount-element / :refcount-target / :rc-frame / :rc-query"
   [{:keys [name probe-refcount-element refcount-target rc-frame rc-query]}]
-  (testing (str name " — use-subscribe survives useMemo recompute with no refcount leak (rf2-8u8tx.2)")
+  (testing (str name " — use-sub survives useMemo recompute with no refcount leak (rf2-8u8tx.2)")
     (with-browser-act
      (fn [act-fn]
       (reset! refcount-target rc-frame)
@@ -4814,7 +4816,7 @@
             (set! (.-useMemo React) real-use-memo)
             (try (.unmount root) (catch :default _ nil)))))))))
 
-(defn assert-use-subscribe-abandoned-render-no-refcount-leak
+(defn assert-use-sub-abandoned-render-no-refcount-leak
   "rf2-879fe (multi-acquisition committing render): a fiber whose memo factory
   ran several render-phase acquisitions (interrupted + restarted renders) and
   then committed must end with exactly one live ref; unmount returns it to
@@ -4823,7 +4825,7 @@
   by the commit-owned subscribe-fn, so N factory re-runs collapse to one live
   ref by construction. (The genuine first-mount-ABANDONED-before-commit path —
   which the old ledger could not reach — is covered separately by
-  `assert-use-subscribe-suspense-abort-before-commit-no-refcount-leak`,
+  `assert-use-sub-suspense-abort-before-commit-no-refcount-leak`,
   rf2-es09qq.) On the pre-fix spine each render-phase +1 was unbalanced.
 
   We simulate the multiple render-phase acquisitions by patching
@@ -4834,7 +4836,7 @@
 
   cfg keys: reuses the refcount-probe surface."
   [{:keys [name probe-refcount-element refcount-target rc-frame rc-query]}]
-  (testing (str name " — use-subscribe abandoned/restarted render leaves no pinned ref-count (rf2-879fe)")
+  (testing (str name " — use-sub abandoned/restarted render leaves no pinned ref-count (rf2-879fe)")
     (with-browser-act
      (fn [act-fn]
       (reset! refcount-target rc-frame)
@@ -4874,17 +4876,17 @@
             (set! (.-useMemo React) real-use-memo)
             (try (.unmount root) (catch :default _ nil)))))))))
 
-(defn assert-use-subscribe-suspense-abort-before-commit-no-refcount-leak
-  "rf2-es09qq: a FIRST-MOUNT render that runs `use-subscribe` (its render-
+(defn assert-use-sub-suspense-abort-before-commit-no-refcount-leak
+  "rf2-es09qq: a FIRST-MOUNT render that runs `use-sub` (its render-
   phase factory) and is then ABANDONED before commit must leave NO sub-cache
   ref-count behind — the leak the prior rf2-879fe `useRef` ledger could not
   reach, because React discards the never-committed fiber (its ledger AND its
   effects) so nothing ever reclaims a render-phase acquisition.
 
   This drives the REAL abort-before-commit path with Suspense: a probe
-  component calls `use-subscribe` and then renders a child that SUSPENDS
+  component calls `use-sub` and then renders a child that SUSPENDS
   (throws a never-resolving thenable). Under a concurrent `createRoot`, React
-  begins rendering the subtree (running the probe's `use-subscribe` render
+  begins rendering the subtree (running the probe's `use-sub` render
   phase), the child suspends, React unwinds and commits the `Suspense`
   FALLBACK instead — the probe fiber never commits, so its store-subscribe /
   effects never run. Nothing owns the render's acquisition, so nothing but the
@@ -4926,14 +4928,14 @@
 
   cfg keys:
     :probe-suspense-abort-element  thunk → an ELEMENT that wraps a
-      use-subscribe-calling probe + a suspending child inside a Suspense
+      use-sub-calling probe + a suspending child inside a Suspense
       boundary with a fallback (substrate-built; reads :refcount-target for
       the frame, queries :rc-query)
     :probe-refcount-element / :refcount-target / :rc-frame / :rc-query — the
       shared refcount-probe surface, reused for the committed control mount."
   [{:keys [name probe-suspense-abort-element probe-refcount-element
            refcount-target rc-frame rc-query]}]
-  (testing (str name " — use-subscribe abandoned BEFORE commit (Suspense) leaks no sub-cache ref-count (rf2-es09qq)")
+  (testing (str name " — use-sub abandoned BEFORE commit (Suspense) leaks no sub-cache ref-count (rf2-es09qq)")
     (if (nil? probe-suspense-abort-element)
       (is true (str name ": no Suspense-abort probe wired; substrate skips this case"))
       (with-browser-act
@@ -4947,7 +4949,7 @@
               cache       (:sub-cache (rf.frame/frame rc-frame))
               mount-node  (make-mount-node!)
               root        (react-dom-client/createRoot mount-node)]
-          ;; Render the Suspense tree. The probe runs `use-subscribe` in its
+          ;; Render the Suspense tree. The probe runs `use-sub` in its
           ;; render phase; its suspending child throws, so React commits the
           ;; FALLBACK and the probe fiber never commits.
           (act-fn (fn [] (.render root (probe-suspense-abort-element))))
@@ -4997,7 +4999,7 @@
 
 ;; ---- getSnapshot tracks the committed reaction (rf2-sqhjtu) ---------------
 ;;
-;; THE BUG. `use-subscribe` fetches a render-phase reaction HANDLE with a
+;; THE BUG. `use-sub` fetches a render-phase reaction HANDLE with a
 ;; balanced `rf.subs/subscribe` + immediate `rf.subs/unsubscribe` round-trip
 ;; (net-zero ref-count, so an abandoned render leaks nothing). On a FIRST
 ;; mount with no prior cache entry, that round-trip drives the cache slot
@@ -5032,7 +5034,7 @@
 ;; THE CACHE (the committed one), never the disposed render-phase handle. On
 ;; the pre-fix spine the deref hits the disposed-handle generation.
 
-(defn assert-use-subscribe-getsnapshot-tracks-committed-reaction
+(defn assert-use-sub-getsnapshot-tracks-committed-reaction
   "rf2-sqhjtu: after a first mount, `get-snap` (React's `getSnapshot`) must
   deref the DURABLE committed cached reaction, not the disposed render-phase
   handle. Proven by object identity: a `rf.subs/subscribe` spy wraps each
@@ -5045,7 +5047,7 @@
   cfg keys: reuses the refcount-probe surface
     :probe-refcount-element / :refcount-target / :rc-frame / :rc-query"
   [{:keys [name probe-refcount-element refcount-target rc-frame rc-query]}]
-  (testing (str name " — use-subscribe getSnapshot tracks the committed reaction, not the disposed render-phase handle (rf2-sqhjtu)")
+  (testing (str name " — use-sub getSnapshot tracks the committed reaction, not the disposed render-phase handle (rf2-sqhjtu)")
     (with-browser-act
      (fn [act-fn]
       (reset! refcount-target rc-frame)
@@ -5172,7 +5174,7 @@
 
 ;; ---- the disposed render-phase reaction is unreachable (rf2-2rtt6.13) -----
 ;;
-;; THE DEFECT. `use-subscribe`'s render-phase `use-memo` used to return the
+;; THE DEFECT. `use-sub`'s render-phase `use-memo` used to return the
 ;; reaction HANDLE its balanced round trip had just built. On a cold read that
 ;; round trip is 0 → 1 → 0 and 1 → 0 is the disposal edge, so the handle it
 ;; returned was already dead — no source watches, no cache slot, no verb that
@@ -5222,9 +5224,9 @@
 ;; that fails if the hand-off is ever removed without restoring the old
 ;; fallback, or if a release ever disposes the entry a live snapshot is reading.
 ;; The discriminating proof of adoption is
-;; `assert-use-subscribe-commit-adopts-the-render-phase-reaction` below.
+;; `assert-use-sub-commit-adopts-the-render-phase-reaction` below.
 
-(defn assert-use-subscribe-render-phase-reaction-not-retained
+(defn assert-use-sub-render-phase-reaction-not-retained
   "rf2-2rtt6.13: the spine must never deref a disposed reaction — the
   render-phase handle is deref-ed once, while it is still the sub-cache's
   tenant, and is unreachable thereafter (it is not retained by the memo slot or
@@ -5236,7 +5238,7 @@
   cfg keys: reuses the refcount-probe surface, on its own frame
     :probe-refcount-element / :refcount-target / :rc-query / :nr-frame"
   [{:keys [name probe-refcount-element refcount-target rc-query nr-frame]}]
-  (testing (str name " — use-subscribe never derefs a disposed reaction; the render-phase handle is not retained (rf2-2rtt6.13)")
+  (testing (str name " — use-sub never derefs a disposed reaction; the render-phase handle is not retained (rf2-2rtt6.13)")
     (with-browser-act
      (fn [act-fn]
       (reset! refcount-target nr-frame)
@@ -5441,7 +5443,7 @@
       (finally
         (try (act-fn (fn [] (.unmount root))) (catch :default _ nil))))))
 
-(defn assert-use-subscribe-render-to-commit-window-first-commit
+(defn assert-use-sub-render-to-commit-window-first-commit
   "rf2-2rtt6.13 (merged-PR audit of #7304): an app-db write landing in the
   render→commit gap, observed AT THE FIRST COMMIT rather than after the dust
   settles, on both a blocking and a concurrent lane, each beside an unmoved
@@ -5536,7 +5538,7 @@
 ;; ---- the commit adopts the render-phase build (rf2-2rtt6.25) --------------
 ;;
 ;; THE TERM THIS WAS MEANT TO DELETE. A React render and the commit that owns
-;; it are two moments, and a cold `use-subscribe` read used to pay in both: the
+;; it are two moments, and a cold `use-sub` read used to pay in both: the
 ;; render's balanced round trip built a reaction and then crossed the 1 → 0
 ;; disposal edge on the way out, and the commit-owned `subscribe-fn` missed the
 ;; same cache and built it again. Two constructions and two sub-body runs per
@@ -5550,7 +5552,7 @@
 ;; hit, adopt, 2 → 1 — under a schedule that lets it run to completion, and by
 ;; itself it establishes nothing about the schedule a consumer mounts on.
 ;;
-;; THAT is what `assert-use-subscribe-browser-runner-schedule-rebuilds` below is
+;; THAT is what `assert-use-sub-browser-runner-schedule-rebuilds` below is
 ;; for: the adapter render slot, bare `createRoot(…).render(…)`, no `act`. It
 ;; reads TWO builds, and it still does after rf2-2rtt6.71 moved the horizon to
 ;; `setTimeout 4` — not because the ruling failed, but because this test page's
@@ -5576,7 +5578,7 @@
 ;; reaction, so the cache's tenant and the spine's escrow token are the same
 ;; objects the production path sees.
 
-(defn assert-use-subscribe-commit-adopts-the-render-phase-reaction
+(defn assert-use-sub-commit-adopts-the-render-phase-reaction
   "rf2-2rtt6.25: on a COLD mount the commit-owned `subscribe-fn` must ADOPT the
   reaction the render phase built — `identical?`, the cache's tenant, one
   construction — rather than rebuild it. Object identity plus an exact body-run
@@ -5693,7 +5695,7 @@
 ;; ruling expected this row to flip to the act-driven row's integers, as the
 ;; retraction-era docstring had promised. It cannot, because THIS RUNNER IS NOT
 ;; A FAITHFUL CLOCK for a millisecond-scale race. Swept on the ruling's own
-;; branch, narrow `:browser-test` build, `uix-use-subscribe-dom-cljs-test` only,
+;; branch, narrow `:browser-test` build, `uix-use-sub-dom-cljs-test` only,
 ;; one run per cell — the integer below is the row's `:builds`:
 ;;
 ;;   horizon 0 / 8 / 16 / 32 / 64 ms (as shipped, one timer per burst)   2
@@ -5724,7 +5726,7 @@
 ;; guarantee, and nothing here should be read as a claim about a consumer
 ;; mount in either direction.
 
-(defn assert-use-subscribe-browser-runner-schedule-rebuilds
+(defn assert-use-sub-browser-runner-schedule-rebuilds
   "rf2-2rtt6.25 (merged-PR audit of #7305): on THIS PAGE's mount schedule —
   `re-frame.substrate.adapter/render`, no `act`, no `flushSync` — the reaper
   releases the escrowed reference before React's passive
@@ -5758,7 +5760,7 @@
 
   cfg keys:
     :probe-public-mount-element — 0-arg fn returning a probe element that reads
-      `:rc-query` on `@refcount-target` via use-subscribe and calls
+      `:rc-query` on `@refcount-target` via use-sub and calls
       `@pm-on-commit` from a mount `use-effect` declared AFTER that read
     :pm-on-commit    — the side-channel atom that probe reads
     :refcount-target :rc-query
@@ -5967,7 +5969,7 @@
                 240)))))
       240)))
 
-(defn assert-use-subscribe-escrow-leg-answers-on-the-public-mount-schedule
+(defn assert-use-sub-escrow-leg-answers-on-the-public-mount-schedule
   "rf2-2rtt6.13 × rf2-2rtt6.25: on the PUBLIC mount schedule — adapter render
   slot, no `act`, no `flushSync` — `get-snap`'s escrow leg is still reachable,
   so a write landing in the render→commit gap is REPORTED to React's
@@ -6032,7 +6034,7 @@
                     (str "moved settles fresh. Row " moved))
                 (done)))))))))
 
-(defn assert-use-subscribe-adopted-provisional-reaper-is-a-noop
+(defn assert-use-sub-adopted-provisional-reaper-is-a-noop
   "rf2-2rtt6.25: the escrow token is ONE-SHOT. Once the commit has adopted and
   released it, the macrotask reaper that was armed at acquisition still runs —
   and must change nothing. Crosses the horizon explicitly and asserts the
@@ -6087,7 +6089,7 @@
                     (try (.unmount root) (catch :default _ nil))
                     (done))))))))))))
 
-(defn assert-use-subscribe-abandoned-layer-2-render-cascades-at-the-horizon
+(defn assert-use-sub-abandoned-layer-2-render-cascades-at-the-horizon
   "rf2-2rtt6.25: an abandoned COLD render of a LAYER-2 sub leaves the parent
   AND its declared input held until the horizon, and both are gone one settle
   later — the ordinary disposal cascade, driven by the ordinary 1 → 0 edge,
@@ -6145,14 +6147,14 @@
                     (try (.unmount root) (catch :default _ nil))
                     (done))))))))))))
 
-(defn assert-use-subscribe-reaped-provisional-is-never-adopted-by-a-later-mount
+(defn assert-use-sub-reaped-provisional-is-never-adopted-by-a-later-mount
   "rf2-2rtt6.25 (merged-PR audit of #7326): THE ADVERSARIAL ROW. A provisional
   reference the reaper released must be UNREACHABLE — a later mount of the same
   query builds its own reaction and paints the CURRENT value, never the one the
   abandoned render's disposed reaction was holding.
 
   This is the property that makes the lost race harmless, and it is the reason
-  `use-subscribe-browser-runner-schedule-rebuilds` can assert a defect without
+  `use-sub-browser-runner-schedule-rebuilds` can assert a defect without
   asserting a bug: on the public schedule the reaper usually DOES win, so
   `reaped → rebuilt fresh` is the ordinary consumer path, not an edge case. If
   a reaped reaction could be handed to a later subscriber the retraction would
@@ -6207,7 +6209,7 @@
               unmount     (atom nil)]
           (is (nil? (get @cache cache-key-v))
               "precondition: no live cache entry, so the abandoned render is genuinely COLD")
-          ;; The abandoned render: `use-subscribe`'s render phase escrows a
+          ;; The abandoned render: `use-sub`'s render phase escrows a
           ;; provisional reference, the child suspends, the fallback commits,
           ;; and no fiber will ever adopt it.
           (act-fn (fn [] (.render root (probe-suspense-abort-element))))
@@ -6290,7 +6292,7 @@
                                 (done))))))
                       240))))))))))))
 
-(defn assert-use-subscribe-ssr-render-without-commit-nets-zero-at-the-horizon
+(defn assert-use-sub-ssr-render-without-commit-nets-zero-at-the-horizon
   "rf2-2rtt6.25 (SSR): `renderToString` runs the hook's render phase and never
   commits — there is no React commit on the server at all. The provisional
   reference is therefore ALWAYS reaped rather than adopted, and the server
@@ -6334,7 +6336,7 @@
 ;; THE BUG (UIx shared spine only — Reagent recomputes in-render and
 ;; never tears; a cross-substrate correctness divergence). When query-v (or the
 ;; resolved frame) changes to a DIFFERENT subscription target on a MOUNTED
-;; use-subscribe component, the pre-fix spine served the PREVIOUS target's value
+;; use-sub component, the pre-fix spine served the PREVIOUS target's value
 ;; for the change-commit:
 ;;
 ;;   • render — stable-key recomputes to a fresh #js object; the
@@ -6357,7 +6359,7 @@
 ;; matching Reagent's in-render recompute.
 ;;
 ;; TWO PROOFS (both FAIL on the pre-fix spine, PASS after) + a control:
-;;   (1) VALUE — the child records use-subscribe's return every render; the FIRST
+;;   (1) VALUE — the child records use-sub's return every render; the FIRST
 ;;       render after the key change already shows the NEW value and the OLD value
 ;;       never reappears. (Deterministic here: the two targets hold DISTINCT
 ;;       values, unlike rf2-sqhjtu where both handles deref the same value.)
@@ -6367,8 +6369,8 @@
 ;;   CONTROL — a re-render with an UNCHANGED query-v keeps serving the committed
 ;;   reaction (value stable, ref-count still 1: no over-invalidation / no churn).
 
-(defn assert-use-subscribe-key-change-serves-new-target
-  "rf2-naz09e: a query-v / frame change on a mounted use-subscribe probe must
+(defn assert-use-sub-key-change-serves-new-target
+  "rf2-naz09e: a query-v / frame change on a mounted use-sub probe must
   render the NEW target's value on the change-commit (parity with Reagent's
   in-render recompute), never the previous target's. Value proof + object-
   identity deref proof; plus a stable-key control (no over-invalidation).
@@ -6378,14 +6380,14 @@
                                use-state tick and stashes its set-tick into
                                :key-change-set-tick; the child reads the
                                :key-change-frame / :key-change-query atoms (2-arg
-                               explicit-pin use-subscribe) and records each
-                               use-subscribe return into :key-change-observed.
+                               explicit-pin use-sub) and records each
+                               use-sub return into :key-change-observed.
     :key-change-set-tick :key-change-frame :key-change-query :key-change-observed
     :kc-frame :kc-frame2 :kc-query-a :kc-query-b"
   [{:keys [name probe-key-change-element key-change-set-tick
            key-change-frame key-change-query key-change-observed
            kc-frame kc-frame2 kc-query-a kc-query-b]}]
-  (testing (str name " — use-subscribe serves the NEW target on a query-v / frame change (rf2-naz09e)")
+  (testing (str name " — use-sub serves the NEW target on a query-v / frame change (rf2-naz09e)")
     (with-browser-act
      (fn [act-fn]
       ;; Two frames; kc-query-a / kc-query-b read DISTINCT db keys so every
@@ -6521,21 +6523,21 @@
 
 ;; ---- unsubscribe arity contract (rf2-gizlj) -------------------------------
 ;;
-;; The shared spine's `use-subscribe` useEffect cleanup calls
+;; The shared spine's `use-sub` useEffect cleanup calls
 ;; `rf.subs/unsubscribe` with `[frame-id query-v]` — the canonical 2-arity
 ;; form. Per rf2-cmfln (Spec 006 §Reference counting and disposal) the
 ;; 3-arity `[frame-id query-v opts]` was retired with the grace-period
 ;; mechanism: the cache disposes synchronously on the 1 → 0 transition
 ;; and there are no more per-call overrides. The spine cleanup at
-;; `re-frame.substrate.spine/use-subscribe-effect` is the only
+;; `re-frame.substrate.spine/use-sub-effect` is the only
 ;; production call site whose arity is invisible to the type checker
 ;; (it goes through the spy in the rf2-mwft2 stable-deps-key test).
 ;; This assertion locks the call-site arity so a future drift — adding
 ;; a third arg back, or shifting to a single-arity query-v call — fails
 ;; loudly here before reaching the cache layer.
 
-(defn assert-use-subscribe-cleanup-calls-unsubscribe-with-2-args
-  "rf2-gizlj: the React-hook spine's `use-subscribe` useEffect cleanup
+(defn assert-use-sub-cleanup-calls-unsubscribe-with-2-args
+  "rf2-gizlj: the React-hook spine's `use-sub` useEffect cleanup
   calls `rf.subs/unsubscribe` with exactly 2 args (`[frame-id query-v]`).
   Per rf2-cmfln the canonical-leaf arity for `rf.subs/unsubscribe` is 2;
   no `opts` map, no grace-period override. This test mounts a probe,
@@ -6546,7 +6548,7 @@
   cfg keys: re-uses the same stable-deps-key probe surface — the
   cleanup fires on either parent here."
   [{:keys [name probe-stable-deps-element stable-deps-set-tick stable-deps-frame stable-deps-query]}]
-  (testing (str name " — use-subscribe cleanup calls rf.subs/unsubscribe with 2 args (rf2-gizlj, rf2-cmfln contract)")
+  (testing (str name " — use-sub cleanup calls rf.subs/unsubscribe with 2 args (rf2-gizlj, rf2-cmfln contract)")
     (with-browser-act
      (fn [act-fn]
       (reset! stable-deps-set-tick nil)

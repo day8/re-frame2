@@ -43,11 +43,11 @@ React-family library renders them. Same model, swap the renderer, get UIx.
   twin `:require`s the identical `login.model` — literally the same source,
   different renderer.
 
-- `defui` + the `use-subscribe` hook, in place of Reagent's deref. A Reagent
+- `defui` + the `use-sub` hook, in place of Reagent's deref. A Reagent
   view reads a subscription by dereferencing it (`@(subscribe …)`) and
   re-renders off that read. A UIx view is a plain `defui` component that reads
   the same value through a React hook —
-  `(use-subscribe [:auth.login/error])`. Different idiom, same
+  `(use-sub [:auth.login/error])`. Different idiom, same
   [subscription](../../../../docs/core/glossary.md#subscription) underneath.
   (`reg-view` stays a Reagent-only convenience; under UIx you write ordinary
   components.)
@@ -81,7 +81,7 @@ React-family library renders them. Same model, swap the renderer, get UIx.
   `use-frame` hook (the
   [`capture-frame`](../../../../docs/core/glossary.md#capture-frame) frame api
   in hook position) and calls
-  `use-subscribe` itself. Nothing threads state into your components behind your
+  `use-sub` itself. Nothing threads state into your components behind your
   back — the read and the dispatch are right there in the function body. The
   view layer is explicit; the model beneath it is shared by all three
   substrates.
@@ -117,7 +117,7 @@ classpath together.
 
 ```
 login/
-  core.cljs    — the UIx HALF: defui views + use-subscribe + mount.
+  core.cljs    — the UIx HALF: defui views + use-sub + mount.
   index.html   — minimal host page.
 ```
 

@@ -1302,7 +1302,7 @@
                                      :donor   {:app   're-frame.hicasso.examples.slice
                                                :views 're-frame.bench.hicasso.slice-donor-views
                                                :route :feed
-                                               :spine :uix/use-subscribe}
+                                               :spine :uix/use-sub}
                                      ;; DERIVED from the application's own seed,
                                      ;; never transcribed: a population pin that
                                      ;; restated three integers would be a second

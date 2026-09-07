@@ -8,7 +8,7 @@
   `frame-provider` + ENSURE `frame-root`). The SCOPE-only `frame-provider` is
   already pinned end-to-end through `$` by
   `frame-provider-trailing-children-propagate-frame`
-  (uix_use_subscribe_dom_cljs_test) — the moved-up-seam regression
+  (uix_use_sub_dom_cljs_test) — the moved-up-seam regression
   (rf2-z7hfp / rf2-7kii2). The ENSURE `frame-root` config through `$` — the
   `:id` KEYWORD, the nested `:initial-events` / `:images` vectors, the
   `:url-bound?` boolean — reconstructed by `glue-args` into the clean CLJS props
@@ -22,7 +22,7 @@
   (`($ frame-root {:id … :initial-events [[…]] …} ($ child))`) through the real
   `$` under `act`, and assert the frame is CREATED live (at COMMIT, via the
   two-pass `useLayoutEffect`) with the config-seeded durable state AND a
-  descendant `use-subscribe` reads it — the structural proof that the ENSURE
+  descendant `use-sub` reads it — the structural proof that the ENSURE
   config survived `$` marshalling intact.
 
   ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test` (ns-regexp
@@ -44,13 +44,13 @@
 
 ;; ---- side-channel atom + descendant probe ---------------------------------
 ;; The probe is a top-level `defui` reading the ENSURED frame's value via the
-;; 1-arg `use-subscribe` (which resolves through the surrounding provider's
+;; 1-arg `use-sub` (which resolves through the surrounding provider's
 ;; React context — the ENSURE provider provides the created frame's id there).
 
 (def ^:private ensure-observed (atom []))
 
 (defui ProbeEnsure []
-  (let [v (rf.adapter.uix/use-subscribe [:rf.uix-ensure/k])]
+  (let [v (rf.adapter.uix/use-sub [:rf.uix-ensure/k])]
     (swap! ensure-observed conj v)
     ($ :div (str "k=" v))))
 
@@ -83,7 +83,7 @@
         (if (nil? act-fn)
           (is true "act() not reachable from this runner; skipping")
           ;; Clear the fixture's ambient `:rf/default` dynamic scope so the
-          ;; 1-arg `use-subscribe` in ProbeEnsure resolves through the ENSURE
+          ;; 1-arg `use-sub` in ProbeEnsure resolves through the ENSURE
           ;; provider's React-context tier (the created frame), not a
           ;; shadowing dynamic frame. Mirrors the SCOPE-arm regression's note.
           (binding [rf.frame/*current-frame* nil]
@@ -125,7 +125,7 @@
                 ;; children channel read the ENSURED frame's value through the
                 ;; provided React context.
                 (is (some #{:ensured} @ensure-observed)
-                    "descendant use-subscribe read the ENSURED frame's seeded value through the provided React context")
+                    "descendant use-sub read the ENSURED frame's seeded value through the provided React context")
                 (finally
                   (try (.unmount root) (catch :default _ nil)))))))))))
 

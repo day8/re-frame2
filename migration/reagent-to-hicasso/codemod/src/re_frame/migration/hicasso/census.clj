@@ -351,7 +351,7 @@
   '{client-root         {:class :root-mount               :verdict :human-decision}
     render!             {:class :root-mount               :verdict :human-decision}
     unmount!            {:class :root-mount               :verdict :human-decision}
-    use-subscribe       {:class :substrate-read-hook      :verdict :human-decision}
+    use-sub       {:class :substrate-read-hook      :verdict :human-decision}
     use-frame           {:class :substrate-read-hook      :verdict :human-decision}
     use-current-frame   {:class :substrate-read-hook      :verdict :human-decision}
     wrap-view           {:class :substrate-view-seam      :verdict :human-decision}
@@ -459,7 +459,7 @@
 
    :substrate-read-hook
    (str "A read through the substrate adapter's own hook tier - the UIx adapter's "
-        "`use-subscribe` / `use-frame` / `use-current-frame`. Hicasso reads with `h/sub` at the "
+        "`use-sub` / `use-frame` / `use-current-frame`. Hicasso reads with `h/sub` at the "
         "point of use inside a declared view, so this is not a hook swap: the value stops "
         "arriving through React's hook order and starts arriving through the view's own "
         "reactive read, and a component whose hooks were conditional has to be re-shaped.")

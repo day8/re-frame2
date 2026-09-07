@@ -95,7 +95,7 @@ implementation/
     uix/                     day8/re-frame2-uix — the UIx adapter artefact (rf2-3yij).
       deps.edn               :local/root dep on ../../core; pulls com.pitch/uix.{core,dom}.
       src/re_frame/adapter/uix.cljs
-                             The UIx adapter (use-subscribe, flush-views!, etc.).
+                             The UIx adapter (use-sub, flush-views!, etc.).
     reagent-slim/            day8/reagent-slim — Reagent rewrite for React 19
                              (rf2-5djt; Stage 4 rf2-6hyy). Stage 4 landed: the full
                              reagent2.* rewrite on disk — reactive primitives

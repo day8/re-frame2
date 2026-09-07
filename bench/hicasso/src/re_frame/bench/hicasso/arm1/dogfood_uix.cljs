@@ -5,7 +5,7 @@
 
   The same screen on the shipping UIx spine, written the way this repo's
   own UIx examples teach it (`examples/substrates/uix/login/core.cljs`):
-  `$` + `defui`, one ambient `use-subscribe` per read, `dispatch` off
+  `$` + `defui`, one ambient `use-sub` per read, `dispatch` off
   `use-frame`, `:on-change` on controlled inputs, shorthand closures at
   the one-expression event positions. The control is kept as good as its
   authors can make it, deliberately — a comparator quoted from memory, or
@@ -95,13 +95,13 @@
           (dispatch intent))))))
 
 (defui head [_props]
-  (let [remaining (rf.adapter.uix/use-subscribe [:dogfood/remaining])]
+  (let [remaining (rf.adapter.uix/use-sub [:dogfood/remaining])]
     ($ :header.head
        ($ :h1.title "todos")
        ($ :span.remaining {:data-remaining remaining} (str remaining " left")))))
 
 (defui new-item [_props]
-  (let [draft              (rf.adapter.uix/use-subscribe [:dogfood/draft rf.bench.hicasso.front.dogfood/new-draft-key])
+  (let [draft              (rf.adapter.uix/use-sub [:dogfood/draft rf.bench.hicasso.front.dogfood/new-draft-key])
         {:keys [dispatch]} (rf.adapter.uix/use-frame)]
     ($ :form.new {:on-submit (fn [e]
                                (.preventDefault e)
@@ -124,7 +124,7 @@
      label))
 
 (defui filters [_props]
-  (let [current            (rf.adapter.uix/use-subscribe [:dogfood/filter])
+  (let [current            (rf.adapter.uix/use-sub [:dogfood/filter])
         {:keys [dispatch]} (rf.adapter.uix/use-frame)]
     ($ :nav.filters
        (filter-button :all "All" current dispatch)
@@ -132,8 +132,8 @@
        (filter-button :done "Done" current dispatch))))
 
 (defui row [{:keys [id]}]
-  (let [todo               (rf.adapter.uix/use-subscribe [:dogfood/todo id])
-        draft              (rf.adapter.uix/use-subscribe [:dogfood/draft id])
+  (let [todo               (rf.adapter.uix/use-sub [:dogfood/todo id])
+        draft              (rf.adapter.uix/use-sub [:dogfood/draft id])
         {:keys [dispatch]} (rf.adapter.uix/use-frame)]
     ($ :li.row {:data-id id :data-done (str (boolean (:done? todo)))}
        ($ :button.toggle {:type     "button"
@@ -153,7 +153,7 @@
           "x"))))
 
 (defui todo-list [_props]
-  (let [ids (rf.adapter.uix/use-subscribe [:dogfood/visible-ids])]
+  (let [ids (rf.adapter.uix/use-sub [:dogfood/visible-ids])]
     ($ :ul.list {:role "list"}
        (for [id ids]
          ($ row {:key id :id id})))))

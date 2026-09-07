@@ -1,6 +1,6 @@
 (ns re-frame.bench.p0-uix
   "EP-0038 P0 — **the frontier arm**: UIx reading re-frame2 subscriptions
-  through the existing `use-subscribe` spine.
+  through the existing `use-sub` spine.
 
   UIx is the best existing React-idiomatic option on re-frame2 subs, and
   the delegated ruling recorded on rf2-2rtt6.1 makes the ratios this arm
@@ -16,7 +16,7 @@
     hiccup emitter would be measuring a hiccup interpreter, which is the
     candidate's product delta and not UIx's. Using it here would set the
     red-zone from the wrong runtime and flatter every later candidate.
-  - **No `use-memo` around the subscription args.** `use-subscribe`'s own
+  - **No `use-memo` around the subscription args.** `use-sub`'s own
     stable-deps-key handling is part of the spine under test; wrapping it
     would price a hand optimisation no ordinary application writes.
   - **No prop threading in place of a read.** Every boundary that a
@@ -27,7 +27,7 @@
   ## One boundary, one read
 
   `w1-row`, `w3-field` and `u-cell` are each a `defui` — a React function
-  component — calling `use-subscribe` once. That is the paved UIx
+  component — calling `use-sub` once. That is the paved UIx
   spelling; the counterpart Reagent arm is a `reg-view` derefing
   `(rf/subscribe …)` once. Neither is doing the other's work.
 
@@ -45,7 +45,7 @@
 
 (defui w1-row [{:keys [i]}]
   (rf.bench.p0-workcount/render!)
-  (let [text (rf.adapter.uix/use-subscribe [:p0/row i])]
+  (let [text (rf.adapter.uix/use-sub [:p0/row i])]
     ($ :li.row.cell.wide {:style      {:padding-left "4px" :color "rebeccapurple"}
                           :data-index i}
        ($ :img.avatar {:src "/avatar.png" :alt ""})
@@ -65,7 +65,7 @@
 
 (defui w3-field [{:keys [i]}]
   (rf.bench.p0-workcount/render!)
-  (let [{:keys [value error]} (rf.adapter.uix/use-subscribe [:p0/field i])]
+  (let [{:keys [value error]} (rf.adapter.uix/use-sub [:p0/field i])]
     ($ :div.field
        ($ :label.lbl {:for (str "f" i)} (str "Field " i))
        ($ :input.inp {:id        (str "f" i)
@@ -88,7 +88,7 @@
 
 (defui u-cell [{:keys [i]}]
   (rf.bench.p0-workcount/render!)
-  (let [v (rf.adapter.uix/use-subscribe [:p0/cell i])]
+  (let [v (rf.adapter.uix/use-sub [:p0/cell i])]
     ($ :span.cell {:data-i i} (str v))))
 
 (defui u-grid [{:keys [n]}]
@@ -113,13 +113,13 @@
 
 (defui fan-cell-1 [{:keys [j n]}]
   (rf.bench.p0-workcount/render!)
-  (let [a (rf.adapter.uix/use-subscribe [:p0/fan (rf.bench.p0-fixture/fan-key n 1 0)])]
+  (let [a (rf.adapter.uix/use-sub [:p0/fan (rf.bench.p0-fixture/fan-key n 1 0)])]
     ($ :span.cell {:data-i j} (str a))))
 
 (defui fan-cell-2 [{:keys [j n]}]
   (rf.bench.p0-workcount/render!)
-  (let [a (rf.adapter.uix/use-subscribe [:p0/fan (rf.bench.p0-fixture/fan-key n 2 0)])
-        b (rf.adapter.uix/use-subscribe [:p0/fan (rf.bench.p0-fixture/fan-key n 2 1)])]
+  (let [a (rf.adapter.uix/use-sub [:p0/fan (rf.bench.p0-fixture/fan-key n 2 0)])
+        b (rf.adapter.uix/use-sub [:p0/fan (rf.bench.p0-fixture/fan-key n 2 1)])]
     ($ :span.cell {:data-i j} (str (+ a b)))))
 
 (defui fan-grid [{:keys [offset n-cells reads]}]
@@ -133,7 +133,7 @@
 ;; LAD — the reads-per-boundary ladder (rf2-2rtt6.34)
 ;; ---------------------------------------------------------------------------
 ;;
-;; UNROLLED, and it has to be. `use-subscribe` is a hook over
+;; UNROLLED, and it has to be. `use-sub` is a hook over
 ;; `useSyncExternalStore`, so React's rule is that the call sequence is
 ;; identical on every render of an instance. A loop would satisfy that in
 ;; fact — `r` never changes for a mounted instance — but not by
@@ -146,7 +146,7 @@
 ;; is the same shape at R = 0 and at R = 20 and the shell rung is not
 ;; measuring one fewer prop slot than the rungs it anchors.
 
-(defn- lus [n r k] (rf.adapter.uix/use-subscribe [:p0/fan (rf.bench.p0-fixture/fan-key n r k)]))
+(defn- lus [n r k] (rf.adapter.uix/use-sub [:p0/fan (rf.bench.p0-fixture/fan-key n r k)]))
 
 (defui lad-cell-0 [{:keys [j _n]}]
   (rf.bench.p0-workcount/render!)

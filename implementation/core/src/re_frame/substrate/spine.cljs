@@ -2887,7 +2887,7 @@
        :dispose-adapter!           …
        :set-hiccup-emitter!        …
        :use-current-frame          …
-       :use-subscribe              …
+       :use-sub                    …
        :flush-views!               …
        :flush-render!              …
        :wrap-view                  …
@@ -3477,8 +3477,31 @@
           ;; and emits + throws `:rf.error/no-frame-context` on nil. This
           ;; single-sources resolution with `rf.subs/subscribe`'s 1-arity — the
           ;; hook and the imperative read can never diverge — and then hands
-          ;; the now-EXPLICIT resolved frame to the 2-arg path. The 2-arg
-          ;; EXPLICIT form is unchanged (it bypasses the chain by design).
+          ;; the now-EXPLICIT resolved frame to the explicit path. That
+          ;; explicit path is unchanged (it bypasses the chain by design).
+          ;;
+          ;; ---- the explicit form is `[query-v opts]` (rf2-kuky.57) ----------
+          ;;
+          ;; The frame-FIRST positional arity `[frame-kw query-v]` is GONE. It
+          ;; was the last surviving instance of the shape API-shrink #1
+          ;; (rf2-csbbwu) deleted from `subscribe` / `subscribe-once` /
+          ;; `dispatch` for misbinding — the shrink stopped at the facade and
+          ;; left the hook behind. The replacement is the SAME opts form
+          ;; `rf.subs/subscribe` publishes, `(use-sub query-v {:frame target})`,
+          ;; so a hook read and an imperative read spell an explicit frame
+          ;; identically and `target` takes the one frame-target grammar (a
+          ;; frame-id keyword or a live frame value).
+          ;;
+          ;; `:frame` is REQUIRED in this arm — there is no ambient fallback
+          ;; here, and that is deliberate rather than an omission. Falling back
+          ;; would make `use-current-frame` a CONDITIONAL hook call (it is on
+          ;; the ambient path and not on the explicit one), so a component whose
+          ;; `:frame` went nil between renders would change its hook COUNT
+          ;; mid-life — a rules-of-hooks violation React reports as a
+          ;; misordered-hook crash somewhere else entirely. For an ambient read,
+          ;; call the 1-arity. A missing or malformed `:frame` fails loud at the
+          ;; subs layer, on the same bad-/destroyed-frame path any other
+          ;; explicit read takes.
           ([query-v]
            ;; Hook subscription to provider-value changes (re-render). The
            ;; returned sentinel/keyword is intentionally NOT used as the
@@ -3490,7 +3513,7 @@
                {:where    're-frame.substrate.spine/use-subscribe
                 :event-id (first query-v)})
              query-v))
-          ([frame-kw query-v] (use-subscribe-2 frame-kw query-v)))]
+          ([query-v opts] (use-subscribe-2 (:frame opts) query-v)))]
     ;; rf2-6id3el: the return map exposes ONLY the surfaces the adapter
     ;; assembler consumes. `:warn-cache` is read by `make-react-adapter`
     ;; (the governance arm/armed? probes, :1868). The `:emitter-cell` /
@@ -3530,7 +3553,10 @@
                                        (when (nil? @emitter-cell)
                                          (set-hiccup-emitter! emitter-cell f)))
      :use-current-frame           use-current-frame
-     :use-subscribe               use-subscribe
+     ;; rf2-kuky.57: the KEY is the public vocabulary (`use-sub` — one
+     ;; value-hook name across UIx and Hicasso islands); the let-bound fn keeps
+     ;; its older internal name so rf2-kuky.62 finds this region by its markers.
+     :use-sub                     use-subscribe
      :flush-views!                flush-views!
      ;; rf2-40a84 — production-grade synchronous render-commit (NOT the
      ;; test-only act() wrapper above). Wired into the adapter map's

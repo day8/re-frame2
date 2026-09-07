@@ -39,7 +39,7 @@ Each adapter implements the surface defined in [Spec 006 §The adapter API contr
 
 An adapter is a Clojure map carrying these fns under the matching keys plus a `:kind` discriminator keyword (for example `:rf.adapter/reagent-slim`). See [`re-frame.substrate.adapter`](../core/src/re_frame/substrate/adapter.cljc) for the live contract.
 
-Plus per-adapter ergonomics — for example the `use-subscribe` hook (UIx), source-coord wrapping, and the `flush-views!` test helper.
+Plus per-adapter ergonomics — for example the `use-sub` hook (UIx), source-coord wrapping, and the `flush-views!` test helper.
 
 ## Layout
 

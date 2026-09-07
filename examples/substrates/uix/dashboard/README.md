@@ -54,7 +54,7 @@ doing the bookkeeping you'd otherwise do by hand.
 
 You read state through a React hook. UIx components are `defui`
 functions, and inside one you call
-`(uix-adapter/use-subscribe [:dashboard/visible-metrics])` at the top of
+`(uix-adapter/use-sub [:dashboard/visible-metrics])` at the top of
 the body — instead of dereferencing a
 [`subscribe`](../../../../docs/core/glossary.md#subscribe--derive) the way
 you would in Reagent. It's the same subscription and the same cached
@@ -106,7 +106,7 @@ stands the app [frame](../../../../docs/core/glossary.md#frame) up —
 creating it on the first mount, reusing it untouched on a hot reload — and
 `:initial-events` fires once on creation to seed the
 [app-db](../../../../docs/core/glossary.md#app-db) before the first paint.
-With the tree inside the root, every `use-subscribe` and
+With the tree inside the root, every `use-sub` and
 `use-frame` resolves to that frame through React context; render with
 no provider and the hooks raise `:rf.error/no-frame-context` —
 [identity is carried, not

@@ -30,7 +30,7 @@ The split is forced by reactive context: subs want render-time reads; lifecycle 
 Never a bare `(rf/dispatch …)` from a lifecycle callback — it fires on a fresh stack with no `*current-frame*` binding and, under EP-0002, fails loudly with `:rf.error/no-frame-context`. Carry the frame api, captured while the frame scope still exists, into the callback. Same primitive everywhere (`capture-frame`'s frame api), different spelling per adapter:
 
 - **Reagent / Reagent-slim** — capture `(rf/capture-frame)` in the closure around `create-class`; use its `:dispatch` op.
-- **UIx** — call the **`use-frame` hook** at the top of the `defui` (the hook-position spelling of `capture-frame`), and read subs with **`use-subscribe`**. Both hooks read the surrounding `frame-provider` / `frame-root` from React context — a bare render-time `(rf/capture-frame)` in a plain hooks component cannot (no-arg capture reads only the dynamic-var tier, so it raises under a context-only frame). This adapter needs no `:contextType`.
+- **UIx** — call the **`use-frame` hook** at the top of the `defui` (the hook-position spelling of `capture-frame`), and read subs with **`use-sub`**. Both hooks read the surrounding `frame-provider` / `frame-root` from React context — a bare render-time `(rf/capture-frame)` in a plain hooks component cannot (no-arg capture reads only the dynamic-var tier, so it raises under a context-only frame). This adapter needs no `:contextType`.
 
 ## Canonical declaration (Reagent — a Mapbox-shaped widget)
 
@@ -83,7 +83,7 @@ The shape is identical; only the lifecycle surface differs.
 | Adapter | Inner lifecycle surface | Registration |
 |---|---|---|
 | **Reagent** / **Reagent-slim** | `create-class` Form-3 (`:component-did-mount` / `-did-update` / `-will-unmount` + `:reagent-render`) | `reg-view*` |
-| **UIx** | `use-effect` inside a `defui`, deps vector listing every prop read; cleanup is the returned fn | ordinary `defui`; subs via `use-subscribe`, frame via `use-frame`; `reg-view*` optional (registry addressing only) |
+| **UIx** | `use-effect` inside a `defui`, deps vector listing every prop read; cleanup is the returned fn | ordinary `defui`; subs via `use-sub`, frame via `use-frame`; `reg-view*` optional (registry addressing only) |
 
 See the per-adapter README "Imperative escape hatch" sections for the hooks-shaped spelling.
 

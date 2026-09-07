@@ -107,9 +107,9 @@ const UIX_SENTINELS = [
   // re-frame.adapter.uix — the UIx spine's subscribe-container gensym prefix.
   { source: 're-frame.adapter.uix spine subscribe gensym prefix',
     sentinel: 'rf-uix-sub-' },
-  // re-frame.adapter.uix — the UIx spine's use-subscribe gensym prefix (its
+  // re-frame.adapter.uix — the UIx spine's use-sub gensym prefix (its
   // stripped form seeds the use-sub watch-key keyword namespace).
-  { source: 're-frame.adapter.uix spine use-subscribe gensym prefix',
+  { source: 're-frame.adapter.uix spine use-sub gensym prefix',
     sentinel: 'rf-uix-use-sub-' },
 ];
 
@@ -140,7 +140,7 @@ const HICASSO_SENTINELS = [
   // pair above — the same spine, the same key, one substrate over. Same
   // production-stability argument, too: `re-frame.substrate.spine` calls
   // `(gensym gensym-prefix-sub)` per subscription and derives the
-  // `use-subscribe` watch-key keyword namespace from `gensym-prefix-use-sub`
+  // `use-sub` watch-key keyword namespace from `gensym-prefix-use-sub`
   // by `subs` at adapter-construction time, so both reach the `:advanced`
   // bundle as string literals on paths no `goog.DEBUG` guards. The sibling
   // gate hicasso/scripts/check_bundle_isolation.cjs already leans on exactly
@@ -151,7 +151,7 @@ const HICASSO_SENTINELS = [
   // Reagent or UIx login bundle can only have come from the Hicasso adapter.
   { source: 're-frame.hicasso.substrate spine subscribe gensym prefix',
     sentinel: 'rf-hic-sub-' },
-  { source: 're-frame.hicasso.substrate spine use-subscribe gensym prefix',
+  { source: 're-frame.hicasso.substrate spine use-sub gensym prefix',
     sentinel: 'rf-hic-use-sub-' },
 ];
 

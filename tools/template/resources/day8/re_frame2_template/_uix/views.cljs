@@ -1,12 +1,12 @@
 (ns {{namespace}}.views
   "Views (UIx). Components are `defui`; subscriptions arrive through the
-   adapter's `use-subscribe` hook and `dispatch` comes off `use-frame`,
+   adapter's `use-sub` hook and `dispatch` comes off `use-frame`,
    which captures the render-time frame so a callback targets it later."
   (:require [uix.core             :refer [$ defui]]
             [re-frame.adapter.uix :as rf.adapter.uix]))
 
 (defui counter-buttons []
-  (let [value              (rf.adapter.uix/use-subscribe [:counter/value])
+  (let [value              (rf.adapter.uix/use-sub [:counter/value])
         {:keys [dispatch]} (rf.adapter.uix/use-frame)]
     ($ :div
        ($ :button {:on-click #(dispatch [:counter/increment])} "+1")

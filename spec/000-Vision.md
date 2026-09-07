@@ -125,7 +125,7 @@ The capabilities below are partitioned by what every conformant implementation m
 | `:platforms` metadata on `reg-fx` (SSR) | yes | yes | — | — |
 | `render-to-string` / SSR drain (per [011](011-SSR.md)) | yes | yes | — | — |
 | Hydration-mismatch detection | encouraged | yes | yes — host can ship as warn-and-replace or omit | — |
-| Reactive subscription tracking (auto-tracking, dispose lifecycle) | — | yes (Reagent atop React) | yes — each port supplies the equivalent over its React binding (e.g. the UIx `use-subscribe` hook over `useSyncExternalStore`; the same pattern in TS-React / Fable.React / Feliz / ReasonReact / Halogen-React / Kotlin-React) | the *Reagent-specific* form |
+| Reactive subscription tracking (auto-tracking, dispose lifecycle) | — | yes (Reagent atop React) | yes — each port supplies the equivalent over its React binding (e.g. the UIx `use-sub` hook over `useSyncExternalStore`; the same pattern in TS-React / Fable.React / Feliz / ReasonReact / Halogen-React / Kotlin-React) | the *Reagent-specific* form |
 | React context as the frame-routing mechanism for views | encouraged | yes | yes — every in-scope port targets React, so each port's React binding supplies a context-provider; explicit-frame-id remains the underlying contract | the *CLJS-Reagent shape* |
 | `re-frame-10x` epoch buffer integration | — | yes | yes — equivalent dev tool per host | yes |
 | Chrome Performance Timeline bridge (per [009](009-Instrumentation.md)) | — | yes | yes — equivalent profiler integration | yes |

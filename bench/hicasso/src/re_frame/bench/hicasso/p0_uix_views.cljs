@@ -1,6 +1,6 @@
 (ns re-frame.bench.hicasso.p0-uix-views
   "THE FRONTIER ARM, ON rf2-2rtt6.2'S WITNESSES — UIx reading re-frame2
-  subscriptions through the published `use-subscribe` spine (rf2-a4x1o,
+  subscriptions through the published `use-sub` spine (rf2-a4x1o,
   re-pointing rf2-2rtt6.4).
 
   ## Why this namespace exists at all
@@ -29,7 +29,7 @@
     hiccup emitter would price a hiccup interpreter — which is a
     candidate's product delta, not UIx's — and would set the red-zone from
     the wrong runtime, flattering every later candidate.
-  - **No `use-memo` around the subscription args.** `use-subscribe`'s own
+  - **No `use-memo` around the subscription args.** `use-sub`'s own
     stable-deps handling is part of the spine under test.
   - **No prop threading in place of a read.** Every boundary the Reagent
     arm subscribes in, this arm subscribes in: one read per boundary, the
@@ -57,7 +57,7 @@
 ;; read, and nothing else.
 
 (defui m1-cell [{:keys [i]}]
-  (let [v (rf.adapter.uix/use-subscribe [:p0/cell i])]
+  (let [v (rf.adapter.uix/use-sub [:p0/cell i])]
     ($ :li.row
        ($ :span.lbl "cell ")
        ($ :span.cell {:data-i i} (str v)))))
@@ -72,7 +72,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defui m2-field [{:keys [i]}]
-  (let [v (rf.adapter.uix/use-subscribe [:p0/cell i])]
+  (let [v (rf.adapter.uix/use-sub [:p0/cell i])]
     ($ :div.field
        ($ :label.lbl {:for (str "f" i)} (str "Field " i))
        ($ :input.inp {:id        (str "f" i)
@@ -102,7 +102,7 @@
 
   The counterpart of [[re-frame.bench.hicasso.p0-reagent-views/subs-root]],
   and it is not ceremony added for the bench — it is how a re-frame2 UIx
-  application supplies the frame its boundaries resolve `use-subscribe`
+  application supplies the frame its boundaries resolve `use-sub`
   against."
   [view n]
   ($ rf.adapter.uix/frame-provider {:frame rf.bench.hicasso.p0-reagent-views/subs-frame}

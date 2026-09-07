@@ -52,7 +52,7 @@ live in the design record: `charter.md`, `architecture.md`, `validation.md`,
 and those pages ever differ, decisions.md governs, then validation.md.
 
 Glossary for this EP: **"donor arm"** = the composed spike built from parts the
-existing *adapters* donate (reagent-slim `:f>` + UIx `use-subscribe`) — distinct
+existing *adapters* donate (reagent-slim `:f>` + UIx `use-sub`) — distinct
 from the **"donor trees"** (the Freehand/re-frame.ui source trees, EP-0036's
 sense). **"Adapter-Prime"** = that same composition ridden forward through the
 whole tournament as the adapters-plus-sugar null hypothesis — the referent of

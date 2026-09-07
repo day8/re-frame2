@@ -259,7 +259,7 @@ isolation and carry are [Frames](frames.md); packaging a real entry point is
 
     The `defn`-shape macro is specific to **Reagent** (this page's default). On
     UIx you write native components and reach the frame through adapter
-    hooks (`use-subscribe`, `use-frame`). The pure-function rule, the
+    hooks (`use-sub`, `use-frame`). The pure-function rule, the
     compute-in-subs rule, and frame isolation hold on every substrate. See
     [Use UIx or reagent-slim](how-to/use-uix-or-slim.md).
 

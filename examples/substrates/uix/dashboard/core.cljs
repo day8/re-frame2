@@ -14,7 +14,7 @@
        inputs, re-running whenever a control moves
      - the derivation graph — base subs read app-db, derived subs read
        other subs (that's the `:inputs` declaration), views sit at the leaves
-     - UIx views (`defui`) pulling subscriptions in through `use-subscribe`
+     - UIx views (`defui`) pulling subscriptions in through `use-sub`
      - sparklines drawn as inline SVG from plain CLJS arithmetic — no
        chart library
      - two controls that re-derive the view: the filter chips (which
@@ -235,7 +235,7 @@
   ;; paint. Wrapping the row in a `role="group"` with an `aria-label` lets a
   ;; screen reader announce one labelled set of toggles instead of three
   ;; loose buttons.
-  (let [active-tags (rf.adapter.uix/use-subscribe [:dashboard/active-tags])
+  (let [active-tags (rf.adapter.uix/use-sub [:dashboard/active-tags])
         {:keys [dispatch]} (rf.adapter.uix/use-frame)]
     ($ :div.dash-chips {:role "group" :aria-label "Filter metrics by category"}
        (for [{:keys [id label]} all-tags]
@@ -278,7 +278,7 @@
   ;;
   ;; As with the chips, `is-on` is paint only; `aria-checked` is the state
   ;; assistive tech reads.
-  (let [active-range-id    (rf.adapter.uix/use-subscribe [:dashboard/range])
+  (let [active-range-id    (rf.adapter.uix/use-sub [:dashboard/range])
         {:keys [dispatch]} (rf.adapter.uix/use-frame)
         range-count        (count ranges)
         active-range-index (or (some (fn [[range-index {:keys [id]}]]
@@ -319,8 +319,8 @@
          ranges))))
 
 (defui dashboard []
-  (let [visible-metrics (rf.adapter.uix/use-subscribe [:dashboard/visible-metrics])
-        selected-range  (rf.adapter.uix/use-subscribe [:dashboard/selected-range])]
+  (let [visible-metrics (rf.adapter.uix/use-sub [:dashboard/visible-metrics])
+        selected-range  (rf.adapter.uix/use-sub [:dashboard/selected-range])]
     ($ :div.dash-shell
        ($ :header.dash-shell-head
           ($ :div
@@ -352,7 +352,7 @@
 
 ;; The id of the frame this app lives in. The `frame-root` down in `run`
 ;; creates it, seeds its app-db, and scopes it into React context — which is
-;; how `use-subscribe` and the `use-frame` hook find it. The guide glossary
+;; how `use-sub` and the `use-frame` hook find it. The guide glossary
 ;; covers frame-root (../../../docs/core/glossary.md#frame-root).
 (def app-frame :rf/default)
 

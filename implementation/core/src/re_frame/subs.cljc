@@ -629,7 +629,7 @@
 ;; siblings that never reuse — unbounded growth, zero hit-rate — and the bug
 ;; is silent (the sub still computes the right value, just never from cache).
 ;;
-;; The React-hook `use-subscribe` path already defends its deps-array
+;; The React-hook `use-sub` path already defends its deps-array
 ;; identity (spine.cljs); subscribe's cache keying did not. This is the
 ;; missing dev tripwire: a one-shot warning per sub-id when a repeated
 ;; subscribe carries a non-primitive arg that is `=` to a previously-seen

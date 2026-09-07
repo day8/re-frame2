@@ -6,7 +6,7 @@ No browser for this one either. A [view](../glossary.md#view) is a pure function
 
 > **A view test calls the function and walks the returned data — no DOM, no JSDOM, no `act()`.**
 
-That is the Reagent view, and §1–§3 are about it. A UIx `defui` that calls `use-subscribe` or `use-frame` is a React *hook* component: hooks only run inside React's render, so there is no tree to walk without mounting one, and mounting one means a browser. Its recipe is [§4](#4-uix-hook-components-mount-it-for-real) — as small a loop, in a different place.
+That is the Reagent view, and §1–§3 are about it. A UIx `defui` that calls `use-sub` or `use-frame` is a React *hook* component: hooks only run inside React's render, so there is no tree to walk without mounting one, and mounting one means a browser. Its recipe is [§4](#4-uix-hook-components-mount-it-for-real) — as small a loop, in a different place.
 
 One honest framing before the recipe: **most "view bugs" are data bugs.** A view holds no state and decides nothing, so when the screen is wrong, the culprit is nearly always the [subscription](subscriptions.md) or [handler](event-handlers.md) upstream — pure functions with cheaper tests ([Views](../views.md#troubleshooting) makes the case). A view test is for what a view genuinely *owns*: its structure, its text, and its wiring. That's the whole list.
 
@@ -89,7 +89,7 @@ Second, the settle uses `ts/poll-until`, not a straight walk. The invoked `:on-c
 
 ## 4. UIx hook components: mount it for real
 
-Everything above calls a view as a function. A UIx `defui` that reads `use-subscribe` or `use-frame` can't be called that way — hooks run only inside React's render — so the test mounts it, for real, in a browser. The loop stays small: mount inside a frame boundary, drive it, settle React, read the DOM, unmount. This is the whole of it, and it is the test re-frame2 runs in its own browser lane, [`uix_component_recipe_dom_cljs_test.cljs`](../../../implementation/adapters/uix/test/re_frame/adapter/uix_component_recipe_dom_cljs_test.cljs), shown verbatim:
+Everything above calls a view as a function. A UIx `defui` that reads `use-sub` or `use-frame` can't be called that way — hooks run only inside React's render — so the test mounts it, for real, in a browser. The loop stays small: mount inside a frame boundary, drive it, settle React, read the DOM, unmount. This is the whole of it, and it is the test re-frame2 runs in its own browser lane, [`uix_component_recipe_dom_cljs_test.cljs`](../../../implementation/adapters/uix/test/re_frame/adapter/uix_component_recipe_dom_cljs_test.cljs), shown verbatim:
 
 ```clojure
 (ns re-frame.adapter.uix-component-recipe-dom-cljs-test
@@ -124,7 +124,7 @@ Everything above calls a view as a function. A UIx `defui` that reads `use-subsc
   (fn [db _] (:recipe.counter/value db)))
 
 (defui counter []
-  (let [n                  (rf.adapter.uix/use-subscribe [:recipe.counter/value])
+  (let [n                  (rf.adapter.uix/use-sub [:recipe.counter/value])
         {:keys [dispatch]} (rf.adapter.uix/use-frame)]
     ($ :div
        ($ :span {:data-testid "counter-value"} n)

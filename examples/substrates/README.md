@@ -28,7 +28,7 @@ namespace and add nothing but their own views and boot:
 | View language | Entry point | Build id | The notation |
 |---|---|---|---|
 | Reagent | [`core/login/core.cljs`](../core/login/core.cljs) | `examples/login` | `reg-view` with `dispatch` / `subscribe` injected into the body |
-| UIx | [`uix/login/core.cljs`](uix/login/core.cljs) | `examples/login-uix` | `defui` reading through the `use-subscribe` / `use-frame` hooks |
+| UIx | [`uix/login/core.cljs`](uix/login/core.cljs) | `examples/login-uix` | `defui` reading through the `use-sub` / `use-frame` hooks |
 | Hicasso | [`hicasso/login/core.cljs`](hicasso/login/core.cljs) | `examples/login-hicasso` | `h/defview` with `h/sub`, and handlers stated as data — an event vector at `:on-change` |
 
 Open any two of those three side by side. The subscription vectors are

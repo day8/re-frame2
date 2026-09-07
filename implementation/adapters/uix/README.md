@@ -4,13 +4,13 @@ Maven artefact: `day8/re-frame2-uix`. Target: UIx 2.x (hooks-based). Public ns: 
 
 > UIx product version vs Maven coordinate version. "UIx 2.x" is the product/API-family name — the hooks-based generation hosted at [pitch-io/uix](https://github.com/pitch-io/uix). It is not a Maven version number. UIx 2 is published on Clojars as `com.pitch/uix.core` with version numbers in the 1.x.x series, so the `com.pitch/uix.core {:mvn/version "1.4.4"}` pin in [`deps.edn`](deps.edn) is UIx 2.x. The legacy UIx 1 generation (roman01la/uix) is a separate, pre-hooks codebase and is explicitly out of scope. There is no `2.x.y` Maven coordinate to bump to.
 
-This adapter implements re-frame2's substrate contract on top of UIx — Pitch's modern, hooks-based CLJS React wrapper. Subscriptions are read via the `use-subscribe` hook (returning a plain value, not a reaction); frame context is composed via React context.
+This adapter implements re-frame2's substrate contract on top of UIx — Pitch's modern, hooks-based CLJS React wrapper. Subscriptions are read via the `use-sub` hook (returning a plain value, not a reaction); frame context is composed via React context.
 
 See [`../README.md`](../README.md) for the wider adapter tier and the substrate contract; [Spec 002 — Frames §What `reg-view` injects](../../../spec/002-Frames.md#what-reg-view-injects) for `reg-view` / `reg-view*` semantics; [Spec 006 — Reactive substrate](../../../spec/006-ReactiveSubstrate.md) for the contract this adapter implements.
 
 ## Adapter-specific surface
 
-- `re-frame.adapter.uix/use-subscribe` — UIx hook returning the current value of a subscription; re-renders the calling component when the value changes. Resolves the frame from the surrounding `frame-provider` via React context. Override via the 2-arg form to pin to an explicit frame-id.
+- `re-frame.adapter.uix/use-sub` — UIx hook returning the current value of a subscription; re-renders the calling component when the value changes. Resolves the frame from the surrounding `frame-provider` via React context. Override via the 2-arg form to pin to an explicit frame-id.
 - `re-frame.adapter.uix/use-frame` — UIx hook returning the frame api for the ambient frame — the frame-locked ops map `{:frame :dispatch :dispatch-sync :subscribe}`, exactly what `(rf/capture-frame)` returns, in hook position. Resolves the surrounding `frame-provider` / `frame-root` via React context; a bare no-arg `(rf/capture-frame)` reads only the dynamic-var tier and raises `:rf.error/no-frame-context` under a context-provided frame. Pull `:dispatch` off it during render and close over it in callbacks. The returned map is reference-stable across re-renders for the same resolved frame incarnation (safe in effect deps) — a same-id destroy-and-recreate retargets it, because the bundle is pinned to the incarnation `capture-frame` ran against and not to the address.
 - `re-frame.adapter.uix/frame-provider` — the SCOPE-only component (rf2-nyea0r split — roots ensure; providers scope). `{:frame existing-id}` provides an already-created frame's id to descendants via React context, creating / refreshing / destroying nothing (the scope-into-React counterpart to `rf/with-frame`); fails loud if the frame is absent; given an `:id` (the ENSURE key) it fails loud naming `frame-root`.
 - `re-frame.adapter.uix/frame-root` — the ENSURE component, a commit-owned two-pass boundary. `{:id the-id}` (plus `:images` / `:initial-events` / record-config) creates the frame if absent in a client `useLayoutEffect` (a render React discards creates nothing), reuses it without re-seeding if present, and provides its id to descendants. No destroy-on-unmount.
@@ -33,7 +33,7 @@ See [`../README.md`](../README.md) for the wider adapter tier and the substrate 
 
 ## Imperative escape hatch — when you need a DOM lifecycle
 
-Most views are pure render functions — `defui` reads subs via `use-subscribe`, returns hiccup, done. A small fraction of views genuinely need to own a piece of host DOM lifecycle:
+Most views are pure render functions — `defui` reads subs via `use-sub`, returns hiccup, done. A small fraction of views genuinely need to own a piece of host DOM lifecycle:
 
 - library bridges — Framer Motion, GSAP, React-Spring, D3 transitions, AmCharts, Vega-Embed, Mapbox, ag-grid, CodeMirror — anything imperative that needs a DOM element handle plus mount / update / unmount hooks
 - DOM-listener-bearing widgets — `addEventListener` for `animationend`, `transitionend`, `resize`, `intersectionobserver`, `mutationobserver`, custom DOM protocols
@@ -56,7 +56,7 @@ The escape hatch is `uix.core/use-effect` — UIx's React `useEffect` wrapper. `
 
 ### Outer / inner pattern
 
-Compose `use-effect` with the standard outer/inner split: the outer `defui` reads subs via `use-subscribe` and produces props; the inner `defui` owns the library lifecycle via `use-effect`. Pull `dispatch` from the `use-frame` hook in a `let` above the `use-effect` call so it carries the surrounding frame into the effect body.
+Compose `use-effect` with the standard outer/inner split: the outer `defui` reads subs via `use-sub` and produces props; the inner `defui` owns the library lifecycle via `use-effect`. Pull `dispatch` from the `use-frame` hook in a `let` above the `use-effect` call so it carries the surrounding frame into the effect body.
 
 ```clojure
 (ns my-app.tiles
@@ -80,7 +80,7 @@ Compose `use-effect` with the standard outer/inner split: the outer `defui` read
 
 ;; Outer — reads subs, hands props to the inner. Plain UIx defui.
 (defui board-panel []
-  (let [active-tile-id (uix-adapter/use-subscribe [:board/active-tile])]
+  (let [active-tile-id (uix-adapter/use-sub [:board/active-tile])]
     ($ tile-inner {:tile-id active-tile-id})))
 ```
 
@@ -89,7 +89,7 @@ Compose `use-effect` with the standard outer/inner split: the outer `defui` read
 - The frame api comes from the `use-frame` hook, called at the top of the component body — never a bare `(rf/capture-frame)`. `use-frame` reads the surrounding `frame-provider` / `frame-root` through React context; a no-arg `(rf/capture-frame)` in a plain hooks component reads only the dynamic-var tier and raises `:rf.error/no-frame-context` under a context-provided frame. The `dispatch` you pull off it closes over the resolved frame **at the render that installed the effect**, so the effect body — which fires after commit on a frameless stack — routes to that frame. Keeping it routed to the *surrounding* frame is the deps vector's job, below.
 - The cleanup fn is mandatory. Without it, the listener leaks across re-mounts and across hot-reloads. The cleanup runs on unmount and before each re-run when deps change.
 - The deps vector matters. Include every **reactive value** the effect reads, not just the props — and that includes the frame-bound callbacks off `use-frame`. `dispatch` is a *different* function once the surrounding provider targets a different frame, so an effect that omits it keeps the listener it installed under the **old** frame: the DOM event then dispatches into a frame the UI has already navigated away from (silently, if that frame is still live — frames are isolated, so nothing errors). The ops map is reference-stable for the same frame incarnation, so naming `dispatch` costs no effect churn within one frame and re-installs the listener exactly when the frame changes. An empty deps vector means "run once on mount, clean up on unmount."
-- Don't call `use-subscribe` inside the effect body. Hooks must be called at the top of the component body, not inside another hook's callback. Subscribe in the outer (or in the inner's top-level `let`) and pass the value as a dep.
+- Don't call `use-sub` inside the effect body. Hooks must be called at the top of the component body, not inside another hook's callback. Subscribe in the outer (or in the inner's top-level `let`) and pass the value as a dep.
 
 ### Cross-references
 

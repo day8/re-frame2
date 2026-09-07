@@ -31,7 +31,8 @@
             ;; the since-removed Helix twin); reference it rather than
             ;; carry a copy. Kept separate from react-shared-suite so this
             ;; prod-elision build does not pull the suite's heavy deps.
-            [re-frame.adapter.react-test-support :refer [react-element-attr]]
+            [re-frame.adapter.react-test-support :refer [adapter-wrap-view
+                                                         react-element-attr]]
             [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
@@ -100,7 +101,7 @@
         (is (some? view-head) "the view is registered")
         (is (nil? (.-displayName ^js view-head))
             "no .displayName on the registered view under prod-mode")
-        (is (nil? (.-displayName ^js (rf.adapter.uix/wrap-view
+        (is (nil? (.-displayName ^js (adapter-wrap-view
                                        :rf.uix-prod-elision-test/dn-elided-head
                                        {} view-fn)))
             "no .displayName on a directly-built wrap-view head either —

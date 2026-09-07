@@ -209,7 +209,7 @@
   `front.intent/composing?` the hicasso key-map is gated by — so one gate
   is witnessed through both event plumbings, reading the native event."
   [{:keys [field]}]
-  (let [v (rf.adapter.uix/use-subscribe [:ime/cell field])
+  (let [v (rf.adapter.uix/use-sub [:ime/cell field])
         {:keys [dispatch-sync]} (rf.adapter.uix/use-frame)]
     ($ :input
        {:id        field

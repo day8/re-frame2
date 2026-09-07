@@ -25,7 +25,7 @@ React-family library is rendering them.
 
 Above the view, you write in the idiom your substrate prefers. For UIx,
 that idiom is hooks. So instead of Reagent's reactive ratom, you call a
-`use-subscribe` hook. And instead of a macro handing you `dispatch`, the
+`use-sub` hook. And instead of a macro handing you `dispatch`, the
 `use-frame` hook hands you the frame's ops. The
 [adapter](../../../../docs/core/glossary.md#adapter) is the small map of glue
 that makes that swap a one-liner.
@@ -48,8 +48,8 @@ that makes that swap a one-liner.
   [app-db](../../../../docs/core/glossary.md#app-db). They sit above the
   substrate boundary and don't know it's there — which is exactly the
   point.
-- `use-subscribe`, the hooks idiom — the view calls
-  `(uix-adapter/use-subscribe [:counter/value])` directly. This is the
+- `use-sub`, the hooks idiom — the view calls
+  `(uix-adapter/use-sub [:counter/value])` directly. This is the
   React way to read derived state: a hook, not a dereferenced reactive
   atom. Same subscription, same cached value.
 - `dispatch` off a frame api — UIx has no `reg-view` macro to inject

@@ -81,14 +81,14 @@
   ## The reading is CAUSAL, not timed (rf2-2rtt6.71's probe design)
 
   Every integer is read from the probe's OWN mount `use-effect`, declared after
-  the `use-subscribe` call. React pushes `useSyncExternalStore`'s
+  the `use-sub` call. React pushes `useSyncExternalStore`'s
   `subscribeToStore` passive effect while the hook runs and pushes this one
   after it, and a fiber's passive effects run in push order within one flush —
   so the callback is the first instant after the commit-owned subscribe,
   whenever the host chooses to get there. Nothing is concluded from a timer.
 
   The two clock readings are the exception, and they are the measurement: `t0`
-  is taken in the render body immediately after `use-subscribe` returns (the
+  is taken in the render body immediately after `use-sub` returns (the
   instant the escrow token is minted and the reaper armed) and `t1` in that
   effect. `performance.now()` is clamped to 100 µs in Chrome, which is two
   decimal orders below the qualifying ceiling, so the clamp is not load-bearing
@@ -193,7 +193,7 @@
   ;; purpose: that ordering, and not a timer, is what places the snapshot at
   ;; the first instant after the commit-owned subscribe.
   (let [f @target-frame
-        v (rf.adapter.uix/use-subscribe f query-v)]
+        v (rf.adapter.uix/use-sub query-v {:frame f})]
     (when-let [g @at-render] (g))
     (uix/use-effect
       (fn [] (when-let [g @at-commit] (g)) js/undefined)
@@ -236,7 +236,7 @@
   "`renderToString` over the same boundary, from a frame that is destroyed
   before it returns.
 
-  The spine's `use-subscribe` passes its snapshot as BOTH the client and
+  The spine's `use-sub` passes its snapshot as BOTH the client and
   the server snapshot (`spine.cljs` — `useSyncExternalStore` is called
   with three arguments), so React never calls `subscribe` here and the
   read is the mutation-free one. The probe hooks are cleared first: a

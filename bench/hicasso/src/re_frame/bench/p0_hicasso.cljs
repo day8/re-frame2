@@ -45,7 +45,7 @@
   `sub` is an ordinary function call, not a hook — that is the collector
   tier's entire ergonomic claim — so a loop is both legal and the way an
   application would write it. The UIx arm is unrolled because
-  `use-subscribe` is a hook and React's rule is about call sequence. The
+  `use-sub` is a hook and React's rule is about call sequence. The
   Reagent arm loops for the same reason this one does. The asymmetry is
   in the substrates, not in the measurement.
 

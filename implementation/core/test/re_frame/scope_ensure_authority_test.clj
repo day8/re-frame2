@@ -141,7 +141,7 @@
                  "the SCOPE/ENSURE boundary pair"]]}
 
    {:file      "docs/api/re-frame.adapter.uix.md"
-    :why       "use-subscribe's standard chain"
+    :why       "use-sub's standard chain"
     :forbidden [[#"then the surrounding `frame-provider`\. It raises"
                  "a provider-only standard chain"]]
     :required  [[#"`frame-provider`\s*\(SCOPE\) / `frame-root`\s*\(ENSURE\)"

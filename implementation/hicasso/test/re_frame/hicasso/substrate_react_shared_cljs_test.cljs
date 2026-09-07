@@ -35,7 +35,7 @@
   commit discipline — so the rows below read `substrate/spine-fns` directly.
   The assertion that survives the difference is the one that matters here:
   the spine produced all six, each is fn-shaped, and no two are the same
-  object (a mis-keyed `:use-current-frame` ← `:use-subscribe` is a live core
+  object (a mis-keyed `:use-current-frame` ← `:use-sub` is a live core
   bug class, and it trips exactly as it would for UIx).
 
   The roster is Hicasso's own (`:public-surface-keys`), not a cross-adapter
@@ -70,7 +70,7 @@
    :set-emitter!     (:set-hiccup-emitter! rf.hicasso.substrate/spine-fns)
    :render-to-string (:render-to-string rf.hicasso.substrate/adapter)
    :public-surface-keys [:set-hiccup-emitter! :use-current-frame :frame-provider
-                         :use-subscribe :flush-views! :wrap-view]
+                         :use-sub :flush-views! :wrap-view]
    :public-surface   {:set-hiccup-emitter! (:set-hiccup-emitter! rf.hicasso.substrate/spine-fns)
                       :use-current-frame   (:use-current-frame rf.hicasso.substrate/spine-fns)
                       ;; The contract slot IS the publication route here: the
@@ -78,7 +78,7 @@
                       ;; Provider's `:value` at render time), so passing nil
                       ;; asks for the component and nothing else.
                       :frame-provider      ((:register-context-provider rf.hicasso.substrate/adapter) nil)
-                      :use-subscribe       (:use-subscribe rf.hicasso.substrate/spine-fns)
+                      :use-sub       (:use-sub rf.hicasso.substrate/spine-fns)
                       :flush-views!        (:flush-views! rf.hicasso.substrate/spine-fns)
                       :wrap-view           (:wrap-view rf.hicasso.substrate/spine-fns)}})
 

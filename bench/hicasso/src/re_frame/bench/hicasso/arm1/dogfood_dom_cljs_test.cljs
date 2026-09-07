@@ -132,8 +132,8 @@
      ;; `:ambient-frame nil` is load-bearing, not tidiness. The fixture's
      ;; default leaves a dynamic-var frame stamp in scope, and the
      ;; carried-invariant chain resolves that tier BEFORE React context —
-     ;; so the comparator's ambient `use-subscribe` would read the
-     ;; ambient frame's app-db while `use-current-frame` reported the
+     ;; so the comparator's ambient `use-sub` would read the
+     ;; ambient frame's app-db while the probe's `use-frame` reported the
      ;; provider's, and a parity miss would look like a rendering
      ;; difference. Caught by the frame probe below, which is why the
      ;; probe stays.
@@ -203,9 +203,9 @@
 ;; its own, so a failure names the plumbing rather than the rendering.
 
 (defui frame-probe [_props]
-  ($ :div.probe {:data-frame (str (rf.adapter.uix/use-current-frame))
-                 :data-ambient (str (rf.adapter.uix/use-subscribe [:dogfood/remaining]))
-                 :data-explicit (str (rf.adapter.uix/use-subscribe frame-id [:dogfood/remaining]))}))
+  ($ :div.probe {:data-frame (str (:frame (rf.adapter.uix/use-frame)))
+                 :data-ambient (str (rf.adapter.uix/use-sub [:dogfood/remaining]))
+                 :data-explicit (str (rf.adapter.uix/use-sub [:dogfood/remaining] {:frame frame-id}))}))
 
 (deftest the-comparator-reads-the-frame-this-test-seeded
   (if-not (rf.bench.hicasso.arm1.mount/browser?)
