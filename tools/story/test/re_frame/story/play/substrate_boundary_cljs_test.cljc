@@ -64,6 +64,16 @@
     (let [saved @rf.story.late-bind/hooks]
       (reset! commits 0)
       (swap! rf.story.late-bind/hooks dissoc :settled-boundary-hooks)
+      ;; Cold-start the adapter slot in the PROLOGUE, not only the epilogue.
+      ;; `committing-adapter` is `plain-atom` plus one optional contract fn, so
+      ;; it carries plain-atom's canonical `:rf.adapter/plain-atom` kind — and
+      ;; `init!` is idempotent for the seated adapter (rf2-kuky.1). If a sibling
+      ;; suite in this shared runtime has already seated plain-atom, the `init!`
+      ;; below is a same-adapter no-op, `:flush-render!` is never installed, and
+      ;; the witness silently measures nothing. Destroying first means the first
+      ;; test in this ns cannot depend on process order.
+      (try (rf/destroy-adapter!)
+           (catch #?(:clj Throwable :cljs :default) _ nil))
       (try (t)
            (finally
              (reset! commits 0)

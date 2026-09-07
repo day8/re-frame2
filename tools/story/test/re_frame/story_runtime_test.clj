@@ -59,8 +59,10 @@
   ;; Tear down every non-default frame.
   (reset! rf.frame/frames {})
   ;; Install the plain-atom adapter (matches the machines test fixture
-  ;; pattern). `rf/init!` is idempotent once seated; we tolerate the
-  ;; double-install error if the adapter is already in place.
+  ;; pattern). `rf/init!` is idempotent for the adapter it seated, so a re-boot
+  ;; of plain-atom is a no-op; we tolerate the
+  ;; `:rf.error/adapter-already-installed` a sibling suite's DIFFERENT adapter
+  ;; would raise (rf2-kuky.1).
   (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch clojure.lang.ExceptionInfo _ nil))
   ;; Re-require machines so its framework `:rf/machine` runtime-db sub
