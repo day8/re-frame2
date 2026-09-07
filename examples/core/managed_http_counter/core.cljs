@@ -78,9 +78,9 @@
 ;; ============================================================================
 ;;
 ;; Start here — this is the pattern the whole example turns on. One pure
-;; handler, two jobs. The first time through, the :else branch *describes* a
-;; request and hands back an :rf.http/managed effect whose `:reply-to` points
-;; back at THIS event. The runtime takes it from there: GET api/inc.json,
+;; handler, two jobs. The first time through, the (nil? reply) branch
+;; *describes* a request and hands back an :rf.http/managed effect whose
+;; `:reply-to` points back at THIS event. The runtime takes it from there: GET api/inc.json,
 ;; decode the `{"delta": 1}` body, and re-dispatch [:http-counter/+1 <reply>] right
 ;; back to this same handler — the canonical reply envelope appended as the
 ;; last arg. Second time through it's the :ok branch, which applies the
