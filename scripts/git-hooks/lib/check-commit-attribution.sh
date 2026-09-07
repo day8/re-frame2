@@ -34,8 +34,45 @@
 #
 #     `Claude-Session: <url>`                       the session trailer
 #     `Co-Authored-By: ... @anthropic.com ...`      the co-author trailer
-#     `... Generated with ... claude|anthropic ...` the generated-with marker
+#     `<decoration> Generated with [Claude Code](<link>)`  the marker
 #     `https://claude.ai/code/session_...`          the bare session URL
+#
+# A TRAILER IS A LINE THAT *IS* THE ATTRIBUTION; PROSE MERELY NAMES IT
+#
+#   That distinction is the whole of rule 3's and rule 4's shape, and it was
+#   learned the expensive way (rf2-uo5f). Rule 3 was a bare SUBSTRING test and
+#   rule 4 a bare PREFIX test, so a line that only MENTIONED a forbidden shape
+#   was refused as though it carried one. The line that found it, on PR #9330
+#   at column 0, was a worker's own statement that it had COMPLIED:
+#
+#     No Co-Authored-By: Claude and no Generated with [Claude Code] trailer,
+#     in the commit message or in this description.
+#
+#   Every dispatch brief in this project tells the worker to decline the
+#   trailers, so that sentence is written by design — and the guard reddened
+#   the PR for saying it. Not once: a PR per worker per wave. And it could not
+#   be cleared by fixing the body, because `test.yml` reads the body from the
+#   FROZEN EVENT PAYLOAD; a re-run re-reads the old text for ever, and only a
+#   new event (a push, or a close/reopen, which then leaves two check
+#   generations in the rollup) can clear it.
+#
+#   THE FIX IS STRUCTURAL, NOT SENTIMENTAL. It does not look for a negation,
+#   an "I declined" or any other phrasing — that was considered and rejected as
+#   fragile and trivially defeatable. It asks the one question that actually
+#   separates the two: is this line the attribution, or a sentence about it?
+#   `git interpret-trailers` recognises a trailer only as a WHOLE LINE, and
+#   GitHub links a co-author only from a whole line, so a marker spliced into
+#   the middle of a sentence attributes nothing to anyone. It is a quotation,
+#   and quotations were always meant to be legal here.
+#
+#   RULES 1 AND 2 NEED NOTHING FROM THIS, and that asymmetry is deliberate
+#   rather than an oversight. Both are keyed on a trailer TOKEN at column 0,
+#   which is already precisely git's own definition of a trailer: a column-0
+#   line reading `Claude-Session: ...`, or `Co-Authored-By: ...` carrying the
+#   assistant's address, IS one however the rest of the sentence reads. The
+#   observed false positive never reached rule 2 — `No Co-Authored-By: ...`
+#   fails its prefix test for free. Widening what is already exact would only
+#   open a hole.
 #
 #   That is the whole set, deliberately. This is a convention checker and they
 #   metastasise: it is NOT a commit-message linter, it does not grade subject
@@ -108,10 +145,12 @@
 
 # rf2_attribution_is_offending_line LINE
 #
-# Returns 0 when LINE is an AI-attribution line, 1 otherwise. Trailing CR is
-# tolerated (a CRLF commit-message file on Windows): every rule below is a
-# prefix or a substring test, so a carriage return at the end of the line
-# cannot hide a hit.
+# Returns 0 when LINE is an AI-attribution line, 1 otherwise.
+#
+# TRAILING WHITESPACE IS TRIMMED BEFORE THE RULES RUN, which matters now that
+# rules 3 and 4 anchor the END of the line as well as the start. A trailing CR
+# (a CRLF commit-message file on Windows) is already stripped upstream by
+# rf2_attribution_offending_lines; trailing blanks are stripped here.
 rf2_attribution_is_offending_line() {
   _rf2a_line="$1"
 
@@ -124,6 +163,17 @@ rf2_attribution_is_offending_line() {
   esac
 
   _rf2a_low=$(printf '%s' "$_rf2a_line" | tr 'A-Z' 'a-z')
+
+  # Trailing blanks go before the whole-line anchors in rules 3 and 4, so a
+  # reflowed or hand-wrapped body cannot walk a real trailer past an
+  # end-of-line test with one space. (A trailing CR is already stripped
+  # upstream by rf2_attribution_offending_lines.)
+  while :; do
+    case "$_rf2a_low" in
+      *' '|*'	') _rf2a_low=${_rf2a_low%?} ;;
+      *) break ;;
+    esac
+  done
 
   # 1. The session trailer. Unambiguous on its key alone.
   case "$_rf2a_low" in
@@ -142,19 +192,43 @@ rf2_attribution_is_offending_line() {
       ;;
   esac
 
-  # 3. The generated-with marker, whatever decorates it.
+  # 3. The generated-with marker — the line that IS the marker, never a line
+  #    that names it. Two anchors, and neither alone is enough:
+  #
+  #      - NOTHING BUT DECORATION BEFORE IT. The harness writes the marker
+  #        behind a robot emoji; a human writes it behind words. Words in
+  #        front make the line a sentence, so the head must carry no letters.
+  #      - THE LINE ENDS ON THE TOOL'S NAME, i.e. the last blank-separated
+  #        word is the `[Claude Code](https://claude.com/claude-code)` link
+  #        itself. Anything else after it is prose, and a marker with prose
+  #        after it attributes nothing.
+  #
+  #    So `… Generated with [Claude Code](…)` is refused and `Generated with
+  #    [Claude Code] was declined` is not — which is the whole of rf2-uo5f.
   case "$_rf2a_low" in
-    *generated\ with*)
-      case "$_rf2a_low" in
-        *claude*|*anthropic*) return 0 ;;
+    *'generated with'*)
+      case "${_rf2a_low%%generated with*}" in
+        *[a-z]*) ;;
+        *)
+          case "${_rf2a_low##* }" in
+            *claude*|*anthropic*) return 0 ;;
+          esac
+          ;;
       esac
       ;;
   esac
 
   # 4. The bare session URL — rule 1's URL with no key in front of it, which is
-  #    the shape the harness writes into a pull request body.
+  #    the shape the harness writes into a pull request body. WHOLE LINE: the
+  #    URL alone, because that is how the harness writes it. A line that opens
+  #    with the URL and then keeps talking is a sentence about it.
   case "$_rf2a_low" in
-    https://claude.ai/code/session_*) return 0 ;;
+    https://claude.ai/code/session_*)
+      case "$_rf2a_low" in
+        *' '*|*'	'*) ;;
+        *) return 0 ;;
+      esac
+      ;;
   esac
 
   return 1
