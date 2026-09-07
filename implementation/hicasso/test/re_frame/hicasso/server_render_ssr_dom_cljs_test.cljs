@@ -697,7 +697,9 @@
                        (is (= [] ((:stop! watch)))))
                      (testing "the handle is the one every other door takes"
                        (is (some? (:root handle)))
-                       (is (= wire-frame (:frame handle)))
+                       ;; And it names NO frame: the frame is the tree's, on
+                       ;; the `frame-provider` head this root adopts under.
+                       (is (nil? (:frame handle)))
                        (is (nil? (rf.hicasso/unmount! handle))))))
             ;; The unmount above is an ASSERTION about the door's answer,
             ;; not this row's teardown; the teardown is named again here
