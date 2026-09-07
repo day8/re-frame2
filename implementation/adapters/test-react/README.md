@@ -71,7 +71,7 @@ The `mount!` / `trigger-update!` / `unmount!` trio drive the simulator. The test
 
 A render tree may be plain opaque data (`[:div "hi"]` — most tests) or declare an imperative render body via the node shape `{:rf/component (fn [mount] ...)}`. The body runs during the render phase, while a render is in flight. From inside it you can:
 
-- mount children with `(test-react/mount-child! child-tree)` — the child runs its own `constructor → render → did-mount` lifecycle, is recorded under the parent (`test-react/mounted-children`), and is torn down children-first when the parent unmounts
+- mount children with `(test-react/mount-child! child-tree)` — the child runs its own `constructor → render → did-mount` lifecycle, is recorded under the parent (`test-react/mounted-children`), and is torn down when the parent unmounts, with the parent's `:will-unmount` logged first (React's order — see *Teardown order* below)
 - issue an `unmount!` of any root — and if you unmount an ancestor or a separately-tracked sibling while the render is in flight, the guard fires `:rf.error/sync-unmount-during-render`
 
 ```clojure
@@ -96,6 +96,21 @@ A render tree may be plain opaque data (`[:div "hi"]` — most tests) or declare
 | `:did-update` | Immediately after each subsequent `:render`. |
 | `:will-unmount` | The unmount thunk fires. |
 | `:forced-teardown` | A mount was torn down bypassing the render-depth unmount guard. Three paths log it: `dispose-adapter!` draining a still-mounted root, a failed **initial** mount rolling back its speculatively-mounted children, or a failed **update** tearing down the whole live root (see *Transactional render failures* below). |
+
+### Teardown order
+
+A normal unmount logs the mount's own `:will-unmount` **before** cascading into
+its children, so a `parent → child → grandchild` tree records
+`parent, child, grandchild`. That is React's own order: the ClassComponent case
+of `commitDeletionEffectsOnFiber` calls `safelyCallComponentWillUnmount` on the
+deleted fiber and only then runs `recursivelyTraverseDeletionEffects` over its
+children (verified against react-dom 19.2.0). An ancestor therefore learns it is
+going away before any descendant does, which is what cleanup code that tears
+down shared resources relies on.
+
+`:forced-teardown` is a separate, simulator-only path (see *Transactional render
+failures* below) and deliberately drains grandchildren-first; React has no
+analogue of it, so that ordering is not a parity claim.
 
 The simulator throws `:rf.error/sync-unmount-during-render` if `unmount!` is
 called while a render is in flight anywhere in the tree. A global counter,
@@ -130,7 +145,7 @@ normative contract.
 - no automatic re-render on app-db change. Tests drive re-renders explicitly via `trigger-update!`. Children re-render only when a test re-runs the parent's render body or drives the child directly; there is no automatic propagation from a `subscribe-container` change
 - no React context provider. Frame-routing under this adapter is via the dynamic-var tier (`re-frame.frame/current-frame`); the React-context tier is degenerate
 - no `data-rf2-source-coord` annotation. Spec 006 makes source-coord injection a normative entry on the adapter contract, but it lives "on the rendered root DOM element." This adapter has no DOM root — the render tree is opaque data — so per the spec's non-DOM-root exemption the annotation is N/A here
-- no real reconciliation. Children declared by `mount-child!` are imperative mounts, not a diffed child list. The simulator does not reconcile a render tree's child vector across updates — that fidelity belongs to a real React adapter / Playwright. The class-3 invariants (constructor/render/did-mount ordering, children-before-parent teardown, the sync-unmount-during-render guard) are what this adapter verifies
+- no real reconciliation. Children declared by `mount-child!` are imperative mounts, not a diffed child list. The simulator does not reconcile a render tree's child vector across updates — that fidelity belongs to a real React adapter / Playwright. The class-3 invariants (constructor/render/did-mount ordering, parent-before-children teardown, the sync-unmount-during-render guard) are what this adapter verifies
 
 ## Where this adapter sits in the family
 

@@ -241,8 +241,8 @@
 (deftest child-mounts-recurse-through-their-own-lifecycle
   (testing "a parent's render body mounts a child via mount-child!; the child
             runs its own constructor → render → did-mount, is tracked as a
-            child of the parent, and is torn down children-first when the
-            parent unmounts"
+            child of the parent, and is torn down when the parent unmounts —
+            with the PARENT's :will-unmount logged first, as React does"
     (let [child-ref (atom nil)
           parent    (rf.adapter.test-react/mount!
                       {:rf/component
@@ -262,7 +262,7 @@
         (is (and (true? (:deprecated (meta #'rf.adapter.test-react/children)))
                  (= [@child-ref] (legacy-children parent)))
             "the deprecated alias remains callable and returns the live child"))
-      ;; Unmounting the parent cascades to the child, children-first.
+      ;; Unmounting the parent cascades to the child, parent-first.
       (rf.adapter.test-react/unmount! parent)
       (is (zero? (count (rf.adapter.test-react/mounted-components)))
           "parent unmount cascaded to the child — nothing leaks")
@@ -270,10 +270,13 @@
           "the child saw its own :will-unmount during the cascade")
       (let [child-unmount-seq  (phase-first-seq @child-ref :will-unmount)
             parent-unmount-seq (phase-first-seq parent :will-unmount)]
-        (is (< child-unmount-seq parent-unmount-seq)
-            "child tears down STRICTLY before its parent — monotonic order-key,
-             so a reversed (parent-first) teardown FAILS here (the old <=-on-ms
-             check passed vacuously because sub-ms timestamps collapsed to equal)")))))
+        (is (< parent-unmount-seq child-unmount-seq)
+            "parent logs :will-unmount STRICTLY before its child (rf2-ytyq) —
+             React's commitDeletionEffectsOnFiber calls
+             safelyCallComponentWillUnmount on a ClassComponent BEFORE
+             recursivelyTraverseDeletionEffects reaches its children
+             (react-dom 19.2.0). Monotonic order-key, so a reversed
+             (child-first) teardown FAILS here")))))
 
 ;; ----------------------------------------------------------------------------
 ;; B.1 — Organic sync-unmount-during-render (the rf2-4l7t2 class)
@@ -1063,15 +1066,15 @@
       (is (nil? (thunk))
           "second thunk call is a silent no-op"))))
 
-;; ---- deep cascade tears down leaf-upward ----------------------------------
+;; ---- deep cascade tears down root-downward --------------------------------
 
-(deftest deep-cascade-tears-down-leaf-upward
-  (testing "a parent → child → grandchild tree unmounts leaf-upward when the
-            root unmounts: the grandchild's :will-unmount fires no later than
-            the child's, which fires no later than the parent's. The A' layer
-            proved one level of children-first teardown; this pins the
-            documented 'deep tree unwinds leaf-upward' invariant across two
-            levels — the recursive cascade real component trees rely on."
+(deftest deep-cascade-tears-down-root-downward
+  (testing "a parent → child → grandchild tree unmounts root-downward when the
+            root unmounts: the parent's :will-unmount fires before the child's,
+            which fires before the grandchild's. The A' layer proved one level
+            of parent-first teardown; this pins the 'deep tree unwinds
+            root-downward' invariant across two levels — the recursive cascade
+            real component trees rely on, in React's own order (rf2-ytyq)."
     (let [grandchild-ref (atom nil)
           child-ref      (atom nil)
           parent (rf.adapter.test-react/mount!
@@ -1109,7 +1112,8 @@
             parent-seq (phase-first-seq parent :will-unmount)]
         (is (and gc-seq child-seq parent-seq)
             "every level recorded a :will-unmount during the cascade")
-        (is (< gc-seq child-seq parent-seq)
-            "teardown order is grandchild < child < parent — leaf-upward unwind
-             (strict monotonic seq: a root-downward regression FAILS this, where
-             the old <=-on-ms check stayed green because the cascade ran sub-ms)")))))
+        (is (< parent-seq child-seq gc-seq)
+            "teardown order is parent < child < grandchild — root-downward
+             unwind, matching React's ClassComponent deletion effect
+             (componentWillUnmount before the descendant traversal). Strict
+             monotonic seq: a leaf-upward regression FAILS this (rf2-ytyq)")))))

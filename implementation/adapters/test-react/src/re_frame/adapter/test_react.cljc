@@ -70,8 +70,8 @@
 ;;   :children        — atom<vector<MountedComponent>>; child roots this mount
 ;;                      mounted from inside its own render body via
 ;;                      `mount-child!`. Unmounting a parent cascades to its
-;;                      children (will-unmount fires children-first, mirroring
-;;                      React's child-before-parent teardown order).
+;;                      children (will-unmount fires parent-first, mirroring
+;;                      React's parent-before-child teardown order).
 ;;   :unmount-fn      — the unmount thunk for this mount; `unmount!` calls it.
 
 (defrecord ^:no-doc MountedComponent
@@ -148,8 +148,10 @@
 
 (defn- unmount-thunk
   "Build the unmount thunk for `mount`. Idempotent (a second call on an
-  already-unmounted mount is a no-op). Cascades to children first (React tears
-  children down before their parent). Throws
+  already-unmounted mount is a no-op). Logs the mount's own `:will-unmount`
+  BEFORE cascading into its children, mirroring React's ClassComponent
+  deletion effect (`componentWillUnmount` on the deleted fiber, then the
+  recursive descendant traversal — rf2-ytyq). Throws
   `:rf.error/sync-unmount-during-render` if called while a render is in flight
   anywhere in the tree — keyed off the global
   `render-depth`, so a parent re-render that synchronously unmounts a separate
@@ -178,11 +180,17 @@
                  " defer the unmount until rendering settles.")
             {:recovery :defer-the-unmount-until-render-settles
              :extra    {:mount-id (:id mount)}}))
-        ;; Children-first teardown (mirrors React). Each child's own thunk runs
-        ;; the same guard + cascade, so a deep tree unwinds leaf-upward.
+        ;; PARENT-FIRST :will-unmount, then the descendant cascade — React's
+        ;; own order (rf2-ytyq). `commitDeletionEffectsOnFiber`'s
+        ;; ClassComponent case calls `safelyCallComponentWillUnmount` on the
+        ;; deleted fiber's instance and only THEN
+        ;; `recursivelyTraverseDeletionEffects` over its children
+        ;; (react-dom 19.2.0), so an ancestor learns it is going away before
+        ;; any descendant does. Each child's own thunk runs the same guard +
+        ;; cascade, so a deep tree unwinds root-downward.
+        (log-phase! mount :will-unmount)
         (doseq [child @(:children mount)]
           ((:unmount-fn child)))
-        (log-phase! mount :will-unmount)
         (reset! (:mounted? mount) false)
         (reset! (:render-tree mount) nil)
         (swap! active-mounts disj mount)))
@@ -209,8 +217,12 @@
     (swap! active-mounts disj mount)))
 
 (defn- force-teardown-descendants!
-  "Force-tear every descendant of `parent` down GRANDCHILDREN-first, mirroring
-  React's leaf-upward teardown. The descendants may be speculative mounts from
+  "Force-tear every descendant of `parent` down GRANDCHILDREN-first. This is a
+  SIMULATOR-ONLY drain order and deliberately NOT a React-parity claim — React
+  has no analogue of forced teardown, and its normal deletion effect runs
+  parent-first (which is what the `:will-unmount` path mirrors — rf2-ytyq).
+  Draining deepest-first here keeps a descendant from being evicted while an
+  ancestor still lists it. The descendants may be speculative mounts from
   a render that threw or pre-existing children of an already-committed mount;
   this function deliberately leaves `parent` itself untouched.
 
@@ -514,9 +526,9 @@
   mount)
 
 (defn unmount!
-  "Unmount `mount`, cascading to its children first (React tears children down
-  before their parent). Records a `:will-unmount` phase entry per torn-down
-  mount. Throws `:rf.error/sync-unmount-during-render` if called while a render
+  "Unmount `mount`, logging its own `:will-unmount` before cascading into its
+  children (React tears a parent down before its children — rf2-ytyq). Records
+  a `:will-unmount` phase entry per torn-down mount. Throws `:rf.error/sync-unmount-during-render` if called while a render
   is in flight anywhere in the tree, including the
   organic case where a parent's render body synchronously unmounts a separate
   sibling/child root. Idempotent: a second call on the same mount is a no-op."
