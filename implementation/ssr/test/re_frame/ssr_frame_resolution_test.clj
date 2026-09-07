@@ -42,8 +42,8 @@
             [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.error-projector :as rf.ssr.error-projector]
             [re-frame.ssr.head :as rf.ssr.head]
-            [re-frame.ssr.head-image-alpha :as alpha]
-            [re-frame.ssr.head-image-beta :as beta]
+            [re-frame.ssr.head-image-alpha :as rf.ssr.head-image-alpha]
+            [re-frame.ssr.head-image-beta :as rf.ssr.head-image-beta]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
             [re-frame.substrate.adapter :as rf.substrate.adapter]))
 
@@ -70,8 +70,8 @@
 (defn- register-both!
   "ALPHA then BETA, so the registrar atom ends up holding BETA."
   []
-  (alpha/register!)
-  (beta/register!))
+  (rf.ssr.head-image-alpha/register!)
+  (rf.ssr.head-image-beta/register!))
 
 (defn- frame-selecting!
   "A frame whose image selects exactly `ns-glob`, seeded with `db`.
@@ -102,16 +102,16 @@
   (register-both!)
   (testing "the provenance store retains BOTH descriptors for the shared id"
     (is (= #{"re-frame.ssr.head-image-alpha" "re-frame.ssr.head-image-beta"}
-           (set (keys (rf.source-store/descriptors-for :head alpha/head-id))))))
+           (set (keys (rf.source-store/descriptors-for :head rf.ssr.head-image-alpha/head-id))))))
 
   (testing "each frame's OWN generation resolves to its OWN image's body —
             this is the answer the head query has to match"
     (let [alpha-frame (frame-selecting! "re-frame.ssr.head-image-alpha" {:marker "A"})
           beta-frame  (frame-selecting! "re-frame.ssr.head-image-beta" {:marker "B"})]
       (is (= "ALPHA's body for the shared head id."
-             (:doc (rf/handler-meta {:frame alpha-frame :kind :head :id alpha/head-id}))))
+             (:doc (rf/handler-meta {:frame alpha-frame :kind :head :id rf.ssr.head-image-alpha/head-id}))))
       (is (= "BETA's body for the shared head id."
-             (:doc (rf/handler-meta {:frame beta-frame :kind :head :id alpha/head-id})))))))
+             (:doc (rf/handler-meta {:frame beta-frame :kind :head :id rf.ssr.head-image-alpha/head-id})))))))
 
 ;; ---------------------------------------------------------------------------
 ;; render-head
@@ -123,14 +123,14 @@
         beta-frame  (frame-selecting! "re-frame.ssr.head-image-beta" {:marker "B"})]
     (testing "the frame whose image carries ALPHA's body gets ALPHA's body —
               not the registrar atom's last writer"
-      (is (= {:title "alpha:A"} (rf.ssr.head/render-head alpha/head-id {:frame alpha-frame}))))
+      (is (= {:title "alpha:A"} (rf.ssr.head/render-head rf.ssr.head-image-alpha/head-id {:frame alpha-frame}))))
 
     (testing "and BETA's frame gets BETA's, so the fix is resolution rather
               than a different fixed answer"
-      (is (= {:title "beta:B"} (rf.ssr.head/render-head alpha/head-id {:frame beta-frame}))))
+      (is (= {:title "beta:B"} (rf.ssr.head/render-head rf.ssr.head-image-alpha/head-id {:frame beta-frame}))))
 
     (testing "the keyword shorthand carries the same target"
-      (is (= {:title "alpha:A"} (rf.ssr.head/render-head alpha/head-id alpha-frame))))))
+      (is (= {:title "alpha:A"} (rf.ssr.head/render-head rf.ssr.head-image-alpha/head-id alpha-frame))))))
 
 (deftest render-head-refuses-a-head-the-target-frames-image-does-not-carry
   (register-both!)
@@ -166,7 +166,7 @@
         alpha-frame (keyword "rf.ssr-frame-resolution" (str "err" n))]
     (rf/make-frame {:id       alpha-frame
                     :platform :server
-                    :ssr      {:public-error-id alpha/projector-id}
+                    :ssr      {:public-error-id rf.ssr.head-image-alpha/projector-id}
                     :images   [(rf/image {:id        (keyword "rf.ssr-frame-resolution" (str "errimg" n))
                                           :select-ns {:include ["re-frame.ssr.head-image-alpha"]}})]})
     (testing "the frame's :ssr config named ALPHA's projector id and its image
