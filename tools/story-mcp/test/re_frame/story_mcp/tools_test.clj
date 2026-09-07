@@ -4746,6 +4746,117 @@
       (is (= #{:label} (set (keys co)))
           "with no active mode, :theme is not a declared arg and the override drops"))))
 
+;; ---------------------------------------------------------------------------
+;; rf2-49o8 — nested JSON cell overrides must reach the existing
+;; keyword-keyed arg they name.
+;;
+;; Story supports nested keyword-keyed args and deep-merges cell
+;; overrides into them, but the JSON ingress deliberately leaves nested
+;; arg keys as STRINGS (only the TOP-level override key was resolved).
+;; So `{"settings":{"title":"Edited"}}` against a registered
+;; `{:settings {:title "Nested title" :enabled? true}}` deep-merged to
+;; `{:settings {:title "Nested title" :enabled? true "title" "Edited"}}`:
+;; the consumer reading `[:settings :title]` still saw the OLD value, no
+;; unknown-id guard fired (`settings` is perfectly valid), and
+;; `snapshot-identity` keyed the unintended mixed-key tuple.
+;; ---------------------------------------------------------------------------
+
+(defn- reg-nested-fixture!
+  "Register the nested-args fixture the rf2-49o8 tests share: a variant
+  whose `:settings` arg is itself a keyword-keyed map."
+  []
+  (rf.story/reg-story :story.nest
+    {:doc       "Nested keyword-keyed args."
+     :component :app.ui/panel
+     :tags      #{:dev}})
+  (rf.story/reg-variant :story.nest/map-arg
+    {:doc  "A variant whose arg value is a keyword-keyed map."
+     :args {:settings {:title "Nested title" :enabled? true}}}))
+
+(deftest read-run-opts-nested-override-reaches-the-keyword-keyed-arg
+  (testing "a nested wire key resolves to the existing keyword arg it names (rf2-49o8)"
+    (reg-nested-fixture!)
+    (let [opts (rf.story-mcp.tools.args/read-run-opts
+                 :story.nest/map-arg
+                 {:cell-overrides {"settings" {"title" "Edited"}}})
+          eff  (rf.story/resolve-args :story.nest/map-arg opts)]
+      (is (= {:settings {:title "Edited"}} (:cell-overrides opts))
+          "the nested \"title\" aligns onto the existing :title — no string key survives")
+      (is (= "Edited" (get-in eff [:settings :title]))
+          "so the consumer reading [:settings :title] sees the requested edit")
+      (is (= true (get-in eff [:settings :enabled?]))
+          "and the sibling the caller did not touch is untouched")
+      (is (= {:settings {:title "Edited" :enabled? true}} eff)
+          "the effective tuple carries no mixed-key residue"))))
+
+(deftest read-run-opts-nested-override-never-interns-and-keeps-string-keyed-data
+  (testing "an unknown nested key rides verbatim and never interns (rf2-49o8)"
+    (reg-nested-fixture!)
+    (let [probe (str "rf2-49o8-nested-" (System/nanoTime))]
+      (is (nil? (find-keyword probe)) "precondition: probe uninterned")
+      (let [opts (rf.story-mcp.tools.args/read-run-opts
+                   :story.nest/map-arg
+                   {:cell-overrides {"settings" {probe "x"}}})]
+        (is (= {:settings {probe "x"}} (:cell-overrides opts))
+            "a nested key naming nothing existing is DATA — left exactly as supplied")
+        (is (nil? (find-keyword probe))
+            "rf2-49o8: aligning nested keys MUST NOT intern a fresh keyword"))))
+  (testing "a legitimately string-keyed base map keeps its string keys (rf2-49o8)"
+    (rf.story/reg-story :story.strkeys
+      {:doc "String-keyed arg data." :component :app.ui/panel :tags #{:dev}})
+    (rf.story/reg-variant :story.strkeys/map-arg
+      {:doc "The arg value is genuinely string-keyed payload data."
+       :args {:headers {"Accept" "text/html"}}})
+    (let [opts (rf.story-mcp.tools.args/read-run-opts
+                 :story.strkeys/map-arg
+                 {:cell-overrides {"headers" {"Accept" "application/json"}}})]
+      (is (= {:headers {"Accept" "application/json"}} (:cell-overrides opts))
+          "an exact existing string key is kept verbatim, never converted")
+      (is (= {:headers {"Accept" "application/json"}}
+             (rf.story/resolve-args :story.strkeys/map-arg opts))
+          "and it overrides in place rather than landing beside the original"))))
+
+(deftest read-run-opts-nested-override-ambiguous-key-prefers-the-exact-match
+  (testing "when the base carries BOTH spellings, the exact match wins and nothing is guessed (rf2-49o8)"
+    ;; The explicit ambiguous-key policy. A base map carrying both
+    ;; `\"title\"` and `:title` gives the wire key two candidate targets;
+    ;; the alignment refuses to choose and takes the one the caller
+    ;; literally wrote.
+    (rf.story/reg-story :story.ambig
+      {:doc "Mixed-key arg data." :component :app.ui/panel :tags #{:dev}})
+    (rf.story/reg-variant :story.ambig/map-arg
+      {:doc "The arg value carries both spellings of one name."
+       :args {:settings {:title "kw" "title" "str"}}})
+    (let [opts (rf.story-mcp.tools.args/read-run-opts
+                 :story.ambig/map-arg
+                 {:cell-overrides {"settings" {"title" "Edited"}}})
+          eff  (rf.story/resolve-args :story.ambig/map-arg opts)]
+      (is (= {:settings {"title" "Edited"}} (:cell-overrides opts))
+          "the ambiguous key stays as written — no reinterpretation")
+      (is (= "Edited" (get-in eff [:settings "title"])))
+      (is (= "kw" (get-in eff [:settings :title]))
+          "and the keyword sibling is untouched"))))
+
+(deftest snapshot-identity-wire-and-native-nested-overrides-hash-alike
+  (testing "the MCP object override and the native keyword override key the SAME tuple (rf2-49o8)"
+    ;; The agent's test/edit loop depends on this: a run that evaluated
+    ;; the unchanged nested arg, or an identity keyed on a mixed-key
+    ;; tuple, answers for a scenario nobody asked for.
+    (reg-nested-fixture!)
+    (let [wire   (invoke "snapshot-identity"
+                         {:variant-id     "story.nest/map-arg"
+                          :cell-overrides {"settings" {"title" "Edited"}}})
+          native (invoke "snapshot-identity"
+                         {:variant-id     "story.nest/map-arg"
+                          :cell-overrides {:settings {:title "Edited"}}})]
+      (is (success? wire) "the wire-shaped nested override runs")
+      (is (success? native) "the keyword-shaped nested override runs")
+      (is (some? (-> wire :structuredContent :content-hash))
+          "an identity hash was actually computed")
+      (is (= (-> native :structuredContent :content-hash)
+             (-> wire :structuredContent :content-hash))
+          "rf2-49o8: the same intended tuple hashes the same either way"))))
+
 (deftest ingress-unknown-variant-id-over-wire-does-not-intern
   (testing "an unknown :variant-id sent over JSON is rejected WITHOUT interning (rf2-3luf3)"
     ;; This is the wire-level peer of the rf2-lqjbk direct-invoke test —
