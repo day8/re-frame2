@@ -117,6 +117,13 @@ maintainer has. Two audits were lost that way here, and a mayor re-ran an entire
 stay local. The conclusion gets promoted into whatever tracked record already
 owns the surface.
 
+That invisibility runs both ways, and the second direction bites at dispatch
+time. A worker in its own isolated checkout cannot see the tree at all, so a
+brief that cites a file there by a path relative to the worker's own checkout
+points at nothing. Workers route around it silently by reading the coordinator's
+copy, which works and is easy to miss. Cite such files by a path that resolves
+from where the worker actually is.
+
 ## The tracker is the work queue
 
 Every real piece of work becomes a tracker item.

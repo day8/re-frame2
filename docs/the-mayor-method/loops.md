@@ -869,6 +869,16 @@ where identifiers share a prefix, a fixed-string match for the shorter one also 
 longer sibling, inflating a hit count for an item that has none; anchor the match so the
 identifier must end where it ends.
 
+**And the sweep has an inverse that fails the other way: an item whose work HAS landed and which is
+still live.** Where a process audits merged changes, an audit can reopen the item that owned a
+residual — so the tree confirms the original deliverable, exactly as it would for a finished item,
+and the reopening is invisible to every check the sweep makes. It is the more dangerous direction,
+because here the tree AGREES with closing. Measured: an item read as delivered on four independent
+tree checks — its symbol renamed everywhere, its replacement documented in the normative reference
+*citing the item's own id*, its branch fully merged — while a live audit note recorded a defect in
+the arm that same change had introduced. Only the notes carried it. So the tree answers *did this
+work land*, never *is this item finished*; when the two disagree, the notes govern.
+
 **But a matching commit is a POINTER, never a closure.** Some hits are partial work; some are
 the very change the item was filed AGAINST, which is a fact the item's own title usually
 carries in a word like *still*. Closing on a subject match is the same error one level up —
