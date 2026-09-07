@@ -27,6 +27,13 @@
        dispatches.
     5. Composition with `restore-epoch!`: a mid-run machine-minted fact
        replays deterministically after rewinding, with the generator idle.
+    6. rf2-xlr0 — INCOMPLETE EVIDENCE is refused before dispatch. A recorded
+       replay input carrying a capture-loss marker (`:rf/redacted`, or the
+       `:rf.size/large-elided` size marker) cannot be re-presented, so the
+       replay is refused rather than dispatched with substituted data.
+    7. rf2-e0g2 — the reported `:epoch-id` is the replayed dispatch's OWN
+       epoch, or nil when the ring could not retain it — never a queued
+       child's record that happened to survive the parent's eviction.
 
   `.cljc` under a `-cljs-test` name so the consolidated `:node-test` build
   (`cljs-test$`) AND the artefact's `clojure -M:test` (`.*-test$`) both run
@@ -381,3 +388,181 @@
           res-artefact (rf.epoch/replay-epoch! frame-id ::nope)]
       (is (= res-facade res-artefact))
       (is (= :rf.epoch/replay-unknown-epoch (:reason res-facade))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-xlr0 — incomplete evidence is refused BEFORE dispatch
+;; ---------------------------------------------------------------------------
+;;
+;; Tool-Pair §Replay is faithful-or-fail-loud: a replay re-presents the
+;; RECORDED inputs or refuses. Registration classification runs at TRACE
+;; CAPTURE, in-process and always-on, so a classified event argument or a
+;; classified recordable fact reaches the retained RAW record already
+;; substituted. Re-driving that record would invoke the handler with
+;; `:rf/redacted` (or a `:rf.size/large-elided` marker) standing in for the
+;; value the original run consumed — a silent divergence that mutates app-db
+;; and re-fires external effects with substituted data.
+
+(deftest replay-refuses-a-record-whose-event-args-were-redacted-at-capture
+  (testing "a registration-classified :sensitive event arg is redacted in the
+            RAW record, so the record is incomplete evidence: replay refuses
+            before the handler, the effect and the app-db write"
+    (rf/make-frame {:id frame-id})
+    (let [seen  (atom [])
+          fired (atom 0)]
+      (rf/reg-fx :replay/notify (fn [_ _] (swap! fired inc)))
+      (rf/reg-event :replay/save
+        {:sensitive [[:password]]}
+        (fn [{:keys [db]} [_ payload]]
+          (swap! seen conj (:password payload))
+          {:db (assoc db :last-password (:password payload))
+           :fx [[:replay/notify nil]]}))
+      (rf/dispatch-sync [:replay/save {:password "topsecret"}] {:frame frame-id})
+      (let [r (last-record)]
+        (is (= [:replay/save {:password :rf/redacted}] (:trigger-event r))
+            "the RAW record already carries the redaction — capture-time loss")
+        (is (= ["topsecret"] @seen) "the original run saw the real value")
+        (is (= 1 @fired))
+        (let [res (rf/replay-epoch! frame-id (:epoch-id r))]
+          (is (false? (:ok? res)) (str "replay refused: " (pr-str res)))
+          (is (= :rf.epoch/replay-non-replayable-record (:reason res)))
+          (is (= :incomplete-inputs (:cause res)))
+          (is (= [{:slot :trigger-event :path [1 :password] :loss :redacted}]
+                 (:lost res))
+              "the refusal names WHAT was lost and WHERE")
+          (is (= ["topsecret"] @seen)
+              "the handler was NOT re-invoked with the substituted value")
+          (is (= 1 @fired) "no external effect re-fired")
+          (is (= "topsecret" (:last-password (rf/app-db-value frame-id)))
+              "app-db was not mutated with :rf/redacted")
+          (is (= (:epoch-id r) (:epoch-id (last-record)))
+              "nothing dispatched — no new epoch was recorded"))))))
+
+(deftest replay-refuses-a-record-whose-event-args-were-size-elided-at-capture
+  (testing "the :large axis rides the SAME incomplete-evidence check — a size
+            marker in the recorded trigger is capture loss, not a value"
+    (rf/make-frame {:id frame-id})
+    (let [seen (atom [])]
+      (rf/reg-event :replay/upload
+        {:large [[:blob]]}
+        (fn [{:keys [db]} [_ payload]]
+          (swap! seen conj (:blob payload))
+          {:db (assoc db :blob (:blob payload))}))
+      (rf/dispatch-sync [:replay/upload {:blob (apply str (repeat 600 "X"))}]
+                        {:frame frame-id})
+      (let [r (last-record)]
+        (is (contains? (get-in (:trigger-event r) [1 :blob]) :rf.size/large-elided)
+            "the RAW record carries the size marker in place of the payload")
+        (let [res (rf/replay-epoch! frame-id (:epoch-id r))]
+          (is (false? (:ok? res)) (str "replay refused: " (pr-str res)))
+          (is (= :incomplete-inputs (:cause res)))
+          (is (= [{:slot :trigger-event :path [1 :blob] :loss :elided}] (:lost res)))
+          (is (= 1 (count @seen)) "the handler was not re-invoked"))))))
+
+(deftest replay-refuses-a-record-whose-recorded-cofx-was-classified-at-capture
+  (testing "a classified RECORDABLE fact is redacted into the replay token, so
+            the token cannot re-present the fact the original run consumed —
+            the same check, not a second replay implementation"
+    (rf/make-frame {:id frame-id})
+    (let [calls (atom 0)
+          seen  (atom [])]
+      (rf/reg-cofx :replay/session
+        {:recordable? true :sensitive [[:token]]}
+        (fn [] (swap! calls inc) {:token "jwt-abc" :user "ada"}))
+      (rf/reg-event :replay/authorise
+        {:rf.cofx/requires [:replay/session]}
+        (fn [{:keys [db] session :replay/session} _]
+          (swap! seen conj (:token session))
+          {:db (assoc db :token (:token session))}))
+      (rf/dispatch-sync [:replay/authorise] {:frame frame-id})
+      (let [r (last-record)]
+        (is (= {:token :rf/redacted :user "ada"} (:replay/session (:rf.cofx r)))
+            "the recorded replay token already carries the redaction")
+        (is (= ["jwt-abc"] @seen) "the original run consumed the real fact")
+        (let [res (rf/replay-epoch! frame-id (:epoch-id r))]
+          (is (false? (:ok? res)) (str "replay refused: " (pr-str res)))
+          (is (= :incomplete-inputs (:cause res)))
+          (is (= [{:slot :rf.cofx :path [:replay/session :token] :loss :redacted}]
+                 (:lost res)))
+          (is (= 1 @calls) "the generator was not consulted")
+          (is (= ["jwt-abc"] @seen) "the handler was not re-invoked"))))))
+
+(deftest replay-still-succeeds-for-an-unclassified-control
+  (testing "an UNCLASSIFIED argument and fact — same shapes, no declaration —
+            replay exactly; the check refuses capture loss, not payload shape"
+    (rf/make-frame {:id frame-id})
+    (let [seen (atom [])]
+      (rf/reg-cofx :replay/open {:recordable? true} (fn [] {:token "jwt-abc"}))
+      (rf/reg-event :replay/plain
+        {:rf.cofx/requires [:replay/open]}
+        (fn [{:keys [db] s :replay/open} [_ payload]]
+          (swap! seen conj [(:password payload) (:token s)])
+          {:db (assoc db :seen true)}))
+      (rf/dispatch-sync [:replay/plain {:password "topsecret"}] {:frame frame-id})
+      (let [r   (last-record)
+            res (rf/replay-epoch! frame-id (:epoch-id r))]
+        (is (true? (:ok? res)) (str "replay succeeded: " (pr-str res)))
+        (is (= [["topsecret" "jwt-abc"] ["topsecret" "jwt-abc"]] @seen)
+            "the handler saw the raw arg and the raw fact, both times")))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-e0g2 — the reported epoch is the REPLAYED dispatch's own
+;; ---------------------------------------------------------------------------
+
+(def ^:private evict-frame-id :epoch-replay/eviction)
+
+(defn- register-parent-and-child!
+  "`:review/parent` enqueues `:review/child` only on its SECOND run, so the
+  original recording retains its own epoch (the replay preconditions genuinely
+  pass) while the REPLAY settles a child after the parent."
+  []
+  (rf/reg-event :review/child
+    (fn [{:keys [db]} _] {:db (assoc db :child true)}))
+  (rf/reg-event :review/parent
+    (fn [{:keys [db]} _]
+      (cond-> {:db (update db :runs (fnil inc 0))}
+        (:runs db) (assoc :fx [[:dispatch [:review/child]]])))))
+
+(deftest replay-reports-nil-when-its-own-epoch-was-evicted
+  (testing "a queued child that evicts the replayed event's own record does NOT
+            become the reported epoch: the ring could not retain it, so the
+            documented nil rides back while both events still run"
+    (rf/configure! {:epoch-history {:depth 1}})
+    (rf/make-frame {:id evict-frame-id})
+    (register-parent-and-child!)
+    (rf/dispatch-sync [:review/parent] {:frame evict-frame-id})
+    (let [source (last (rf/epoch-history evict-frame-id))
+          res    (rf/replay-epoch! evict-frame-id (:epoch-id source))
+          after  (rf/epoch-history evict-frame-id)]
+      (is (= :review/parent (:event-id source)))
+      (is (true? (:ok? res)) (str "the dispatch itself succeeded: " (pr-str res)))
+      (is (= :review/parent (:event-id res)))
+      (is (= (:epoch-id source) (:source-epoch-id res)))
+      (is (= [:review/child] (mapv :event-id after))
+          "the child evicted the replayed parent's record — bounded eviction is
+           correct and is not what this pins")
+      (is (nil? (:epoch-id res))
+          "the response reports NO retained epoch rather than the child's id")
+      (is (= 2 (:runs (rf/app-db-value evict-frame-id)))
+          "the replayed parent still ran")
+      (is (true? (:child (rf/app-db-value evict-frame-id)))
+          "…and so did its child"))))
+
+(deftest replay-reports-its-own-epoch-at-sufficient-depth
+  (testing "the control: with room in the ring the reported epoch is the
+            replayed PARENT's own record, never the trailing child's"
+    (rf/configure! {:epoch-history {:depth 10}})
+    (rf/make-frame {:id evict-frame-id})
+    (register-parent-and-child!)
+    (rf/dispatch-sync [:review/parent] {:frame evict-frame-id})
+    (let [source (last (rf/epoch-history evict-frame-id))
+          res    (rf/replay-epoch! evict-frame-id (:epoch-id source))
+          after  (rf/epoch-history evict-frame-id)
+          named  (first (filter #(= (:epoch-id res) (:epoch-id %)) after))]
+      (is (true? (:ok? res)))
+      (is (= [:review/parent :review/parent :review/child] (mapv :event-id after))
+          "the replay committed the parent and then its queued child")
+      (is (some? (:epoch-id res)))
+      (is (= :review/parent (:event-id named))
+          "the reported epoch is the replayed parent's own record")
+      (is (not= (:epoch-id source) (:epoch-id res))
+          "…and it is the NEW record, not the source"))))
