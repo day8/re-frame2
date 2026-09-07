@@ -1240,8 +1240,21 @@ jobs:
   # push runs no job here at all. (2) On any push that DOES reach this job,
   # the script's own event branch sees GITHUB_EVENT_NAME != pull_request and
   # exits 0 with an explanatory line. Enforcement is pull_request only.
+  # THE KEY IS `beads-pr-boundary`; THE CHECK NAME IS NOT (rf2-mfzw). The key
+  # is load-bearing — `all-required-passed`'s `needs:` and the
+  # `jobBlock(..., 'beads-pr-boundary')` assertions in
+  # `implementation/scripts/_changed-surfaces.test.cjs` address this job by it
+  # — so it stays. The DISPLAY name is what GitHub reports as the check, and it
+  # named one of the three surfaces this job grades: the other two are both the
+  # AI-attribution guard (the self-test step runs `test-pre-commit.sh` layer
+  # 10, and the last step is that guard's CI arm). So an attribution red
+  # arrived under a beads-shaped name and sent the reader hunting for a tracker
+  # file in a diff touching no `.beads` path — PR #9330, exactly that. STILL
+  # ONE JOB: the attribution arm needs the `fetch-depth: 0` checkout below, so
+  # a job of its own would duplicate a full-history clone to change a label and
+  # would move the check COUNT the merge criterion is measured against.
   beads-pr-boundary:
-    name: Beads PR boundary (no tracker database in a PR)
+    name: PR guards (no tracker database, no AI attribution)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
