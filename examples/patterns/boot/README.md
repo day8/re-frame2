@@ -44,10 +44,10 @@ Read it as a story:
   child loaders at once. The machine waits for every child to finish
   (`:join :all`). If any one fails, `:on-any-failed` goes to `:failed`
   and cancels the rest — no requests left dangling.
-- `:hydrating` — the loads are done, but the data is sitting in a
-  staging area. This state copies it into the real top-level
-  [app-db](../../../docs/core/glossary.md#app-db) keys (`:config`,
-  `:flags`, `:user`, `:routes`), then moves to `:ready`.
+- `:hydrating` — the loads are done, and each payload has already been
+  folded into the machine's own `:data`. This state copies them out into
+  the real top-level [app-db](../../../docs/core/glossary.md#app-db) keys
+  (`:config`, `:flags`, `:user`, `:routes`), then moves to `:ready`.
 - `:ready` — done. The main app
   [view](../../../docs/core/glossary.md#view) mounts only now. Its
   subscriptions never see a half-loaded app-db, because they don't
@@ -62,10 +62,12 @@ Read it as a story:
   to be an ordinary transition.)
 
 The child loader is its own machine, `:boot/loader`: GET a URL, branch
-on the [reply](../../../docs/resources/glossary.md#reply-map), report
-back. One machine, 4 instances — config, routes, flags, user — told
-apart only by the `:data` each was spawned with. That reusable child is
-the second pattern worth taking from this example.
+on the [reply](../../../docs/resources/glossary.md#reply-map), finish.
+One machine, 4 instances — config, routes, flags, user — told apart only
+by the `:data` each was spawned with. It carries no parent vocabulary at
+all, which is what lets the same child serve the single `:spawn` and the
+`:spawn-all` unchanged. That reusable child is the second pattern worth
+taking from this example.
 
 ## Why this shape
 
@@ -87,16 +89,15 @@ together.
   own `:spawn` up front. The grammar lets you say which is which.
 
 - One reusable child machine, 4 instances. `:boot/loader`
-  fetches one URL and reports its result. The 4 instances differ
-  only in the `:data` they're spawned with — `:parent-id`, `:child-id`,
-  `:staging-key`, `:url` — set by the spawn-spec's `:data` function,
-  which can read the parent's snapshot at the moment of spawn. Four
-  loaders, no duplicated fetch logic.
+  fetches one URL and finishes. The 4 instances differ only in the
+  `:data` they're spawned with — chiefly the `:url` — set by the
+  spawn-spec's `:data` function, which can read the parent's snapshot at
+  the moment of spawn. Four loaders, no duplicated fetch logic.
 
 - Host config flows through `:data`, never a global. The
-  `:configuring` load returns an `:api-base`. The `:promote-staged`
-  action records it into the boot machine's own `:data` on the way
-  out of `:configuring`. The 3 `:loading-deps` children then read
+  `:configuring` load returns an `:api-base`. That `:spawn`'s
+  `:on-done` fold records it into the boot machine's own `:data` as
+  the child finishes. The 3 `:loading-deps` children then read
   that `:api-base` off the parent's snapshot — via their `:data`
   function — and build their own URLs from it. So the boot machine is
   the only place that reads host config; everything below it gets the
@@ -104,20 +105,28 @@ together.
   the canonical Pattern-Boot parameter shape (see
   [`spec/Pattern-Boot.md` §Parameters](../../../spec/Pattern-Boot.md#parameters)).
 
-- A staging slot carries child results to the parent. You might
-  expect each child's done event to carry its loaded data up to the
-  parent. For the single `:spawn` (config), it does. But `:spawn-all`
-  is different. Per [Spec 005](../../../spec/005-StateMachines.md), the
-  runtime reads the `:on-child-done` / `:on-child-error` events only to
-  track the join — they never reach the parent's `:on` table, and the
-  join-resolution event carries no per-child data. So the canonical way
-  to thread loaded data out of a join is a staging slot in app-db: each
-  child writes its result to `[:boot/staging <staging-key>]` before
-  signalling done, and the whole slot is read back on entry to
-  `:hydrating` (by the `:boot/apply-hydration` handler that
-  `:enter-hydrating` dispatches).
-  This also means the loaded data lives in app-db the whole time — so
-  it's visible in the pair tools and snapshottable for SSR hydration.
+- Completion is finality, and one hand-off serves both spawn
+  shapes. A child doesn't dispatch anything to say it's done: it
+  reaches a `:final?` state, and `:output-key` names the `:data` slot
+  holding its result (`:payload` on `:done`, `:error` on the
+  `:error? true` `:failed` leaf). The parent folds that result in with
+  `:on-done` — `(fn [{:keys [data result]}] new-data)` — declared on the
+  `:spawn` map for the config child and on each child's own spec inside
+  `:spawn-all`. Per [Spec 005](../../../spec/005-StateMachines.md) it's
+  the same contract either way, so `:boot/loader` composes unchanged
+  under both. That's also why there's no staging slot in app-db here:
+  each payload lands straight in the boot machine's `:data`, and
+  `:hydrating` publishes the four of them into the top-level app-db
+  slices in one step (via the `:boot/apply-hydration` handler that
+  `:enter-hydrating` dispatches, which is handed the values on the
+  event).
+
+- A parent can advance on a child finishing. `:configuring` is a
+  single `:spawn`, and it moves on when its child completes — not
+  because the child said so, but because `:on-done` folds the config
+  into `:data` and an eventless `:always` guarded on that folded value
+  carries the machine to `:loading-deps`. The child failing routes the
+  other way through the `:spawn`'s `:on-error` transition.
 
 - No backend, by design. The example runs on its own — there's no
   server behind it. The 4 endpoints are served by a per-URL canned

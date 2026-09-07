@@ -2,7 +2,7 @@
 
 Cancellable spawn-and-join coordination via `:spawn-all` — one parent coordinates N parallel children that yield to the browser between chunks.
 
-State-machine `:spawn` / `:spawn-all` is one of the shipped **managed external effect** surfaces (umbrella: [`managed-http.md`](managed-http.md)): the runtime owns child lifetime (spawn on entry, teardown on exit, abort on parent transition), failure classification under `:rf.machine/*`, and trace-bus observability. Machine async work also completes through the uniform reply envelope — a child reports via `:on-child-done` / `:on-done`, and a late completion for a superseded actor is suppressed as `:status :stale` (correlated by the child's `:work/id`) — which makes the spawn-and-join shape below correctness-by-construction. This leaf names the *coordination* shape on top.
+State-machine `:spawn` / `:spawn-all` is one of the shipped **managed external effect** surfaces (umbrella: [`managed-http.md`](managed-http.md)): the runtime owns child lifetime (spawn on entry, teardown on exit, abort on parent transition), failure classification under `:rf.machine/*`, and trace-bus observability. Machine async work also completes through the uniform reply envelope — a child reports by reaching a `:final?` state, never by dispatching to its parent, and a late completion for a superseded actor is suppressed as `:status :stale` (correlated by the child's `:work/id`) — which makes the spawn-and-join shape below correctness-by-construction. This leaf names the *coordination* shape on top.
 
 ## When to load
 
@@ -20,7 +20,7 @@ Do NOT load for:
 
 ## The shape
 
-One parent coordinator spawns N children declaratively via `:spawn-all`. Each child processes its shard in chunks, yielding via `:after` between chunks, and dispatches `:progress` back. When all N report done, the runtime fires `:on-all-complete`. Cancellation is a transition out of `:working` — the standard exit cascade tears down every surviving child.
+One parent coordinator spawns N children declaratively via `:spawn-all`. Each child processes its shard in chunks, yielding via `:after` between chunks, and dispatches `:progress` back. **Completion is finality**: a child finishes by entering its own `:final?` state, and when all N have, the runtime fires `:on-all-complete`. Cancellation is a transition out of `:working` — the standard exit cascade tears down every surviving child.
 
 ## The re-frame2 features this pattern uses
 
@@ -30,6 +30,7 @@ One parent coordinator spawns N children declaratively via `:spawn-all`. Each ch
 | `:spawn-all` | Parent's spawn-and-join on `:working`. Runtime owns the join-state map at `[:rf.runtime/machines :spawned <parent-id> [<state>]]`. |
 | `:after` | Child's browser-yield seam between chunks. Timer torn down automatically on destroy. |
 | `:always` | Child's `:processing → :checking-done` advance; first-match-wins guards branch to `:done` or `:yielding`. |
+| `:final?` / `:output-key` | Child's completion signal. Entering the root-level `:final?` leaf **is** completion; `:output-key` names the `:data` slot handed up as the result. The child carries no parent vocabulary. |
 | Cancellation cascade | Exiting `:working` fires one `:rf.machine/destroy` fx that tears down every surviving child. |
 | Internal self-transitions | `:progress` with no `:target` runs the action without firing `:exit` / `:entry`. |
 
@@ -47,16 +48,15 @@ One parent coordinator spawns N children declaratively via `:spawn-all`. Each ch
     (fn [{:keys [data]}]
       (let [new-processed (inc (:processed data))]
         {:data (assoc data :processed new-processed)
-         :fx   [[:dispatch [:work/flow [:progress (:shard data) new-processed (:total data)]]]]}))
-    :dispatch-done
-    (fn [{:keys [data]}] {:fx [[:dispatch [:work/flow [:work/child-done (:shard data)]]]]})}
+         :fx   [[:dispatch [:work/flow [:progress (:shard data) new-processed (:total data)]]]]}))}
    :states
    {:idle           {:on    {:rf.machine.spawn/spawned :processing}}
     :processing     {:entry :process-one :always [{:target :checking-done}]}
     :checking-done  {:always [{:guard :done?      :target :done}
                               {:guard :more-work? :target :yielding}]}
     :yielding       {:after  {(fn [{:keys [snapshot]}] (-> snapshot :data :tick-ms)) :processing}}
-    :done           {:meta {:terminal? true} :entry :dispatch-done}}})
+    ;; Completion is finality — no dispatch to the parent, no parent vocabulary.
+    :done           {:final? true :output-key :processed}}})
 
 ;; THE PARENT COORDINATOR
 (rf/reg-machine :work/flow
@@ -77,9 +77,7 @@ One parent coordinator spawns N children declaratively via `:spawn-all`. Each ch
                           {:id :s2 :machine-id :work/processor :data {:shard :s2 :total 100 :processed 0 :tick-ms 50}}
                           {:id :s3 :machine-id :work/processor :data {:shard :s3 :total 100 :processed 0 :tick-ms 50}}]
                :join :all
-               :on-child-done   :work/child-done   ;; child-keyword children dispatch on success (REQUIRED)
-               :on-child-error  :work/child-error   ;; child-keyword children dispatch on failure (REQUIRED)
-               :on-all-complete [:work/all-done]
+               :on-all-complete [:work/all-done]   ;; REQUIRED for :join :all
                :on-any-failed   [:work/any-failed]}
               :on {:progress        {:action :record-progress}      ;; internal self-transition
                    :work/all-done   {:target :complete  :action :stamp-outcome}
@@ -90,7 +88,9 @@ One parent coordinator spawns N children declaratively via `:spawn-all`. Each ch
     :error     {:on {:reset {:target :idle :action :reset-progress}}}}})
 ```
 
-Child auto-kick: `:on {:rf.machine.spawn/spawned :processing}` — runtime synthesises `[:rf.machine.spawn/spawned]` on spawn. Parent's `:progress` omits `:target` (internal self-transition); the `:spawn-all` exit cascade does NOT fire, so children stay alive between progress reports.
+Child auto-kick: `:on {:rf.machine.spawn/spawned :processing}` — runtime synthesises `[:rf.machine.spawn/spawned]` on spawn. Parent's `:progress` omits `:target` (internal self-transition); the `:spawn-all` exit cascade does NOT fire, so children stay alive between progress reports. Note what the child does **not** carry: no completion action, and no knowledge of `:work/flow` beyond the ordinary `:progress` message. `:work/processor` is a plain machine — it would compose unchanged under a single `:spawn`. A `:progress` dispatch from a live child stays an ordinary message and is never read as completion; only finality completes.
+
+To mark a shard's failure, give the child a second terminal — `:failed {:final? true :error? true :output-key :reason}` — which counts as a failed child and fires the block's `:on-any-failed`. A `:spawn-all` child spec must NOT declare `:on-error`; failure control flow under a join belongs to the block, which decides for the whole fan-out. The resolved event carries the decisive child and one value: `[:work/flow [:work/all-done <child-id> <result>]]`, where `<result>` is that child's `:output-key` slot.
 
 ## Cancellation contract
 
@@ -133,7 +133,14 @@ Exiting `:working` fires one `:rf.machine/destroy` fx carrying `:rf/spawn-all tr
 
 **Progress UI from the machine.** Register subs on `[:rf/machine <id>]` and project `:data` fields into the view.
 
-**Final-state child completion (`:final?` / `:output-key`).** Cleaner than hand-rolling `:dispatch-done`: mark the child's `:done` as `:final? true` with `:output-key :shard-result`; `:spawn-all` recognises completion natively, parent receives the result via `:on-child-done`. Singletons supporting `:reset` back to `:idle` must NOT use `:final?` (auto-destroy fires first). See `../references/state-machines/spawn.md` §Final states.
+**Capturing every shard's result (`:on-done` on a child spec).** `:spawn-all` recognises completion natively — the child's `:final? true` / `:output-key` leaf *is* the completion signal, with nothing hand-rolled on either side — so the only thing left to choose is where each result lands. The resolution event carries the **decisive** child's result only; to keep all N, give a child spec an `:on-done` fold, which runs at that child's finality, before the join fold:
+
+```clojure
+{:id :s1 :machine-id :work/processor :data {…}
+ :on-done (fn [{:keys [data result]}] (assoc-in data [:results :s1] result))}
+```
+
+Singletons supporting `:reset` back to `:idle` must NOT use `:final?` (auto-destroy fires first) — use an ordinary leaf instead. See `../references/state-machines/spawn.md` §Final states.
 
 ## Anti-patterns
 
@@ -143,6 +150,7 @@ Exiting `:working` fires one `:rf.machine/destroy` fx carrying `:rf/spawn-all tr
 - **Forgetting cancellation.** The exit cascade makes it trivial; omitting `:cancel` on `:working` leaves a runaway loop.
 - **`:always` cycles without a yielding `:after` between batches.** Hits `:rf.error/machine-always-depth-exceeded` (default 16). A `:yielding` state with a small positive `:after` delay (e.g. `:after {1 …}` — **not** `:after {0 …}`, which never schedules) resets depth between batches.
 - **Per-child bookkeeping in the parent's `:data`.** The runtime owns join-state at `[:rf.runtime/machines :spawned ...]`; re-implementing re-derives.
+- **A child that hand-dispatches its own completion to the parent.** Completion is finality — the child reaches a `:final?` leaf and the runtime does the rest. A hand-rolled done-event forces the child to know its parent's vocabulary, so the same machine no longer composes under a plain `:spawn`. The `:spawn-all` block keys that used to name those child events are retired and now fail registration (`:rf.error/machine-spawn-all-bad-shape`). `:meta {:terminal? true}` on a `:final?` leaf is likewise redundant — drop it.
 
 ## Worked example
 
