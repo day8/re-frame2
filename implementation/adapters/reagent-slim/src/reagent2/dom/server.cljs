@@ -946,13 +946,30 @@
   A static render has no instance, so there is no inner-fn cache (the
   live path caches on `.-cljsRenderFn`); each static render re-runs the
   setup. That is correct for static markup — output is a function of the
-  args only."
+  args only.
+
+  Form-3 FACTORY (rf2-oyrj): `f` may be a plain factory whose body
+  RETURNS a `create-class` result — `FORM-3.md`'s supported per-instance
+  shape. That class is a JS function, so it matches the same `fn?` test
+  that detects a Form-2 inner render fn, and applying it would invoke the
+  constructor rather than render. Detect it FIRST and re-enter the
+  element walk with the class as a hiccup HEAD, where
+  `emit-hiccup-vector`'s existing `reagent-class?` dispatch renders its
+  `:reagent-render` — keeping static markup free of lifecycle execution,
+  exactly as for a class written directly in the head."
   [^StringBuffer sb f args]
   (let [out (apply f args)]
-    (if (fn? out)
+    (cond
+      ;; Form-3 factory output: mount-shaped, not call-shaped.
+      (component/reagent-class? out)
+      (emit-element sb (into [out] args))
+
       ;; Form-2: `out` is the inner render closure. Recall with the same
       ;; args (matches wrap-render's `(apply inner args)`).
+      (fn? out)
       (emit-element sb (apply out args))
+
+      :else
       (emit-element sb out))))
 
 (defn- emit-user-fn
