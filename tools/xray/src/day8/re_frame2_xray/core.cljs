@@ -8,7 +8,7 @@
   `init!` / `open!` / `open-overlay!` / `close!` / `toggle!` /
   `popout!` / `status` /
   `target-frame` + `set-target-frame!` / `focus!` (the host-facing
-  Story→Xray focus entry point) / `load-theme` — plus the
+  Story→Xray focus entry point) / `load-theme!` — plus the
   four highest-traffic boot-time config knobs exposed by `config.cljc`
   (`configure!` / `set-editor!` / `set-auto-open!` /
   `set-egress-profile!`).
@@ -315,7 +315,7 @@
 
 ;; ---- runtime theme override ---------------------------------------------
 
-(defn load-theme
+(defn load-theme!
   "Programmatically swap the Xray shell's palette by handing in a CSS
   string (typically a block re-declaring the `--rf-xray-*` custom
   properties the shell reads). Useful for editor-driven palette sync.

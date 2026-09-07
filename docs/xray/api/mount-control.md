@@ -113,11 +113,11 @@ The L1 frame picker chip in the shell's top strip is wired to this — clicking 
 
 The shell reads its palette from `--rf-xray-*` CSS custom properties, and a host can re-declare them at runtime — editor-driven palette sync is the motivating case.
 
-### `load-theme`
+### `load-theme!`
 
 - **Signature**:
   ```clojure
-  (xray/load-theme css-string) → nil
+  (xray/load-theme! css-string) → nil
   ```
 - **Description**: Swap the Xray shell's palette by handing in a CSS string — typically a block re-declaring the `--rf-xray-*` custom properties the shell reads. The CSS rides in a single dedicated `<style>` block appended **last** to `<head>`, so its rules win on authoring order against the built-in per-theme block. Idempotent: successive calls **replace** the override in place rather than stacking it, and a `nil` or blank string clears the override and restores the built-in palette. A safe no-op where there is no DOM (server render, JVM). Returns `nil`.
 

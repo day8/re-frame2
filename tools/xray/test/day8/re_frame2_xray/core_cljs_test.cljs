@@ -18,7 +18,7 @@
      rf2-qy0nu; the 4-layer shell switches via `:rf.xray/selected-
      tab` and the API is gone.)
 
-  3. **`load-theme` is a safe no-op without a DOM.** It injects a
+  3. **`load-theme!` is a safe no-op without a DOM.** It injects a
      host-supplied CSS override into `<head>` when a DOM is present
      (rf2-ee38b.2 wired it through `global-styles/set-host-theme-css!`);
      under node-test there is no `js/document`, so it must return nil
@@ -118,26 +118,26 @@
       (is (= [[:rf.xray/set-target-frame :app/main]] @seen)
           "facade dispatches the right event with the right arg"))))
 
-;; ---- (3) load-theme — DOM-bearing impl, no-op without a DOM -------------
+;; ---- (3) load-theme! — DOM-bearing impl, no-op without a DOM ------------
 
 (deftest load-theme-is-safe-without-document
-  (testing "rf2-ee38b.2 — load-theme is wired through
+  (testing "rf2-ee38b.2 — load-theme! is wired through
             global-styles/set-host-theme-css!. Under node-test there is
             no js/document, so it returns nil without throwing for any
             input and emits NO warning trace (the old not-yet-implemented
             stub is gone). DOM-bearing CSS injection is exercised by the
             browser target."
     (preload/register-trace-collector!)
-    (let [result (core/load-theme ".foo { color: red; }")
+    (let [result (core/load-theme! ".foo { color: red; }")
           events (trace-collector/buffer-for-test)
           stale  (filter #(= :rf.warning/xray-load-theme-not-yet-implemented
                              (:operation %))
                          events)]
-      (is (nil? result) "load-theme returns nil")
+      (is (nil? result) "load-theme! returns nil")
       (is (empty? stale)
           "no not-yet-implemented warning — the stub is gone")
-      (is (nil? (core/load-theme ""))  "empty string is a safe no-op")
-      (is (nil? (core/load-theme nil)) "nil is a safe no-op"))))
+      (is (nil? (core/load-theme! ""))  "empty string is a safe no-op")
+      (is (nil? (core/load-theme! nil)) "nil is a safe no-op"))))
 
 ;; ---- init! contract ----------------------------------------------------
 

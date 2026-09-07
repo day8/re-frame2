@@ -1642,7 +1642,7 @@
 
 ;; ---- host-supplied theme override (rf2-ee38b.2) -------------------------
 ;;
-;; The public `core/load-theme` entry point lets an embedding host swap the
+;; The public `core/load-theme!` entry point lets an embedding host swap the
 ;; Xray shell's palette by handing in a CSS string (e.g. editor-driven
 ;; palette sync). The override rides in a single dedicated `<style>` block
 ;; appended LAST to `<head>`, so its rules win on authoring order against

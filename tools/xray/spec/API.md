@@ -213,7 +213,7 @@ implementation reality — the facade is not the whole surface).
 (xray/focus! :checkout {:panel :trace})   ;; positional host-frame form
 xray/valid-focus-panels                   ;; the 10 valid :panel ids (see 008 §Host-facing focus API; :issues removed rf2-gbz39)
 
-(xray/load-theme css-string)
+(xray/load-theme! css-string)
 ;; Programmatically swap the palette: injects `css-string` as a dedicated
 ;; <style> override appended last to <head> (so it wins on authoring order).
 ;; Idempotent — successive calls replace the override; nil/blank clears it.
@@ -248,17 +248,23 @@ the tier label. The three open verbs were not candidates for renaming
 either: §`open!` / `open-overlay!` / `popout!` — distinct verbs by
 design settled that question under `rf2-sa4fr`.
 
-**One spelling question is open and is deliberately not settled here.**
-`load-theme` is the only export on this facade that mutates without a
-`!` — it installs a `<style>` override into `<head>` via
+**The one spelling question this section used to leave open is now
+settled.** `load-theme` was the only export on this facade that mutated
+without a `!` — it installs a `<style>` override into `<head>` via
 `global-styles/set-host-theme-css!`, which does carry the bang — while
-the other 15 are consistent (12 banged mutators; `status`,
-`target-frame` and `valid-focus-panels` are reads). Conventions
-§Naming bucket 3 would bang it, but `load-*` appears on no row of the
-§Lifecycle-verb law closed roster, and that section reserves adding a
-verb to the table as a Spec change rather than a per-author call — so
-the repair is ambiguous between `load-theme!` and a roster entry for
-`load-*`. Its **placement** on the facade is not in question.
+the other 15 were consistent (12 banged mutators; `status`,
+`target-frame` and `valid-focus-panels` are reads). Ruled under
+`rf2-7nk1` (2026-09-06): the export is spelled **`load-theme!`**, under
+[Conventions §Naming](../../../spec/Conventions.md#naming-when-does-a-surface-carry-)
+bucket 3 ("process-level state mutation outside the registrar") alone.
+**No `load-*` row was added to the §Lifecycle-verb law roster and
+`spec/Conventions.md` was not edited**: the roster names *which*
+lifecycle verb a surface takes, while §Naming decides *whether* it
+carries `!`, so a verb missing from the roster is not a reason to drop
+the bang — the same reading `register-trace-listener` → `register-listener!`
+already settled ([`spec/API.md`](../../../spec/API.md)) without a roster
+row. Pre-alpha, so the rename carries no alias, stub or deprecation
+window. Its **placement** on the facade was never in question.
 
 **The surface is now enumerated in both directions.** The CLJS
 enumeration probe holds `day8.re-frame2-xray.core` *fully-rowed*: an
@@ -310,7 +316,7 @@ authoritative list.
 
 | Namespace | Source | Public surfaces |
 |---|---|---|
-| `day8.re-frame2-xray.core` | `core.cljs` | The canonical re-exports above (`init!`, `open!`, `open-overlay!`, `close!`, `toggle!`, `popout!`, `status`, `target-frame`, `set-target-frame!`, `focus!` + `valid-focus-panels` (the Story→Xray focus entry point, rf2-crtmq), `load-theme`, plus the four highest-traffic config setters re-exported for boot-time convenience: `configure!`, `set-auto-open!`, `set-editor!`, `set-egress-profile!`). |
+| `day8.re-frame2-xray.core` | `core.cljs` | The canonical re-exports above (`init!`, `open!`, `open-overlay!`, `close!`, `toggle!`, `popout!`, `status`, `target-frame`, `set-target-frame!`, `focus!` + `valid-focus-panels` (the Story→Xray focus entry point, rf2-crtmq), `load-theme!`, plus the four highest-traffic config setters re-exported for boot-time convenience: `configure!`, `set-auto-open!`, `set-editor!`, `set-egress-profile!`). |
 | `day8.re-frame2-xray.focus` | `focus.cljc` | The host-facing **focus command** API (rf2-crtmq): `focus!` (the entry point, re-exported through `core`), `focus-command->dispatches` (pure command→`:rf.xray/*`-events translation; JVM-runnable), `valid-panels` + `panel-aliases` + `normalize-panel`. **`valid-panels` mirrors the LIVE Dynamic L4 tab registry** (`#{:epoch :app-db :views :trace :machines :routing :resources :derivation-graph :module-view :hicasso}` — one per shipped tab; rf2-1sddi6 / rf2-7ed9ms aligned it to the registry so a host can no longer focus `:routes` onto an unknown-tab stub or be denied the shipped `:resources` / `:derivation-graph` / `:module-view` tabs, and rf2-hic-023's `:hicasso` tab is focusable on the same footing; `:routes` is accepted as a host-friendly alias normalising to `:routing`; rf2-gbz39 removed `:issues` with the Issues tab per Option (c)). The channel Story uses to focus an embedded Xray panel/epoch/path from a beat or assertion. Full contract in [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) §Host-facing focus API. |
 | `day8.re-frame2-xray.panels.*` | `panels/*.cljs` | The 7 standalone-mountable Dynamic `Panel` reg-views — `epoch-panel/Panel`, `app-db-diff/Panel`, `reactive-panel/Panel`, `trace/Panel`, `machine-inspector/Panel`, `routing/Panel`, `resources/Panel` (per [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) + [`018-Event-Spine.md`](./018-Event-Spine.md) §The 10 tabs). The three remaining Dynamic tabs — `derivation_graph/Panel` (Graph, EP-0014), `module_view/Panel` (Frames, EP-0023) and `hicasso/Panel` (Hicasso, rf2-hic-023) — are **L4-only registry tabs**: focusable via `focus!` but with no standalone `mount-*!` facade (shell-internal). rf2-gbz39 removed `issues-ribbon/Panel` + `mount-issues-ribbon!` per Mike's Option (c) ruling — the Issues tab + its aggregate panel were removed; issues surface inline in the Epoch panel + the L2 event-row pink-wash + the always-on issues ribbon signal (the `:rf.xray/issues-ribbon` projection survives in `registry.cljs` as the ribbon signal's data source). rf2-5gl5r removed `event-detail/Panel` — the Epoch panel supersedes the Event/Handler design as the canonical "what happened in this epoch" surface. rf2-4v67l removed `chrome-a11y.panel/Panel` — a11y dogfooding is Story's domain (rf2-18t6p · `tools/story/src/re_frame/story/ui/chrome_a11y.cljs`). rf2-ga16q removed `machines-canvas.panel/Panel` — its spine-INDEPENDENT browse-all canvas relocated to the Static Machines sub-tab (the Runtime Machines tab is the event-driven lens per rf2-y9xmf). |
 | `day8.re-frame2-xray.config` | `config.cljc` | The `configure!` map dispatcher, the per-key setters (`set-editor!`, `set-project-root!`, `set-layout-host-selector!`, `set-auto-open!`, `set-keybinding-enabled!`, `set-egress-profile!`, `set-filter-seed!`, `set-filters-storage-key!`, `update-setting!`, `reset-settings!`, `reset-suppressed-count!`) and the published constants enumerated in §Published layout-host constants above. The full normative key inventory lives in [`015-Configuration.md`](./015-Configuration.md); the **key-naming axis** (how authors navigate the key surface by topical cluster prefix — editor / launch / keybinding / settings / filters / render / trace / logging) is documented at [`015-Configuration.md` §Key-naming axis](./015-Configuration.md#key-naming-axis--navigation-map-rf2-dz35f--audit-of-audits-16) per `rf2-dz35f`. |

@@ -210,21 +210,25 @@
   ;; ordinary host workflow: install, control visibility, pick the inspected
   ;; frame, focus a panel, configure at boot.
   ;;
-  ;; NO RENAME IS RECORDED, and one name is left for an operator ruling
-  ;; instead: `load-theme` is the only export here that mutates without a
-  ;; bang (it installs a <style> override into <head> via
-  ;; global-styles/set-host-theme-css!, which DOES carry the bang). The other
-  ;; fifteen are consistent — TWELVE mutators all banged, and the three
-  ;; no-bang names (`status`, `target-frame`, `valid-focus-panels`) are
-  ;; reads. But `load-*` is on NO row of the closed lifecycle-verb roster,
+  ;; NO RENAME IS RECORDED BY THE SWEEP, and the one name it left for an
+  ;; operator ruling — the SPELLING of `load-theme` — has since been RULED
+  ;; and executed (rf2-7nk1, 2026-09-06). It was the only export here that
+  ;; mutated without a bang (it installs a <style> override into <head> via
+  ;; global-styles/set-host-theme-css!, which DOES carry the bang), while the
+  ;; other fifteen were consistent — TWELVE mutators all banged, and the
+  ;; three no-bang names (`status`, `target-frame`, `valid-focus-panels`)
+  ;; are reads. `load-*` is on NO row of the closed lifecycle-verb roster,
   ;; and Conventions §Lifecycle-verb law says in terms that adding a verb to
-  ;; that table is a Spec change, not a per-author call — so the repair is
-  ;; ambiguous between spelling it `load-theme!` and giving `load-*` a roster
-  ;; row, and choosing here would be coining. Recorded `:keep` with the
-  ;; uncertainty in its justification (the CONTESTED clause's shape, and the
-  ;; same posture the Story slice took for canonical-hash /
-  ;; make-run-artifact / run-artifact?); raised as its own bead. PLACEMENT is
-  ;; not in doubt — only the spelling.
+  ;; that table is a Spec change rather than a per-author call — so the
+  ;; ruling took the NARROW path: the roster names WHICH lifecycle verb a
+  ;; surface takes, §Naming decides WHETHER it carries `!`, and a verb
+  ;; missing from the roster is not a reason to drop the bang. The export is
+  ;; therefore spelled `load-theme!` under §Naming bucket 3 alone, with NO
+  ;; `load-*` roster row and NO edit to Conventions.md, and it is NOT a
+  ;; licence to coin new lifecycle verbs. Pre-alpha: no alias, no stub, no
+  ;; deprecation window. The row stays `:keep` — placement was never in
+  ;; doubt, and the rename lands in the same PR as this note, so the row
+  ;; simply carries the new spelling.
   {:namespace "day8.re-frame2-xray.core" :var "init!" :kind :fn :facade? true :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true
    :action :keep
    :justification "Front porch for a tooling product: the manual-install entry point, and one of exactly two install paths a host chooses between (the other is wiring day8.re-frame2-xray.preload into :devtools/preloads). tools/xray/spec/API.md §Canonical documents it first and rf2-g2a5v fixes its role against configure! and persisted Settings -- configure! is static boot config, init! the lifecycle hook that receives the merged config. A host that requires the facade at all requires it for this."}
@@ -258,9 +262,9 @@
   {:namespace "day8.re-frame2-xray.core" :var "valid-focus-panels" :kind :var :facade? true :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true
    :action :keep
    :justification "Kept WITH focus! because it is step one of that same two-call workflow: a host validates a panel selector against this set BEFORE sending a focus command, so moving it behind the focus namespace would split a two-line host snippet across two requires for no gain. Renamed on the facade from the owner's valid-panels to say WHICH panels -- the facade has no other panel vocabulary, so the bare name would read as the whole panel inventory. It mirrors the live Dynamic L4 tab registry, so it tracks shipped tabs rather than pinning a list."}
-  {:namespace "day8.re-frame2-xray.core" :var "load-theme" :kind :fn :facade? true :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true
+  {:namespace "day8.re-frame2-xray.core" :var "load-theme!" :kind :fn :facade? true :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true
    :action :keep
-   :justification "PLACEMENT is settled and is what this axis records: tools/xray/spec/API.md §Canonical rows it, and editor-driven palette sync is an ordinary host workflow reached in one call, so it stays on the facade. SPELLING IS LEFT FOR AN OPERATOR RULING and is deliberately NOT recorded as :rename. This is the one export here that mutates without a bang -- it installs a <style> override into <head> through global-styles/set-host-theme-css!, which does carry one -- and Conventions §Naming bucket 3 would bang it. But `load-*` appears on NO row of the closed lifecycle-verb roster, and §Lifecycle-verb law states that adding a verb to that table is a Spec change rather than a per-author call, so the repair is genuinely ambiguous between load-theme! and a roster row for load-*. Recorded keep with the uncertainty stated, per the CONTESTED clause; a rename after the first external alpha would be a consumer-visible break, which is why it is raised now rather than assumed."}
+   :justification "PLACEMENT is settled and is what this axis records: tools/xray/spec/API.md §Canonical rows it, and editor-driven palette sync is an ordinary host workflow reached in one call, so it stays on the facade. The SPELLING question the sweep left open is now RULED and executed (rf2-7nk1, 2026-09-06): this is the one export here that mutates -- it installs a <style> override into <head> through global-styles/set-host-theme-css!, which does carry the bang -- so Conventions §Naming bucket 3 bangs it, and it is spelled load-theme!. NO `load-*` row was added to the closed lifecycle-verb roster and Conventions.md was NOT edited: the roster names WHICH lifecycle verb a surface takes, §Naming decides WHETHER it carries !, and a verb missing from the roster is not a reason to drop the bang -- the same reading that settled register-trace-listener -> register-listener! (spec/API.md) without a roster row. Adding a bang to an existing verb coins no new operation family, and this is not a licence to invent lifecycle verbs. Pre-alpha, zero consumers outside tools/xray, spec/ and docs/xray: renamed outright, no alias, no stub, no deprecation window; behaviour unchanged."}
   {:namespace "day8.re-frame2-xray.core" :var "configure!" :kind :fn :facade? true :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true
    :action :keep
    :justification "Front porch, and named by Conventions §Lifecycle-verb law on THIS facade specifically -- configure! is the config-mutation verb across re-frame.core, re-frame.story and day8.re-frame2-xray.core alike. It is also the entry point the boot order is written around: requiring the facade is side-effect-free (rf2-5w06uu), so a host calls configure! and only then init!, which is what lets :rf.xray/auto-open? false win deterministically before any auto-open."}
