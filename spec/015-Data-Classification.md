@@ -288,6 +288,28 @@ A sink entry is a **closed map**: `:sink`, plus the optional `:rf.egress/profile
 
 Two streams are routed: `:handled-events` (one production-safe observation record per re-frame event processed by this frame — **not** the dev trace stream's fine-grained events) and `:errors` (production-survivable error records, per [EP-0008](../docs/EP/EP-0008-production-observability-channels.md)'s always-on error axis). Shape validation **fails loud** on a non-map entry, a non-keyword `:sink`, a `:rf.egress/profile` outside the closed enum, or any key beyond `:sink` / `:rf.egress/profile` — a typo'd profile is a registration-time error, never a silent install, and a slot the routing seam would not read is refused rather than accepted and dropped. The candidate record kinds are `:rf.observe/handled-event` and `:rf.observe/error`; the off-box default record omits the `:event` args slot entirely and carries only summary fields (frame, event id, status, elapsed, effect keys, work / correlation ids).
 
+### The `:rf.observe/error` record carries the producer's component attribution
+
+<a id="the-rfobserveerror-record-carries-the-producers-component-attribution"></a>
+
+For the `:rf.error/*` categories whose **failing component is distinct from the dispatched event** — a user interceptor, a coeffect supplier, a flow evaluation — the always-on producer already stamps that attribution onto its corpus-wide record, so `:event-id` names the event while a separate slot names the component that actually failed. The `:errors` sink route carries the **same structural attribution**, and it must: as the corpus-wide error stream retires, the frame-owned sink becomes the **only** production door, and a record that never carried the failing component's id is lost diagnosis rather than redundancy — no egress profile can restore what the record never held.
+
+The attribution slots are **classified individually, never blanket-merged** into the public summary. The split follows the ordinary summary/tree rule of [§`project-egress`](#project-egress--the-record-level-boundary-primitive):
+
+| Slot | Class | Why |
+| --- | --- | --- |
+| `:failing-id` | summary | The failing interceptor / coeffect id — a registered keyword, author-typed in their own source, never derived from a payload. |
+| `:flow-id` | summary | The failing flow's id, on the same terms. |
+| `:where` | summary | A closed framework-owned discriminator (`:flow-eval`, `:app-db`, …) — two bits of "which phase", nothing more. |
+| `:source-coord` | summary | The `{:ns :file :line}` the always-on error-coord registry resolves for the failing registration — build metadata, not runtime data. |
+| `:reason` | **tree** (rides `:tags`) | Free-form prose that **interpolates app values**: the coeffect categories fold the thrown exception's own message into it. It is walked and redacted under frame classification like any other tree slot. |
+
+The four summary slots are the tight structural identifiers the producer's own contract keeps them to; they are production-surviving and are **not** privacy-gated, and passing them through the projector unchanged is what makes the flow-eval attribution survive `:rf.egress/public-error`, the profile that drops `:exception`.
+
+`:reason` is the one that needed a judgement rather than a default, and it is a **tree** slot on both error routes. It is a string built by interpolation at the emission site, so shipping it as a summary would ship the interpolated value by the back door — the same reason the router already declines to stamp a `:failing-id` at its classification-effect and effect-map sites, precisely so the shared lift cannot drag an interpolating `:reason` onto the always-on record. Routing it through `:tags` is also symmetric with the **non-event** union-record route, which has always lifted every non-summary slot — `:reason` included — onto `:tags`.
+
+That symmetry is the general rule, and it is what makes the classification **fail closed**: only the four named slots are summary; every other attribution slot a category lifts, now or later, rides `:tags` and is walked under frame classification until somebody classifies it deliberately.
+
 The sink consumes the **already-projected** record — the framework projects under the owning frame's classification and the entry's `:rf.egress/profile`, the sink does no redaction:
 
 ```clojure

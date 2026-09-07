@@ -237,6 +237,34 @@
         (route-stream! frame-id record entries))))
   nil)
 
+(def ^:private attribution-summary-keys
+  "The producer's COMPONENT-ATTRIBUTION slots that map onto canonical
+  `:rf.observe/error` SUMMARY slots — structural identifiers, passed through
+  the projector unchanged (rf2-kuky.65 / Spec 015 §Frame-owned observability
+  sink policy).
+
+  These are exactly the tight identifiers `error-emit/dispatch-on-error!`
+  merges onto its corpus-wide record: `:failing-id` (the interceptor / cofx
+  whose id is DISTINCT from `:event-id`), `:flow-id` + `:where` (the flow-eval
+  attribution rf2-z1332c lifted so it SURVIVES an egress profile that drops
+  `:exception`), and the `:source-coord` `{:ns :file :line}` the always-on
+  error-coord registry resolves for Sentry-style shippers. The producer's own
+  contract for them is `callers keep these to tight identifiers — this record
+  is production-surviving and NOT privacy-gated`.
+
+  Every OTHER attribution slot — `:reason`, and anything a future category
+  lifts — is NOT a summary slot. It rides the `:tags` tree-key so the projector
+  walks it under frame classification, which is both the fail-CLOSED default
+  for a slot nobody has classified and the rule the non-event
+  [[route-error-record!]] route already applies. `:reason` in particular is
+  free-form prose that INTERPOLATES app values: the coeffect categories fold
+  the thrown exception's own message into it (`cofx/emit-missing-required-cofx!`
+  builds `\"Coeffect supplier for `x` threw: <ex-message>\"`), and `router.cljc`
+  already declines to lift a `:failing-id` at two sites precisely so its
+  interpolating `:reason` cannot reach the always-on record. So it is a TREE
+  slot on both routes, never a public summary one."
+  #{:failing-id :flow-id :where :source-coord})
+
 (defn route-error!
   "Route ONE `:rf.observe/error` record for an `:rf.error/*` site to the
   owning frame's declared `:observability :errors` sinks (EP-0015 §9).
@@ -270,22 +298,46 @@
   route rather than policy-walking it (a concrete integer app-db path
   coincidentally matching a query-vector coordinate would otherwise mutate
   identity here, exactly as it did on the corpus-wide record). The 8-arity
-  keeps every dispatched-event caller unchanged (elided as before)."
+  keeps every dispatched-event caller unchanged (elided as before).
+
+  `attrs` (trailing, rf2-kuky.65) is the producer's COMPONENT-ATTRIBUTION map —
+  the same slots `error-emit/dispatch-on-error!` merges onto its corpus-wide
+  record, plus `:source-coord`. Without it a sink learned the CATEGORY but never
+  WHICH interceptor / cofx / flow failed, and no egress profile could restore
+  what the record never carried; once the corpus-wide `:errors` stream retires
+  this route is the ONLY production door, so that is lost diagnosis rather than
+  redundancy. The slots are SPLIT, never blanket-merged (Spec 015 §Frame-owned
+  observability sink policy): [[attribution-summary-keys]] ride the top level as
+  canonical summary slots the projector passes through unchanged, and EVERY
+  other slot — `:reason` among them — rides `:tags`, which the projector walks
+  and redacts under frame classification, symmetric with the non-event
+  [[route-error-record!]] route. The base observability fields always WIN over
+  an attribution slot of the same name, exactly as they do at the producer."
   ([error-kw event event-id frame-id exception elapsed-ms time correlation]
    (route-error! error-kw event event-id frame-id exception elapsed-ms time
-                 correlation false))
+                 correlation false nil))
   ([error-kw event event-id frame-id exception elapsed-ms time correlation raw-event?]
+   (route-error! error-kw event event-id frame-id exception elapsed-ms time
+                 correlation raw-event? nil))
+  ([error-kw event event-id frame-id exception elapsed-ms time correlation raw-event?
+    attrs]
    (let [observability (frame-observability frame-id)
          entries       (:errors observability)]
      (if (seq entries)
-       (let [record (cond-> {:kind       :rf.observe/error
-                             :frame      frame-id
-                             :error      error-kw
-                             :event-id   event-id
-                             :event      event
-                             :exception  exception
-                             :elapsed-ms elapsed-ms
-                             :time       time}
+       (let [attribution (into {} (remove (comp nil? val)) attrs)
+             summary     (select-keys attribution attribution-summary-keys)
+             tags        (not-empty (apply dissoc attribution
+                                           attribution-summary-keys))
+             record (cond-> (merge summary
+                                   {:kind       :rf.observe/error
+                                    :frame      frame-id
+                                    :error      error-kw
+                                    :event-id   event-id
+                                    :event      event
+                                    :exception  exception
+                                    :elapsed-ms elapsed-ms
+                                    :time       time})
+                      tags                (assoc :tags tags)
                       (some? correlation) (assoc :correlation correlation)
                       raw-event?          (assoc :re-frame.projection/raw-event? true))]
          (route-stream! frame-id record entries))
