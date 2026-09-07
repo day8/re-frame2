@@ -10,10 +10,11 @@
    the mutation's `:invalidates` clears the public profile read so a later visit
    re-reads the new bio.
 
-   The only thing app-db holds is the editable draft — the live field values,
-   plus the `:session-owner` recording whose settings they are. The lifecycle
-   (`:idle` / `:pending` / `:success` / `:error`) is the mutation instance, not a
-   `:status` field you maintain.
+   The only thing app-db holds is the editable draft — the live field values —
+   plus, while a save is on the wire, the one-key `:settings-save-owner` slot
+   recording WHO that save was issued as. The lifecycle (`:idle` / `:pending` /
+   `:success` / `:error`) is the mutation instance, not a `:status` field you
+   maintain.
 
    The success continuation is a call-site `:reply-to`, and it's worth a beat. The
    submit passes `:reply-to [:settings/replied]` to `:rf.mutation/execute`; when
@@ -73,20 +74,17 @@
          while the submit handler still reads the live value. See keep-secrets:
          ../../../docs/core/how-to/keep-secrets-out-of-traces.md
 
-         The seed records `:session-owner` — WHOSE settings these are — beside
-         the draft it seeds from that same user. `:settings/replied` compares it
-         against the live session before folding a reply in, so a save that
-         replies after a logout cannot restore the departed user's credentials
-         (auth.cljs's `owns-session?` carries the full why). Recording it HERE,
-         where the slice is built, rather than at submit is what keeps it right
-         across a mid-save detour: leaving the page and coming back re-seeds the
-         slice, and a submit-time record would be dropped by that re-seed and
-         the returning user's own save then refused."}
+         This seed deliberately records NO session ownership. The draft slice is
+         page state — it is rebuilt from scratch on every route entry, by
+         whoever is signed in at the time — so an owner recorded here is a
+         MUTABLE field, and the reply guard would be reading it long after the
+         save it was meant to describe. `:settings/submit` records the owner
+         instead, into its own slot; see the ownership note above
+         `:settings/replied`."}
   (fn [{:keys [db]} _]
     (let [user (get-in db [:auth :user])]
-      {:db        (assoc-in db [:settings-form] {:draft         (draft-from-user user)
-                                                 :touched       #{}
-                                                 :session-owner (:username user)})
+      {:db        (assoc-in db [:settings-form] {:draft   (draft-from-user user)
+                                                 :touched #{}})
        :sensitive [[:settings-form :draft :password]]})))
 
 (rf/reg-event :settings/edit-field
@@ -128,10 +126,20 @@
          :params it carries off to the server). The form watches the
          `:settings/save` instance for pending / error, and the success
          continuation is the call-site `:reply-to [:settings/replied]` target,
-         dispatched once when the reply is accepted."}
+         dispatched once when the reply is accepted.
+
+         The same write also RECORDS WHO THE SAVE IS ISSUED AS, into
+         `:settings-save-owner` — its own top-level slot, written by this
+         handler and nobody else, so nothing that happens to the page between
+         here and the reply can change the answer. `:settings/replied` reads it
+         back. See the ownership note above that handler for why the record
+         cannot live on the draft slice, and why it is not carried as a
+         continuation argument either."}
   (fn [{:keys [db]} _]
     (let [draft (get-in db [:settings-form :draft])]
-      {:db (assoc-in db [:settings-form :draft :password] "")
+      {:db (-> db
+               (assoc-in [:settings-form :draft :password] "")
+               (assoc :settings-save-owner (auth/session-owner db)))
        :fx [[:dispatch [:rf.mutation/execute
                         {:mutation :realworld/update-settings
                          :params   (select-keys draft [:username :email :bio :image :password])
@@ -139,6 +147,38 @@
                          :reply-to [:settings/replied]
                          :cause    [:submit :settings/save]}]]]})))
 
+;; ----------------------------------------------------------------------------
+;; SESSION OWNERSHIP — where the record lives, and why it is not an argument
+;; ----------------------------------------------------------------------------
+;;
+;; `:settings/replied` asks one question before it acts: is the session this
+;; save was issued for still the one signed in? That only works if the identity
+;; it compares was captured WHEN THE SAVE WAS ISSUED and cannot move afterwards.
+;;
+;; Two places it must NOT live, both of which look reasonable:
+;;
+;; 1. NOT on the draft slice. `:settings/load` rebuilds `[:settings-form]` from
+;;    whoever is signed in, on every route entry. Park alice's save, sign bob in,
+;;    let bob OPEN SETTINGS, and an owner recorded on that slice now reads "bob"
+;;    — so alice's reply is compared against alice's own captured-then-overwritten
+;;    field and ACCEPTED, restoring alice's User and token over bob's session.
+;;    Mid-save detours are the reason it looks tempting there; a slot the load
+;;    does not touch handles those without opening the switch.
+;;
+;; 2. NOT as a `:reply-to` continuation argument. `:reply-to [:settings/replied
+;;    owner]` would be the tidiest capture of all — the owner riding the
+;;    continuation itself — but the reply map is APPENDED as the final argument,
+;;    so the owner takes position 1 and the reply lands at position 2. Only
+;;    `(second event)` is path-redactable (Spec 015 §Registration-owned transient
+;;    classification — the positional fail-open), so this handler's
+;;    `:sensitive [[:value :user :token]]` would stop reaching the fresh JWT and
+;;    the token would ship RAW into every trace and error sink. Correct
+;;    ownership is not worth a leaked credential.
+;;
+;; So it lives at `:settings-save-owner`, a top-level slot written by
+;; `:settings/submit` alone and retired here as the save settles. Same shape as
+;; the http twin's, which records it into the submit machine's `:data` at
+;; `:begin-submit` — a slot route entry likewise never writes.
 (rf/reg-event :settings/replied
   {:doc "The update-settings completion continuation (the `:reply-to` target). It
          receives the canonical reply map as its final arg, observed AFTER the
@@ -163,8 +203,12 @@
       ;; the instance and stop there — the write itself already happened on the
       ;; server, and the next reader of that profile reads it fresh, because the
       ;; mutation's `:invalidates` ran before this continuation did.
-      (not (auth/owns-session? db (get-in db [:settings-form :session-owner])))
-      {:fx [[:dispatch [:rf.mutation/clear {:instance settings-instance}]]]}
+      ;;
+      ;; A cleared `:settings-save-owner` reads nil, and `owns-session?` refuses
+      ;; a nil owner, so a duplicate or resurrected reply is refused too.
+      (not (auth/owns-session? db (:settings-save-owner db)))
+      {:db (dissoc db :settings-save-owner)
+       :fx [[:dispatch [:rf.mutation/clear {:instance settings-instance}]]]}
 
       (= :ok status)
       (let [user (:user value)]
@@ -173,11 +217,16 @@
         ;; (auth.cljs) for why a nested dispatch would leak the raw token at
         ;; THIS handler's own trace regardless of :auth/store-session's own
         ;; classification.
-        {:db (auth/store-session-db db user)
+        {:db (-> db
+                 (auth/store-session-db user)
+                 (dissoc :settings-save-owner))
          :fx [[:dispatch [:rf.mutation/clear {:instance settings-instance}]]
               [:dispatch [:rf.route/navigate {:to :realworld.profile/show :params {:username (:username user)}}]]]})
 
-      :else {})))
+      ;; `:error` — the form already shows it off the instance state, so there
+      ;; is nothing to fold in. The save is settled either way, so retire the
+      ;; ownership record with it.
+      :else {:db (dissoc db :settings-save-owner)})))
 
 (rf/reg-sub :settings/draft (fn [db _] (get-in db [:settings-form :draft])))
 

@@ -79,17 +79,16 @@
    instance (`:rf/mutation`) — so this slice carries only the editable draft
    plus a little touched-field bookkeeping.
 
-   `:session-owner` is the settings form's alone (hence optional): the username
-   the draft was seeded from, which `:settings/replied` compares against the
-   live session before folding a reply in — a save can reply after a logout, and
-   the departed user's credentials must not come back with it. The login and
-   register drafts are filled in by a visitor who has no session yet, so they
-   have nothing to own."
+   Session ownership is deliberately NOT here. This slice is page state, rebuilt
+   from scratch on every route entry by whoever is signed in at the time, so a
+   `:session-owner` recorded on it is overwritten by the next visitor to open
+   the page — which is exactly the account-switch hole `:settings/replied` exists
+   to close. The settings save records its owner at `[:settings-save-owner]`
+   instead; settings.cljs carries the full why."
   [:map
    [:draft   :map]
    [:touched [:set :keyword]]
-   [:submit-attempted? {:optional true} :boolean]
-   [:session-owner {:optional true} [:maybe :string]]])
+   [:submit-attempted? {:optional true} :boolean]])
 
 (def AuthFlowData
   "The :data slot of the :auth/flow machine snapshot."
@@ -150,7 +149,12 @@
   {[:auth]                 [:maybe AuthSlice]
    [:auth :login-form]     [:maybe FormSlice]
    [:auth :register-form]  [:maybe FormSlice]
-   [:settings-form]        [:maybe FormSlice]})
+   [:settings-form]        [:maybe FormSlice]
+   ;; Present only while a settings save is on the wire: the username it was
+   ;; issued as, written by `:settings/submit` and retired by
+   ;; `:settings/replied`. `[:maybe :string]` because an absent slot reads nil,
+   ;; and nil is the answer `owns-session?` refuses.
+   [:settings-save-owner]  [:maybe :string]})
 
 (rf/with-frame :rf/default
   (rf/reg-app-schemas app-db-schemas))
