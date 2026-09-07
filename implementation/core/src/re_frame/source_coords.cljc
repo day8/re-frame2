@@ -5,7 +5,7 @@
 
   Every registration's metadata carries `:ns` / `:line` / `:file`
   auto-supplied at compile time. Tools (re-frame-pair, re-frame-10x,
-  IDE jump-to-source) consume these via `(rf/handler-meta kind id)`.
+  IDE jump-to-source) consume these via `(rf/handler-meta {:source :store :kind kind :id id})`.
 
   The capture mechanism:
 
@@ -26,7 +26,7 @@
 
     1. **Public registry-meta**: in dev the captured coords are merged
        into the registrar slot's metadata via [[merge-coords]] —
-       `(rf/handler-meta kind id)` consumers (Xray Open-in-editor,
+       `(rf/handler-meta {:source :store :kind kind :id id})` consumers (Xray Open-in-editor,
        re-frame-pair, IDE jump-to-source) read them from there. In
        CLJS production (`:advanced` + `goog.DEBUG=false`) [[merge-coords]]
        returns `user-meta` unchanged — the coord keys are stripped from
@@ -84,7 +84,7 @@
 
   JVM-side: always captured. The bundle-size argument doesn't apply on
   the JVM; SSR / test / tooling builds can read
-  `(:rf.handler/source (rf/handler-meta :event id))` directly."
+  `(:rf.handler/source (rf/handler-meta {:source :store :kind :event :id id}))` directly."
   nil)
 
 (defn merge-coords
@@ -221,7 +221,7 @@
 
   Returns nil for malformed input — blank / non-string input, fewer or
   more than four segments, or an empty `<ns>` / `<sym>` segment. Never
-  throws. Pair-shaped consumers fall back to `(rf/handler-meta :view id)`
+  throws. Pair-shaped consumers fall back to `(rf/handler-meta {:source :store :kind :view :id id})`
   when this returns nil (Spec 006 §Documented exemption).
 
   Tool-Pair.md declares the attribute value opaque to consumers; this
@@ -537,7 +537,7 @@
 ;; JVM compiler's default `"NO_SOURCE_PATH"` sentinel under CLJS. That
 ;; sentinel would then get baked into the `:file` slot of every
 ;; registration's source-coord, defeating jump-to-source and tooling
-;; that reads `(rf/handler-meta kind id)`.
+;; that reads `(rf/handler-meta {:source :store :kind kind :id id})`.
 ;;
 ;; The fix mirrors rf2-ulxi (PR #340, Story's `coords-form`):
 ;; prefer `(:file (meta &form))` — tools.reader's indexing-push-back-reader
@@ -790,7 +790,7 @@
 ;;
 ;; Tools (pair, 10x, IDE jump-to-source) read the coord back by navigating
 ;; from a snapshot state-path to the state-node and reading its `:source-
-;; coords` — `(rf/handler-meta :event machine-id)` → `:rf/machine` → `(get-in
+;; coords` — `(rf/handler-meta {:source :store :kind :event :id machine-id})` → `:rf/machine` → `(get-in
 ;; spec [:states ...])` → `:source-coords`. Per rf2-vqja2 this supersedes the
 ;; flat, spec-path-keyed `:rf.machine/state-coords` side-index that paralleled
 ;; the `:states` tree (the same parallel-side-index anti-pattern rf2-npvsx

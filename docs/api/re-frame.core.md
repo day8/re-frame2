@@ -1294,7 +1294,7 @@ The registrar holds every registered handler — events, subs, fx, cofx, flows, 
   - A map argument is always a frame-targeted read: a map without `:frame` raises `:rf.error/registrar-query-needs-frame`; a `:frame` that does not resolve to a live frame carrying a generation raises `:rf.error/frame-no-generation`.
 - **Example**:
   ```clojure
-  (rf/registrations :event)
+  (rf/registrations {:source :store :kind :event})
   ;; => {:counter/inc {:ns my-app.events :line 12 :file "my_app/events.cljs"} ...}
   (rf/registrations {:frame :tenants/acme :kind :sub})
   ```
@@ -1314,7 +1314,7 @@ The registrar holds every registered handler — events, subs, fx, cofx, flows, 
   - App-db schemas are **not** a registrar kind — look them up via `(app-schema-meta-at path)` in [re-frame.schemas.md](re-frame.schemas.md).
 - **Example**:
   ```clojure
-  (rf/handler-meta :sub :counter/value)
+  (rf/handler-meta {:source :store :kind :sub :id :counter/value})
   ;; => {:ns my-app.subs :line 8 :column 1 :file "my_app/subs.cljs"}
   ```
 

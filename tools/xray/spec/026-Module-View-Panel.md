@@ -219,8 +219,8 @@ beyond the dup-id: when a `:rf.xray/*` subscription RECOMPUTES, the framework
 binds registrar resolution to the seated frame's sealed image generation for the
 extent of the sub build (`re-frame.registrar/*generation*`, bound by
 `re-frame.live-frame/call-with-frame-resolution` around every subscribe targeting
-an image-loaded frame). So a bare `(rf/registrations :route)` /
-`(rf/handler-meta :event id)` *inside a sub computation* resolved through Xray's
+an image-loaded frame). So a bare `(rf/registrations {:source :store :kind :route})` /
+`(rf/handler-meta {:source :store :kind :event :id id})` *inside a sub computation* resolved through Xray's
 OWN image — which selects only Xray's `:rf.xray/*` namespaces, NOT the host app's
 registrations. The inspector then saw only its own handlers / routes / resources:
 the Routing panel rendered `currentId:null` with an empty route table (the
@@ -230,14 +230,19 @@ registry. The node-test suite did NOT catch it (a frame-only node-fixture path;
 the failure is browser-only). This is correct framework behaviour (a frame
 resolves its own image) and exactly the wrong thing for an INSPECTOR, which reads
 the registry of the INSPECTED app — the **process-global registrar** — not its
-own image's resolver. The fix is the `day8.re-frame2-xray.host-registry` helper:
-it reads the process-global registrar atom
-(`re-frame.registrar/kind->id->metadata`) directly, BYPASSING any bound
-`*generation*`. (A registrar-query map is ALWAYS a frame-targeted read — there is
-no realm-scoped query spelling — so the generation-bypass home is the direct
-registrar-atom read.) Every Xray host-registry read that happens inside a sub
-computation routes through it; view-time reads (no generation bound) are
-unaffected. With this in place the production singleton ships flipped and the
+own image's resolver. The fix is the framework's own `{:source :store …}` query
+form: `(rf/registrations {:source :store :kind k})` /
+`(rf/handler-meta {:source :store :kind k :id id})` read the process source
+store and NEVER consult a bound `re-frame.registrar/*generation*`, so they
+answer the same regardless of which frame's sub build the call sits inside.
+(Framework rf2-kuky.30 added `:source` and retired the positional arity that
+DOCUMENTED itself as a store read while silently resolving through the bound
+generation. Xray previously carried a `host_registry.cljs` helper that deref'd
+the private `re-frame.registrar/kind->id->metadata` atom to get the same
+answer; that helper is DELETED, and its nine requiring namespaces now use the
+public form.) Every Xray host-registry read inside a sub computation uses
+`{:source :store …}`; view-time reads (no generation bound) are unaffected.
+With this in place the production singleton ships flipped and the
 `routes-epochs` gate is green.
 
 Xray therefore models its registration set as a **separate image**, NOT as
@@ -371,26 +376,26 @@ does not flip `:images?` (there is no image content to show).
   `:exclude-ns` is covered by `xray-image-excludes-its-own-test-registrations`
   (a pool carrying a production id and its `*-cljs-test` sibling selects ONLY the
   production descriptor and assembles without a dup-id).
-- `host_registry.cljs` — the host-app registry read seam that survives Xray
-  running in its OWN image-loaded frame (`registrations` · `handler-meta`). Reads
-  the process-global registrar atom (`re-frame.registrar/kind->id->metadata`)
-  directly, BYPASSING any bound `re-frame.registrar/*generation*`. (A
-  registrar-query map is ALWAYS a frame-targeted read — there is no realm-scoped
-  query spelling — so the generation-bypass home is the direct registrar-atom
-  read.) Every Xray host-registry read INSIDE a sub
-  computation (the Routing route table, the palette handler index, the
-  Static Flows / Interceptors / Schemas registries, the Resources registry, the
-  Machine Inspector machine list + definitions, the Epoch pipeline's INTERCEPTORS
-  + RECORDABLE COEFFECTS resolvers) routes through it — without it those reads
-  resolve through Xray's OWN image generation (no host registrations) when the
-  singleton is image-loaded. Fail-soft: a throw degrades to the bare
-  `(rf/registrations kind)` / `(rf/handler-meta kind id)` facade reads.
+- The `{:source :store …}` query form — the host-app registry read that
+  survives Xray running in its OWN image-loaded frame.
+  `(rf/registrations {:source :store :kind k})` and
+  `(rf/handler-meta {:source :store :kind k :id id})` read the process source
+  store and NEVER consult a bound `re-frame.registrar/*generation*`. Every Xray
+  host-registry read INSIDE a sub computation (the Routing route table, the
+  palette handler index, the Static Flows / Interceptors / Schemas registries,
+  the Resources registry, the Machine Inspector machine list + definitions, the
+  Epoch pipeline's INTERCEPTORS + RECORDABLE COEFFECTS resolvers) uses it —
+  without it those reads resolve through Xray's OWN image generation (no host
+  registrations) when the singleton is image-loaded. The former
+  `host_registry.cljs` helper, which deref'd the private
+  `re-frame.registrar/kind->id->metadata` atom for the same answer, is DELETED
+  (framework rf2-kuky.30).
 - `mount.cljs/ensure-xray-frame!` — seats the production singleton in its OWN
   image-loaded frame via `image_view_reads/seat-xray-frame!` (`seat-xray-frame!
   :rf/xray` → `rf/make-frame {:id :rf/xray :images [(xray-image)]}`). The dup-id
   blocker is resolved by the `:exclude-ns` selector on `xray-image` (§8.1), and
   the host-registry read regression under image-loaded seating is resolved by
-  `host_registry.cljs` (the generation-bypassing process-registrar reads above);
+  the `{:source :store …}` query form (the source-store reads above);
   both node-test and the `routes-epochs` nightly xray-feature-gate are green with
   the flip. The runtime-reset test fixture
   (`re-frame.test-support/make-reset-runtime-fixture`) clears the ONE

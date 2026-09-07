@@ -878,7 +878,7 @@
   The id is `(keyword view-name)` — `view-name` is `\"<ns>/<sym>\"` and
   the registrar entry `publish-view-alias!` writes is keyed by exactly
   that keyword, so the attribute and the registrar agree by construction
-  and `(rf/handler-meta :view id)` answers for the node a tool just read.
+  and `(rf/handler-meta {:source :store :kind :view :id id})` answers for the node a tool just read.
 
   The coordinate is the one `error/declaring!` recorded a moment earlier:
   the `defview` expansion opens the declaration extent BEFORE it mints,
@@ -1206,7 +1206,7 @@
   `(keyword \"<ns>\" \"<sym>\")` — the id `rf/reg-view` derives from its own
   symbol, so one convention answers for both substrates; `slot` is the
   coordinate map the macro captured (`:ns` / `:file` / `:line` / `:column`
-  at the top level, where `(rf/handler-meta :view id)` reads them) plus the
+  at the top level, where `(rf/handler-meta {:source :store :kind :view :id id})` reads them) plus the
   author's `:doc`; `head` is the minted boundary, stored under
   `:hicasso/component`. Answers `view-id` (spec/Conventions.md, the
   `reg-*` return-value convention).

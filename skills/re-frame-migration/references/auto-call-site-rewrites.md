@@ -92,7 +92,7 @@ rg -n '\[\s*re-frame\.[a-z-]+' . \
                                  (rf/dispatch-sync [::reset-app-db v])
 (subs/clear-sub-cache!) → (rf/clear-sub-cache! :rf/default)
 (re-frame.core/clear-subscription-cache!) → (rf/clear-sub-cache! :rf/default) ; public v1 no-arg name
-(reg/get-handler kind id) → (rf/handler-meta kind id) ; INTROSPECTING call sites only; returns the registration metadata map (no raw handler fn is exposed publicly in v2) — a site that CALLS the result is Type B, see the caveat below
+(reg/get-handler kind id) → (rf/handler-meta {:source :store :kind kind :id id}) ; INTROSPECTING call sites only; returns the registration metadata map (no raw handler fn is exposed publicly in v2) — a site that CALLS the result is Type B, see the caveat below
 (re-frame.utils/map-vals f m) → (clojure.core/update-vals m f) ; Clojure 1.11+ (note arg order: update-vals takes the map first)
 ```
 

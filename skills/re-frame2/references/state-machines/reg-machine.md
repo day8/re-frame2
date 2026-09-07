@@ -69,7 +69,7 @@ The basic (non-parallel, non-hierarchical) form:
 (rf/dispatch [:my/feature [:start]])
 ```
 
-**`defmachine` is `def` for a literal machine map.** Use it for the `def`-then-register shape and `reg-machine` directly when registering an inline literal. The reason is source capture: `reg-machine`'s compile-time literal-walk sees only the symbol `my-machine` at its call site, so it captures **nothing** per-element; `defmachine` walks the literal at the *definition* site and co-locates `:source-coords` / `:source-code` onto each `:guards` / `:actions` / `:on-spawn-actions` entry, so the source travels into `reg-machine` **with the value**. Write plain `def` and the machine still runs — but `(rf/handler-meta :machine-guard [id guard-id])`, the Xray machine inspector and the Epoch machine-cascade have no per-element source to render. Both forms yield identical capture; the choice is only whether the spec value is named. (Spec 005 §Value-registered machines — `defmachine`.)
+**`defmachine` is `def` for a literal machine map.** Use it for the `def`-then-register shape and `reg-machine` directly when registering an inline literal. The reason is source capture: `reg-machine`'s compile-time literal-walk sees only the symbol `my-machine` at its call site, so it captures **nothing** per-element; `defmachine` walks the literal at the *definition* site and co-locates `:source-coords` / `:source-code` onto each `:guards` / `:actions` / `:on-spawn-actions` entry, so the source travels into `reg-machine` **with the value**. Write plain `def` and the machine still runs — but `(rf/handler-meta {:source :store :kind :machine-guard :id [id guard-id]})`, the Xray machine inspector and the Epoch machine-cascade have no per-element source to render. Both forms yield identical capture; the choice is only whether the spec value is named. (Spec 005 §Value-registered machines — `defmachine`.)
 
 The machine map's top-level keys are documented in Spec 005 §Transition table top-level keys: `:initial` (the entry state for non-parallel machines), `:data` (initial shared data), `:schemas` (the machine-level schema map — `[:schemas :data]` is the optional validator for `:data`; see [`machine-schemas.md`](machine-schemas.md)), `:guards` and `:actions` (named lookup tables), `:states` (the transition table), and the optional `:internal-events` set (see §Private `:internal-events`). For parallel machines, `:type :parallel` + `:regions` replaces `:initial` + `:states` — see `regions.md`.
 
@@ -185,7 +185,7 @@ To validate the flow's **outer** event vector, pass the optional metadata MIDDLE
 
 ## Querying registered machines
 
-- `(rf/handler-meta :event :my/feature)` — registration metadata, including `:rf/machine? true`, `:rf/machine` (the spec map), `:ns` / `:line` / `:file`.
+- `(rf/handler-meta {:source :store :kind :event :id :my/feature})` — registration metadata, including `:rf/machine? true`, `:rf/machine` (the spec map), `:ns` / `:line` / `:file`.
 - `(re-frame.machines/machines)` — every registered machine-id.
 - `(re-frame.machines/machine-meta :my/feature)` — the spec map back.
 

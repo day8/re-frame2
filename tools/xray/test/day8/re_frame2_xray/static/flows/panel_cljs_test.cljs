@@ -302,7 +302,8 @@
 ;;
 ;; rf2-en00bk made the per-frame `flows` atom the SOLE store and left the
 ;; registrar `:flow` slot RESERVED-but-empty. Before this PR the panel read
-;; `(host-registry/registrations :flow)` (→ now `{}`), so the production
+;; `(rf/registrations :flow)` (→ which now THROWS
+;; `:rf.error/registrar-kind-not-queryable`, framework rf2-kuky.30), so the production
 ;; data source returned an EMPTY catalogue against real flows; after the
 ;; repoint it reads `rf.flows/flows-snapshot` and surfaces them. Reverting the
 ;; `registered-flows-value` body back to the registrar read fails the first

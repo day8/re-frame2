@@ -243,7 +243,7 @@ Handler schemas are queryable via the public registrar query API ([002 §The pub
 ```clojure
 (require '[re-frame.schemas :as schemas])
 
-(rf/handler-meta :event :auth/login)
+(rf/handler-meta {:source :store :kind :event :id :auth/login})
 ;; → {:doc "..." :schema [:cat ...] :ns ... :line ... :file ...}
 
 (schemas/app-schema-at [:user])

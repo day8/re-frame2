@@ -7,10 +7,12 @@
   mutators (`rf/image`, `rf/make-frame`). This errata-class
   forward-extension ships the read:
 
-    * a `{:frame f :kind k …}` map ARITY on each of the two existing public
-      registrar reads — `rf/registrations` / `rf/handler-meta`
-      — resolving the (kind, id) set through the target frame's OWN sealed image
-      generation (NOT the realm/default registrar);
+    * a `{:frame f :kind k …}` QUERY on each of the two public registrar reads
+      — `rf/registrations` / `rf/handler-meta` — resolving the (kind, id) set
+      through the target frame's OWN sealed image generation (NOT the process
+      source store). rf2-kuky.30 later retired the positional arity these
+      shared the fn with, so `{:frame f …}` is now one of the TWO query forms
+      rather than an addition to a keyword read;
     * a dedicated raw read `rf/frame-generation` returning the sealed generation
       map with the documented stable public keys (:rf.gen/resolver,
       :rf.gen/images, :rf.gen/kinds).
@@ -23,11 +25,10 @@
     * `:frame` accepts a registered frame ID and a direct frame OBJECT alike;
     * `frame-generation` returns the four `:rf.gen/*` keys;
     * the fail-loud cases — an unresolvable `:frame`
-      (`:rf.error/frame-no-generation`, NO default fallback) and a map WITHOUT
-      `:frame` (`:rf.error/registrar-query-needs-frame`, rf2-10nggz — a map is
-      ALWAYS a frame-targeted read);
-    * the existing keyword arity stays BYTE-IDENTICAL (no regression — a caller
-      that never spells a map reaches the unchanged default source-store path).
+      (`:rf.error/frame-no-generation`, NO default fallback) and a query naming
+      NO source, BOTH sources, or a bad `:source`
+      (`:rf.error/registrar-query-needs-source`, rf2-kuky.30);
+    * the `{:source :store …}` read reaches the process source store.
 
   Each fail-loud assertion checks the `:rf.error/id` discriminator, NEVER the
   message bytes (Spec 009 §The thrown-error shape rule 3).
@@ -281,53 +282,64 @@
     (is (= :rf.error/frame-no-generation
            (err-id #(rf/registrations {:frame {:totally :fake} :kind :event}))))))
 
-(deftest map-without-frame-fails-loud
-  (testing "a registrar-query map WITHOUT :frame fails loud
-            (:rf.error/registrar-query-needs-frame, rf2-10nggz) — post-EP-0023 a
-            map is ALWAYS a frame-targeted read; the retired :realm / absence-as-
-            default spellings are removed"
+(deftest query-naming-no-single-source-fails-loud
+  (testing "a registrar query names EXACTLY ONE source
+            (:rf.error/registrar-query-needs-source, rf2-kuky.30). NEITHER
+            selector is an error rather than a default read — the word
+            'default' is precisely the ambiguity this grammar exists to
+            remove — and BOTH is an error because a read has one source,
+            not two."
     (rf/reg-event :ff/inc {:doc "inc"} (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (is (= :rf.error/registrar-query-needs-frame
-           (err-id #(rf/registrations {:kind :event}))))
-    (is (= :rf.error/registrar-query-needs-frame
-           (err-id #(rf/handler-meta {:kind :event :id :ff/inc}))))
-    ;; the retired :realm spelling is now the same missing-:frame error
-    (is (= :rf.error/registrar-query-needs-frame
+    (testing "neither :source nor :frame"
+      (is (= :rf.error/registrar-query-needs-source
+             (err-id #(rf/registrations {:kind :event}))))
+      (is (= :rf.error/registrar-query-needs-source
+             (err-id #(rf/handler-meta {:kind :event :id :ff/inc})))))
+    (testing "BOTH :source and :frame"
+      (is (= :rf.error/registrar-query-needs-source
+             (err-id #(rf/registrations {:source :store :frame :nope/missing :kind :event}))))
+      (is (= :rf.error/registrar-query-needs-source
+             (err-id #(rf/handler-meta {:source :store :frame :nope/missing
+                                        :kind :event :id :ff/inc})))))
+    (testing ":source admits only :store — the key is open for a future value,
+              not for an arbitrary one"
+      (is (= :rf.error/registrar-query-needs-source
+             (err-id #(rf/registrations {:source :registrar :kind :event}))))
+      (is (= :rf.error/registrar-query-needs-source
+             (err-id #(rf/registrations {:source nil :kind :event})))))
+    ;; the retired :realm spelling names no source at all
+    (is (= :rf.error/registrar-query-needs-source
            (err-id #(rf/registrations {:realm nil :kind :event}))))))
 
-(deftest handler-meta-non-map-single-arg-fails-loud
-  (testing "rf2-wa38hs: handler-meta's 1-arg arity is MAP-ONLY — unlike
-            registrations, whose 1-arg arity ALSO serves the
-            default-source-store keyword read, handler-meta's positional read
-            needs `id` too and lives on the separate (kind id) arity. So a
-            bare non-map single arg here (the common mistake of omitting
-            `id`, e.g. `(handler-meta :event)`) is never a valid default-store
-            read. Before the fix this crashed: `(contains? arg :frame)` threw
-            on CLJ (`contains?` doesn't support a keyword), and on CLJS
-            `contains?` returned false but the shared assert helper's
-            `(keys arg)` then threw a raw, unclear error. Both must now raise
-            the SAME catalogued :rf.error/registrar-query-needs-frame — the
-            identical error a map-without-:frame produces — rather than crash
-            or mis-error, on EITHER runtime."
-    (is (= :rf.error/registrar-query-needs-frame
+(deftest non-map-argument-fails-loud
+  (testing "rf2-wa38hs / rf2-kuky.30: a registrar query is a MAP. A non-map
+            argument — most often a leftover positional call, `(handler-meta
+            :event)` or `(registrations :event)` — raises the SAME catalogued
+            :rf.error/registrar-query-needs-source a sourceless map does, on
+            EITHER runtime. Before rf2-wa38hs this class CRASHED:
+            `(contains? arg :frame)` threw on CLJ (`contains?` doesn't support
+            a keyword), and on CLJS `contains?` returned false but the shared
+            assert helper's `(keys arg)` then threw a raw, unclear error."
+    (is (= :rf.error/registrar-query-needs-source
            (err-id #(rf/handler-meta :event))))
-    (is (= :rf.error/registrar-query-needs-frame
+    (is (= :rf.error/registrar-query-needs-source
+           (err-id #(rf/registrations :event))))
+    (is (= :rf.error/registrar-query-needs-source
            (err-id #(rf/handler-meta "not-a-keyword"))))
-    (is (= :rf.error/registrar-query-needs-frame
+    (is (= :rf.error/registrar-query-needs-source
            (err-id #(rf/handler-meta nil))))
-    (is (= :rf.error/registrar-query-needs-frame
+    (is (= :rf.error/registrar-query-needs-source
            (err-id #(rf/handler-meta [:event :ff/inc]))))))
 
 ;; ===========================================================================
 ;; 5. NO REGRESSION — the existing keyword arity stays byte-identical
 ;; ===========================================================================
 
-(deftest keyword-arity-stays-byte-identical
-  (testing "a caller that never spells a map reaches the UNCHANGED default
-            source-store path — the frame-arity addition is purely additive"
+(deftest store-query-reaches-the-source-store
+  (testing "the {:source :store …} query reaches the process source store"
     (rf/reg-event :ff/inc {:doc "inc"} (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (rf/reg-sub :ff/n {:doc "n"} (fn [db _] (:n db)))
-    (testing "(registrations kind) — the default source-store keyword arity is unchanged"
-      (is (contains? (rf/registrations :event) :ff/inc)))
-    (testing "(handler-meta kind id) — unchanged"
-      (is (some? (rf/handler-meta :event :ff/inc))))))
+    (testing "registrations"
+      (is (contains? (rf/registrations {:source :store :kind :event}) :ff/inc)))
+    (testing "handler-meta"
+      (is (some? (rf/handler-meta {:source :store :kind :event :id :ff/inc}))))))

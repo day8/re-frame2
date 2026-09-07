@@ -286,7 +286,7 @@
           "query-vector guard returning false blocks the navigation")
       (is (= :editor/can-leave? (:rejecting-guard pending))
           "pending slot stores the guard id, not the whole query vector")
-      (is (= [:editor/can-leave?] (:can-leave (rf/handler-meta :route :editor/article)))
+      (is (= [:editor/can-leave?] (:can-leave (rf/handler-meta {:source :store :kind :route :id :editor/article})))
           "route metadata preserves canonical query-vector semantics"))))
 
 (deftest programmatic-navigate-runs-can-leave-guard

@@ -56,7 +56,6 @@
             ;; marker before any panel surface reads it — never raw.
             [re-frame.classification :as rf.classification]
             [day8.re-frame2-machines-viz.chart.layout :as chart-layout]
-            [day8.re-frame2-xray.host-registry :as host-registry]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             ;; rf2-g2axio — the SHARED EVENT HANDLER machine-cascade
             ;; mini-pipeline lives in the Epoch panel view; the Machine
@@ -669,17 +668,18 @@
   registration whose metadata carries `:rf/machine? true`, the same derivation
   `re-frame.machines/machines` runs).
 
-  Derived from `host-registry/registrations` (the generation-bypassing
-  default-realm form), NOT `(machines/machines)`: the framework's `machines`
+  Derived from `(rf/registrations {:source :store :kind :event})` (the
+  SOURCE-STORE read, which never consults a bound image generation), NOT
+  `(machines/machines)`: the framework's `machines`
   reads `registrar/registrations :event`, which is generation-scoped. This fn
   runs inside the `:rf.xray/registered-machines` sub COMPUTATION, and Xray seats
   in its OWN image-loaded `:rf/xray` frame, so a generation-scoped read would
   resolve through Xray's OWN image (no host machines) and the inspector would
   show no machines. Reading the host registrar directly restores the host's
-  machine list. See `day8.re-frame2-xray.host-registry`."
+  machine list. See spec/API.md §Public registrar query API."
   []
   (try
-    (->> (host-registry/registrations :event)
+    (->> (rf/registrations {:source :store :kind :event})
          (keep (fn [[id m]] (when (:rf/machine? m) id)))
          vec)
     (catch :default _ [])))
@@ -701,17 +701,18 @@
   `:event` registrar's `:rf/machine` slot (the same value
   `re-frame.machines/machine-meta` returns).
 
-  Resolved via `host-registry/handler-meta` (the generation-bypassing
-  default-realm form), NOT `(machines/machine-meta id)`: the framework's
+  Resolved via `(rf/handler-meta {:source :store :kind :event :id id})` (the
+  SOURCE-STORE read, which never consults a bound image generation), NOT
+  `(machines/machine-meta id)`: the framework's
   `machine-meta` reads `registrar/lookup :event id`, which is generation-scoped.
   This fn runs inside the `:rf.xray/machine-definitions` sub COMPUTATION under
   Xray's OWN image-loaded `:rf/xray` frame, so a generation-scoped read would
   resolve through Xray's image (no host machines) and lose every definition.
-  See `day8.re-frame2-xray.host-registry`."
+  See spec/API.md §Public registrar query API."
   [machines]
   (into {}
         (keep (fn [id]
-                (let [m (host-registry/handler-meta :event id)]
+                (let [m (rf/handler-meta {:source :store :kind :event :id id})]
                   (when (:rf/machine? m) [id (:rf/machine m)]))))
         (or machines [])))
 

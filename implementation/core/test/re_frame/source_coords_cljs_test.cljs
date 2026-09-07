@@ -5,8 +5,7 @@
   `cljs.analyzer/*cljs-file*` instead). On CLJS that left `*file*` at
   the JVM compiler's default `\"NO_SOURCE_PATH\"` sentinel, which then
   got baked into every registration's source-coord `:file` slot —
-  defeating jump-to-source and tooling that reads `(rf/handler-meta
-  kind id)`.
+  defeating jump-to-source and tooling that reads `(rf/handler-meta {:source :store :kind kind :id id})`.
 
   The fix (mirroring rf2-ulxi / Story-side PR #340) prefers
   `(:file (meta &form))` over `*file*`. tools.reader's
@@ -57,7 +56,7 @@
   legacy reg-event-* macros (consolidated macro layer)"
     (rf/reg-event :rf2-mdjp/reg-event-sample
                   (fn [{:keys [db]} _] {:db db}))
-    (let [m (rf/handler-meta :event :rf2-mdjp/reg-event-sample)
+    (let [m (rf/handler-meta {:source :store :kind :event :id :rf2-mdjp/reg-event-sample})
           f (:file m)]
       (is (some? m))
       (is (not= "NO_SOURCE_PATH" f)
@@ -70,7 +69,7 @@
   (testing "rf2-mdjp: reg-event with a {:db ...} return emits a real :file under CLJS, not NO_SOURCE_PATH"
     (rf/reg-event :rf2-mdjp/reg-event-db-sample
                      (fn [{:keys [db]} _] {:db db}))
-    (let [m (rf/handler-meta :event :rf2-mdjp/reg-event-db-sample)
+    (let [m (rf/handler-meta {:source :store :kind :event :id :rf2-mdjp/reg-event-db-sample})
           f (:file m)]
       (is (some? m))
       (is (not= "NO_SOURCE_PATH" f)
@@ -83,7 +82,7 @@
   (testing "rf2-mdjp: reg-event with an effect-map return emits a real :file under CLJS"
     (rf/reg-event :rf2-mdjp/reg-event-fx-sample
                      (fn [_ _] {}))
-    (let [f (:file (rf/handler-meta :event :rf2-mdjp/reg-event-fx-sample))]
+    (let [f (:file (rf/handler-meta {:source :store :kind :event :id :rf2-mdjp/reg-event-fx-sample}))]
       (is (not= "NO_SOURCE_PATH" f)))))
 
 (deftest reg-event-with-interceptor-file-is-not-no-source-path
@@ -92,26 +91,26 @@
     (rf/reg-event :rf2-mdjp/reg-event-ctx-sample
                   {:interceptors [:rf2-mdjp/ctx-probe]}
                   (fn [_ _] {}))
-    (let [f (:file (rf/handler-meta :event :rf2-mdjp/reg-event-ctx-sample))]
+    (let [f (:file (rf/handler-meta {:source :store :kind :event :id :rf2-mdjp/reg-event-ctx-sample}))]
       (is (not= "NO_SOURCE_PATH" f)))))
 
 (deftest reg-sub-file-is-not-no-source-path
   (testing "rf2-mdjp: reg-sub emits a real :file under CLJS"
     (rf/reg-sub :rf2-mdjp/reg-sub-sample
                 (fn [db _] db))
-    (let [f (:file (rf/handler-meta :sub :rf2-mdjp/reg-sub-sample))]
+    (let [f (:file (rf/handler-meta {:source :store :kind :sub :id :rf2-mdjp/reg-sub-sample}))]
       (is (not= "NO_SOURCE_PATH" f)))))
 
 (deftest reg-fx-file-is-not-no-source-path
   (testing "rf2-mdjp: reg-fx emits a real :file under CLJS"
     (rf/reg-fx :rf2-mdjp/reg-fx-sample (fn [_ _] nil))
-    (let [f (:file (rf/handler-meta :fx :rf2-mdjp/reg-fx-sample))]
+    (let [f (:file (rf/handler-meta {:source :store :kind :fx :id :rf2-mdjp/reg-fx-sample}))]
       (is (not= "NO_SOURCE_PATH" f)))))
 
 (deftest reg-cofx-file-is-not-no-source-path
   (testing "rf2-mdjp: reg-cofx emits a real :file under CLJS"
     (rf/reg-cofx :rf2-mdjp/reg-cofx-sample (fn [] :sample))
-    (let [f (:file (rf/handler-meta :cofx :rf2-mdjp/reg-cofx-sample))]
+    (let [f (:file (rf/handler-meta {:source :store :kind :cofx :id :rf2-mdjp/reg-cofx-sample}))]
       (is (not= "NO_SOURCE_PATH" f)))))
 
 ;; make-frame and reg-view exercise the same source-coords path; they

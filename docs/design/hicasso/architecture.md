@@ -689,7 +689,7 @@ entry per `defview`, dev only, so a keyword an author wrote resolves forward to
 the boundary they meant. The id is `(keyword "<ns>" "<sym>")`, byte-identical to
 what `rf/reg-view` derives from its own symbol, so one convention answers for both
 substrates; the coordinate is stored at the top level of the registration
-metadata, where `(rf/handler-meta :view id)` already reads it, and the author's
+metadata, where `(rf/handler-meta {:source :store :kind :view :id id})` already reads it, and the author's
 `:doc` rides along so the registrar's `:rf.warning/missing-doc` does not fire on
 a documented view. The entry is an alias and carries no `:handler-fn`: `rf/view`
 answers *the registered render fn* and a boundary is a React component, so

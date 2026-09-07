@@ -564,12 +564,12 @@
   in Xray's own `*-cljs-test` namespaces → `:rf.error/image-duplicate-id`) is
   fixed by the `:select-ns :exclude` globs on `xray-image`; and the
   host-registry read regression under image-loaded seating — a `:rf.xray/*`
-  sub's bare `(rf/registrations …)` / `(rf/handler-meta …)` resolving through
+  sub's bare `(rf/registrations {:source :store :kind …})` / `(rf/handler-meta …)` resolving through
   Xray's OWN image generation instead of the inspected host's process-global
   registrar (the `routes-epochs` nightly xray-feature-gate caught it: empty
   route table / `currentId:null`) — is fixed by reading the host registry
-  through `day8.re-frame2-xray.host-registry` (the realm-targeted,
-  generation-bypassing form). Both the node-test suite and the
+  with the `{:source :store …}` query form (the SOURCE-STORE read, which
+  never consults a bound image generation). Both the node-test suite and the
   `routes-epochs` feature-gate are green with the flip.
 
   ## `frame-id` arg (rf2-lnluk)
@@ -689,8 +689,9 @@
    ;; `re-frame.trace/set-frame-no-emit!` (the same seam the frame engine routed it
    ;; through), and is idempotent on re-seat (`xray-frame-seated?` skips the
    ;; duplicate-`:id` `make-frame`). Host-registry reads inside Xray's subs go
-   ;; through `host-registry` (generation-bypassing) so the inspector still sees
-   ;; the inspected app's registrar, not its own image's — see that ns.
+   ;; with `{:source :store …}` (which never consults a bound image
+   ;; generation) so the inspector still sees the inspected app's registrar,
+   ;; not its own image's — see spec/API.md §Public registrar query API.
    (image-reads/seat-xray-frame! frame-id)
    ;; rf2-n4p5it — run the hook fan-out only on the FIRST call for this
    ;; `frame-id`. `seat-xray-frame!` above stays unconditional (its own

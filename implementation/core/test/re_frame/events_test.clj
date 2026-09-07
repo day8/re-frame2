@@ -141,7 +141,7 @@
         (fn [{:keys [db]} _] {:db db}))
       (is (empty? (warning-events recorded :rf.warning/interceptors-in-metadata-map))
           "the superset form does NOT fire the retired metadata-misuse warning")
-      (let [meta (rf/handler-meta :event :test.bpmszk/super)
+      (let [meta (rf/handler-meta {:source :store :kind :event :id :test.bpmszk/super})
             ids  (chain-ids (:interceptors meta))]
         ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). `:doc` is
         ;; retained for tooling in dev and ELIDED in production; the chain
@@ -297,7 +297,7 @@
            (rf/reg-event :test.bpmszk/empty-ok
              {:doc "no chain" :interceptors []}
              (fn [{:keys [db]} _] {:db db}))))
-    (let [ids (mapv :id (:interceptors (rf/handler-meta :event :test.bpmszk/empty-ok)))]
+    (let [ids (mapv :id (:interceptors (rf/handler-meta {:source :store :kind :event :id :test.bpmszk/empty-ok})))]
       (is (= [:rf/event-handler] ids) "no user interceptors; only the runtime wrapper"))))
 
 (deftest canonical-metadata-form-stays-silent
@@ -519,7 +519,7 @@
         (fn [{:keys [db]} _] {:db (assoc db :test.fuudi/touched-1? true)}))
       (rf/dispatch-sync [:test.fuudi/shape-1])
       (is (true? (:test.fuudi/touched-1? (rf/app-db-value :rf/default))))
-      (let [meta (rf/handler-meta :event :test.fuudi/shape-1)]
+      (let [meta (rf/handler-meta {:source :store :kind :event :id :test.fuudi/shape-1})]
         (is (not (contains? meta :event/kind))
             "the :event/kind sub-tag is gone")
         (is (= 1 (count (:interceptors meta)))
@@ -531,7 +531,7 @@
         (fn [{:keys [db]} _] {:db (assoc db :test.fuudi/touched-2? true)}))
       (rf/dispatch-sync [:test.fuudi/shape-2])
       (is (true? (:test.fuudi/touched-2? (rf/app-db-value :rf/default))))
-      (let [meta (rf/handler-meta :event :test.fuudi/shape-2)]
+      (let [meta (rf/handler-meta {:source :store :kind :event :id :test.fuudi/shape-2})]
         ;; rf2-d2841 — dev-instrumentation arm (see ns docstring): `:doc` is
         ;; tooling metadata, retained in dev and elided in production. That the
         ;; SHAPE was accepted at all is the `:test.fuudi/touched-2?` assertion
@@ -548,7 +548,7 @@
         (fn [{:keys [db]} _] {:db (assoc db :test.fuudi/touched-3? true)}))
       (rf/dispatch-sync [:test.fuudi/shape-3])
       (is (true? (:test.fuudi/touched-3? (rf/app-db-value :rf/default))))
-      (let [meta (rf/handler-meta :event :test.fuudi/shape-3)
+      (let [meta (rf/handler-meta {:source :store :kind :event :id :test.fuudi/shape-3})
             ids  (chain-ids (:interceptors meta))]
         (is (= [:test.fuudi/marker :rf/event-handler] ids)
             "the user interceptor ref sits before the runtime wrapper in registration order")))
@@ -559,7 +559,7 @@
         (fn [{:keys [db]} _] {:db (assoc db :test.fuudi/touched-4? true)}))
       (rf/dispatch-sync [:test.fuudi/shape-4])
       (is (true? (:test.fuudi/touched-4? (rf/app-db-value :rf/default))))
-      (let [meta (rf/handler-meta :event :test.fuudi/shape-4)
+      (let [meta (rf/handler-meta {:source :store :kind :event :id :test.fuudi/shape-4})
             ids  (chain-ids (:interceptors meta))]
         ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
         (when rf.interop/debug-enabled?
@@ -594,7 +594,7 @@
     (rf/dispatch-sync [:test.fuudi/ctx-shape-4])
     (is (true? (:test.fuudi/ctx-touched? (rf/app-db-value :rf/default)))
         "the interceptor :before ran and its db mutation committed via the handler")
-    (let [meta (rf/handler-meta :event :test.fuudi/ctx-shape-4)
+    (let [meta (rf/handler-meta {:source :store :kind :event :id :test.fuudi/ctx-shape-4})
           ids  (chain-ids (:interceptors meta))]
       (is (not (contains? meta :event/kind)))
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
@@ -639,13 +639,13 @@
 ;; map itself; self-describing.
 ;;
 ;; Xray, Story, and the Event lens redesign (rf2-zh2qc) read
-;; `(rf/handler-meta :event id) :interceptors` and filter
+;; `(rf/handler-meta {:source :store :kind :event :id id}) :interceptors` and filter
 ;; `(remove :rf/default?)` to surface only the user's interceptor chain.
 
 (deftest auto-wrapper-carries-rf-default-tag
   (testing "reg-event auto-wrapper has :rf/default? true"
     (rf/reg-event :test.twt7m/handler (fn [{:keys [db]} _] {:db db}))
-    (let [interceptors (-> (rf/handler-meta :event :test.twt7m/handler)
+    (let [interceptors (-> (rf/handler-meta {:source :store :kind :event :id :test.twt7m/handler})
                            :interceptors)
           auto-wrapper (last interceptors)]
       (is (= :rf/event-handler (:id auto-wrapper))
@@ -660,7 +660,7 @@
     (rf/reg-event :test.twt7m/with-user-icpt
       {:interceptors [:test.twt7m/user]}
       (fn [{:keys [db]} _] {:db db}))
-    (let [interceptors (-> (rf/handler-meta :event :test.twt7m/with-user-icpt)
+    (let [interceptors (-> (rf/handler-meta {:source :store :kind :event :id :test.twt7m/with-user-icpt})
                            :interceptors)
           user-slot    (first interceptors)
           auto-wrapper (last interceptors)]
@@ -683,7 +683,7 @@
     (rf/reg-event :test.twt7m/filtering
       {:interceptors [:test.twt7m/a :test.twt7m/b]}
       (fn [{:keys [db]} _] {:db db}))
-    (let [interceptors (-> (rf/handler-meta :event :test.twt7m/filtering)
+    (let [interceptors (-> (rf/handler-meta {:source :store :kind :event :id :test.twt7m/filtering})
                            :interceptors)
           user-only    (vec (remove :rf/default? interceptors))]
       (is (= 3 (count interceptors)) "two user refs + one framework auto-wrapper")
@@ -973,7 +973,7 @@
              (rf/reg-event :test.3ut12/good-interceptors
                {:interceptors [:test.3ut12/bare]}
                (fn [{:keys [db]} _] {:db db}))))
-      (let [{:keys [interceptors]} (rf/handler-meta :event :test.3ut12/good-interceptors)
+      (let [{:keys [interceptors]} (rf/handler-meta {:source :store :kind :event :id :test.3ut12/good-interceptors})
             ids (set (chain-ids interceptors))]
         (is (contains? ids :test.3ut12/bare)
             "the interceptor ref reached the registered chain (NOT dropped)")))
@@ -985,7 +985,7 @@
                {:doc "metadata + interceptor ref vector"
                 :interceptors [:test.3ut12/bare]}
                (fn [_ _] {}))))
-      (let [{:keys [interceptors]} (rf/handler-meta :event :test.3ut12/good-meta-interceptors)]
+      (let [{:keys [interceptors]} (rf/handler-meta {:source :store :kind :event :id :test.3ut12/good-meta-interceptors})]
         (is (contains? (set (chain-ids interceptors)) :test.3ut12/bare))))
 
     (testing "absent interceptors (bare handler) still works"

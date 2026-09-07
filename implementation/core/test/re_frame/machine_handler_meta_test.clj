@@ -11,8 +11,8 @@
   `:actions` entry. `reg-machine*` stores the whole stamped spec under
   `:rf/machine` in the machine's `:event` registration. Tools read
 
-      (rf/handler-meta :machine-guard  [<machine-id> <guard-id>])
-      (rf/handler-meta :machine-action [<machine-id> <action-id>])
+      (rf/handler-meta {:source :store :kind :machine-guard :id [<machine-id> <guard-id>]})
+      (rf/handler-meta {:source :store :kind :machine-action :id [<machine-id> <action-id>]})
 
   which DERIVES the meta on demand from that `:event` spec — there is NO
   `:machine-guard` / `:machine-action` registrar kind (the addressing is
@@ -78,13 +78,13 @@
         "rf.registrar/lookup of the derived kind is nil — the storage moved")
     ;; The DERIVED handler-meta addressing is unchanged — Xray + pair-MCP
     ;; source-jump call sites still resolve through (rf/handler-meta ...).
-    (is (some? (rf/handler-meta :machine-guard [:rf2-ftrcv/no-side-table :ok?]))
-        "the (rf/handler-meta :machine-guard ...) addressing still resolves")))
+    (is (some? (rf/handler-meta {:source :store :kind :machine-guard :id [:rf2-ftrcv/no-side-table :ok?]}))
+        "the (rf/handler-meta {:source :store :kind :machine-guard :id ...}) addressing still resolves")))
 
 ;; ---- the dev handler-meta addressing is unchanged ------------------------
 
 (deftest dev-handler-meta-addressing-unchanged
-  (testing "rf2-ftrcv acceptance: (rf/handler-meta :machine-guard [mid gid]) returns
+  (testing "rf2-ftrcv acceptance: (rf/handler-meta {:source :store :kind :machine-guard :id [mid gid]}) returns
   :rf.handler/source in dev — the UNCHANGED surface Xray's GUARDS RUN lens +
   pair-MCP source-jump read. The two machine kinds dispatch to the
   machine-spec-derived source; the registrar kinds fall through to the
@@ -94,8 +94,8 @@
        :guards  {:token? (fn [{data :data}] (get-in data [:session :token]))}
        :actions {:fetch! (fn [_ctx] {:fx [[:dispatch [:loading/complete]]]})}
        :states  {:idle {:on {:go {:target :idle :guard :token? :action :fetch!}}}}})
-    (let [g (rf/handler-meta :machine-guard  [:rf2-ftrcv/addressing :token?])
-          a (rf/handler-meta :machine-action [:rf2-ftrcv/addressing :fetch!])]
+    (let [g (rf/handler-meta {:source :store :kind :machine-guard :id [:rf2-ftrcv/addressing :token?]})
+          a (rf/handler-meta {:source :store :kind :machine-action :id [:rf2-ftrcv/addressing :fetch!]})]
       (is (string? (:rf.handler/source g))
           "dev: :machine-guard handler-meta carries :rf.handler/source")
       (is (string? (:rf.handler/source a))
@@ -103,14 +103,14 @@
     (testing "the registrar kinds still fall through to the registrar lookup"
       (rf/reg-event :rf2-ftrcv/plain-event (fn [{:keys [db]} _] {:db db}))
       (is (= (rf.registrar/lookup :event :rf2-ftrcv/plain-event)
-             (rf/handler-meta :event :rf2-ftrcv/plain-event))
+             (rf/handler-meta {:source :store :kind :event :id :rf2-ftrcv/plain-event}))
           ":event handler-meta is the registrar lookup, unchanged"))
     (testing "an unknown (machine-id, id) addresses to nil, not a throw"
-      (is (nil? (rf/handler-meta :machine-guard [:rf2-ftrcv/no-such :nope]))
+      (is (nil? (rf/handler-meta {:source :store :kind :machine-guard :id [:rf2-ftrcv/no-such :nope]}))
           "no :event registration → nil")
-      (is (nil? (rf/handler-meta :machine-guard [:rf2-ftrcv/addressing :no-such-guard]))
+      (is (nil? (rf/handler-meta {:source :store :kind :machine-guard :id [:rf2-ftrcv/addressing :no-such-guard]}))
           "absent guard id → nil")
-      (is (nil? (rf/handler-meta :machine-guard :not-a-vector))
+      (is (nil? (rf/handler-meta {:source :store :kind :machine-guard :id :not-a-vector}))
           "non-vector id → nil (no throw)"))))
 
 ;; ---- single guard / single action capture --------------------------------
@@ -121,7 +121,7 @@
       {:initial :idle
        :guards  {:token? (fn [{data :data}] (get-in data [:session :token]))}
        :states  {:idle {:on {:check {:target :idle :guard :token?}}}}})
-    (let [m (rf/handler-meta :machine-guard [:rf2-ypu5i/has-guard :token?])]
+    (let [m (rf/handler-meta {:source :store :kind :machine-guard :id [:rf2-ypu5i/has-guard :token?]})]
       (is (some? m) "handler-meta should be present")
       (is (= :token? (:rf/guard-id m))
           ":rf/guard-id marker should carry the guard id")
@@ -144,7 +144,7 @@
       {:initial :idle
        :actions {:fetch! (fn [_ctx] {:fx [[:dispatch [:loading/complete]]]})}
        :states  {:idle {:on {:start {:target :idle :action :fetch!}}}}})
-    (let [m (rf/handler-meta :machine-action [:rf2-ypu5i/has-action :fetch!])]
+    (let [m (rf/handler-meta {:source :store :kind :machine-action :id [:rf2-ypu5i/has-action :fetch!]})]
       (is (some? m) "handler-meta should be present")
       (is (= :fetch! (:rf/action-id m))
           ":rf/action-id marker should carry the action id")
@@ -169,9 +169,9 @@
        :states  {:idle {:on {:probe [{:target :idle :guard :a?}
                                      {:target :idle :guard :b?}
                                      {:target :idle :guard :c?}]}}}})
-    (let [ma (rf/handler-meta :machine-guard [:rf2-ypu5i/many-guards :a?])
-          mb (rf/handler-meta :machine-guard [:rf2-ypu5i/many-guards :b?])
-          mc (rf/handler-meta :machine-guard [:rf2-ypu5i/many-guards :c?])]
+    (let [ma (rf/handler-meta {:source :store :kind :machine-guard :id [:rf2-ypu5i/many-guards :a?]})
+          mb (rf/handler-meta {:source :store :kind :machine-guard :id [:rf2-ypu5i/many-guards :b?]})
+          mc (rf/handler-meta {:source :store :kind :machine-guard :id [:rf2-ypu5i/many-guards :c?]})]
       (is (= :a? (:rf/guard-id ma)))
       (is (= :b? (:rf/guard-id mb)))
       (is (= :c? (:rf/guard-id mc)))
@@ -189,9 +189,9 @@
        :states  {:idle {:on {:bump  {:target :idle :action :inc!}
                              :nudge {:target :idle :action :dec!}
                              :send  {:target :idle :action :emit!}}}}})
-    (let [m-inc  (rf/handler-meta :machine-action [:rf2-ypu5i/many-actions :inc!])
-          m-dec  (rf/handler-meta :machine-action [:rf2-ypu5i/many-actions :dec!])
-          m-emit (rf/handler-meta :machine-action [:rf2-ypu5i/many-actions :emit!])]
+    (let [m-inc  (rf/handler-meta {:source :store :kind :machine-action :id [:rf2-ypu5i/many-actions :inc!]})
+          m-dec  (rf/handler-meta {:source :store :kind :machine-action :id [:rf2-ypu5i/many-actions :dec!]})
+          m-emit (rf/handler-meta {:source :store :kind :machine-action :id [:rf2-ypu5i/many-actions :emit!]})]
       (is (= :inc!  (:rf/action-id m-inc)))
       (is (= :dec!  (:rf/action-id m-dec)))
       (is (= :emit! (:rf/action-id m-emit)))
@@ -208,8 +208,8 @@
        :guards  {:ready? (fn [{data :data}] (:ready? data))}
        :actions {:start! (fn [_] {:fx [[:dispatch [:started]]]})}
        :states  {:idle {:on {:go {:target :idle :guard :ready? :action :start!}}}}})
-    (let [mg (rf/handler-meta :machine-guard  [:rf2-ypu5i/mixed :ready?])
-          ma (rf/handler-meta :machine-action [:rf2-ypu5i/mixed :start!])]
+    (let [mg (rf/handler-meta {:source :store :kind :machine-guard :id [:rf2-ypu5i/mixed :ready?]})
+          ma (rf/handler-meta {:source :store :kind :machine-action :id [:rf2-ypu5i/mixed :start!]})]
       (is (= :ready? (:rf/guard-id  mg)))
       (is (= :start! (:rf/action-id ma)))
       (is (str/includes? (:rf.handler/source mg) ":ready?"))
@@ -220,15 +220,15 @@
 (deftest guards-and-actions-enumerable-via-event-registration-spec
   (testing "rf2-ftrcv: the guard/action source lives on the machine's :event
   registration spec — tools enumerate it from there, NOT from a
-  `(rf/registrations :machine-guard)` side-table (which no longer exists)"
+  `(rf/registrations {:source :store :kind :machine-guard})` side-table (which no longer exists)"
     (rf/reg-machine :rf2-ftrcv/enum
       {:initial :idle
        :guards  {:ok? (fn [_] true)}
        :actions {:go! (fn [_] nil)}
        :states  {:idle {:on {:e {:target :idle :guard :ok? :action :go!}}}}})
     ;; No registrar side-table.
-    (is (= {} (rf/registrations :machine-guard)))
-    (is (= {} (rf/registrations :machine-action)))
+    (is (= {} (rf/registrations {:source :store :kind :machine-guard})))
+    (is (= {} (rf/registrations {:source :store :kind :machine-action})))
     ;; The co-located source rides on `:rf/machine` in the :event registration.
     (let [spec (:rf/machine (rf.registrar/lookup :event :rf2-ftrcv/enum))]
       (is (string? (get-in spec [:guards  :ok? :source-code]))
@@ -236,8 +236,8 @@
       (is (string? (get-in spec [:actions :go! :source-code]))
           "action source co-located on the :event registration's spec"))
     ;; And the derived handler-meta surface resolves both.
-    (is (= :ok? (:rf/guard-id  (rf/handler-meta :machine-guard  [:rf2-ftrcv/enum :ok?]))))
-    (is (= :go! (:rf/action-id (rf/handler-meta :machine-action [:rf2-ftrcv/enum :go!]))))))
+    (is (= :ok? (:rf/guard-id  (rf/handler-meta {:source :store :kind :machine-guard :id [:rf2-ftrcv/enum :ok?]}))))
+    (is (= :go! (:rf/action-id (rf/handler-meta {:source :store :kind :machine-action :id [:rf2-ftrcv/enum :go!]}))))))
 
 ;; ---- re-registration clears stale entries --------------------------------
 
@@ -247,15 +247,15 @@
       {:initial :idle
        :guards  {:old? (fn [_] true)}
        :states  {:idle {:on {:e {:target :idle :guard :old?}}}}})
-    (is (some? (rf/handler-meta :machine-guard [:rf2-ypu5i/reload :old?]))
+    (is (some? (rf/handler-meta {:source :store :kind :machine-guard :id [:rf2-ypu5i/reload :old?]}))
         "old guard registered first time round")
     (rf/reg-machine :rf2-ypu5i/reload
       {:initial :idle
        :guards  {:new? (fn [_] true)}
        :states  {:idle {:on {:e {:target :idle :guard :new?}}}}})
-    (is (nil? (rf/handler-meta :machine-guard [:rf2-ypu5i/reload :old?]))
+    (is (nil? (rf/handler-meta {:source :store :kind :machine-guard :id [:rf2-ypu5i/reload :old?]}))
         "old guard cleared on re-registration (hot-reload hygiene)")
-    (is (some? (rf/handler-meta :machine-guard [:rf2-ypu5i/reload :new?]))
+    (is (some? (rf/handler-meta {:source :store :kind :machine-guard :id [:rf2-ypu5i/reload :new?]}))
         "new guard slot populated")))
 
 ;; ---- programmatic path (reg-machine*) — no form-source -------------------
@@ -275,9 +275,9 @@
     ;; registrar entries are written. Tools fall back to call-site
     ;; coords on the top-level handler-meta (which is the existing
     ;; reg-machine* contract per Spec 005 §reg-machine vs reg-machine*).
-    (is (nil? (rf/handler-meta :machine-guard  [:rf2-ypu5i/programmatic :any?]))
+    (is (nil? (rf/handler-meta {:source :store :kind :machine-guard :id [:rf2-ypu5i/programmatic :any?]}))
         ":machine-guard slot absent on the plain-fn surface")
-    (is (nil? (rf/handler-meta :machine-action [:rf2-ypu5i/programmatic :noop!]))
+    (is (nil? (rf/handler-meta {:source :store :kind :machine-action :id [:rf2-ypu5i/programmatic :noop!]}))
         ":machine-action slot absent on the plain-fn surface")))
 
 ;; ---- production elision --------------------------------------------------
@@ -302,7 +302,7 @@
          :actions {:a! {:fn (fn [_] nil)  :source-code "(fn [_] nil)"}}
          :states  {:idle {:on {:e {:target :idle :guard :g? :action :a!}}}}})
       ;; Under prod elision the derivation no-ops (gated inside the call).
-      (is (nil? (rf/handler-meta :machine-guard  [:rf2-ftrcv/elided :g?]))
+      (is (nil? (rf/handler-meta {:source :store :kind :machine-guard :id [:rf2-ftrcv/elided :g?]}))
           "production-elided: :machine-guard derivation returns nil")
-      (is (nil? (rf/handler-meta :machine-action [:rf2-ftrcv/elided :a!]))
+      (is (nil? (rf/handler-meta {:source :store :kind :machine-action :id [:rf2-ftrcv/elided :a!]}))
           "production-elided: :machine-action derivation returns nil"))))

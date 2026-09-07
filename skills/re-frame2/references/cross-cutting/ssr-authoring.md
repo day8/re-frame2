@@ -39,7 +39,7 @@ Standard head-model keys (per `:rf/head-model` in Spec-Schemas): `:title`, `:met
 
 The default head does **not** carry `<meta charset>`, and neither should a head model you write. Charset is an *envelope* concern owned by the document shell, which hardcodes `<meta charset="utf-8">` as the first `<head>` byte; a route's `:head` declares page-specific metas. This matters the moment you build a custom envelope with `head-model->html` — emit the charset from your shell, because a head model that also carried one would produce two `<meta charset>` tags.
 
-`reg-head` returns its `id` (family-wide reg-* return convention). Query via `(rf/registrations :head)` → `id → metadata`.
+`reg-head` returns its `id` (family-wide reg-* return convention). Query via `(rf/registrations {:source :store :kind :head})` → `id → metadata`.
 
 ## `render-head` — materialise the head model
 

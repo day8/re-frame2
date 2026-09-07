@@ -1081,7 +1081,7 @@
 
   (testing "trailing slashes in registered patterns are canonicalized away"
     (rf/reg-route :route/cart {} "/cart/")
-    (is (= "/cart" (:path (rf/handler-meta :route :route/cart))))
+    (is (= "/cart" (:path (rf/handler-meta {:source :store :kind :route :id :route/cart}))))
     (is (= "/cart" (rf.routing/route-url {:to :route/cart :params {}})))))
 
 ;; ---- T1: :rf.warning/route-shadowed-by-equal-score warning ---------------
@@ -2175,7 +2175,7 @@
       ;; SEMANTIC, posture-independent (rf2-o5dbf): the registration the trace
       ;; announces really landed, and the re-registration really was idempotent
       ;; rather than additive — one route row, one path.
-      (is (= "/" (:path (rf/handler-meta :route :route/home)))
+      (is (= "/" (:path (rf/handler-meta {:source :store :kind :route :id :route/home})))
           "the route is registered at / after both calls")
       (is (= :route/home (:route-id (rf.routing/match-url "/")))
           "…and / resolves to it")
@@ -2200,7 +2200,7 @@
       ;; SEMANTIC, posture-independent (rf2-o5dbf): the clear the trace
       ;; announces really happened, and the SECOND clear really was idempotent
       ;; — it neither threw nor resurrected the row.
-      (is (nil? (rf/handler-meta :route :route/transient))
+      (is (nil? (rf/handler-meta {:source :store :kind :route :id :route/transient}))
           "the route row is gone after clear-route")
       (is (nil? (:route-id (rf.routing/match-url "/transient")))
           "…and /transient no longer resolves to it")
@@ -2622,7 +2622,7 @@
                           :myapp/layout   :wide
                           :myapp/analytics-id "abc"} "/ok/:id"))
         "a route with every reserved key + namespaced extension keys registers")
-    (is (some? (rf/handler-meta :route :route/ok))
+    (is (some? (rf/handler-meta {:source :store :kind :route :id :route/ok}))
         "the route is queryable via handler-meta after a clean registration")))
 
 (deftest reg-route-rejects-non-map-metadata

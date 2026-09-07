@@ -45,23 +45,23 @@
 (deftest reg-interceptor-each-descriptor-form
   (testing ":before-only descriptor"
     (rf/reg-interceptor :t/before {:doc "b"} {:before (fn [ctx] ctx)})
-    (let [m (rf/handler-meta :interceptor :t/before)]
+    (let [m (rf/handler-meta {:source :store :kind :interceptor :id :t/before})]
       (is (some? m))
       (is (contains? (:rf/interceptor-descriptor m) :before))))
 
   (testing ":after-only descriptor"
     (rf/reg-interceptor :t/after {:after (fn [ctx] ctx)})
-    (is (some? (rf/handler-meta :interceptor :t/after))))
+    (is (some? (rf/handler-meta {:source :store :kind :interceptor :id :t/after}))))
 
   (testing ":before + :after descriptor"
     (rf/reg-interceptor :t/both {:before (fn [ctx] ctx) :after (fn [ctx] ctx)})
-    (let [d (:rf/interceptor-descriptor (rf/handler-meta :interceptor :t/both))]
+    (let [d (:rf/interceptor-descriptor (rf/handler-meta {:source :store :kind :interceptor :id :t/both}))]
       (is (and (contains? d :before) (contains? d :after)))))
 
   (testing ":factory descriptor (one-arg factory)"
     (rf/reg-interceptor :t/factory
       {:factory (fn [arg] {:before (fn [ctx] (assoc ctx :arg arg))})})
-    (let [d (:rf/interceptor-descriptor (rf/handler-meta :interceptor :t/factory))]
+    (let [d (:rf/interceptor-descriptor (rf/handler-meta {:source :store :kind :interceptor :id :t/factory}))]
       (is (contains? d :factory))))
 
   (testing "reg-interceptor* returns its id"
@@ -353,7 +353,7 @@
   "The `{:ns :file :line :column}` coord the `reg-interceptor` macro captured
   into `id`'s registry meta — the shape the resolver stamps as `:source-coord`."
   [id]
-  (select-keys (rf/handler-meta :interceptor id) [:ns :file :line :column]))
+  (select-keys (rf/handler-meta {:source :store :kind :interceptor :id id}) [:ns :file :line :column]))
 
 (deftest descriptor-authored-coord-rides-the-exception-trace
   (testing "a throwing reg-interceptor DESCRIPTOR-authored interceptor threads its

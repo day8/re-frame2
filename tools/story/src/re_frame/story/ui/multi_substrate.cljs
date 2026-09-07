@@ -36,7 +36,7 @@
 
       (story/register-substrate! :hicasso
         (fn [_variant-id view-id args]
-          (if-let [head (:hicasso/component (rf/handler-meta :view view-id))]
+          (if-let [head (:hicasso/component (rf/handler-meta {:source :store :kind :view :id view-id}))]
             (h/as-element [head args])
             [:div (str \":component \" (pr-str view-id)
                        \" is not registered as a hicasso view\")])))

@@ -33,7 +33,6 @@
   picks it up via `palette-panels` / `palette-static-tabs`."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.frame-switcher :as frame-switcher]
-            [day8.re-frame2-xray.host-registry :as host-registry]
             [day8.re-frame2-xray.palette.sources :as sources]
             [day8.re-frame2-xray.panel-registry :as panel-registry]))
 
@@ -71,19 +70,19 @@
   (transient walk over an in-memory map) so the cost lives in the
   downstream fuzzy pass.
 
-  Read via `host-registry/registrations` (the generation-bypassing default-realm
-  form), NOT a bare `(rf/registrations kind)`: this runs inside the
+  Read via `rf/registrations` with `{:source :store …}` (the SOURCE-STORE read, which never
+  consults a bound image generation), NOT `{:frame …}`: this runs inside the
   `:rf.xray/palette-index` sub COMPUTATION, and Xray seats in its OWN
   image-loaded `:rf/xray` frame, so the sub build binds the registrar to Xray's
   image generation — a bare read would resolve through Xray's OWN image and list
   only Xray's `:rf.xray/*` handlers instead of the host app's. See
-  `day8.re-frame2-xray.host-registry`."
+  spec/API.md §Public registrar query API."
   []
   (let [kinds [:event :sub :fx :cofx]]
     (->> kinds
          (mapcat
            (fn [kind]
-             (->> (host-registry/registrations kind)
+             (->> (rf/registrations {:source :store :kind kind})
                   (map (fn [[id meta]]
                          {:id   id
                           :kind kind

@@ -291,7 +291,7 @@
                         emit site).
     `:inputs`         — the sub's upstream input-signal query-vectors
                         (`:rf.sub/inputs`). The inputs column prefers
-                        the live `(rf/handler-meta :sub <id>)` static
+                        the live `(rf/handler-meta {:source :store :kind :sub :id <id>})` static
                         topology (rf2-87c8a), but in the gallery's
                         bare-panel mount the sub isn't registered, so
                         the view falls back to this `:inputs` slot —
@@ -1192,7 +1192,7 @@
 ;;   - `:rf.sub/inputs` rides the derived rows → the `inputs` column
 ;;     paints the upstream sub-ids. In the gallery's bare-panel mount
 ;;     the subs aren't registered, so `sub-input-signals`' live
-;;     `(rf/handler-meta :sub …)` lookup returns nil and the view falls
+;;     `(rf/handler-meta {:source :store :kind :sub :id …})` lookup returns nil and the view falls
 ;;     back to the row's `:inputs` slot (the rf2-87c8a fallback arm) —
 ;;     which is exactly what surfaces the upstream sub-ids in the gallery.
 ;;   - the layer-1 root sub (`:cart/items`) carries NO `:inputs` → its

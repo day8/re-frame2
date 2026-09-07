@@ -1688,7 +1688,7 @@
                      "`rf/app-schema-meta-at` instead. The `machine` kind "
                      "routes through (re-frame.machines/machine-meta id) (Spec 005 §Querying "
                      "machines); the other kinds route through "
-                     "(rf/handler-meta kind id). The OPTIONAL :frame arg "
+                     "(rf/handler-meta {:source :store :kind kind :id id}). The OPTIONAL :frame arg "
                      "(rf2-srobm0, EP-0023) re-keys the lookup through THAT "
                      "frame's running image generation — surfacing the resolved "
                      "descriptor's :rf.provenance/ns + inline/image + :standard "

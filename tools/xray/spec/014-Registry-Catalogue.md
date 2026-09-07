@@ -549,7 +549,7 @@ Spec consumer: framework Spec 013 (registered-flow surface) + Spec 009
 
 | Sub | Returns |
 |---|---|
-| `:rf.xray/registered-flows` | `(re-frame.flows/flows-snapshot)` — the per-frame `{frame-id {flow-id flow-map}}` store (the SOLE store after framework rf2-en00bk; the registrar `:flow` slot is reserved-but-empty, so the former `(rf/registrations :flow)` read now returns `{}`). Test override via `:registered-flows-override`. |
+| `:rf.xray/registered-flows` | `(re-frame.flows/flows-snapshot)` — the per-frame `{frame-id {flow-id flow-map}}` store (the SOLE store after framework rf2-en00bk; the registrar `:flow` slot is reserved-but-empty, so the former `(rf/registrations {:source :store :kind :flow})` read now returns `{}`). Test override via `:registered-flows-override`. |
 | `:rf.xray/flow-trace-events` | Trace-buffer's `:op-type :flow` slice. |
 | `:rf.xray/selected-flow-id` | Flow-id or `nil`. |
 | `:rf.xray/flows-data` | Composite — `{:rows :status-counts :total :selected-flow-id}`. |
@@ -571,7 +571,7 @@ vocabulary).
 
 | Sub | Returns |
 |---|---|
-| `:rf.xray/registered-fxs` | `(rf/registrations :fx)` — process-global registry. Test override via `:registered-fxs-override`. |
+| `:rf.xray/registered-fxs` | `(rf/registrations {:source :store :kind :fx})` — process-global registry. Test override via `:registered-fxs-override`. |
 | `:rf.xray/fx-trace-events` | Trace-buffer's fx-related slice (`:op-type :fx` + fx-layer error categories). |
 | `:rf.xray/selected-fx-id` | Fx-id or `nil`. |
 | `:rf.xray/effects-data` | Composite — `{:rows :outcome-counts :total :selected-fx-id}`. |
@@ -642,7 +642,7 @@ rf2-lq0ef (audit verdict B).
 
 | Sub | Returns |
 |---|---|
-| `:rf.xray/registered-routes` | `(rf/registrations :route)`. Test override via `:registered-routes-override`. |
+| `:rf.xray/registered-routes` | `(rf/registrations {:source :store :kind :route})`. Test override via `:registered-routes-override`. |
 | `:rf.xray/registered-routes-override` | Test override slot. |
 | `:rf.xray/current-route-slice` | The `:rf/route` slot off the target-frame's `app-db`. |
 | `:rf.xray/current-route-slice-override` | Test override slot. |
@@ -671,14 +671,14 @@ route/resource graph, the lifecycle timeline, the invalidation graph, the
 cache-growth view, and the scope audit + lints. Read-only — the panel
 registers NO `:rf.resource/*` event (observing pins no resource, Spec 016
 §Active owners and causes). Decoupled from the optional Resources artefact
-(reads `(rf/registrations :resource)` + the runtime-db slice; Xray never
+(reads `(rf/registrations {:source :store :kind :resource})` + the runtime-db slice; Xray never
 `:require`s `re-frame.resources`).
 
 ### Subscriptions
 
 | Sub | Returns |
 |---|---|
-| `:rf.xray/registered-resources` | `(rf/registrations :resource)` — the static registry. Test override via `:registered-resources-override`. |
+| `:rf.xray/registered-resources` | `(rf/registrations {:source :store :kind :resource})` — the static registry. Test override via `:registered-resources-override`. |
 | `:rf.xray/registered-resources-override` | Test override slot. |
 | `:rf.xray/resource-entries` | The live cache entries map from the target frame's runtime-db at `[:rf.runtime/resources :entries]`. Test override. |
 | `:rf.xray/resource-entries-override` | Test override slot. |
@@ -768,7 +768,8 @@ rf2-o5f5f.2 + rf2-o5f5f.3 + rf2-ybjkx + rf2-8l3uk.
 
 **Process-registrar browse.** The static browse panels read their
 registrations off the process-global registrar via
-`host-registry/registrations` (the generation-bypassing read — see
+`(rf/registrations {:source :store :kind k})` — the SOURCE-STORE read, which
+never consults a bound image generation (see
 [`026`](./026-Module-View-Panel.md) §8.4 and [`007-UX-IA.md`](./007-UX-IA.md)
 §Runtime-structure awareness). There is no realm dimension to qualify by: a
 registration belongs to the process registrar, full stop. The former

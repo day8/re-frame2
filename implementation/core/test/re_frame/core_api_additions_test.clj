@@ -6,8 +6,11 @@
      run-destroy form). Per Spec 002 §with-frame and `spec/API.md`
      row 74. Split per rf2-twoc5 (Mike-approved 2026-05-28).
 
-   - `(rf/registrations kind pred-fn)` 2-arity filter. Per `spec/API.md`
-     row 304 and Spec 001 §Public registrar query API.
+   - registrar-query FILTERING. The retired `(rf/registrations kind pred-fn)`
+     2-arity was deleted by rf2-kuky.30 — `registrations` takes exactly one
+     query map, and filtering is `filter` over the returned map. These tests
+     pin that the idiom answers what the arity used to. Per `spec/API.md`
+     §Public registrar query API and Spec 001 §The query API.
 
    - `(rf/frame-ids ns-prefix)` 1-arity filter. Per `spec/API.md`
      row 308 and Spec 002 §The public registrar query API."
@@ -224,19 +227,19 @@
             ":reason carries the structured explanation")))))
 
 ;; ===========================================================================
-;; rf2-ewku — (rf/registrations kind pred-fn) filter arity
+;; rf2-ewku / rf2-kuky.30 — registrar-query filtering (now `filter`, not an arity)
 ;; ===========================================================================
 
 (deftest registrations-1-arity-returns-full-map
   (testing "(registrations kind) returns the full {id metadata} map"
     (rf/reg-event :hf/one (fn [{:keys [db]} _] {:db db}))
     (rf/reg-event :hf/two (fn [{:keys [db]} _] {:db db}))
-    (let [all (rf/registrations :event)]
+    (let [all (rf/registrations {:source :store :kind :event})]
       (is (contains? all :hf/one))
       (is (contains? all :hf/two)))))
 
-(deftest registrations-2-arity-filters
-  (testing "(registrations kind pred-fn) filters by (pred meta) — metadata-only"
+(deftest registrations-filter-over-result
+  (testing "filtering is `filter` over the returned map, keyed on metadata"
     ;; Per Spec 001 §The query API + API.md the predicate sees the
     ;; metadata-map only. Id-namespace filters ride a user-tag the
     ;; caller stamps onto the slot (or compose via `filter` over the
@@ -245,41 +248,49 @@
     (rf/reg-event :hf.alpha/two (fn [{:keys [db]} _] {:db db}))
     (rf/reg-event :hf.beta/one  (fn [{:keys [db]} _] {:db db}))
     (rf.registrar/register! :event :hf.alpha/one
-      (assoc (rf/handler-meta :event :hf.alpha/one) :rf/group :alpha))
+      (assoc (rf/handler-meta {:source :store :kind :event :id :hf.alpha/one}) :rf/group :alpha))
     (rf.registrar/register! :event :hf.alpha/two
-      (assoc (rf/handler-meta :event :hf.alpha/two) :rf/group :alpha))
-    (let [alpha-only (rf/registrations :event
-                                  (fn [m] (= :alpha (:rf/group m))))]
+      (assoc (rf/handler-meta {:source :store :kind :event :id :hf.alpha/two}) :rf/group :alpha))
+    (let [alpha-only (into {}
+                           (filter (fn [[_id m]] (= :alpha (:rf/group m))))
+                           (rf/registrations {:source :store :kind :event}))]
       (is (= #{:hf.alpha/one :hf.alpha/two}
              (set (keys alpha-only)))
           "only :hf.alpha/* survives the predicate")
       (is (not (contains? alpha-only :hf.beta/one))
           ":hf.beta/one is filtered out"))))
 
-(deftest registrations-2-arity-pred-receives-meta
-  (testing "the pred-fn receives the metadata-map only"
+(deftest registrations-filter-sees-the-metadata-map
+  (testing "the filter predicate sees the [id metadata] pair"
     (rf/reg-event :hf/marked   (fn [{:keys [db]} _] {:db db}))
     (rf/reg-event :hf/unmarked (fn [{:keys [db]} _] {:db db}))
     ;; Re-register :hf/marked with extra meta on the slot.
     (rf.registrar/register! :event :hf/marked
-      (assoc (rf/handler-meta :event :hf/marked) :rf/marker? true))
-    (let [marked (rf/registrations :event (fn [m] (:rf/marker? m)))]
+      (assoc (rf/handler-meta {:source :store :kind :event :id :hf/marked}) :rf/marker? true))
+    (let [marked (into {}
+                       (filter (fn [[_id m]] (:rf/marker? m)))
+                       (rf/registrations {:source :store :kind :event}))]
       (is (= #{:hf/marked} (set (keys marked)))
           "only handlers whose metadata satisfies the pred survive"))))
 
-(deftest registrations-2-arity-empty-result
+(deftest registrations-filter-empty-result
   (testing "a predicate that matches nothing returns {}"
     (rf/reg-event :hf/one (fn [{:keys [db]} _] {:db db}))
-    (is (= {} (rf/registrations :event (constantly false)))
+    (is (= {} (into {}
+                   (filter (constantly false))
+                   (rf/registrations {:source :store :kind :event})))
         "no entries match → empty map")))
 
-(deftest registrations-2-arity-unknown-kind-returns-empty
-  (testing "a kind with no registrations returns {} regardless of pred"
-    ;; `:rf2-hf/never-a-kind` is intentionally not a registrar kind —
-    ;; per Spec 001 §Registry model the kinds set is closed; an
-    ;; unrecognised kind queried via `registrations` returns `{}`.
-    (is (= {} (rf/registrations :rf2-hf/never-a-kind (constantly true)))
-        "kind has no entries → empty map even when pred is permissive")))
+(deftest registrations-unknown-kind-throws
+  (testing "an unknown kind THROWS rather than returning an authoritative {}"
+    ;; rf2-kuky.30: `:rf2-hf/never-a-kind` is not a registrar kind, and the
+    ;; retired positional arity answered `{}` for it — indistinguishable from
+    ;; "this kind exists and is empty". The query path now throws the
+    ;; registrar's own catalogued id, with `where` naming the QUERY fn.
+    (let [e (is (thrown? clojure.lang.ExceptionInfo
+                  (rf/registrations {:source :store :kind :rf2-hf/never-a-kind})))]
+      (is (= :rf.error/unknown-registry-kind (:rf.error/id (ex-data e)))
+          "the catalogued id names the closed kind set"))))
 
 ;; ===========================================================================
 ;; rf2-t38q — (rf/frame-ids ns-prefix) filter arity

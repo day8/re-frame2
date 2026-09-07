@@ -348,7 +348,7 @@ The `reg-event` metadata-map carries a reserved `:interceptors` key — the map 
 
 ### Per-kind refinements
 
-Each per-kind schema below `:merge`s `:rf/registration-metadata` and adds the keys the kind cares about. Open-map convention applies — hosts and tools may attach further keys additively without breaking conformance. `(rf/handler-meta kind id)` returns a value conforming to the corresponding per-kind schema; AI scaffolders ([Construction-Prompts](Construction-Prompts.md)) and conformance harnesses validate against these shapes at registration time.
+Each per-kind schema below `:merge`s `:rf/registration-metadata` and adds the keys the kind cares about. Open-map convention applies — hosts and tools may attach further keys additively without breaking conformance. `(rf/handler-meta {:source :store :kind kind :id id})` returns a value conforming to the corresponding per-kind schema; AI scaffolders ([Construction-Prompts](Construction-Prompts.md)) and conformance harnesses validate against these shapes at registration time.
 
 #### `:rf/event-handler-meta`
 
@@ -654,7 +654,7 @@ The route-shape — `:rf/route-metadata` — is defined separately further below
 > **Owner:** [001-Registration §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference)
 > **Status:** v1-required
 
-The registration-metadata source-coord shape captured at `reg-*` macro-expansion time. The four keys (`:ns` / `:line` / `:column` / `:file`) are merged **flat** onto `:rf/registration-metadata` — the same level as `:doc` / `:schema` / `:tags` — so `(rf/handler-meta kind id)` and `(rf/frame-meta id)` returns expose them as top-level keys: `(:line meta)` / `(:file meta)` / `(:ns meta)` / `(:column meta)`. Pair-shaped tools and IDE jump-to-source consumers read them for click-back-to-code resolution per [Tool-Pair §Source-mapping UI clicks back to code](Tool-Pair.md#source-mapping-ui-clicks-back-to-code). Trace events are the one shape that nests these keys under a `:source-coord` sub-map — see `:rf.trace/trigger-handler` on `:rf/trace-event` below — because traces carry coords for *another* handler (the in-scope trigger), so a sub-map keeps the trigger-handler shape self-contained alongside the trace's own keys.
+The registration-metadata source-coord shape captured at `reg-*` macro-expansion time. The four keys (`:ns` / `:line` / `:column` / `:file`) are merged **flat** onto `:rf/registration-metadata` — the same level as `:doc` / `:schema` / `:tags` — so `(rf/handler-meta {:source :store :kind kind :id id})` and `(rf/frame-meta id)` returns expose them as top-level keys: `(:line meta)` / `(:file meta)` / `(:ns meta)` / `(:column meta)`. Pair-shaped tools and IDE jump-to-source consumers read them for click-back-to-code resolution per [Tool-Pair §Source-mapping UI clicks back to code](Tool-Pair.md#source-mapping-ui-clicks-back-to-code). Trace events are the one shape that nests these keys under a `:source-coord` sub-map — see `:rf.trace/trigger-handler` on `:rf/trace-event` below — because traces carry coords for *another* handler (the in-scope trigger), so a sub-map keeps the trigger-handler shape self-contained alongside the trace's own keys.
 
 ```clojure
 (def SourceCoordMeta
@@ -689,7 +689,7 @@ The DOM-attribute string contract emitted by Reagent / SSR adapters as the value
   [:re #"^[^:]+:[^:]+:(?:\d+|\?):(?:\d+|\?)$"])                             ;; pragmatic regex; consumers parse 4 segments
 ```
 
-Consumers parse the four segments pragmatically (split on `:` from the right twice to recover `<line>` and `<col>`, then on `:` once more for `<ns>`/`<sym>`). To recover the full `:rf/source-coord-meta` shape — including `:file` — look up the handler-id via `(rf/handler-meta :view <handler-id>)` and read the flat top-level `:ns` / `:line` / `:column` / `:file` keys off the returned registration-metadata map; `:file` is **not** recoverable by parsing the attribute alone (it is not encoded in the 4-segment string).
+Consumers parse the four segments pragmatically (split on `:` from the right twice to recover `<line>` and `<col>`, then on `:` once more for `<ns>`/`<sym>`). To recover the full `:rf/source-coord-meta` shape — including `:file` — look up the handler-id via `(rf/handler-meta {:source :store :kind :view :id <handler-id>})` and read the flat top-level `:ns` / `:line` / `:column` / `:file` keys off the returned registration-metadata map; `:file` is **not** recoverable by parsing the attribute alone (it is not encoded in the 4-segment string).
 
 The string format is committed as a public contract: pair-shaped tools, conformance harnesses, and CDP-driven test runners all parse it directly. Future extensions are additive — additional trailing segments may appear; consumers MUST handle the 4-segment shape and tolerate (ignore) trailing segments they do not recognise.
 
@@ -3752,7 +3752,7 @@ Implementations register this schema via `reg-app-schema [:rf/route-pattern]` so
 > **Owner:** [012-Routing §Route ranking algorithm](012-Routing.md#route-ranking-algorithm)
 > **Status:** v1-required
 
-The structural-rank tuple `match-url` computes for each registered route, per [012 §Route ranking algorithm](012-Routing.md#route-ranking-algorithm). Registrars attach the computed rank under `:rf.route/rank` on the route's metadata so tooling can read it via `(rf/handler-meta :route route-id)` and so AI scaffolds can render the precedence cascade without re-parsing patterns.
+The structural-rank tuple `match-url` computes for each registered route, per [012 §Route ranking algorithm](012-Routing.md#route-ranking-algorithm). Registrars attach the computed rank under `:rf.route/rank` on the route's metadata so tooling can read it via `(rf/handler-meta {:source :store :kind :route :id route-id})` and so AI scaffolds can render the precedence cascade without re-parsing patterns.
 
 ```clojure
 (def RouteRank

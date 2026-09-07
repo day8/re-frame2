@@ -194,7 +194,7 @@
     (rf/reg-fx :rf2-lf84g/coord-fx (fn [_ _] :ok))
     (rf/reg-event :rf2-lf84g/use-coord
                      (fn [_ _] {:fx [[:rf2-lf84g/coord-fx {}]]}))
-    (let [fx-meta (rf/handler-meta :fx :rf2-lf84g/coord-fx)
+    (let [fx-meta (rf/handler-meta {:source :store :kind :fx :id :rf2-lf84g/coord-fx})
           evs     (record-traces #(rf/dispatch-sync [:rf2-lf84g/use-coord]))
           [hdl]   (events-of evs :rf.fx/handled)
           coord   (-> hdl :rf.trace/trigger-handler :source-coord)
@@ -306,7 +306,7 @@
         ;; ALWAYS-ON (rf2-d2841): registration itself is production behaviour —
         ;; only the registration TRACE is dev-only. The handler is resolvable
         ;; and its coord is on the always-on registry in both postures.
-        (is (some? (rf/handler-meta :event :rf2-lf84g/reg-time-event))
+        (is (some? (rf/handler-meta {:source :store :kind :event :id :rf2-lf84g/reg-time-event}))
             "the registration succeeded in this posture")
         (assert-always-on-coord :event :rf2-lf84g/reg-time-event)
         (when rf.interop/debug-enabled?
@@ -375,7 +375,7 @@
    the other scope tests do (fx, machine, event)"
     (rf/reg-sub :rf2-npm2p/coord
                 (fn [db _] db))
-    (let [sub-meta (rf/handler-meta :sub :rf2-npm2p/coord)
+    (let [sub-meta (rf/handler-meta {:source :store :kind :sub :id :rf2-npm2p/coord})
           evs      (record-traces
                      (fn [] (deref (rf/subscribe [:rf2-npm2p/coord]))))
           [run]    (events-of evs :rf.sub/run)
@@ -539,7 +539,7 @@
     (rf/reg-event :rf2-npm2p/use-coord-cofx
                      {:rf.cofx/requires [:rf2-npm2p/coord-cofx]}
                      (fn [_ _] {}))
-    (let [cofx-meta (rf/handler-meta :cofx :rf2-npm2p/coord-cofx)
+    (let [cofx-meta (rf/handler-meta {:source :store :kind :cofx :id :rf2-npm2p/coord-cofx})
           evs       (record-traces
                       (fn [] (rf/dispatch-sync [:rf2-npm2p/use-coord-cofx])))
           [probe]   (events-of evs :rf2-npm2p/probe)

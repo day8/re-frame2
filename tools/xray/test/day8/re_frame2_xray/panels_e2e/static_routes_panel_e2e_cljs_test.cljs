@@ -61,7 +61,7 @@
 (defn- install-override!
   "Inject the synthetic catalogue under `:rf/xray` via the test-only
   override seam. Production sources `:rf.xray/registered-routes` from
-  `(rf/registrations :route)`; the override skips the framework's
+  `(rf/registrations {:source :store :kind :route})`; the override skips the framework's
   route registry so the test does not depend on routing-artefact
   registration order."
   []
