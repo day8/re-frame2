@@ -481,7 +481,7 @@ For each capability included in Part 1, the implementor makes the per-capability
   - **Trace listener** — `(rf/register-listener! key callback)` for live events.
   - **Trace buffer** — `(rf/trace-buffer ...)` for recent events (retain-N ring buffer; default 200).
   - **Epoch history** — `(rf/epoch-history frame-id)`, `(rf/restore-epoch! frame-id epoch-id)`, `(rf/configure! {:epoch-history {:depth N}})`.
-  - **Registrar query** — `(rf/registrations kind)`, `(rf/handler-meta kind id)`, `(rf.machines/machines)`, `(rf.machines/machine-meta id)`, `(rf/frame-ids)`, `(rf/frame-meta id)`.
+  - **Registrar query** — `(rf/registrations {:source :store :kind kind})`, `(rf/handler-meta {:source :store :kind kind :id id})`, `(rf.machines/machines)`, `(rf.machines/machine-meta id)`, `(rf/frame-ids)`, `(rf/frame-meta id)`.
   - **App-db query** — `(rf/app-db-value frame-id)`, `(get-in (rf/app-db-value frame-id) path)`.
   - **Sub-cache (CLJS-only)** — `(rf/sub-cache frame-id)`.
   - **Source coords** — `:ns`/`:line`/`:file` keys on registration metadata.

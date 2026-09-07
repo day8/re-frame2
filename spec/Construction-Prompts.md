@@ -22,7 +22,7 @@ This artefact is intended to be:
 Every CP below begins with the same mechanics; rather than restate them in each, treat the following as a shared preamble. Each CP's "Pre-flight checks" section calls out only the *delta* — the kind-specific naming convention or extra check — on top of these.
 
 1. **Choose a namespaced id.** Lowercase, kebab-case. The id-prefix matches the feature (per [Conventions §Feature-modularity prefix convention](Conventions.md#feature-modularity-prefix-convention)).
-2. **Verify the id is unused.** Query the registry via the public registrar query API for the relevant kind (e.g., `(rf/registrations :event)`, `(rf/registrations :sub)`, `(rf/registrations :fx)`, `(rf/registrations :view)`, `(rf/registrations :route)`).
+2. **Verify the id is unused.** Query the registry via the public registrar query API for the relevant kind (e.g., `(rf/registrations {:source :store :kind :event})`, `(rf/registrations {:source :store :kind :sub})`, `(rf/registrations {:source :store :kind :fx})`, `(rf/registrations {:source :store :kind :view})`, `(rf/registrations {:source :store :kind :route})`).
 3. **Consult registered schemas** (`(rf/app-schemas)`, `(rf/app-schema-at <path>)`) so the new artefact aligns with shapes already in use.
 
 ## Catalogue
@@ -272,8 +272,8 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 **Pre-flight delta (in addition to the shared preamble above):**
 
 - **Id-shape convention:** `:feature/component-name` or `:feature.area/component-name`. Plural component names for lists (`:cart/items`), singular for single-instance (`:cart/total`). The relevant registry kind is `:view`.
-- **Identify the subscriptions the view will read.** Each must be already registered (`(rf/registrations :sub)`) or scaffolded as a sibling — if missing, invoke CP-2.
-- **Identify the events the view will dispatch.** Each must be already registered (`(rf/registrations :event)`) — if missing, invoke CP-1.
+- **Identify the subscriptions the view will read.** Each must be already registered (`(rf/registrations {:source :store :kind :sub})`) or scaffolded as a sibling — if missing, invoke CP-2.
+- **Identify the events the view will dispatch.** Each must be already registered (`(rf/registrations {:source :store :kind :event})`) — if missing, invoke CP-1.
 
 **Template — Form-1 (simple render fn):**
 
@@ -357,7 +357,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 **Pre-flight checks:**
 
 1. **Choose a machine id.** Convention: `:feature.flow/machine` or `:feature/flow`. Examples: `:auth.login/flow`, `:checkout/flow`, `:video-player/flow`.
-2. **Verify the id is unused.** `(rf/registrations :event)` — the machine reuses the `:event` registry kind. (No matching `:sub` registration is needed: machines are read through the framework-registered parametric sub `:rf/machine`; see "Where state lives" below.) `(rf.machines/machines)` enumerates already-registered machines specifically.
+2. **Verify the id is unused.** `(rf/registrations {:source :store :kind :event})` — the machine reuses the `:event` registry kind. (No matching `:sub` registration is needed: machines are read through the framework-registered parametric sub `:rf/machine`; see "Where state lives" below.) `(rf.machines/machines)` enumerates already-registered machines specifically.
 3. **List the states.** Discrete, named (`:idle`, `:submitting`, `:authed`, `:error-shown`).
 4. **List the inputs (sub-events) that move between states.** Each input triggers exactly one transition.
 5. **Identify guards and actions; default to naming them in `:guards` / `:actions`.** Each guard `(fn [{:keys [data event]}] boolean)` and each action `(fn [{:keys [data event]}] {:data {...} :fx [...]})` is a key in the machine's `:guards` / `:actions` map (referenced from transitions by keyword). Per every machine callback receives a single context-map argument with `:data`, `:event`, `:state`, `:meta`. **Inline only when the body is a single non-branching expression.**
@@ -620,9 +620,9 @@ For projections, compose against `:rf/machine` by declaring it under `:inputs`:
 
 1. **Choose the feature id-prefix.** A short, namespaced keyword: `:auth`, `:cart`, `:tagging`. Sub-areas use dotted children: `:cart.item`, `:cart.checkout`. Every registration the feature ships uses this prefix.
 2. **Verify the prefix is unused.** Query each kind:
-   - `(rf/registrations :event)` — none should start with your prefix.
-   - `(rf/registrations :sub)` — likewise.
-   - `(rf/registrations :view)` — likewise.
+   - `(rf/registrations {:source :store :kind :event})` — none should start with your prefix.
+   - `(rf/registrations {:source :store :kind :sub})` — likewise.
+   - `(rf/registrations {:source :store :kind :view})` — likewise.
    - `(rf/app-schemas)` — your `app-db` paths must be free.
 3. **Identify the feature's `app-db` shape.** Pick a single root key matching the prefix: `:cart`, `:auth`, etc. All feature state lives under that key. No exceptions.
 4. **Identify external dependencies.** Other features (e.g., `:auth` reads `:user`), registered fx (e.g., `:http`, `:localstorage`), schemas the feature consumes.
@@ -766,7 +766,7 @@ When the user says "duplicate this feature for wishlists," the AI runs the same 
    - Path: captured by `:name` / `*name` segments — declared in `:params` schema.
    - Query: parsed from `?key=value&...` — declared in the `:query` schema, with `:query-defaults` for absent keys. Carrying query state ACROSS routes is an application-level pure fold over the destination address, not route metadata.
 4. **Identify per-route data dependencies.** Use `:on-match` (vector of events the runtime dispatches when this route becomes active, server- and client-side).
-5. **Verify the route ids are unused.** `(rf/registrations :route)` enumerates registered routes.
+5. **Verify the route ids are unused.** `(rf/registrations {:source :store :kind :route})` enumerates registered routes.
 
 Routing is *state plus events*. The URL is a derivable view of `app-db`; navigation is an event. The runtime ships `:rf.route/navigate`, `:rf.route/handle-url-change`, `:rf.route/transitioned`, `:rf.route/url-requested` as standard events; user code typically only calls `:rf.route/navigate`.
 
@@ -972,7 +972,7 @@ Routing has two co-equal URL-change events. `:rf.route/handle-url-change` (defau
 **Pre-flight checks:**
 
 1. **Identify the per-request setup events.** What does the server need to dispatch before rendering? Typically: `:auth/load-session`, `:rf.route/handle-url-change`, feature-specific `:feature/load-initial-data`.
-2. **Identify the fx that need server platforms.** HTTP for sure. Anything else? Confirm with `(rf/registrations :fx)` and audit each fx's `:platforms` metadata.
+2. **Identify the fx that need server platforms.** HTTP for sure. Anything else? Confirm with `(rf/registrations {:source :store :kind :fx})` and audit each fx's `:platforms` metadata.
 3. **Identify the views that may render under SSR.** All of them, in principle. Confirm none use Form-2 outer-fn-side-effects (they don't run on the server).
 4. **Confirm the root view is registered** via `reg-view`, not a plain Reagent fn.
 
@@ -1077,9 +1077,9 @@ The Story authoring surface lives in the `re-frame.story` tools artefact (`(:req
   - Story: `:story.<path>` — dotted segments organise the tool's navigator tree. Examples: `:story.auth.login-form`, `:story.cart.summary`.
   - Variant: `:story.<path>/<variant>` — always belongs to exactly one story; the story id is everything before `/`. Examples: `:story.auth.login-form/empty`, `:story.auth.login-form/validation-error`.
   - Workspace: `:Workspace.<Path>/<name>` — a layout artefact. Examples: `:Workspace.Auth/all-states`, `:Workspace.Auth/docs`.
-- **Verify the ids are unused** on the Story side-table: `(story/registrations :story)`, `(story/registrations :variant)`, `(story/registrations :workspace)` (NOT `(rf/registrations ...)` — these kinds are library-owned).
-- **Identify the component.** The `:component` slot on `reg-story` is a **registered `:view` id** — verify it via `(rf/registrations :view)`; if the view doesn't exist yet, scaffold it via CP-4 first.
-- **Identify the events each variant drives.** `:setup` / `:script` steps dispatch registered events — each must be registered (`(rf/registrations :event)`) or scaffolded via CP-1.
+- **Verify the ids are unused** on the Story side-table: `(story/registrations :story)`, `(story/registrations :variant)`, `(story/registrations :workspace)` (NOT `(rf/registrations {:source :store :kind ...})` — these kinds are library-owned).
+- **Identify the component.** The `:component` slot on `reg-story` is a **registered `:view` id** — verify it via `(rf/registrations {:source :store :kind :view})`; if the view doesn't exist yet, scaffold it via CP-4 first.
+- **Identify the events each variant drives.** `:setup` / `:script` steps dispatch registered events — each must be registered (`(rf/registrations {:source :store :kind :event})`) or scaffolded via CP-1.
 - **Register project tags before use.** A variant `:tags` set may only carry registered tags; the seven canonical tags (`:dev :docs :test :screenshot :experimental :internal :agent`) auto-register at Story load, but project-specific tags must be `reg-tag`'d first or the variant raises `:rf.error/unknown-tag`.
 
 **Key idea: a variant is data, not a function.** Every field in a variant body is plain data — vectors, maps, keywords, strings — no fn-valued slots. Where Storybook takes a decorator *function*, re-frame2 takes a registered *id* (`story/reg-decorator :centered-layout {...}`); the closure lives at the decorator's registration site, never at the variant call site. This is what makes a variant wire-portable, storable, diffable, and usable as a test fixture. See [007-Stories.md §Variant artefact contract](007-Stories.md#variant-artefact-contract--variants-are-data-not-functions).
@@ -1261,7 +1261,7 @@ The `:variants` map desugars at macro-expansion time to N independent `reg-varia
 
 **Pre-flight delta (in addition to the shared preamble above):**
 
-- **Id-shape convention:** a single namespaced keyword. Examples: `:auth/required`, `:audit/record-event`, `:app/unwrap`. The relevant registry kind is `:interceptor` — verify the id is unused via `(rf/registrations :interceptor)`. Application ids are application-owned; the `:rf.interceptor/*` namespace is reserved for framework standard refs (per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)).
+- **Id-shape convention:** a single namespaced keyword. Examples: `:auth/required`, `:audit/record-event`, `:app/unwrap`. The relevant registry kind is `:interceptor` — verify the id is unused via `(rf/registrations {:source :store :kind :interceptor})`. Application ids are application-owned; the `:rf.interceptor/*` namespace is reserved for framework standard refs (per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)).
 - **Decide static vs parameterized.** A **static** interceptor has fixed behaviour (`{:before}` / `{:after}` / `{:before :after}`). A **parameterized** interceptor (`{:factory}`) is a *family* — the factory receives one arg and builds a static interceptor for it; it is referenced as `[id arg]`. Reach for `:factory` only when the same behaviour needs per-reference configuration (the framework's standard `:rf.interceptor/path` is the canonical example).
 - **Reference, never inline.** Event and frame `:interceptors` chains carry interceptor **references** — a bare keyword or an `[id arg]` 2-vector — **never inline interceptor values** ([002 §Event and frame chain grammar](002-Frames.md#event-and-frame-chain-grammar)). An inline interceptor map / Var / `->interceptor*` result in a public chain is a registration error (`:rf.error/inline-interceptor-removed`). `->interceptor*` is **not** a public authoring form (it is the framework-internal lowering constructor) — `reg-interceptor` is.
 
@@ -1378,7 +1378,7 @@ Override keys are interceptor **references**, matched by exact canonical referen
 
 **AI-first checklist:**
 
-- Interceptor id is a single namespaced keyword and unused (`(rf/registrations :interceptor)`).
+- Interceptor id is a single namespaced keyword and unused (`(rf/registrations {:source :store :kind :interceptor})`).
 - The descriptor is exactly one of `{:before}` / `{:after}` / `{:before :after}` / `{:factory}` — no `:factory`+`:before`/`:after` mix.
 - A `:factory` factory takes exactly **one** argument (a composite vector/map when it needs several inputs).
 - `:before` / `:after` fns are `(context) -> context`, pure with respect to the context map; side-effects are expressed as effects (write `[:effects :fx]` via `assoc-in` / `update-in`), never performed in the body.

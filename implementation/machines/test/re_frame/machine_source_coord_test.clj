@@ -61,7 +61,7 @@
   so handler-meta carries the call-site coords (rf2-k84s + rf2-8bp3)"
     (rf/reg-machine :rf2-8bp3/call-site-sample
       {:initial :a :states {:a {} :b {}}})
-    (let [meta (rf/handler-meta :event :rf2-8bp3/call-site-sample)]
+    (let [meta (rf/handler-meta {:source :store :kind :event :id :rf2-8bp3/call-site-sample})]
       (is (some? meta))
       (is (= 're-frame.machine-source-coord-test (:ns meta)))
       (is (integer? (:line meta)))
@@ -436,7 +436,7 @@
            (rf.machines/machine-meta :rf2-8bp3/programmatic))
         "round-tripped spec carries no co-located source / state-coords")
     ;; Top-level handler-meta still carries the macro's call-site coords.
-    (let [meta (rf/handler-meta :event :rf2-8bp3/programmatic)]
+    (let [meta (rf/handler-meta {:source :store :kind :event :id :rf2-8bp3/programmatic})]
       (is (some? (:line meta)))
       (is (some? (:ns meta))))))
 
@@ -503,8 +503,8 @@
       ;; (the macro saw only the symbol, so no literal walk).
       (is (not (contains? (get-in meta [:states :locked]) :source-coords)))
       (is (not (contains? (get-in meta [:states :open]) :source-coords)))
-      (is (nil? (rf/handler-meta :machine-action [:rf2-gwj8l/plain-door :clear-hold])))
-      (is (nil? (rf/handler-meta :machine-guard [:rf2-gwj8l/plain-door :may-close?]))))))
+      (is (nil? (rf/handler-meta {:source :store :kind :machine-action :id [:rf2-gwj8l/plain-door :clear-hold]})))
+      (is (nil? (rf/handler-meta {:source :store :kind :machine-guard :id [:rf2-gwj8l/plain-door :may-close?]}))))))
 
 (deftest defmachine-value-registered-carries-per-element-source
   (testing "a (defmachine m …) + (reg-machine :id m): the definition-site
@@ -529,9 +529,9 @@
       (is (string? (get-in meta [:actions :count-open :source-code])))
       (is (string? (get-in meta [:actions :clear-hold :source-code])))
       ;; Registrar handler-metas — the Epoch machine-cascade source surface.
-      (let [exit-meta  (rf/handler-meta :machine-action [:rf2-gwj8l/value-door :clear-hold])
-            entry-meta (rf/handler-meta :machine-action [:rf2-gwj8l/value-door :count-open])
-            guard-meta (rf/handler-meta :machine-guard  [:rf2-gwj8l/value-door :may-close?])]
+      (let [exit-meta  (rf/handler-meta {:source :store :kind :machine-action :id [:rf2-gwj8l/value-door :clear-hold]})
+            entry-meta (rf/handler-meta {:source :store :kind :machine-action :id [:rf2-gwj8l/value-door :count-open]})
+            guard-meta (rf/handler-meta {:source :store :kind :machine-guard :id [:rf2-gwj8l/value-door :may-close?]})]
         (is (some? exit-meta)  ":clear-hold (exit) handler-meta present")
         (is (some? entry-meta) ":count-open (entry) handler-meta present")
         (is (some? guard-meta) ":may-close? (guard) handler-meta present")

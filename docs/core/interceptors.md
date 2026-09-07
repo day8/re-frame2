@@ -386,7 +386,7 @@ One registered interceptor, plus which chains reference it: that's the entire un
 Because a chain is plain data, every introspection you get on events and subs works on interceptors too. `handler-meta` reads an interceptor's metadata and source coordinates by `(kind, id)`:
 
 ```clojure
-(rf/handler-meta :interceptor :my-app/logger)
+(rf/handler-meta {:source :store :kind :interceptor :id :my-app/logger})
 ;; => {:doc "Log each event on the way in, and its timing on the way out."
 ;;     :ns my-app.audit :line 12 :file "..." ...}
 ```
@@ -394,7 +394,7 @@ Because a chain is plain data, every introspection you get on events and subs wo
 And reading an *event's* metadata gives you the chain as authored — a vector of references, not resolved interceptor values:
 
 ```clojure
-(rf/handler-meta :event :cart.item/add)
+(rf/handler-meta {:source :store :kind :event :id :cart.item/add})
 ;; => {:doc "Add an item to the cart." :interceptors [:my-app/logger] ...}
 ```
 

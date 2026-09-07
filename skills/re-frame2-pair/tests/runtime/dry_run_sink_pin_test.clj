@@ -15,7 +15,7 @@
 ;;;; the source-level contract that `dispatch-dry-run` uses that executor
 ;;;; SINK and does NOT regress to the old process-global fx enumeration —
 ;;;; AC4's structural pin: "a regression/structural pin fails if dry-run
-;;;; returns to `(rf/registrations :fx)` coverage inference."
+;;;; returns to `(rf/registrations {:source :store :kind :fx})` coverage inference."
 ;;;;
 ;;;; Run: bb tests/runtime/dry_run_sink_pin_test.clj
 ;;;; Exit: 0 = pass, non-zero = fail.
@@ -73,7 +73,7 @@
 (deftest dispatch-dry-run-does-not-enumerate-the-registrar
   (let [form (defn-form 'dispatch-dry-run)]
     (is (not (mentions-name-substr? form "registrations"))
-        (str "dispatch-dry-run must NOT read (rf/registrations :fx) — coverage "
+        (str "dispatch-dry-run must NOT read (rf/registrations {:source :store :kind :fx}) — coverage "
              "is no longer inferred from the process-global registrar (AC4)"))
     (is (not (mentions-sym? form 'build-dry-run-overrides))
         "dispatch-dry-run must not build a per-fx override map")))

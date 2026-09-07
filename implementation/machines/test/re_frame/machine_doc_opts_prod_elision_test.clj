@@ -12,7 +12,7 @@
       `re-frame.registrar/register!` `strip-pure-documentation` chokepoint, so
       under the production posture (`rf.interop/debug-enabled?` rebound to false,
       semantically equivalent to CLJS `:advanced` + `goog.DEBUG=false`)
-      `(rf/handler-meta :event id)` carries no `:doc`; in dev it is retained.
+      `(rf/handler-meta {:source :store :kind :event :id id})` carries no `:doc`; in dev it is retained.
 
    2. CLJS BUNDLE-string DCE — the macro's `expand-reg-machine` routes a literal
       doc-bearing opts map through `gate-doc-arg`, emitting an
@@ -45,7 +45,7 @@
         {:doc "machine opts doc elided" :schema [:tuple :keyword]}
         {:initial :idle
          :states  {:idle {}}})
-      (let [meta (rf/handler-meta :event :rf2-tfiutq/prod-machine)]
+      (let [meta (rf/handler-meta {:source :store :kind :event :id :rf2-tfiutq/prod-machine})]
         (is (some? meta))
         (is (not (contains? meta :doc))
             ":doc absent from machine (event) handler-meta in prod")
@@ -59,6 +59,6 @@
       {:doc "machine opts doc kept in dev"}
       {:initial :idle
        :states  {:idle {}}})
-    (let [meta (rf/handler-meta :event :rf2-tfiutq/dev-machine)]
+    (let [meta (rf/handler-meta {:source :store :kind :event :id :rf2-tfiutq/dev-machine})]
       (is (= "machine opts doc kept in dev" (:doc meta))
           ":doc retained in dev for tooling / agent inspection"))))

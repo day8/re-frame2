@@ -1478,7 +1478,7 @@
   ;; reference — this is the assertion that goes red if someone removes
   ;; the interceptor and leaves the dev tripwire.
   (doseq [ingress [:ws/handle-message :ws.app/request-reply]]
-    (let [m (rf/handler-meta :event ingress)]
+    (let [m (rf/handler-meta {:source :store :kind :event :id ingress})]
       (is (some? (:schema m))
           (str ingress " declares a :schema (the closed wire contract)"))
       (is (some #{:rf.schema/at-boundary} (:interceptors m))
@@ -1499,7 +1499,7 @@
   ;; than the example's. Three assertions, one per way the coupling can be
   ;; lost.
   (with-new-frame [f (new-frame)]
-    (let [m (rf/handler-meta :event :ws.app/request-reply)]
+    (let [m (rf/handler-meta {:source :store :kind :event :id :ws.app/request-reply})]
       ;; (1) IDENTITY. The live registration is the EXAMPLE's, not a
       ;; look-alike. The example documents this ingress at length and the
       ;; hand-mirrored twin never carried the prose, so the registered

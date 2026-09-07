@@ -158,7 +158,7 @@
     ;; registrar state and survives -Dre-frame.debug=false. If the mark is lost,
     ;; the trace assertions below could not hold in ANY posture.
     (is (= [[:from :params] [:from :query] [:to :params] [:to :query] [:fragment]]
-           (:sensitive (rf/handler-meta :fx :rf.nav/scroll)))
+           (:sensitive (rf/handler-meta {:source :store :kind :fx :id :rf.nav/scroll})))
         ":rf.nav/scroll declares the route-descriptor carrier slots :sensitive")
     ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
     (when rf.interop/debug-enabled?
@@ -210,7 +210,7 @@
     ;; `:sensitive` mark is registrar state, so it is assertable under the
     ;; production gate — and it is the fact the trace expectation below rests
     ;; on. A mark added here by accident would fail this, in both postures.
-    (is (nil? (:sensitive (rf/handler-meta :fx :rf.nav/push-url)))
+    (is (nil? (:sensitive (rf/handler-meta {:source :store :kind :fx :id :rf.nav/push-url})))
         ":rf.nav/push-url declares NO :sensitive marks — the pushed URL is the
          navigation's behavioural identity, not a diagnostic carrier")
     ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
@@ -337,7 +337,7 @@
       ;; state. That declaration is what the redaction below IS — assert it
       ;; where the production gate can see it.
       (is (= [[:requested-url] [:destination] [:target]]
-             (:sensitive (rf/handler-meta :event :rf.route/navigation-blocked)))
+             (:sensitive (rf/handler-meta {:source :store :kind :event :id :rf.route/navigation-blocked})))
           "the framework declares the pending-nav carrier slots :sensitive")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
@@ -446,7 +446,7 @@
       ;; state, so it is provable under the production gate, and it is the
       ;; mechanism the trace redaction below rides on.
       (is (= [[:requested-url] [:destination] [:target]]
-             (:sensitive (rf/handler-meta :event :rf.route/entry-denied)))
+             (:sensitive (rf/handler-meta {:source :store :kind :event :id :rf.route/entry-denied})))
           "the framework's carriers survive the bare public override")
       ;; The dispatch runs in BOTH postures — the in-process assertions below
       ;; depend on it. Only the trace-payload readings are posture-gated.
@@ -484,7 +484,7 @@
       ;; SEMANTIC, posture-independent (rf2-o5dbf): the retention itself — see
       ;; the entry-denied twin above.
       (is (= [[:requested-url] [:destination] [:target]]
-             (:sensitive (rf/handler-meta :event :rf.route/navigation-blocked)))
+             (:sensitive (rf/handler-meta {:source :store :kind :event :id :rf.route/navigation-blocked})))
           "the framework's carriers survive the bare public override")
       (let [payload (traced-event-payload
                       :rf.route/navigation-blocked
@@ -510,7 +510,7 @@
                   {:sensitive [[:guard]]}
                   (fn [_ _] {}))
     (is (= [[:requested-url] [:destination] [:target] [:guard]]
-           (:sensitive (rf/handler-meta :event :rf.route/entry-denied)))
+           (:sensitive (rf/handler-meta {:source :store :kind :event :id :rf.route/entry-denied})))
         "framework carriers first, then the app's own declaration")
     (let [payload (traced-event-payload
                     :rf.route/entry-denied
@@ -534,7 +534,7 @@
     (rf/reg-event :rf.route/entry-denied (fn [_ _] {}))
     (rf/reg-event :rf.route/entry-denied (fn [_ _] {}))
     (is (= [[:requested-url] [:destination] [:target]]
-           (:sensitive (rf/handler-meta :event :rf.route/entry-denied)))
+           (:sensitive (rf/handler-meta {:source :store :kind :event :id :rf.route/entry-denied})))
         "no duplication, no decay")
     (let [payload (traced-event-payload
                     :rf.route/entry-denied
@@ -605,8 +605,7 @@
 
 (defn- frame-targeted-sensitive
   "The `:sensitive` declaration the frame-targeted public read reports — the
-  EFFECTIVE classification, as distinct from the POSITIONAL `(rf/handler-meta
-  kind id)` read, which is the process resolver map (last-write-wins)."
+  EFFECTIVE classification, as distinct from the POSITIONAL `(rf/handler-meta {:source :store :kind kind :id id})` read, which is the process resolver map (last-write-wins)."
   [kind id]
   (:sensitive (frame-targeted-meta kind id)))
 
@@ -656,7 +655,7 @@
       ;;      This is NOT a carrier leak: the framework carriers ARE present at
       ;;      this surface, and every dispatch / egress projection resolves
       ;;      through the frame (assertion 2 below is the proof).
-      (let [positional (rf/handler-meta :event :rf.route/entry-denied)]
+      (let [positional (rf/handler-meta {:source :store :kind :event :id :rf.route/entry-denied})]
         (is (= [[:requested-url] [:destination] [:target]] (:sensitive positional))
             "last writer in this order is the framework's own seeding")
         (is (true? (:rf/framework-default? positional))

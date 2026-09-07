@@ -21,11 +21,11 @@ Start with the simplest handler — one that only touches state. Every re-frame2
     {:db (assoc-in db [:articles :page] page)}))
 ```
 
-To get that function back in a test, ask the registrar for it. `handler-meta` reads registrations back: you give it a *kind* and an *id* — for an event that's `(rf/handler-meta :event :some/id)` — and the map it returns carries the registration's metadata plus its `:handler-fn`, which is your function, exactly as you wrote it. The test plucks it, calls it with a coeffects map and an event vector, and asserts on the `:db` it returns:
+To get that function back in a test, ask the registrar for it. `handler-meta` reads registrations back: you give it a *kind* and an *id* — for an event that's `(rf/handler-meta {:source :store :kind :event :id :some/id})` — and the map it returns carries the registration's metadata plus its `:handler-fn`, which is your function, exactly as you wrote it. The test plucks it, calls it with a coeffects map and an event vector, and asserts on the `:db` it returns:
 
 ```clojure
 (deftest page-changed-sets-page
-  (let [handler (:handler-fn (rf/handler-meta :event :articles/page-changed))
+  (let [handler (:handler-fn (rf/handler-meta {:source :store :kind :event :id :articles/page-changed}))
         result  (handler {:db {:articles {:page 1}}} [:articles/page-changed 3])]
     (is (= 3 (get-in result [:db :articles :page])))))
 ```
@@ -46,7 +46,7 @@ One setup detail makes it work. Your test namespace needs three requires — `cl
 
     This is the reducer test — call the function, check the return — except it never hits the ceiling where you'd reach for `vi.mock` or fake timers. A handler's world arrives as declared data and its side effects leave as data, so the plain function call covers the ground that mocks cover in JS. If you're coming from Vitest or Jest, notice what's *absent*: no mock module, no spy, no `beforeEach` wiring up a fake clock.
 
-One gotcha before we add anything, because it produces a misleading error. `handler-meta` returns `nil` for an unregistered id. Typo the id, or forget the app-namespace require so the registration never ran, and `(rf/handler-meta :event :articels/page-changed)` returns `nil` — then `(:handler-fn nil)` is `nil`, so the next line tries to *call* `nil` and you get a "nil is not a function" blow-up rather than a clear "no such handler". The two usual causes are a misspelled id and a missing `:require`. If a handler you *know* you registered comes back `nil`, check the require list first.
+One gotcha before we add anything, because it produces a misleading error. `handler-meta` returns `nil` for an unregistered id. Typo the id, or forget the app-namespace require so the registration never ran, and `(rf/handler-meta {:source :store :kind :event :id :articels/page-changed})` returns `nil` — then `(:handler-fn nil)` is `nil`, so the next line tries to *call* `nil` and you get a "nil is not a function" blow-up rather than a clear "no such handler". The two usual causes are a misspelled id and a missing `:require`. If a handler you *know* you registered comes back `nil`, check the require list first.
 
 The mirror case is legitimate. A handler that performs only side effects — say it dispatches a follow-up but changes no state — returns `nil`, or an effect map with no `:db`, and that's valid (see [Effects](../effects.md)). Test it by asserting on `:fx` rather than `:db`; don't read `nil` as a failure.
 
@@ -73,7 +73,7 @@ The handler below stamps *when* a refresh was asked for, then asks for an HTTP r
 That `:rf.cofx/requires` declaration doubles as your fixture checklist — the list of facts the test must hand in. You can read it straight off the registrar:
 
 ```clojure
-(:rf.cofx/requires (rf/handler-meta :event :articles/refresh))
+(:rf.cofx/requires (rf/handler-meta {:source :store :kind :event :id :articles/refresh}))
 ;; => [:rf/time-ms]
 ```
 
@@ -81,7 +81,7 @@ So the test supplies exactly what that vector lists, as literal entries in the c
 
 ```clojure
 (deftest refresh-stamps-and-asks
-  (let [handler (:handler-fn (rf/handler-meta :event :articles/refresh))
+  (let [handler (:handler-fn (rf/handler-meta {:source :store :kind :event :id :articles/refresh}))
         result  (handler {:db {} :rf/time-ms 1781078400123}
                          [:articles/refresh])]
     ;; the state change it computed

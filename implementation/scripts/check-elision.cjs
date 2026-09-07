@@ -552,7 +552,7 @@ const DEV_ONLY_SENTINELS = [
   // pin its production absence:
   //   1. `re-frame.registrar/register!` strips the pure-documentation keys
   //      (`strip-pure-documentation`) from the STORED metadata under
-  //      :advanced + goog.DEBUG=false, so `(rf/handler-meta kind id)` carries
+  //      :advanced + goog.DEBUG=false, so `(rf/handler-meta {:source :store :kind kind :id id})` carries
   //      no `:doc` in production. (Asserted by the JVM/CLJS unit tests, not a
   //      bundle grep — a runtime strip cannot DCE a user-authored call-site
   //      string.)

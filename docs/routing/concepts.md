@@ -145,7 +145,7 @@ Tag a route; anything can query the table:
   {:tags     #{:requires-auth}
    :on-match [[:admin/load-dashboard]]}
   "/admin")
-;; (rf/handler-meta :route :app/admin) → metadata including :tags
+;; (rf/handler-meta {:source :store :kind :route :id :app/admin}) → metadata including :tags
 ```
 
 Recipes: [Require sign-in](how-to/require-sign-in-on-a-route.md) (routing half),

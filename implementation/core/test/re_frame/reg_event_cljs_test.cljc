@@ -57,7 +57,7 @@
             gone)"
     (rf/reg-event :reg-event-test/shape
       (fn [{:keys [db]} _] {:db (assoc db :marker :v)}))
-    (let [meta (rf/handler-meta :event :reg-event-test/shape)]
+    (let [meta (rf/handler-meta {:source :store :kind :event :id :reg-event-test/shape})]
       (is (some? meta)
           "reg-event registers under registry kind :event")
       (is (not (contains? meta :event/kind))
@@ -73,7 +73,7 @@
     (rf/reg-event :reg-event-test/with-icpt
       {:doc "doc" :interceptors [:reg-event-test/noop]}
       (fn [{:keys [db]} _] {:db db}))
-    (let [meta (rf/handler-meta :event :reg-event-test/with-icpt)]
+    (let [meta (rf/handler-meta {:source :store :kind :event :id :reg-event-test/with-icpt})]
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
       ;; `:doc` is pure-documentation metadata, stripped at the `register!`
       ;; chokepoint under `-Dre-frame.debug=false`.
@@ -177,7 +177,7 @@
     (rf/reg-event :reg-event-test/declarer
       {:rf.cofx/requires [:reg-event-test/who]}
       (fn [_ _] {}))
-    (let [meta (rf/handler-meta :event :reg-event-test/declarer)]
+    (let [meta (rf/handler-meta {:source :store :kind :event :id :reg-event-test/declarer})]
       (is (= [:reg-event-test/who] (:rf.cofx/requires meta))
           "the raw :rf.cofx/requires is retained on the registry entry")
       (is (contains? meta :rf.cofx/requires-parsed)

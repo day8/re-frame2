@@ -708,17 +708,17 @@ The privacy story rides the same machine-declared `:data` redaction as `:before`
 
 `handler-meta` is a **general source-meta surface** — introspect any source-bearing thing by `(kind, id)`, not "introspect a registrar entry". Machine guards and actions are **NOT** registry kinds (there is no such registry kind, per [001 §Registry model](001-Registration.md), and `registrar/kinds` is the closed set `:event` / `:sub` / `:fx` / `:cofx` / `:interceptor` / `:view` / `:frame` / `:route` / `:head` / `:error-projector` / `:flow` / `:resource` / `:mutation` / `:resource-scope`). Their dev-only fn-source handler-meta is **DERIVED on demand** from the machine's existing `:event` registration spec, not stored as a separate registrar entry.
 
-The `reg-machine` macro walks the literal spec form at expansion time and co-locates per-element source (`:guards {<id> {:fn .. :source-coords .. :source-code ..}}` — see [§Source-coord stamping](#source-coord-stamping)) onto each `:guards` / `:actions` entry. `reg-machine*` stores the whole stamped spec under `:rf/machine` in the machine's `:event` registration metadata. `(rf/handler-meta :machine-guard [machine-id guard-id])` dispatches the two machine kinds to a derivation that reads the source back out of that `:event` spec (the ten registrar kinds fall through to the registrar lookup). This resolves the prior **duplication** — the source the lens renders already lives on the `:event` registration; it is read, not copied into a second registrar entry. The addressing is **uniform** with the ten kinds, so the Xray focused-transition lens and re-frame-pair source-jump call sites are unchanged:
+The `reg-machine` macro walks the literal spec form at expansion time and co-locates per-element source (`:guards {<id> {:fn .. :source-coords .. :source-code ..}}` — see [§Source-coord stamping](#source-coord-stamping)) onto each `:guards` / `:actions` entry. `reg-machine*` stores the whole stamped spec under `:rf/machine` in the machine's `:event` registration metadata. `(rf/handler-meta {:source :store :kind :machine-guard :id [machine-id guard-id]})` dispatches the two machine kinds to a derivation that reads the source back out of that `:event` spec (the ten registrar kinds fall through to the registrar lookup). This resolves the prior **duplication** — the source the lens renders already lives on the `:event` registration; it is read, not copied into a second registrar entry. The addressing is **uniform** with the ten kinds, so the Xray focused-transition lens and re-frame-pair source-jump call sites are unchanged:
 
 ```clojure
-(rf/handler-meta :machine-guard  [<machine-id> <guard-id>])
+(rf/handler-meta {:source :store :kind :machine-guard :id [<machine-id> <guard-id>]})
 ;; => {:rf/guard-id   <guard-id>
 ;;     :rf/machine-id <machine-id>
 ;;     :rf.handler/source  "(fn [{data :data}] ...)"
 ;;     :handler-fn    <the captured fn>
 ;;     :ns :line :file [:column]}        ;; per-element coord per Spec 001
 
-(rf/handler-meta :machine-action [<machine-id> <action-id>])
+(rf/handler-meta {:source :store :kind :machine-action :id [<machine-id> <action-id>]})
 ;; => {:rf/action-id  <action-id>
 ;;     :rf/machine-id <machine-id>
 ;;     :rf.handler/source  "(fn [{data :data}] {:fx ...})"
@@ -726,11 +726,11 @@ The `reg-machine` macro walks the literal spec form at expansion time and co-loc
 ;;     :ns :line :file [:column]}
 ```
 
-The ids are 2-vectors `[<machine-id> <id>]` so a guard's id is naturally scoped to its declaring machine. `:rf/guard-id` and `:rf/action-id` are reserved markers (parallel to `:rf/cofx-id`) that the derived meta stamps so a tool reading the meta pivots on the marker rather than re-parsing the 2-vector id. (`(rf/registrations :machine-guard)` returns `{}` — there is no side-table to enumerate; tools that want the full set walk the machine's `:event` spec `:guards` / `:actions` maps directly.) `:rf.handler/source` carries the macro-time `pr-str` of the literal fn-form (parallel to the `reg-event-*` form-source capture per [Spec 009 §`:rf.handler/source`](009-Instrumentation.md)).
+The ids are 2-vectors `[<machine-id> <id>]` so a guard's id is naturally scoped to its declaring machine. `:rf/guard-id` and `:rf/action-id` are reserved markers (parallel to `:rf/cofx-id`) that the derived meta stamps so a tool reading the meta pivots on the marker rather than re-parsing the 2-vector id. (`(rf/registrations {:source :store :kind :machine-guard})` returns `{}` — there is no side-table to enumerate; tools that want the full set walk the machine's `:event` spec `:guards` / `:actions` maps directly.) `:rf.handler/source` carries the macro-time `pr-str` of the literal fn-form (parallel to the `reg-event-*` form-source capture per [Spec 009 §`:rf.handler/source`](009-Instrumentation.md)).
 
 Production-elision per [Spec 009 §Production builds](009-Instrumentation.md): the macro emission omits the co-located `:source-coords` / `:source-code` slots under `:advanced` + `goog.DEBUG=false` (the dev arm of the `interop/debug-enabled?` gate DCEs), and the derivation is itself gated on `interop/debug-enabled?` (returning nil when the gate is false), so neither the `pr-str` fn-body bytes nor the `:rf.handler/source` keyword reach the production bundle (verified by the elision-probe co-located `:source-code` sentinels — see [009 §Production builds](009-Instrumentation.md)).
 
-The `reg-machine*` plain-fn surface (per [§reg-machine vs reg-machine*](#reg-machine-vs-reg-machine)) bypasses the macro walker — programmatic registrations carry no co-located source under these kinds. Tools fall back to the call-site coords on the top-level `(rf/handler-meta :event <machine-id>)`, identical to the existing source-coord stamping fallback.
+The `reg-machine*` plain-fn surface (per [§reg-machine vs reg-machine*](#reg-machine-vs-reg-machine)) bypasses the macro walker — programmatic registrations carry no co-located source under these kinds. Tools fall back to the call-site coords on the top-level `(rf/handler-meta {:source :store :kind :event :id <machine-id>})`, identical to the existing source-coord stamping fallback.
 
 The runtime semantics — guard resolution + action invocation — are unchanged. The `:guards` / `:actions` maps inside the machine spec remain the source of truth the runtime resolves through; co-locating `:source-coords` / `:source-code` alongside the `:fn` carries observability metadata only, and the runtime engine reads each entry's `:fn` (bare-fn and keyword-reference entries are also accepted, per [§Source-coord stamping](#source-coord-stamping)).
 
@@ -1098,7 +1098,7 @@ Tools resolving a slot walk UP from its spec-path to the nearest enclosing map c
 ;; => "(fn [{data :data}] {:fx ...})"   (nil for a keyword-reference :action)
 ```
 
-The top-level call-site coords (the position of the `(rf/reg-machine ...)` form itself) live on the registry slot as `:ns` / `:line` / `:column` / `:file`, queryable via `(rf/handler-meta :event machine-id)`. These surfaces are independent: a tool highlighting the `reg-machine` declaration uses `handler-meta`; a tool highlighting a guard's definition reads its co-located `:source-coords` on the `:guards` entry; a tool highlighting a transition's source line reads the `:source-coords` on the transition map node.
+The top-level call-site coords (the position of the `(rf/reg-machine ...)` form itself) live on the registry slot as `:ns` / `:line` / `:column` / `:file`, queryable via `(rf/handler-meta {:source :store :kind :event :id machine-id})`. These surfaces are independent: a tool highlighting the `reg-machine` declaration uses `handler-meta`; a tool highlighting a guard's definition reads its co-located `:source-coords` on the `:guards` entry; a tool highlighting a transition's source line reads the `:source-coords` on the transition map node.
 
 #### Production elision
 
@@ -1134,14 +1134,14 @@ Here the `reg-machine` macro sees only the symbol `door-machine` at its call sit
 
 (rf/reg-machine :door/main door-machine)
 ;; (get-in (rf.machines/machine-meta :door/main) [:actions :clear-hold :source-coords]) is now populated,
-;; and (rf/handler-meta :machine-action [:door/main :clear-hold]) carries the fn source.
+;; and (rf/handler-meta {:source :store :kind :machine-action :id [:door/main :clear-hold]}) carries the fn source.
 ```
 
 Normative rules:
 
 - **`defmachine` performs exactly the same literal-spec walk as the inline `reg-machine` macro** — the same co-located per-element `:source-coords` / `:source-code` on each guard / action / on-spawn-action entry, and the same reference-site `:source-coords` co-located onto each `:states`-tree map node — but applies them to the def'd **value** rather than at a registration call site. The co-location rides the same `interop/debug-enabled?` gate and DCEs identically under `:advanced` + `goog.DEBUG=false`.
 - **`defmachine` is a drop-in for `def`**: `(defmachine name spec)` or `(defmachine name "doc" spec)`. It introduces a Var holding the (source-stamped) spec map. The optional docstring rides onto the Var's metadata.
-- **`defmachine` does NOT register the machine** — it only defines the stamped value. A subsequent `(reg-machine id name)` performs the registration; because the value already carries source, `reg-machine` (even seeing only the symbol) registers a spec (stored under `:rf/machine` on the `:event` registration) whose co-located source `(rf/handler-meta :machine-guard [machine-id guard-id])` **derives** on demand exactly as for an inline-registered machine (no registrar side-table written).
+- **`defmachine` does NOT register the machine** — it only defines the stamped value. A subsequent `(reg-machine id name)` performs the registration; because the value already carries source, `reg-machine` (even seeing only the symbol) registers a spec (stored under `:rf/machine` on the `:event` registration) whose co-located source `(rf/handler-meta {:source :store :kind :machine-guard :id [machine-id guard-id]})` **derives** on demand exactly as for an inline-registered machine (no registrar side-table written).
 - **Use `defmachine` for the `def`-then-register shape; use the `reg-machine` macro directly for inline-literal registration.** Both yield identical per-element source; the choice is purely whether the spec value is named.
 
 Without `defmachine`, the Epoch machine-cascade (and any tool reading `cascade-row-coord` / `cascade-row-source-form`) has no per-element source to render for value-registered machines, even though the inline-registered case works — this is the gap `defmachine` closes.

@@ -183,7 +183,7 @@ See `SKILL.md` for the full vocabulary. Subsections at-a-glance:
 - §4.3 Trace — `trace/buffer`, `trace/last-epoch`, `trace/last-pair-epoch`, `trace/epoch`, `trace/dispatch-and-collect`, `trace/recent`, `trace/find-where`, `trace/find-all-where`, `trace/cascade`.
 - §4.3b DOM bridge — `dom/source-at`, `dom/find-by-src`, `dom/fire-click-at-src`, `dom/describe`. Reads `data-rf2-source-coord` first, `data-rc-src` second.
 - §4.4 Watch — `watch/window`, `watch/count`, `watch/stream`, `watch/stop`. Predicates include `--origin`, `--frame`.
-- §4.5 Hot-reload coordination — `tail-build.sh --probe '...'`. Recommended probe: `(rf/handler-meta kind id)` hash.
+- §4.5 Hot-reload coordination — `tail-build.sh --probe '...'`. Recommended probe: `(rf/handler-meta {:source :store :kind kind :id id})` hash.
 - §4.6 Time-travel — `epoch/history`, `epoch/restore`, `epoch/configure`, `undo/step-back`, `undo/to-epoch`. Seven documented failure modes.
 - §4.7 Recipes — see SKILL.md.
 

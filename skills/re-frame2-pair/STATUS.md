@@ -54,7 +54,7 @@ Per [Spec 006 §Source-coord annotation](https://github.com/day8/re-frame2/blob/
 data-rf2-source-coord="<ns>:<handler-id>:<line>:<col>"
 ```
 
-Four colon-separated segments, where `<ns>` and `<handler-id>` derive from the registry id keyword (`(namespace id)` / `(name id)`). Either coord segment may be the literal `?` for programmatic `reg-view*` calls that bypassed the macro path. Non-DOM roots (Fragment `:<>`, `:>` interop, fn-component head) are exempt — pair tools fall back to `(rf/handler-meta :view id)` for those.
+Four colon-separated segments, where `<ns>` and `<handler-id>` derive from the registry id keyword (`(namespace id)` / `(name id)`). Either coord segment may be the literal `?` for programmatic `reg-view*` calls that bypassed the macro path. Non-DOM roots (Fragment `:<>`, `:>` interop, fn-component head) are exempt — pair tools fall back to `(rf/handler-meta {:source :store :kind :view :id id})` for those.
 
 `preload/re_frame2_pair/runtime.cljs` `parse-rf2-coord` returns `{:ns :handler-id :line :col}` (or nil for malformed / non-4-segment input). It is a canonical alias of `re-frame.source-coords/parse-source-coord`, whose behaviour is verified by `implementation/core/test/re_frame/source_coords_cljs_test.cljs`.
 

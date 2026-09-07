@@ -138,7 +138,7 @@
       {:doc                    "Load an article."
        :rf.http/decode-schemas [::ArticleResponse ::ArticleSummary]}
       (fn [_ _] {}))
-    (let [m (rf/handler-meta :event :article/load)]
+    (let [m (rf/handler-meta {:source :store :kind :event :id :article/load})]
       (is (= [::ArticleResponse ::ArticleSummary]
              (:rf.http/decode-schemas m))
           "decode-schemas metadata round-trips through the registrar"))))

@@ -120,9 +120,8 @@
 (deftest auth-sign-in-carries-sensitive-flag
   (testing "The :auth/sign-in handler registered by elision-demo carries
             `:sensitive? true` in its registry-meta — Xray / re-frame2-pair /
-            error-monitor forwarders read this off `(rf/handler-meta
-            :event :auth/sign-in)` and apply tool-side policy."
-    (let [m (rf/handler-meta :event :auth/sign-in)]
+            error-monitor forwarders read this off `(rf/handler-meta {:source :store :kind :event :id :auth/sign-in})` and apply tool-side policy."
+    (let [m (rf/handler-meta {:source :store :kind :event :id :auth/sign-in})]
       (is (some? m) ":auth/sign-in registration meta is populated")
       (is (true? (:sensitive? m))
           "the registrar copied :sensitive? true from the metadata map"))))

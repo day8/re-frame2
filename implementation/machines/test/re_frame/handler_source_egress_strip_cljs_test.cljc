@@ -81,13 +81,13 @@
        :actions {:bump   (fn [{data :data}] {:data (update data :n inc)})}
        :states  {:idle    {:on {:go {:target :running :guard :ready? :action :bump}}}
                  :running {}}})
-    (is (string? (:rf.handler/source (rf/handler-meta :event :tlf4if/seed)))
+    (is (string? (:rf.handler/source (rf/handler-meta {:source :store :kind :event :id :tlf4if/seed})))
         "reg-event stamps :rf.handler/source on the :event registry slot (dev)")
     (is (string? (:rf.handler/source
-                  (rf/handler-meta :machine-guard [:tlf4if/probed :ready?])))
+                  (rf/handler-meta {:source :store :kind :machine-guard :id [:tlf4if/probed :ready?]})))
         "a machine guard derives :rf.handler/source from the spec's :source-code (dev)")
     (is (string? (:rf.handler/source
-                  (rf/handler-meta :machine-action [:tlf4if/probed :bump])))
+                  (rf/handler-meta {:source :store :kind :machine-action :id [:tlf4if/probed :bump]})))
         "a machine action derives :rf.handler/source from the spec's :source-code (dev)")))
 
 (deftest frame-state-snapshot-carries-no-source-as-data

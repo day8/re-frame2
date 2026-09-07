@@ -1596,7 +1596,7 @@
       {:doc                    "Load an article."
        :rf.http/decode-schemas [::ArticleResponse]}
       (fn [_ _] {}))
-    (let [m (rf/handler-meta :event :article/load)]
+    (let [m (rf/handler-meta {:source :store :kind :event :id :article/load})]
       (is (= [::ArticleResponse] (:rf.http/decode-schemas m))))))
 
 ;; ---- actor-in-flight-snapshot shape contract (rf2-kyl7) -------------------

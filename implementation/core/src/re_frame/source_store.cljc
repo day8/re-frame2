@@ -271,7 +271,7 @@
                                (:ns rf.source-coords/*pending-coords*)))
         ;; Stamp `:kind` / `:id` (the store key, so deterministic) — image
         ;; assembly reads them off the descriptor (rf2-32siq3.21) — plus the
-        ;; canonical provenance string so `(rf/handler-meta kind id)` consumers
+        ;; canonical provenance string so `(rf/handler-meta {:source :store :kind kind :id id})` consumers
         ;; and `:include-ns` selection (slice .3) read a string at
         ;; :rf.provenance/ns. When there is no provenance (programmatic path),
         ;; leave the key off rather than store a nil — absence is the honest

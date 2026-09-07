@@ -53,7 +53,7 @@
 (def ^:private session-scope [:rf.scope/session {:user-id "u-42" :tenant-id "acme"}])
 
 (def ^:private registrations
-  "A `(rf/registrations :resource)` shape — `{<id> <meta>}` where meta
+  "A `(rf/registrations {:source :store :kind :resource})` shape — `{<id> <meta>}` where meta
   carries the registration spec under `:rf/resource` + source coords."
   {:article/by-slug
    {:doc  "Article detail by slug."
@@ -255,7 +255,7 @@
 ;; ---- (3b) project-scope-resolvers (rf2-hls77w, EP-0016 D3) --------------
 
 (def ^:private scope-resolver-registrations
-  "A `(rf/registrations :resource-scope)` shape — `{<scope-id> <meta>}`
+  "A `(rf/registrations {:source :store :kind :resource-scope})` shape — `{<scope-id> <meta>}`
   where meta carries the canonical resolver spec under `:rf/resource-scope`
   + source coords. One declared-inputs resolver + one whole-db-sugar
   resolver (`:whole-db? true`, synthetic root-path input)."

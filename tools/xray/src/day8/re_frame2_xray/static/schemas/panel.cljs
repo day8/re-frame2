@@ -31,9 +31,9 @@
       coords). This yields the `{frame-id {path schema-meta}}` shape
       the per-frame projection consumes — without reaching the private
       `re-frame.schemas.storage/schemas-by-frame` atom.
-    - `(rf/registrations :event)` — events whose metadata carries a
+    - `(rf/registrations {:source :store :kind :event})` — events whose metadata carries a
       `:spec` slot.
-    - `(rf/registrations :sub)` — subs whose metadata carries a `:spec`
+    - `(rf/registrations {:source :store :kind :sub})` — subs whose metadata carries a `:spec`
       slot.
 
   ## Jump-to-source
@@ -55,7 +55,6 @@
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.schemas :as rf.schemas]
-            [day8.re-frame2-xray.host-registry :as host-registry]
             [day8.re-frame2-xray.open-in-editor :as open-in-editor]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.static.shared.catalogue :as catalogue]
@@ -320,24 +319,24 @@
   schemas via the `re-frame.schemas` façade, event / sub specs via the HOST
   app's `:event` / `:sub` registrar.
 
-  The event / sub reads go through `host-registry/registrations` (the
-  generation-bypassing host-registry form), NOT a bare `(rf/registrations
-  <kind>)`: this runs inside the `:rf.xray.static.schemas/registry` sub
+  The event / sub reads go through `rf/registrations` with `{:source :store …}`
+  (the SOURCE-STORE read, which never consults a bound image generation),
+  NOT `{:frame …}`: this runs inside the `:rf.xray.static.schemas/registry` sub
   COMPUTATION, and Xray seats in its OWN image-loaded `:rf/xray` frame, so the
   sub build binds the registrar to Xray's image generation — a bare read would
   resolve through Xray's OWN image and the schemas catalogue would lose the host
   app's event/sub specs. (App-db schemas live in a dedicated side-table keyed by
   frame, not the registrar, so `read-app-schemas-by-frame` is unaffected.) See
-  `day8.re-frame2-xray.host-registry`."
+  spec/API.md §Public registrar query API."
   []
   {:schemas-by-frame
    (try (read-app-schemas-by-frame)
         (catch :default _ {}))
    :events
-   (try (host-registry/registrations :event)
+   (try (rf/registrations {:source :store :kind :event})
         (catch :default _ {}))
    :subs
-   (try (host-registry/registrations :sub)
+   (try (rf/registrations {:source :store :kind :sub})
         (catch :default _ {}))})
 
 ;; ---- registrations -------------------------------------------------------
@@ -383,7 +382,7 @@
   ;; Assembles the three input registries from public surfaces once per
   ;; re-fire: app-db schemas via the `re-frame.schemas` façade
   ;; (`rf/frame-ids` + `rf.schemas/app-schemas` + `rf.schemas/app-schema-meta-
-  ;; at`) and event / sub specs via `(rf/registrations <kind>)`.
+  ;; at`) and event / sub specs via `(rf/registrations {:source :store :kind <kind>})`.
   ;; Declares the trace buffer in its `:inputs` so the sub is reactive
   ;; against the same "something changed" pulse the other Static-mode
   ;; subs ride.

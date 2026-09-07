@@ -414,7 +414,7 @@ All test-support surfaces live in `re-frame.http.test-support` — one namespace
 
 ## Schema-reflection metadata
 
-Handlers may declare `:rf.http/decode-schemas [<schema> ...]` in their `reg-event` metadata-map; pair tools and generators read it via `(rf/handler-meta :event id)`. Optional, never enforced — pure metadata for tooling. See [re-frame.schemas.md](re-frame.schemas.md).
+Handlers may declare `:rf.http/decode-schemas [<schema> ...]` in their `reg-event` metadata-map; pair tools and generators read it via `(rf/handler-meta {:source :store :kind :event :id id})`. Optional, never enforced — pure metadata for tooling. See [re-frame.schemas.md](re-frame.schemas.md).
 
 ## Privacy and classification
 

@@ -689,7 +689,7 @@ entry per `defview`, dev only, so a keyword an author wrote resolves forward to
 the boundary they meant. The id is `(keyword "<ns>" "<sym>")`, byte-identical to
 what `rf/reg-view` derives from its own symbol, so one convention answers for both
 substrates; the coordinate is stored at the top level of the registration
-metadata, where `(rf/handler-meta :view id)` already reads it, and the author's
+metadata, where `(rf/handler-meta {:source :store :kind :view :id id})` already reads it, and the author's
 `:doc` rides along so the registrar's `:rf.warning/missing-doc` does not fire on
 a documented view. The head is stored at `:handler-fn`, the one executable slot
 every substrate's `:view` entry uses, so `(rf/view id)` answers a boundary the

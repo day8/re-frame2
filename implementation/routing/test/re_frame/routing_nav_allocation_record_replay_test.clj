@@ -87,19 +87,19 @@
             `:rf.route/nav-allocation` and `:rf.route/pending-nav-allocation`
             — each generator-backed (recordable, NOT provided) and carrying
             `{:token/:id .. :counter ..}` (the id + the allocator high-water)"
-    (let [nav (rf/handler-meta :cofx :rf.route/nav-allocation)
-          pn  (rf/handler-meta :cofx :rf.route/pending-nav-allocation)]
+    (let [nav (rf/handler-meta {:source :store :kind :cofx :id :rf.route/nav-allocation})
+          pn  (rf/handler-meta {:source :store :kind :cofx :id :rf.route/pending-nav-allocation})]
       (is (true? (:recordable? nav)) ":rf.route/nav-allocation is recordable")
       (is (true? (:recordable? pn))  ":rf.route/pending-nav-allocation is recordable")
       (is (not (:provided? nav))     "nav-allocation is generator-backed, NOT provided")
       (is (not (:provided? pn))      "pending-nav-allocation is generator-backed, NOT provided"))
     ;; The OLD ambient counter-snapshot cofx is GONE (step 2: do NOT record it).
-    (is (nil? (rf/handler-meta :cofx :rf.route/nav-counters))
+    (is (nil? (rf/handler-meta {:source :store :kind :cofx :id :rf.route/nav-counters}))
         "the ambient :rf.route/nav-counters cofx is retired (step 2)"))
 
   (testing "the generators mint {:token/:id .. :counter ..} from the host snapshot"
-    (let [nav-gen (:handler-fn (rf/handler-meta :cofx :rf.route/nav-allocation))
-          pn-gen  (:handler-fn (rf/handler-meta :cofx :rf.route/pending-nav-allocation))]
+    (let [nav-gen (:handler-fn (rf/handler-meta {:source :store :kind :cofx :id :rf.route/nav-allocation}))
+          pn-gen  (:handler-fn (rf/handler-meta {:source :store :kind :cofx :id :rf.route/pending-nav-allocation}))]
       ;; Bind the active frame the generators read (`frame/*current-frame*`).
       (rf/with-frame :rf/default
         (is (= {:token "nav-1" :counter 1} (nav-gen))

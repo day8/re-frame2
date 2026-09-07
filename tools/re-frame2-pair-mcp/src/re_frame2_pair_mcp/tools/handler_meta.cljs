@@ -24,7 +24,7 @@
 
   ## handler-meta
 
-  Returns `(rf/handler-meta kind id)` for the requested
+  Returns `(rf/handler-meta {:source :store :kind kind :id id})` for the requested
   `(kind, id)` pair — the registration-metadata map carrying the flat
   top-level source-coord keys `:ns` / `:line` / `:column` / `:file`
   (per Spec-Schemas `:rf/source-coord-meta` — merged flat onto

@@ -61,10 +61,10 @@ The panel reads everything **decoupled** — exactly the posture the
 Routing tab uses for the route slice and the Machine Inspector uses for
 machine snapshots:
 
-- the **static registry** via `(rf/registrations :resource)` (the
+- the **static registry** via `(rf/registrations {:source :store :kind :resource})` (the
   process-global registrar);
 - the **named resource-scope resolver registry** via
-  `(rf/registrations :resource-scope)` (rf2-hls77w, EP-0016 D3) — the
+  `(rf/registrations {:source :store :kind :resource-scope})` (rf2-hls77w, EP-0016 D3) — the
   resolver id, its declared `{:inputs … }` (input names + `[:db <rf-path>]`
   sources, paths summarized), and the whole-db-sugar cost flag. Per-resolution
   input **values** and the resolved scope are **never** read from the
@@ -586,8 +586,8 @@ override input layered on top; see §Events below.
 
 | Sub | Inputs (production) | Returns |
 |---|---|---|
-| `:rf.xray/registered-resources` | `:rf.xray/trace-buffer` | `(rf/registrations :resource)` — the static registry map. |
-| `:rf.xray/registered-scope-resolvers` | `:rf.xray/trace-buffer` | `(rf/registrations :resource-scope)` — the static named-scope-resolver registry map (rf2-hls77w, EP-0016 D3). |
+| `:rf.xray/registered-resources` | `:rf.xray/trace-buffer` | `(rf/registrations {:source :store :kind :resource})` — the static registry map. |
+| `:rf.xray/registered-scope-resolvers` | `:rf.xray/trace-buffer` | `(rf/registrations {:source :store :kind :resource-scope})` — the static named-scope-resolver registry map (rf2-hls77w, EP-0016 D3). |
 | `:rf.xray/resource-entries` | `:rf.xray/target-frame-runtime-db` | the live cache entries map at `[:rf.runtime/resources :entries]`. |
 | `:rf.xray/resource-work-ledger` | `:rf.xray/target-frame-runtime-db` | the live work-ledger map at `[:rf.runtime/work-ledger]`. |
 | `:rf.xray/resource-sub-reads` | (none) | observed live subscription reads backing the scope-mismatch lint (empty by default). |

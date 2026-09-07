@@ -706,7 +706,7 @@
 (deftest reg-event-registers-under-event-kind-with-the-one-wrapper
   (testing "reg-event registers under :event with one default wrapper"
     (rf/reg-event :evt-conf/shape (fn [{:keys [db]} _] {:db (assoc db :m :v)}))
-    (let [event-metadata (rf/handler-meta :event :evt-conf/shape)]
+    (let [event-metadata (rf/handler-meta {:source :store :kind :event :id :evt-conf/shape})]
       (is (some? event-metadata)
           "reg-event registers under registry kind :event (handler-meta finds it)")
       (is (fn? (:handler-fn event-metadata))
@@ -736,7 +736,7 @@
       (rf/reg-interceptor :evt-conf/audit
         {:doc "an application audit interceptor authored via reg-interceptor"}
         {:before (fn [ctx] (reset! ran? true) ctx)})
-      (let [interceptor-metadata (rf/handler-meta :interceptor :evt-conf/audit)]
+      (let [interceptor-metadata (rf/handler-meta {:source :store :kind :interceptor :id :evt-conf/audit})]
         (is (some? interceptor-metadata)
             "reg-interceptor registers under the :interceptor kind (handler-meta finds it)")
         (is (= "an application audit interceptor authored via reg-interceptor"
@@ -751,7 +751,7 @@
       (rf/reg-event :evt-conf/uses-public-icpt
         {:interceptors [:evt-conf/audit]}
         (fn [{:keys [db]} _] {:db (assoc db :public-icpt-marker :handler-ran)}))
-      (let [event-metadata (rf/handler-meta :event :evt-conf/uses-public-icpt)]
+      (let [event-metadata (rf/handler-meta {:source :store :kind :event :id :evt-conf/uses-public-icpt})]
         (is (= [:evt-conf/audit :rf/event-handler]
                (interceptor-chain-ids (:interceptors event-metadata)))
             "the event chain carries the interceptor REFERENCE (id), before the framework wrapper"))

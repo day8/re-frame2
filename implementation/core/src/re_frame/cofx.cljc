@@ -154,7 +154,7 @@
                     provided fact a handler declares is
                     `:rf.error/missing-required-cofx` in every mode.
       :doc          one-sentence what-and-why; surfaces via
-                    `(rf/handler-meta :cofx id)`.
+                    `(rf/handler-meta {:source :store :kind :cofx :id id})`.
       :schema       Malli schema validating supplied / replayed / generated
                     recordable values (a production hard error on mismatch —
                     `:rf.error/cofx-value-invalid`).
