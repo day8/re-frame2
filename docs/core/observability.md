@@ -517,8 +517,8 @@ the shapes here as the *corpus* door's, and
 
 The `:outcome` on an event record reports across *every* run-failure path, so a
 dispatch that aborted is never mis-reported as a clean `:ok`: `:ok` (committed, flows
-ran, `:fx` walked), `:error` (the handler or an interceptor threw), `:rejected` (the
-`:rf.schema/at-boundary` interceptor refused the event's payload, so the handler never
+ran, `:fx` walked), `:error` (the handler or an interceptor threw), `:rejected` (a
+`:boundary? true` handler's `:schema` refused the event's payload, so the handler never
 ran), `:rolled-back` (schema validation rejected the candidate db before it installed —
 app-db kept its prior value), or `:flow-error` (a flow's output threw and halted the
 run).

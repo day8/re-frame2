@@ -55,7 +55,10 @@ Closed mechanical rename set. Apply across all source files. The dual-key read `
 ```
 ;; Framework-reserved keyword renames — single-token global rewrites:
 :rf.spec/violation → :rf.schema/violation
-:spec/at-boundary → :rf.schema/at-boundary
+
+;; NOT a token rename — there is no successor keyword. Delete the chain entry
+;; and set the boundary flag on the same registration map (M-59):
+{:schema S :interceptors [:spec/at-boundary]} → {:schema S :boundary? true}
 
 ;; Trace-tag rename — only inside trace-handler destructures or tag maps:
 :spec-id → :schema-id
@@ -84,7 +87,7 @@ Closed mechanical rename set. Apply across all source files. The dual-key read `
 
 - `{:keys [spec]}` destructure of a non-framework data shape — leave alone.
 - `(:spec invoke-all-state)` — the machine `:spawn-all` join state carries `:spec` for the live spec map (see [Spec-Schemas §runtime-db](https://github.com/day8/re-frame2/blob/main/spec/Spec-Schemas.md#rfruntime-reserved-app-db-key--the-sole-framework-owned-root) — the join-state lives in runtime-db at `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]`); that `:spec` is a different domain and is NOT renamed by M-54.
-- The namespace `re-frame.spec` — NOT renamed; the ns alias is preserved for back-compat. Do **not** rewrite an `at-boundary` chain entry to the `validate-at-boundary-interceptor` Var: under EP-0022 the boundary validator is cited as the framework-registered ref `:rf.schema/at-boundary` by id in `:interceptors` (e.g. `{:schema S :interceptors [:rf.schema/at-boundary]}`); the `validate-at-boundary-interceptor` Var is the framework's registration-boundary input only, never an inline chain entry.
+- The namespace `re-frame.spec` — NOT renamed; the ns alias is preserved for back-compat. Leave the require in place; nothing in an app's source names anything out of it.
 
 **No alias semantics.** Per pre-alpha posture, the framework no longer accepts `:spec` on `reg-*` metadata — the dual-key read and the `:rf.warning/deprecated-schema-alias` were stripped. A `:spec` slot left in metadata is silently ignored (the registration becomes schemaless), so an incomplete rewrite is a correctness hazard. Sweep every `:spec` metadata-map slot to `:schema` in one pass; do not rely on a deprecation warning to find stragglers.
 

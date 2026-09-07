@@ -137,7 +137,7 @@ is the reference. The short version:
    transcript, then grade each `expectations[]` entry — pass / fail with
    one-line evidence. Programmatic checks (grep the response for the canonical
    tokens the `expectations[]` name — `:rf.http/managed`, `reg-machine`,
-   `:tags`, `:rf.schema/at-boundary`, `reg-fx` / `reg-cofx`, and so on) handle
+   `:tags`, `:boundary?`, `reg-fx` / `reg-cofx`, and so on) handle
    most of them; the `false-positive-avoidance` and `edit-gate` evals need a
    short human read of the transcript (did it decline to flag; did it apply
    exactly what the request authorised — no more, no less?).
@@ -150,7 +150,7 @@ is the reference. The short version:
    comment) and on the highest-subtlety `critique-correctness` discriminators
    (where the baseline delta should be largest): an unaided model tends to emit
    2 contradictory machines instead of one consolidated fix, wave a
-   `:schema` + `:rf.schema/at-boundary` body-read handler through as "already
+   `:schema` + `:boundary? true` body-read handler through as "already
    safe", and over-generalise "subscribe-once in a handler is fine" to machine
    callbacks — the exact mistakes the leaves exist to prevent.
 

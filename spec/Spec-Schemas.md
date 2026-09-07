@@ -364,13 +364,14 @@ The metadata map accepted by `reg-event` — the one public event-registration f
    RegistrationMetadata
    [:map
     [:interceptors     {:optional true} [:vector [:ref :rf/interceptor-ref]]] ;; the interceptor-REF CHAIN (superset middle slot; refs not inline values — EP-0022). A vector of references — the InterceptorChain shape ([:vector InterceptorRef]); the framework appends its `:rf/default?`-stamped handler-wrapper to the tail.
+    [:boundary?        {:optional true} :boolean]                            ;; Spec 010 §Production builds — true forces THIS handler's own `:schema` to run at step 1 in EVERY build, not just dev. Requires the `:schema` KEY (registration raises `:rf.error/at-boundary-missing-schema` without it). Follows the ?-boolean precedent (`:recordable?`, `:provided?`, `:large?`).
     [:rf.cofx/requires {:optional true} [:ref :rf.cofx/requires]]            ;; EP-0017 — declared consumed coeffects (uniform on reg-event; no db-handler exception per EP-0018)
     [:rf/machine?      {:optional true} :boolean]                            ;; true iff this :event entry is a machine handler (reg-machine path)
     [:rf/machine       {:optional true} [:ref :rf/transition-table]]         ;; the captured machine spec (when :rf/machine? true) — a :rf/transition-table; see [005](005-StateMachines.md)
     ]])
 ```
 
-The interceptor chain is the reserved `:interceptors` key — the superset middle slot and the only supported per-event chain home (see the §Registration-metadata section above and [Conventions §`:interceptors` in the metadata-map — the superset middle slot](Conventions.md#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event)). The registrar stores the *effective* chain (user interceptors + the framework wrapper) under this key; tooling reads it to answer "which interceptors does this handler carry?" (`(remove :rf/default? interceptors)` recovers the user chain). `:rf/machine?` / `:rf/machine` are stamped by `reg-machine` / `reg-machine*` only.
+The interceptor chain is the reserved `:interceptors` key — the superset middle slot and the only supported per-event chain home (see the §Registration-metadata section above and [Conventions §`:interceptors` in the metadata-map — the superset middle slot](Conventions.md#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event)). The registrar stores the *effective* chain (user interceptors + the framework wrapper) under this key; tooling reads it to answer "which interceptors does this handler carry?" (`(remove :rf/default? interceptors)` recovers the user chain). `:rf/machine?` / `:rf/machine` are stamped by `reg-machine` / `reg-machine*` only. `:boundary?` is the untrusted-ingress opt-in of [010 §Production builds](010-Schemas.md#production-builds): it re-uses the handler's own `:schema` rather than introducing a parallel one, and it is read off this metadata at the router's step-1 site, so no chain rewrite can move the check or feed it a transformed event.
 
 #### `:rf/sub-meta`
 

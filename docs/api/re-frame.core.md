@@ -38,6 +38,16 @@ Every entry here registers a named handler into the frame's registrar.
     (fn [{:keys [db]} [_ item]] {:db (update db :items conj item)}))
   ```
   > **Migration note.** The bare positional interceptor middle slot — `(reg-event :id [undoable] handler)` — has been removed. Put interceptor chains in the metadata map: `(reg-event :id {:interceptors [undoable]} handler)`.
+- **`:boundary?`** — a boolean registration flag. `{:boundary? true}` makes *this* handler's own `:schema` run in **every** build, including `:advanced` with `goog.DEBUG=false`, where dev-time validation is otherwise elided. It introduces no second schema. Set it on handlers that ingest data from outside the app's trust boundary: HTTP replies, websocket frames, `postMessage`.
+  - The check runs at the router's step-1 site, **before** the interceptor chain, against the original dispatched event vector — so dev and production validate the same value at the same point, and `:interceptor-overrides` cannot remove it.
+  - `{:boundary? true}` with no `:schema` **key** is rejected at registration time with `:rf.error/at-boundary-missing-schema`. Key presence is what counts: `{:schema nil :boundary? true}` registers.
+  - What a refusal then does — the skip mark, `:outcome :rejected`, the always-on `:rf.error/schema-validation-failure` record with `:source :boundary` — is unchanged. Full contract: [re-frame.schemas.md](re-frame.schemas.md).
+  ```clojure
+  (rf/reg-event ::receive-from-server
+    {:schema    [:cat [:= ::receive-from-server] PayloadSchema]
+     :boundary? true}
+    (fn [{:keys [db]} [_ payload]] {:db (assoc db :data payload)}))
+  ```
 - **Raw-context handlers**: there is no separate registrar for them. To read or rewrite the interceptor context, register a named interceptor with `(rf/reg-interceptor :my/audit {:before ... :after ...})` and reference it by id from the `:interceptors` vector (`{:interceptors [:my/audit]}`). Its `:before` / `:after` fns receive and return the context map directly. (There is no public interceptor-value constructor; the framework lowers registered descriptors internally.)
 - **Example** — a pure state update and an effectful handler:
   ```clojure
@@ -534,24 +544,6 @@ The effect map is **closed**, at seven top-level keys: everyday app handlers ret
   ;; every dispatch inside inherits the override; it unwinds when the body exits.
   (rf/with-fx-overrides {:rf.http/managed :auth.login/canned-failure}
     (rf/dispatch-sync [:auth.login/submit {:email "x@y.z" :password "wrong"}]))
-  ```
-
-### `validate-at-boundary-interceptor`
-
-- **Kind**: Var (interceptor value) — schemas re-export
-- **Signature**:
-  ```clojure
-  validate-at-boundary-interceptor
-  ```
-- **Description**: A **pre-built interceptor value**, not a fn, registered under the framework id `:rf.schema/at-boundary`. Reference it **by id** from a `reg-event` metadata map's `:interceptors` vector: `{:interceptors [:rf.schema/at-boundary]}`. Chains are reference-only, so the Var itself never appears as an inline chain entry.
-  - It forces `:schema` validation of the dispatched event vector even in production builds, where dev-time validation is normally elided. Use it on handlers that ingest data from outside the app's trust boundary: HTTP replies, websocket frames, postMessage.
-  - **Do not call it as a fn** — invoking it raises `ArityException`.
-  - Full contract: [re-frame.schemas.md](re-frame.schemas.md).
-- **Example**:
-  ```clojure
-  (rf/reg-event ::receive-from-server
-    {:interceptors [:rf.schema/at-boundary]}
-    (fn [{:keys [db]} [_ payload]] {:db (assoc db :data payload)}))
   ```
 
 ### Standard fx and interceptor (keyword surface)
@@ -1369,7 +1361,7 @@ A flow is derived state: declared inputs (frame-state paths), a pure `:derive`, 
 
 ### Schemas → [re-frame.schemas.md](re-frame.schemas.md)
 
-Malli schemas attached to `app-db` paths; validated on writes in dev, elided in production. The introspection surface (`app-schemas`, `app-schema-at`, …) and validator-extension seams live in the schemas doc. (`validate-at-boundary-interceptor` is rowed above under Effects and interceptors.)
+Malli schemas attached to `app-db` paths; validated on writes in dev, elided in production. The introspection surface (`app-schemas`, `app-schema-at`, …) and validator-extension seams live in the schemas doc. (Always-on validation of an untrusted event payload is the `:boundary? true` registration flag, rowed above under [`reg-event`](#reg-event).)
 
 #### `reg-app-schema`
 

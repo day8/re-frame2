@@ -2143,11 +2143,11 @@ The dual schemas vocabulary — v1's `:spec` metadata key, v2's `:rf.spec/*` res
 |---|---|---|
 | `:spec` (per-`reg-*` metadata key) | `:schema` | every `reg-event-*` / `reg-sub` / `reg-fx` / `reg-cofx` / `reg-flow` / `reg-view` registration's metadata map; `:rf/registration-metadata` shape per [Spec-Schemas §`:rf/registration-metadata`](../../spec/Spec-Schemas.md#rfregistration-metadata) |
 | `:rf.spec/violation` | `:rf.schema/violation` | hot-reload schema-mismatch trace category (warning); [009 §Error event catalogue](../../spec/009-Instrumentation.md#error-event-catalogue) |
-| `:spec/at-boundary` | `:rf.schema/at-boundary` | interceptor `:id` keyword on the production-side schema validator — this keyword is also the **registered chain ref** apps cite (`{:schema S :interceptors [:rf.schema/at-boundary]}`, per EP-0022 / [M-59](#m-59-at-boundary--unwrap-interceptor-values--the-registered-chain-ref--handler-destructuring)); during this `:spec` → `:schema` sweep only the keyword `:id` was changing |
+| `:spec/at-boundary` | set `:boundary? true` on the registration | v1's boundary-validation interceptor `:id` has **no successor id** — always-on boundary validation is a boolean registration-metadata key beside the handler's own `:schema` (`{:schema S :boundary? true}`), per [M-59](#m-59-at-boundary--unwrap-interceptor-values--the-boundary-registration-flag--handler-destructuring) |
 | `:spec-id` | `:schema-id` | trace tag on `:rf.error/schema-validation-failure` (every `:where`); locator for the failing registration's id |
 | `:rf.spec/*` reserved namespace | `:rf.schema/*` | [Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned) — the `:rf.spec/*` + bare `:spec/*` rows collapsed into a single `:rf.schema/*` row |
 
-**The namespace `re-frame.spec` is NOT renamed.** The early-v2 namespace name remains for back-compat (the ns alias rides v1's `:spec` brand). New code does **not** reach the boundary validator through a chain Var at all — it cites the framework-registered ref `:rf.schema/at-boundary` by id in `:interceptors` (per EP-0022 / [M-59](#m-59-at-boundary--unwrap-interceptor-values--the-registered-chain-ref--handler-destructuring)); the `validate-at-boundary-interceptor` Var is only the registration-boundary input the framework itself registers, never an inline chain entry. The ns body was retitled: the interceptor's `:id` is now `:rf.schema/at-boundary`, the docstring and surrounding comments speak `:schema`.
+**The namespace `re-frame.spec` is NOT renamed.** The early-v2 namespace name remains for back-compat (the ns alias rides v1's `:spec` brand). New code does not name anything in it: boundary validation is opted into with `:boundary? true` on the registration (see [M-59](#m-59-at-boundary--unwrap-interceptor-values--the-boundary-registration-flag--handler-destructuring)). The ns body was retitled — the docstring and surrounding comments speak `:schema`.
 
 **What to look for.**
 
@@ -2178,22 +2178,25 @@ The dual schemas vocabulary — v1's `:spec` metadata key, v2's `:rf.spec/*` res
 
 (when (= :rf.schema/violation (:operation trace-ev)) ...)
 (:schema-id tags)
-(= :rf.schema/at-boundary (:id interceptor))
+
+;; the boundary opt-in is registration metadata now, not an interceptor :id, so
+;; there is no chain entry left to assert on — see M-59
+{:schema PayloadSchema :boundary? true}
 ```
 
 **Migration agent token rewrites** (the canonical search-and-replace set):
 
 1. `:spec` → `:schema` **only inside a registration metadata-map** (the position immediately after the registration id, before the handler-fn; event interceptor chains also live in this map under `:interceptors` after M-70). Do NOT rewrite `:spec` when it appears as a destructure key, fn arg, or other binding — the rename targets the v1-fixed metadata-map slot, not the keyword in general.
 2. `:rf.spec/violation` → `:rf.schema/violation` (single global token; safe to rewrite verbatim).
-3. `:spec/at-boundary` → `:rf.schema/at-boundary` (single global token; the namespace segment `:spec/` is reserved at the *keyword* level, so the only conformant tail is `at-boundary`).
+3. `:spec/at-boundary` → **delete the chain entry and set `:boundary? true`** on the same registration map. This one is not a token rename: there is no successor keyword to swap in (see [M-59](#m-59-at-boundary--unwrap-interceptor-values--the-boundary-registration-flag--handler-destructuring)).
 4. `:spec-id` → `:schema-id` **only inside trace-tag map literals or trace-handler destructures** (`(-> ev :tags :spec-id)`, `(let [{:keys [spec-id]} (:tags ev)] ...)`). Avoid renaming unrelated `:spec-id` keys outside the framework's trace surface.
-5. **Namespace `re-frame.spec`**: do NOT rename — the ns alias is preserved for back-compat per the decision. Do **not** rewrite an `at-boundary` chain entry to a `*-interceptor` Var: under EP-0022 the boundary validator is cited as the registered ref `:rf.schema/at-boundary` by id in `:interceptors` (per [M-59](#m-59-at-boundary--unwrap-interceptor-values--the-registered-chain-ref--handler-destructuring)); the `validate-at-boundary-interceptor` Var is the framework's registration-boundary input, never a chain entry.
+5. **Namespace `re-frame.spec`**: do NOT rename — the ns alias is preserved for back-compat per the decision.
 
 **No deprecation alias (pre-alpha posture).**
 
 The dual-key read `(or (:schema meta) (:spec meta))` and the `:rf.warning/deprecated-schema-alias` once-per-`(kind, id)` warning shipped briefly during the initial rename but were stripped in a follow-up pass alongside the M-53 `dispose-adapter!` alias. The framework now reads `:schema` only; `:spec` on `reg-*` metadata is a stale key that registrations silently ignore (and that schema validators treat as "no schema declared" — every read at the boundary will pass with a soft-pass, hiding bugs). Migration agents MUST rewrite every `:spec` slot.
 
-**Cross-references.** [Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned) (the unified `:rf.schema/*` row), [010 §On every `reg-*`](../../spec/010-Schemas.md#on-every-reg-) (canonical metadata-key contract), [010 §Production builds](../../spec/010-Schemas.md#production-builds) (the `:rf.schema/at-boundary` boundary-validation ref), [009 §Error event catalogue](../../spec/009-Instrumentation.md#error-event-catalogue) (the renamed `:rf.schema/violation` row), [M-53](#m-53-tear-down-verb-rename--dispose-adapter--destroy-adapter) (the sibling Type-A vocabulary rename — same per-token pattern, different surface).
+**Cross-references.** [Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned) (the unified `:rf.schema/*` row), [010 §On every `reg-*`](../../spec/010-Schemas.md#on-every-reg-) (canonical metadata-key contract), [010 §Production builds](../../spec/010-Schemas.md#production-builds) (the `:boundary? true` registration flag), [009 §Error event catalogue](../../spec/009-Instrumentation.md#error-event-catalogue) (the renamed `:rf.schema/violation` row), [M-53](#m-53-tear-down-verb-rename--dispose-adapter--destroy-adapter) (the sibling Type-A vocabulary rename — same per-token pattern, different surface).
 
 ---
 
@@ -2379,13 +2382,13 @@ The two declaration points, by data kind:
 
 ---
 
-### M-59. `at-boundary` / `unwrap` interceptor values → the registered chain ref + handler destructuring
+### M-59. `at-boundary` / `unwrap` interceptor values → the `:boundary?` registration flag + handler destructuring
 
-**Type A** for the `at-boundary` boundary-validation ref (closed shape); **Type B** for `unwrap` (the rewrite depends on whether the v1 chain reshaped `:event` for one handler or for many).
+**Type A** for the `at-boundary` boundary-validation opt-in (closed shape); **Type B** for `unwrap` (the rewrite depends on whether the v1 chain reshaped `:event` for one handler or for many).
 
-Under EP-0022 a public `:interceptors` chain carries serializable **references** (a bare-keyword registered-interceptor id, or the parameterized standard path ref `[:rf.interceptor/path …]`) — **never** an inline interceptor value or Var. A v1 / early-v2 codebase that dropped `at-boundary` / `unwrap` **values** into a chain is now an outright registration error (`:rf.error/inline-interceptor-removed`). The two halves migrate to different destinations:
+Under EP-0022 a public `:interceptors` chain carries serializable **references** (a bare-keyword registered-interceptor id, or the parameterized standard path ref `[:rf.interceptor/path …]`) — **never** an inline interceptor value or Var. A v1 / early-v2 codebase that dropped `at-boundary` / `unwrap` **values** into a chain is now an outright registration error (`:rf.error/inline-interceptor-removed`). Neither half stays in the chain, and the two migrate to different destinations:
 
-**`at-boundary` → the framework-registered chain ref `:rf.schema/at-boundary`.** Boundary schema-validation is a live framework affordance, but you reference it by id, not by value. A handler that wants its `:schema` enforced at the boundary even in production (where global validation is elided) lists the ref alongside the `:schema`:
+**`at-boundary` → `:boundary? true` on the registration.** Boundary schema-validation is a live framework affordance, but it is no longer an interceptor of any kind — it is a boolean registration-metadata key. A handler that wants its own `:schema` enforced at the boundary even in production (where global validation is elided) sets the flag beside that `:schema`:
 
 ```clojure
 ;; before — v1 / early-v2 inline at-boundary VALUE in the chain (now :rf.error/inline-interceptor-removed)
@@ -2394,14 +2397,14 @@ Under EP-0022 a public `:interceptors` chain carries serializable **references**
    :interceptors [rf/at-boundary]}
   (fn [_ {:keys [...]}] ...))
 
-;; after — the framework-registered REF, by id (EP-0022 / Spec 010)
+;; after — the registration flag (Spec 010)
 (rf/reg-event :api/payload
-  {:schema PayloadSchema
-   :interceptors [:rf.schema/at-boundary]}
+  {:schema    PayloadSchema
+   :boundary? true}
   (fn [{:keys [db]} [_ payload]] ...))
 ```
 
-Registering `:rf.schema/at-boundary` **without** a `:schema` on the handler is rejected at registration time (`:rf.error/at-boundary-missing-schema`) — the boundary interceptor is structurally meaningless with no schema to force a check against.
+Registering `:boundary? true` **without** a `:schema` key on the handler is rejected at registration time (`:rf.error/at-boundary-missing-schema`). The check runs at the router's handler-resolve step, ahead of the interceptor chain, against the event vector as dispatched — so `:interceptor-overrides` cannot switch it off.
 
 **`unwrap` → handler destructuring.** There is **no** standard `unwrap` interceptor in v2. A v1 chain that used `unwrap` to reshape the event vector into `[<id> <payload-map>]` migrates to **ordinary handler destructuring** (the M-19 canonical map-payload shape): read the payload map straight out of the event vector in the handler's argument list.
 
@@ -2418,11 +2421,11 @@ Registering `:rf.schema/at-boundary` **without** a `:schema` on the handler is r
 
 Only when chain-wide `:event` reshaping is genuinely intended — the same reshape applied across many handlers — register a project interceptor with `reg-interceptor` (for example `:app/unwrap`) and reference it by id in those handlers' `:interceptors`. The common case is destructuring, not a registered interceptor.
 
-**Detect.** v2-pre-rename codebases listing an `at-boundary` / `unwrap` interceptor value (or a renamed `*-interceptor` Var) in an event's `:interceptors`. A v1 codebase that used the xstate-shaped boundary validator lands on the `:rf.schema/at-boundary` ref via the same rewrite; v1 `unwrap` usage lands on destructuring.
+**Detect.** v2-pre-rename codebases listing an `at-boundary` / `unwrap` interceptor value (or a renamed `*-interceptor` Var) in an event's `:interceptors`, and any surviving `at-boundary` chain **ref** left over from the intermediate v2 keyword spelling. A v1 codebase that used the xstate-shaped boundary validator lands on `:boundary? true` via the same rewrite; v1 `unwrap` usage lands on destructuring.
 
-**No inline values.** Per EP-0022 the only legal chain entries are bare-keyword refs (`:rf.schema/at-boundary`, a project `:app/unwrap`) and the parameterized `[:rf.interceptor/path …]`. An inline interceptor value or Var in a public chain is `:rf.error/inline-interceptor-removed` regardless of which interceptor it is.
+**No inline values.** Per EP-0022 the only legal chain entries are bare-keyword refs (a project `:app/unwrap`, say) and the parameterized `[:rf.interceptor/path …]`. An inline interceptor value or Var in a public chain is `:rf.error/inline-interceptor-removed` regardless of which interceptor it is.
 
-**Cross-references.** [Spec 010 §Production builds](../../spec/010-Schemas.md#production-builds) (the framework-registered `:rf.schema/at-boundary` ref and the `:rf.error/at-boundary-missing-schema` rejection); [M-19](#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in) (the canonical map-payload destructuring `unwrap` collapses into); [M-70](#m-70-event-interceptor-chains-use-registered-interceptor-refs-in-metadata-interceptors) (the registered-ref chain contract — any project interceptor is registered + referenced by id); [M-54](#m-54-schema-vocabulary-unification--spec--schema) (the prior `:spec` → `:schema` keyword unification, sibling pass).
+**Cross-references.** [Spec 010 §Production builds](../../spec/010-Schemas.md#production-builds) (the `:boundary? true` flag and the `:rf.error/at-boundary-missing-schema` rejection); [M-19](#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in) (the canonical map-payload destructuring `unwrap` collapses into); [M-70](#m-70-event-interceptor-chains-use-registered-interceptor-refs-in-metadata-interceptors) (the registered-ref chain contract — any project interceptor is registered + referenced by id); [M-54](#m-54-schema-vocabulary-unification--spec--schema) (the prior `:spec` → `:schema` keyword unification, sibling pass).
 
 ---
 
@@ -3036,11 +3039,11 @@ Apply this *modernisation* only if the user wants multi-frame support. The churn
 
 re-frame2 supports Malli schemas on `reg-event-*`, `reg-sub`, `reg-fx`, `reg-cofx`, and on `app-db` paths via `reg-app-schema`. Most of those checks are a development tool: they run in dev builds and are compile-time eliminated from a release build.
 
-**Read that second sentence carefully if you are coming from a v1 validation interceptor.** A v1 codebase typically enforced `app-db` shape with a `check-spec-interceptor` on the handler chain — an ordinary interceptor that ran wherever you put it, production included. `reg-app-schema` is not that. It is a development-time assertion: a production build (`:advanced` with `goog.DEBUG` false) still registers the schema so tools and agents can introspect it, but the check is compile-time eliminated, so *your app-db schemas do not run in production builds*. A candidate that violates one installs silently — no rejection, no rollback, no trace. Do not port a production guarantee onto `reg-app-schema` and assume it carried across. An invariant that must hold in production stays in the handler, and untrusted input crossing a system boundary goes behind the `:rf.schema/at-boundary` interceptor, which survives the elision. Per [Spec 010 §Production builds](../../spec/010-Schemas.md#production-builds).
+**Read that second sentence carefully if you are coming from a v1 validation interceptor.** A v1 codebase typically enforced `app-db` shape with a `check-spec-interceptor` on the handler chain — an ordinary interceptor that ran wherever you put it, production included. `reg-app-schema` is not that. It is a development-time assertion: a production build (`:advanced` with `goog.DEBUG` false) still registers the schema so tools and agents can introspect it, but the check is compile-time eliminated, so *your app-db schemas do not run in production builds*. A candidate that violates one installs silently — no rejection, no rollback, no trace. Do not port a production guarantee onto `reg-app-schema` and assume it carried across. An invariant that must hold in production stays in the handler, and the handler for untrusted input crossing a system boundary is registered `:boundary? true`, which survives the elision. Per [Spec 010 §Production builds](../../spec/010-Schemas.md#production-builds).
 
-**"Most" is load-bearing in that sentence — two of these checks do survive a release build**, and if you are porting a v1 interceptor that genuinely had to run in production, they are what you port onto. `:rf.schema/at-boundary` is the first: its check sits outside the `goog.DEBUG` gate, so a handler carrying it validates its payload on every build, and the rejection is exactly as real in a release build as in dev — the handler is not invoked, and the payload never reaches `app-db`. The second is `reg-cofx` `:schema` on a **recordable** coeffect, which is stricter still: an out-of-contract value folded into the durable causal record is corrupt state, so a mismatch throws `:rf.error/cofx-value-invalid` and halts the run in production rather than emitting a dev-only trace. Per [Spec 010 §Validation order](../../spec/010-Schemas.md#validation-order-on-event-processing).
+**"Most" is load-bearing in that sentence — two of these checks do survive a release build**, and if you are porting a v1 interceptor that genuinely had to run in production, they are what you port onto. `:boundary? true` is the first: the check it turns on sits outside the `goog.DEBUG` gate, so a handler carrying the flag validates its payload on every build, and the rejection is exactly as real in a release build as in dev — the handler is not invoked, and the payload never reaches `app-db`. The second is `reg-cofx` `:schema` on a **recordable** coeffect, which is stricter still: an out-of-contract value folded into the durable causal record is corrupt state, so a mismatch throws `:rf.error/cofx-value-invalid` and halts the run in production rather than emitting a dev-only trace. Per [Spec 010 §Validation order](../../spec/010-Schemas.md#validation-order-on-event-processing).
 
-**Surviving the build is not the same as being visible in it** — so ask the question separately of each check you port. For the boundary interceptor both halves survive, and the reporting half is deliberately narrow. A rejection in a release build fans one always-on `:rf.error/schema-validation-failure` record built from identifiers — which event, in which frame, failed which schema — and settles that dispatch's always-on `:events` record at `:outcome :rejected` rather than the `:ok` a handler-less run would otherwise read. The record is projection-eligible, so on a server frame SSR's default projector turns it into the `400`. What elides is the *diagnosis* above it: `:value`, `:received`, `:explain` and the interpolated `:reason` ride the dev-gated trace, and their absence from a production build is a design choice rather than a shortfall — a boundary payload is attacker-controlled by definition, so the always-on record is built from facts the framework already holds instead of being scrubbed down from the offending value. If the v1 interceptor you are replacing *logged* its rejections, the detail is the half that does not come across; the count comes across for free, so do not re-emit it from handler code and double the signal. Per [Spec 010 §Production builds](../../spec/010-Schemas.md#production-builds).
+**Surviving the build is not the same as being visible in it** — so ask the question separately of each check you port. For the `:boundary? true` check both halves survive, and the reporting half is deliberately narrow. A rejection in a release build fans one always-on `:rf.error/schema-validation-failure` record built from identifiers — which event, in which frame, failed which schema — and settles that dispatch's always-on `:events` record at `:outcome :rejected` rather than the `:ok` a handler-less run would otherwise read. The record is projection-eligible, so on a server frame SSR's default projector turns it into the `400`. What elides is the *diagnosis* above it: `:value`, `:received`, `:explain` and the interpolated `:reason` ride the dev-gated trace, and their absence from a production build is a design choice rather than a shortfall — a boundary payload is attacker-controlled by definition, so the always-on record is built from facts the framework already holds instead of being scrubbed down from the offending value. If the v1 interceptor you are replacing *logged* its rejections, the detail is the half that does not come across; the count comes across for free, so do not re-emit it from handler code and double the signal. Per [Spec 010 §Production builds](../../spec/010-Schemas.md#production-builds).
 
 Apply only with explicit user direction; this is a real authoring exercise, not a mechanical transformation.
 

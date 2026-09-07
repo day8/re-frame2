@@ -326,7 +326,7 @@ An ordinary registration diagnostic asserts that code you wrote produced what yo
 
 A check the framework **relies on to keep a promise of its own** is a different animal. It isn't advice about your code; it's what stands between the framework and a promise it would otherwise break — and a promise kept only in dev is not a promise. **Don't read that as "mine elides, the framework's survives."** Most of the survivors below validate against a schema *you* wrote; what makes them survive is where the framework applies them, not who typed them. These hold in every build:
 
-- **`:rf.schema/at-boundary`** — the interceptor described next, for untrusted structured ingress.
+- **A handler's own `:schema` under `:boundary? true`** — the registration flag described next, for untrusted structured ingress.
 - **A recordable coeffect's `:schema`** — the throwing guard from [the gotcha above](#the-other-three-things-you-can-schema), protecting the values a replay reconstructs from.
 - **A declared route's shape** — `validate-route-shape` runs whenever the schemas artefact is on the classpath and the route declares a schema, `goog.DEBUG` notwithstanding.
 - **A managed-HTTP `:decode` schema** — an *argument to* the framework's parse of the response, not a diagnostic *over* it. Deleting it would change what the handler receives.
@@ -334,17 +334,17 @@ A check the framework **relies on to keep a promise of its own** is a different 
 
 The rule generalises past schemas, and [C-000.35](../../../spec/000-Vision.md#contract--pattern-obligations) is where it is settled.
 
-One place else does want production validation: untrusted data crossing a system boundary — an HTTP response, a websocket message, a `postMessage` payload. For those handlers, add the framework's boundary [interceptor](../glossary.md#interceptor) to the event's chain — an interceptor is a named step that wraps a handler — and it forces the handler's own `:schema` check to run regardless of the build flags. You add it by its id, `:rf.schema/at-boundary`, the same way you'd add any other interceptor:
+One place else does want production validation: untrusted data crossing a system boundary — an HTTP response, a websocket message, a `postMessage` payload. For those handlers, set `:boundary? true` on the registration and the handler's own `:schema` is checked regardless of the build flags. It is one key in the metadata map you are already writing:
 
 ```clojure
 (rf/reg-event :api/tags-received
   {:schema [:cat [:= :api/tags-received] [:map [:tags [:vector :string]]]]
-   :interceptors [:rf.schema/at-boundary]}      ;; reference the boundary interceptor by id
+   :boundary? true}                             ;; check this :schema in every build
   (fn [{:keys [db]} [_ body]]
     {:db (assoc db :tags (:tags body))}))
 ```
 
-The interceptor doesn't introduce a second schema — it re-uses the handler's existing `:schema` and only *forces* that check to survive past the production elision flag. In dev it adds nothing, since the check already runs; in production it is what turns a declaration of yours into a promise of the framework's, so the check runs there too. Two things to know: putting it on a handler with **no `:schema`** is rejected at registration (`:rf.error/at-boundary-missing-schema`) — it has no check to force, so it's meaningless there — and you always reference it by the bare keyword id `:rf.schema/at-boundary`, never by reaching for the underlying interceptor value directly (a public `:interceptors` chain carries id references, not inline interceptor values). The result: payloads you didn't produce get checked even in production, while the other ninety-nine percent of your handlers stay zero-cost.
+The flag changes only whether the handler's existing `:schema` survives the production elision flag. The check runs where the router already resolves the handler — before any interceptor runs, against the event vector as it was dispatched — so dev and production check the same value at the same point. In dev the flag adds nothing, since the check already runs; in production it is what turns a declaration of yours into a promise of the framework's. Registering `:boundary? true` on a handler with **no `:schema`** key is rejected there and then, with `:rf.error/at-boundary-missing-schema`. The result: payloads you didn't produce get checked even in production, while the other ninety-nine percent of your handlers stay zero-cost.
 
 The **report** survives too, and it is worth being precise about the shape it takes, because the production report is narrower than the dev one on purpose. A rejected payload is refused in every build — the handler is skipped, nothing reaches app-db — and in every build the refusal reaches the two always-on streams: one `:rf.error/schema-validation-failure` record on `:errors`, tagged `:source :boundary` to separate it from the dev-only validation surfaces above, and `:outcome :rejected` on the `:events` record for that dispatch. Nothing on your side needs wiring; a quiet dashboard really does mean nothing was refused.
 
@@ -352,7 +352,7 @@ What that production record leaves out is everything derived from the payload. I
 
 ??? info "Coming from TanStack Query?"
 
-    You probably validate API responses with a parser at the fetch boundary — `schema.parse(await res.json())`. `:rf.schema/at-boundary` is that idea, framework-native: the validation lives on the *handler* that receives the payload, and both the refusal and its report survive production elision. One difference to carry across, though. `schema.parse` throws, and you catch the throw wherever you like — so the offending value is in your hands at the catch site, in dev and in production alike. The boundary interceptor never hands you the value in production: development emits the same rich failure trace as every other check on this page, while a release build reports the refusal structurally — the event id, the schema id, the frame — and drops the payload entirely. Recovery is not something you catch either; the handler is skipped and the run settles `:outcome :rejected`. So if a bad response needs *handling* rather than counting, do the handling in the handler.
+    You probably validate API responses with a parser at the fetch boundary — `schema.parse(await res.json())`. `:boundary? true` is that idea, framework-native: the validation lives on the *handler* that receives the payload, and both the refusal and its report survive production elision. One difference to carry across, though. `schema.parse` throws, and you catch the throw wherever you like — so the offending value is in your hands at the catch site, in dev and in production alike. The boundary check never hands you the value in production: development emits the same rich failure trace as every other check on this page, while a release build reports the refusal structurally — the event id, the schema id, the frame — and drops the payload entirely. Recovery is not something you catch either; the handler is skipped and the run settles `:outcome :rejected`. So if a bad response needs *handling* rather than counting, do the handling in the handler.
 
 ## Swap the validator (Malli is the default)
 

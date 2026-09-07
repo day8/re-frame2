@@ -1305,11 +1305,10 @@
   ;; `schema-fns`, `default-schema-fns` are
   ;; reached through `re-frame.schemas` (already classified below). The
   ;; `reg-app-schema` / `reg-app-schemas` REGISTRATION MACROS stay on the
-  ;; façade (above). `validate-at-boundary-interceptor` (owned by re-frame.spec,
-  ;; no schemas-ns peer) stays on the façade.
-  ["re-frame.core" "validate-at-boundary-interceptor"] {:tier :advanced :owner "010" :status "v1"
-                                                       :action :keep
-                                                       :justification "The one schema surface with no re-frame.schemas peer -- it is owned by re-frame.spec, and rf2-wad2fl moved the introspection and validator-install family to re-frame.schemas while deliberately leaving this one here. A move would need a door invented for a single var, which the Conventions coherent-facade ruling forbids."}
+  ;; façade (above). The former boundary-interceptor façade export was
+  ;; RETIRED at rf2-kuky.64 along with the interceptor it held:
+  ;; production boundary validation is now the `:boundary? true` reg-event
+  ;; metadata key, so there is no public var left to classify.
   ;; SSR query-surface re-exports (canonical home: re-frame.ssr).
   ["re-frame.core" "render-to-string"]              {:tier :advanced :owner "011" :status "v1"
                                                     :action :keep
