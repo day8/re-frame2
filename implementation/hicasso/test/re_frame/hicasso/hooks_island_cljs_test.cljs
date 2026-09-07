@@ -245,7 +245,7 @@
               same condition — the ops map is the one the surrounding context
               names, so a dispatch made through it after the scope unwinds
               still targets that frame and not the scope's"
-      (is (= (str frame-id)
+      (is (= (str "<span>" frame-id "</span>")
              (rf/with-frame ::somewhere-else
                (render-under-frame! (react/createElement framed nil)))))
       (is (= frame-id (:frame @!observed-ops))))
