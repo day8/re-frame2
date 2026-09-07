@@ -540,8 +540,11 @@ never by mutation id, so concurrent submissions of the same mutation stay distin
 
 Both subtrees are allocated **lazily**: `:rf.runtime/resources` is absent until the first resource write,
 and `:rf.runtime/mutations` is absent in an app that registers no mutation, so either read can return
-`nil`. `nil` here means *the subtree has not been allocated*, not *no such frame* — an unknown or
-destroyed frame makes `rf/frame-state-value` itself return `nil`.
+`nil` at a live frame. **That `nil` does not by itself say which case you are in** —
+`rf/frame-state-value` returns `nil` for an unknown or destroyed frame, and `get-in` of that `nil` is
+indistinguishable from `get-in` of a live frame whose subtree is unallocated. At a frame you already know
+is live, read it as *the subtree has not been allocated*; where you do not,
+`(rf/frame-state-value :app/main)` is itself the frame-liveness read.
 
 Xray exposes the same shapes, plus:
 
