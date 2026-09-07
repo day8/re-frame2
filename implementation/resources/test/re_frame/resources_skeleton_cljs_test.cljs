@@ -60,8 +60,7 @@
     ;; rf2-kuky.80: no `rf.resources/clear-resource` NAME — the registrar
     ;; inverse is the one kind-keyed `(rf/clear :resource id)`.
     (is (fn? rf/clear))
-    (is (fn? rf.resources/resource-meta))
-    (is (fn? rf.resources/resources))))
+    (is (fn? rf.resources/resource-meta))))
 
 (deftest reg-resource-registers-under-resource-kind
   (testing "reg-resource writes a :resource-kind registrar entry"
