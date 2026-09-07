@@ -210,9 +210,9 @@
 
   This is the artefact-internal `(frame id)` seam — NOT part of the public
   `re-frame.core` surface (only `clear-http-interceptor` is late-bound to
-  core). Internal cleanup that already holds a resolved frame — the
-  `:rf.fx/clear-http-interceptor` fx (which carries the fx-context frame) —
-  routes through here directly rather than the public opts form (rf2-s32bf).
+  core). Internal cleanup that already holds a resolved frame — frame
+  teardown, actor destroy — routes through here directly rather than the
+  public opts form (rf2-s32bf).
   Both public arities also funnel through it once they have resolved a frame.
   Returns `id`."
   [frame id]
@@ -266,9 +266,9 @@
   `{:fram f}` used to silently clear the AMBIENT frame instead of failing.
 
   Two-scalar frame-first `(clear-http-interceptor frame id)` is NOT a public
-  shape. Artefact-internal cleanup that already holds a resolved frame — the
-  `:rf.fx/clear-http-interceptor` fx — routes through the `clear-http-interceptor*`
-  seam instead. No-arg form is not supported — explicit ids only."
+  shape. Artefact-internal cleanup that already holds a resolved frame routes
+  through the `clear-http-interceptor*` seam instead. No-arg form is not
+  supported — explicit ids only."
   ([id]
    (clear-http-interceptor*
      (rf.frame/require-current-frame!

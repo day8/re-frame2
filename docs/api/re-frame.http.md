@@ -142,33 +142,13 @@ A middleware surface that mirrors the rest of the `reg-*` family. Use it to inje
   - `(clear-http-interceptor id)` resolves the frame through the ambient (carried-scope) chain it runs under. Under no scope it raises the always-on `:rf.error/no-frame-context` rather than clearing against a synthesised `:rf/default`.
   - `(clear-http-interceptor id {:frame target})` names the frame explicitly via the trailing opts map, mirroring `reg-http-interceptor`'s `:frame` and the family's public-frame-targeting law (never a positional frame arg on a public surface). `target` is a present, non-nil frame-id keyword or a live frame value.
   - The two-arity opts map is **fail-closed**: it MUST be exactly `{:frame target}`. A `{}`, a `{:frame nil}`, a typo'd or extra key (`{:fram f}`), and a non-map second arg all raise `:rf.error/http-bad-interceptor` BEFORE any ambient frame is resolved or touched — never reinterpreted as a positional frame nor silently cleared against the ambient scope (rf2-s32bf). This is distinct from the single-arity no-scope `:rf.error/no-frame-context`.
-  - The frame-first `(frame id)` spelling is a separate artefact-internal seam (`clear-http-interceptor*`), reached directly by internal cleanup that already holds a resolved frame — e.g. the `:rf.fx/clear-http-interceptor` fx — **not** a public arity of `clear-http-interceptor`.
+  - The frame-first `(frame id)` spelling is a separate artefact-internal seam (`clear-http-interceptor*`), reached directly by internal cleanup that already holds a resolved frame — frame teardown, actor destroy — **not** a public arity of `clear-http-interceptor`.
 - **Example**:
   ```clojure
   (rf/clear :http-interceptor :auth-header)
   ```
 
-### `[:rf.fx/reg-http-interceptor args-map]`
-
-- **Kind**: fx
-- **Args**: `{:id <kw> :before <fn>? :after <fn>? :frame <id>? ...}` — `:id` plus the same interceptor-map slots as the fn form, including `:rf/registration-metadata`
-- **Description**: Data-shaped sibling of `reg-http-interceptor`, for callers driving registration through the dispatch surface (EDN conformance fixtures, boot event handlers). The fx body splits `:id` off and passes the remaining map to the fn form. When the args omit `:frame`, the fx-context frame (the cascade envelope stamp) is threaded in. Registered at load of `re-frame.http.managed`; dev+prod.
-- **Example**:
-  ```clojure
-  {:fx [[:rf.fx/reg-http-interceptor
-         {:id     :auth/inject
-          :before (fn [ctx] (assoc-in ctx [:request :headers "Authorization"] token))}]]}
-  ```
-
-### `[:rf.fx/clear-http-interceptor args-map]`
-
-- **Kind**: fx
-- **Args**: `{:id <kw> :frame <id>?}`
-- **Description**: Data-shaped sibling of `clear-http-interceptor`. The args `:frame` wins, else the fx-context frame. Registered at load of `re-frame.http.managed`; dev+prod.
-- **Example**:
-  ```clojure
-  {:fx [[:rf.fx/clear-http-interceptor {:id :auth/inject}]]}
-  ```
+### Worked examples
 
 ```clojure
 (rf/reg-http-interceptor :auth/inject

@@ -27,7 +27,7 @@ The **CLJS reference implementation ships `:rf.http/managed`**, backed by Fetch 
 
 If an implementation ships ONLY a subset (e.g., no JVM transport), it claims the relevant capability rows and the conformance corpus exercises only those.
 
-**Artefact (CLJS reference).** As a per-feature artefact split, the CLJS reference's managed-HTTP surface ships in the separate Maven artefact `day8/re-frame2-http` — `re-frame.http.managed` namespace, the production `:rf.http/managed` / `:rf.http/managed-abort` / `:rf.fx/reg-http-interceptor` / `:rf.fx/clear-http-interceptor` fxs registered at ns-load time, the in-flight request registry, the Fetch / HttpClient transport adapters, the encode / decode pipeline, the retry-with-backoff machinery, the eight-category `:rf.http/*` failure taxonomy, AND a sibling `re-frame.http.test-support` namespace (test-only) which carries the canned-stub fxs (`:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`) and the `with-managed-request-stubs` family of macros / fns (the single discoverable home for HTTP test surfaces). The core artefact (`day8/re-frame2`) does not carry any of this; apps that don't issue managed-HTTP requests build an `:advanced` bundle clean of every `:rf.http/*` symbol and trace string. See [MIGRATION §M-31](../migration/from-re-frame-v1/README.md#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http) for the deps swap.
+**Artefact (CLJS reference).** As a per-feature artefact split, the CLJS reference's managed-HTTP surface ships in the separate Maven artefact `day8/re-frame2-http` — `re-frame.http.managed` namespace, the production `:rf.http/managed` / `:rf.http/managed-abort` fxs registered at ns-load time, the in-flight request registry, the Fetch / HttpClient transport adapters, the encode / decode pipeline, the retry-with-backoff machinery, the eight-category `:rf.http/*` failure taxonomy, AND a sibling `re-frame.http.test-support` namespace (test-only) which carries the canned-stub fxs (`:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`) and the `with-managed-request-stubs` family of macros / fns (the single discoverable home for HTTP test surfaces). The core artefact (`day8/re-frame2`) does not carry any of this; apps that don't issue managed-HTTP requests build an `:advanced` bundle clean of every `:rf.http/*` symbol and trace string. See [MIGRATION §M-31](../migration/from-re-frame-v1/README.md#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http) for the deps swap.
 
 ## Role
 
@@ -341,6 +341,8 @@ Both opt-outs are deliberate (passing `nil` or `0` is not idiomatic; the call-si
 The 10-second **connect** timeout is configured separately at the shared JDK HttpClient build site and is not user-overridable per request (connect timeout governs the TCP handshake, not body read).
 
 ## `:accept` — domain-failure normalisation
+
+**Parked 2026-09-08 (api-review wave 3, rf2-kuky.13):** zero shipped consumers at that date — the corpus's `:accept` slots are never-filled passthroughs. Kept because the written discriminator holds: an `:after` interceptor is not presently equivalent, since `dispatch-reply!` selects the branch destination BEFORE the response-side chain transforms the payload, so an `:after` returning `{:status :error …}` would send an error-shaped payload to the SUCCESS target. **Un-park** (promote to a taught option with a worked example) when a named consumer needs a 2xx domain failure to select the failure PIPELINE rather than a branch inside the success handler. **Delete under a spec change** if no such consumer appears by the alpha tag.
 
 After decoding, the user's `:accept` fn classifies the decoded value:
 
@@ -712,6 +714,8 @@ There is deliberately **no** cross-frame cancellation through this effect. A fra
 
 ### `:abort-signal` (external)
 
+**Parked 2026-09-08 (api-review wave 3, rf2-kuky.13):** zero shipped consumers at that date — the corpus's `:abort-signal` slots are never-filled passthroughs. Kept because the written discriminator holds: a controller shared with non-re-frame operations is FOREIGN lifecycle ownership, which frame- and actor-destroy cancellation cannot express. **Un-park** (promote to a taught option with a worked example) when a named consumer holds a foreign `AbortController` shared with non-re-frame work. **Delete under a spec change** if no such consumer appears by the alpha tag.
+
 Pass an `AbortController.signal` directly:
 
 ```clojure
@@ -901,7 +905,7 @@ Pair tools and 10x panels see exactly two traces per interceptor failure: on the
 
 ### Clearing
 
-`(rf/clear :http-interceptor id)` resolves the frame through the ambient scope chain; `(rf/clear :http-interceptor id {:frame frame-id})` names a specific frame — the trailing `{:frame …}` opts map, mirroring `reg-http-interceptor`'s `:frame` and the family's public-frame-targeting law (never a positional frame arg on a public surface — rf2-bfadc6 / EP-0024 / rf2-f28bno). The single-arity is the common case (single-frame apps); the opts form is unambiguous for multi-frame. The public 2-arity is **exact and fail-closed**: the second arg MUST be an opts map that is exactly `{:frame target}` (a present, non-nil frame-id keyword or live frame value). A `{}`, a typo'd key (`{:fram f}`), or a non-map second arg raises `:rf.error/http-bad-interceptor` BEFORE any ambient frame is resolved — it is never reinterpreted as a positional frame nor silently cleared against the ambient scope (rf2-s32bf). The internal frame-first `(frame id)` form is a separate artefact-internal seam (`clear-http-interceptor*`), reached directly by internal cleanup that already holds a resolved frame — e.g. the `:rf.fx/clear-http-interceptor` fx — **not** a public arity of `clear-http-interceptor`. A frame-first positional spelling on the public surface would misbind — `(clear-http-interceptor id {:frame f})` always reads `id` as the interceptor-id and `{:frame f}` as the opts map; there is no public frame-first arity to guess at.
+`(rf/clear :http-interceptor id)` resolves the frame through the ambient scope chain; `(rf/clear :http-interceptor id {:frame frame-id})` names a specific frame — the trailing `{:frame …}` opts map, mirroring `reg-http-interceptor`'s `:frame` and the family's public-frame-targeting law (never a positional frame arg on a public surface — rf2-bfadc6 / EP-0024 / rf2-f28bno). The single-arity is the common case (single-frame apps); the opts form is unambiguous for multi-frame. The public 2-arity is **exact and fail-closed**: the second arg MUST be an opts map that is exactly `{:frame target}` (a present, non-nil frame-id keyword or live frame value). A `{}`, a typo'd key (`{:fram f}`), or a non-map second arg raises `:rf.error/http-bad-interceptor` BEFORE any ambient frame is resolved — it is never reinterpreted as a positional frame nor silently cleared against the ambient scope (rf2-s32bf). The internal frame-first `(frame id)` form is a separate artefact-internal seam (`clear-http-interceptor*`), reached directly by internal cleanup that already holds a resolved frame — frame teardown, actor destroy — **not** a public arity of `clear-http-interceptor`. A frame-first positional spelling on the public surface would misbind — `(clear-http-interceptor id {:frame f})` always reads `id` as the interceptor-id and `{:frame f}` as the opts map; there is no public frame-first arity to guess at.
 
 Hot-reload tools that re-evaluate registration call sites get the right behaviour automatically: re-`reg-http-interceptor` of an existing id replaces the slot in place.
 
@@ -945,7 +949,7 @@ Hot-reload tools that re-evaluate registration call sites get the right behaviou
 
 Both are re-exported from `re-frame.core`. Both ship in `day8/re-frame2-http`; an app that omits the artefact gets `:rf.error/http-artefact-missing` from the core re-exports per the standard pattern.
 
-The `:rf.fx/reg-http-interceptor` / `:rf.fx/clear-http-interceptor` fxs reach the same registration seam from `:fx` with map-shaped args; how that pair sits against the framework-wide rule for when a registrar carries an fx form, and what shape its args take, is [Conventions §When a registrar has an fx form](Conventions.md#when-a-registrar-has-an-fx-form).
+There is deliberately no fx form for either. The map-shaped `:rf.fx/reg-http-interceptor` / `:rf.fx/clear-http-interceptor` pair was deleted 2026-09-08 (rf2-kuky.13) for want of a shipped handler-time consumer; the rule it failed, and the pre-settled positional shape should one ever appear, are [Conventions §When a registrar has an fx form](Conventions.md#when-a-registrar-has-an-fx-form).
 
 ## Examples
 

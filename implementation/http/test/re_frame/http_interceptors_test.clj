@@ -487,8 +487,8 @@
 ;; `:rf.error/registrar-clear-bad-request` — one error id for the one verb,
 ;; covering an unknown kind and opts on a non-frame-scoped kind as well.  The
 ;; artefact-level `re-frame.http.middleware/clear-http-interceptor`, which
-;; survives as the `:http/clear-http-interceptor` hook target and so is still
-;; reached by the `:rf.fx/clear-http-interceptor` fx, keeps its own
+;; survives as the `:http/clear-http-interceptor` hook target that `rf/clear`
+;; dispatches to, keeps its own
 ;; `:rf.error/http-bad-interceptor` for its own arg validation.  Both now
 ;; share ONE validator (`re-frame.frame/frame-opts?`), which is what stopped
 ;; the identically-shaped flows door carrying the tolerant destructure this
@@ -501,7 +501,7 @@
             untouched — :rf.error/registrar-clear-bad-request through the public
             (rf/clear :http-interceptor id opts), and
             :rf.error/http-bad-interceptor through the artefact-level fn the
-            :rf.fx/clear-http-interceptor fx reaches (rf2-kuky.80). The exact
+            :http/clear-http-interceptor hook reaches (rf2-kuky.80). The exact
             {:frame target} form still clears."
     (letfn [(threw-with? [error-id thunk]
               (let [ex (try (thunk) nil
@@ -511,7 +511,7 @@
             ;; the public front door: `clear`'s own validator fires first
             (threw-bad? [thunk]
               (threw-with? :rf.error/registrar-clear-bad-request thunk))
-            ;; the artefact-level fn the fx path still reaches
+            ;; the artefact-level fn the late-bind hook still reaches
             (artefact-threw-bad? [opts]
               (threw-with? :rf.error/http-bad-interceptor
                            #(rf.http.middleware/clear-http-interceptor
@@ -535,8 +535,8 @@
           "non-map scalar second arg fails closed")
       (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient :some-frame))
           "old two-scalar frame-first is not a public shape — fails closed")
-      ;; the SECOND door — the artefact-level fn the `:rf.fx/clear-http-interceptor`
-      ;; fx reaches — keeps its own typed error over the same shared validator.
+      ;; the SECOND door — the artefact-level fn the `:http/clear-http-interceptor`
+      ;; hook reaches — keeps its own typed error over the same shared validator.
       (is (artefact-threw-bad? {})
           "artefact door: empty opts map fails closed with :rf.error/http-bad-interceptor")
       (is (artefact-threw-bad? {:frame nil})
@@ -911,161 +911,6 @@
         (finally
           (rf.trace/unregister-listener! listener-id)
           (stop-server! srv))))))
-
-;; ---- rf2-oyd1b — direct unit tests for the fx wrappers --------------------
-;;
-;; The :rf.fx/reg-http-interceptor + :rf.fx/clear-http-interceptor fxs
-;; (rf2-yhfgf) are exercised through conformance fixtures
-;; (spec/conformance/fixtures/http-interceptor-*). These tests pin the
-;; wrapper contract directly so a conformance-harness DSL change
-;; doesn't ripple — and so a regression in either fx surfaces here
-;; with a precise failure rather than as a conformance-fixture flake.
-
-(deftest reg-http-interceptor-fx-mutates-the-atom-rf2-oyd1b
-  (testing "rf2-oyd1b — [:rf.fx/reg-http-interceptor {...}] adds an
-            interceptor to the :rf/default frame's chain (observed via
-            interceptors-snapshot)."
-    (rf/reg-event :oyd1b/register
-      (fn [_ _]
-        {:fx [[:rf.fx/reg-http-interceptor
-               {:id     :oyd1b/auth
-                :before identity
-                :doc    "fixture interceptor"
-                :tags   #{:auth}}]]}))
-
-    (is (empty? (rf.http.managed/interceptors-snapshot :rf/default))
-        "pre-dispatch: no interceptors on :rf/default")
-
-    (rf/dispatch-sync [:oyd1b/register])
-
-    (let [chain (rf.http.managed/interceptors-snapshot :rf/default)
-          slot  (first (filter #(= :oyd1b/auth (:id %)) chain))]
-      (is (= 1 (count chain))
-          "the fx wrapper actually mutates the atom (not just a return-value smoke)")
-      (is (= :oyd1b/auth (:id slot)))
-      (is (fn? (:before slot)))
-      (is (= "fixture interceptor" (:doc slot)))
-      (is (= #{:auth} (:tags slot))))))
-
-(deftest reg-http-interceptor-fx-honours-explicit-frame-rf2-oyd1b
-  (testing "rf2-oyd1b — explicit :frame routes to the named slot, not :rf/default"
-    (rf/reg-event :oyd1b/register-on-named
-      (fn [_ _]
-        {:fx [[:rf.fx/reg-http-interceptor
-               {:frame  :rf/api
-                :id     :oyd1b/named
-                :before identity}]]}))
-
-    (rf/dispatch-sync [:oyd1b/register-on-named])
-
-    (is (empty? (rf.http.managed/interceptors-snapshot :rf/default))
-        ":rf/default is not touched by an :rf/api registration")
-    (let [chain (rf.http.managed/interceptors-snapshot :rf/api)]
-      (is (= 1 (count chain)))
-      (is (= :oyd1b/named (:id (first chain)))))))
-
-(deftest clear-http-interceptor-fx-mutates-the-atom-rf2-oyd1b
-  (testing "rf2-oyd1b — [:rf.fx/clear-http-interceptor {:id ...}] removes
-            the slot from :rf/default (the implicit frame)."
-    (rf.http.managed/reg-http-interceptor :oyd1b/to-clear {:before identity})
-    (is (= 1 (count (rf.http.managed/interceptors-snapshot :rf/default)))
-        "pre-clear: the slot is present")
-
-    (rf/reg-event :oyd1b/clear
-      (fn [_ _]
-        {:fx [[:rf.fx/clear-http-interceptor {:id :oyd1b/to-clear}]]}))
-    (rf/dispatch-sync [:oyd1b/clear])
-
-    (is (empty? (rf.http.managed/interceptors-snapshot :rf/default))
-        "the slot is gone after the fx")))
-
-(deftest clear-http-interceptor-fx-honours-explicit-frame-rf2-oyd1b
-  (testing "rf2-oyd1b — explicit :frame on the clear fx scopes the removal"
-    (rf.http.managed/reg-http-interceptor :oyd1b/scoped {:frame :rf/api :before identity})
-    (rf.http.managed/reg-http-interceptor :oyd1b/default-survivor {:before identity})
-
-    (rf/reg-event :oyd1b/clear-on-named
-      (fn [_ _]
-        {:fx [[:rf.fx/clear-http-interceptor
-               {:frame :rf/api :id :oyd1b/scoped}]]}))
-    (rf/dispatch-sync [:oyd1b/clear-on-named])
-
-    (is (empty? (rf.http.managed/interceptors-snapshot :rf/api))
-        ":rf/api lost its slot")
-    (is (= 1 (count (rf.http.managed/interceptors-snapshot :rf/default)))
-        ":rf/default is unaffected — the clear was scoped to :rf/api")))
-
-(deftest clear-http-interceptor-fx-defaults-frame-to-rf-default-rf2-oyd1b
-  (testing "rf2-oyd1b — when :frame is nil/absent the fx routes to :rf/default
-            (matching the fn-form behaviour)."
-    (rf.http.managed/reg-http-interceptor :oyd1b/dflt {:before identity})
-    (rf/reg-event :oyd1b/clear-no-frame
-      (fn [_ _]
-        ;; No :frame key — must default to :rf/default.
-        {:fx [[:rf.fx/clear-http-interceptor {:id :oyd1b/dflt}]]}))
-    (rf/dispatch-sync [:oyd1b/clear-no-frame])
-    (is (empty? (rf.http.managed/interceptors-snapshot :rf/default)))))
-
-(deftest reg-http-interceptor-fx-rejects-invalid-args-rf2-oyd1b
-  (testing "rf2-oyd1b + rf2-uheqq — invalid args (missing :id, missing both
-            :before AND :after, non-keyword id) trigger the same
-            :rf.error/http-bad-interceptor throw the fn-form raises. The
-            error fires inside the runtime's fx dispatch loop, so we trap
-            via a trace-error listener and assert NO interceptor was
-            registered."
-    (let [errors (atom [])
-          cb-id  ::oyd1b-bad-args]
-      (try
-        (rf.trace/register-listener!
-          cb-id
-          (fn [ev]
-            (when (= :error (:op-type ev))
-              (swap! errors conj ev))))
-
-        ;; missing :id
-        (rf/reg-event :oyd1b/bad-no-id
-          (fn [_ _]
-            {:fx [[:rf.fx/reg-http-interceptor {:before identity}]]}))
-        (try (rf/dispatch-sync [:oyd1b/bad-no-id])
-             (catch Throwable _ nil))
-        (is (empty? (rf.http.managed/interceptors-snapshot :rf/default))
-            "missing :id → no interceptor registered")
-
-        ;; missing both :before AND :after (a no-op interceptor is rejected
-        ;; under the rf2-uheqq shape-iii contract)
-        (rf/reg-event :oyd1b/bad-no-fns
-          (fn [_ _]
-            {:fx [[:rf.fx/reg-http-interceptor {:id :x}]]}))
-        (try (rf/dispatch-sync [:oyd1b/bad-no-fns])
-             (catch Throwable _ nil))
-        (is (empty? (rf.http.managed/interceptors-snapshot :rf/default))
-            "missing both :before and :after → no interceptor registered")
-
-        ;; non-keyword :id
-        (rf/reg-event :oyd1b/bad-string-id
-          (fn [_ _]
-            {:fx [[:rf.fx/reg-http-interceptor
-                   {:id "not-a-keyword" :before identity}]]}))
-        (try (rf/dispatch-sync [:oyd1b/bad-string-id])
-             (catch Throwable _ nil))
-        (is (empty? (rf.http.managed/interceptors-snapshot :rf/default))
-            "non-keyword :id → no interceptor registered")
-
-        (finally
-          (rf.trace/unregister-listener! cb-id))))))
-
-(deftest reg-and-clear-http-interceptor-fxs-roundtrip-rf2-oyd1b
-  (testing "rf2-oyd1b — register-then-clear via fxs round-trips cleanly,
-            mirroring the fn-form's idempotency."
-    (rf/reg-event :oyd1b/round-trip
-      (fn [_ _]
-        {:fx [[:rf.fx/reg-http-interceptor
-               {:id :oyd1b/rt :before identity}]
-              [:rf.fx/clear-http-interceptor
-               {:id :oyd1b/rt}]]}))
-    (rf/dispatch-sync [:oyd1b/round-trip])
-    (is (empty? (rf.http.managed/interceptors-snapshot :rf/default))
-        "register followed by clear in the same event leaves the chain empty")))
 
 ;; ===========================================================================
 ;; rf2-uheqq — `:after` response-side hook
