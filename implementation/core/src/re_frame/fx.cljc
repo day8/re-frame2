@@ -464,8 +464,7 @@
 ;; nav-token.
 ;;
 ;;   OVERRIDABLE: `:dispatch`, `:dispatch-later` (pure router-queue routing),
-;;                `:rf.machine/dispatch-to-system` (pure lookup-then-dispatch,
-;;                zero state writes), `:rf.nav/push-url`, `:rf.nav/replace-url`,
+;;                `:rf.nav/push-url`, `:rf.nav/replace-url`,
 ;;                `:rf.nav/scroll`, `:rf.nav/capture-scroll` (host-API
 ;;                wrappers; no frame runtime-db write). These are the
 ;;                legitimate test/story stubbing affordance (capture a
@@ -1038,8 +1037,8 @@
             (str "is a non-overridable SOURCE (`non-overridable-source-fx-ids`)"))
        ", so it may NOT be overridden (rf2-snsup5). The override was IGNORED; "
        "the real reserved/registered body runs. Only the routing/host-API "
-       "reserved fxs (`:dispatch`, `:dispatch-later`, "
-       "`:rf.machine/dispatch-to-system`, `:rf.nav/*`) are overridable. "
+       "reserved fxs (`:dispatch`, `:dispatch-later`, `:rf.nav/*`) "
+       "are overridable. "
        "This is the SOURCE policy ONLY: redirecting a custom effect TO `"
        fx-id "` (`{:my/fx " fx-id "}`) remains permitted (rf2-1w4af)."))
 
@@ -1359,7 +1358,7 @@
         ;; fan-out, but the trace half DCEs under :advanced.
         ;;
         ;; OVERRIDABLE reserved fxs (`:dispatch`, `:dispatch-later`,
-        ;; `:rf.machine/dispatch-to-system`, `:rf.nav/*`) are NOT in the
+        ;; `:rf.nav/*`) are NOT in the
         ;; reject set, so they flow through unchanged — the rf2-nrpj1
         ;; fn-value-pre-empts-reserved-body contract stays intact.
         ;;

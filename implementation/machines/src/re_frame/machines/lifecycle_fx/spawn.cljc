@@ -66,7 +66,7 @@
   belongs — inside the fx-handler's runtime-db swap — so the pure transition
   layer stays effect-free. The counter sits under the
   `:rf.runtime/machines` sub-container of the durable runtime-db partition
-  alongside `:snapshots`, `:system-ids`, `:spawned` (Conventions §Reserved
+  alongside `:snapshots`, `:spawned` (Conventions §Reserved
   runtime-db keys)."
   [runtime-db machine-id]
   (let [rt' (update-in runtime-db [:rf.runtime/machines :spawn-counter machine-id] (fnil inc 0))
@@ -110,7 +110,7 @@
   "Emit the always-on `:rf.error/machine-spawn-unregistered-type` and reject
   the spawn. A `:machine-id` that resolves to no registered spec is rejected
   outright (there is no implicit \"spec-less spawn\" lifecycle): a rejected
-  spawn installs NO snapshot, NO slot, NO system-id binding, allocates NO
+  spawn installs NO snapshot, NO slot, allocates NO
   spawned-id, records NO spawn-order entry, fires NO trace, and dispatches
   NO `:start`.
 
@@ -395,7 +395,7 @@
   freshly-built `initial-snap`'s `:data` is validated against it. A failure emits
   `:rf.error/schema-validation-failure :where :machine-data :phase :spawn`
   (via `validate-spawn-data!`) and returns `true`; the caller then skips
-  the trace, the handler registration, the snapshot/system-id/spawn-slot
+  the trace, the handler registration, the snapshot/spawn-slot
   install, the spawn-order record, AND the `:start` dispatch — the
   rejected actor leaves NO half-installed bookkeeping (no registered
   handler, no actor state, no phantom `(rf.machines/machines)` entry).
@@ -417,15 +417,13 @@
 
 (defn- install-spawn!
   "Atomically install the spawned actor's `initial-snap` (with its
-  revertible `:rf/machine-type` TYPE reference stamped at the root),
-  system-id binding, and runtime-owned spawn registry slot
-  into the frame's runtime-db. Emits the collision and system-id-bound
-  traces when applicable.
+  revertible `:rf/machine-type` TYPE reference stamped at the root) and
+  the runtime-owned spawn registry slot into the frame's runtime-db.
 
   Returns an EXPLICIT committed/live result (rf2-hloj0g): `:committed`
   when the runtime-db swap landed, `:skipped` when the exact-owner recheck
-  fenced the swap (a `:rf.error/system-id-collision` listener destroyed A /
-  published same-id B on the trace's own stack). The caller (`spawn-fx*`)
+  fenced the swap (an earlier callback destroyed A / published same-id B).
+  The caller (`spawn-fx*`)
   runs NO post-install tail (classification / spawn-order /
   `:rf.machine.lifecycle/spawned` / `:start`) unless install COMMITTED and
   the exact owner is STILL current — a bare-id `swap-runtime-db!` /
@@ -459,9 +457,9 @@
   the swap, so every pre-install emission and every in-drain mutation it may
   have provoked is already reflected in the reference this stamps.
 
-  Note the premise has NARROWED (rf2-wxy1c). The pre-install emissions named
-  above — the caller's `:rf.machine.spawn/spawned` trace and this fn's own
-  `:rf.error/system-id-collision` trace — no longer fan synchronously to
+  Note the premise has NARROWED (rf2-wxy1c). The pre-install emission named
+  above — the caller's `:rf.machine.spawn/spawned` trace — no longer fans
+  synchronously to
   application listeners: trace listeners are OBSERVERS, and internal
   drain-owned emits deliver at the POST-DRAIN boundary, so no listener body
   can unregister or replace the child's TYPE between the caller's bindings and
@@ -472,124 +470,100 @@
   after its `:type-spec` was retained, so the definition-lifetime rule must still
   decide against the registrar as it stands at COMMIT."
   [frame-id rt-after-alloc spec spawned-id initial-snap
-   {:keys [system-id parent-id invoke-id track? type-ref-fn continue? owner-token]}]
-  (let [existing (when system-id (get-in rt-after-alloc (rf.machines.paths/system-id-path system-id)))]
-    (when (and system-id existing (not= existing spawned-id))
-      (rf.trace/emit-error! :rf.error/system-id-collision
-                         {:frame             frame-id
-                          :system-id         system-id
-                          :existing-machine  existing
-                          :rebound-to        spawned-id
-                          :reason            (str ":system-id " system-id
-                                                  " was already bound to "
-                                                  existing
-                                                  "; rebinding to " spawned-id
-                                                  " (last-write-wins).")
-                          :recovery          :warned-and-replaced}))
-    ;; rf2-3evq0x — the `:rf.error/system-id-collision` trace above is
-    ;; callback-bearing; recheck the exact-incarnation continuation before the
-    ;; runtime-db swap so a listener that destroyed A / published same-id B
-    ;; cannot land the A-derived snapshot / system-id / spawn-slot install (a
-    ;; bare-id `swap-runtime-db!` resolves to the CURRENT incarnation B) or fire
-    ;; the `:rf.machine/system-id-bound` trace for it. `continue?` is nil only
-    ;; for a hypothetical caller that did not thread it — treated as live.
-    ;; rf2-hloj0g — return the swap outcome EXPLICITLY (`:committed` /
-    ;; `:skipped`) so the caller can fence its own post-install tail on it (the
-    ;; earlier `:ok`/nil return was IGNORED, so a `:skipped` install still let
-    ;; classification / spawn-order / lifecycle-spawned run against B).
-    ;; rf2-4ipqe4 — the pre-swap `(continue?)` check fences a system-id-collision
-    ;; LISTENER, but the WRITE ITSELF is callback-bearing: a synchronous
-    ;; container watch can destroy A / publish same-id B DURING the physical
-    ;; install. The bare `swap-runtime-db!` would still bump the id-keyed commit
-    ;; epoch (now B's) and let `:rf.machine/system-id-bound` fire for B. With an
-    ;; event owner, route the install through `swap-runtime-db-exact!`: it binds
-    ;; the write to A's own container, and on mid-write loss returns nil WITHOUT
-    ;; bumping B's epoch — so we report `:skipped` and suppress the system-id-bound
-    ;; trace. Without an owner (conformance / pure-fn), fall back to the bare
-    ;; write (its non-nil return marks `:committed`).
-    (if (or (nil? continue?) (continue?))
-      (let [;; rf2-zo5n9 — CHOOSE the revertible TYPE reference HERE, at the last
-            ;; point before the write, and stamp it onto the snapshot root so the
-            ;; lazy resolver can re-materialise the handler from runtime-db alone.
-            ;;
-            ;; THE WINDOW THIS CLOSES. rf2-rxjy3 made a prepared `:spawn-all`
-            ;; child's reference follow the definition-lifetime rule — keep the
-            ;; `:machine-id` keyword while the registrar still holds the prepared
-            ;; definition, pin that definition once the registrar has diverged —
-            ;; but the CHOICE was taken in `spawn-fx*`'s `let` bindings, ahead of
-            ;; the two emissions that still run before this write: the caller's
-            ;; `:rf.machine.spawn/spawned` trace and the
-            ;; `:rf.error/system-id-collision` trace above. Those then fanned
-            ;; synchronously to application listeners, so a listener that
-            ;; UNREGISTERED or REPLACED the admitted child's TYPE diverged the
-            ;; registrar AFTER `prepared-type-ref` had observed it intact and
-            ;; returned the keyword — the install stamped a now-STALE keyword and
-            ;; the child came up INERT (nothing resolves; it never leaves
-            ;; `:initial`, and every event raises `:rf.error/no-such-handler`) or
-            ;; SPLIT (a prepared-v1 snapshot driven by an unrelated current-v2
-            ;; handler). The very failure modes rxjy3 removed, reached through a
-            ;; later door.
-            ;;
-            ;; rf2-wxy1c CLOSED that door from the other side: those two emits are
-            ;; internal and drain-owned, so their listeners now run at the
-            ;; post-drain boundary and no listener body can act here at all. The
-            ;; late force is retained because it is still the correct reading
-            ;; point for a registrar-derived value, and because in-drain
-            ;; application code — notably a prepared child's own
-            ;; `[:schemas :data]` validator, which `prepare-spawn-all-child` runs
-            ;; AFTER retaining `:type-spec` — can still diverge the registrar
-            ;; ahead of this write.
-            ;;
-            ;; Deferring the CHOICE — rather than re-checking anything — is the
-            ;; whole fix: `type-ref-fn` reads the registrar as it stands at
-            ;; commit, so whatever the last pre-install callback did to it is
-            ;; what the definition-lifetime rule decides against. It is NOT a
-            ;; re-verdict: an admitted child ALWAYS installs (rf2-v4oqd), and
-            ;; this can only select the FORM of its reference.
-            type-ref     (type-ref-fn)
-            ;; The spawn is known-accepted by the time `install-spawn!` runs (an
-            ;; unregistered `:machine-id` was rejected fail-closed upstream), so
-            ;; `spec` is always present; the `spec`/`type-ref` guards are
-            ;; belt-and-braces.
-            initial-snap (cond-> initial-snap
-                           (and spec type-ref) (assoc :rf/machine-type type-ref))
-            install-fn (fn [_rt]
-                         (cond-> rt-after-alloc
-                           spec      (assoc-in (rf.machines.paths/snapshot-path spawned-id) initial-snap)
-                           ;; rf2-1vlyg — append the actor to the DURABLE
-                           ;; spawn-order vector in the SAME swap that lands its
-                           ;; snapshot, so the frame's total creation order is
-                           ;; recorded rather than reconstructed. The per-prefix
-                           ;; `#<n>` suffix of `spawned-id` cannot order actors
-                           ;; of different machine types and is absent entirely
-                           ;; on a `:fixed-actor-id`, so frame destroy has no
-                           ;; other durable fact to read; the transient
-                           ;; `rf.machines.spawn-order/record!` below is a cache that any
-                           ;; restore / hydration / `replace-runtime-db!` wipes.
-                           ;; Gated on the same `spec` as the snapshot assoc: the
-                           ;; order tracks exactly the actors that have snapshots.
-                           spec      (rf.machines.spawn-order/record-in-runtime-db spawned-id)
-                           system-id (assoc-in (rf.machines.paths/system-id-path system-id) spawned-id)
-                           track?    (assoc-in (rf.machines.paths/spawned-path parent-id invoke-id) spawned-id)))
-            written    (if owner-token
-                         (rf.frame/swap-runtime-db-exact! frame-id owner-token install-fn)
-                         (rf.frame/swap-runtime-db! frame-id install-fn))]
-        (if (some? written)
-          (do
-            (when system-id
-              (rf.trace/emit! :rf.machine :rf.machine/system-id-bound
-                           {:frame      frame-id
-                            :system-id  system-id
-                            ;; The live actor INSTANCE address (the spawned id),
-                            ;; not the registered TYPE; `:machine-id` is reserved
-                            ;; for the type.
-                            :actor-id   spawned-id}))
-            :committed)
-          ;; The exact write reported mid-write owner loss (a container watch
-          ;; published same-id B): no snapshot / system-id / spawn-slot landed on
-          ;; B, no commit epoch bumped for B, and no system-id-bound trace fires.
-          :skipped))
-      :skipped)))
+   {:keys [parent-id invoke-id track? type-ref-fn continue? owner-token]}]
+  ;; rf2-3evq0x — the caller's `:rf.machine.spawn/spawned` trace is
+  ;; callback-bearing; recheck the exact-incarnation continuation before the
+  ;; runtime-db swap so a listener that destroyed A / published same-id B
+  ;; cannot land the A-derived snapshot / spawn-slot install (a bare-id
+  ;; `swap-runtime-db!` resolves to the CURRENT incarnation B). `continue?`
+  ;; is nil only for a hypothetical caller that did not thread it — treated
+  ;; as live.
+  ;; rf2-hloj0g — return the swap outcome EXPLICITLY (`:committed` /
+  ;; `:skipped`) so the caller can fence its own post-install tail on it (the
+  ;; earlier `:ok`/nil return was IGNORED, so a `:skipped` install still let
+  ;; classification / spawn-order / lifecycle-spawned run against B).
+  ;; rf2-4ipqe4 — the pre-swap `(continue?)` check fences a LISTENER, but the
+  ;; WRITE ITSELF is callback-bearing: a synchronous container watch can
+  ;; destroy A / publish same-id B DURING the physical install. The bare
+  ;; `swap-runtime-db!` would still bump the id-keyed commit epoch (now B's).
+  ;; With an event owner, route the install through `swap-runtime-db-exact!`:
+  ;; it binds the write to A's own container, and on mid-write loss returns
+  ;; nil WITHOUT bumping B's epoch — so we report `:skipped`. Without an
+  ;; owner (conformance / pure-fn), fall back to the bare write (its non-nil
+  ;; return marks `:committed`).
+  (if (or (nil? continue?) (continue?))
+    (let [;; rf2-zo5n9 — CHOOSE the revertible TYPE reference HERE, at the last
+          ;; point before the write, and stamp it onto the snapshot root so the
+          ;; lazy resolver can re-materialise the handler from runtime-db alone.
+          ;;
+          ;; THE WINDOW THIS CLOSES. rf2-rxjy3 made a prepared `:spawn-all`
+          ;; child's reference follow the definition-lifetime rule — keep the
+          ;; `:machine-id` keyword while the registrar still holds the prepared
+          ;; definition, pin that definition once the registrar has diverged —
+          ;; but the CHOICE was taken in `spawn-fx*`'s `let` bindings, ahead of
+          ;; the two emissions that still run before this write: the caller's
+          ;; `:rf.machine.spawn/spawned` trace and the
+          ;; trace. That then fanned
+          ;; synchronously to application listeners, so a listener that
+          ;; UNREGISTERED or REPLACED the admitted child's TYPE diverged the
+          ;; registrar AFTER `prepared-type-ref` had observed it intact and
+          ;; returned the keyword — the install stamped a now-STALE keyword and
+          ;; the child came up INERT (nothing resolves; it never leaves
+          ;; `:initial`, and every event raises `:rf.error/no-such-handler`) or
+          ;; SPLIT (a prepared-v1 snapshot driven by an unrelated current-v2
+          ;; handler). The very failure modes rxjy3 removed, reached through a
+          ;; later door.
+          ;;
+          ;; rf2-wxy1c CLOSED that door from the other side: those two emits are
+          ;; internal and drain-owned, so their listeners now run at the
+          ;; post-drain boundary and no listener body can act here at all. The
+          ;; late force is retained because it is still the correct reading
+          ;; point for a registrar-derived value, and because in-drain
+          ;; application code — notably a prepared child's own
+          ;; `[:schemas :data]` validator, which `prepare-spawn-all-child` runs
+          ;; AFTER retaining `:type-spec` — can still diverge the registrar
+          ;; ahead of this write.
+          ;;
+          ;; Deferring the CHOICE — rather than re-checking anything — is the
+          ;; whole fix: `type-ref-fn` reads the registrar as it stands at
+          ;; commit, so whatever the last pre-install callback did to it is
+          ;; what the definition-lifetime rule decides against. It is NOT a
+          ;; re-verdict: an admitted child ALWAYS installs (rf2-v4oqd), and
+          ;; this can only select the FORM of its reference.
+          type-ref     (type-ref-fn)
+          ;; The spawn is known-accepted by the time `install-spawn!` runs (an
+          ;; unregistered `:machine-id` was rejected fail-closed upstream), so
+          ;; `spec` is always present; the `spec`/`type-ref` guards are
+          ;; belt-and-braces.
+          initial-snap (cond-> initial-snap
+                         (and spec type-ref) (assoc :rf/machine-type type-ref))
+          install-fn (fn [_rt]
+                       (cond-> rt-after-alloc
+                         spec      (assoc-in (rf.machines.paths/snapshot-path spawned-id) initial-snap)
+                         ;; rf2-1vlyg — append the actor to the DURABLE
+                         ;; spawn-order vector in the SAME swap that lands its
+                         ;; snapshot, so the frame's total creation order is
+                         ;; recorded rather than reconstructed. The per-prefix
+                         ;; `#<n>` suffix of `spawned-id` cannot order actors
+                         ;; of different machine types and is absent entirely
+                         ;; on a `:fixed-actor-id`, so frame destroy has no
+                         ;; other durable fact to read; the transient
+                         ;; `rf.machines.spawn-order/record!` below is a cache that any
+                         ;; restore / hydration / `replace-runtime-db!` wipes.
+                         ;; Gated on the same `spec` as the snapshot assoc: the
+                         ;; order tracks exactly the actors that have snapshots.
+                         spec      (rf.machines.spawn-order/record-in-runtime-db spawned-id)
+                         track?    (assoc-in (rf.machines.paths/spawned-path parent-id invoke-id) spawned-id)))
+          written    (if owner-token
+                       (rf.frame/swap-runtime-db-exact! frame-id owner-token install-fn)
+                       (rf.frame/swap-runtime-db! frame-id install-fn))]
+      (if (some? written)
+        :committed
+        ;; The exact write reported mid-write owner loss (a container watch
+        ;; published same-id B): no snapshot / spawn-slot landed on B, and no
+        ;; commit epoch was bumped for B.
+        :skipped))
+    :skipped))
 
 ;; ---- authoritative :spawn-all prepared-children handoff -------------------
 
@@ -729,9 +703,8 @@
   decided by comparing the prepared definition against the registrar's CURRENT
   contents, a divergence that happens after the comparison is a divergence the
   installed snapshot does not reflect — and the callbacks between the child's
-  admission and its install (the `:rf.machine.spawn/spawned` trace, and
-  `install-spawn!`'s `:rf.error/system-id-collision` trace) are exactly where a
-  listener can cause one. `spawn-fx*` therefore passes this as a THUNK and
+  admission and its install (the `:rf.machine.spawn/spawned` trace) are
+  exactly where a listener can cause one. `spawn-fx*` therefore passes this as a THUNK and
   `install-spawn!` forces it at the last point before the runtime-db swap, so
   the comparison is made against the registrar as it stands at COMMIT."
   [args prepared]
@@ -770,7 +743,7 @@
       UNREGISTERED machine TYPE and the spawn carries no inline
       `:definition`, REJECT the spawn: emit the always-on
       `:rf.error/machine-spawn-unregistered-type` and return without
-      installing anything — no snapshot, no slot, no system-id, no
+      installing anything — no snapshot, no slot, no
       spawned-id allocation, no spawn-order record, no trace, no `:start`
       dispatch. There is no implicit \"spec-less spawn\" lifecycle.
    1. Resolve the spawn's machine spec (`:machine-id` from the registrar
@@ -785,13 +758,10 @@
       (the spawned actor's own address) and, when applicable,
       `:rf/parent-id` + `:rf/invoke-id` into the actor's initial `:data`.
       Re-spawn under the same id replaces — last-write-wins.
-   3. If `:system-id` present, bind it in the per-frame
-      `[:rf.runtime/machines :system-ids]` reverse index. Collisions emit
-      `:rf.error/system-id-collision` and rebind (last-write-wins).
-   4. If `:rf/parent-id` + `:rf/invoke-id` present (declarative `:spawn`
+   3. If `:rf/parent-id` + `:rf/invoke-id` present (declarative `:spawn`
       desugar), bind the spawned id at
       `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]`.
-   5. If `:start` event-vector present, dispatch
+   4. If `:start` event-vector present, dispatch
       `[<spawned-id> <start>]`. When `:start` is absent,
       the runtime dispatches a synthetic `[<spawned-id>
       [:rf.machine.spawn/spawned]]` so generic child machines may declare a
@@ -809,10 +779,10 @@
         ;; a synthesised `:rf/default`.
         frame-id   (rf.frame/require-frame-stamp!
                      frame-id :rf.machine/spawn
-                     {:where 'rf.machine/spawn :event-id (:system-id args)})]
+                     {:where 'rf.machine/spawn :event-id (:machine-id args)})]
     ;; Step 0 — the two fail-closed gates, INVOKE-level before CHILD-local.
     ;; Both reject BEFORE any id allocation, spec resolution,
-    ;; snapshot/slot/system-id install, spawn-order record, trace, or
+    ;; snapshot/slot install, spawn-order record, trace, or
     ;; `:start` dispatch — the strongest atomicity (there is no spec-less
     ;; spawn path, so there is no half-installed bookkeeping the next op
     ;; could trip over).
@@ -871,7 +841,7 @@
         ;; inside `spawn-rejected?` below) is APPLICATION code that can
         ;; synchronously destroy this frame incarnation A and publish a same-id
         ;; successor B before returning. Everything after that callback — the
-        ;; snapshot / system-id / spawn-slot install, per-instance
+        ;; snapshot / spawn-slot install, per-instance
         ;; classification lowering, the spawn-order record, the two spawned
         ;; traces, and the `:start` (or synthetic) dispatch — is framework-owned
         ;; tail computed from A's already-read runtime-db. Re-checking
@@ -882,12 +852,12 @@
         ;; against the SAME token.
         continue?  (rf.machines.data-validation/owner-continuation frame-id)
         ;; rf2-4ipqe4 — the RAW exact owner token (`continue?` closes over it),
-        ;; threaded into `install-spawn!` so the snapshot / system-id / spawn-slot
-        ;; install rides `swap-runtime-db-exact!`: a synchronous container watch
+        ;; threaded into `install-spawn!` so the snapshot / spawn-slot install
+        ;; rides `swap-runtime-db-exact!`: a synchronous container watch
         ;; that destroys A / publishes same-id B DURING the physical write neither
         ;; redirects the write into B nor bumps B's commit epoch (a bare
-        ;; `swap-runtime-db!` bumps the id-keyed epoch — now B's — and emits
-        ;; `:rf.machine/system-id-bound` before the later owner check). nil for a
+        ;; `swap-runtime-db!` bumps the id-keyed epoch — now B's — before the
+        ;; later owner check). nil for a
         ;; non-router pure-fn / conformance caller (no event owner) — the install
         ;; falls back to the historical bare-id write and that path stays
         ;; unaffected, symmetric with `continue?`'s `(constantly true)`.
@@ -900,7 +870,6 @@
         ;; as the fallback allocator, bumped inside the same db-swap as
         ;; the snapshot install / registry bind below.
         pre-id     (pre-allocated-actor-id args)
-        system-id  (:system-id args)
         ;; The runtime tracks each declarative-:spawn spawn at
         ;; [:rf.runtime/machines :spawned <parent-id> <invoke-id>] —
         ;; populated only when the spawn carries both.
@@ -968,11 +937,10 @@
         ;; binding.
         ;;
         ;; This originally guarded against TRACE LISTENERS — the
-        ;; `:rf.machine.spawn/spawned` trace below and `install-spawn!`'s
-        ;; `:rf.error/system-id-collision` trace fanned synchronously to
+        ;; `:rf.machine.spawn/spawned` trace below fanned synchronously to
         ;; application listeners that could unregister or replace the child's
-        ;; TYPE mid-drain. rf2-wxy1c retired that premise: both are internal
-        ;; drain-owned emits, delivered at the post-drain boundary, so no
+        ;; TYPE mid-drain. rf2-wxy1c retired that premise: it is an internal
+        ;; drain-owned emit, delivered at the post-drain boundary, so no
         ;; listener body runs between here and the write. The thunk stays because
         ;; the late read is still correct and still load-bearing for ordinary
         ;; in-drain application code — a prepared child's `[:schemas :data]`
@@ -1012,7 +980,7 @@
                      false
                      (spawn-rejected? spec'' spawned-id initial-snap continue?))]
     ;; Gate the ENTIRE accepted-spawn cascade — the
-    ;; `:rf.machine.spawn/spawned` trace, the snapshot/system-id/spawn-slot
+    ;; `:rf.machine.spawn/spawned` trace, the snapshot/spawn-slot
     ;; install, AND the `:start` (or synthetic) dispatch — on THREE conditions:
     ;;   (1) the spawn being accepted (`not rejected?` — no schema violation),
     ;;   (2) the frame being LIVE at read time (`old-rt` non-nil — a
@@ -1037,7 +1005,6 @@
                     :spawned-id spawned-id
                     :id-prefix  (:id-prefix args)
                     :start      (:start args)
-                    :system-id  system-id
                     :parent-id  parent-id
                     :invoke-id  invoke-id})
       ;; rf2-3evq0x — the `:rf.machine.spawn/spawned` trace above is
@@ -1057,26 +1024,23 @@
       ;; re-materialise the handler on dispatch. Spawn is a pure runtime-db
       ;; write.
       ;;
-      ;; (2) Initialise the snapshot + (3) bind :system-id + (4) bind the
-      ;; runtime-owned spawn registry (atomically under one runtime-db swap
-      ;; so observers see consistent state). When the spawned id was
-      ;; allocated from the frame's runtime-db (the hand-emitted-spawn
-      ;; fallback path), `rt-after-alloc` already carries the bumped counter —
-      ;; install the snapshot on top of that. `continue?` is threaded into
-      ;; `install-spawn!` so the callback-bearing `:rf.error/system-id-collision`
-      ;; trace it may emit gets a recheck before the runtime-db swap too.
+      ;; (2) Initialise the snapshot + (3) bind the runtime-owned spawn
+      ;; registry (atomically under one runtime-db swap so observers see
+      ;; consistent state). When the spawned id was allocated from the frame's
+      ;; runtime-db (the hand-emitted-spawn fallback path), `rt-after-alloc`
+      ;; already carries the bumped counter — install the snapshot on top of
+      ;; that. `continue?` is threaded into `install-spawn!` so the write is
+      ;; rechecked against the exact incarnation immediately before it lands.
       (when (continue?)
         (let [installed (install-spawn! frame-id rt-after-alloc spec'' spawned-id initial-snap
-                                        {:system-id   system-id
-                                         :parent-id   parent-id
+                                        {:parent-id   parent-id
                                          :invoke-id   invoke-id
                                          :track?      track?
                                          :type-ref-fn type-ref-fn
                                          :continue?   continue?
                                          :owner-token owner-token})]
-        ;; rf2-hloj0g — `install-spawn!`'s `:rf.error/system-id-collision`
-        ;; (pre-swap → `:skipped`) and `:rf.machine/system-id-bound` (post-swap)
-        ;; traces are callback-bearing: a listener can destroy A / publish
+        ;; rf2-hloj0g — the emissions ahead of `install-spawn!`'s swap are
+        ;; callback-bearing: a listener can destroy A / publish
         ;; same-id B on the trace's own stack. Run the framework-owned tail —
         ;; per-instance classification, the spawn-order record, and the
         ;; `:rf.machine.lifecycle/spawned` trace — ONLY when install COMMITTED
@@ -1140,7 +1104,6 @@
                       :machine-id (:machine-id args)
                       :spawned-id spawned-id
                       :invoke-id  invoke-id
-                      :system-id  system-id
                       :parent-id  parent-id
                       :state      (:state initial-snap)})
       ;; rf2-3evq0x — the `:rf.machine.lifecycle/spawned` trace above is

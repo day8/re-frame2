@@ -36,8 +36,8 @@
 
   Snapshots whose frame classifies no matching `:data` path ride VERBATIM — the
   projection is precise, not a blanket scrub. The sibling registry slots
-  (`:system-ids`, `:spawned`, `:spawn-counter`, `:spawn-order`) are durable
-  bookkeeping (reverse indexes, counters, and the creation-order vector — no
+  (`:spawned`, `:spawn-counter`, `:spawn-order`) are durable
+  bookkeeping (registry slots, counters, and the creation-order vector — no
   user `:data`) and ride unchanged. `:spawn-order` riding the wire verbatim is
   what lets a HYDRATED frame dispose its actors in true reverse-creation order
   (rf2-1vlyg): it is a vector of actor-id keywords, so it survives the
@@ -110,8 +110,8 @@
 
   `frame-id` is the SSR request frame (nil leaves snapshots unchanged; see
   `project-snapshot-data`). The `:snapshots` map is re-projected entry-by-entry
-  keyed on actor-id; the sibling registry slots (`:system-ids`, `:spawned`,
-  `:spawn-counter`) ride verbatim (durable reverse indexes + counters carrying
+  keyed on actor-id; the sibling registry slots (`:spawned`,
+  `:spawn-counter`) ride verbatim (durable registry slots + counters carrying
   no user `:data`). Returns nil when `runtime-db` carries no
   `:rf.runtime/machines` slice (so the SSR projector omits the key). Pure."
   [runtime-db frame-id]

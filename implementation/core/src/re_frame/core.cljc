@@ -1637,9 +1637,9 @@
 ;;
 ;; Machine registration macros stay on the facade for source-coordinate
 ;; capture. Plain registration, engine, query, and implementation helpers live
-;; in `re-frame.machines`. Machine state reads use subscription vectors; the
-;; canonical action-side named-message surface is the
-;; `[:rf.machine/dispatch-to-system [system-id event]]` effect.
+;; in `re-frame.machines`. Machine state reads use subscription vectors; a
+;; machine sends to a spawned actor by dispatching to the id it holds —
+;; `[:dispatch [<actor-id> <event>]]`.
 
 ;; ---- resource helpers (Spec 016) ------------------------------------------
 ;;
