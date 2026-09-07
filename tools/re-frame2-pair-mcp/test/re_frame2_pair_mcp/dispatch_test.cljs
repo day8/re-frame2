@@ -118,6 +118,20 @@
 (def ^:private read-result-text tu/extract-edn)
 (def ^:private err? tu/error?)
 
+(defn- quoted-datum
+  "The datum a `(quote <datum>)` form evaluates to, or `::not-quoted` for
+  anything else — an unquoted list is a call, an unquoted symbol is a name
+  lookup, and neither yields the datum it was printed from."
+  [form]
+  (if (and (seq? form) (= 'quote (first form)) (= 2 (count form)))
+    (second form)
+    ::not-quoted))
+
+(defn- event-arg
+  "The event argument of the captured runtime call, as a read form."
+  [captured]
+  (second (cljs.reader/read-string @captured)))
+
 ;; ---------------------------------------------------------------------------
 ;; Narrow integration arms — the exhaustive event-parse matrix (nil / blank
 ;; / unreadable / map / keyword / list / symbol / scalar / vector, with the
@@ -232,9 +246,9 @@
                    (let [form @captured]
                      (is (string? form))
                      ;; The default runtime call is
-                     ;; `(rt/dispatch-consequence! [:cart/checkout] {})`.
-                     ;; The event vector rides as an EDN literal — pinned
-                     ;; via the `pr-str` shape.
+                     ;; `(rt/dispatch-consequence! (quote [:cart/checkout]) {})`.
+                     ;; The event vector rides as a QUOTED literal (rf2-j2wz)
+                     ;; so it evaluates to the datum the caller sent.
                      (is (re-find #"dispatch-consequence!" form))
                      (is (re-find #"\[:cart/checkout\]" form))
                      ;; And critically — NO host-form splice. The form is
@@ -243,8 +257,8 @@
                      (let [parsed (cljs.reader/read-string form)]
                        (is (= 're-frame2-pair.runtime/dispatch-consequence! (first parsed))
                            "first arg is the qualified fn symbol")
-                       (is (= [:cart/checkout] (second parsed))
-                           "second arg is the event vector — DATA, not source")))
+                       (is (= [:cart/checkout] (quoted-datum (second parsed)))
+                           "second arg evaluates to the event vector — DATA, not source")))
                    (done)))))))
 
 (deftest accepts-event-with-args
@@ -259,7 +273,7 @@
           (.then (fn [r]
                    (is (not (err? r)))
                    (let [parsed (cljs.reader/read-string @captured)]
-                     (is (= [:cart/add {:sku "abc"}] (second parsed))))
+                     (is (= [:cart/add {:sku "abc"}] (quoted-datum (second parsed)))))
                    (done)))))))
 
 (deftest sync-mode-routes-to-dispatch-consequence
@@ -825,7 +839,7 @@
                    (let [parsed (cljs.reader/read-string @captured)
                          opts   (nth parsed 2)]
                      (is (= 're-frame2-pair.runtime/dispatch-consequence! (first parsed)))
-                     (is (= [:rf.xray/focus-event 85] (second parsed)))
+                     (is (= [:rf.xray/focus-event 85] (quoted-datum (second parsed))))
                      (is (= :rf/xray (:frame opts))
                          "frame routes to the well-formed :rf/xray keyword")
                      (is (not= ::malformed (:frame opts)))
@@ -1346,7 +1360,7 @@
                    (is (not (err? r)))
                    (let [parsed (cljs.reader/read-string @captured)
                          opts   (nth parsed 2)]
-                     (is (= [:todo/add {:text "buy milk"}] (second parsed)))
+                     (is (= [:todo/add {:text "buy milk"}] (quoted-datum (second parsed))))
                      (is (= {:rf/time-ms 1781078400123} (:rf.cofx opts))
                          "cofx is threaded under the :rf.cofx opts key the router reads")
                      (is (int? (get-in opts [:rf.cofx :rf/time-ms]))
@@ -1685,3 +1699,98 @@
                    (is (= :rf.error/unreplayable-fx-override (:reason edn)))
                    (is (= :http (:target edn))))
                  (done))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-j2wz — the parsed event reaches the runtime as DATA.
+;;
+;; `parse-event-arg`'s vector check stops a whole host form at the door, and
+;; its docstring says why: the payload must be data, never source. But the
+;; check is on the OUTER shape only, and what got past it was emitted with
+;; `pr-str` — which renders a value as source rather than quoting it. So an
+;; event whose payload contained a list or a symbol changed meaning on the
+;; way to the handler, and one shaped like the emitter's own IR was spliced
+;; in as raw source outright. Both happen while the runtime call is being
+;; CONSTRUCTED, ahead of anything the dispatch fn validates, and both are
+;; reachable with `eval-cljs` disabled — the narrow explicit boundary the
+;; parser's own docstring draws.
+;;
+;; These deftests read the emitted argument through `quoted-datum`, which
+;; asks what the form EVALUATES to rather than what it prints as. The old
+;; read-back-as-EDN assertions could not see the defect at all: `pr-str`'d
+;; source and quoted data read back identically as EDN, and only evaluation
+;; tells them apart.
+;; ---------------------------------------------------------------------------
+
+(deftest event-payload-lists-are-not-evaluated-before-dispatch
+  ;; `(inc 41)` inside the payload is ordinary data. Unquoted it evaluates
+  ;; to 42 and the handler is handed a number where the caller sent a list.
+  (async done
+    (let [captured (atom nil)]
+      (-> (with-captured-eval! captured {:ok? true :no-op? true}
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:cart/add (inc 41)]"})))
+          (.then (fn [r]
+                   (is (not (err? r)))
+                   (is (= [:cart/add '(inc 41)] (quoted-datum (event-arg captured)))
+                       "the nested list reaches the runtime as a list")
+                   (is (not (str/includes? @captured "dispatch-consequence! [:cart/add"))
+                       "the event no longer rides as a bare unquoted literal")
+                   (done)))))))
+
+(deftest event-payload-symbols-are-not-resolved-before-dispatch
+  (async done
+    (let [captured (atom nil)]
+      (-> (with-captured-eval! captured {:ok? true :no-op? true}
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:cart/add js/window]"})))
+          (.then (fn [r]
+                   (is (not (err? r)))
+                   (is (= [:cart/add 'js/window] (quoted-datum (event-arg captured)))
+                       "a symbol-valued event stays a symbol rather than resolving")
+                   (done)))))))
+
+(deftest emitter-shaped-event-payload-is-not-spliced-as-source
+  ;; The strongest witness: a payload wearing the emitter's own `::raw` tag.
+  ;; Unquoted, `emit` recognised it as IR and inlined its string in the
+  ;; runtime call's argument position, replacing the event outright — an
+  ;; arbitrary-source request through the data-only tool route.
+  (async done
+    (let [captured (atom nil)
+          raw-tag  :re-frame2-pair-mcp.tools.eval-form/raw]
+      (-> (with-captured-eval! captured {:ok? true :no-op? true}
+            (fn []
+              (dispatch/dispatch-tool
+                (fresh-conn)
+                #js {:event "[:re-frame2-pair-mcp.tools.eval-form/raw \"(inc 41)\"]"})))
+          (.then (fn [r]
+                   (is (not (err? r)))
+                   (is (= [raw-tag "(inc 41)"] (quoted-datum (event-arg captured)))
+                       "the tagged vector rides through as the vector it is")
+                   (is (not (str/includes? @captured "dispatch-consequence! (inc 41)"))
+                       "no raw-source splice in the runtime call")
+                   (done)))))))
+
+(deftest await-render-event-payload-is-quoted-too
+  ;; `:await-render` composes the runtime call through `render-settle-form`
+  ;; rather than the plain emit path, so it needs its own arm — the same
+  ;; parsed EDN travels a second route to the same runtime fn.
+  (async done
+    (let [wrap-form*  (atom nil)
+          read-count* (atom 0)]
+      (-> (with-staged-mailbox-eval!
+            {:wrap-form* wrap-form* :read-count* read-count*
+             :pending-polls 0
+             :resolved {:ok? true :epoch-id 9 :settled? true}}
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:cart/add (inc 41)]"
+                                           :await-render true})))
+          (.then (fn [_]
+                   (let [form @wrap-form*]
+                     (is (str/includes? form "(quote [:cart/add (inc 41)])")
+                         "the settle form carries the event as quoted data")
+                     (is (not (str/includes? form "dispatch-consequence! [:cart/add"))
+                         "and not as a bare unquoted literal"))
+                   (done)))))))

@@ -247,7 +247,8 @@
 (defn- render-settle-form
   "Build the CLJS source for an `:await-render` dispatch. `fn-sym` is the
   runtime dispatch fn (always a synchronous variant under await-render);
-  `event-vec` + `opts-form` are the dispatch payload. Emits a form whose
+  `event-form` (the parsed event wrapped for literal-data emission, per
+  rf2-j2wz) + `opts-form` are the dispatch payload. Emits a form whose
   synchronous return is a `js/Promise` resolving to the dispatch envelope
   merged with `{:settled? true}` once the substrate has flushed + the
   next paint is scheduled.
@@ -270,8 +271,8 @@
   runtime call rides unwrapped (matching the non-await default). `incl?`
   threads the resolved `:include-sensitive` opt-in INTO the projection
   (app-db sensitive axis only) — never a projection bypass."
-  [fn-sym event-vec opts-form epoch-bearing? incl?]
-  (let [call-src (ef/emit (ef/rt-call fn-sym event-vec opts-form))
+  [fn-sym event-form opts-form epoch-bearing? incl?]
+  (let [call-src (ef/emit (ef/rt-call fn-sym event-form opts-form))
         result-src (if epoch-bearing?
                      (egress/project-dispatch-result-src call-src incl?)
                      call-src)]
@@ -462,7 +463,8 @@
         (js/Promise.resolve (wire/err-text payload))
 
         :ok
-      (let [event-vec payload
+      (let [event-vec  payload
+            event-form (ef/rt-quote event-vec)
             opts-form (cond-> {}
                         frame        (assoc :frame frame)
                         fx-overrides (assoc :fx-overrides fx-overrides)
@@ -492,10 +494,23 @@
                         ;; whether or not a `cofx` token was supplied (a record
                         ;; with no scripted facts still re-drives strict).
                         replay?      (assoc :rf.cofx/mint-policy :strict))
-            ;; The event is a parsed CLJS vector. Pass it through
-            ;; `rt-call`'s normal arg-emit path so it is `pr-str`'d as an
-            ;; EDN literal — the runtime fn receives data, not host source.
-            ;; NO `rt-raw` splice on this surface.
+            ;; The event is a parsed CLJS vector, and it is EXTERNAL data.
+            ;; It rides through `ef/rt-quote` — the literal-data emission
+            ;; path — so the runtime fn receives the datum the caller sent,
+            ;; not whatever its printed form evaluates to (rf2-j2wz). The
+            ;; default `pr-str` arg path is right for the internally-
+            ;; composed `opts-form` below and wrong here: printed unquoted,
+            ;; a nested list in the payload is a function call and a symbol
+            ;; is a name lookup, and a payload shaped like one of the
+            ;; emitter's tagged vectors is spliced in as raw source. All
+            ;; three happen while the call is being CONSTRUCTED — before
+            ;; the runtime dispatch fn validates anything, and regardless
+            ;; of whether `eval-cljs` is enabled.
+            ;;
+            ;; `parse-event-arg` is the other half of the same boundary and
+            ;; is unchanged: it rejects a whole host form at the door. Its
+            ;; check is on the OUTER shape only, so quoting is what carries
+            ;; the guarantee inward. NO `rt-raw` splice on this surface.
             ;;
             ;; The DEFAULT (and explicit `:sync` / `:await-render`) routes
             ;; through
@@ -530,7 +545,7 @@
           ;; redaction the non-await `:trace` / `:settle` path applies
           ;; (rf2-6klf02). The consequence shapes (`:sync` / `:queued`)
           ;; carry no raw app-db, so they ride unwrapped.
-          (let [settle-form (render-settle-form fn-sym event-vec opts-form
+          (let [settle-form (render-settle-form fn-sym event-form opts-form
                                                 (contains? #{:trace :settle} mode)
                                                 incl?)
                 mailbox-id  (await-promise/mailbox-key)
@@ -551,7 +566,7 @@
                 (await-promise/handle-sentinel
                   conn build-id timeout-ms sentinel
                   (await-render-callbacks mode)))))
-          (let [call-src (ef/emit (ef/rt-call fn-sym event-vec opts-form))
+          (let [call-src (ef/emit (ef/rt-call fn-sym event-form opts-form))
                 ;; Only the epoch-bearing modes
                 ;; (`:trace` / `:settle`) carry raw `:epoch` /
                 ;; `:render-events`; wrap their emitted form so the

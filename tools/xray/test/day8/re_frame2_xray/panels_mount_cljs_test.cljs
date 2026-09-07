@@ -43,6 +43,7 @@
             [day8.re-frame2-xray.panels.routing :as routing]
             [day8.re-frame2-xray.panels.trace :as trace]
             [day8.re-frame2-xray.panels.reactive-panel :as reactive-panel]
+            [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.spine :as spine]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
@@ -213,6 +214,123 @@
     (with-redefs [rf.substrate.adapter/render render-stub]
       (panels/mount-shell! :mount-point {:mode :overlay})
       (is (= :overlay (-> (captured-tree capture) second :mode))))))
+
+;; ---- rf2-lffg — the full-shell embed forwards its own-frame opt --------
+;;
+;; `008-Embedding-Contract.md` §Embed props inventory publishes exactly two
+;; host-visible props on the full-shell embed, and `:frame` is one of them:
+;; the frame the shell's frame-provider wraps — Xray's OWN frame, distinct
+;; from the inspected host target the frame-picker chooses. `shell-view`
+;; has taken that axis as its `:frame-id` opt since rf2-lnluk de-singletoned
+;; the shell, and `two-instance-isolation-cljs-test` pins the isolation it
+;; buys at the data layer by binding the two frames directly.
+;;
+;; `mount-shell!` was the one seam that never carried the option across: it
+;; read `:mode` out of `opts` and dropped `:frame` on the floor, so every
+;; embed — however many, however addressed — resolved to the default
+;; `:rf/xray` and shared one app-db. The source-level singleton guard
+;; (`frame_singleton_guard_test.clj`) cannot see this: there is no literal
+;; `:rf/xray` to find, only a caller option that is never read.
+;;
+;; These deftests sit at the PUBLIC full-shell boundary — through
+;; `mount-shell!`, never `shell-view` directly — which is precisely the
+;; surface the existing coverage stepped around.
+
+(def ^:private embed-cell-a :review/xray-a)
+(def ^:private embed-cell-b :review/xray-b)
+
+(defn- shell-frame-id
+  "The `:frame-id` prop the n'th captured `[shell/shell-view {…}]` tree
+  carries — the shell's own frame."
+  [capture n]
+  (-> @capture (nth n) :tree second :frame-id))
+
+(defn- read-in-frame [frame-id query]
+  (rf/with-frame frame-id (rf/subscribe-once query)))
+
+(defn- dispatch-in-frame! [frame-id event-v]
+  (rf/with-frame frame-id (rf/dispatch-sync event-v)))
+
+(deftest mount-shell-forwards-the-frame-opt-as-the-shells-own-frame-id
+  (testing "rf2-lffg — two full shells mounted through `mount-shell!` into
+            separate roots with DISTINCT `:frame` options each receive the
+            own frame they asked for. Pre-fix both trees carried no
+            `:frame-id` at all, so `shell-view` defaulted both to
+            `shell/default-frame-id` and the two embeds collided."
+    (let [[capture _ render-stub] (make-render-stub)]
+      (with-redefs [rf.substrate.adapter/render render-stub]
+        (panels/mount-shell! :mount-a {:frame embed-cell-a})
+        (panels/mount-shell! :mount-b {:frame embed-cell-b}))
+      (is (= 2 (count @capture))
+          "both mounts delegated to the substrate adapter")
+      (is (= embed-cell-a (shell-frame-id capture 0))
+          "shell A carries the own frame its caller requested")
+      (is (= embed-cell-b (shell-frame-id capture 1))
+          "shell B carries ITS own frame — not A's, and not the default")
+      (is (not= (shell-frame-id capture 0) (shell-frame-id capture 1))
+          "two requested own frames stay two")
+      (is (= :mount-a (-> @capture (nth 0) :mount-point))
+          "mount-points are untouched by the frame plumbing")
+      (is (= :mount-b (-> @capture (nth 1) :mount-point)))
+      (is (some? (rf.frame/frame embed-cell-a))
+          "the requested own frame is SEATED — `shell-view`'s subscribes
+           and its captured dispatchers need a frame to land in, and the
+           embed contract does not ask the host to pre-seat one")
+      (is (some? (rf.frame/frame embed-cell-b))))))
+
+(deftest mount-shell-frame-opt-defaults-and-leaves-mode-intact
+  (testing "rf2-lffg — omitting `:frame` still selects the documented
+            default own frame (`shell/default-frame-id`), and threading the
+            new axis does not disturb `:mode`."
+    (let [[capture _ render-stub] (make-render-stub)]
+      (with-redefs [rf.substrate.adapter/render render-stub]
+        (panels/mount-shell! :mount-default)
+        (panels/mount-shell! :mount-overlay {:mode :overlay})
+        (panels/mount-shell! :mount-both {:mode  :overlay
+                                          :frame embed-cell-a}))
+      (is (= shell/default-frame-id (shell-frame-id capture 0))
+          "omitted :frame shares the documented default")
+      (is (= :inline (-> @capture (nth 0) :tree second :mode))
+          "and the default :mode is unchanged")
+      (is (= shell/default-frame-id (shell-frame-id capture 1))
+          ":mode alone does not disturb the own-frame default")
+      (is (= :overlay (-> @capture (nth 1) :tree second :mode)))
+      (is (= embed-cell-a (shell-frame-id capture 2))
+          "both opts travel together")
+      (is (= :overlay (-> @capture (nth 2) :tree second :mode))))))
+
+(deftest mount-shell-instances-hold-independent-own-frame-state
+  (testing "rf2-lffg — the point of forwarding the option: driving tab,
+            mode and focus in the shell mounted at one root leaves the
+            shell mounted at the other root untouched. The `with-frame`
+            bindings below stand in for the two `[frame-provider {:frame
+            frame-id}]` scopes the mounted `shell-view`s establish — the
+            same standing-in `two-instance-isolation-cljs-test` does, but
+            reached through `mount-shell!` rather than around it. Pre-fix
+            both mounts resolved to one frame and every assertion in the
+            second half of this deftest read back A's value."
+    (let [[_ _ render-stub] (make-render-stub)]
+      (with-redefs [rf.substrate.adapter/render render-stub]
+        (panels/mount-shell! :mount-a {:frame embed-cell-a})
+        (panels/mount-shell! :mount-b {:frame embed-cell-b}))
+      ;; Seed B, then drive A across all three axes.
+      (dispatch-in-frame! embed-cell-b [:rf.xray/select-tab :trace])
+      (dispatch-in-frame! embed-cell-b [:rf.xray/set-mode :static])
+      (dispatch-in-frame! embed-cell-b [:rf.xray/focus-event :b-cascade :rf/default])
+      (dispatch-in-frame! embed-cell-a [:rf.xray/select-tab :app-db])
+      (dispatch-in-frame! embed-cell-a [:rf.xray/focus-event :a-cascade :rf/default])
+      (is (= :app-db (read-in-frame embed-cell-a [:rf.xray/selected-tab]))
+          "shell A holds its own selected tab")
+      (is (= :trace (read-in-frame embed-cell-b [:rf.xray/selected-tab]))
+          "shell B's tab did NOT move when A's did")
+      (is (= :dynamic (read-in-frame embed-cell-a [:rf.xray/mode]))
+          "shell A is still at the default mode")
+      (is (= :static (read-in-frame embed-cell-b [:rf.xray/mode]))
+          "shell B's mode is its own")
+      (is (= :a-cascade (:dispatch-id (read-in-frame embed-cell-a [:rf.xray/focus])))
+          "shell A focused its own epoch")
+      (is (= :b-cascade (:dispatch-id (read-in-frame embed-cell-b [:rf.xray/focus])))
+          "and shell B is STILL focused on its own"))))
 
 ;; ---- contract — frame opt --------------------------------------------
 
