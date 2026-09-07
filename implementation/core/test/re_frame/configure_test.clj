@@ -443,7 +443,14 @@
                 (str "it rides the :warning op-type, not :error, for " label))
             (is (= [expected-key] (:unknown-keys tags))
                 (str "the warning names the offending key for " label))
-            (is (= [:elision :epoch-history :trace-buffer] (:known-keys tags))
+            ;; The full CLOSED vocabulary, sorted — grows with each new
+            ;; `configure!` key (`:observability`, rf2-kuky.67). Pinned in
+            ;; full rather than by membership: the warning's whole job is to
+            ;; show the author the set they could have meant, so a pin that
+            ;; only checked the offending key would not notice the set going
+            ;; stale.
+            (is (= [:elision :epoch-history :observability :trace-buffer]
+                   (:known-keys tags))
                 (str "the warning names the full known set for " label))
             ;; `build-event` HOISTS `:recovery` out of `:tags` to the top
             ;; level on the success path when the caller supplies one.
