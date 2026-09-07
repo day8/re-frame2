@@ -509,14 +509,13 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
    {:fx [[:rf.machine/spawn {:machine-id :request/protocol
                              :id-prefix  :request/protocol
                              :data       {:url url}
-                             :on-spawn   (fn [{:keys [data id]}] (assoc data :pending-request id))
                              :start      [:begin]}]]})}
 
 :states
 {:idle {:on {:fetch {:target :loading :action :spawn-fetch}}}}
 ```
 
-After this action, `(:pending-request data)` is the new actor's id; subsequent transitions can dispatch to it. The spawned actor's snapshot lives at `[:rf.runtime/machines :snapshots <gensym'd-id>]` in runtime-db (runtime-managed; the spawn-spec does not pick a location). The `:on-spawn` callback is an inline fn here — that's appropriate; it's a single non-branching `assoc`.
+A hand-emitted `:rf.machine/spawn` from an action carries no declarative invoke-id, so it gets no automatic `:rf/spawned` `:data` capture: to address the actor afterwards, give it a `:system-id` and resolve by name (per [005 §Named addressing via `:system-id`](005-StateMachines.md#named-addressing-via-system-id)). On the *declarative* `:spawn` path the reducer binds the id into the parent's `:data` under `[:rf/spawned <invoke-id>]` for free. The spawned actor's snapshot lives at `[:rf.runtime/machines :snapshots <gensym'd-id>]` in runtime-db (runtime-managed; the spawn-spec does not pick a location).
 
 **Deeper guidance — see the appendix.** When you need the inline-fn vs named-action escape-hatch test, the v1 grammar subset, the parallel-regions decision between `:type :parallel` and N-machines-per-region, or first-class history states (`:type :history`), consult [CP-5 Machine Guide](CP-5-MachineGuide.md). It's a sibling appendix to keep CP-5 itself a build-facing prompt rather than a second machine spec.
 

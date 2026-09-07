@@ -43,7 +43,7 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
 ;; The socket actor is spawned on the :active parent, so the runtime binds its
 ;; id into our own :data under the reserved :rf/spawned map, keyed by the
 ;; spawn-bearing state's path — [:active]. Read it straight back: there is NO
-;; :socket-id data key, no :on-spawn self-dispatch, and no :exit cleanup — the
+;; :socket-id data key, no spawn callback, and no :exit cleanup — the
 ;; runtime CLEARS the slot on teardown, so a torn-down socket reads nil on its
 ;; own (which is what makes :current-socket? a safe connection clock).
 (def socket-invoke-id [:active])
@@ -159,7 +159,7 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
      ;; via a client-only cofx inside its own JS context, then opens the
      ;; socket. The bearer never re-enters dispatch. The runtime binds the
      ;; newborn's id into :data under :rf/spawned [:active] — read via the
-     ;; socket-id helper above; no :on-spawn, no :exit cleanup (teardown
+     ;; socket-id helper above; no spawn callback, no :exit cleanup (teardown
      ;; clears the slot). See examples/patterns/websocket/connection.cljs.
      :spawn  {:machine-id :websocket/socket
                ;; :data fn takes ONE context-map arg {:keys [snapshot event]}.

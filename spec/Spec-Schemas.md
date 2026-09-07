@@ -486,7 +486,7 @@ The metadata stamped on the `:event` registry slot by `reg-machine` / `reg-machi
    EventHandlerMeta
    [:map
     [:rf/machine?  [:= true]]                                                ;; required true on machine-handler registrations
-    [:rf/machine   [:ref :rf/transition-table]]                              ;; the captured machine spec — a TransitionTable rooted at the machine. Carries :initial, :states, :guards, :actions, optional :data / :doc / :tags / :meta. When the macro path stamped it, each :guards / :actions / :on-spawn-actions entry co-locates :source-coords / :source-code on its `{:fn ..}` map, and each :states-tree map node (state-node / transition map) co-locates its own reference-site :source-coords directly (per [005 §Source-coord stamping](005-StateMachines.md#source-coord-stamping)).
+    [:rf/machine   [:ref :rf/transition-table]]                              ;; the captured machine spec — a TransitionTable rooted at the machine. Carries :initial, :states, :guards, :actions, optional :data / :doc / :tags / :meta. When the macro path stamped it, each :guards / :actions entry co-locates :source-coords / :source-code on its `{:fn ..}` map, and each :states-tree map node (state-node / transition map) co-locates its own reference-site :source-coords directly (per [005 §Source-coord stamping](005-StateMachines.md#source-coord-stamping)).
     ]])
 ```
 
@@ -2579,8 +2579,8 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
 ;; [005 §Registration](005-StateMachines.md#registration--the-machine-is-the-event-handler)
 ;; and [005 §Inspectability bias](005-StateMachines.md#inspectability-bias).
 ;;
-;; ELEMENT-ENTRY SHAPE. Each :guards / :actions / :on-spawn-actions
-;; entry value is a MachineElementEntry — a co-located `{:fn <fn> :source-coords
+;; ELEMENT-ENTRY SHAPE. Each :guards / :actions entry value is a
+;; MachineElementEntry — a co-located `{:fn <fn> :source-coords
 ;; .. :source-code ..}` map where `:fn` is the callback the runtime invokes and
 ;; `:source-coords` / `:source-code` are DEBUG-only (absent in production; the
 ;; macro elides them). As-written user source and programmatic `reg-machine*`
@@ -2593,7 +2593,7 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
 ;; co-locates its OWN reference-site `:source-coords` directly on the node —
 ;; DEBUG-only, absent in production (the macro elides it); there is no flat
 ;; side-index paralleling :states.
-;; Inline-fn / keyword slots (:entry / :exit / :guard / :action / :on-spawn)
+;; Inline-fn / keyword slots (:entry / :exit / :guard / :action)
 ;; hold a value, not a map, so they carry no coord of their own; a tool reads
 ;; the nearest enclosing map node's `:source-coords`. The runtime ignores the
 ;; key (it reads only :on / :states / :initial / :tags / … by name).
@@ -2628,7 +2628,6 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
                         [:internal-events {:optional true} [:set :keyword]] ;; root-only — EP-0029 A6 private-event list. A SET of keywords naming events the machine may `:raise` internally but external callers may NOT dispatch; enforced at the machine dispatch boundary (an external `(dispatch [machine-id [<internal-event>]])` is rejected). Internally-raised members still run through normal transition selection. A non-set value, or a set with a non-keyword member, is rejected at registration with `:rf.error/machine-bad-internal-events`. Per [005 §Public / private `:internal-events`](005-StateMachines.md#public--private-internal-events).
                         [:guards  {:optional true} [:map-of :keyword MachineElementEntry]]  ;; root-only — machine-local guard implementations; keys are referenced from :guard slots. Values are MachineElementEntry (bare fn as-written; co-located `{:fn .. :source-coords .. :source-code ..}` after macro stamping)
                         [:actions {:optional true} [:map-of :keyword MachineElementEntry]]  ;; root-only — machine-local action implementations; keys are referenced from :action / :entry / :exit slots
-                        [:on-spawn-actions {:optional true} [:map-of :keyword MachineElementEntry]] ;; root-only — optional map of named spawn-callbacks; consulted before :actions when an :on-spawn slot uses a keyword reference. See [005 §Registration](005-StateMachines.md#registration--the-machine-is-the-event-handler).
                         [:entry   {:optional true} ActionRef]               ;; one fn or one keyword reference into the machine's :actions map
                         [:exit    {:optional true} ActionRef]               ;; one fn or one keyword reference into the machine's :actions map
                         [:spawn  {:optional true} InvokeSpec]              ;; declarative spawn-on-entry / destroy-on-exit; at most one per state; see :rf/state-node §:spawn and [005 §Declarative :spawn](005-StateMachines.md#declarative-spawn)
@@ -2673,7 +2672,6 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
    [:definition {:optional true} [:ref ::state-node]]                       ;; inline transition table (root state-node)
    [:data       {:optional true} [:or :map fn?]]                            ;; literal initial data, OR (fn [{:keys [snapshot event]}] data) computed at entry time (unified context-map)
    [:id-prefix  {:optional true} :keyword]                                  ;; defaults to :machine-id; base for the gensym'd actor id
-   [:on-spawn   {:optional true} fn?]                                       ;; (fn [{:keys [data id]}] _) — advisory callback fired with the spawned id; return is ignored (runtime tracks the id at [:rf.runtime/machines :spawned <parent> <invoke-id>]).
    [:on-done    {:optional true} fn?]                                       ;; (fn [{:keys [data result]}] new-data) — fires synchronously when the spawned child enters a `:final?` state. `result` is the child's `:data` slot named by the final state's `:output-key`, or nil when `:output-key` is absent. Returns the parent's new `:data` map. Per [005 §Final states](005-StateMachines.md#final-states-final--on-done--output-key).
    [:on-error   {:optional true} [:or Transition [:vector Transition]]]      ;; CHILD-FAILURE control flow (XState v5 invoke `onError`) — an `:on`-SHAPED transition spec (NOT a fn like `:on-done`): a keyword target, a vector-path target, a single transition map `{:target :guard :action}`, or a guarded candidate vector. Fires when the spawned child FAILS — it reaches a designated error `:final?` leaf (`:error? true`, above), OR one of its actions throws an uncaught exception. The PARENT moves to the transition's `:target` (resolved at the `:spawn`-bearing state's OWN level — a keyword target is a sibling), running its `:guard` / `:action`; the error payload rides on the transition's `:event`. Success (`:on-done`) and failure (`:on-error`) are mutually exclusive per finish; both MAY be declared on one `:spawn` map. A malformed `:on-error` shape is rejected at registration with `:rf.error/machine-bad-on-error-clause`. Absent `:on-error` is fine — the trace + the dispatch-back-to-parent escape hatch remain. Per [005 §`:on-error`](005-StateMachines.md#on-error--child-failure-control-flow).
    [:start      {:optional true} [:vector :any]]                            ;; event vector dispatched to the newborn after spawn
@@ -2713,7 +2711,6 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
    [:definition  {:optional true} [:ref ::state-node]]                      ;; inline transition table (xor :machine-id)
    [:data        {:optional true} [:or :map fn?]]
    [:id-prefix   {:optional true} :keyword]
-   [:on-spawn    {:optional true} [:or :keyword fn?]]
    [:on-done     {:optional true} fn?]                                      ;; (fn [{:keys [data result]}] new-data) — folds the PARENT's :data at this child's finality, before the join fold
    [:start       {:optional true} [:vector :any]]
    [:fixed-actor-id {:optional true} :keyword]                              ;; explicit actor-address input (per-child singleton)
@@ -2898,7 +2895,7 @@ Stability invariants the implementation upholds (see [005 §Snapshot shape](005-
 3. Hot-reloading a definition does not invalidate snapshots whose `:state` is still a member. The history analogue: a **recorded** configuration in `:rf/history` that references a substate the reloaded definition removed is a *dangling recorded path* — on a restore-to-history transition the runtime discards it and falls back to the pseudo-state's `:default-target` (or the compound's `:initial`), never entering the dead path. Per [005 §Dangling recorded paths after hot reload](005-StateMachines.md#dangling-recorded-paths-after-hot-reload).
 4. `:rf/snapshot-version` mismatch between snapshot and definition emits `:rf.error/machine-snapshot-version-mismatch` (per [Spec 009 §Trace events](009-Instrumentation.md); older drafts spelled this `:rf.warning/machine-snapshot-version-mismatch`, the `:rf.error/` form is canonical).
 5. `:tags` is **read-only** for users — actions cannot return `:tags` in their `{:data :fx}` effect map; the runtime owns the slot and recomputes it from `:state` at every commit.
-6. `:rf/spawn-counter` is **read-only** for users — the runtime owns the slot and bumps it on every declarative-`:spawn` spawn. Apps that need to address a spawned actor by id read it from `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` (the runtime-owned registry) or via `:on-spawn` advisory bookkeeping — never from the counter directly.
+6. `:rf/spawn-counter` is **read-only** for users — the runtime owns the slot and bumps it on every declarative-`:spawn` spawn. Apps that need to address a spawned actor by id read it from the parent's own `:data` under `[:rf/spawned <invoke-id>]`, or from `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` (the runtime-owned registry) — never from the counter directly.
 7. `:rf/history` is **read-only** for users — the runtime owns the slot and writes it during the history-bearing compound's exit cascade. Actions cannot return `:rf/history` in their `{:data :fx}` effect map; the recorded configuration is derived from the active path at exit, not authored. Per [005 §The `:rf/history` snapshot slot](005-StateMachines.md#the-rfhistory-snapshot-slot).
 8. `:rf/spawned` (inside `:data`) is **read-only** for users — the runtime's pure transition reducer owns the slot and binds the assigned actor id under `[:rf/spawned <invoke-id>]` on every declarative `:spawn` / `:spawn-all`, the XState-context-parity capture. Actions READ it (`(get-in data [:rf/spawned <invoke-id>])`) to obtain the id of an actor they spawned and emit `[:rf.machine/destroy <id>]`, but MUST NOT write it. It is keyword-keyed / keyword-vector-valued (EDN-clean) and round-trips through `pr-str` / `read-string`, riding SSR hydration + Tool-Pair epoch replay with the rest of `:data`. Per [005 §Recording the spawned id user-side](005-StateMachines.md#recording-the-spawned-id-user-side).
 
@@ -4154,7 +4151,6 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
    [:definition    {:optional true} :any]                                   ;; an inline TransitionTable
    [:id-prefix     {:optional true} :keyword]                               ;; defaults to :machine-id; base for the gensym'd actor id
    [:data          {:optional true} :map]                                   ;; initial data; overrides definition default
-   [:on-spawn      {:optional true} fn?]                                    ;; (fn [{:keys [data id]}] _) — advisory callback; return is ignored.
    [:start         {:optional true} [:vector :any]]                         ;; event vector dispatched to the new actor immediately after spawn
    [:system-id     {:optional true} :keyword]                               ;; per [005 §Named addressing via :system-id]; binds [:rf.runtime/machines :system-ids <sid>] in the spawning frame
    ;; Runtime-stamped on declarative-:spawn spawns (per ; not user-supplied).
@@ -4163,7 +4159,7 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
    ;; spawns (those user-owned destroys are still hand-emitted with the actor id).
    [:rf/parent-id  {:optional true} :keyword]                               ;; parent machine's registration-id
    [:rf/invoke-id  {:optional true} [:vector :keyword]]                     ;; declarative spawn invocation path — absolute prefix-path of the :spawn-bearing state node (was `:rf/spawn-id`)
-   [:rf/spawned-id {:optional true} :keyword]])                             ;; resolved gensym'd id, threaded through so spawn-fx registers under the same id :on-spawn observed
+   [:rf/spawned-id {:optional true} :keyword]])                             ;; resolved gensym'd id, threaded through so spawn-fx registers under the id the reducer allocated
 
 ;; The spawned actor's snapshot lives at [:rf.runtime/machines :snapshots <gensym'd-id>] in the
 ;; active frame's app-db — runtime-managed; not part of the spawn-spec.

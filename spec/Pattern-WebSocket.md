@@ -74,8 +74,7 @@ The connection machine composes the locked substrate:
 ;; (leaving `:active` by any door), a torn-down socket reads as nil on its own —
 ;; no `:exit` action to null anything. That auto-clear is exactly what lets the
 ;; live id double as the connection's staleness clock. First-class :rf/spawned
-;; idiom (005 §Recording the spawned id user-side), preferred over an :on-spawn
-;; self-dispatch.
+;; idiom (005 §Recording the spawned id user-side).
 (defn- socket-id [data] (get-in data [:rf/spawned [:active]]))
 
 ;; The connection-epoch test itself, factored out because more than one guard
@@ -405,7 +404,7 @@ The connection machine composes the locked substrate:
               :data       (fn [{snap :snapshot}]
                             {:url      (-> snap :data :url)
                              :cred-ref (-> snap :data :cred-ref)})}
-              ;; Recording the socket-id needs no :on-spawn write and no
+              ;; Recording the socket-id needs no user write and no
               ;; :exit cleanup: on every declarative :spawn the runtime binds
               ;; the newborn actor's id into THIS machine's :data under
               ;; :rf/spawned, keyed by the :spawn-bearing state's path

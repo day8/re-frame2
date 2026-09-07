@@ -29,7 +29,7 @@ For the full treatment — the underlying model, the recognition kit, and the ra
   (reg-machine machine-id opts machine-spec)
   ```
 - **Description**: The canonical registration macro. Compiles the spec into a `reg-event` handler and captures per-element source for Xray.
-    - Walks the literal spec at expansion time. It attaches per-element source (`{:fn .. :source-coords .. :source-code ..}`) to each `:guards` / `:actions` / `:on-spawn-actions` entry, and a reference-site `:source-coords` to each `:states`-tree map node (state-node or transition map). Xray uses these to navigate from a snapshot back to the guard or action definition, or to the state-node.
+    - Walks the literal spec at expansion time. It attaches per-element source (`{:fn .. :source-coords .. :source-code ..}`) to each `:guards` / `:actions` entry, and a reference-site `:source-coords` to each `:states`-tree map node (state-node or transition map). Xray uses these to navigate from a snapshot back to the guard or action definition, or to the state-node.
     - Top-level call-site coords land on `handler-meta`.
     - The optional `opts` registration-metadata map sits in the middle slot. Its `:schema` key validates the dispatched outer event vector at the `:where :event` boundary. Any other keys ride onto the registration metadata.
     - The framework-owned `:rf/machine?` / `:rf/machine` keys are stamped by the registration home and must **not** appear in `opts`.
@@ -83,7 +83,7 @@ The snapshot lives at `[:rf.runtime/machines :snapshots :session]` in the frame'
   (defmachine name docstring machine-spec)
   ```
 - **Description**: Defines a machine-spec *value* with per-element source captured. It is a drop-in for `def` whose body is a literal machine-spec map.
-    - Walks the literal spec at expansion time. It attaches per-element source (`{:fn .. :source-coords .. :source-code ..}`) to each `:guards` / `:actions` / `:on-spawn-actions` entry, and a reference-site `:source-coords` to each `:states`-tree map node.
+    - Walks the literal spec at expansion time. It attaches per-element source (`{:fn .. :source-coords .. :source-code ..}`) to each `:guards` / `:actions` entry, and a reference-site `:source-coords` to each `:states`-tree map node.
     - The source is stamped on the value itself. When the value is later passed to `reg-machine`, `(rf/handler-meta {:source :store :kind :machine-guard :id [machine-id guard-id]})` and the Xray machine-cascade source rendering light up for value-registered machines exactly as for inline ones.
     - Needed because a plain `(def m {…})` + `(reg-machine :id m)` hands `reg-machine` only the symbol, so its literal-walk captures nothing. `defmachine` captures at the definition site.
     - The dev-only `:source-*` slots DCE under `:advanced` + `goog.DEBUG=false`.
@@ -263,7 +263,6 @@ The framework-registered subscription vectors and reserved effect tuples that ad
     - `:fixed-actor-id` — an explicit actor address; skips allocation.
     - `:system-id` — binds the actor in the frame's `[:rf.runtime/machines :system-ids]` reverse index. A collision emits `:rf.error/system-id-collision` and rebinds last-write-wins.
     - `:start` — a single event vector dispatched to the new actor as `[<spawned-id> <start>]`. When absent, the runtime dispatches the synthetic `[<spawned-id> [:rf.machine.spawn/spawned]]`.
-    - `:on-spawn` — an *advisory* callback `(fn [{:keys [data id]}] …)`. The return value is dropped. A non-nil return emits the dev-only `:rf.warning/on-spawn-return-ignored`.
     - Declarative `:spawn` state nodes accept the same keys plus `:on-done` / `:on-error` / `:timeout` / `:on-timeout`. On the declarative path, the framework binds the child's allocated id into the parent's `:data` at `[:rf/spawned <invoke-id>]`.
     - Fails closed when `:machine-id` names an unregistered type and no `:definition` is supplied (`:rf.error/machine-spawn-unregistered-type`). Backed by [`spawn-fx`](#re-framemachinesspawn-fx).
 - **Example**:
@@ -321,7 +320,7 @@ See [Final states](../machines/concepts.md#final-states) in [The table](../machi
   ```
 - **Description**: The action-side way one machine addresses its spawned child actor by *role* (`:logger`, `:websocket`, `:retry-coordinator`) instead of by allocated id.
     - Resolves `system-id` through the emitting frame's `[:rf.runtime/machines :system-ids]` reverse index (in runtime-db) and dispatches `event` to the bound actor. A no-op when the `system-id` is unbound.
-    - This is the canonical action-side surface. A machine action can't read app-db, and its `:on-spawn` return is dropped, so the fx form is how an action messages a named actor.
+    - This is the canonical action-side surface. A machine action can't read app-db, so the fx form is how an action messages a named actor.
     - Args ride as a single 2-element pair (the fx contract is a `[fx-id args]` pair).
     - Backed by [`dispatch-to-system-fx`](#re-framemachinesdispatch-to-system-fx). Retained for XState v6 actor-system parity (systemId addressing); zero in-repo consumers as of 2026-07-10.
 - **Example**:
@@ -358,7 +357,7 @@ See [Final states](../machines/concepts.md#final-states) in [The table](../machi
 
 ## Cross-machine messaging
 
-When a child actor spawns declaratively under a parent, the framework binds the child's allocated id into the parent's `:data` at `[:rf/spawned <invoke-id>]`. An `:on-spawn` callback cannot capture that id, because its return is dropped. Naming by `:system-id` lets the parent address the child by *role* without threading the id around. The action-side surface is the [`[:rf.machine/dispatch-to-system [system-id event]]`](#rfmachinedispatch-to-system-system-id-event) fx tuple (above) — a parked named-addressing escape retained for XState v6 actor-system parity, with zero in-repo consumers. The everyday cross-machine send is plain dispatch to the id you hold (a machine IS an event handler). The fx handler below backs that tuple.
+When a child actor spawns declaratively under a parent, the framework binds the child's allocated id into the parent's `:data` at `[:rf/spawned <invoke-id>]`. Naming by `:system-id` lets the parent address the child by *role* without threading the id around. The action-side surface is the [`[:rf.machine/dispatch-to-system [system-id event]]`](#rfmachinedispatch-to-system-system-id-event) fx tuple (above) — a parked named-addressing escape retained for XState v6 actor-system parity, with zero in-repo consumers. The everyday cross-machine send is plain dispatch to the id you hold (a machine IS an event handler). The fx handler below backs that tuple.
 
 ### `re-frame.machines/dispatch-to-system-fx`
 

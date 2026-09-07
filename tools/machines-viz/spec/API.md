@@ -1770,8 +1770,8 @@ encoder:
 2. Strips metadata off `:definition` AND structurally sanitises it
    (rf2-m285a). A macro-stamped spec (Spec 005 §Source-coord stamping)
    co-locates `:source-coords` / `:source-code` + executable `:fn` values
-   as ordinary DATA inside `:states` / `:guards` / `:actions` /
-   `:on-spawn-actions` — NOT as metadata — so `strip-meta` alone never
+   as ordinary DATA inside `:states` / `:guards` / `:actions` — NOT as
+   metadata — so `strip-meta` alone never
    reached them (a local-filesystem-path leak, and a live `:fn` would make
    Transit encoding fail). `sanitise-definition` recursively drops the
    `:source-coords` / `:source-code` debug fields and EXECUTABLE `:fn`

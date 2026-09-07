@@ -39,7 +39,7 @@
 
    - **`:rf/spawned` capture** — the parent reads the spawned socket
      actor's id straight from its own `:data :rf/spawned [:active]` slot (no
-     `:on-spawn` self-dispatch), and the runtime clears that slot on
+     spawn callback), and the runtime clears that slot on
      teardown, so the id is never stale.
 
    - **Request/reply correlation** — `:in-flight` map, request-id stamp,
