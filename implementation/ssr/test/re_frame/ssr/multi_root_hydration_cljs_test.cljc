@@ -283,6 +283,95 @@
            (rf.ssr.install/payload-content-digest {:rf/version 1 :rf/app-db {:b 2 :a 1}})))))
 
 ;; ---------------------------------------------------------------------------
+;; rf2-tax2 — nil is CONTENT in a payload, however it is spelled
+;; ---------------------------------------------------------------------------
+;;
+;; The digest used to be `render-tree-hash`, whose canonicalisation PRUNES
+;; nil — the right rule for a render tree (`[:div {:class nil}]` and
+;; `[:div {}]` emit the same HTML) and the wrong one for a data-identity
+;; test. Each pair below is `not=` as a Clojure value and used to produce
+;; ONE digest, so the second root was waved through as `:already-installed`
+;; and hydrated against a slice it never received.
+;;
+;; The three shapes are the three places the render-tree walk prunes, and
+;; they are asserted separately because they are three different code
+;; paths (map-entry removal, sequence-child skip, set-member keep).
+
+(defn- payload-with-app-db
+  "A payload literal carrying `db` verbatim — NOT the policy-built
+  `payload-for`, whose projection could itself normalise the nils these
+  tests are about. The digest is a function of the payload map it is
+  handed, so the literal is the honest input here."
+  [db]
+  {:rf/version 1 :rf/app-db db})
+
+(deftest nil-differences-in-payload-data-are-digest-differences
+  (testing "map PRESENCE: an explicit nil value is not an absent key"
+    (is (not= (rf.ssr.install/payload-content-digest (payload-with-app-db {:x nil}))
+              (rf.ssr.install/payload-content-digest (payload-with-app-db {})))))
+
+  (testing "vector POSITION: a nil slot is not a shorter vector"
+    (is (not= (rf.ssr.install/payload-content-digest (payload-with-app-db {:items [nil 7]}))
+              (rf.ssr.install/payload-content-digest (payload-with-app-db {:items [7]}))))
+    (is (not= (rf.ssr.install/payload-content-digest (payload-with-app-db {:items [7 nil]}))
+              (rf.ssr.install/payload-content-digest (payload-with-app-db {:items [nil 7]})))
+        "and position within the vector is content too"))
+
+  (testing "set MEMBERSHIP: nil is a member like any other"
+    (is (not= (rf.ssr.install/payload-content-digest (payload-with-app-db {:s #{nil 1}}))
+              (rf.ssr.install/payload-content-digest (payload-with-app-db {:s #{1}}))))))
+
+(deftest the-digest-stays-idempotent-for-genuinely-equal-payloads
+  (testing "preserving nil must not make equal payloads disagree — a digest
+            that never repeats turns every second root into a conflict,
+            which is the opposite failure"
+    (is (= (rf.ssr.install/payload-content-digest (payload-with-app-db {:x nil :items [nil 7] :s #{nil 1}}))
+           (rf.ssr.install/payload-content-digest (payload-with-app-db {:x nil :items [nil 7] :s #{nil 1}}))))
+
+    (testing "map insertion order is still not content"
+      (is (= (rf.ssr.install/payload-content-digest {:rf/app-db {:a nil :b 2} :rf/version 1})
+             (rf.ssr.install/payload-content-digest {:rf/version 1 :rf/app-db {:b 2 :a nil}}))))
+
+    (testing "set order is still not content"
+      (is (= (rf.ssr.install/payload-content-digest (payload-with-app-db {:s #{nil 1 :k}}))
+             (rf.ssr.install/payload-content-digest (payload-with-app-db {:s #{:k nil 1}})))))))
+
+(deftest a-nil-only-payload-difference-reaches-the-conflict-arm
+  (testing "the ledger is what the digest is FOR: two roots whose payloads
+            differ only by a preserved nil must meet
+            :rf.error/frame-payload-conflict, not :already-installed"
+    (let [payload-id :rf.multiroot/tax2-conflict
+          decision   (fn [payload root-id]
+                       (rf.ssr.install/payload-install-decision!
+                         'test payload-id
+                         (rf.ssr.install/payload-content-digest payload)
+                         root-id))]
+      (is (= :install (decision (payload-with-app-db {:items [nil 7]}) :page/a)))
+      (is (= :rf.error/frame-payload-conflict
+             (caught-error-id #(decision (payload-with-app-db {:items [7]}) :page/b))))))
+
+  (testing "and the genuinely identical second root is still the ratified
+            no-op — the guard above must not have been bought by breaking it"
+    (let [payload-id :rf.multiroot/tax2-idempotent
+          decision   (fn [payload root-id]
+                       (rf.ssr.install/payload-install-decision!
+                         'test payload-id
+                         (rf.ssr.install/payload-content-digest payload)
+                         root-id))]
+      (is (= :install (decision (payload-with-app-db {:items [nil 7]}) :page/a)))
+      (is (= :already-installed (decision (payload-with-app-db {:items [nil 7]}) :page/b))))))
+
+(deftest the-render-tree-hash-keeps-pruning-nil
+  (testing "the fix is a SECOND canonicalisation, not a change to the first:
+            Spec 011 §Hydration-mismatch detection still requires
+            [:div {:class nil}] and [:div {}] to hash alike, or the common
+            {:class (when …)} shape manufactures a spurious mismatch"
+    (is (= (rf.ssr/render-tree-hash [:div {:class nil} [:p "hi"]])
+           (rf.ssr/render-tree-hash [:div {} [:p "hi"]])))
+    (is (= (rf.ssr/render-tree-hash [:p "text" nil])
+           (rf.ssr/render-tree-hash [:p "text"])))))
+
+;; ---------------------------------------------------------------------------
 ;; Preflight step 1 — the manifest
 ;; ---------------------------------------------------------------------------
 

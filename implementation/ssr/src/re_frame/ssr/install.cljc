@@ -61,12 +61,15 @@
 
   ## Why a digest rather than payload equality
 
-  The digest is `re-frame.ssr.hash/render-tree-hash` — canonical EDN fed
-  through FNV-1a, byte-stable across JVM and CLJS and already
-  parity-pinned by `re-frame.ssr.hash-parity-fixtures`. Comparing digests
+  The digest is `re-frame.ssr.hash/data-hash` — canonical DATA EDN fed
+  through FNV-1a, byte-stable across JVM and CLJS. Comparing digests
   rather than whole payload maps keeps the ledger O(1) in the payload's
   size and makes the recorded evidence small enough to ride an error's
   `ex-data` without dragging a whole app-db into a diagnostic.
+
+  It is deliberately NOT the render-tree hash, whose nil-pruning is right
+  for a render tree and wrong for a data-identity test — see
+  `payload-content-digest` (rf2-tax2).
 
   ## What this namespace deliberately does NOT do
 
@@ -93,17 +96,29 @@
   (atom {}))
 
 (defn payload-content-digest
-  "-> the content digest of a hydration `payload`: the canonical-EDN
-  structural hash, lowercase hex.
+  "-> the content digest of a hydration `payload`: the canonical-DATA
+  structural hash (`re-frame.ssr.hash/data-hash`), lowercase hex.
 
-  Cross-host stable by construction — the same fn the render-tree hash
-  uses, whose JVM/CLJS byte-parity is pinned by
-  `re-frame.ssr.hash-parity-fixtures`. Two roots reading the SAME
-  `__rf_payload` script therefore compute the same digest on either host,
-  which is what makes `:already-installed` a reliable verdict rather than
-  a hopeful one."
+  Cross-host stable by construction — canonical EDN through the same
+  FNV-1a step and the same cross-runtime numeric print form the
+  render-tree hash uses. Two roots reading the SAME `__rf_payload` script
+  therefore compute the same digest on either host, which is what makes
+  `:already-installed` a reliable verdict rather than a hopeful one.
+
+  **Not the render-tree hash (rf2-tax2).** That hash PRUNES NIL, because
+  for a render tree `[:div {:class nil}]` and `[:div {}]` emit the same
+  HTML and must not manufacture a mismatch. A payload is not a render
+  tree: `{:x nil}` is not `{}`, `[nil 7]` is not `[7]`, and `#{nil 1}` is
+  not `#{1}`. Digesting payloads through the render-tree rules aliased all
+  three pairs DETERMINISTICALLY — not by hash accident — so a second root
+  carrying a genuinely different server slice was waved through as
+  `:already-installed` instead of raising
+  `:rf.error/frame-payload-conflict`, and hydrated against data it never
+  received. The render-tree rules are untouched and still right for their
+  own job; this asks a different question, so it uses a different
+  canonicalisation."
   [payload]
-  (rf.ssr.hash/render-tree-hash payload))
+  (rf.ssr.hash/data-hash payload))
 
 (defn installed-payload
   "-> the install record for `payload-id`, or `nil` when nothing is

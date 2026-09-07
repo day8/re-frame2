@@ -1,12 +1,48 @@
 (ns re-frame.ssr.hash
-  "Render-tree structural hashing. Per Spec 011 §Hydration-mismatch detection.
+  "SSR structural hashing — TWO canonicalisations over ONE hash function.
+
+  ## `render-tree-hash` — Spec 011 §Hydration-mismatch detection
 
   The server hashes the render-tree at SSR time; the client recomputes
   the hash on first render and compares. Mismatch = the runtime emits
   `:rf.ssr/hydration-mismatch` with both hashes. FNV-1a 32-bit over the
   canonical-EDN traversal of the render tree, output as lowercase hex.
   Same algorithm both sides means byte-identical hashes for byte-identical
-  canonical EDN."
+  canonical EDN.
+
+  Its canonicalisation PRUNES NIL — a nil map value, a nil sequence
+  element and a nil set member all vanish before the bytes are hashed.
+  That rule is correct and load-bearing FOR A RENDER TREE: `[:div {:class
+  nil}]` and `[:div {}]` emit the same HTML, so the common
+  `{:class (when selected? \"on\")}` shape must not manufacture a
+  mismatch. See `canonical-edn`.
+
+  ## `data-hash` — the hydration-payload install ledger (rf2-tax2)
+
+  A DIFFERENT question, and the nil rule inverts with it. The multi-root
+  install ledger (`re-frame.ssr.install`) asks \"is the payload arriving
+  under this id the SAME DATA as the one already installed?\", and for
+  ordinary app data nil is content: `{:x nil}` is not `{}`, `[nil 7]` is
+  not `[7]`, `#{nil 1}` is not `#{1}`. Hashing a payload through the
+  render-tree rules made all three pairs collide DETERMINISTICALLY — not
+  by hash accident, by canonicalisation — so a second root carrying a
+  genuinely different server slice was waved through as
+  `:already-installed` and hydrated index-based content against the wrong
+  data, silently, where the ledger exists to fail loud.
+
+  `data-hash` therefore canonicalises data as DATA: nil preserved
+  everywhere, map insertion order still irrelevant, set order still
+  irrelevant, sequence position significant. It is NOT a replacement for
+  the render-tree rules and does not touch them — the two canonicalisers
+  answer different questions and both are right for their own.
+
+  ## What they share
+
+  `fnv-1a-32` (the bytes → hex step) and `canonical-number` (the
+  cross-runtime numeric print form). Both hashes are therefore
+  byte-identical on JVM and CLJS for the same logical input, which is
+  what lets two roots reading one `__rf_payload` script agree on either
+  host."
   (:require [clojure.string]))
 
 ;; Reflection warnings guard the primitive JVM hash loop against boxing.
@@ -416,3 +452,101 @@
      (let [accumulator (array)]
        (canonical-edn-into accumulator render-tree)
        (fnv-1a-32 (.join accumulator "")))))
+
+;; ---- canonical DATA EDN (rf2-tax2) ----------------------------------------
+;;
+;; The nil-PRESERVING sibling of the render-tree walker above, for callers
+;; asking "is this the same DATA?" rather than "does this render the same?".
+;; See the namespace docstring for why the two rules must differ.
+;;
+;; Deliberately a separate, plain string-building walk rather than a flag
+;; threaded through `canonical-edn-into`:
+;;
+;;   - the render-tree walk is the HOT path (once per server render, once per
+;;     client verify, over a whole tree) and is allocation-tuned around a
+;;     single accumulator; a branch or a dynamic read per node would be paid
+;;     by every node of every tree to serve a caller that runs ONCE PER ROOT
+;;     over one payload map;
+;;   - its output is pinned byte-for-byte by
+;;     `re-frame.ssr.hash-parity-fixtures`, and the cheapest way to keep that
+;;     pin honest is to leave the walk it pins untouched.
+;;
+;; What is shared is what MUST agree cross-runtime: `canonical-number` and
+;; `fnv-1a-32`.
+
+(defn canonical-data-edn
+  "Canonical EDN of a DATA value — nil PRESERVED. -> a string.
+
+  The rules, and each is the DIFFERENCE from `canonical-edn` or the reason
+  it is the same:
+
+    - **nil is content.** `nil` prints as `\"nil\"` wherever it appears —
+      as a map value, a sequence element, a set member or the whole value.
+      `{:x nil}` and `{}` therefore differ, as do `[nil 7]` / `[7]` and
+      `#{nil 1}` / `#{1}`. This is the whole reason the fn exists
+      (rf2-tax2). There is no sentinel and so no sentinel collision: `nil`
+      is an EDN literal and `pr-str` already distinguishes it from the
+      STRING `\"nil\"` (which prints with its quotes).
+
+    - **Map insertion order is not content**, so entries are emitted sorted
+      by the canonical form of their KEY — the same total order
+      `canonical-edn` uses, and for the same reason (rf2-mff1ht): `str`
+      alone collides a keyword `:a` with the string `\":a\"`, while their
+      canonical forms differ.
+
+    - **Set order is not content**, so members are emitted sorted by their
+      own canonical form.
+
+    - **Sequence position IS content**, so vectors and seqs keep their
+      order and are distinguished from each other (`[…]` vs `(…)`).
+
+    - **Numbers go through `canonical-number`**, so a JVM `1.0` and a CLJS
+      `1` — the SAME IEEE double, printed differently by the two hosts —
+      agree. That unification is not a nil-style collision: CLJS cannot
+      represent the two apart at all, so preserving the JVM's distinction
+      would break the cross-host agreement the ledger depends on.
+
+    - **Everything else is `pr-str`**, which is total over EDN. A payload
+      is data — the deserialised `__rf_payload` — so a non-data value in
+      one (a raw fn, a foreign JS object) is a caller error; it hashes by
+      its host print form, which makes two such payloads DISAGREE and fail
+      loud as a conflict rather than alias silently. That is the safe
+      direction for a ledger, and the opposite of what the render-tree
+      walk deliberately does for fns."
+  [value]
+  (cond
+    (map? value)
+    (str "{"
+         (->> value
+              (sort-by (comp canonical-data-edn key))
+              (map (fn [[map-key entry-value]]
+                     (str (canonical-data-edn map-key) " "
+                          (canonical-data-edn entry-value))))
+              (clojure.string/join ","))
+         "}")
+
+    (vector? value)
+    (str "[" (clojure.string/join " " (map canonical-data-edn value)) "]")
+
+    (set? value)
+    (str "#{" (clojure.string/join " " (sort (map canonical-data-edn value))) "}")
+
+    (sequential? value)
+    (str "(" (clojure.string/join " " (map canonical-data-edn value)) ")")
+
+    (number? value)
+    (canonical-number value)
+
+    :else
+    (pr-str value)))
+
+(defn data-hash
+  "A stable structural hash of a DATA value — nil preserved. Lowercase
+  hex, FNV-1a 32-bit over `canonical-data-edn`, byte-identical on JVM and
+  CLJS for the same logical value.
+
+  The install ledger's content digest (`re-frame.ssr.install/payload-content-digest`).
+  Use `render-tree-hash` for hydration-mismatch detection — see the
+  namespace docstring for the one rule that separates them."
+  [value]
+  (fnv-1a-32 (canonical-data-edn value)))
