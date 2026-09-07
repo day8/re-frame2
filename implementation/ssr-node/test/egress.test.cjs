@@ -1270,3 +1270,68 @@ test('and the OPERATOR gets the uncontracted fault, because nothing else would',
   );
   assert.ok(run.stderr.includes(CLONE_SENTINEL), 'the operator copy must be the REAL fault');
 });
+
+// ---------------------------------------------------------------------------
+// 8. THE OTHER ARM OF `isolate-lost` — a thread that EXITS rather than
+//    crashing (rf2-rhyi).
+//
+// `:rf.ssr-node/isolate-lost` covers three distinct causes — a crashed
+// worker, a worker that exited, and a replacement that will not boot — and
+// they are told apart by detail SHAPE alone. Section 5 above pins the
+// CRASH arm's shape: `isolate`, `threadId`, `afterChunks`. These rows pin
+// the EXIT arm's, which reached the same code and the same wording with an
+// empty detail map, so a consumer holding the two side by side could not
+// say which isolate had gone.
+//
+// The fixture is the discriminator: `exits.cjs` throws nothing at all, so
+// no `'error'` event is ever raised and only `worker.on('exit')` can be
+// what answered.
+// ---------------------------------------------------------------------------
+
+const exitReq = (entry) => ({ protocol: 1, entry, state: { ':for-exit': 'x' } });
+
+test('an isolate that EXITS mid-render names WHICH isolate and WHICH thread', async () => {
+  await withService('exits', { isolates: 1 }, async (service) => {
+    const err = await refusalOf(() => collect(service, exitReq('app/exits')));
+    assert.ok(err, 'the render must not have succeeded');
+    assert.strictEqual(err.code, CODE.ISOLATE_LOST, 'the fault is what it is');
+
+    // The claim. The same three service-owned fields the crash arm supplies
+    // — nothing here originates in the render module, which authored no
+    // failure at all.
+    assert.deepStrictEqual(
+      Object.keys(err.detail).sort(),
+      ['afterChunks', 'isolate', 'threadId'],
+      'the exit arm must identify the isolate the way its sibling arm does',
+    );
+    assert.strictEqual(typeof err.detail.isolate, 'number', 'which isolate went');
+    assert.strictEqual(typeof err.detail.threadId, 'number', 'and the thread an operator will look for');
+    assert.strictEqual(err.detail.afterChunks, 0, 'nothing was written, so nothing is torn');
+
+    // The wording and the code are UNCHANGED by this — a detail-map gap is
+    // not a licence to restate the refusal.
+    assert.strictEqual(err.message, 'the isolate exited mid-render', 'the wording is not a policy change');
+  });
+});
+
+test('and a TORN exit still names the count beside the identifying fields', async () => {
+  // The second half, because a shape assertion on the clean path alone
+  // would not notice `afterChunks` being displaced by the two new fields.
+  await withService('exits', { isolates: 1 }, async (service) => {
+    const chunks = [];
+    const err = await refusalOf(async () => {
+      for await (const frame of service.renderFrames(exitReq('app/exits-torn'))) {
+        if (frame.type === 'chunk') chunks.push(frame.html);
+      }
+    });
+    assert.strictEqual(chunks.length, 1, 'the chunk really did reach the caller');
+    assert.strictEqual(err.code, CODE.ISOLATE_LOST, 'the distinction is kept');
+    assert.strictEqual(err.detail.afterChunks, 1, 'the tear is named, with its exact count');
+    assert.strictEqual(typeof err.detail.threadId, 'number', 'and the thread is still named');
+    assert.deepStrictEqual(
+      Object.keys(err.detail).sort(),
+      ['afterChunks', 'isolate', 'threadId'],
+      'identifying the isolate must not have added a field beyond the three',
+    );
+  });
+});
