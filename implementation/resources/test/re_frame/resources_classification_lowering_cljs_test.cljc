@@ -158,12 +158,16 @@
       (rf.frame/swap-runtime-db! :reg/frame (constantly lowered))
       ;; …then a GENERIC registry reader (elide-wire-value over the frame's
       ;; registry) redacts the declared :data :ssn path of the entry value.
+      ;; The walker's opts map is CLOSED (rf2-kuky.6): a `:rf.egress/profile`
+      ;; names a BOUNDARY and belongs to `project-egress`, which resolves it to
+      ;; the `:rf.size/*` opt-set below before delegating here. Spelt directly,
+      ;; this IS what `:rf.egress/off-box-tool` resolves to.
       (let [entry-data (get-in lowered [rf.resources.state/resources-key :entries k-id :data])
             projected  (rf/elide-wire-value
                          entry-data
                          {:frame :reg/frame
                           :path  [:rf.runtime/resources :entries k-id :data]
-                          :rf.egress/profile :rf.egress/off-box-tool})]
+                          :rf.size/include-digests? true})]
         (is (= :rf/redacted (:ssn projected))
             "the registry reader redacts the resource-declared :data :ssn path")
         (is (= "Alice" (:name projected))
