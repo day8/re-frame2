@@ -815,6 +815,19 @@
 ;; publication is safe to re-run, and only it moves.
 (rf.late-bind/set-fn! :live-frame/on-frame-destroyed! release-frame-generation-pool!)
 
+;; rf2-ifzi — the generation-resolution seam itself, published for the ONE
+;; consumer that must resolve a registration in a NAMED frame's universe from a
+;; namespace that cannot require this one: `re-frame.projection`, whose event
+;; slot applies the dispatched handler's own registration classification. That
+;; ns deliberately depends on nothing but `elision` / `error` / `late-bind`, so
+;; the seam reaches it by key, exactly as `:live-frame/flush-projection!` does.
+;; Published at NS LOAD for the reason `:live-frame/on-frame-destroyed!` above
+;; is: a `defonce`-guarded once-body is skipped on every reload after the first
+;; frame is constructed, so a hot-reloaded process would silently lose the key.
+;; Idempotent (keyed `set-fn!`), and it roots no reprojection graph beyond what
+;; `call-with-frame-resolution` already is.
+(rf.late-bind/set-fn! :live-frame/call-with-frame-resolution call-with-frame-resolution)
+
 ;; ===========================================================================
 ;; Construction-window pool mark (rf2-djkr0)
 ;; ===========================================================================
