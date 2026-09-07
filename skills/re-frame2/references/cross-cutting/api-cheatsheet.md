@@ -123,7 +123,7 @@ The view-tree assertion axis (commonly aliased `:as h`). Walk hiccup by `:data-t
 
 ## SSR — `day8/re-frame2-ssr`
 
-`ssr/` is `[re-frame.ssr :as ssr]`; `head/` is `[re-frame.ssr.head :as head]`. Only the two REGISTRARS (`rf/reg-head`, `rf/reg-error-projector`) ride the `re-frame.core` façade — the query surface has no `rf/` copy (rf2-kuky.44).
+`ssr/` is `[re-frame.ssr :as ssr]`; `head/` is `[re-frame.ssr.head :as head]`. Only the two REGISTRARS (`rf/reg-head`, `rf/reg-error-projector`) ride the `re-frame.core` façade — the query surface has no `rf/` copy, because requiring `re-frame.ssr` is what installs SSR in the first place (spec/API.md §SSR).
 
 | Surface | Shape |
 |---|---|

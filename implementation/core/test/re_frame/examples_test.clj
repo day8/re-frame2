@@ -102,8 +102,8 @@
   ;; clear-all! also drops the SSR registrations that fire at re-frame.ssr
   ;; load time — the `:rf/hydrate` event, the `:rf.ssr/check-*` fxs, the six
   ;; `:rf.server/*` fxs, the `:rf.server/request` cofx — AND the late-bind
-  ;; hooks (`:ssr/on-frame-destroyed`, `:ssr/render-to-string`,
-  ;; `:ssr/render-tree-hash`). The ssr example's client-hydration tests
+  ;; hooks (`:ssr/on-frame-destroyed`, `:ssr/reg-error-projector`,
+  ;; `:ssr/reg-head`). The ssr example's client-hydration tests
   ;; dispatch `:rf/hydrate` and its lifecycle tests rely on `destroy-frame!`
   ;; firing `:ssr/on-frame-destroyed` to release the per-request request slot;
   ;; both need these resurrected. Transitive require from the example ns is

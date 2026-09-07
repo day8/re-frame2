@@ -621,7 +621,7 @@
   (let [;; Single `with-frame` block covers the frame-aware stages: the
         ;; body render (root-view resolution — a 0-arity fn may close over
         ;; subscribe-time reads — and the render walk's subs on registered
-        ;; views), head resolution (`head/active-head` reads the frame's route
+        ;; views), head resolution (`rf.ssr.head/active-head` reads the frame's route
         ;; registry), AND the hydration-payload build. One push/pop per
         ;; request.
         explicit-head (:head opts)

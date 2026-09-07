@@ -15,7 +15,7 @@ Ships in a separate artefact (`day8/re-frame2-ssr`); add it to your deps and req
 
 The `re-frame.core` facade re-exports exactly two SSR surfaces, both REGISTRARS: the macros `rf/reg-head` and `rf/reg-error-projector`. They are late-bound wrappers — when the artefact is on the classpath they resolve to this namespace at call time; when it is not, they throw a clear "SSR not loaded" error naming the artefact and the namespace to require.
 
-Everything else is reached at home. `ssr/render-to-string`, `ssr/render-tree-hash`, `ssr/project-error`, `ssr/head-model->html` and `ssr/hydrate!` live here; `head/render-head` and `head/active-head` live on the sibling [`re-frame.ssr.head`](#the-head-model). There is no façade copy of any of them, because loading `re-frame.ssr` is what installs the SSR runtime in the first place — an app that server-renders has necessarily required it (rf2-kuky.44). Examples below use `ssr/` throughout, and `head/` for the two head reads.
+Everything else is reached at home. `ssr/render-to-string`, `ssr/render-tree-hash`, `ssr/project-error`, `ssr/head-model->html` and `ssr/hydrate!` live here; `head/render-head` and `head/active-head` live on the sibling [`re-frame.ssr.head`](re-frame.ssr.head.md). There is no façade copy of any of them, because loading `re-frame.ssr` is what installs the SSR runtime in the first place — an app that server-renders has necessarily required it (rf2-kuky.44). Examples below use `ssr/` throughout, and `head/` for the two head reads.
 
 ## Rendering primitives
 
