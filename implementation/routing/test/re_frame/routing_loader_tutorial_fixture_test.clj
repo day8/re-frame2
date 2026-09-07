@@ -85,10 +85,10 @@
             {})))
 
       ;; 1. Open A; loader captures A's token.
-      (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}])
       (rf/dispatch-sync [:app/load-article])
       ;; 2. Navigate to B BEFORE A's reply lands; loader captures B's token.
-      (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/B" {:rf.route/cause :link}])
       (rf/dispatch-sync [:app/load-article])
       ;; 3. A's reply lands LATE, carrying A's stale token → suppressed.
       (rf/dispatch-sync [:app/article-arrived (@captured "A") "A" "A-payload"])

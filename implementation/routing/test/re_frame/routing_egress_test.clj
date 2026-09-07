@@ -248,7 +248,7 @@
         (is (re-find (re-pattern sentinel-str) scrubbed)
             "carrier values replaced with the rf/redacted sentinel"))
       (rf/register-listener! :trace ::miss (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf.route/transitioned raw])
+      (rf/dispatch-sync [:rf.route/handle-url-change raw {:rf.route/cause :link}])
       (rf/unregister-listener! :trace ::miss)
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). The two
       ;; `(not (re-find …))` legs are NEGATIVE: with no trace `url` is nil and
@@ -285,7 +285,7 @@
   (rf/reg-sub :editor/can-leave? (fn [db _] (not (get-in db [:editor :dirty?]))))
   (rf.fx/reg-fx :rf.nav/push-url    {:platforms #{:server :client}} (fn [_ _] nil))
   (rf.fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil))
-  (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
+  (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}])
   (rf/dispatch-sync [:editor/dirty true]))
 
 (deftest navigation-blocked-trace-redacts-requested-url-carriers
@@ -410,7 +410,7 @@
   (rf/reg-sub   :auth/signed-in? (fn [_ _] false))
   (rf.fx/reg-fx :rf.nav/push-url    {:platforms #{:server :client}} (fn [_ _] nil))
   (rf.fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil))
-  (rf/dispatch-sync [:rf.route/transitioned "/home"]))
+  (rf/dispatch-sync [:rf.route/handle-url-change "/home" {:rf.route/cause :link}]))
 
 (defn- traced-event-payload
   "Run `f` with a trace listener attached and return the arg-map of the first
@@ -732,7 +732,7 @@
                  :large     [[:query :payload]]
                  :query     [:map [:token :string] [:payload :string]]}
                 "/oauth")
-  (rf/dispatch-sync [:rf.route/transitioned "/oauth?token=secret123&payload=blobdata"]))
+  (rf/dispatch-sync [:rf.route/handle-url-change "/oauth?token=secret123&payload=blobdata" {:rf.route/cause :link}]))
 
 (defn- route-slice
   "The raw current route slice from :rf/default's runtime-db — exactly what the
@@ -786,7 +786,7 @@
     (rf/reg-route :route/oauth
                   {:sensitive [[:query :token]] :query [:map [:token :string]]}
                   "/oauth")
-    (rf/dispatch-sync [:rf.route/transitioned "/oauth?token=secret123"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/oauth?token=secret123" {:rf.route/cause :link}])
     (let [query-map (get-in (route-slice) [:query])
           projected (project-sub-run-trace :rf.route/query query-map)]
       (is (= rf.privacy/redacted-sentinel (:token projected))
@@ -795,7 +795,7 @@
     (rf/reg-route :route/upload
                   {:sensitive [[:params :secret]]}
                   "/upload/:secret")
-    (rf/dispatch-sync [:rf.route/transitioned "/upload/topsecret"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/upload/topsecret" {:rf.route/cause :link}])
     (let [params-map (get-in (route-slice) [:params])
           projected  (project-sub-run-trace :rf.route/params params-map)]
       (is (= rf.privacy/redacted-sentinel (:secret projected))
@@ -836,13 +836,13 @@
     (rf/reg-route :route/oauth
                   {:sensitive [[:query :token]] :query [:map [:token :string]]}
                   "/oauth")
-    (rf/dispatch-sync [:rf.route/transitioned "/oauth?token=secret123"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/oauth?token=secret123" {:rf.route/cause :link}])
     (let [query-map (get-in (route-slice) [:query])
           elided    (rf/elide-wire-value query-map {:query-v [:rf.route/query] :frame :rf/default})]
       (is (= rf.privacy/redacted-sentinel (:token elided))
           ":rf.route/query value redacts via the :query-v re-seed"))
     (rf/reg-route :route/upload {:sensitive [[:params :secret]]} "/upload/:secret")
-    (rf/dispatch-sync [:rf.route/transitioned "/upload/topsecret"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/upload/topsecret" {:rf.route/cause :link}])
     (let [params-map (get-in (route-slice) [:params])
           elided     (rf/elide-wire-value params-map {:query-v [:rf.route/params] :frame :rf/default})]
       (is (= rf.privacy/redacted-sentinel (:secret elided))

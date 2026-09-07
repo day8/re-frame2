@@ -360,7 +360,7 @@
 (defn malformed-url?
   "Public predicate: true when `url`'s percent-encoding is malformed in
   any of its decode'd portions — any non-empty path segment, any query
-  key or value, or the `#fragment`. Used by `:rf.route/transitioned` /
+  key or value, or the `#fragment`. Used by
   `:rf.route/handle-url-change` to discriminate the bare route-miss case
   (`{:url url}`) from the malformed-URL fail-closed case
   (`{:url url :reason :malformed-url}`) — both end up at

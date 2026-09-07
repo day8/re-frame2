@@ -352,7 +352,7 @@
       (rf/dispatch-sync [:rf.route/navigate {:to :page}])
       (rf/dispatch-sync [:rf.route/url-requested {:url "/page"}])
       (rf/dispatch-sync [:rf.route/handle-url-change "/page"])
-      (rf/dispatch-sync [:rf.route/transitioned "/page"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/page" {:rf.route/cause :link}])
       (is (zero? @leave) ":can-leave was NOT evaluated on an exact no-op")
       (is (zero? @enter) ":can-enter was NOT evaluated on an exact no-op"))))
 
@@ -381,7 +381,7 @@
 
 (deftest link-door-decides-exactly-once
   (testing "the link door decides ONCE — the synthesised
-            :rf.route/transitioned carries the internal :rf.route/decided?
+            :rf.route/handle-url-change carries the internal :rf.route/decided?
             rider, so an ALLOWED link click does not re-run the guards"
     (let [leave (atom 0) enter (atom 0)]
       (counting-guards! leave enter)

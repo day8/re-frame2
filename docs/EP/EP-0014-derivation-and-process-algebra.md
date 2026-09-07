@@ -1052,7 +1052,6 @@ Spec 012 already gives the route slice (one name per fact, per EP-0007):
  :refinement :route-fact
  :source-form {:kind :reg-route :id :route/article}
  :inputs [[:event :rf.route/navigate]
-          [:event :rf.route/transitioned]
           [:event :rf.route/handle-url-change]]
  :output [:runtime [:rf.runtime/routing :current]]
  :storage :runtime-db

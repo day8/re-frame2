@@ -37,7 +37,7 @@
  :fixture/frame-config {:initial-events [[:rf/init]]}
 
  :fixture/dispatches
- [[:rf.route/transitioned "/dashboard"]]
+ [[:rf.route/handle-url-change "/dashboard" {:rf.route/cause :link}]]
 
  :fixture/expect
  {;; The later loader ran despite the earlier throw (fire-and-forget FIFO).

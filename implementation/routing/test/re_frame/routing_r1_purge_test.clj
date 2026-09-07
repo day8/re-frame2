@@ -154,7 +154,7 @@
         (rf/reg-route :route/boom {:on-match [[:load/boom]]} "/boom")
         (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
 
-        (rf/dispatch-sync [:rf.route/transitioned "/boom"])
+        (rf/dispatch-sync [:rf.route/handle-url-change "/boom" {:rf.route/cause :link}])
 
         (is (empty? @seen)
             "no retired registration ran — none survived the reload")

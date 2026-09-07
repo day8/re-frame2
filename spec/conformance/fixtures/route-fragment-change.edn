@@ -30,14 +30,14 @@
 
  :fixture/dispatches
  [;; Step 1: Navigate to /docs/routing#scroll-restoration. :on-match fires once.
-  [:rf.route/transitioned "/docs/routing#scroll-restoration"]
+  [:rf.route/handle-url-change "/docs/routing#scroll-restoration" {:rf.route/cause :link}]
 
   ;; Step 2: Same path, same params, different fragment.
   ;; :fragment updates; :on-match does NOT fire; :rf.route/fragment-changed trace fires.
-  [:rf.route/transitioned "/docs/routing#caching"]
+  [:rf.route/handle-url-change "/docs/routing#caching" {:rf.route/cause :link}]
 
   ;; Step 3: Different path (still has a fragment). :on-match DOES re-fire.
-  [:rf.route/transitioned "/docs/instrumentation#scroll-restoration"]]
+  [:rf.route/handle-url-change "/docs/instrumentation#scroll-restoration" {:rf.route/cause :link}]]
 
  :fixture/expect
  {:final-app-db {:load-count 2}

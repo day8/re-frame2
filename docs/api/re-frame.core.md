@@ -1336,7 +1336,7 @@ Read a machine's snapshot with the ordinary `subscribe`, naming its framework su
 
 ### Routing → [re-frame.routing.md](re-frame.routing.md)
 
-Routes are data; the current route lives in runtime-db (read via the `:rf/route` sub). Keyword surfaces (`:rf.route/navigate`, `:rf.route/transitioned`, `:rf.route/url-requested` events; `[:rf.nav/push-url …]` / `[:rf.nav/replace-url …]` / `[:rf.nav/scroll …]` fx; the `:rf/route` sub family) live in the routing doc.
+Routes are data; the current route lives in runtime-db (read via the `:rf/route` sub). Keyword surfaces (`:rf.route/navigate`, `:rf.route/handle-url-change`, `:rf.route/url-requested` events; `[:rf.nav/push-url …]` / `[:rf.nav/replace-url …]` / `[:rf.nav/scroll …]` fx; the `:rf/route` sub family) live in the routing doc.
 
 #### `reg-route`
 

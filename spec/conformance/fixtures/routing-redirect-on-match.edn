@@ -34,7 +34,7 @@
  :fixture/dispatches
  ;; Visiting /old/cart triggers the legacy route's :on-match, which
  ;; dispatches :rf.route/navigate to the canonical :route/cart.
- [[:rf.route/transitioned "/old/cart"]]
+ [[:rf.route/handle-url-change "/old/cart" {:rf.route/cause :link}]]
 
  :fixture/expect
  ;; Slice ends up on :route/cart (the redirect target). :rf.route/navigate
@@ -42,7 +42,7 @@
  {:final-runtime-db {:rf.runtime/routing {:current {:route-id :route/cart :params {} :query {} :error nil}}}
 
   :trace-emissions
-  [;; Token allocated for the legacy route (:rf.route/transitioned branch).
+  [;; Token allocated for the legacy route (:rf.route/handle-url-change branch).
    {:operation :rf.route.nav-token/allocated
     :tags      {:route-id :route/legacy-cart}}
 

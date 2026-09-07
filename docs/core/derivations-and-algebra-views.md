@@ -385,7 +385,7 @@ A route lowers the same way, with a twist worth pausing on: every route material
 the *same* route fact — `:rf/route`, the one consumer-facing name for the route slice
 in runtime-db — with the per-route id recorded in `:source-form` and evaluation
 `:on-route`. Its `:inputs` are the framework route-transition events
-(`:rf.route/navigate`, `:rf.route/transitioned`, `:rf.route/handle-url-change`), the
+(`:rf.route/navigate`, `:rf.route/handle-url-change`), the
 same across every route, because the same events materialize the slice no matter which
 route matched.
 

@@ -41,8 +41,8 @@
             routing partition — the counters live host-side"
     (rf/reg-route :route/a {} "/a")
     (rf/reg-route :route/b {} "/b")
-    (rf/dispatch-sync [:rf.route/transitioned "/a"])
-    (rf/dispatch-sync [:rf.route/transitioned "/b"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/a" {:rf.route/cause :link}])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/b" {:rf.route/cause :link}])
     (let [routing-rt (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                              [:rf.runtime/routing])]
       (is (= "nav-2" (get-in routing-rt [:current :nav-token]))
@@ -65,9 +65,9 @@
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
 
     ;; Three navigations advance the host counter to its high-water mark.
-    (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])  ;; nav-1
-    (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])  ;; nav-2
-    (rf/dispatch-sync [:rf.route/transitioned "/articles/C"])  ;; nav-3
+    (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}])  ;; nav-1
+    (rf/dispatch-sync [:rf.route/handle-url-change "/articles/B" {:rf.route/cause :link}])  ;; nav-2
+    (rf/dispatch-sync [:rf.route/handle-url-change "/articles/C" {:rf.route/cause :link}])  ;; nav-3
     (is (= "nav-3" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                            [:rf.runtime/routing :current :nav-token]))
         "third navigation is the live nav-3")
@@ -101,7 +101,7 @@
       ;; Navigate again. The fresh token must EXCEED every pre-restore token
       ;; — i.e. nav-4, NOT a recycled nav-1 / nav-2 / nav-3 that could
       ;; collide with the pre-restore in-flight "nav-1" continuation.
-      (rf/dispatch-sync [:rf.route/transitioned "/articles/D"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/D" {:rf.route/cause :link}])
       (let [fresh (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                           [:rf.runtime/routing :current :nav-token])]
         (is (= "nav-4" fresh)
@@ -117,8 +117,8 @@
             restored runtime-db carrying a STALE counter cannot drive a
             recycle"
     (rf/reg-route :route/x {:params [:map [:id :string]]} "/x/:id")
-    (rf/dispatch-sync [:rf.route/transitioned "/x/1"])  ;; nav-1
-    (rf/dispatch-sync [:rf.route/transitioned "/x/2"])  ;; nav-2
+    (rf/dispatch-sync [:rf.route/handle-url-change "/x/1" {:rf.route/cause :link}])  ;; nav-1
+    (rf/dispatch-sync [:rf.route/handle-url-change "/x/2" {:rf.route/cause :link}])  ;; nav-2
 
     ;; A maliciously-stale restore even plants an old counter value in the
     ;; runtime-db (a v1-shaped snapshot). The handler ignores it — it reads
@@ -132,7 +132,7 @@
                             ;; stale counter planted in the restored slice
                             :nav-token-counter 1}})
 
-    (rf/dispatch-sync [:rf.route/transitioned "/x/3"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/x/3" {:rf.route/cause :link}])
     ;; The planted runtime-db `:nav-token-counter 1` would have driven the
     ;; next alloc to "nav-2" if the allocator read runtime-db. It does NOT —
     ;; it reads the HOST high-water mark (2), so the next token is "nav-3".
@@ -166,7 +166,7 @@
     (rf.fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil))
 
     ;; Land on the editor (active route with a blocking :can-leave).
-    (rf/dispatch-sync [:rf.route/transitioned "/editor"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/editor" {:rf.route/cause :link}])
     ;; Attempt to leave — the guard blocks → pending-navigation is written.
     (rf/dispatch-sync [:rf.route/url-requested {:url "/home"}])
 
@@ -225,7 +225,7 @@
     (rf/make-frame {:id :rf.test/scratch :url-bound? true})
     (rf/reg-route :route/s {} "/s")
     (rf/with-frame :rf.test/scratch
-      (rf/dispatch-sync [:rf.route/transitioned "/s"]))
+      (rf/dispatch-sync [:rf.route/handle-url-change "/s" {:rf.route/cause :link}]))
     (is (= 1 (:nav-token-counter (rf.routing.nav-counters/counter-snapshot :rf.test/scratch)))
         "the scratch frame accrued a host counter entry")
     (rf.frame/destroy-frame! :rf.test/scratch)

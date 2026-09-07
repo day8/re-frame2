@@ -146,7 +146,7 @@
                   "/oauth")
     (is (empty? (route-sensitive-paths))
         "no route-sourced classification before any navigation")
-    (rf/dispatch-sync [:rf.route/transitioned "/oauth?token=secret123"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/oauth?token=secret123" {:rf.route/cause :link}])
     (is (= #{[:rf.runtime/routing :current :query :token]}
            (route-sensitive-paths))
         "the projection-relative [:query :token] is re-rooted under [:rf.runtime/routing :current …] and tagged :source :route")))
@@ -154,7 +154,7 @@
 (deftest activation-adds-large-entry
   (testing "a :large declaration lowers into the large :declarations slot"
     (rf/reg-route :route/upload {:large [[:params :payload]]} "/upload/:payload")
-    (rf/dispatch-sync [:rf.route/transitioned "/upload/abc"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/upload/abc" {:rf.route/cause :link}])
     (is (= #{[:rf.runtime/routing :current :params :payload]}
            (route-large-paths)))
     (is (empty? (route-sensitive-paths)))))
@@ -171,7 +171,7 @@
     (rf/reg-route :route/oauth
                   {:sensitive [[:query :token]] :query [:map [:token :string]]}
                   "/oauth")
-    (rf/dispatch-sync [:rf.route/transitioned "/oauth?token=secret123"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/oauth?token=secret123" {:rf.route/cause :link}])
     (let [rdb     (:rf.db/runtime (rf/frame-state-value :rf/default))
           ;; egress-project the whole runtime-db against :rf/default's
           ;; classification — the route-sourced entry redacts the slice's
@@ -196,10 +196,10 @@
   (testing "navigating to a different route replaces the prior :source :route entries"
     (rf/reg-route :route/oauth  {:sensitive [[:query :token]]} "/oauth")
     (rf/reg-route :route/plain  {} "/plain")
-    (rf/dispatch-sync [:rf.route/transitioned "/oauth?token=secret"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/oauth?token=secret" {:rf.route/cause :link}])
     (is (= #{[:rf.runtime/routing :current :query :token]} (route-sensitive-paths))
         "oauth route's classification is installed while active")
-    (rf/dispatch-sync [:rf.route/transitioned "/plain"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/plain" {:rf.route/cause :link}])
     (is (empty? (route-sensitive-paths))
         "navigating to a route declaring NO classification clears the route-sourced entries (no leak)")))
 
@@ -207,26 +207,26 @@
   (testing "a route change drops the leaving route's entry and installs the entering route's"
     (rf/reg-route :route/a {:sensitive [[:query :a-secret]]} "/a")
     (rf/reg-route :route/b {:sensitive [[:params :b-secret]]} "/b/:b-secret")
-    (rf/dispatch-sync [:rf.route/transitioned "/a?a-secret=1"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/a?a-secret=1" {:rf.route/cause :link}])
     (is (= #{[:rf.runtime/routing :current :query :a-secret]} (route-sensitive-paths)))
-    (rf/dispatch-sync [:rf.route/transitioned "/b/xyz"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/b/xyz" {:rf.route/cause :link}])
     (is (= #{[:rf.runtime/routing :current :params :b-secret]} (route-sensitive-paths))
         "only the entering route's classification survives the swap")))
 
 (deftest not-found-drops-classification
   (testing "a route-miss / not-found transition clears the leaving route's classification"
     (rf/reg-route :route/oauth {:sensitive [[:query :token]]} "/oauth")
-    (rf/dispatch-sync [:rf.route/transitioned "/oauth?token=secret"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/oauth?token=secret" {:rf.route/cause :link}])
     (is (seq (route-sensitive-paths)))
     ;; a URL that matches no route → :rf.route/not-found (route-meta may be nil)
-    (rf/dispatch-sync [:rf.route/transitioned "/no-such-route"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-route" {:rf.route/cause :link}])
     (is (empty? (route-sensitive-paths))
         "a not-found transition drops the prior route's :source :route entries")))
 
 (deftest frame-destroy-drops-classification
   (testing "destroying the frame drops the whole runtime-db elision slot (no leak)"
     (rf/reg-route :route/oauth {:sensitive [[:query :token]]} "/oauth")
-    (rf/dispatch-sync [:rf.route/transitioned "/oauth?token=secret"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/oauth?token=secret" {:rf.route/cause :link}])
     (is (seq (route-sensitive-paths)))
     (rf/destroy-frame! :rf/default)
     ;; the frame's runtime-db (and its [:rf.runtime/elision] slot) is gone with it
@@ -243,7 +243,7 @@
                   {:sensitive [[:query :secret]]
                    :large     [[:query :secret] [:params :big]]}
                   "/both/:big")
-    (rf/dispatch-sync [:rf.route/transitioned "/both/x?secret=s"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/both/x?secret=s" {:rf.route/cause :link}])
     (is (contains? (route-sensitive-paths)
                    [:rf.runtime/routing :current :query :secret]))
     (is (not (contains? (route-large-paths)
@@ -281,7 +281,7 @@
     ;; ancestor lands :large and the descendant lands :sensitive. These two
     ;; assertions pin the LOWERING contract and hold on main TODAY (independent
     ;; of the egress-walker fix).
-    (rf/dispatch-sync [:rf.route/transitioned "/nested"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/nested" {:rf.route/cause :link}])
     (is (contains? (route-large-paths)
                    [:rf.runtime/routing :current :query :payload])
         "the :large ancestor lowers (NOT dropped — it is not exactly a sensitive path)")
@@ -328,7 +328,7 @@
     (rf/reg-route :route/upload
                   {:large [[:params :payload]]}
                   "/upload/:payload")
-    (rf/dispatch-sync [:rf.route/transitioned "/upload/big-blob-value"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/upload/big-blob-value" {:rf.route/cause :link}])
     (let [rdb     (:rf.db/runtime (rf/frame-state-value :rf/default))
           elided  (rf.elision/elide-wire-value rdb {:frame :rf/default})
           slice   (get-in elided [:rf.runtime/routing :current])
@@ -377,8 +377,8 @@
     (rf/reg-route :route/a {:sensitive [[:query :a-secret]]} "/a")
     (rf/reg-route :route/b {:sensitive [[:query :b-secret]]} "/b")
     ;; Frame A (:rf/default) → route A; frame B → route B.
-    (rf/dispatch-sync [:rf.route/transitioned "/a?a-secret=AAA"] {:frame :rf/default})
-    (rf/dispatch-sync [:rf.route/transitioned "/b?b-secret=BBB"] {:frame :frame/b})
+    (rf/dispatch-sync [:rf.route/handle-url-change "/a?a-secret=AAA" {:rf.route/cause :link}] {:frame :rf/default})
+    (rf/dispatch-sync [:rf.route/handle-url-change "/b?b-secret=BBB" {:rf.route/cause :link}] {:frame :frame/b})
     ;; Each frame's registry carries ONLY its own route-sourced entry.
     (is (= #{[:rf.runtime/routing :current :query :a-secret]}
            (route-sensitive-paths-for :rf/default))
@@ -522,7 +522,7 @@
     (rf/reg-route :route/strmiss
                   {:sensitive [[:query "token"]] :query [:map [:token :string]]}
                   "/strmiss")
-    (rf/dispatch-sync [:rf.route/transitioned "/strmiss?token=secret123"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/strmiss?token=secret123" {:rf.route/cause :link}])
     ;; The lowered registry carries the re-rooted STRING-key path…
     (is (= #{[:rf.runtime/routing :current :query "token"]}
            (route-sensitive-paths))
@@ -541,7 +541,7 @@
     (rf/reg-route :route/kwmatch
                   {:sensitive [[:query :token]] :query [:map [:token :string]]}
                   "/kwmatch")
-    (rf/dispatch-sync [:rf.route/transitioned "/kwmatch?token=secret123"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/kwmatch?token=secret123" {:rf.route/cause :link}])
     (let [rdb    (:rf.db/runtime (rf/frame-state-value :rf/default))
           elided (rf.elision/elide-wire-value rdb {:frame :rf/default})
           slice  (get-in elided [:rf.runtime/routing :current])]
@@ -749,7 +749,7 @@
                  :large     [[:query :payload]]
                  :query     [:map [:token :string] [:payload :string]]}
                 "/oauth")
-  (rf/dispatch-sync [:rf.route/transitioned "/oauth?token=secret123&payload=big"])
+  (rf/dispatch-sync [:rf.route/handle-url-change "/oauth?token=secret123&payload=big" {:rf.route/cause :link}])
   (:rf.db/runtime (rf/frame-state-value :rf/default)))
 
 (deftest sensitive-route-redacts-under-ssr-hydration-profile
@@ -810,7 +810,7 @@
             through the real SSR consumer (the projection is path-precise, not a
             blanket scrub) — the negative control"
     (rf/reg-route :route/plain {:query [:map [:q :string]]} "/plain")
-    (rf/dispatch-sync [:rf.route/transitioned "/plain?q=visible"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/plain?q=visible" {:rf.route/cause :link}])
     (let [slice (rf.ssr.payload-policy/project-runtime-db (:rf.db/runtime (rf/frame-state-value :rf/default)))
           route (get-in slice [:rf.runtime/routing :current])]
       (is (= "visible" (get-in route [:query :q]))
@@ -867,11 +867,11 @@
                   {:sensitive [[:query :token]] :query [:map [:token :string]]}
                   "/oauth")
     (rf/reg-route :route/plain {} "/plain")
-    (rf/dispatch-sync [:rf.route/transitioned "/oauth?token=secret123"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/oauth?token=secret123" {:rf.route/cause :link}])
     (is (= #{{:source :effect} {:source :route}} (token-owners))
         "the effect and route claims UNION on the same absolute path")
     ;; navigate to a route declaring NO classification (route-leave)
-    (rf/dispatch-sync [:rf.route/transitioned "/plain"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/plain" {:rf.route/cause :link}])
     (is (token-path-classified?)
         "the effect claim SURVIVES the route change (the fix — the path was deleted before)")
     (is (= #{{:source :effect}} (token-owners))
@@ -888,12 +888,12 @@
                   {:sensitive [[:query :token]] :query [:map [:token :string]]}
                   "/oauth")
     (rf/reg-route :route/plain {} "/plain")
-    (rf/dispatch-sync [:rf.route/transitioned "/oauth?token=secret123"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/oauth?token=secret123" {:rf.route/cause :link}])
     (is (= #{{:source :route}} (token-owners)) "only the route claim so far")
     (effect-classify-abs-token!)
     (is (= #{{:source :route} {:source :effect}} (token-owners))
         "the effect SET UNIONS in — it is not ignored under the standing route claim")
-    (rf/dispatch-sync [:rf.route/transitioned "/plain"])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/plain" {:rf.route/cause :link}])
     (is (token-path-classified?)
         "the effect claim SURVIVES the route change (the fix)")
     (is (= #{{:source :effect}} (token-owners))

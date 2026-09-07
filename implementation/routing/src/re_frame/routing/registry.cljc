@@ -105,7 +105,7 @@
   any of its decode'd portions — any non-empty path segment, any query
   key or value, or the `#fragment`. The scan is purely lexical: it splits
   the URL into pieces and tries to %-decode each one; no route table or
-  pattern is consulted. Used by `:rf.route/transitioned` /
+  pattern is consulted. Used by
   `:rf.route/handle-url-change` to discriminate the bare route-miss case
   (`{:url url}`) from the malformed-URL fail-closed case
   (`{:url url :reason :malformed-url}`) — both end up at

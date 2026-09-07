@@ -112,8 +112,8 @@
   is an in-page anchor change, not a route (re)activation. Mirrors the
   URL-driven `url_change.cljc` fragment-only short-circuit so the SAME logical
   operation behaves identically whichever door — programmatic
-  `:rf.route/navigate`, forward-nav `:rf.route/transitioned`, or popstate
-  `:rf.route/handle-url-change` — it enters.
+  `:rf.route/navigate`, or the URL-driven `:rf.route/handle-url-change`
+  (link click / popstate / initial / SSR) — it enters.
 
   Classified only AFTER target resolution / fragment-normalisation / query
   shaping / URL build / validation AND after the `:can-leave`/`:can-enter`

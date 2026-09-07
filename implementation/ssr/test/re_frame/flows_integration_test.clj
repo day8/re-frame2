@@ -54,11 +54,11 @@
       pending `:rf.db/runtime` effect; the flow at the outermost `:after`
       transforms against that pending runtime-db before install — there is
       no pre-transition window the flow could observe). The dual-partition
-      TRIGGER (§542-544): a runtime-only `:rf.route/transitioned` event
+      TRIGGER (§542-544): a runtime-only `:rf.route/handle-url-change` event
       (no `:db` effect) still recomputes the route-reading flow, because
       the dirty-check keys on BOTH partitions — a runtime-db change cannot
       be hidden merely because app-db was value-identical. The dual
-      atomicity assertion: a flow throw on a `:rf.route/transitioned`
+      atomicity assertion: a flow throw on a `:rf.route/handle-url-change`
       dispatch aborts the WHOLE event (BOTH partitions) — slice stays on
       the previous route, `:on-match` `:dispatch` fxs are NOT walked. Pin
       (rf2-qm8m3): regression coverage for the routing × flows composition
@@ -554,7 +554,7 @@
 ;;    a transition aborts the WHOLE event (slice unchanged, :on-match
 ;;    :dispatch fxs skipped).
 ;;
-;; `:rf.route/transitioned` is a normal event-fx: its handler returns
+;; `:rf.route/handle-url-change` is a normal event-fx: its handler returns
 ;; `{:db (assoc-in db' [:rf.runtime/routing :current] {...new-route...})
 ;; :fx [[:dispatch [:on-match]] ...]}`. The flow at the outermost
 ;; `:after` transforms the pending :db (which already carries the
@@ -578,7 +578,7 @@
 ;; `[:rf.db/runtime :rf.runtime/routing :current :route-id]`. The flow transform
 ;; resolves the qualified input against the pending runtime-db (the
 ;; post-transition slice rewrite), and the dual-partition TRIGGER fires this
-;; flow on the runtime-only `:rf.route/transitioned` event even though app-db
+;; flow on the runtime-only `:rf.route/handle-url-change` event even though app-db
 ;; did not change (EP-0001 §542-544).
 (deftest flow-over-route-slice-reads-settled-post-transition-route
   (testing "a flow whose :inputs overlap [:rf.runtime/routing :current]
@@ -598,7 +598,7 @@
 
       ;; Land on /home first so there is a known PRE-transition slice the
       ;; flow could potentially observe if it ran on the wrong value.
-      (rf/dispatch-sync [:rf.route/transitioned "/"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :link}])
       (is (= :route/home (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current :route-id]))
           "precondition: landed on :route/home")
       (is (= [:route/home] @flow-inputs)
@@ -609,7 +609,7 @@
       ;; reading [:rf.runtime/routing :current :route-id]; both land together at install.
       (reset! *captured* [])
       (reset! flow-inputs [])
-      (rf/dispatch-sync [:rf.route/transitioned "/articles/42"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/42" {:rf.route/cause :link}])
 
       ;; The installed slice carries the new route.
       (is (= :route/article (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
@@ -651,7 +651,7 @@
 ;; cross-partition commit (`commit-and-flow!` short-circuits on `:rf/flow-error`
 ;; before `commit-frame-effects!`, so neither partition installs).
 (deftest flow-throw-on-route-transition-aborts-event-slice-unchanged-no-on-match-fx
-  (testing "a flow throw on a :rf.route/transitioned dispatch aborts the
+  (testing "a flow throw on a :rf.route/handle-url-change dispatch aborts the
             WHOLE event — the slice rewrite does NOT land, the route stays
             on the pre-transition value, AND the :on-match :dispatch fxs
             in the handler's :fx are NEVER walked (post-install stage
@@ -661,7 +661,7 @@
                        (fn [{:keys [db]} _]
                          (swap! on-match-fired inc)
                          {:db (assoc db :article/loaded? true)}))
-      ;; :route/article carries an :on-match — :rf.route/transitioned's
+      ;; :route/article carries an :on-match — :rf.route/handle-url-change's
       ;; handler will return `[:dispatch [:route/load-article]]` inside :fx
       ;; for a successful transition. The flow throw must skip that :fx.
       (rf/reg-route :route/article
@@ -670,7 +670,7 @@
       (rf/reg-route :route/home {} "/")
 
       ;; Land on /home cleanly (no throwing flow registered yet).
-      (rf/dispatch-sync [:rf.route/transitioned "/"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :link}])
       (is (= :route/home (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current :route-id]))
           "precondition: clean landing on :route/home")
       (is (zero? @on-match-fired)
@@ -683,7 +683,7 @@
                                 (throw (ex-info "flow boom on route"
                                                 {:why :test}))))
         (reset! *captured* [])
-        (rf/dispatch-sync [:rf.route/transitioned "/articles/42"])
+        (rf/dispatch-sync [:rf.route/handle-url-change "/articles/42" {:rf.route/cause :link}])
 
         ;; The route slice did NOT land — pre-install throw discards the
         ;; entire pending :db (handler's slice rewrite + flow output alike).
@@ -726,7 +726,7 @@
 ;;
 ;; This is the SILENT-regression guard the ruling calls out: the flow
 ;; dirty-check must key on BOTH partitions, NOT on app-db publication. A pure
-;; `:rf.route/transitioned` returns `{:rf.db/runtime …}` and NO `:db` effect —
+;; `:rf.route/handle-url-change` returns `{:rf.db/runtime …}` and NO `:db` effect —
 ;; app-db never changes across the transition. A flow whose ONLY changing
 ;; input is the qualified runtime-db route slice must STILL recompute (a
 ;; route-reading breadcrumb that just stopped updating would be the
@@ -738,7 +738,7 @@
 ;; ===========================================================================
 
 (deftest runtime-only-event-triggers-runtime-db-reading-flow-recompute
-  (testing "a runtime-only :rf.route/transitioned event (no :db effect)
+  (testing "a runtime-only :rf.route/handle-url-change event (no :db effect)
             recomputes a flow whose only changing input is a qualified
             [:rf.db/runtime …] route-slice path — the dirty-check keys on
             BOTH partitions (EP-0001 §542-544), so the flow does NOT silently
@@ -753,7 +753,7 @@
                               (str "at:" route-id)))
 
       ;; Land on /home — the flow recomputes for the first runtime-only event.
-      (rf/dispatch-sync [:rf.route/transitioned "/"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :link}])
       (is (= [:route/home] @flow-evals)
           "the flow recomputed on the FIRST runtime-only transition (no :db
            effect was returned by the handler, yet the runtime-db read fired
@@ -770,7 +770,7 @@
       ;; publication alone, the flow would never re-fire.
       (let [app-db-before (rf/app-db-value :rf/default)]
         (reset! flow-evals [])
-        (rf/dispatch-sync [:rf.route/transitioned "/articles/42"])
+        (rf/dispatch-sync [:rf.route/handle-url-change "/articles/42" {:rf.route/cause :link}])
         (is (= [:route/article] @flow-evals)
             "the flow recomputed on the runtime-only transition even though
              the only change was in the runtime-db partition — the trigger
@@ -788,7 +788,7 @@
       ;; runtime-db without losing the value-equal skip).
       (reset! flow-evals [])
       (reset! *captured* [])
-      (rf/dispatch-sync [:rf.route/transitioned "/articles/42"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/42" {:rf.route/cause :link}])
       (is (= [] @flow-evals)
           "a transition to the SAME route does NOT recompute the flow — the
            runtime-db route id is value-equal, so the dirty-check skips
@@ -835,7 +835,7 @@
       ;; A runtime-only transition — the qualified input changes; the bare
       ;; input is unchanged. The flow recomputes (BOTH-partition trigger).
       (reset! flow-evals [])
-      (rf/dispatch-sync [:rf.route/transitioned "/articles/42"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/42" {:rf.route/cause :link}])
       (is (= [["Hi" :route/article]] @flow-evals)
           "the runtime-only transition recomputed the flow; the bare app-db
            input kept its value, the qualified runtime-db input took the new

@@ -67,7 +67,7 @@
 (defn- navigate-to-classified-route!
   "Register an OAuth-callback-shaped route carrying a projection-relative
   `:sensitive` / `:large` declaration and navigate to it FOR REAL — `reg-route`
-  plus a genuine `:rf.route/transitioned`, so the classification reaches the
+  plus a genuine `:rf.route/handle-url-change`, so the classification reaches the
   live frame's elision registry through the production activation lowering
   (`routing.classification/apply-route-classification`, `:source :route`) rather
   than through a hand-installed registry. That the lowering is a production path
@@ -78,8 +78,8 @@
                  :large     [[:query :payload]]
                  :query     [:map [:token :string] [:payload :string]]}
                 "/oauth")
-  (rf/dispatch-sync [:rf.route/transitioned
-                     (str "/oauth?token=" token-secret "&payload=blobdata")]))
+  (rf/dispatch-sync [:rf.route/handle-url-change
+                     (str "/oauth?token=" token-secret "&payload=blobdata") {:rf.route/cause :link}]))
 
 (defn- route-slice
   "The raw durable route slice from `:rf/default`'s runtime-db — byte-for-byte
@@ -164,7 +164,7 @@
       (is (= rf.privacy/redacted-sentinel (:token wire))
           "`:rf.route/query`'s bare query map redacts through its own seed"))
     (rf/reg-route :route/upload {:sensitive [[:params :secret]]} "/upload/:secret")
-    (rf/dispatch-sync [:rf.route/transitioned (str "/upload/" param-secret)])
+    (rf/dispatch-sync [:rf.route/handle-url-change (str "/upload/" param-secret) {:rf.route/cause :link}])
     (let [wire (rf/elide-wire-value (:params (route-slice))
                                     {:query-v [:rf.route/params] :frame :rf/default})]
       (is (= rf.privacy/redacted-sentinel (:secret wire))

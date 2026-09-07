@@ -33,7 +33,7 @@
   - `re-frame.routing.decisions`      — the leave/entry decisions, the leave-only pending protocol, and :rf.route/url-requested
   - `re-frame.routing.nav-token`      — :rf.route/with-nav-token + stale-suppression fx
   - `re-frame.routing.navigate`       — :rf.route/navigate event
-  - `re-frame.routing.url-change`     — :rf.route/transitioned + :rf.route/handle-url-change
+  - `re-frame.routing.url-change`     — :rf.route/handle-url-change (link / popstate / initial / SSR)
   - `re-frame.routing.nav-fx`         — :rf.nav/push-url + :rf.nav/replace-url + url-owner-frame-id
   - `re-frame.routing.url-bound`      — :url-bound? exclusivity + claim-order maintenance
   - `re-frame.routing.history`        — strategy listener lifecycle + current-url
@@ -322,12 +322,11 @@
                      framework-authority-meta
                      rf.routing.replan/replan-handler)
 
-;; :rf.route/transitioned + :rf.route/handle-url-change — Spec 012 §URL
-;; changes are events. Both declare both recordable allocation cofx (mint the
-;; nav-token on commit + any block's pending-nav id).
-(rf.events/reg-event :rf.route/transitioned
-                     nav-commit-meta
-                     rf.routing.url-change/transitioned-handler)
+;; :rf.route/handle-url-change — Spec 012 §URL changes are events. The ONE
+;; URL-driven door, standing for four causes (`:link` / `:popstate` /
+;; `:initial` / `:ssr` — the cause rides `:rf.route/cause` on the trailing opts
+;; map). It declares both recordable allocation cofx (mint the nav-token on
+;; commit + any block's pending-nav id).
 (rf.events/reg-event :rf.route/handle-url-change
                      nav-commit-meta
                      rf.routing.url-change/handle-url-change-handler)

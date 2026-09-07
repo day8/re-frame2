@@ -35,7 +35,7 @@
  {:fx {:rf.http/managed [[:noop]]}}
 
  :fixture/dispatches
- [[:rf.route/transitioned "/account/settings"]]
+ [[:rf.route/handle-url-change "/account/settings" {:rf.route/cause :link}]]
 
  :fixture/expect
  {;; blocking? is OR — the parent marked :acct/viewer blocking, so the deduped

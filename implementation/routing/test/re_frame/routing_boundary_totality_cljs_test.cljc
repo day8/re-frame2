@@ -173,7 +173,7 @@
                                 [:rf.runtime/routing :current]))]
       (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}}
                     (fn [_ url] (swap! pushed conj url)))
-      (rf/dispatch-sync [:rf.route/transitioned "/search?q=clojure&page=1"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/search?q=clojure&page=1" {:rf.route/cause :link}])
       (let [query-before (:query (slice))
             token-before (:nav-token (slice))]
         (is (= {:q "clojure" :page 1} query-before)

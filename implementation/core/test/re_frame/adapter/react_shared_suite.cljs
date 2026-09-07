@@ -1288,10 +1288,10 @@
 
 (defn assert-routing-handle-url-change
   "URL changes are events / reading the route is a sub (Spec 012):
-  :rf.route/transitioned drives the :rf/route slice; subscriptions
+  :rf.route/handle-url-change drives the :rf/route slice; subscriptions
   resolve; :on-match dispatches; fresh nav-token per navigation."
   [{:keys [substrate-kw name]}]
-  (testing (str name " — routing: :rf.route/transitioned drives the slice")
+  (testing (str name " — routing: :rf.route/handle-url-change drives the slice")
     (let [f          (rf.frame/make-anon-frame-record! {:doc "isolated frame for this test"})
           home       (route-kw substrate-kw "home")
           article    (route-kw substrate-kw "article")
@@ -1308,7 +1308,7 @@
       (rf.subs/reg-runtime-sub id-sub     (fn [rt _] (get-in rt [:rf.runtime/routing :current :route-id])))
       (rf.subs/reg-runtime-sub params-sub (fn [rt _] (get-in rt [:rf.runtime/routing :current :params])))
 
-      (rf/dispatch-sync [:rf.route/transitioned (route-path substrate-kw "/articles/intro")] {:frame f})
+      (rf/dispatch-sync [:rf.route/handle-url-change (route-path substrate-kw "/articles/intro") {:rf.route/cause :link}] {:frame f})
       (is (= article (rf/subscribe-once [id-sub] {:frame f}))
           ":rf.route/id sub resolves under the adapter")
       (is (= {:id "intro"} (rf/subscribe-once [params-sub] {:frame f}))
@@ -1316,7 +1316,7 @@
       (is (true? (:article-loaded? (rf/app-db-value f)))
           ":on-match dispatched and ran")
 
-      (rf/dispatch-sync [:rf.route/transitioned (route-path substrate-kw "/articles/welcome")] {:frame f})
+      (rf/dispatch-sync [:rf.route/handle-url-change (route-path substrate-kw "/articles/welcome") {:rf.route/cause :link}] {:frame f})
       (is (= {:id "welcome"} (rf/subscribe-once [params-sub] {:frame f}))
           "new params land in the slice on subsequent navigation")
       (is (some? (get-in (:rf.db/runtime (rf/frame-state-value f)) [:rf.runtime/routing :current :nav-token]))
@@ -1340,8 +1340,8 @@
 
       (let [left  (rf.frame/make-anon-frame-record! {:doc "left tab frame"})
             right (rf.frame/make-anon-frame-record! {:doc "right tab frame"})]
-        (rf/dispatch-sync [:rf.route/transitioned (route-path sk2 "/articles")] {:frame left})
-        (rf/dispatch-sync [:rf.route/transitioned (route-path sk2 "/articles/intro")] {:frame right})
+        (rf/dispatch-sync [:rf.route/handle-url-change (route-path sk2 "/articles") {:rf.route/cause :link}] {:frame left})
+        (rf/dispatch-sync [:rf.route/handle-url-change (route-path sk2 "/articles/intro") {:rf.route/cause :link}] {:frame right})
 
         (let [left-route  (rf/subscribe-once [route-sub] {:frame left})
               right-route (rf/subscribe-once [route-sub] {:frame right})]
@@ -1350,7 +1350,7 @@
           (is (= {} (:params left-route)) "left frame has no :params (collection route)")
           (is (= {:id "intro"} (:params right-route)) "right frame has the article id"))
 
-        (rf/dispatch-sync [:rf.route/transitioned (route-path sk2 "/")] {:frame left})
+        (rf/dispatch-sync [:rf.route/handle-url-change (route-path sk2 "/") {:rf.route/cause :link}] {:frame left})
         (is (= home (:route-id (rf/subscribe-once [route-sub] {:frame left})))
             "left re-navigated to home")
         (is (= article (:route-id (rf/subscribe-once [route-sub] {:frame right})))

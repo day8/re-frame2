@@ -23,7 +23,7 @@
   {:route/home {:path "/"}}}
 
  :fixture/dispatches
- [[:rf.route/transitioned "/"]
+ [[:rf.route/handle-url-change "/" {:rf.route/cause :link}]
   ;; a raw :url escape is NOT a RouteAddress — rejected as an unknown key.
   [:rf.route/prefetch {:url "/articles/routing"}]
   ;; a missing :to — an address must name a destination.

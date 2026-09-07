@@ -38,7 +38,7 @@
  {:fx {:rf.http/managed [[:noop]]}}
 
  :fixture/dispatches
- [[:rf.route/transitioned "/"]
+ [[:rf.route/handle-url-change "/" {:rf.route/cause :link}]
   [:rf.route/prefetch {:to :route/article :params {:slug "routing"}}]]
 
  :fixture/expect

@@ -137,7 +137,6 @@
       (is (= route-output (:output node))
           "the output materializes the route slice into runtime-db at [:rf.runtime/routing :current]")
       (is (= [[:event :rf.route/navigate]
-              [:event :rf.route/transitioned]
               [:event :rf.route/handle-url-change]]
              (:inputs node))
           "the inputs are the route-transition causal events — the :on-route triggers")

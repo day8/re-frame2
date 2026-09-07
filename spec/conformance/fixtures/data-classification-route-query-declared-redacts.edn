@@ -59,7 +59,7 @@
  ;; elision registry as part of the same atomic runtime-db commit that
  ;; publishes the slice (EP-0025 §Same-event ordering).
  :fixture/dispatches
- [[:rf.route/transitioned "/oauth?token=secret123"]]
+ [[:rf.route/handle-url-change "/oauth?token=secret123" {:rf.route/cause :link}]]
 
  ;; project-egress runs AFTER dispatches, so :rf/default's route-sourced
  ;; classification is installed. The :value is a route-slice-shaped runtime-db

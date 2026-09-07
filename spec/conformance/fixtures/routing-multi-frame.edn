@@ -24,13 +24,13 @@
 
  :fixture/dispatches
  [;; Left tab navigates to /articles.
-  {:event [:rf.route/transitioned "/articles"] :frame :tab.left}
+  {:event [:rf.route/handle-url-change "/articles" {:rf.route/cause :link}] :frame :tab.left}
 
   ;; Right tab independently navigates to /articles/intro.
-  {:event [:rf.route/transitioned "/articles/intro"] :frame :tab.right}
+  {:event [:rf.route/handle-url-change "/articles/intro" {:rf.route/cause :link}] :frame :tab.right}
 
   ;; Left tab navigates again to a different route.
-  {:event [:rf.route/transitioned "/"] :frame :tab.left}]
+  {:event [:rf.route/handle-url-change "/" {:rf.route/cause :link}] :frame :tab.left}]
 
  :fixture/expect
  ;; Slices are partial-matched per :final-app-dbs (submap semantics) so the

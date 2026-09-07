@@ -46,7 +46,7 @@
 
  :fixture/dispatches
  [;; activation → /account/a plans {viewer, a} under nav-1.
-  [:rf.route/transitioned "/account/a"]
+  [:rf.route/handle-url-change "/account/a" {:rf.route/cause :link}]
   ;; the replan: same route, same token, same branch.
   [:rf.route/replan-resources {:cause [:test/replan]}]]
 

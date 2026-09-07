@@ -507,7 +507,7 @@
     (testing "the URL-driven door reports which of its four sub-doors fired"
       ;; A VECTOR of triples, not a map — the slug pairs positionally with the
       ;; cause, and the iteration order is then the written order.
-      (doseq [[cause dispatch slug] [[:link     [:rf.route/transitioned "/articles/b"] "b"]
+      (doseq [[cause dispatch slug] [[:link     [:rf.route/handle-url-change "/articles/b" {:rf.route/cause :link}] "b"]
                                      [:popstate [:rf.route/handle-url-change "/articles/c"
                                                  {:rf.route/cause :popstate}] "c"]
                                      [:initial  [:rf.route/handle-url-change "/articles/d"] "d"]]]
@@ -963,5 +963,5 @@
     (let [[_ seen _] (register-denying-not-found!)]
       (rf/dispatch-sync [:rf.route/handle-url-change "/home"])
       (reset! seen [])
-      (rf/dispatch-sync [:rf.route/transitioned "/miss-link"])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/miss-link" {:rf.route/cause :link}])
       (is (= [:link] (mapv :cause @seen))))))

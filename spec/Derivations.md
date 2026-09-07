@@ -618,7 +618,6 @@ The split the [§Authority](#authority--the-remote-axis) section names is visibl
  :refinement  :route-fact                     ;; the informative refinement
  :source-form {:kind :reg-route :id :route/article}
  :inputs      [[:event :rf.route/navigate]
-               [:event :rf.route/transitioned]
                [:event :rf.route/handle-url-change]]
  :output      [:runtime [:rf.runtime/routing :current]]
  :storage     :runtime-db
@@ -776,7 +775,7 @@ A route fact's superkind is **`:process`** — a route transition is process-lik
 | `:lifecycle` | `:frame` | the frame owns the route slice; `destroy-frame!` releases it |
 | `:materialized?` | `true` | the route slice has a durable runtime-db address, not just a fact identity |
 
-The route fact's **`:id`** is **`:rf/route`** — the one consumer-facing name [012](012-Routing.md) gives the route slice (one name per fact, per [EP-0007](../docs/EP/EP-0007-one-name-per-fact.md)). Every registered route materializes the *same* slice, so every route node carries the *same* fact id; the per-route registration id is recorded under `:source-form` `{:kind :reg-route :id <route-id>}`, not under `:id`. The **`:output`** is `[:runtime [:rf.runtime/routing :current]]` — the runtime-db address the transition installs the slice at. The **`:inputs`** are the route-transition causal events — `[:event :rf.route/navigate]`, `[:event :rf.route/transitioned]`, `[:event :rf.route/handle-url-change]` — the `:on-route` triggers the route fact depends on (the route fact / nav-token / lifecycle boundary an `:on-route` process MUST declare — [§Evaluation policy](#evaluation-policy) rule 4). These are fixed across routes: the SAME framework events materialize the slice regardless of which route matched.
+The route fact's **`:id`** is **`:rf/route`** — the one consumer-facing name [012](012-Routing.md) gives the route slice (one name per fact, per [EP-0007](../docs/EP/EP-0007-one-name-per-fact.md)). Every registered route materializes the *same* slice, so every route node carries the *same* fact id; the per-route registration id is recorded under `:source-form` `{:kind :reg-route :id <route-id>}`, not under `:id`. The **`:output`** is `[:runtime [:rf.runtime/routing :current]]` — the runtime-db address the transition installs the slice at. The **`:inputs`** are the route-transition causal events — `[:event :rf.route/navigate]`, `[:event :rf.route/handle-url-change]` — the `:on-route` triggers the route fact depends on (the route fact / nav-token / lifecycle boundary an `:on-route` process MUST declare — [§Evaluation policy](#evaluation-policy) rule 4). These are fixed across routes: the SAME framework events materialize the slice regardless of which route matched.
 
 ### Route-owned resource activation edges
 

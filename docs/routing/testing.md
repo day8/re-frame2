@@ -109,14 +109,19 @@ branches on it.
 
 ### Say which door you meant
 
-One event stands for three doors. The route outcome is the same through all of
+One event stands for four doors. The route outcome is the same through all of
 them, but the **cause** the runtime records is not — and the cause is what a
 `:rf.route/planned` projection, an entry denial and a blocked navigation all
-report. One dispatch shape per door:
+report. It also fixes the default scroll strategy: `:top` for `:link`,
+`:restore` for the other three. One dispatch shape per door:
 
 ```clojure
 ;; deep link, reload, initial load — a bare dispatch on a client frame
 (rf/dispatch-sync [:rf.route/handle-url-change "/articles/intro"])
+
+;; a link click — stand in for the link door, which pushes the URL first
+(rf/dispatch-sync [:rf.route/handle-url-change "/articles/intro"
+                   {:rf.route/cause :link}])
 
 ;; Back/Forward — stand in for the framework's own listener by carrying its rider
 (rf/dispatch-sync [:rf.route/handle-url-change "/articles/intro"
@@ -127,12 +132,14 @@ report. One dispatch shape per door:
   (rf/dispatch-sync [:rf.route/handle-url-change "/articles/intro"]))
 ```
 
-Only the `:url-bound?` frame's listener stamps that rider in a real app, so
-spell it only when you are standing in for that listener — and never install a
-listener of your own to obtain it, because the rider *is* the simulation.
-Without it a client dispatch resolves as `:initial`, so a test that calls itself
-the Back/Forward case proves the right outcome and misnames the door it came
-through.
+The framework stamps those riders itself in a real app — the link door for
+`:link`, the `:url-bound?` frame's listener for `:popstate` — so spell one only
+when you are standing in for that door, and never install a listener of your own
+to obtain it, because the rider *is* the simulation. Without it a client
+dispatch resolves as `:initial`, so a test that calls itself the Back/Forward or
+link case proves the right outcome, misnames the door it came through, and
+silently asserts the `:restore` scroll default where the link door would give
+`:top`.
 
 ## 4. The guards, with zero DOM
 
