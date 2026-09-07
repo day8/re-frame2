@@ -1351,7 +1351,7 @@ So the CLJS reference has to **convert render-time frame knowledge into a closur
      (str label ": " n)]))
 ```
 
-Naming convention: **unqualified `dispatch`/`subscribe` inside `reg-view` are the frame-bound locals.** Qualified `re-frame.core/dispatch` refers to the global function — its ambient 1-arity form resolves the carried-invariant scope/hold chain (and raises `:rf.error/no-frame-context` outside any scope, EP-0002 — there is no `:rf/default` default); the explicit `(rf/dispatch [...] {:frame :id})` form is the REPL/test shape.
+Naming convention: **unqualified `dispatch`/`subscribe` inside `reg-view` are the frame-bound locals, and they are the in-view spelling — the qualified forms are not a second one.** Qualified `re-frame.core/dispatch` refers to the global function: its ambient 1-arity form resolves the carried-invariant scope/hold chain (and raises `:rf.error/no-frame-context` outside any scope, EP-0002 — there is no `:rf/default` default), and the explicit `(rf/dispatch [...] {:frame :id})` form is the REPL/test/explicit-frame shape. Inside a `reg-view` body the two spellings render alike and then fork at click time: the injected local is a closure over the frame captured during render, so it carries that frame into a callback, while the ambient qualified form re-resolves at fire time — when the dynamic var is gone and React context is unreadable — and raises `:rf.error/no-frame-context` (see [§React click-handler routing](#react-click-handler-routing--the-canonical-pattern)). Prefer the injected locals in view bodies; this is a teaching and example convention, not a code-walk, a ban or a runtime diagnostic.
 
 This is the *implicit lexical injection* style chosen in 000 (the (α) option). It reads identically to today's re-frame view code. No env-arg change to view signatures.
 
@@ -1381,11 +1381,12 @@ The point: the *pattern* is "every dispatch/subscribe targets a specific frame";
 
 ### What `reg-view` injects
 
-On each invocation, the macro wraps the user's render fn in a `let` that binds three names from the current frame keyword (resolved via `read-frame-from-context`, below):
+On each invocation, the macro wraps the user's render fn in a `let` that binds two names from the current frame keyword (resolved via `read-frame-from-context`, below):
 
 - `dispatch` — frame-bound closure building an envelope tagged with the surrounding frame's id.
 - `subscribe` — frame-bound closure consulting the surrounding frame's sub-cache.
-- `frame-id` — the keyword itself.
+
+A view that needs the keyword itself calls `(rf/current-frame-id)`, which is what the macro resolves the two locals from; there is no injected `frame-id` local.
 
 The user's body runs inside that `let`. The registration grammar `reg-view` follows is [001-Registration](001-Registration.md)'s; its signatures are collected in [API §Registration](API.md#registration); the render-tree shape a view returns (Vars, not keyword heads) is [Conventions §Render-tree shape vs runtime lookup](Conventions.md#render-tree-shape-vs-runtime-lookup--vars-and-ids).
 
