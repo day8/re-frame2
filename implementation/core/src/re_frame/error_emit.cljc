@@ -655,12 +655,26 @@
              ;; still fired. A suppressed route delivered to nothing, so it
              ;; contributes 0 to the console decision below and the record
              ;; keeps its fallback.
-             (let [routed (if (and route-frame? (rf.trace/continuation-live?))
+             ;;
+             ;; rf2-kuky.65: the SAME component attribution the corpus record
+             ;; above carries rides through to the sink route, as a trailing
+             ;; attrs map. Without it a sink learned the CATEGORY but never
+             ;; WHICH interceptor / cofx / flow failed, and no egress profile
+             ;; could restore what the record never carried. `route-error!`
+             ;; classifies the slots (Spec 015 §Frame-owned observability sink
+             ;; policy): the structural identifiers are summary slots, and every
+             ;; other slot — `:reason` among them — rides `:tags`, walked and
+             ;; redacted under frame classification. Once the corpus-wide
+             ;; `:errors` stream retires, this route is the ONLY production door.
+             (let [sink-attrs (cond-> attribution
+                                source-coord (assoc :source-coord source-coord))
+                   routed (if (and route-frame? (rf.trace/continuation-live?))
                             (if-some [route-error! (rf.late-bind/get-fn-cached
                                                      :observability/route-error)]
                               (try
                                 (route-error! error-kw event event-id frame-id exception
-                                              elapsed-ms time nil raw-identity-event?)
+                                              elapsed-ms time nil raw-identity-event?
+                                              sink-attrs)
                                 (catch #?(:clj Throwable :cljs :default) e
                                   (if (rf.trace/continuation-live?) (throw e) 0)))
                               0)

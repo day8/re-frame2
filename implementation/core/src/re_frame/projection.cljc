@@ -327,8 +327,18 @@
 ;; is walked like any other tree slot (a non-tree exception object passes
 ;; through). Summary slots pass through.
 
+;; The COMPONENT-ATTRIBUTION slots (`:failing-id` / `:flow-id` / `:where` /
+;; `:source-coord`) are summary slots too (rf2-kuky.65): they are the tight
+;; structural identifiers `error-emit/dispatch-on-error!` already stamps on the
+;; production-surviving corpus record, and `observability/route-error!` now
+;; carries the same set onto the frame-owned sink route. They pass through
+;; UNCHANGED, which is what makes the flow-eval attribution survive
+;; `:rf.egress/public-error` (rf2-z1332c) on this route as well. `:reason` is
+;; deliberately NOT here — it is prose that interpolates app values, so both
+;; error routes ride it on the `:tags` tree slot below.
 (def ^:private error-summary-keys
-  #{:kind :frame :error :event-id :status :elapsed-ms :correlation :time})
+  #{:kind :frame :error :event-id :status :elapsed-ms :correlation :time
+    :failing-id :flow-id :where :source-coord})
 
 (def ^:private error-tree-keys
   #{:event :tags})

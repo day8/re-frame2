@@ -259,3 +259,99 @@
           "the sibling sink still received the record despite the buggy
            sink throwing")
       (is (= :rf.observe/handled-event (:kind (first @seen)))))))
+
+;; ---------------------------------------------------------------------------
+;; 5. Producer attribution survives the sink route (rf2-kuky.65).
+;; ---------------------------------------------------------------------------
+;;
+;; `error-emit/dispatch-on-error!` builds the corpus-wide record with the
+;; producer's component attribution merged in (`:failing-id` / `:reason` for the
+;; interceptor + cofx categories, `:flow-id` + `:where :flow-eval` for flow-eval,
+;; plus `:source-coord`). The frame-owned sink route must carry the SAME
+;; structural attribution: once the corpus-wide `:errors` stream retires, the
+;; sink is the ONLY production door, so a sink that never learns WHICH
+;; interceptor / cofx failed is lost diagnosis, not redundancy.
+;;
+;; The split is the one Spec 015 §Frame-owned observability sink policy records:
+;; the structural identifiers are SUMMARY slots (pass the projector unchanged);
+;; `:reason` is free-form prose that interpolates app values — the coeffect
+;; categories fold the thrown exception's own message into it — so it rides
+;; `:tags`, walked and redacted under frame classification, exactly as the
+;; non-event `route-error-record!` route already treats it.
+
+(deftest error-sink-record-carries-producer-component-attribution
+  (testing "rf2-kuky.65: a throwing user interceptor delivers a projected
+            :rf.observe/error whose :failing-id names the INTERCEPTOR and is
+            distinct from :event-id — the same attribution the corpus-wide
+            record carries — with :source-coord alongside it"
+    (let [seen   (atom [])
+          corpus (atom [])]
+      (rf/register-listener! :errors :test/corpus
+                             (fn [record] (swap! corpus conj record)))
+      (rf/register-observability-sink! :test.sinks/attribution
+                                       (fn [record] (swap! seen conj record)))
+      (rf/make-frame {:id :obs/attr :observability
+                      {:errors [{:sink :test.sinks/attribution
+                                 :rf.egress/profile :rf.egress/off-box-observability}]}})
+      (rf/reg-interceptor :kuky65/boom-after
+                          {:after (fn [_ctx] (throw (ex-info "after boom" {})))})
+      (rf/reg-event :kuky65/with-throwing-interceptor
+                    {:frame        :obs/attr
+                     :interceptors [:kuky65/boom-after]}
+                    (fn [{:keys [db]} _] {:db (assoc db :x 1)}))
+      (rf/dispatch-sync [:kuky65/with-throwing-interceptor] {:frame :obs/attr})
+      (let [r (some (fn [x] (when (= :rf.error/interceptor-exception (:error x)) x))
+                    @seen)
+            c (some (fn [x] (when (= :rf.error/interceptor-exception (:error x)) x))
+                    @corpus)]
+        (is (some? c) "the corpus-wide listener received the record (the control)")
+        (is (some? r) "the frame-owned :errors sink received the record")
+        (is (= :kuky65/with-throwing-interceptor (:event-id r))
+            ":event-id still carries the EVENT id")
+        (is (= :kuky65/boom-after (:failing-id r))
+            ":failing-id names the failing INTERCEPTOR on the sink route too,
+             distinct from :event-id")
+        (is (= (:failing-id c) (:failing-id r))
+            "the sink route carries the SAME :failing-id the corpus record does")
+        (is (= (:source-coord c) (:source-coord r))
+            ":source-coord agrees with the corpus record (absent on both when the
+             producer had none)")
+        ;; `:reason` is the TREE slot: it rides :tags, where the projector walks
+        ;; it under frame classification.
+        (is (string? (get-in r [:tags :reason]))
+            ":reason rides the :tags tree slot, not a public summary slot")
+        (is (nil? (:reason r))
+            ":reason is NOT lifted onto the summary surface")))))
+
+(deftest error-sink-attribution-survives-public-error-profile
+  (testing "rf2-kuky.65 + rf2-z1332c: under :rf.egress/public-error the
+            projector drops :exception, and the component attribution SURVIVES
+            that profile on the sink route — while the CONTROL, a frame-
+            classified sensitive path inside the error's :event, is still
+            redacted, so the fix widened nothing that escapes"
+    (let [seen (atom [])]
+      (rf/register-observability-sink! :test.sinks/public
+                                       (fn [record] (swap! seen conj record)))
+      (rf/make-frame {:id :obs/pub :observability
+                      {:errors [{:sink :test.sinks/public
+                                 :rf.egress/profile :rf.egress/public-error}]}})
+      (rf.frame/swap-runtime-db! :obs/pub
+        (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[:auth :token]]})))
+      (rf/reg-interceptor :kuky65/pub-boom
+                          {:after (fn [_ctx] (throw (ex-info "after boom" {})))})
+      (rf/reg-event :kuky65/pub-event
+                    {:frame        :obs/pub
+                     :interceptors [:kuky65/pub-boom]}
+                    (fn [{:keys [db]} _] {:db (assoc db :x 1)}))
+      (rf/dispatch-sync [:kuky65/pub-event {:auth {:token "super-secret-token"}}]
+                        {:frame :obs/pub})
+      (let [r (some (fn [x] (when (= :rf.error/interceptor-exception (:error x)) x))
+                    @seen)]
+        (is (some? r) "the public-error sink received the record")
+        (is (= :kuky65/pub-boom (:failing-id r))
+            "attribution SURVIVES the profile that drops :exception")
+        (is (not (contains? r :exception))
+            "CONTROL: :rf.egress/public-error still drops :exception")
+        (is (redacted? (get-in (:event r) [1 :auth :token]))
+            "CONTROL: the frame-classified sensitive path inside :event is still
+             redacted — the attribution fix widened nothing that escapes")))))
