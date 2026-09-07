@@ -221,6 +221,85 @@
         (is (= :preserved (:other db))
             "the path didn't touch the rest of app-db either")))))
 
+;; rf2-bw76 — the `:before` arm focuses `[:coeffects :db]` on the slice. That
+;; focus is HANDLER-scoped: the `:after` unwind must put the original full
+;; app-db object back, or every stage that runs after the path interceptor
+;; sees the slice as if it were the whole root.
+;;
+;; The framework's outermost flow stage is exactly such a stage: when the
+;; handler emitted no `:db` effect the router falls back to
+;; `(-> ctx :coeffects :db)` as the pending app-db (router.cljc — `pending-db`),
+;; hands THAT to the flow transform as the root, and stages the transform's
+;; result as a root `:db` effect. With the coeffect left focused, an ordinary
+;; no-op / effect-only focused event replaces the entire app-db with its own
+;; sub-slice and every sibling key is erased.
+
+(deftest path-interceptor-restores-db-coeffect-on-unwind
+  (testing "rf2-bw76: the path interceptor's :after restores the ORIGINAL full
+            app-db as the `:db` coeffect — the focus is handler-scoped, so an
+            interceptor OUTSIDE the path sees the unfocused root in its :after"
+    (let [outer-after-db (atom :unset)]
+      (rf/reg-event :bw76-cofx/init
+                    (fn [_ _] {:db {:cart {:items [1]} :counter 2 :sibling :keep}}))
+      (rf/reg-interceptor :bw76-cofx/outer-spy
+                          {:after (fn [ctx]
+                                    (reset! outer-after-db (:db (:coeffects ctx)))
+                                    ctx)})
+      ;; The spy is listed BEFORE the path ref, so it is the OUTER
+      ;; interceptor: its `:after` runs AFTER the path interceptor's unwind.
+      (rf/reg-event :bw76-cofx/fx-only
+                    {:interceptors [:bw76-cofx/outer-spy
+                                    [:rf.interceptor/path [:cart]]]}
+                    (fn [{:keys [db]} _]
+                      (is (= {:items [1]} db)
+                          "the handler still sees the FOCUSED slice")
+                      {:fx []}))
+      (rf/dispatch-sync [:bw76-cofx/init])
+      (rf/dispatch-sync [:bw76-cofx/fx-only])
+      (is (= {:cart {:items [1]} :counter 2 :sibling :keep} @outer-after-db)
+          "an interceptor outside the path sees the FULL app-db coeffect after
+           the path interceptor unwinds — not the focused slice"))))
+
+(deftest path-interceptor-no-db-effect-preserves-root-under-flows
+  (testing "rf2-bw76: a path-focused handler that emits NO :db effect must not
+            let the outermost flow pass overwrite the root app-db with its
+            focused slice — nil, {} and {:fx []} returns all preserve the root"
+    (rf/reg-event :bw76/init
+                  (fn [_ _] {:db {:cart {:items [1]} :counter 2 :sibling :keep}}))
+    (rf/reg-event :bw76/unfocused (fn [_ _] {}))
+    (rf/reg-event :bw76/nil-result
+                  {:interceptors [[:rf.interceptor/path [:cart]]]}
+                  (fn [_ _] nil))
+    (rf/reg-event :bw76/empty-result
+                  {:interceptors [[:rf.interceptor/path [:cart]]]}
+                  (fn [_ _] {}))
+    (rf/reg-event :bw76/fx-only
+                  {:interceptors [[:rf.interceptor/path [:cart]]]}
+                  (fn [_ _] {:fx []}))
+    ;; A NESTED focus, to pin that the unwind composes: the inner path's
+    ;; `:after` restores the outer slice, the outer's restores the root.
+    (rf/reg-event :bw76/nested-fx-only
+                  {:interceptors [[:rf.interceptor/path [:cart]]
+                                  [:rf.interceptor/path [:items]]]}
+                  (fn [_ _] {:fx []}))
+    ;; A root flow reading a ROOT input path. Its value is only correct when
+    ;; the flow pass runs against the full app-db.
+    (rf/reg-flow :bw76/derived {:inputs [[:counter]] :output-path [:derived]}
+                 (fn [n] (or n 0)))
+    (rf/dispatch-sync [:bw76/init])
+    (rf/dispatch-sync [:bw76/unfocused])
+    (is (= {:cart {:items [1]} :counter 2 :sibling :keep :derived 2}
+           (rf/app-db-value :rf/default))
+        "control: an UNfocused no-db event leaves the root intact and the flow
+         derives from the root [:counter] input")
+    (doseq [event-id [:bw76/nil-result :bw76/empty-result :bw76/fx-only
+                      :bw76/nested-fx-only]]
+      (rf/dispatch-sync [event-id])
+      (is (= {:cart {:items [1]} :counter 2 :sibling :keep :derived 2}
+             (rf/app-db-value :rf/default))
+          (str "a path-focused handler returning no :db effect (" event-id
+               ") preserves every root key and the flow's root-derived value")))))
+
 (deftest path-interceptor-still-splices-back-when-handler-emits-db
   (testing "(path ...) still splices when the handler DOES emit :db —
             rf2-rwlj2 fix preserves the happy path"
