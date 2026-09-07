@@ -2963,14 +2963,17 @@
   nothing else.
 
   A subsystem key is ABSENT — not `nil`, not a fabricated default —
-  when that subsystem is not loaded in this build. `:epoch-history`
-  needs the optional `day8/re-frame2-epoch` artefact; `:trace-buffer`
-  needs the dev-only `re-frame.trace.tooling` sibling, so a production
-  bundle that DCEs the tooling ns reports neither key. `(get-in
-  (current-config) [:epoch-history :depth])` therefore reads `nil` on
-  an absent artefact, which is the answer a health query wants; the
-  facade handles the optional-availability branch so callers do not
-  resolve owning-ns vars by symbol.
+  when its OWN producer is unavailable in this build. The optional keys
+  are INDEPENDENT: `:epoch-history` comes from the optional
+  `day8/re-frame2-epoch` artefact, `:trace-buffer` from the dev-only
+  `re-frame.trace.tooling` sibling, and each is read through its own
+  late-bind hook. So a production bundle that DCEs the tooling ns omits
+  `:trace-buffer` ALONE — a loaded epoch artefact still reports
+  `:epoch-history` beside it, and vice versa. `(get-in (current-config)
+  [:epoch-history :depth])` reads `nil` when the EPOCH artefact is
+  absent — never merely because trace tooling is — which is the answer
+  a health query wants; the facade handles the optional-availability
+  branch so callers do not resolve owning-ns vars by symbol.
 
   The returned map is a snapshot read key-by-key, not a transactional
   one, and it is not promised to be wire-serialisable — epoch config

@@ -208,6 +208,40 @@
     (is (contains? (rf/current-config) :epoch-history)
         "restored — the fixture leaves no hole for the next test")))
 
+(deftest current-config-optional-keys-are-independent
+  (testing "each optional key is absent only when ITS OWN producer is
+            unavailable — dropping the trace-tooling hook does NOT make the
+            loaded epoch artefact's key disappear, and it does not make
+            (get-in … [:epoch-history :depth]) read nil"
+    ;; The sibling test above drops BOTH hooks at once, so it cannot tell a
+    ;; coupled contract from an independent one. This is the mixed case: one
+    ;; producer present, the other gone. `current-config` reads
+    ;; `:epoch/current-config` and `:trace.tooling/current-trace-buffer-config`
+    ;; through separate late-bind lookups and `cond->`s them on independently.
+    (rf/configure! {:epoch-history {:depth 123}})
+    (let [trace-hook (rf.late-bind/get-fn :trace.tooling/current-trace-buffer-config)]
+      (is (some? trace-hook) "control: the trace hook IS published before we drop it")
+      (is (some? (rf.late-bind/get-fn :epoch/current-config))
+          "control: the epoch hook is published and STAYS published")
+      (try
+        (swap! rf.late-bind/hooks dissoc :trace.tooling/current-trace-buffer-config)
+        (rf.late-bind/invalidate-cache! :trace.tooling/current-trace-buffer-config)
+        (let [cfg (rf/current-config)]
+          (is (not (contains? cfg :trace-buffer))
+              ":trace-buffer is ABSENT — its own producer is gone")
+          (is (contains? cfg :epoch-history)
+              ":epoch-history is PRESENT — the epoch producer is untouched, so
+               the trace producer's absence says nothing about it")
+          (is (= 123 (get-in cfg [:epoch-history :depth]))
+              "and the depth still reads the configured value, NOT nil")
+          (is (contains? cfg :elision)
+              "the always-loaded subsystem is unaffected either way"))
+        (finally
+          (rf.late-bind/set-fn! :trace.tooling/current-trace-buffer-config trace-hook)
+          (rf/configure! {:epoch-history {:depth 50}}))))
+    (is (contains? (rf/current-config) :trace-buffer)
+        "restored — the fixture leaves no hole for the next test")))
+
 (deftest current-config-does-not-reflect-extension-keys
   (testing "the USER-NAMESPACED carve-out is WRITE-only: configure! accepts a
             composed config value in silence, but current-config reports only
