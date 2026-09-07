@@ -6,8 +6,7 @@
   the fx vector whenever exit cascades cross a `:spawn`-bearing state.
   Per Spec 005 §Spawning, destroy clears the actor's runtime-db snapshot at
   `[:rf.runtime/machines :snapshots <id>]` in the spawning
-  frame's runtime-db, and (if the actor was system-id-bound) clears the
-  `[:rf.runtime/machines :system-ids]` reverse index entry.
+  frame's runtime-db.
 
   `args` can be either:
     - a keyword `actor-id` — the IMPERATIVE form: an action emits
@@ -77,8 +76,8 @@
 ;; the in-flight event. `teardown-live-actor!`'s pipeline crosses SEVERAL
 ;; callback-bearing boundaries — the actor's `:exit` cascade, the late-bound
 ;; HTTP-abort hook, the `:rf.machine.timer/cancelled` traces, the
-;; `:rf.machine/destroyed` trace, the `:rf.machine/system-id-released` trace,
-;; and the `:rf.registry/handler-cleared` unregister trace — any of which can
+;; `:rf.machine/destroyed` trace and the `:rf.registry/handler-cleared`
+;; unregister trace — any of which can
 ;; synchronously destroy A and publish a same-id successor B. Every subsequent
 ;; framework-owned action (classification / timer / spawn-order / registrar /
 ;; resource-owner / the durable teardown projection) resolves a bare frame /
@@ -185,22 +184,21 @@
        per-instance marks table, so there is no marks-table residue to drop;
     4. cancel armed `:after` timers, one
        `:rf.machine.timer/cancelled :reason :on-destroy` trace per timer;
-    5. apply the unified teardown projection (`rf.machines.lifecycle-fx.teardown/teardown-actor`),
-       capturing the released `:system-id` via a side channel so we keep a
-       single runtime-db read + single write (machine snapshots are durable
-       runtime-db state). `teardown-args` selects the slots the
+    5. apply the unified teardown projection (`rf.machines.lifecycle-fx.teardown/teardown-actor`)
+       as a single runtime-db read + single write (machine snapshots are
+       durable runtime-db state). `teardown-args` selects the slots the
        projection prunes (`{:actor-id …}` for the per-actor form; the
        tracked map adds `:parent-id` / `:invoke-id`);
     6. emit `:rf.machine/destroyed` via the optional `emit-destroyed!-fn`
-       (called with the released sid) — `destroy-resolved!` emits here so the
+       — `destroy-resolved!` emits here so the
        trace lands after `:exit`; `destroy-single-actor!`'s
        callers own the emit, so they pass nil;
     7. forget the actor from the per-frame spawn-order channel
        REGARDLESS of whether the runtime-db swap landed — by the time
        frame-destroy runs the container may already be nil but the
        spawn-order entry still needs clearing;
-    8. when the swap landed, emit `:rf.machine/system-id-released` and clear
-       any registrar entry (normal spawned actors have none);
+    8. when the swap landed, clear any registrar entry (normal spawned
+       actors have none);
     9. release the actor's resource owners — fire
        `:rf.resource/release-owner` for owner `[:machine actor-id]` (Spec 016
        §Release authority is per owner kind, 016:290) so a resource the actor
@@ -253,21 +251,16 @@
   ;; subscription release is skipped once A is gone (rf2-4ipqe4 + rf2-i4aj9c).
   (when-not (owner-gone?)
     (rf.machines.timer/cancel-actor-timers! frame-id actor-id owner-gone?))
-  ;; (5) apply the unified teardown projection through the EXACT durable write:
-  ;; `teardown-actor` returns [new-runtime-db released-sid], captured via a
-  ;; volatile side channel. `swap-runtime-db-exact!` binds the write to A's own
-  ;; container and returns nil on mid-write owner loss (no dissoc of B's
-  ;; snapshot, no epoch bump for B); the eventless caller (nil token) falls back
-  ;; to the historical bare write. If A is already gone before the write, do
-  ;; nothing and report no swap.
+  ;; (5) apply the unified teardown projection through the EXACT durable write.
+  ;; `swap-runtime-db-exact!` binds the write to A's own container and returns
+  ;; nil on mid-write owner loss (no dissoc of B's snapshot, no epoch bump for
+  ;; B); the eventless caller (nil token) falls back to the historical bare
+  ;; write. If A is already gone before the write, do nothing and report no
+  ;; swap.
   (if (owner-gone?)
     false
-    (let [sid         (volatile! nil)
-          swap-fn     (fn [runtime-db]
-                        (let [[new-rt released-sid]
-                              (rf.machines.lifecycle-fx.teardown/teardown-actor runtime-db teardown-args)]
-                          (vreset! sid released-sid)
-                          new-rt))
+    (let [swap-fn     (fn [runtime-db]
+                        (rf.machines.lifecycle-fx.teardown/teardown-actor runtime-db teardown-args))
           new-rt      (if owner-token
                         (rf.frame/swap-runtime-db-exact! frame-id owner-token swap-fn)
                         (rf.frame/swap-runtime-db! frame-id swap-fn))
@@ -275,25 +268,22 @@
       ;; (6) emit `:rf.machine/destroyed` (callback-bearing) — only while the
       ;; exact owner survives (a mid-write watch that lost A flips `owner-gone?`).
       (when (and emit-destroyed!-fn (not (owner-gone?)))
-        (emit-destroyed!-fn @sid))
+        (emit-destroyed!-fn))
       ;; (7) forget the actor from the per-frame spawn-order channel — rechecked
       ;; after the destroyed trace so a listener that published same-id B cannot
       ;; have A's forget erase B's own freshly-recorded spawn-order entry.
       (when-not (owner-gone?)
         (rf.machines.spawn-order/forget! frame-id actor-id))
-      ;; (8) when the projection landed, emit `:rf.machine/system-id-released`
-      ;; (callback-bearing) and clear any registrar entry (`:rf.registry/handler-
-      ;; cleared`, callback-bearing). rf2-rbxdxa — the system-id-released trace is
-      ;; ITSELF a callback boundary: a listener can destroy A and publish same-id
-      ;; B, registering B's fresh event handler at `actor-id` ON THAT TRACE's own
-      ;; stack. The trace + `rf.registrar/unregister!` must NOT share one precheck —
-      ;; recheck ownership AFTER the trace, so A's teardown never clears B's
-      ;; just-registered handler (the ordinary-destroy terminal-fence law, Spec
-      ;; 005 §Destroy is silent-idempotent).
+      ;; (8) when the projection landed, clear any registrar entry
+      ;; (`:rf.registry/handler-cleared`, callback-bearing). rf2-rbxdxa — the
+      ;; `:rf.machine/destroyed` trace at (6) is ITSELF a callback boundary: a
+      ;; listener can destroy A and publish same-id B, registering B's fresh
+      ;; event handler at `actor-id` on that trace's own stack. Recheck
+      ;; ownership here rather than reusing (6)'s precheck, so A's teardown
+      ;; never clears B's just-registered handler (the ordinary-destroy
+      ;; terminal-fence law, Spec 005 §Destroy is silent-idempotent).
       (when (and db-swapped? (not (owner-gone?)))
-        (rf.machines.lifecycle-fx.traces/emit-system-id-released! frame-id @sid actor-id)
-        (when-not (owner-gone?)
-          (rf.registrar/unregister! :event actor-id)))
+        (rf.registrar/unregister! :event actor-id))
       ;; (9) release the actor's resource owners once it is gone, so
       ;; a `[:machine actor-id]`-owned resource does not outlive the actor and
       ;; keep refetching/polling. Rechecked after the unregister callback: a lost
@@ -311,8 +301,7 @@
   the active configuration's `:exit` cascade, apply the
   unified teardown projection (per
   `re-frame.machines.lifecycle-fx.teardown`), abort in-flight
-  `:rf.http/managed` requests, emit the
-  `:system-id-released` trace, clear any registrar entry, and
+  `:rf.http/managed` requests, clear any registrar entry, and
   forget the actor from the per-frame spawn-order channel.
   The ordered teardown pipeline is shared with `destroy-resolved!` via
   `teardown-live-actor!`.
@@ -494,8 +483,7 @@
       ;; gating the emit on its return value keeps each survivor's
       ;; `:rf.machine/destroyed` to EXACTLY ONE — no phantom double-destroy.
       ;;
-      ;; Per-child fires omit `:system-id` (the join-state's children aren't
-      ;; system-id-bound through the parent's slot). A child already present
+      ;; A child already present
       ;; in `:done ∪ :failed` has published its terminal reply, so parent exit
       ;; tears it down with the existing post-terminal cleanup reason; only an
       ;; in-progress sibling is an explicit cancellation.
@@ -517,9 +505,9 @@
     ;; this A-derived clear vacate B's freshly-seeded join slot.
     (when-not (owner-gone?)
       (let [clear-fn (fn [runtime-db]
-                       (first (rf.machines.lifecycle-fx.teardown/teardown-actor
-                                runtime-db {:parent-id parent-id
-                                            :invoke-id invoke-id})))]
+                       (rf.machines.lifecycle-fx.teardown/teardown-actor
+                         runtime-db {:parent-id parent-id
+                                     :invoke-id invoke-id}))]
         (if owner-token
           (rf.frame/swap-runtime-db-exact! frame-id owner-token clear-fn)
           (rf.frame/swap-runtime-db! frame-id clear-fn))))
@@ -577,16 +565,11 @@
         {:actor-id actor-id :parent-id parent-id :invoke-id invoke-id}
         ;; D6 — `:reason` discriminates "an action / fx tore the actor down"
         ;; (`:explicit`, a cancellation) from `:rf.machine/finished` (the
-        ;; auto-destroy on `:final?`). Always stamp
-        ;; `:system-id` (nil when not bound) per the destroyed-trace-shape
-        ;; contract for the `destroy-single!` site. `released-sid` is the
-        ;; binding the teardown projection released — resolved from the reverse
-        ;; index BEFORE the dissoc, symmetric with `finalize-machine`.
-        (fn [released-sid]
+        ;; auto-destroy on `:final?`).
+        (fn []
           (rf.machines.lifecycle-fx.traces/emit-destroyed!
             (cond-> {:frame             frame-id
                      :actor-id          actor-id
-                     :system-id         released-sid
                      :parent-id         parent-id
                      :invoke-id         invoke-id
                      :work-bearing-path (or invoke-id (:invoke-id join-child))
@@ -662,9 +645,9 @@
   token (eventless caller) falls back to the historical bare write."
   [frame-id parent-id invoke-id owner-token]
   (let [prune-fn (fn [runtime-db]
-                   (first (rf.machines.lifecycle-fx.teardown/teardown-actor
-                            runtime-db {:parent-id parent-id
-                                        :invoke-id invoke-id})))]
+                   (rf.machines.lifecycle-fx.teardown/teardown-actor
+                     runtime-db {:parent-id parent-id
+                                 :invoke-id invoke-id}))]
     (if owner-token
       (rf.frame/swap-runtime-db-exact! frame-id owner-token prune-fn)
       (rf.frame/swap-runtime-db! frame-id prune-fn)))

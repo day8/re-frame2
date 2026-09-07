@@ -1,13 +1,12 @@
 (ns re-frame.machines.paths
   "Runtime-db path constructors for the runtime-owned machines slots.
 
-  The machines runtime keeps five sibling slots under the reserved
+  The machines runtime keeps four sibling slots under the reserved
   `:rf.runtime/machines` child of each frame's **runtime-db** partition
   (Conventions §Reserved runtime-db keys — machine snapshots are durable
   framework state, so they live in the runtime-db partition):
 
     - `:snapshots`     — actor-id → snapshot `{:state :data :tags …}`
-    - `:system-ids`    — system-id → actor-id reverse index
     - `:spawned`       — parent-id → invoke-id → join-state / spawned-id
     - `:spawn-counter` — machine-id → int (hand-emitted-spawn fallback)
     - `:spawn-order`   — vector of actor-id, **oldest → newest**
@@ -70,15 +69,6 @@
   ([actor-id]                              [:rf.runtime/machines :snapshots actor-id])
   ([actor-id snapshot-key]                 [:rf.runtime/machines :snapshots actor-id snapshot-key])
   ([actor-id snapshot-key nested-key]      [:rf.runtime/machines :snapshots actor-id snapshot-key nested-key]))
-
-(defn system-id-path
-  "Path (in the runtime-db value) to the `:system-ids` reverse-index slot,
-  optionally drilling into a specific system-id's binding.
-
-    (system-id-path)           => [:rf.runtime/machines :system-ids]
-    (system-id-path system-id) => [:rf.runtime/machines :system-ids system-id]"
-  ([]          [:rf.runtime/machines :system-ids])
-  ([system-id] [:rf.runtime/machines :system-ids system-id]))
 
 (defn spawn-order-path
   "Path (in the runtime-db value) to the `:spawn-order` slot — the durable

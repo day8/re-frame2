@@ -14,8 +14,8 @@
        (the `:http/abort-on-actor-destroy` contract holds
        across every destroy trigger including frame destroy).
     4. Apply the unified runtime-db teardown projection — dissoc
-       `[:rf.runtime/machines :snapshots <id>]`, release `[:rf.runtime/machines :system-ids <sid>]` when the
-       actor was system-id-bound, prune `[:rf.runtime/machines :spawned]` slots.
+       `[:rf.runtime/machines :snapshots <id>]` and prune
+       `[:rf.runtime/machines :spawned]` slots.
     5. Clear any stale registrar entry; normal spawned actors have no
        per-instance registration.
     6. Emit `:rf.machine.lifecycle/destroyed` with
@@ -73,8 +73,8 @@
   root (stamped by `install-spawn!`; a SINGLETON snapshot never carries it
   — actor_liveness_test:213). The walk SPLITS on that durable
   discriminator: spawned actors run the full
-  `rf.machines.lifecycle-fx.destroy/destroy-single-actor!` teardown (registrar cleanup, system-id
-  release, timer cancel, snapshot dissoc); true singletons keep the
+  `rf.machines.lifecycle-fx.destroy/destroy-single-actor!` teardown (registrar
+  cleanup, timer cancel, snapshot dissoc); true singletons keep the
   exit-cascade-only straggler path."
   (:require [re-frame.frame :as rf.frame]
             [re-frame.machines.lifecycle-fx.destroy :as rf.machines.lifecycle-fx.destroy]
@@ -208,7 +208,7 @@
       b. Spawned actors (durably sequenced OR unsequenced): run the full
          single-actor destroy — exit-cascade → http-abort →
          timer cancel → unified teardown projection →
-         system-id-release trace → registrar cleanup → spawn-order forget.
+         registrar cleanup → spawn-order forget.
       c. Singletons (registered via `reg-machine`, snapshot present but no
          `:rf/machine-type`): run the `:exit` cascade + HTTP abort, but
          DO NOT unregister the handler — singleton handlers live in the
@@ -250,8 +250,8 @@
                             distinct
                             ;; Partition on the durable `:rf/machine-type`
                             ;; discriminator: a spawned snapshot MUST get the
-                            ;; full teardown (registrar cleanup / system-id
-                            ;; release / timer cancel / snapshot dissoc), while
+                            ;; full teardown (registrar cleanup / timer
+                            ;; cancel / snapshot dissoc), while
                             ;; a singleton keeps the exit-only path below.
                             (group-by (fn [actor-id]
                                         (spawned-snapshot? (get snapshots actor-id)))))

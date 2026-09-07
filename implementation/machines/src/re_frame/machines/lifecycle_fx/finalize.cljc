@@ -14,8 +14,8 @@
        `:output-key` — call it `result`. Absent `:output-key` ⇒ nil. An
        `:error? true` leaf marks the terminal a FAILURE.
     3. Emit the `:rf.machine/done` trace (D6).
-    4. Tear down the child: dissoc snapshot, clear `[:rf.runtime/machines :spawned ...]`
-       slot, clear `[:rf.runtime/machines :system-ids <sid>]` (D8),
+    4. Tear down the child: dissoc snapshot, clear
+       `[:rf.runtime/machines :spawned ...]` slot,
        emit `:rf.machine/destroyed` with `:reason :rf.machine/finished`
        (D6 enrichment), abort in-flight HTTP, and clear any registrar entry.
     5. Mint the completion carrier into the parent — the reserved event
@@ -32,8 +32,8 @@
 
   For singleton machines (no `:rf/parent-id` on `:data`): skip step 5
   and emit a `:rf.machine/done` with `:parent-id nil` (D7 — singleton
-  symmetry). The teardown still runs — the snapshot is dissoc'd, the
-  `:system-id` reverse-index entry and any registrar entry are cleared.
+  symmetry). The teardown still runs — the snapshot is dissoc'd and any
+  registrar entry is cleared.
 
   This namespace also owns `abort-actor-in-flight-http!` — the late-bind
   hook into the http-managed artefact — the single home for
@@ -617,13 +617,10 @@
     (if (owner-gone?)
       {:rf.db/runtime runtime-db :fx []}
       (let [;; (4) Apply the unified teardown projection: dissoc the child's
-            ;; snapshot, release any `:system-id` reverse-index entry (D8 —
-            ;; after on-done ran), and clear the parent's
+            ;; snapshot and clear the parent's
             ;; `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` slot
-            ;; with the lazy-allocation prune. Returns `[new-db released-sid]`;
-            ;; `released-sid` is resolved against runtime-db before the
-            ;; reverse index is mutated.
-            [db-after-destroy released-sid]
+            ;; with the lazy-allocation prune.
+            db-after-destroy
             (rf.machines.lifecycle-fx.teardown/teardown-actor runtime-db
                                      {:actor-id  machine-id
                                       :parent-id parent-id
@@ -632,13 +629,12 @@
         ;; (D6 enrichment) before registrar cleanup.
         (rf.machines.lifecycle-fx.traces/emit-destroyed! {:frame     frame-id
                                  :actor-id  machine-id
-                                 :system-id released-sid
                                  :parent-id parent-id
                                  :invoke-id invoke-id
                                  :reason    :rf.machine/finished})
         ;; rf2-hloj0g — the teardown tail's callback-bearing hooks — the
-        ;; `:rf.machine/destroyed` trace above, the late-bound HTTP abort hook,
-        ;; and the `:rf.machine/system-id-released` trace — can EACH destroy A /
+        ;; `:rf.machine/destroyed` trace above and the late-bound HTTP abort
+        ;; hook — can EACH destroy A /
         ;; publish same-id B on their own stack. #5856 fenced the earlier
         ;; completion callbacks (validator / done trace / `:on-done`) with the
         ;; top-level `owner-gone?` gate, but NOTHING rechecked ownership between
@@ -665,11 +661,11 @@
           ;; MONOTONIC), leaving B's re-armed timers untouched.
           (rf.machines.timer/cancel-actor-timers! frame-id machine-id owner-gone?))
         ;; rf2-4ipqe4 — RECHECK after the timer-cancellation callbacks before the
-        ;; classification / spawn-order / system-id-release work. #5856/#5873
+        ;; classification / spawn-order work. #5856/#5873
         ;; grouped these under the timer cancel with NO recheck, so a
         ;; `:rf.machine.timer/cancelled` listener that published same-id B let the
-        ;; A-derived classification drop, spawn-order forget, and system-id-released
-        ;; trace resolve their bare rf.frame/actor ids to the CURRENT incarnation B.
+        ;; A-derived classification drop and spawn-order forget resolve their
+        ;; bare rf.frame/actor ids to the CURRENT incarnation B.
         (when-not (owner-gone?)
           ;; Drop this actor's per-instance classification declarations from the
           ;; per-frame elision registry — the teardown half of
@@ -683,11 +679,11 @@
         ;; rf2-rbxdxa — `drop-at-destroy!` writes through the EXACT elision swap, a
         ;; container-write boundary: a synchronous watch can destroy A / publish
         ;; same-id B DURING the drop. Recheck ownership AFTER it before the
-        ;; spawn-order forget + system-id release — grouping them under the SAME
+        ;; spawn-order forget — grouping them under the SAME
         ;; precheck let a mid-drop successor B see the bare-id `rf.machines.spawn-order/forget!`
-        ;; erase B's freshly-recorded entry and the system-id-released trace resolve
-        ;; against B (the finalize sibling of the ordinary-destroy drop seam). The
-        ;; drop write is already exact; this fences the forget/release the grouped
+        ;; erase B's freshly-recorded entry (the finalize sibling of the
+        ;; ordinary-destroy drop seam). The
+        ;; drop write is already exact; this fences the forget the grouped
         ;; precheck ran ahead of.
         (when-not (owner-gone?)
           ;; Forget the finished actor from the per-frame spawn-order channel — the
@@ -698,11 +694,7 @@
           ;; RE-RUNS (phantom destroyed trace + re-fired resource release,
           ;; violating silent-idempotent destroy) and frame-destroy emits a
           ;; phantom straggler destroy for it.
-          (rf.machines.spawn-order/forget! frame-id machine-id)
-          ;; The `:rf.machine/system-id-released` trace is callback-bearing and is
-          ;; the LAST action in this group, so the recheck below fences the
-          ;; registrar unregister + `:on-error` dispatch against a B it published.
-          (rf.machines.lifecycle-fx.traces/emit-system-id-released! frame-id released-sid machine-id))
+          (rf.machines.spawn-order/forget! frame-id machine-id))
         (when-not (owner-gone?)
           ;; `rf.registrar/unregister!` emits a synchronous callback-bearing
           ;; `:rf.registry/handler-cleared` trace.

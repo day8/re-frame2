@@ -20,7 +20,6 @@
     - Declarative :spawn-all — spawn-and-join sugar over N parallel
       :spawn's plus a closed two-member join condition (:all / :any).
     - The :raise reserved fx-id (machine-internal pre-commit dispatch).
-    - Named actor messaging through :rf.machine/dispatch-to-system.
     - Snapshot at [:rf.runtime/machines :snapshots <id>] in runtime-db.
     - Pure machine-transition fn (JVM- and CLJS-runnable, deterministic).
 
@@ -35,10 +34,10 @@
       map over `re-frame.machines.parallel`'s engine seam (flat /
       compound delegates to `re-frame.machines.transition`'s
       `machine-transition-single`)
-    - `machines`, `machine-by-system-id` — owned directly on this
-      façade (Spec 005 §Querying machines; a single machine's spec is
-      read through the generic `rf/handler-meta` + `:rf/machine`
-      projection, not a per-kind alias)
+    - `machines` — owned directly on this façade (Spec 005
+      §Querying machines; a single machine's spec is read through the
+      generic `rf/handler-meta` + `:rf/machine` projection, not a
+      per-kind alias)
     - `spawn-fx`, `spawn-all-init-fx` —
       `re-frame.machines.lifecycle-fx.spawn`
     - `destroy-machine-fx` — `re-frame.machines.lifecycle-fx.destroy`
@@ -166,13 +165,9 @@
 
 ;; ---- query API (Spec 005 §Querying machines) -----------------------------
 ;;
-;; Two thin lookup fns over the existing event registry and the
-;; runtime-owned `[:rf.runtime/machines :system-ids]` reverse index — derived views, not a
-;; new registry kind. `(rf.machines/machines)` filters event handlers whose
-;; registration metadata carries `:rf/machine? true`;
-;; `(rf.machines/machine-by-system-id sid)` resolves the spawned-machine id
-;; currently bound to `sid` in the active frame's
-;; `[:rf.runtime/machines :system-ids]` reverse index.
+;; ONE thin lookup fn over the existing event registry — a derived view,
+;; not a new registry kind. `(rf.machines/machines)` filters event handlers
+;; whose registration metadata carries `:rf/machine? true`.
 ;;
 ;; A single machine's registered SPEC is read through the generic registrar
 ;; query rather than a per-kind alias (rf2-kuky.31 — the `<kind>-meta` family
@@ -185,8 +180,8 @@
 ;; That inner-key projection is the DOCUMENTED contract (Spec 005 §Querying
 ;; machines, spec/API.md §Public registrar query API), not a helper.
 ;;
-;; These query fns live on the public artefact surface (not a level
-;; below) since they're how Spec 005 §Querying machines is reached.
+;; This query fn lives on the public artefact surface (not a level
+;; below) since it is how Spec 005 §Querying machines is reached.
 
 (defn machines
   "Return a sequence of machine-ids — every event handler whose
@@ -196,41 +191,6 @@
   (->> (rf.registrar/registrations :event)
        (keep (fn [[id m]] (when (:rf/machine? m) id)))
        (vec)))
-
-(defn machine-by-system-id
-  "Look up the spawned-machine id currently bound to `system-id` in the
-  active frame's `[:rf.runtime/machines :system-ids]` reverse index, or nil.
-
-  The 1-arity ambient form resolves the frame through the scope/hold chain
-  via `rf.frame/require-current-frame!` — a lookup issued under no established
-  scope raises `:rf.error/no-frame-context` rather than reading an invented
-  default's reverse index. Pass the public opts form `(machine-by-system-id
-  system-id {:frame target})` to look up a named frame from outside any
-  scope (async callbacks / tools / cross-frame lookups); `target` is a
-  frame-id keyword or a live frame value.
-
-  The 2-arity distinguishes an opts map from the internal frame-last form.
-  Because a live frame value is also a map, only a map that is not a frame
-  value is treated as opts. An opts map without `:frame` uses the ambient
-  frame.
-
-  Per Spec 005 §Named addressing via :system-id + Spec 002 §Resolver
-  surface."
-  ([system-id]
-   (machine-by-system-id
-     system-id
-     (rf.frame/require-current-frame!
-       :machine-by-system-id
-       {:where 're-frame.machines/machine-by-system-id})))
-  ([system-id frame-or-opts]
-   ;; A live frame is map-shaped, so exclude frame values from the opts branch.
-   (if (and (map? frame-or-opts) (not (rf.frame/frame-value? frame-or-opts)))
-     (if-some [target (:frame frame-or-opts)]
-       (machine-by-system-id system-id target)
-       (machine-by-system-id system-id))
-     ;; The reverse index is runtime-db state keyed by the bare frame id.
-     (get-in (rf.frame/frame-runtime-db-value (rf.frame/frame-target->id frame-or-opts))
-             (rf.machines.paths/system-id-path system-id)))))
 
 ;; ---- derivation/process algebra views -------------------------------------
 ;;
@@ -253,46 +213,6 @@
      (def machine-instance-algebra-view rf.machines.tooling/machine-instance-algebra-view)
      (def machine-selector?             rf.machines.tooling/machine-selector?)
      (def machine-selector-targets      rf.machines.tooling/machine-selector-targets)))
-
-;; ---- :rf.machine/dispatch-to-system — action→spawned-actor messaging fx --
-;;
-;; Per Spec 005 §Cross-machine messaging by name + §Named addressing via
-;; `:system-id`: a machine ACTION addresses its spawned child actor by
-;; `:system-id`. Actions can't read app-db, so the fx form is how an
-;; action sends a message to a NAMED actor. Retained as the one named-addressing escape (advanced/parity
-;; tier): zero in-repo consumers as of 2026-07-10, kept for XState v6
-;; actor-system parity (systemId addressing — behavioural parity); the
-;; facade audit at API-freeze rules on deletion with full information. The
-;; redundant `dispatch-to-system` call-site FN twin was deleted (pre-alpha;
-;; no alias, no tombstone) — the everyday send story is plain dispatch to
-;; the id you hold (a machine IS an event handler).
-;;
-;; Args shape `[<system-id> <event-vector>]` — the framework fx contract
-;; is a 2-element `[fx-id args]` pair (the `do-fx` walk drops arity-≥3
-;; entries with `:rf.error/effect-map-shape`), so the system-id and event
-;; ride together in the single `args` slot. This mirrors `:rf.machine/spawn`
-;; (args is a single spec map) and `:dispatch` (args is a single event
-;; vector). Frame-aware: the fx-ctx's `:frame` resolves the binding in the
-;; emitting frame's `[:rf.runtime/machines :system-ids]` reverse index and
-;; targets the queued dispatch at the same frame — consistent with
-;; `spawn-fx` / `update-snapshot-fx`.
-
-(defn dispatch-to-system-fx
-  "fx handler for `:rf.machine/dispatch-to-system`. Resolves `system-id`
-  through the emitting frame's `[:rf.runtime/machines :system-ids]`
-  reverse index and dispatches `event` to the bound actor. No-op when the
-  system-id is unbound. Per Spec 005 §Cross-machine messaging by name."
-  [{frame-id :frame} [system-id event]]
-  ;; The cascade envelope frame is the fx-context `:frame`; a nil stamp is
-  ;; an invariant failure (`:rf.error/no-frame-context`), never a
-  ;; synthesised `:rf/default`.
-  (let [frame-id (rf.frame/require-frame-stamp!
-                   frame-id :rf.machine/dispatch-to-system
-                   {:where 'rf.machine/dispatch-to-system :event-id system-id})]
-    (when-let [machine-id (machine-by-system-id system-id frame-id)]
-      (when-let [dispatch! (rf.late-bind/get-fn :router/dispatch!)]
-        (dispatch! [machine-id event] {:frame frame-id}))))
-  nil)
 
 (defn reset-timers!
   "Cancel in-flight `:after` timers.
@@ -331,7 +251,7 @@
 ;; elision bundle.
 
 (rf.fx/reg-fx :rf.machine/spawn
-  {:doc "Spawn a machine instance. Per Spec 005 §Declarative :spawn (sugar over spawn). Args carry `:machine-id`, optional `:system-id`, and optional `:data`."}
+  {:doc "Spawn a machine instance. Per Spec 005 §Declarative :spawn (sugar over spawn). Args carry `:machine-id` and optional `:data`."}
   spawn-fx)
 
 (rf.fx/reg-fx :rf.machine/destroy
@@ -372,10 +292,6 @@
 (rf.fx/reg-fx :rf.machine/update-snapshot
   {:doc "Snapshot-level escape hatch. Emit `[:rf.machine/update-snapshot {:rf/machine-id <id> :rf/patch {:data {...}}}]` from a callback's `:fx` vector to touch `:state` / `:meta` / `:data` atomically. Per Spec 005 §Snapshot-level escape hatch."}
   rf.machines.lifecycle-fx.update-snapshot/update-snapshot-fx)
-
-(rf.fx/reg-fx :rf.machine/dispatch-to-system
-  {:doc "Dispatch an event to a spawned actor addressed by `:system-id`. Emit `[:rf.machine/dispatch-to-system [<system-id> <event-vector>]]` from a machine action's `:fx` vector. No-op when the system-id is unbound. The single named-addressing escape (advanced/parity tier); zero in-repo consumers, retained for XState v6 actor-system parity. Per Spec 005 §Cross-machine messaging by name."}
-  dispatch-to-system-fx)
 
 ;; ---- framework-shipped subs -----------------------------------------------
 ;;
@@ -436,7 +352,6 @@
            [:fx  :rf.machine/after-schedule]
            [:fx  :rf.machine/after-cancel]
            [:fx  :rf.machine/update-snapshot]
-           [:fx  :rf.machine/dispatch-to-system]
            [:sub :rf/machine]
            [:sub :rf.machine/has-tag?]])))
 
@@ -518,7 +433,6 @@
 ;; a one-line delegate to `resolver/spec-from-registry`, so the hook publishes
 ;; that resolver directly — same 1-arity, same value, one fewer public name.
 (rf.late-bind/set-fn! :machines/machine-meta           rf.machines.lifecycle-fx.resolver/spec-from-registry)
-(rf.late-bind/set-fn! :machines/machine-by-system-id   machine-by-system-id)
 (rf.late-bind/set-fn! :machines/reset-timers!          reset-timers!)
 ;; Per-frame timer-table cleanup wired into `rf.frame/destroy-frame!`.
 ;; The timer table is partitioned `{<frame-id> {…}}`; without this

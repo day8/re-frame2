@@ -4027,7 +4027,7 @@
   Per Spec 005 §Cross-Spec Interactions §1: when the
   machines artefact is loaded, delegate the full cascade
   (reverse-creation walk, per-machine `:exit` cascade, HTTP abort,
-  unified teardown projection, system-id release, handler unregister)
+  unified teardown projection, handler unregister)
   to the late-bind hook `:machines/teardown-on-frame-destroy!`. The
   hook is published by `re-frame.machines` so core never statically
   requires the optional machines artefact.
@@ -4036,8 +4036,8 @@
   fire the `:http/abort-on-actor-destroy`
   hook per snapshot key and emit `:rf.machine.lifecycle/destroyed`
   with `:reason :parent-frame-destroyed`. Without the machines
-  artefact there are no live `:exit` cascades to run, no actor
-  handlers to unregister, and no system-id reverse index to release.
+  artefact there are no live `:exit` cascades to run and no actor
+  handlers to unregister.
 
   rf2-wjfm — the fallback's abort is FRAME-EXACT. An actor address is
   frame-LOCAL (Spec 014 §Abort on actor destroy §Frame scope), so the hook
@@ -4341,7 +4341,7 @@
                                       order: runs the `:exit` cascade
                                       against a live container, applies
                                       the unified teardown projection
-                                      (snapshot + system-id + spawn-slot
+                                      (snapshot + spawn-slot
                                       prune), unregisters the live handler,
                                       and emits
                                       `:rf.machine.lifecycle/destroyed`

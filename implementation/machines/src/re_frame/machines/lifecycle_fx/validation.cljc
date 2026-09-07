@@ -1499,7 +1499,7 @@
   included, per Spec-Schemas §`MachineElementEntry` / the reference-site coord
   note) — accepted (they are absent in production)."
   #{:machine-id :definition :data :id-prefix :on-done :on-error
-    :start :fixed-actor-id :system-id :timeout :on-timeout
+    :start :fixed-actor-id :timeout :on-timeout
     :source-coords :source-code})    ;; DEBUG-only macro-stamped coord slots
 
 (def ^:private known-spawn-all-child-spec-keys
