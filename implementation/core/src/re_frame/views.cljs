@@ -430,6 +430,45 @@
 ;; head-cache section between `build-frame-aware-view` and `reg-view*` for why
 ;; the pipeline is re-runnable rather than a one-shot at registration.
 
+(defn- form-3-class-render-fn
+  "Normalize a DIRECTLY registered Reagent-family Form-3 class into a render fn
+  that MOUNTS it (rf2-xccd). Any other value is returned unchanged.
+
+  `reg-view*`'s documented contract admits the direct Form-3 shape
+  `(rf/reg-view* ::panel (r/create-class {…}))` — a `create-class` result handed
+  straight in, with no outer callable around it. Every step downstream of
+  registration treats its input as a RENDER FUNCTION: `build-frame-aware-view`
+  ends in `(apply render-fn args)`. A `create-class` constructor satisfies
+  `fn?`, so that call succeeds in form and is wrong in substance — React never
+  receives the class as a component type, so its `:reagent-render` never runs
+  under a class instance and `:component-did-mount` /
+  `:component-will-unmount` never fire.
+
+  `re-frame.views.source-coord-annotation`'s `reagent-class?` guard cannot
+  reach this: it inspects the render's OUTPUT — the right question for an outer
+  fn that RETURNS a class (Form-2-shaped registration of a Form-3 body, which
+  is unchanged by this) — and by then a directly registered class has already
+  been called.
+
+  So the normalization happens once, at the head of the derivation pipeline,
+  BEFORE anything can call the value: the class becomes the hiccup head of a
+  one-element vector, which is exactly how Reagent is asked to mount a class.
+  The constructor object itself is never modified and never wrapped, so its
+  identity — what React reconciles component types by — survives; the args the
+  wrapper was called with ride into the vector positionally and reach
+  `:reagent-render` unchanged.
+
+  The annotation walk then sees `[TheClass & args]` as the render output: a
+  vector whose head is not a Hiccup DOM tag, so it takes the same non-DOM-root
+  branch (one-shot warning, output returned untouched) that the
+  outer-fn-returning-class path already takes. A registered view whose root is
+  a component class has no DOM node of its own to stamp either way."
+  [render-fn]
+  (if (rf.views.source-coord-annotation/reagent-class? render-fn)
+    (fn form-3-class-mount [& args]
+      (into [render-fn] args))
+    render-fn))
+
 (defn- apply-adapter-wrap-view
   "Consult the `:adapter/wrap-view` late-bind hook (rf2-00li) for a
   substrate-side wrap. Returns `[render-fn wrap-applied?]`.
@@ -738,9 +777,17 @@
   coord-attr — so `prev`'s wrapper is REUSED rather than rebuilt. That is what
   keeps `(rf/view id)` object-identical on a substrate publishing neither hook,
   whose re-derivation would otherwise mint an equivalent-but-distinct component
-  type on the first lookup after boot."
-  [id metadata render-fn prev]
-  (let [[render-fn* wrap-applied?] (apply-adapter-wrap-view id metadata render-fn)
+  type on the first lookup after boot.
+
+  A directly registered Form-3 class is normalized into a class-MOUNTING render
+  fn first (rf2-xccd), so every stage below — both substrate hooks, the
+  frame-aware wrapper, the annotation walk — sees an ordinary render fn and
+  nothing calls the constructor. `:render-fn` keeps the value as REGISTERED, so
+  a re-derivation against a newly installed substrate re-normalizes from the
+  same input rather than from its own output."
+  [id metadata registered-fn prev]
+  (let [render-fn                  (form-3-class-render-fn registered-fn)
+        [render-fn* wrap-applied?] (apply-adapter-wrap-view id metadata render-fn)
         reuse-wrapper? (and (some? prev)
                             (not wrap-applied?)
                             (not (:wrap-applied? prev)))
@@ -751,7 +798,7 @@
                            (rf.trace/handler-scope-from-meta :view id metadata)
                            (view-coord-attr id metadata wrap-applied?)
                            wrap-applied?))]
-    {:render-fn     render-fn
+    {:render-fn     registered-fn
      :metadata      metadata
      :adapter       (rf.substrate.adapter/current-adapter-spec)
      :wrap-applied? wrap-applied?
