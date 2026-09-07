@@ -24,15 +24,32 @@
   adapters depend on core. The Reagent family does NOT ship it: `reg-view`
   injection is Reagent's spelling of the same primitive.
 
-  ## Frame resolution
+  ## Frame resolution — React context, and nothing else
 
-  Identical to the spine's ambient `use-sub` (Spec 006 §Frame
-  resolution (1-arg form), EP-0002): the hook subscribes to the shared
-  frame React-context so a `frame-provider` swap re-renders the caller, but
-  DISCARDS the raw context value and resolves through the carried-invariant
-  chain (`rf.frame/require-current-frame!`: dynamic-var → React-context → loud
-  `:rf.error/no-frame-context`). No scope, no `:rf/default` floor — absence
-  fails loud, exactly as the no-arg `capture-frame` does.
+  Identical to the spine's ambient `use-sub` (Spec 006 §Frame resolution
+  (1-arg form), EP-0002): the hook reads the shared frame React-context —
+  which both subscribes the caller to a `frame-provider` swap and IS the
+  answer — and classifies that value once, through
+  `rf.adapter.context/context-value->current-frame`. There is no
+  dynamic-var tier: a `with-frame` / `bind-fn` scope around a synchronous
+  render does not reach a hook, and no boundary above means a loud
+  `:rf.error/no-frame-context` with no `:rf/default` floor, exactly as the
+  no-arg `capture-frame` does.
+
+  WHY THE HOOK AND THE IMPERATIVE READ DIVERGE HERE (rf2-kuky.61 / .62).
+  The two faces of `capture-frame` run at different instants. The
+  imperative call runs INSIDE the extent that scoped it; this hook runs
+  when React renders, by which time a body's extent has unwound — so the
+  var tier can only answer for a different render than the one asking, and
+  whether it answers at all depends on the scheduling mode (`act()`,
+  `flushSync` and a server render put the body on the calling stack; a
+  scheduled update does not). A hook reading a JS-thread global during a
+  React render is hidden context in the one place React identity matters
+  (`spec/Principles.md` §Low hidden context). The rule this buys is the
+  one the design asks for: the same component tree resolves the same frame
+  under either scheduling mode. The explicit override for a test or a
+  harness is a `frame-provider` wrapper, which survives a scheduling
+  change; dynamic scope stays the imperative tier's.
 
   ## Reference stability, and what it is keyed on
 
@@ -78,10 +95,11 @@
               {:keys [dispatch]} (use-frame)]
           ($ :button {:on-click #(dispatch [:counter/inc])} \"+\")))
 
-  The ambient frame resolves through the same carried-invariant chain as
-  the ambient `use-sub` — dynamic-var tier first, then the
-  surrounding `frame-provider` / `frame-root` via React context — and with
-  no scope in effect raises `:rf.error/no-frame-context` (never a synthetic
+  The ambient frame is the surrounding `frame-provider` / `frame-root`
+  read from React context, and nothing else — the same one rule the
+  ambient `use-sub` follows. A `with-frame` / `bind-fn` dynamic scope
+  around a synchronous render does NOT reach this hook; with no boundary
+  above it this raises `:rf.error/no-frame-context` (never a synthetic
   `:rf/default`). The captured frame is authoritative: a per-call `:frame`
   in the dispatch opts cannot override it.
 
@@ -96,16 +114,26 @@
   hook position, nothing more. For an explicit frame there is no hook tax:
   call `(rf/capture-frame frame-id)` directly (no scope required)."
   []
-  ;; Hook subscription to provider-value changes (re-render when the
-  ;; surrounding frame-provider swaps frames) — same discipline as the
-  ;; spine's ambient `use-sub`: the raw context value (which may be
-  ;; the no-provider sentinel) is DISCARDED; resolution runs through the
-  ;; carried-invariant chain below.
-  (React/useContext rf.adapter.context/frame-context)
-  (let [;; All hooks run unconditionally BEFORE the loud resolution throw so
+  ;; ONE TIER (rf2-kuky.62). The `useContext` read does both jobs at once:
+  ;; it subscribes the caller to provider-value changes (so a
+  ;; `frame-provider` swap re-renders it) AND it is the resolution itself.
+  ;; The renderer-agnostic `useContext` return is the right value to
+  ;; classify on both renderers — under `react-dom/server` React reads the
+  ;; SECONDARY `_currentValue2` slot, which the private-slot reader in
+  ;; `re-frame.adapter.context` has to fall back to by hand.
+  (let [ctx-value (React/useContext rf.adapter.context/frame-context)
+        ;; All hooks run unconditionally BEFORE the loud resolution throw so
         ;; a scoped→unscoped render transition can never reorder hooks.
         ref   (React/useRef nil)
-        frame (rf.frame/require-current-frame!
+        ;; `context-value->current-frame` is the SHARED classifier: the
+        ;; no-provider sentinel → nil ('no scope', the benign case), a frame
+        ;; keyword → that frame, anything else → the distinct
+        ;; `:rf.error/frame-context-corrupted` diagnostic and nil.
+        ;; `require-frame-stamp!` then emits + throws the same
+        ;; `:rf.error/no-frame-context` payload `require-current-frame!`
+        ;; used to emit here, so nothing about error reporting moved.
+        frame (rf.frame/require-frame-stamp!
+                (rf.adapter.context/context-value->current-frame ctx-value)
                 :use-frame {:where 're-frame.adapter.use-frame/use-frame})
         ;; The identity half of the key (rf2-40kv). `capture-frame` pins the
         ;; incarnation live when IT runs; read the same identity here so the

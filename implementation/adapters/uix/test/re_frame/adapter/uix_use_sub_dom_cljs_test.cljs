@@ -533,16 +533,20 @@
 (deftest use-frame-retargets-across-a-same-id-reincarnation
   (rf.adapter.react-shared-suite/assert-use-frame-retargets-across-a-same-id-reincarnation cfg))
 
-;; rf2-4mi2zj — 1-arg full frame-resolution chain (the bug: spine fed the
-;; raw use-context read into the explicit 2-arg path, bypassing the chain).
+;; ONE hook frame-resolution rule — React context, and nothing else
+;; (rf2-kuky.61 ruling, implemented by rf2-kuky.62; these rows grew out of
+;; rf2-4mi2zj, whose precedence direction the ruling reversed).
 (deftest use-sub-provider-tier-resolution-ambient-cleared
   (rf.adapter.react-shared-suite/assert-use-sub-provider-tier-resolution-ambient-cleared cfg))
 
-(deftest use-sub-dynamic-var-precedence-over-provider
-  (rf.adapter.react-shared-suite/assert-use-sub-dynamic-var-precedence-over-provider cfg))
+(deftest use-sub-provider-precedence-over-dynamic-var
+  (rf.adapter.react-shared-suite/assert-use-sub-provider-precedence-over-dynamic-var cfg))
 
 (deftest use-sub-no-provider-no-dynamic-raises-no-frame-context
   (rf.adapter.react-shared-suite/assert-use-sub-no-provider-no-dynamic-raises-no-frame-context cfg))
+
+(deftest hook-no-provider-with-dynamic-scope-raises-no-frame-context
+  (rf.adapter.react-shared-suite/assert-hook-no-provider-with-dynamic-scope-raises-no-frame-context cfg))
 
 (deftest use-sub-cleanup-decrements-sub-cache-refcount
   (rf.adapter.react-shared-suite/assert-use-sub-cleanup-decrements-refcount cfg))

@@ -16,7 +16,13 @@ frame is all these two supply.
 
 Both are **real React hooks** — top level of the component, unconditional — and
 both refuse with `:rf.error/no-frame-context` when rendered outside every frame.
-The islands themselves are taught in
+
+Both resolve the frame from the surrounding `frame-provider` / `frame-root` via
+React context, and nothing else — a `with-frame` dynamic scope around a
+synchronous render does not reach them. That is the one rule the whole React
+hook family follows: `re-frame.adapter.uix`'s `use-sub` and `use-frame` answer
+identically, so a component that moves between the two substrates resolves the
+same frame. The islands themselves are taught in
 [The native tier](../core/hicasso/10-native-tier.md).
 
 ## The hooks
