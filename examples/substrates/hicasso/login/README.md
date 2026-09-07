@@ -67,13 +67,14 @@ what each one holds constant.
   `:auth.login/draft`; the draft lives in app-db. There is no
   `h/reg-state` anywhere in this file, and nothing to keep in step.
 
-## The boot, and why it is three lines rather than one
+## The boot, and the one place the frame is named
 
 ```clojure
-(rf/init! substrate/adapter)                       ;; 1. seat an adapter
-(rf/make-frame (merge {:id :rf/default …}          ;; 2. make the frame ONCE,
-                      model/frame-config))         ;;    with the shared config
-(h/mount! el {:frame :rf/default} [root-view])     ;; 3. join it and render
+(rf/init! substrate/adapter)                    ;; 1. seat an adapter
+(h/mount! el {}                                 ;; 2. one React root, root
+  [h/frame-root (merge {:id :rf/default}        ;;    options only
+                       model/frame-config)      ;; 3. one frame, whole config
+   [root-view]])
 ```
 
 Hicasso is a view layer, not a
@@ -84,13 +85,26 @@ Hicasso ships its own in `re-frame.hicasso.substrate`, so line 1 costs no extra
 coordinate — and it is not optional, since creating a frame asks the adapter for
 a state container.
 
-Line 2 is where this example differs from its twins, and the reason is worth
-stating plainly: `h/mount!`'s config carries exactly three keys — `:frame`,
-`:initial-events` and `:identifier-prefix` — and the shared
-`model/frame-config` also needs `:fx-overrides` (the demo HTTP stub). So the
-frame is made explicitly, with the shared config merged in, and line 3 **joins**
-it: `h/mount!` ensures its frame, creating it when absent and joining the live
-one otherwise. No shim was added to `h/mount!` for this example's convenience.
+`model/frame-config` is the substrate-free half of the boot, shared verbatim
+with the Reagent and UIx twins: `:fx-overrides` points `:rf.http/managed` at the
+in-process demo stub, and `:initial-events` seed the form slice before the first
+paint. **It rides `h/frame-root` whole**, because `frame-root` takes the
+`rf/make-frame` option map rather than a curated subset.
+
+This example used to be the odd one out. The root door's config was closed at
+three keys, `:fx-overrides` was not among them, and keys outside the three were
+dropped in silence — so the boot had to call `rf/make-frame` first and mount to
+JOIN the frame it had already made, and this section had to explain why. The
+in-tree boundary retired the detour (rf2-kuky.58): the frame is named once,
+where it is used, and the root door now refuses a frame option rather than
+ignoring it.
+
+**The SSR branch still makes the frame by hand, and that is not the same
+detour.** `rf.ssr/hydrate!` dispatches the server's payload INTO a frame; it
+does not make one. So an adopting boot makes the frame with its config, installs
+the payload, and then SCOPEs it with `[h/frame-provider {:frame …}]` — state
+first, DOM second. An `h/frame-root` there would ensure at commit, after the
+payload, and seed replacement state over exactly what the server rendered from.
 
 Hot reload re-renders that one retained root (`h/render!`) rather than building
 a second one — calling `h/mount!` again would `createRoot` twice and discard

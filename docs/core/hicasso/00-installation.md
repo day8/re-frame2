@@ -159,9 +159,9 @@ line costs no coordinate. It is a separate namespace rather than a name on the
 `h` door for the reason every optional Hicasso module is: an application that
 installs somebody else's adapter never requires it and never carries it.
 
-It is not optional and it does not fail quietly. `h/mount!` ensures its frame,
-creating a frame asks the adapter for a state container, and a container asked
-for before `init!` throws:
+It is not optional and it does not fail quietly. `h/frame-root` ensures its
+frame, creating a frame asks the adapter for a state container, and a container
+asked for before `init!` throws:
 
 ```text
 rf/make-state-container was called before (rf/init! ...); require an adapter
@@ -247,9 +247,10 @@ build calls:
   (rf/init! substrate/adapter)
   (reset! !root
           (h/mount! (js/document.getElementById "app")
-                    {:frame          :rf/default
-                     :initial-events [[:counter/initialise]]}
-                    [counter]))
+                    {}
+                    [h/frame-root {:id             :rf/default
+                                   :initial-events [[:counter/initialise]]}
+                     [counter]]))
   nil)
 ```
 
@@ -278,18 +279,25 @@ The example uses three Hicasso rules:
   [intent](glossary.md#intent). The runtime creates the callback and dispatches
   the event vector to this root's frame.
 
-## What `h/mount!` creates
+## What the boot creates
 
-[`h/mount!`](glossary.md#mount) receives a DOM node, a root configuration, and
-one view form. Its `:frame` identifies the re-frame2 frame used by that root.
-A frame has its own app-db, event queue, and subscription cache.
+Two things, and they are two on purpose. [`h/mount!`](glossary.md#mount) makes
+the React root: it receives a DOM node, a root configuration and one view form,
+and its config carries React-root options only. `[h/frame-root {:id ...}]` makes
+the **frame** -- its own app-db, event queue and subscription cache -- and
+scopes it to everything beneath it in the tree.
 
-Mounting **ensures** the named frame: it creates the frame if it does not exist,
-or joins the existing frame if another root already uses it.
-`:initial-events` run once, in order, when that mount creates the frame. They
-complete before the first paint, which prevents an empty initial render.
-Initial state still arrives through events; Hicasso does not add a separate
-`:db` seed option.
+`h/frame-root` **ensures** the frame it names: it creates it if it does not
+exist, or reuses the live one as it stands if another boundary already holds it.
+`:initial-events` run once, in order, on the ensure that CREATES the frame. They
+complete before the first paint, which prevents an empty initial render -- the
+ensure runs in a layout effect and `h/mount!` renders inside `flushSync`, so the
+door returns with the seeded markup already on the page. Initial state still
+arrives through events; Hicasso does not add a separate `:db` seed option.
+
+This is the same `frame-root` / `frame-provider` pair every re-frame2 view
+substrate spells, so a boot written here reads like a Reagent or UIx one. The
+[Frames spec](../../spec/002-Frames.md) is the contract all of them realise.
 
 `[counter]` and `[counter {}]` are equivalent. The body receives an empty props
 map in either case.
@@ -317,29 +325,29 @@ shows it in a routed root.
 
 ### A frame that needs more than a seed
 
-Those three keys are the whole of what `h/mount!` reads, and the list is closed:
-any other key in `config` is ignored, silently and without complaint. A frame
-that needs an `rf/make-frame` option — `:url-bound? true` for an application that
+`h/frame-root` takes the **whole** `rf/make-frame` option map, so there is no
+curated subset to be caught out by. `:url-bound? true` for an application that
 owns the browser URL, `:fx-overrides` for a stubbed backend, `:images`,
-`:platform` — is therefore **created first, and the mount joins it**:
+`:platform` — every one of them rides the head:
 
 ```clojure
 (defn ^:export init []
   (rf/init! substrate/adapter)
-  (rf/make-frame {:id             :app/main
-                  :url-bound?     true
-                  :initial-events [[:app/initialise]]})
   (reset! !root
           (h/mount! (js/document.getElementById "app")
-                    {:frame :app/main}
-                    [app-root]))
+                    {}
+                    [h/frame-root {:id             :app/main
+                                   :url-bound?     true
+                                   :initial-events [[:app/initialise]]}
+                     [app-root]]))
   nil)
 ```
 
-Mounting ensures rather than creates, so the mount finds the frame already live
-and joins it untouched. That is the same join a second root takes, and it carries
-the same consequence: **seed from `rf/make-frame` in this shape, not from the
-mount**, because `:initial-events` handed to a mount that joins never run.
+Naming the frame ONCE, where it is used, is the whole point of the shape.
+Hicasso used to make a boot like this call `rf/make-frame` first and mount to
+JOIN, because the root door's config could not carry `:fx-overrides`; the
+boundary in the tree retired that detour, and the door now REFUSES a frame
+option rather than dropping it.
 
 [Routing and navigation](07-routing-and-navigation.md#boot-a-routed-application)
 walks the routed case, which is the common one — a frame owns the browser URL
@@ -352,8 +360,9 @@ roots share an application.
 
 ### Two roots sharing one frame
 
-The first root creates and seeds the frame. A later root that names the same
-frame joins its current state and does not replay `:initial-events`:
+The first root's `h/frame-root` creates and seeds the frame. A later root
+scoping the same frame reads its current state, and a second `h/frame-root`
+under the same `:id` reuses it without replaying `:initial-events`:
 
 ```clojure
 (defonce !app-root (atom nil))
@@ -363,18 +372,25 @@ frame joins its current state and does not replay `:initial-events`:
   (rf/init! substrate/adapter)
   (reset! !app-root
           (h/mount! (js/document.getElementById "app")
-                    {:frame          :app/main
-                     :initial-events [[:app/initialise]]}
-                    [main-screen]))
+                    {}
+                    [h/frame-root {:id             :app/main
+                                   :initial-events [[:app/initialise]]}
+                     [main-screen]]))
   (reset! !status-root
           (h/mount! (js/document.getElementById "status")
-                    {:frame :app/main}
-                    [connection-badge]))
+                    {}
+                    ;; The frame already exists, so the second root SCOPEs it
+                    ;; rather than ensuring it again. A `frame-root` here would
+                    ;; work too — ensure is idempotent — but `frame-provider`
+                    ;; says out loud which root owns the seed, and fails loud
+                    ;; if this one is ever booted alone.
+                    [h/frame-provider {:frame :app/main}
+                     [connection-badge]]))
   nil)
 ```
 
 Both roots read the same app-db and dispatch into the same queue. Seed from the
-root that creates the frame; joining roots should omit `:initial-events`.
+boundary that creates the frame; a scoping root carries no seed at all.
 
 Unmounting one root does not destroy state still used by another root. Teardown
 remains per root.
@@ -434,10 +450,11 @@ production; there is no production-only view mode.
 | A mount throws `:rf.error/no-adapter-installed`, naming `rf/make-state-container` | No [adapter](#hicasso-needs-a-substrate-adapter) is installed: `rf/init!` never ran, or ran after the mount | Make `(rf/init! substrate/adapter)` the first line of boot |
 | `(counter {})` throws and names the view | A `defview` is a Hiccup head, not a directly callable helper | Render `[counter {}]`. Use a plain `defn` for inline markup |
 | `h/sub` in a callback, timer, or promise throws | `:rf.error/hicasso-sub-outside-render`: the read happened outside a synchronous view body | Read during the body and close over the value. Async work should read state through events and coeffects |
-| The first paint is empty and then fills in | Initial state was dispatched after mounting | Put the seed events in `:initial-events` so they finish before the first paint |
+| The first paint is empty and then fills in | Initial state was dispatched after mounting | Put the seed events in `h/frame-root`'s `:initial-events` so they finish before the first paint |
 | A second `h/mount!` fails on the same DOM node | A live root already owns the node | Keep the handle with `defonce`; unmount that root before mounting another |
-| A joining root's `:initial-events` never run | The named frame already exists; joining does not replay setup | Seed only from the mount that creates the frame |
-| A key added to `h/mount!`'s `config` has no effect and raises nothing | The config is closed at `:frame`, `:initial-events` and `:identifier-prefix`; every other key is ignored | Put frame options on `rf/make-frame` and let the mount join ([above](#a-frame-that-needs-more-than-a-seed)) |
+| A reusing `h/frame-root`'s `:initial-events` never run | The named frame already exists; ensure reuses without re-seeding | Seed only from the boundary that creates the frame |
+| `h/mount!` throws `:rf.error/hicasso-frame-config-misplaced` | `:frame` or `:initial-events` was handed to the root door; frame configuration lives on the boundary in the tree | Move it to `[h/frame-root {:id … :initial-events …}]` ([above](#a-frame-that-needs-more-than-a-seed)) |
+| `h/mount!` throws `:rf.error/hicasso-unknown-root-option` | A root door carries `:identifier-prefix` and nothing else, and refuses the rest rather than ignoring it | Put every `rf/make-frame` option on `h/frame-root` |
 | One refused head blanks the whole page | A Hicasso refusal is a throw, and React unmounts a root that throws with no boundary above it | Wrap independently recoverable regions with `h/error-boundary` ([Errors](17-errors.md)) |
 | A changed initialisation handler has no effect after hot reload | The live frame kept its existing app-db | Reload, recreate the frame, or dispatch an explicit reset event |
 | A view body runs twice when first mounted in development | React StrictMode probes bodies twice | Expected. Keep view bodies pure and safe to re-run |

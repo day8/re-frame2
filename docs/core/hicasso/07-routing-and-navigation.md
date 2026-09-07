@@ -34,8 +34,9 @@ beyond it:
 
 ## Boot a routed application
 
-Routing costs a dependency and a frame option, and a mount line says neither out
-loud: `h/mount!`'s config carries no routing key at all.
+Routing costs a dependency and a frame option. The dependency is a coordinate;
+the frame option rides `h/frame-root` with every other `rf/make-frame` option,
+and there is no routing key on the root door at all.
 
 ```clojure
 ;; deps.edn — beside the Hicasso coordinate
@@ -56,13 +57,14 @@ loud: `h/mount!`'s config carries no routing key at all.
 
 (defn ^:export init []
   (rf/init! substrate/adapter)
-  (rf/make-frame {:id             :app/main
-                  :url-bound?     true          ;; this frame owns the browser URL
-                  :initial-events [[:app/initialise]]})
   (reset! !root
           (h/mount! (js/document.getElementById "app")
-                    {:frame :app/main}
-                    [views/app-root]))
+                    {}
+                    [h/frame-root
+                     {:id             :app/main
+                      :url-bound?     true       ;; this frame owns the browser URL
+                      :initial-events [[:app/initialise]]}
+                     [views/app-root]]))
   nil)
 ```
 
@@ -77,11 +79,11 @@ Three things in that shape are load-bearing:
   slice in one step. Without it `route-link` still renders and navigation still
   updates that frame's own route state — the address bar simply never moves, and
   a refresh loses the page.
-- **The frame is made before the mount, because the mount cannot carry
-  `:url-bound?`.** `h/mount!`'s config is closed at `:frame`, `:initial-events`
-  and `:identifier-prefix`, and any other key is ignored without complaint. The
-  mount then joins the live frame, so the seed belongs to `rf/make-frame` — see
-  [A frame that needs more than a
+- **`:url-bound?` rides the frame boundary, not the root door.** `h/mount!`'s
+  config carries `:identifier-prefix` and REFUSES every other key —
+  `:url-bound?` is a frame option, so it goes on `h/frame-root` with the rest of
+  the `rf/make-frame` map, beside the seed. One place names the frame and one
+  place configures it: see [A frame that needs more than a
   seed](00-installation.md#a-frame-that-needs-more-than-a-seed).
 
 Exactly one frame may carry `:url-bound? true`. A second raises
