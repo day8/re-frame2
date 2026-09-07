@@ -652,8 +652,8 @@
     (is (some? (rf/view card-id)))
     (is (identical? hicasso-card (rf/view card-id))
         "the very value the `def` binds")
-    (is (identical? hicasso-card (:handler-fn (rf/handler-meta :view card-id))))
-    (is (not (contains? (rf/handler-meta :view card-id) :hicasso/component))
+    (is (identical? hicasso-card (:handler-fn (rf/handler-meta {:source :store :kind :view :id card-id}))))
+    (is (not (contains? (rf/handler-meta {:source :store :kind :view :id card-id}) :hicasso/component))
         "and the private slot it used to ride is gone, so no consumer can
          still be reading it"))
 
