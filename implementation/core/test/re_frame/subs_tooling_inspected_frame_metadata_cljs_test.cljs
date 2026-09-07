@@ -93,9 +93,12 @@
             the :db default is what an unresolved global lookup produces"
     (install-frame! :review/frame-a (review-image :review/image-a "IMAGE A" 5))
     (is (= 6 @(rf/subscribe local-q {:frame :review/frame-a})))
-    (is (= {} (rf.registrar/registrations :sub))
-        "control — the GLOBAL registrar pool is empty, so an ambient read finds
-         nothing and would default every entry to :db")
+    (is (not (contains? (rf.registrar/registrations :sub) :review/image-only))
+        "control — :review/image-only is ABSENT from the global pool, so an
+         ambient read finds nothing for it and would default it to :db.
+         Scoped to THIS id rather than asserting an empty pool: the shared
+         :node-test build loads every test namespace into one registrar, so
+         `= {}` would test the build's namespace loading, not this sub")
     (let [entry (snapshot-entry :review/frame-a local-q)]
       (is (= :static (:input-kind entry))
           "the image-only sub is classified from the frame that owns it")
@@ -136,8 +139,10 @@
       (is (some? node))
       (is (= "IMAGE A" (:doc node)) "the image-local doc, not \"GLOBAL\"")
       (is (= :static (:input-kind node)))
-      (is (= [base-q] (:inputs node))
-          "the declared edges of the derivation this frame runs")
+      (is (= [[:sub base-q]] (:inputs node))
+          "the declared edges of the derivation this frame runs, in the
+           algebra view's documented edge shape — `declared-inputs` lowers a
+           live entry's realized query-vectors to [:sub query-vector]")
       (is (= 5 (:value node)) "the value is unchanged"))))
 
 (deftest missing-frame-still-returns-nil
