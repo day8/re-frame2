@@ -72,7 +72,11 @@
             [re-frame.hicasso.tool :as rf.hicasso.tool]
             [re-frame.test-support :as rf.test-support]
             [uix.core :as uix :refer-macros [defui]]
-            ["react" :as react]))
+            ["react" :as react]
+            ;; W5d mounts a root of its own, because every published door
+            ;; here commits inside `flushSync` and the row's whole subject
+            ;; is the SCHEDULED commit those doors deliberately do not take.
+            ["react-dom/client" :as react-dom-client]))
 
 (def ^:private alpha ::alpha)
 (def ^:private beta  ::beta)
@@ -106,6 +110,7 @@
     :hooks/frame-isolation
     :hooks/frame-isolation-uix
     :hooks/context-only-resolution
+    :hooks/scheduled-resolution
     :hooks/two-cells
     :hooks/incarnation
     :hooks/transition})
@@ -734,6 +739,179 @@
       (-> (dynamic-scope-row! host :hooks/context-only-resolution)
           (.catch (report-failure! "W5c hook frame resolution is context-only"))
           (.then (fn [_] (release-minted!) (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; W5d. The same rule on the SCHEDULED path — the mode no other row can see
+;; ---------------------------------------------------------------------------
+;;
+;; W5c above and the node lane's `with-frame` row both render the island on
+;; the calling stack — `flushSync` there, `renderToStaticMarkup` here — which
+;; is the only shape in which a dynamic-var tier could ever WIN, and so the
+;; right harness for an adversarial precedence contest. It is the wrong
+;; harness for the other half of what rf2-kuky.61 ruled: *the same component
+;; tree resolves the same frame under either scheduling mode*. The merged-PR
+;; audit of #9427 found that half unwitnessed on both hook families.
+;;
+;; This row is it, for the NATIVE pair. The island is mounted on a plain
+;; concurrent root with the act environment off, so `render` SCHEDULES and
+;; returns; the body runs a host task later, by which time the `with-frame`
+;; around the mount has unwound. `!island-runs` is the recording: it is still
+;; zero on the line after `render` returns, inside the scope, and positive
+;; once the row has waited — so everything read afterwards was read outside
+;; the bound extent.
+;;
+;; WHY THE ROW INSTALLS A PERSISTENT AMBIENT FRAME. A `with-frame` cannot
+;; reach a scheduled body at all — that is the point — so on its own it
+;; leaves the body with NO dynamic frame, and both legs below would pass
+;; under a dynamic-var-first rule just as readily. A real ambient scope on
+;; this schedule is the persistent kind (`set!` on the root var, which is
+;; precisely what `make-reset-runtime-fixture`'s async form does, for the
+;; same reason: its `:before` returns long before an async body resumes).
+;; So the row installs one naming `alpha`, and it is the adversary — a hook
+;; that consulted the dynamic tier would key its cell to alpha in leg 1 and
+;; would not refuse at all in leg 2.
+
+(defn- scheduled-root!
+  "A concurrent root whose UNCAUGHT render errors land in `sink`.
+
+  Leg 2's island throws out of its own hook, and a SCHEDULED render has no
+  caller's stack to throw on: React surfaces it on its own task, where the
+  page — and so the browser runner — would see an unhandled error. React
+  19's `createRoot` option is the supported interception point, and here it
+  is also the READING, because `impl/error/fail!` throws rather than
+  emitting, so there is no listener axis to read the refusal off."
+  [container sink]
+  (react-dom-client/createRoot
+    container
+    #js {:onUncaughtError (fn [e _info] (when (nil? @sink) (reset! sink e)))}))
+
+(defn- scheduled-resolution-row!
+  "Both legs, on one persistent ambient scope. `roots` and `containers`
+  collect what the row mints so the single trailing step can tear it down
+  on either arm — this row mints its own roots, so `release-minted!` (which
+  knows only about `mount-live!`'s handles) cannot see them."
+  [roots containers]
+  (let [ka  (price-key alpha "AAPL")
+        kb  (price-key beta  "AAPL")
+        new-root! (fn [sink]
+                    (let [c (rf.hicasso.impl.mount/fresh-container!)
+                          r (scheduled-root! c sink)]
+                      (swap! containers conj c)
+                      (swap! roots conj r)
+                      [c r]))]
+    (seat! alpha {"AAPL" "alpha-price"})
+    (seat! beta  {"AAPL" "beta-price"})
+    ;; THE ADVERSARY, installed after both frames exist so neither
+    ;; `make-frame` ran under a synthetic ambient scope.
+    (set! rf.frame/*current-frame* alpha)
+    (let [[container root] (new-root! (atom nil))
+          runs-in-extent   (atom nil)]
+      (reset! !island-runs 0)
+      (reset! !last-ops nil)
+      (rf/with-frame alpha
+        (.render ^js root
+          (rf.hicasso.impl.mount/provider beta (react/createElement ticker #js {:sym "AAPL"})))
+        (reset! runs-in-extent @!island-runs))
+      (-> (rf.hicasso.roots-frames-support/wait-until! #(= 1 (count (readers-of kb))))
+          (.then
+            (fn [subscribed?]
+              (testing "the render really did run LATE: the island body had not
+                        run when `render` returned inside the `with-frame`, and
+                        it had by the time the row read anything. Without this
+                        leg the row is indistinguishable from W5c"
+                (is (zero? @runs-in-extent)
+                    (str "React SCHEDULED the mount rather than committing it on "
+                         "the calling stack; body runs inside the scope: "
+                         @runs-in-extent))
+                (is (pos? @!island-runs))
+                (is (= alpha rf.frame/*current-frame*)
+                    "and the dynamic tier is not empty while it runs — it names
+                     alpha, so a hook that consulted it had an answer available"))
+
+              (is (true? subscribed?)
+                  (str "the island subscribed under the BOUNDARY's frame. Cell keys "
+                       (pr-str (rf.hicasso.roots-frames-support/cell-keys))
+                       ", residue " (pr-str (rf.hicasso.test.runtime/residue))))
+
+              (testing "one cell, keyed to the frame the boundary named — the
+                        same reading W5c takes, now on the schedule a consumer's
+                        own concurrent root actually uses"
+                (is (= #{kb} (rf.hicasso.roots-frames-support/cell-keys)))
+                (is (= 1 (count (readers-of kb))))
+                (is (empty? (readers-of ka))
+                    "alpha has no reader at all, although it is the frame the
+                     persistent ambient scope names")
+                (is (= "beta-price"
+                       (some-> (.querySelector ^js container ".price") .-textContent))))
+
+              (testing "`use-frame` is locked to the same frame on this schedule,
+                        and a dispatch through its bundle moves that frame only"
+                (is (= beta (:frame @!last-ops)))
+                ((:dispatch-sync @!last-ops) [::set-price "AAPL" "beta-moved"])
+                (rf.hicasso.impl.mount/settle!)
+                (is (= "beta-moved" (get-in (rf/app-db-value beta) [:prices "AAPL"])))
+                (is (= "alpha-price" (get-in (rf/app-db-value alpha) [:prices "AAPL"]))))
+
+              ;; Leg 1's tree goes away before leg 2 mints its own, so the
+              ;; cell census leg 2 reads is about leg 2.
+              (.unmount ^js root)
+              nil))))))
+
+(defn- scheduled-refusal-leg!
+  "Leg 2: the same schedule with NO boundary above the island. The
+  persistent ambient scope still names `alpha`, and the hook still
+  refuses — which is what separates *context ONLY* from *context FIRST*
+  on the scheduled path, exactly as the node lane's frameless row does on
+  the synchronous one."
+  [roots containers]
+  (let [ka   (price-key alpha "AAPL")
+        sink (atom nil)
+        c    (rf.hicasso.impl.mount/fresh-container!)
+        r    (scheduled-root! c sink)
+        runs-in-extent (atom nil)]
+    (swap! containers conj c)
+    (swap! roots conj r)
+    (reset! !island-runs 0)
+    (rf/with-frame alpha
+      (.render ^js r (react/createElement ticker #js {:sym "AAPL"}))
+      (reset! runs-in-extent @!island-runs))
+    (-> (rf.hicasso.roots-frames-support/wait-until! #(some? @sink))
+        (.then
+          (fn [refused?]
+            (is (zero? @runs-in-extent)
+                "scheduled, not committed: nothing ran inside the bound extent")
+            (is (true? refused?)
+                (str "the scheduled render refused. Cell keys "
+                     (pr-str (rf.hicasso.roots-frames-support/cell-keys))
+                     ", island body runs " @!island-runs))
+            (let [data (ex-data @sink)]
+              (testing "and it refused with the ruled error, named by the NATIVE
+                        hook — a dynamic-var tier would have answered alpha here
+                        instead, on a schedule where nobody would see it"
+                (is (= :rf.error/no-frame-context (:rf.error/id data))
+                    (str "saw " (pr-str data)))
+                (is (= 're-frame.hicasso.native/use-sub (:where data)))))
+            (is (not (contains? (rf.hicasso.roots-frames-support/cell-keys) ka))
+                "and nothing was built under the frame the ambient scope named")
+            (exercised! :hooks/scheduled-resolution)
+            nil)))))
+
+(deftest a-scheduled-render-that-outlives-the-scope-still-reads-the-boundarys-frame
+  (async done
+    (if-not (rf.hicasso.impl.mount/browser?)
+      (do (skip! ":node-test has no React DOM") (done))
+      (let [ambient-was rf.frame/*current-frame*
+            roots       (atom [])
+            containers  (atom [])]
+        (-> (scheduled-resolution-row! roots containers)
+            (.then (fn [_] (scheduled-refusal-leg! roots containers)))
+            (.catch (report-failure! "W5d scheduled render is context-only"))
+            (.then (fn [_]
+                     (run! (fn [r] (try (.unmount ^js r) (catch :default _ nil))) @roots)
+                     (run! (fn [c] (try (.remove ^js c) (catch :default _ nil))) @containers)
+                     (set! rf.frame/*current-frame* ambient-was)
+                     (release-minted!)
+                     (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W5b. Two calls are two cells
