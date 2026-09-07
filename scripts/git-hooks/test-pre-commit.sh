@@ -2363,6 +2363,17 @@ esac
 # AND the compliance sentence together, so a detector that had merely been
 # widened until the false positive went away fails it. That pairing is the
 # whole point: a guard that stops refusing real trailers is worse than the bug.
+#
+# THE FIRST REPAIR WAS PARTIAL, AND THE CASES BELOW ARE WHY IT WAS FOUND LATE.
+# Rule 3 has two anchors — no letters before `Generated with`, and the line
+# ending on the tool's own link — and every prose case pinned by the first
+# repair cleared it on the FIRST anchor, so the second was never exercised. It
+# had been written as a substring test for `claude`/`anthropic` in the last
+# blank-separated word, which is not the documented rule and refuses an
+# ordinary sentence that merely ENDS on such a word. The merged-PR audit of
+# #9385 found it. So the pairs below now vary what the sentence ENDS on, not
+# only whether it mentions a trailer: a two-case check of this guard clears it
+# and means nothing.
 
 # The sentence that reded #9330, and two more of the same class — one naming
 # the marker mid-sentence, one naming the session URL and then continuing.
@@ -2370,7 +2381,33 @@ PROSE_COMPLIANCE='No Co-Authored-By: Claude and no Generated with [Claude Code] 
 PROSE_MARKER_NAMED='The harness wanted a Generated with [Claude Code] marker here; it was declined per CLAUDE.md.'
 PROSE_URL_NAMED="$TRAILER_SESSION_URL is the bare URL the harness writes, and this body does not carry one."
 
-for t in "$PROSE_COMPLIANCE" "$PROSE_MARKER_NAMED" "$PROSE_URL_NAMED"; do
+# AND THE ONE THE FIRST REPAIR STILL REFUSED (the merged-PR audit of #9385).
+#
+# The three sentences above all clear rule 3 on its FIRST anchor — each carries
+# letters in front of `Generated with`, so the tail test never runs — and that
+# is exactly why they left the second anchor unexercised. This one starts at
+# `Generated`, so it reaches the tail; and its last blank-separated word is
+# `CLAUDE.md.`, a FILENAME carrying the substring `claude`.
+#
+# Under a tail test that asked whether the last word CONTAINED `claude` or
+# `anthropic`, this line was refused: no link on it, no attribution on it, one
+# rewording away from `No Generated with [Claude Code] trailer was added.`,
+# which passed only because it ends on `added.`. The documentation — this
+# file's own 10q preamble, the detector's rule-3 comment, README.md's shape
+# table and CLAUDE.md — all promised a rule that required the line to END ON
+# THE TOOL'S OWN LINK. The code did not implement that promise; now it does,
+# and this pair is what holds it to it. The permitted case below and the
+# `MARKER_BARE_URL` refusal further down are the two directions.
+PROSE_COMPLIANCE_TAIL='Generated with [Claude Code] was declined per CLAUDE.md.'
+
+# The marker written without markdown brackets — a real attribution whose tail
+# IS the tool's link. It is the control for the case above: same head (no
+# letters before `Generated with`), opposite tail, so a repair that had merely
+# stopped reading the tail at all fails here rather than passing silently.
+MARKER_BARE_URL='Generated with Claude Code https://claude.com/claude-code'
+
+for t in "$PROSE_COMPLIANCE" "$PROSE_MARKER_NAMED" "$PROSE_URL_NAMED" \
+         "$PROSE_COMPLIANCE_TAIL"; do
   key=$(printf '%s' "$t" | cut -c1-40)
   out=$(printf 'Fixes the thing.\n\n%s\n' "$t" | run_attr_body)
   case "$out" in
@@ -2386,11 +2423,16 @@ for t in "$PROSE_COMPLIANCE" "$PROSE_MARKER_NAMED" "$PROSE_URL_NAMED"; do
   esac
 done
 
-# The paired half, and the one that proves the guard was not disarmed: the SAME
-# compliance sentence, now beside a trailer the body really does carry.
-for t in "$TRAILER_GENWITH" "$TRAILER_SESSION_URL" "$TRAILER_COAUTHOR" "$TRAILER_SESSION"; do
+# The paired half, and the one that proves the guard was not disarmed: BOTH
+# compliance sentences, now beside a trailer the body really does carry.
+# `MARKER_BARE_URL` is in the offending list because it is the shape that
+# shares a head with `PROSE_COMPLIANCE_TAIL` — a repair that widened the tail
+# hatch far enough to let the prose through would let this through with it.
+for t in "$TRAILER_GENWITH" "$TRAILER_SESSION_URL" "$TRAILER_COAUTHOR" \
+         "$TRAILER_SESSION" "$MARKER_BARE_URL"; do
   key=$(printf '%s' "$t" | cut -c1-32)
-  out=$(printf 'Fixes the thing.\n\n%s\n\n%s\n' "$PROSE_COMPLIANCE" "$t" | run_attr_body)
+  out=$(printf 'Fixes the thing.\n\n%s\n%s\n\n%s\n' \
+    "$PROSE_COMPLIANCE" "$PROSE_COMPLIANCE_TAIL" "$t" | run_attr_body)
   case "$out" in
     EXIT=0) fail "(10q) DISARMED: a body CARRYING a real trailer was allowed: $key..." ;;
     *)
@@ -2415,11 +2457,37 @@ case "$out" in
      cat "$AERR" >&2 ;;
 esac
 
+out=$(printf 'docs(gates): record the attribution rule\n\n%s\n' "$PROSE_COMPLIANCE_TAIL" \
+  | run_attr_lib 2>"$AERR") || true
+case "$out" in
+  *EXIT=0*) pass "(10q) a commit message ENDING on a claude-ish word is permitted" ;;
+  *) fail "(10q) FALSE POSITIVE: rule 3's tail test reads a word, not a link ($out)"
+     cat "$AERR" >&2 ;;
+esac
+
 out=$(printf 'docs(gates): record the attribution rule\n\n%s\n\n%s\n' \
   "$PROSE_COMPLIANCE" "$TRAILER_GENWITH" | run_attr_lib 2>"$AERR") || true
 case "$out" in
   *EXIT=1*) pass "(10q) a commit message that CARRIES the marker is still refused" ;;
   *) fail "(10q) DISARMED: a commit message carrying the marker was allowed ($out)" ;;
+esac
+
+# And the tail control at the detector too: the marker with no markdown
+# brackets, whose last word IS the tool's link. Same head as the permitted
+# sentence above, opposite tail — so this pair, not either half alone, is what
+# pins rule 3's second anchor to a LINK rather than to a word.
+out=$(printf 'docs(gates): record the attribution rule\n\n%s\n\n%s\n' \
+  "$PROSE_COMPLIANCE_TAIL" "$MARKER_BARE_URL" | run_attr_lib 2>"$AERR") || true
+case "$out" in
+  *EXIT=1*)
+    if grep -Fq "$MARKER_BARE_URL" "$AERR"; then
+      pass "(10q) a bare-URL generated-with marker is still refused, and quoted"
+    else
+      fail "(10q) refused, but the diagnostic never quoted the bare-URL marker"
+      cat "$AERR" >&2
+    fi
+    ;;
+  *) fail "(10q) DISARMED: a marker ending on the tool's own link was allowed ($out)" ;;
 esac
 
 git -C "$AREPO" checkout -q main >/dev/null 2>&1 || true
