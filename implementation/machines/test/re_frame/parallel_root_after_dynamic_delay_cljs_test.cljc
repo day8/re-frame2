@@ -84,14 +84,13 @@
             timer stamped with the FLAT root epoch, and the replacement timer
             still fires the configured root transition"
     (let [delay-reaction (atom 5000)
-          arms           (atom [])
-          last-thunk     (atom nil)]
+          arms           (atom [])]
       (rf/reg-sub :t/root-ms (fn [_db _] @delay-reaction))
       (rf/reg-machine :ps7o/root root-dynamic-machine)
       (with-redefs [rf.subs/subscribe   (fn ([_q] delay-reaction) ([_q _o] delay-reaction))
                     rf.subs/unsubscribe (fn ([_] nil) ([_ _] nil))
                     rf.interop/schedule-after!
-                    (fn [thunk ms] (swap! arms conj ms) (reset! last-thunk thunk) ::handle)]
+                    (fn [_thunk ms] (swap! arms conj ms) ::handle)]
         (rf/dispatch-sync [:ps7o/root [:rf.machine/start]])
 
         ;; ---- birth (already worked before the fix) ------------------------
@@ -142,10 +141,17 @@
         (is (= 12000 (:resolved-ms (only-entry))))
 
         ;; ---- the timeout ultimately DELIVERS ------------------------------
-        (@last-thunk)
+        ;; The host thunk dispatches this event ASYNCHRONOUSLY (via
+        ;; `:router/dispatch!`), so drive its exact payload synchronously —
+        ;; `[<delay-key> <epoch> <decl-path>]`, with the epoch taken FROM THE
+        ;; LIVE ENTRY the restart installed. That is what makes this the
+        ;; acceptance rather than a restatement: a replacement stamped from the
+        ;; per-region slot would carry 0, arrive stale, and drop.
+        (rf/dispatch-sync [:ps7o/root [:rf.machine.timer/after-elapsed
+                                       [:t/root-ms] (:epoch (only-entry)) []]])
         (is (= {:a :expired :b :expired}
                (rf.machines.test-support/machine-state :ps7o/root))
-            "the replacement timer fired the configured root transition —
+            "the RESTARTED root timer fired the configured root transition —
              the whole point of the timeout, which the defect disabled")))))
 
 ;; ===========================================================================
