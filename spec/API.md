@@ -463,10 +463,6 @@ The eight `:kind` values inside a failure reply, all reserved under `:rf.http/*`
 | `:rf.http.interceptor/cleared` | `:info` | A `(clear :http-interceptor id)` removed an existing slot; carries `:frame`, `:id` |
 | `:rf.error/http-interceptor-failed` | `:error` | An interceptor `:before` **or** `:after` threw; carries `:frame`, `:interceptor-id`, `:url`, `:cause` (plus `:phase :after` on the response side). Request side: the request is NOT dispatched; response side: the reply is suppressed (per [014 §Middleware §Failure mode](014-HTTPRequests.md#failure-mode)) |
 
-### Schema-reflection metadata
-
-Handlers may declare `:rf.http/decode-schemas [<schema> ...]` in their `reg-event` metadata-map; pair tools and generators read it via `(rf/handler-meta {:source :store :kind :event :id id})`. Optional, never enforced — see [014 §Schema reflection](014-HTTPRequests.md#schema-reflection-optional-ergonomic).
-
 ---
 
 ## Resources (Spec 016)

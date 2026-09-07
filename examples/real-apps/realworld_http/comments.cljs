@@ -237,7 +237,6 @@
          hat resets the slice (prior data is only kept up for a SAME-slug
          `:fetching` refresh), so the page never renders one slug's article
          under another slug's URL. See THE CORRELATION GATE above."
-   :rf.http/decode-schemas [schema/ArticleResponse]
    :rf.cofx/requires [:rf/time-ms]}
   (fn [{:keys [db rf/time-ms] rt :rf.db/runtime} [_ slug reply]]
     (if reply
@@ -312,8 +311,7 @@
          settles are correlation-gated, a submit issued on alpha and answered
          after the reader reached beta is refused, and refusing it is only
          safe because the navigation has ALREADY released the form. Reset and
-         gate are two halves of one fix (rf2-84iek)."
-   :rf.http/decode-schemas [schema/CommentsResponse]}
+         gate are two halves of one fix (rf2-84iek)."}
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [slug     (get-in rt [:rf.runtime/routing :current :params :slug])
           refresh? (reply-for-current-slug? db :comments slug)
@@ -389,7 +387,6 @@
          on it. A POST answered after the reader has moved on has no page
          left to land on, so both settles gate on the slug first — see THE
          CORRELATION GATE above."
-   :rf.http/decode-schemas [schema/CommentResponse]
    :rf.cofx/requires [:realworld/temp-comment-id]}
   (fn [{:keys [db] rt :rf.db/runtime temp-id :realworld/temp-comment-id} _]
     (let [slug      (get-in rt [:rf.runtime/routing :current :params :slug])
@@ -565,8 +562,7 @@
 
          Both reply targets CARRY THE SLUG THE FLIP WAS ISSUED ON — the slice's
          own `[:article :slug]`, the same identity the reads correlate against
-         — because they write `[:article :data :author]` and the route owns it."
-   :rf.http/decode-schemas [schema/ProfileResponse]}
+         — because they write `[:article :data :author]` and the route owns it."}
   (fn [{:keys [db]} _]
     (if (nil? (get-in db [:auth :user]))
       {:fx [[:dispatch [:rf.route/navigate {:to :realworld.auth/login}]]]}

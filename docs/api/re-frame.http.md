@@ -282,10 +282,6 @@ All test-support surfaces live in `re-frame.http.test-support` — one namespace
     (is (= 1 (count (subscribe-once [:cart/items]))))))
 ```
 
-## Schema-reflection metadata
-
-Handlers may declare `:rf.http/decode-schemas [<schema> ...]` in their `reg-event` metadata-map; pair tools and generators read it via `(rf/handler-meta {:source :store :kind :event :id id})`. Optional, never enforced — pure metadata for tooling. See [re-frame.schemas.md](re-frame.schemas.md).
-
 ## Privacy and classification
 
 HTTP carries secrets: passwords in request bodies, auth tokens in request headers, PII in response bodies. The framework keeps these off its own observability wire — traces, off-box records, SSR payloads. Four declaration surfaces cooperate, none of them a process-global mutation. See [Managed HTTP — Keeping secrets out of the trace](../async/http-going-further.md#keeping-secrets-out-of-the-trace) and [keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md) for the model end-to-end.
@@ -357,7 +353,7 @@ The denylists and `:sensitive?` flag cover request carriers. The response body i
 ## See also
 
 - [re-frame.core.md](re-frame.core.md) — `:rf.http/managed` rowed in the standard fx table; `:sensitive` on Standard events; and the instrumentation/egress surface (`project-egress`, the wire-boundary walker, the observability-sink registration).
-- [re-frame.schemas.md](re-frame.schemas.md) — `:rf.http/decode-schemas`, the `:schema` metadata key, and per-slot `:sensitive?` / `:large?` schema props.
+- [re-frame.schemas.md](re-frame.schemas.md) — the `:schema` metadata key and per-slot `:sensitive?` / `:large?` schema props.
 - [re-frame.test-support.md](re-frame.test-support.md) — patterns for combining HTTP stubs with `dispatch-sync` and `poll-until`.
 - [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md) — the full classification + projection model.
 - [Managed HTTP reference](../async/http.md) — the guide-level reference; [Interceptors and secrets](../async/http-going-further.md) carries §Keeping secrets out of the trace.

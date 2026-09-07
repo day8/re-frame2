@@ -20,7 +20,7 @@ Streaming and bidirectional communication are out of scope here — Spec 014 cov
 
 Spec 014 is an **optional capability** in the [000-Vision §Capability matrix](000-Vision.md) sense. Implementations MAY:
 
-- **Ship `:rf.http/managed` per this spec.** Then the contract below applies — args map shape, failure categories, reply addressing, retry semantics, abort surface, schema-reflection metadata, and trace events all locked. Pair tools and conformance fixtures key off the canonical surface.
+- **Ship `:rf.http/managed` per this spec.** Then the contract below applies — args map shape, failure categories, reply addressing, retry semantics, abort surface, and trace events all locked. Pair tools and conformance fixtures key off the canonical surface.
 - **Omit it.** Applications that need HTTP roll their own fx (or use a third-party library) per [Pattern-AsyncEffect](Pattern-AsyncEffect.md)'s generic shape. The omission is a conformance-set difference, not a defect.
 
 The **CLJS reference implementation ships `:rf.http/managed`**, backed by Fetch on the browser and `java.net.http.HttpClient` on the JVM. Other in-scope JS-cross-compile-language ports (TypeScript, Fable (F#), Scala.js, PureScript, Kotlin/JS, Melange / ReScript / Reason, Squint) decide independently — each typically wraps the host's binding to `fetch` (browser) and the host's runtime HTTP client on Node. A port that omits `:rf.http/managed` MUST NOT register the `:rf.http/*` namespace for any other purpose (it's reserved for this Spec; see [Conventions](Conventions.md)).
@@ -269,29 +269,6 @@ Sniff the response Content-Type header:
 - otherwise → `:blob`.
 
 Handles 90% of cases without ceremony. Falling through to `:auto` (i.e., not supplying `:decode`) is normal, supported, and stable usage — no trace fires for it. Supply an explicit `:decode` only when you want to override the content-type sniff or run a schema.
-
-### Schema reflection (optional, ergonomic)
-
-Pair tools, generators, and AI-assisted tooling want to know which schemas a handler expects from the wire — without invoking the handler. The user can declare them at registration time via the `:rf.http/decode-schemas` metadata key:
-
-```clojure
-(rf/reg-event :article/load
-  {:doc                    "Load an article."
-   :rf.http/decode-schemas [ArticleResponse]}     ;; declared up-front for tooling
-  (fn [{:keys [db]} [_ {:keys [slug] :as msg} reply]]
-    (if reply
-      ...
-      {:fx [[:rf.http/managed
-             {:request  {:url (str "/articles/" slug)}
-              :decode   ArticleResponse                ;; same schema at the call site
-              :reply-to [:article/load msg]}]]})))
-```
-
-Then `(rf/handler-meta {:source :store :kind :event :id :article/load})` returns a map carrying `:rf.http/decode-schemas [ArticleResponse]`, which pair tools / `(rf/registrations {:source :store :kind :event})` enumeration / generators can introspect.
-
-**Optional, never enforced.** The runtime does NOT cross-check that the call-site `:decode` matches the declared schemas — the metadata is reflective sugar for tooling, not a runtime contract. A handler that declares one schema and uses another still works. (If you want runtime enforcement, you're really asking for a `defmanaged-event-fx` macro that DRY's the declaration and the call-site reference; out of v1 scope.)
-
-For handlers that issue multiple `:rf.http/managed` requests with different schemas, list all of them: `:rf.http/decode-schemas [ArticleResponse CommentList Profile]`.
 
 ### Keyword-interning cap
 
@@ -1463,7 +1440,7 @@ Per [§Retry and backoff](#retry-and-backoff) v1 ships a fixed exponential-with-
 
 ### `:rf.http/managed` is the canonical framework-provided fx
 
-Per [§Implementation status](#implementation-status) `:rf.http/managed` is the locked v1 surface: args-map shape, failure categories, reply addressing, retry semantics, abort surface, schema-reflection metadata, and trace events are all locked across implementations. This was chosen over a "convention" (every app rolls its own HTTP fx) so `:fx-overrides` target the same id across applications, pair tools introspect the same envelope, Spec 010 schemas plug into the same decode pipeline, and conformance fixtures key off the canonical surface.
+Per [§Implementation status](#implementation-status) `:rf.http/managed` is the locked v1 surface: args-map shape, failure categories, reply addressing, retry semantics, abort surface, and trace events are all locked across implementations. This was chosen over a "convention" (every app rolls its own HTTP fx) so `:fx-overrides` target the same id across applications, pair tools introspect the same envelope, Spec 010 schemas plug into the same decode pipeline, and conformance fixtures key off the canonical surface.
 
 ### Failure categories are a closed set
 

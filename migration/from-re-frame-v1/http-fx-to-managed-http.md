@@ -155,7 +155,6 @@ The like-for-like rewrite above replaces `:response-format (ajax/json-response-f
    [:author [:map [:id :uuid] [:name :string]]]])
 
 (rf/reg-event :article/load
-  {:rf.http/decode-schemas [ArticleResponse]}            ;; optional — pair-tool reflection
   (fn [{:keys [db]} [_ slug]]
     {:db (-> db
              (assoc-in [:article :status] :loading)
@@ -169,7 +168,7 @@ The like-for-like rewrite above replaces `:response-format (ajax/json-response-f
             :on-failure [:article/load-failure]}]]}))
 ```
 
-The schema-driven path is **strictly stronger** than `:decode :json`: a 2xx response whose body fails to validate against the schema lands as `:rf.http/decode-failure` instead of as a hard-to-debug "the field I expected is missing" runtime error deeper in the app. Pair tools introspect `:rf.http/decode-schemas` to know which payloads a handler expects from the wire (per [014 §Schema reflection](../../spec/014-HTTPRequests.md#schema-reflection-optional-ergonomic)). The agent SHOULD propose the schema-driven form whenever the codebase already has Malli schemas in play (the M-x sweep for `reg-app-schema` / per-event `:spec` keys signals this); when no schemas exist yet, propose `:decode :json` as the immediate rewrite and surface "add `:rf.http/decode-schemas` per endpoint" as a follow-on modernisation.
+The schema-driven path is **strictly stronger** than `:decode :json`: a 2xx response whose body fails to validate against the schema lands as `:rf.http/decode-failure` instead of as a hard-to-debug "the field I expected is missing" runtime error deeper in the app. The agent SHOULD propose the schema-driven form whenever the codebase already has Malli schemas in play (the M-x sweep for `reg-app-schema` / per-event `:spec` keys signals this); when no schemas exist yet, propose `:decode :json` as the immediate rewrite and surface "add a `:decode` schema per endpoint" as a follow-on modernisation.
 
 ## Mapping notes per `:http-xhrio` slot
 

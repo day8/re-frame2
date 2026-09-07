@@ -160,8 +160,7 @@
   {:doc "Fetch the popular-tags list. Broadcasts `:fetch-started` into the
          `:realworld/tags` machine and lets the machine decide where to land:
          from `:loaded` it goes to `:fetching` (tags already showing),
-         everywhere else to `:loading`. Public endpoint; house retry."
-   :rf.http/decode-schemas [schema/TagsResponse]}
+         everywhere else to `:loading`. Public endpoint; house retry."}
   (fn handler-tags-load [_ _]
     {:fx [[:dispatch [:realworld/tags [:fetch-started]]]
           [:rf.http/managed

@@ -264,8 +264,7 @@
          What it does NOT reset is the follow/unfollow latch: that belongs to
          the mutation rather than to the screen, and lives in its own
          username-keyed slice for exactly that reason. See SERIALISING THE
-         TOGGLE below."
-   :rf.http/decode-schemas [schema/ProfileResponse]}
+         TOGGLE below."}
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [username (username-from-db rt)
           refresh? (reply-for-current-profile? db :profile username)
@@ -327,8 +326,7 @@
          is loading, both reply targets carry it, and a username change resets
          the list. The `?page=` step does NOT — it reuses `:request-id`, so
          managed HTTP supersedes the previous page's reply for you, and the
-         rows stay up while `:fetching`."
-   :rf.http/decode-schemas [schema/ArticlesResponse]}
+         rows stay up while `:fetching`."}
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [username (username-from-db rt)
           page     (or (get-in rt [:rf.runtime/routing :current :query :page]) 1)
@@ -384,8 +382,7 @@
          Correlated exactly as the authored list is — the slice records the
          username it is loading, both reply targets carry it, a username change
          resets the list, and a `?page=` step is left to managed HTTP's same-id
-         supersede."
-   :rf.http/decode-schemas [schema/ArticlesResponse]}
+         supersede."}
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [username (username-from-db rt)
           page     (or (get-in rt [:rf.runtime/routing :current :query :page]) 1)
@@ -515,8 +512,7 @@
          optimistically only to walk it back after the backend 401s.
 
          Refuses outright while a follow/unfollow for THIS profile is already
-         in flight — see SERIALISING THE TOGGLE above."
-   :rf.http/decode-schemas [schema/ProfileResponse]}
+         in flight — see SERIALISING THE TOGGLE above."}
   (fn [{:keys [db]} _]
     (let [username (get-in db [:profile :username])]
       (cond
@@ -558,8 +554,7 @@
 
 (rf/reg-event :profile/unfollow
   {:doc "Clear the followed flag right away, then reconcile on the reply.
-         Auth-gated and serialised, same as `:profile/follow` above."
-   :rf.http/decode-schemas [schema/ProfileResponse]}
+         Auth-gated and serialised, same as `:profile/follow` above."}
   (fn [{:keys [db]} _]
     (let [username (get-in db [:profile :username])]
       (cond

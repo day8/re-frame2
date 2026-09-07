@@ -323,8 +323,7 @@
          with no editor on it at all) by the time A comes back; the slug rides
          along so `still-editing?` can tell the reply apart from the slice it
          would otherwise land on. See that helper for why neither `seed-slice`
-         nor the `:request-id` covers this."
-   :rf.http/decode-schemas [schema/ArticleResponse]}
+         nor the `:request-id` covers this."}
   ;; The route lives in runtime-db.
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [slug (get-in rt [:rf.runtime/routing :current :params :slug])]
@@ -396,8 +395,7 @@
          app-db as plain data. Valid-but-unchanged → the flow is false and the
          whole submit is a harmless no-op; an invalid draft re-runs validation
          to fill in the per-field error map for display. So the button being
-         disabled and the handler bailing out agree, by construction."
-   :rf.http/decode-schemas [schema/ArticleResponse]}
+         disabled and the handler bailing out agree, by construction."}
   ;; The machine snapshot lives in runtime-db.
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [{:keys [slug draft]} (:editor db)

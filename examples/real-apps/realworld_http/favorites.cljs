@@ -62,8 +62,7 @@
          region to `:loading` (or `:refreshing`, if a list is already up). The
          home route's 1-indexed `?page=` becomes the wire's limit/offset window
          via `rh/paginate-path` — the very same pagination the global feed
-         uses."
-   :rf.http/decode-schemas [schema/ArticlesResponse]}
+         uses."}
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [page (or (get-in rt [:rf.runtime/routing :current :query :page]) 1)
           path (rh/paginate-path "/articles/feed" nil page)]
@@ -154,8 +153,7 @@
          would 401 — which means no ugly flip-then-rollback flicker for a
          signed-out user. (Why gate it when the demo stub 200s everything? That
          friendly stub would happily mask the 401; gating here keeps the
-         example honest against the real backend it's documenting.)"
-   :rf.http/decode-schemas [schema/ArticleResponse]}
+         example honest against the real backend it's documenting.)"}
   (fn [{:keys [db]} [_ slug]]
     (if (nil? (get-in db [:auth :user]))
       {:fx [[:dispatch [:rf.route/navigate {:to :realworld.auth/login}]]]}
