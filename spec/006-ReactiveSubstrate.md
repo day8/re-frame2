@@ -319,7 +319,7 @@ Every adapter exposes:
 (dispose-adapter!)                                      ;; → nil
 ```
 
-Called by the core when the runtime shuts down (process exit, test-frame teardown, or explicit `(rf/shutdown-runtime!)`). The adapter must:
+Called by the core when the runtime shuts down (process exit, test-frame teardown, or explicit `(rf/destroy-adapter!)`). The adapter must:
 
 1. Attempt cancellation of all in-flight reactive subscriptions.
 2. Attempt release of every host-specific resource (DOM event listeners, websocket subscribers, timers), even when a sibling cleanup fails.
@@ -2092,6 +2092,10 @@ A mixed-substrate app — say a build that imports both `re-frame.adapter.reagen
 
 `install-adapter!` is called once per process by `init!`'s implementation. Subsequent calls without an intervening `dispose-adapter!` raise `:rf.error/adapter-already-installed` ([§Single adapter per process](#single-adapter-per-process)).
 
+**`init!` is idempotent for the SEATED adapter, not for any adapter.** Re-calling `(rf/init! …)` with the adapter already seated is a no-op. Calling it with a **different** adapter raises the same `:rf.error/adapter-already-installed` and leaves the seated adapter untouched — swapping substrates means `(rf/destroy-adapter!)` first. Two spec maps are the same adapter when they carry the same canonical `:rf.adapter/*` `:kind`, or when they are the identical map; the front door does not silently ignore an adapter it was handed, which is what [Conventions §No silent swallow](Conventions.md#no-silent-swallow--recognised-input-must-signal) requires of a recognised input the runtime cannot honour.
+
+The canonical-`:kind` half of that rule is what keeps hot reload working. Every adapter Var is a plain `def`, so a reload re-evaluates the map with fresh fn identities and a `^:dev/after-load` boot re-calls `init!` with a structurally fresh map — but a canonical `:rf.adapter/*` kind is a stable token that survives the re-evaluation, so the re-call stays the no-op it was. A **custom** adapter carrying no canonical kind falls back to object identity, so re-evaluating its Var on reload and re-calling `init!` *does* raise: hold such an adapter in a `defonce`, or call `destroy-adapter!` in the after-load fn.
+
 The CLJS adapter namespaces (Reagent, reagent-slim, UIx) and the SSR namespace each export their `adapter` Var; the contract surface is the same ten-fn map (see [§The adapter API contract](#the-adapter-api-contract) above). The plain-atom adapter in `re-frame.substrate.plain-atom` is reachable on both JVM and CLJS — useful for headless tests on either platform.
 
 ## CLJS reference: UIx as alternative substrate
@@ -2266,7 +2270,7 @@ Resolved: the consumer passes an adapter spec map explicitly to `(rf/init! adapt
 
 See [§Adapter selection at boot](#adapter-selection-at-boot) above for the boot-time wiring, the legal call shapes, and the rationale (explicit > implicit; bundle-size; no implicit cross-adapter coupling).
 
-Re-installing after frames exist is an error (`:rf.error/adapter-already-installed` trace event; recovery: `:no-recovery`, the call is rejected).
+Re-installing after frames exist is an error — and so is `init!` with a *different* adapter, which reaches the same door (`:rf.error/adapter-already-installed` trace event; recovery: `:no-recovery`, the call is rejected). Re-calling `init!` with the adapter already seated remains an idempotent no-op.
 
 Other-language ports follow the same pattern: each adapter package exports a public adapter spec; the consumer requires the package and passes the spec to the language's `init!` equivalent.
 

@@ -221,8 +221,8 @@ Interactions are grouped by the Specs that meet, in roughly the order an impleme
 ### 20. Adapter swap mid-process is forbidden
 
 - **Specs:** [006-ReactiveSubstrate §Single adapter per process](006-ReactiveSubstrate.md#single-adapter-per-process).
-- **Scenario:** A program calls `(rf/install-adapter! ...)` a second time without an intervening `(rf/destroy-adapter!)`.
-- **Behaviour:** The second call raises `:rf.error/adapter-already-installed` and does not change the installed adapter. To swap, destroy first, then install.
+- **Scenario:** A program calls `(rf/install-adapter! ...)` a second time without an intervening `(rf/destroy-adapter!)` — or reaches the same door through the front porch, calling `(rf/init! ...)` a second time with a **different** adapter.
+- **Behaviour:** The second call raises `:rf.error/adapter-already-installed` and does not change the installed adapter. To swap, destroy first, then install. `init!` re-called with the adapter *already seated* (same canonical `:rf.adapter/*` `:kind`, or the identical custom map) stays an idempotent no-op, which is what makes a `^:dev/after-load` boot safe.
 - **Reason:** Mid-process adapter swap would leave an unknown set of cached reactions, mounted views, and frame containers wired to the old adapter — the inconsistency is unrecoverable. The dispose-then-install path forces a known clean state.
 - **Status:** `Provisional` — fixture pending: `adapter-already-installed.edn`.
 

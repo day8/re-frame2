@@ -2607,6 +2607,41 @@
 
 ;; ---- configure / substrate adapter / boot --------------------------------
 
+(def ^:private known-configure-keys
+  "The closed set of top-level keys `configure!` READS. Mirrors the three
+  `when-let` delegations in `configure!`'s body and the §Configure keys
+  table in spec/API.md — keep the three in step.
+
+  `configure!`'s vocabulary is CLOSED and its keys are BARE, so an
+  unrecognised bare key reads as a typo of a real key rather than as an
+  extension point: `:epoch-histroy` applies nothing and, before rf2-kuky.2,
+  said nothing. `unknown-configure-keys` below is what
+  [Conventions §No silent swallow] requires of that shape."
+  #{:epoch-history :trace-buffer :elision})
+
+(defn- unknown-configure-keys
+  "Return a vector of `config-map`'s top-level keys that `configure!` does
+  not read AND that are not the caller's own extension keys.
+
+  The carve-out is [Conventions §No silent swallow]'s own line: a
+  USER-NAMESPACED key (`:myapp/thing`) is an extension key a wrapper may
+  legitimately thread through a composed config value, so it passes in
+  silence. A BARE key (`:epoch-histroy`) or a FRAMEWORK-namespaced one
+  (`:rf.foo/bar`, `:rf/x`) is a name the runtime is entitled to recognise,
+  so failing to recognise it is a typo signal.
+
+  Dev-only by construction: the only caller is inside `configure!`'s
+  `rf.interop/debug-enabled?` gate, so the walk DCEs under `:advanced` +
+  `goog.DEBUG=false`."
+  [config-map]
+  (into []
+        (remove (fn [k]
+                  (or (contains? known-configure-keys k)
+                      (and (keyword? k)
+                           (some? (namespace k))
+                           (not (re-find #"^rf(\.|$)" (namespace k)))))))
+        (keys config-map)))
+
 (defn configure!
   "Configure process-level runtime knobs from a single nested map. v1 keys:
     :epoch-history {:depth N}                       ring depth (default 50; 0 disables)
@@ -2640,9 +2675,21 @@
   top-level key leaves that subsystem untouched; a present key delegates
   to that subsystem's configurator in API-table order
   (`:epoch-history`, `:trace-buffer`, `:elision`), preserving each one's
-  existing slot-merge semantics. Unknown top-level keys silently no-op
-  (closed-and-additive contract). Per-frame settings live on frame
-  metadata. Per Tool-Pair §How AI tools attach.
+  existing slot-merge semantics.
+
+  An unrecognised top-level key still applies nothing and the call still
+  returns `nil` — but a BARE key (`:epoch-histroy`) or a FRAMEWORK-
+  namespaced one (`:rf.foo/bar`) now emits the dev-gated warning
+  `:rf.warning/unknown-configure-key` naming the bad keys and the known
+  set (rf2-kuky.2). `configure!`'s vocabulary is closed and its keys are
+  bare, so an unknown bare key reads as a typo of a real key — the shape
+  [Conventions §No silent swallow] says MUST signal. A USER-NAMESPACED
+  key (`:myapp/thing`) passes in SILENCE: that is the extension-key
+  carve-out that lets a wrapper hand `configure!` a composed config value
+  without first filtering it. The warning is observational, never refusal
+  (`:recovery :ignored`), and DCEs wholesale under `:advanced` +
+  `goog.DEBUG=false`. Per-frame settings live on frame metadata. Per
+  Tool-Pair §How AI tools attach.
 
   Per rf2-cmfln: the prior `:sub-cache {:grace-period-ms N}` knob is
   retired. Sub disposal is **synchronous on derefer-count → 0** —
@@ -2671,10 +2718,10 @@
   ;; the sibling public-boundary map guard in this artefact — same condition,
   ;; same fail-loud-before-any-work posture, same canonical chokepoint.
   ;;
-  ;; The guard is the TOP-LEVEL SHAPE ONLY. Unknown top-level keys stay silent
-  ;; no-ops (the closed-and-additive contract below) and nested subsystem opts
-  ;; stay each subsystem's business — this is one boundary check, not a
-  ;; validator framework.
+  ;; The guard is the TOP-LEVEL SHAPE ONLY. Unknown top-level keys are still
+  ;; APPLIED-NOTHING no-ops (never a refusal) and nested subsystem opts stay
+  ;; each subsystem's business — this is one boundary check plus one dev-gated
+  ;; diagnostic, not a validator framework.
   (when-not (map? config-map)
     (rf.error/throw-error!
       :rf.error/configure-bad-arg
@@ -2699,6 +2746,36 @@
       (f opts)))
   (when-let [opts (:elision config-map)]
     (rf.elision/configure! opts))
+  ;; rf2-kuky.2 — no silent swallow of a BARE / framework-namespaced unknown
+  ;; key. Reuses the `:rf.warning/unknown-dispatch-opt` convention verbatim
+  ;; (re-frame.router.diagnostics/emit-unknown-dispatch-opts-warning!): the
+  ;; whole surface — the keyword's interned slot, the reason-string
+  ;; allocation, the key walk — sits inside the `rf.interop/debug-enabled?`
+  ;; gate so Closure DCEs it under `:advanced` + `goog.DEBUG=false`.
+  ;; Observational, never refusal: the call still returns nil and still
+  ;; applies nothing, exactly as before.
+  (when rf.interop/debug-enabled?
+    (when-let [unknown (seq (unknown-configure-keys config-map))]
+      (let [unknown (vec unknown)
+            known   (vec (sort known-configure-keys))]
+        (rf.trace/emit!
+          :warning
+          :rf.warning/unknown-configure-key
+          {:unknown-keys unknown
+           :known-keys   known
+           :detected-at  (rf.interop/now-ms)
+           :recovery     :ignored
+           :reason       (str "rf/configure! was given unrecognised top-level "
+                              "key" (when (next unknown) "s") " "
+                              (pr-str unknown) ". The runtime reads only "
+                              (pr-str known)
+                              " — a bare or `rf`-namespaced unknown key is "
+                              "ignored, so a typo (e.g. `:epoch-histroy` for "
+                              "`:epoch-history`) applies nothing and changes "
+                              "no behaviour. Check for a misspelt key. "
+                              "User-namespaced keys (e.g. `:myapp/thing`) "
+                              "pass through silently — a wrapper may thread a "
+                              "composed config value straight in.")}))))
   nil)
 
 (def ^{:doc "Install the substrate adapter for this process. Once. A
@@ -2723,8 +2800,8 @@
 (def ^{:doc "Return the discriminator keyword identifying the installed
   adapter, or `nil` if none. One of
   `:rf.adapter/reagent`, `:rf.adapter/reagent-slim`, `:rf.adapter/uix`,
-  `:rf.adapter/plain-atom`, `:rf.adapter/ssr`, or `:custom` for
-  user-supplied adapters that didn't pick a canonical kind.
+  `:rf.adapter/hicasso`, `:rf.adapter/plain-atom`, `:rf.adapter/ssr`, or
+  `:custom` for user-supplied adapters that didn't pick a canonical kind.
   Per Spec 006 §Adapter introspection."}
   current-adapter      rf.substrate.adapter/current-adapter)
 
@@ -2755,12 +2832,30 @@
                  (some? received) (assoc :received received))}))
 
 (defn init!
-  "Idempotent boot — installs a substrate adapter. Pass the adapter spec
-  map directly (no default-adapter registry; rf2-agql):
+  "Boot — installs a substrate adapter. Pass the adapter spec map
+  directly (no default-adapter registry; rf2-agql):
     (require '[re-frame.adapter.reagent :as reagent])
     (rf/init! reagent/adapter)
   Non-map / nil raises `:rf.error/no-adapter-specified`. Per Spec 006
   §Adapter selection at boot.
+
+  IDEMPOTENT FOR THE SEATED ADAPTER, NOT FOR ANY ADAPTER. Re-calling
+  `init!` with the adapter already seated is a no-op, as it has always
+  been. Calling it with a DIFFERENT adapter raises
+  `:rf.error/adapter-already-installed` and leaves the seated adapter
+  untouched — swapping substrates means `(rf/destroy-adapter!)` first.
+  Two spec maps are the same adapter when they carry the same canonical
+  `:rf.adapter/*` `:kind`, or when they are the identical map.
+
+  That rule is what keeps hot reload working. Every adapter Var is a
+  plain `def`, so a reload re-evaluates the map with fresh fn identities
+  and a `^:dev/after-load` boot re-calls `init!` with a structurally
+  fresh map — but a canonical `:rf.adapter/*` kind is a stable token that
+  survives the re-evaluation, so the re-call stays the no-op it was. A
+  CUSTOM adapter with no canonical kind falls back to object identity,
+  so re-evaluating its Var on reload and re-calling `init!` DOES raise:
+  hold such an adapter in a `defonce`, or call `destroy-adapter!` in the
+  after-load fn.
 
   `init!` does NOT create a `:rf/default` frame. Per Spec 002 §`:rf/default`
   is an ordinary id (EP-0002), the runtime never synthesises a default
@@ -2776,7 +2871,28 @@
     (not (map? adapter-map))  (bad-init-arg! adapter-map)
     :else
     (do
-      (when-not (rf.substrate.adapter/current-adapter)
+      ;; rf2-kuky.1. The guard used to be `(when-not (current-adapter) …)`,
+      ;; which asked only "is ANYTHING seated?" — so `(rf/init! reagent/adapter)`
+      ;; followed by `(rf/init! uix/adapter)` returned nil, left Reagent seated
+      ;; and said nothing. That is the shape Conventions §No silent swallow
+      ;; forbids: a recognised input the runtime cannot honour MUST signal.
+      ;; The question is instead "is the adapter I was handed the seated one?",
+      ;; asked with `same-adapter?` — the same stable-token predicate hook
+      ;; routing uses (rf2-dkl5z1). Nothing seated → install. Seated and the
+      ;; same → the idempotent no-op `init!` has always been. Seated and
+      ;; DIFFERENT → `install-adapter!` throws
+      ;; `:rf.error/adapter-already-installed`, and the throw stays in the
+      ;; owning ns rather than being duplicated here.
+      ;;
+      ;; `same-adapter?` rather than `=` / `identical?` is what keeps hot
+      ;; reload working: every adapter Var is a plain `def`, so a reload
+      ;; re-evaluates the map with fresh fn identities, and 30 of the 40
+      ;; in-repo `init!` call sites fire from a `^:dev/after-load` fn. A
+      ;; canonical `:rf.adapter/*` kind survives that re-evaluation as a
+      ;; stable token, so the re-call stays a no-op.
+      (when-not (rf.substrate.adapter/same-adapter?
+                  adapter-map
+                  (rf.substrate.adapter/current-adapter-spec))
         (rf.substrate.adapter/install-adapter! adapter-map))
       ;; EP-0022 (rf2-0adhqs.2): re-seed the framework-standard interceptors
       ;; (`:rf.interceptor/path`) so the standard refs survive a test fixture's
@@ -2844,8 +2960,8 @@
   feature keyword). Detection is a pure keyword lookup in the always-
   loaded late-bind hooks atom — no require into the optional namespace.
   Known features: `:schemas` `:machines` `:routing` `:flows` `:http`
-  `:ssr` `:epoch`. Ships to production (NOT elided). Per spec/API.md
-  §Feature inspection."
+  `:ssr` `:epoch` `:resources`. Ships to production (NOT elided). Per
+  spec/API.md §Feature inspection."
        :arglists '([feature])}
   feature-loaded? rf.features/feature-loaded?)
 

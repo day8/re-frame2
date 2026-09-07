@@ -152,7 +152,7 @@
                (rf.error/throw-error!
                 :rf.error/adapter-already-installed
                 'rf/init!
-                "A second install-adapter! was called without an intervening (rf/destroy-adapter!); the existing adapter remains installed (per Spec 006 §Single adapter per process)."
+                "A second install-adapter! — or an (rf/init!) with a DIFFERENT adapter — was called without an intervening (rf/destroy-adapter!); the existing adapter remains installed (per Spec 006 §Single adapter per process). Re-calling init! with the SAME adapter stays an idempotent no-op; to swap substrates, destroy the seated adapter first."
                 {:extra {:installed (:adapter installed)
                          :attempted adapter}}))
              (assoc state :installed entry :disposed? false)))
@@ -181,8 +181,9 @@
   "Return the discriminator keyword identifying the installed adapter, or
   nil if none. Per Spec 006 §Adapter introspection: one of
   `:rf.adapter/reagent`, `:rf.adapter/reagent-slim`,
-  `:rf.adapter/uix`, `:rf.adapter/plain-atom`, `:rf.adapter/ssr`, or
-  `:custom` for user-supplied adapters that didn't pick a canonical kind.
+  `:rf.adapter/uix`, `:rf.adapter/hicasso`, `:rf.adapter/plain-atom`,
+  `:rf.adapter/ssr`, or `:custom` for user-supplied adapters that didn't
+  pick a canonical kind.
 
   This answers \"what substrate am I on?\" — predicate / branch code.
   For \"give me the adapter spec map\" (fn handles, hot-swap, identity

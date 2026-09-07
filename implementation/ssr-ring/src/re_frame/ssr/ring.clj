@@ -267,9 +267,14 @@
 
     (require '[ring.adapter.jetty :as jetty]
              '[re-frame.core :as rf]
+             '[re-frame.ssr :as ssr]
              '[re-frame.ssr.ring :as ssr-ring])
 
-    (rf/init! (requiring-resolve 'ssr-ring-app/ssr-adapter))
+    ;; `init!` takes the adapter spec MAP, not a Var: a non-map argument
+    ;; raises `:rf.error/no-adapter-specified`. `re-frame.ssr/adapter` is
+    ;; the public server-side adapter, matching the convention every
+    ;; in-repo example boot follows.
+    (rf/init! ssr/adapter)
     (def handler
       (ssr-ring/ssr-handler {:initial-events [[:rf/server-init]]
                              :root-view      [(rf/view :app/root)]

@@ -5,7 +5,10 @@
   fixture (which always calls rf/init!), but no dedicated coverage exists
   for the four entry points themselves:
 
-    * init!                 — idempotent boot; explicit-adapter contract.
+    * init!                 — boot, idempotent for the SEATED adapter (a
+                              different one raises
+                              :rf.error/adapter-already-installed, rf2-kuky.1);
+                              explicit-adapter contract.
                               Per Spec 002 §`:rf/default` is an ordinary id
                               (EP-0002) init! does NOT create a :rf/default
                               frame — the runtime never synthesises a default.
@@ -95,6 +98,87 @@
           "the second init! does NOT mutate the frames registry"))
     (is (zero? (default-frame-count))
         ":rf/default is still absent after two init! calls")))
+
+(deftest init-rejects-a-different-adapter
+  ;; rf2-kuky.1. `init!`'s guard used to ask "is ANYTHING seated?", so a
+  ;; second `init!` with a DIFFERENT adapter returned nil, left the first
+  ;; adapter seated and emitted nothing — the silent swallow Conventions
+  ;; §No silent swallow forbids. It now asks "is the adapter I was handed
+  ;; the seated one?" via `same-adapter?`, so a different adapter reaches
+  ;; `install-adapter!` and raises. The middle arm is the load-bearing
+  ;; control: it is what distinguishes this rule from a naive `=` /
+  ;; `identical?` check, which would throw on every hot reload.
+  (testing "init! with a DIFFERENT adapter raises :rf.error/adapter-already-installed"
+    (is (nil? (rf.substrate.adapter/current-adapter))
+        "precondition: cold start, no adapter installed")
+    (rf/init! rf.substrate.plain-atom/adapter)
+    (is (identical? rf.substrate.plain-atom/adapter
+                    (rf.substrate.adapter/current-adapter-spec))
+        "the first init! seats the plain-atom adapter")
+    (let [other  (assoc rf.substrate.plain-atom/adapter :kind ::other)
+          thrown (try
+                   (rf/init! other)
+                   nil
+                   (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? thrown)
+          "a second init! with a different adapter throws rather than no-opping")
+      (is (re-find #"\[:rf\.error/adapter-already-installed\]"
+                   (str (some-> thrown ex-message)))
+          "the thrown message carries the [:rf.error/adapter-already-installed] token")
+      (let [data (ex-data thrown)]
+        (is (= :rf.error/adapter-already-installed (:rf.error/id data))
+            "ex-data carries the canonical :rf.error/id discriminator")
+        (is (identical? rf.substrate.plain-atom/adapter (:installed data))
+            "ex-data's :installed is the adapter that was already seated")
+        (is (identical? other (:attempted data))
+            "ex-data's :attempted is the adapter the caller tried to seat"))
+      (is (identical? rf.substrate.plain-atom/adapter
+                      (rf.substrate.adapter/current-adapter-spec))
+          "the rejected init! leaves the seated adapter untouched")))
+
+  (testing "HOT-RELOAD CONTROL: a structural copy of the seated canonical adapter is NOT a different adapter"
+    ;; Every adapter Var is a plain `def`, so a `^:dev/after-load` boot
+    ;; re-calls init! with a structurally fresh map carrying fresh fn
+    ;; identities. A canonical `:rf.adapter/*` :kind is a stable token that
+    ;; survives that re-evaluation (rf2-dkl5z1), so the re-call must stay
+    ;; the no-op it has always been. An `=` or `identical?` rule would
+    ;; throw here, which is why this arm exists.
+    (rf.substrate.adapter/dispose-adapter!)
+    (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
+    (rf/init! rf.substrate.plain-atom/adapter)
+    (let [seated  (rf.substrate.adapter/current-adapter-spec)
+          reload  (assoc rf.substrate.plain-atom/adapter :doc "reloaded")]
+      (is (not (identical? reload rf.substrate.plain-atom/adapter))
+          "control precondition: the reloaded map is a genuinely distinct object")
+      (is (= (:kind reload) (:kind rf.substrate.plain-atom/adapter))
+          "control precondition: it carries the same canonical :rf.adapter/* kind")
+      (is (nil? (rf/init! reload))
+          "re-initing with a structural copy of the seated canonical adapter does not throw")
+      (is (identical? seated (rf.substrate.adapter/current-adapter-spec))
+          "and it does not re-install: the seated identity is unchanged")))
+
+  (testing "two distinct KIND-LESS custom adapters are different adapters (object-identity fallback)"
+    ;; A custom adapter with no canonical kind carries no distinguishing
+    ;; token, so `same-adapter?` falls back to object identity — two
+    ;; distinct custom maps are never conflated by a shared `:custom`.
+    (rf.substrate.adapter/dispose-adapter!)
+    (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
+    (let [custom-a (dissoc rf.substrate.plain-atom/adapter :kind)
+          custom-b (dissoc rf.substrate.plain-atom/adapter :kind)]
+      (rf/init! custom-a)
+      (is (identical? custom-a (rf.substrate.adapter/current-adapter-spec))
+          "the kind-less custom adapter is seated")
+      (let [thrown (try
+                     (rf/init! custom-b)
+                     nil
+                     (catch clojure.lang.ExceptionInfo e e))]
+        (is (= :rf.error/adapter-already-installed
+               (:rf.error/id (ex-data thrown)))
+            "a second, structurally-equal but distinct kind-less map raises")
+        (is (identical? custom-a (rf.substrate.adapter/current-adapter-spec))
+            "and the seated custom adapter is untouched"))
+      (is (nil? (rf/init! custom-a))
+          "re-initing with the IDENTICAL custom map is still an idempotent no-op"))))
 
 (deftest install-adapter-rejects-double-install
   (testing "install-adapter! raises :rf.error/adapter-already-installed on a second call"
