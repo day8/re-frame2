@@ -334,8 +334,8 @@
       (is (= :app/setup (-> r :frame-setup first :id)))
       (is (= :app/stub  (-> r :fx-override first :id))))))
 
-(deftest unreg-global-decorator-removes-from-stack
-  (testing "unreg-global-decorator! removes the entry from the global
+(deftest clear-global-decorator-removes-from-stack
+  (testing "clear-global-decorator removes the entry from the global
             vector; subsequent resolutions do not see it"
     (rf.story/reg-global-decorator :app/keep
       {:kind :hiccup :wrap (fn [body _] [:div.keep body])})
@@ -344,10 +344,10 @@
     (rf.story/reg-variant :story.gd6/v {:setup []})
     (is (= [:app/keep :app/drop]
            (mapv :id (:hiccup (rf.story/resolve-decorators :story.gd6/v)))))
-    (rf.story/unreg-global-decorator! :app/drop)
+    (rf.story/clear-global-decorator :app/drop)
     (is (= [:app/keep]
            (mapv :id (:hiccup (rf.story/resolve-decorators :story.gd6/v))))
-        "after unreg, :app/drop is gone from the resolved stack")))
+        "after clear, :app/drop is gone from the resolved stack")))
 
 (deftest reg-global-decorator-with-ref-args
   (testing "reg-global-decorator three-arity form lands ref-args at the

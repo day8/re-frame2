@@ -763,10 +763,15 @@
    (rf.story.config/add-global-decorator! (into [id] ref-args))
    id))
 
-(defn unreg-global-decorator!
+(defn clear-global-decorator
   "Remove `id` from the global-decorators vector. The decorator's
   registration body is NOT unregistered — call `unregister!` for that.
-  Idempotent."
+  Idempotent.
+
+  Named by spec/Conventions.md §Lifecycle-verb law: `clear-*` is the
+  roster's symmetric inverse of `reg-*`, and the add half here is
+  `reg-global-decorator`. No bang — §Naming bucket 1 (registry-shaped
+  registrations), matching the `reg-*` twin."
   [id]
   (rf.story.config/remove-global-decorator! id))
 
