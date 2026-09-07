@@ -970,15 +970,6 @@ There is deliberately **no** facade `clear-listeners!` verb. Dropping every list
   (rf/group-by-event (rf/trace-buffer :app/main {:flat true}))
   ```
 
-### `group-by-event-with-events`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (group-by-event-with-events events) → vector of event records
-  ```
-- **Description**: Like `group-by-event`, but each record additionally carries a `:trace-events` slot holding the **vector** of raw trace events that composed that event's run. The same `[frame dispatch-id]` grouping is reused verbatim; the `:trace-events` slot is the exact set of events the record was reduced from, in input order.
-
 ### `domino-bucket`
 
 - **Kind**: function

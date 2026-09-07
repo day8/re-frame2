@@ -2460,9 +2460,9 @@
 (deftest configure-roundtrip
   (testing "(rf/configure! {:epoch-history {:depth N}}) updates the depth"
     (rf/configure! {:epoch-history {:depth 7}})
-    (is (= 7 (:depth (rf.epoch/current-config))))
+    (is (= 7 (:depth (:epoch-history (rf/current-config)))))
     (rf/configure! {:epoch-history {:depth 12}})
-    (is (= 12 (:depth (rf.epoch/current-config))))))
+    (is (= 12 (:depth (:epoch-history (rf/current-config)))))))
 
 ;; ---- rf2-iegsz / rf2-mrsck: :trace-events elision policy -----------------
 ;;
@@ -2536,7 +2536,7 @@
 
     ;; Fixture-configured cap (NOT the shipped default of 50). Reset-runtime
     ;; forces :trace-events-keep 5 so this elision path is exercised cheaply.
-    (is (= 5 (:trace-events-keep (rf.epoch/current-config)))
+    (is (= 5 (:trace-events-keep (:epoch-history (rf/current-config))))
         "fixture-configured :trace-events-keep is 5 (the shipped default is 50)")
 
     (rf/dispatch-sync [:seed] {:frame :test/main})
@@ -4814,41 +4814,41 @@
   (testing "(rf/configure! {:epoch-history {:depth nil}}) is a no-op; the
             previously-stored depth survives"
     (rf/configure! {:epoch-history {:depth 7}})
-    (is (= 7 (:depth (rf.epoch/current-config))))
+    (is (= 7 (:depth (:epoch-history (rf/current-config)))))
 
     (rf/configure! {:epoch-history {:depth nil}})
-    (is (= 7 (:depth (rf.epoch/current-config)))
+    (is (= 7 (:depth (:epoch-history (rf/current-config))))
         ":depth nil silently dropped — prior 7 survives")))
 
 (deftest configure-rejects-non-numeric-depth
   (testing "(rf/configure! {:epoch-history {:depth \"five\"}) is a no-op"
     (rf/configure! {:epoch-history {:depth 7}})
     (rf/configure! {:epoch-history {:depth "five"}})
-    (is (= 7 (:depth (rf.epoch/current-config)))
+    (is (= 7 (:depth (:epoch-history (rf/current-config))))
         ":depth non-numeric silently dropped")))
 
 (deftest configure-rejects-negative-depth
   (testing "(rf/configure! {:epoch-history {:depth -1}}) is a no-op"
     (rf/configure! {:epoch-history {:depth 7}})
     (rf/configure! {:epoch-history {:depth -1}})
-    (is (= 7 (:depth (rf.epoch/current-config)))
+    (is (= 7 (:depth (:epoch-history (rf/current-config))))
         ":depth negative silently dropped")))
 
 (deftest configure-rejects-invalid-trace-events-keep
   (testing "(rf/configure! {:epoch-history {:trace-events-keep <bad>}}) is a no-op"
     (rf/configure! {:epoch-history {:trace-events-keep 3}})
-    (is (= 3 (:trace-events-keep (rf.epoch/current-config))))
+    (is (= 3 (:trace-events-keep (:epoch-history (rf/current-config)))))
 
     (rf/configure! {:epoch-history {:trace-events-keep nil}})
-    (is (= 3 (:trace-events-keep (rf.epoch/current-config)))
+    (is (= 3 (:trace-events-keep (:epoch-history (rf/current-config))))
         ":trace-events-keep nil silently dropped")
 
     (rf/configure! {:epoch-history {:trace-events-keep "no"}})
-    (is (= 3 (:trace-events-keep (rf.epoch/current-config)))
+    (is (= 3 (:trace-events-keep (:epoch-history (rf/current-config))))
         ":trace-events-keep non-numeric silently dropped")
 
     (rf/configure! {:epoch-history {:trace-events-keep -5}})
-    (is (= 3 (:trace-events-keep (rf.epoch/current-config)))
+    (is (= 3 (:trace-events-keep (:epoch-history (rf/current-config))))
         ":trace-events-keep negative silently dropped")))
 
 (deftest configure-accepts-zero
@@ -4857,10 +4857,10 @@
             disables recording; :trace-events-keep 0 drops every
             record's :trace-events)"
     (rf/configure! {:epoch-history {:depth 0}})
-    (is (= 0 (:depth (rf.epoch/current-config))))
+    (is (= 0 (:depth (:epoch-history (rf/current-config)))))
 
     (rf/configure! {:epoch-history {:trace-events-keep 0}})
-    (is (= 0 (:trace-events-keep (rf.epoch/current-config))))))
+    (is (= 0 (:trace-events-keep (:epoch-history (rf/current-config)))))))
 
 (deftest configure-partial-update-rejects-bad-key-only
   (testing "a configure call carrying one valid and one invalid key
@@ -4868,7 +4868,7 @@
             in one key never poisons another"
     (rf/configure! {:epoch-history {:depth 7 :trace-events-keep 4}})
     (rf/configure! {:epoch-history {:depth 11 :trace-events-keep nil}})
-    (let [cfg (rf.epoch/current-config)]
+    (let [cfg (:epoch-history (rf/current-config))]
       (is (= 11 (:depth cfg))
           "the valid :depth update was applied")
       (is (= 4 (:trace-events-keep cfg))
@@ -5056,7 +5056,7 @@
     (reset! @#'rf.epoch.state/config {:depth 50 :redact-fn nil})
     (is (= 50 (rf.epoch.state/trace-events-keep))
         "trace-events-keep accessor falls back to the shipped 50 default")
-    (is (= 50 (:trace-events-keep (rf.epoch/current-config) 50))
+    (is (= 50 (:trace-events-keep (:epoch-history (rf/current-config)) 50))
         "current-config's :trace-events-keep resolves to the shipped 50")))
 
 ;; ============================================================================

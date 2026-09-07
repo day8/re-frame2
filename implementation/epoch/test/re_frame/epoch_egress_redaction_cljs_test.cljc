@@ -878,7 +878,7 @@
     (fresh-frame!)
     (rf/reg-event :egress/seed (fn [_ _] {:db {:n 0}}))
     (rf/reg-event :egress/inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    (is (= 5 (:trace-events-keep (rf.epoch/current-config)))
+    (is (= 5 (:trace-events-keep (:epoch-history (rf/current-config))))
         "fixture override — the shipped runtime default is 50")
     (rf/dispatch-sync [:egress/seed] {:frame frame-id})
     (dotimes [_ 6] (rf/dispatch-sync [:egress/inc] {:frame frame-id}))
@@ -941,6 +941,6 @@
       (is (= :rf/redacted (get-in proj [:db-after :auth :password]))
           "a non-`Error` throw is caught too and still falls back closed")
       (is (not (contains-secret? proj))))
-    (is (fn? (:redact-fn (rf.epoch/current-config)))
+    (is (fn? (:redact-fn (:epoch-history (rf/current-config))))
         "and the throwing override stays registered — failure isolation is
          per-call, not a silent de-registration")))

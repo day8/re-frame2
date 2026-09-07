@@ -111,12 +111,6 @@
   [opts]
   (rf.epoch.state/merge-config! opts))
 
-(defn current-config
-  "Return the current epoch-history configuration map. Public for tests
-  and tools that want to display the current depth."
-  []
-  (rf.epoch.state/current-config))
-
 ;; ---- the per-frame ring buffer --------------------------------------------
 ;;
 ;; Per Tool-Pair §Time-travel "Bounded history": last N epochs per frame.
@@ -805,8 +799,8 @@
    :epoch/epoch-silence-current?     epoch-silence-current?
    :epoch/configure!                 configure!
    ;; The read half, published for `re-frame.core/current-config`. Bound to
-   ;; the STATE-level reader rather than this ns's `current-config`, so the
-   ;; facade door does not depend on a public var rf2-kuky.55 C1 deletes.
+   ;; the STATE-level reader; rf2-kuky.73 deleted this ns's own duplicate
+   ;; reader (rf2-kuky.55 C1), so the facade is the only spelling.
    :epoch/current-config             rf.epoch.state/current-config
    ;; Test-support config-isolation hook. `re-frame.test-
    ;; support`'s reset-hook table fires this to restore epoch config to

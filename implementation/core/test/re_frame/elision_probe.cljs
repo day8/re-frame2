@@ -279,8 +279,6 @@
   ;; un-scoped `clear-history!` above already pins the namespace for
   ;; the elision walker.
   (rf.epoch/clear-epoch-listeners!)
-  (let [_cfg (rf.epoch/current-config)]
-    nil)
   ;; rf2-d656 — on-frame-destroyed! emits :rf.epoch.cb/silenced-on-frame-destroy
   ;; per (frame-id, cb-id) pair when a frame previously observed by a
   ;; register-epoch-listener! callback is destroyed. The whole body sits inside

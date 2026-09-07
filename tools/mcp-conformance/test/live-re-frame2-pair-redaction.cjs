@@ -190,8 +190,9 @@ const TRACE_WINDOW_MS = 1_000_000_000_000_000;
 // CRITICAL: the `require`, the `configure`, and the dispatch MUST be
 // THREE SEPARATE awaited eval-cljs calls. shadow's runtime `require`
 // schedules an ASYNC module load; ANY form that references the
-// `re-frame.epoch` ns (the `configure` knob's late-bound hook, or
-// `current-config`) BEFORE that load settles fails to resolve. Within a
+// `re-frame.epoch` ns (the `configure` knob's late-bound hook, or the
+// `:epoch/current-config` read `rf/current-config` consults) BEFORE that
+// load settles fails to resolve. Within a
 // single `(do (require ...) (configure ...) ...)` form the configure
 // throws (`:repl/exception!`) and depth stays 0, so the dispatch records
 // nothing. Splitting lets each prerequisite settle before the next call.
@@ -210,7 +211,7 @@ const ENABLE_CONFIGURE_FORM = `
 (do
   (re-frame.core/configure! {:epoch-history {:depth 50}})
   {:hook-installed? (some? (re-frame.late-bind/get-fn :epoch/settle!))
-   :depth (:depth (re-frame.epoch/current-config))})`;
+   :depth (:depth (:epoch-history (re-frame.core/current-config)))})`;
 
 // Call 3: declare-sensitive (PUBLIC frame-owned route) + register +
 // dispatch the sentinel write.

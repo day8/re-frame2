@@ -535,7 +535,7 @@
   (install-class! :elision-test/frame-a [[:secret-a]] [])
   (install-class! :elision-test/frame-b [[:secret-b]] [])
   ;; Two bundles streamed in one tick, each carrying both slots, each
-  ;; stamped with its own frame (as group-by-event-with-events emits).
+  ;; stamped with its own frame (as `trace-buffer` event bundles are).
   (let [bundle-a {:frame :elision-test/frame-a
                   :secret-a "A-private" :secret-b "A-public"}
         bundle-b {:frame :elision-test/frame-b
