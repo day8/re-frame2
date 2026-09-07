@@ -29,18 +29,13 @@
 ;; Snapshot, restore, clear, and setter functions preserve representation and
 ;; never-nil printer invariants across the public boundary.
 
-;; Prefer the bundle setter when installing a validator port so validate,
-;; explain, and print functions change together. Per-function setters remain
-;; available for isolated adjustments.
-(def set-schema-fns!         rf.schemas.validator/set-schema-fns!)
-(def set-schema-validator!   rf.schemas.validator/set-schema-validator!)
-(def set-schema-explainer!   rf.schemas.validator/set-schema-explainer!)
-(def set-schema-printer!     rf.schemas.validator/set-schema-printer!)
-(def reset-schema-validator! rf.schemas.validator/reset-schema-validator!)
-
-;; Bundle-level snapshot and restore for runtime-isolating fixtures.
-(def snapshot-schema-fns     rf.schemas.validator/snapshot-schema-fns)
-(def restore-schema-fns!     rf.schemas.validator/restore-schema-fns!)
+;; The validator port is a VALUE: one installer, one read, and the framework
+;; default as a value. Capture / stub / restore is a `let` + `finally` over
+;; `schema-fns`, and restoring the defaults is `(set-schema-fns!
+;; default-schema-fns)` — no dedicated reset, snapshot or restore verb.
+(def set-schema-fns!     rf.schemas.validator/set-schema-fns!)
+(def schema-fns          rf.schemas.validator/schema-fns)
+(def default-schema-fns  rf.schemas.validator/default-schema-fns)
 
 ;; Production caches are bounded by boot-time schema cardinality. Fixtures
 ;; that generate fresh schemas clear them between tests.
@@ -131,10 +126,6 @@
 (rf.late-bind/set-fn! :schemas/app-schema-meta-at    app-schema-meta-at)
 (rf.late-bind/set-fn! :schemas/app-schemas           app-schemas)
 (rf.late-bind/set-fn! :schemas/app-schemas-digest    app-schemas-digest)
-(rf.late-bind/set-fn! :schemas/set-schema-validator! set-schema-validator!)
-(rf.late-bind/set-fn! :schemas/set-schema-explainer! set-schema-explainer!)
-(rf.late-bind/set-fn! :schemas/set-schema-printer!   set-schema-printer!)
-(rf.late-bind/set-fn! :schemas/set-schema-fns!       set-schema-fns!)
 
 ;; Pure-data per-slot extractors. These do not populate durable app-db
 ;; classification; frame commit effects own that policy.

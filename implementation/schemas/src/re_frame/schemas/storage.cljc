@@ -423,7 +423,7 @@
                      " still installed — every validation site soft-passes."
                      " Require `re-frame.schemas.malli` at app boot to"
                      " activate Malli validation, or call"
-                     " `set-schema-validator!` with a non-default fn"
+                     " `set-schema-fns!` with a non-default `:validate` fn"
                      " to suppress this warning.")})))))
 
 ;; ---- hot-reload :rf.schema/violation trace --------------------------------

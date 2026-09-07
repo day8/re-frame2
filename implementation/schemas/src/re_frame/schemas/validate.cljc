@@ -528,7 +528,7 @@
 
   The dev trace's reason for this arm interpolates the THROWING VALIDATOR'S
   MESSAGE. That message is unbounded and author-controlled — a user-supplied
-  `set-schema-validator!` fn may say anything, and Malli's own form errors
+  `set-schema-fns!` validator may say anything, and Malli's own form errors
   `pr-str` the offending schema — so it cannot ride a record that fans out to
   corpus listeners and a frame's `:observability :errors` sink. This sentence
   is composed from the registered path alone (the literal vector the
@@ -826,7 +826,7 @@
   walked — schemas registered against sibling frames are ignored.
 
   Validation routes through the registered validator/explainer functions.
-  When `set-schema-validator!` has been called with `nil`
+  When `set-schema-fns!` has installed a `nil` `:validate`
   this fn is a hard no-op for every schema in the frame.
 
   Arities:
