@@ -28,6 +28,7 @@
   (:require [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
+            [re-frame.live-frame :as rf.live-frame]
             [re-frame.registrar :as rf.registrar]
             [re-frame.source-coords :as rf.source-coords]
             [re-frame.trace :as rf.trace]))
@@ -330,7 +331,6 @@
   [frame-id trace-event]
   (let [configured-id (frame-configured-projector-id frame-id)
         projector-id  (frame-projector-id frame-id)
-        projector-fn  (rf.registrar/handler :error-projector projector-id)
         dev-detail?   (frame-dev-error-detail? frame-id)
         ;; Two failure modes for the projector:
         ;;   :threw      — the catch path returns this in `result`
@@ -340,9 +340,21 @@
         ;; sanitisation trace fires AT MOST ONCE per call.
         result
         (try
-          (if projector-fn
-            (projector-fn trace-event)
-            ::no-projector)
+          ;; Resolve AND run the projector through the TARGET FRAME'S
+          ;; generation (rf2-blpg). `frame-id` already selected this frame's
+          ;; `:ssr {:public-error-id …}` config; without this extent the id it
+          ;; named was resolved against the process registrar instead, so a
+          ;; projector registered from another image answered for it — and an
+          ;; error projector decides the STATUS and the public body that leave
+          ;; the server, not merely a label. Resolution and invocation share
+          ;; ONE extent so the fn that was found is the fn that runs. A frame
+          ;; with no sealed generation binds nothing: the unchanged path.
+          (rf.live-frame/call-with-frame-resolution
+            frame-id
+            (fn []
+              (if-let [projector-fn (rf.registrar/handler :error-projector projector-id)]
+                (projector-fn trace-event)
+                ::no-projector)))
           (catch #?(:clj Throwable :cljs :default) e
             (rf.trace/emit-error! :rf.error/sanitised-on-projection
                                {:projector-id      projector-id

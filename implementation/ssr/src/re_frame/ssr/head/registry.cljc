@@ -14,9 +14,36 @@
 
   Reading a head is a pure read: the model a caller wants is the value
   `render-head` / `active-head` returned. There is no side-channel
-  register, so there is nothing to clear on frame teardown."
+  register, so there is nothing to clear on frame teardown.
+
+  ## The frame target selects the REGISTRATIONS too (rf2-blpg)
+
+  `render-head` and `active-head` are explicit-target reads — the frame is
+  carried, and they are called OUTSIDE any `with-frame` binding (the
+  public head query, a host that renders a head for a frame it is not
+  running in, a preview inside frame A targeting frame B). They read the
+  target frame's app-db and route slice by id, which needs no ambient
+  scope; but the `:head` and `:route` lookups are ordinary
+  `(kind, id)` resolutions, and those route through
+  `re-frame.registrar/*generation*` — which nothing had bound here.
+
+  So a head id registered from two namespaces, with two frames selecting
+  one each (the image-isolation case
+  `re-frame.source-store/descriptors-for` exists to preserve), resolved to
+  whichever registration reached the registrar ATOM last — and then ran
+  that other image's body against the REQUESTED frame's app-db. Silently:
+  a plausible head model for the wrong page.
+
+  Every read that participates in producing the model therefore runs
+  inside `re-frame.live-frame/call-with-frame-resolution` on the target
+  frame — route metadata selection, head lookup, and the head fn's own
+  invocation, so a coherent generation covers the whole read rather than
+  half of it. A target that names no image-loaded frame binds nothing and
+  takes the registrar-atom path exactly as before, so this changes nothing
+  for the ordinary single-image / default-image application."
   (:require [re-frame.error :as rf.error]
             [re-frame.frame :as rf.frame]
+            [re-frame.live-frame :as rf.live-frame]
             [re-frame.registrar :as rf.registrar]
             [re-frame.source-coords :as rf.source-coords]))
 
@@ -98,32 +125,41 @@
   `:rf.error/no-frame-context` (no `:rf/default`-against-absence
   rendering). Per Spec 002 §Frame target resolution."
   [head-id {:keys [frame] :as opts}]
-  (let [frame    (rf.frame/require-frame-stamp!
-                   frame :rf.ssr/render-head
-                   {:where 'rf/render-head :event-id head-id})
-        route    (if (contains? opts :route)
-                   (:route opts)
-                   (frame-current-route frame))
-        ;; Resolve the `:head` registration from the process registrar
-        ;; (rf2-afdlyr realm collapse: the realm substrate is a single default
-        ;; realm, whose registrar IS the process-global table, so the former
-        ;; per-frame realm-registrar binding was always the no-op default path).
-        head-registration (rf.registrar/lookup :head head-id)]
-    (when-not head-registration
-      (rf.error/throw-error!
-        :rf.error/no-such-head
-        'rf/active-head
-        (str "No head registered under " head-id
-             "; register it with reg-head before rendering, or pass a "
-             "head-id that has been registered.")
-        {:recovery :register-the-head-id
-         :extra    {:head-id head-id}}))
-    (let [head-fn (:handler-fn head-registration)
-          ;; `frame` is a required non-nil stamp here (require-frame-stamp!
-          ;; above), so the app-db read is unconditional.
-          app-db     (rf.frame/frame-app-db-value frame)
-          head-model (head-fn app-db route)]
-      head-model)))
+  (let [frame (rf.frame/require-frame-stamp!
+                frame :rf.ssr/render-head
+                {:where 'rf/render-head :event-id head-id})
+        route (if (contains? opts :route)
+                (:route opts)
+                (frame-current-route frame))]
+    ;; Resolve the `:head` registration THROUGH THE TARGET FRAME'S generation
+    ;; (rf2-blpg). The explicit `:frame` selected the frame's DATA and not its
+    ;; REGISTRATIONS, so a same-id head from another image ran against this
+    ;; frame's app-db. The head fn's invocation is inside the extent too, for
+    ;; the same reason `boot/hydrate!` calls `render-tree-fn` under the target
+    ;; frame's scope: a model produced half in one generation and half in
+    ;; another is not a model of either. A frame with no sealed generation
+    ;; binds nothing — the unchanged registrar-atom path.
+    (rf.live-frame/call-with-frame-resolution
+      frame
+      (fn []
+        (let [head-registration (rf.registrar/lookup :head head-id)]
+          (when-not head-registration
+            (rf.error/throw-error!
+              :rf.error/no-such-head
+              'rf/active-head
+              (str "No head registered under " head-id
+                   " for frame " frame
+                   "; register it with reg-head before rendering, pass a "
+                   "head-id that has been registered, or — if it is "
+                   "registered elsewhere — check that this frame's image "
+                   "selects the namespace it was registered from.")
+              {:recovery :register-the-head-id
+               :extra    {:head-id head-id :frame frame}}))
+          (let [head-fn (:handler-fn head-registration)
+                ;; `frame` is a required non-nil stamp here (require-frame-stamp!
+                ;; above), so the app-db read is unconditional.
+                app-db  (rf.frame/frame-app-db-value frame)]
+            (head-fn app-db route)))))))
 
 (defn render-head
   "Apply the head fn registered under `head-id` against a frame's
@@ -167,10 +203,10 @@
   versioned routes, ...), this fn breaks and must learn the new mapping
   (audit rf2-asmj1 H6 / cluster rf2-sljs1).
 
-  Resolves the `:route` registration from the process registrar (rf2-afdlyr
-  realm collapse: the single default realm's registrar IS the process-global
-  table, so the former per-frame realm-registrar binding was always the no-op
-  default path)."
+  The `:route` lookup is an ordinary generation-routed resolution, and
+  `active-head` calls this INSIDE the target frame's resolution extent
+  (rf2-blpg) so the route metadata and the head it names come from the
+  same image as the app-db they are read against."
   [route]
   (when-let [route-id (:route-id route)]
     (when-let [route-meta (rf.registrar/lookup :route route-id)]
@@ -196,13 +232,22 @@
   [frame-id]
   (let [frame-id (rf.frame/require-frame-stamp!
                    frame-id :rf.ssr/active-head
-                   {:where 'rf/active-head})
-        route    (frame-current-route frame-id)
-        head-id  (route-head-id route)]
-    (if head-id
-      ;; The route declares an id but it may not be registered — surface
-      ;; that as :rf.error/no-such-head per Spec 011, but only when the
-      ;; route explicitly opts in. Routes without :head silently fall
-      ;; back to the default per Spec 011 §Default head.
-      (render-head head-id {:frame frame-id :route route})
-      (default-head frame-id))))
+                   {:where 'rf/active-head})]
+    ;; ONE resolution extent over the whole read (rf2-blpg): the route
+    ;; registration that NAMES the head and the head registration itself must
+    ;; come from the same image, or a route-declared head resolves in one
+    ;; generation and executes in another. `render-head` re-establishes the
+    ;; same binding inside — a no-op rebinding of the same generation, and
+    ;; cheaper than a second entry point that assumes it is already bound.
+    (rf.live-frame/call-with-frame-resolution
+      frame-id
+      (fn []
+        (let [route   (frame-current-route frame-id)
+              head-id (route-head-id route)]
+          (if head-id
+            ;; The route declares an id but it may not be registered — surface
+            ;; that as :rf.error/no-such-head per Spec 011, but only when the
+            ;; route explicitly opts in. Routes without :head silently fall
+            ;; back to the default per Spec 011 §Default head.
+            (render-head head-id {:frame frame-id :route route})
+            (default-head frame-id)))))))
