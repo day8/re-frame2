@@ -1085,6 +1085,19 @@
     :fragment (fragment-node form ns-ctx)
     :boundary (boundary-node form ns-ctx)
 
+    ;; `[h/frame-root {:id …} …]` / `[h/frame-provider {:frame …} …]` —
+    ;; the SAME node a fragment records, and for the same reason: a frame
+    ;; boundary emits no markup of its own. It scopes a frame to the run
+    ;; of children it holds, and a frame is not a semantic-tree fact —
+    ;; 004B records what renders. `fragment-node` already reads an
+    ;; attribute map at position 1 and keeps only `:key` off it, which is
+    ;; the whole of what a boundary's props contribute here: `:id` /
+    ;; `:frame` and the `make-frame` opts are lifecycle, and L2 runs no
+    ;; lifecycle. What a frame boundary CHANGES — which frame the reads
+    ;; underneath resolve to — is an L3 claim, and mounting is where it
+    ;; is asked.
+    :frame-boundary (fragment-node form ns-ctx)
+
     :host
     (let [head (nth form 0)]
       (refuse-opaque! :rf.error/hicasso-test-host-is-opaque

@@ -22,6 +22,7 @@
             [re-frame.frame :as rf.frame]
             [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
             [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.hicasso.impl.error :refer [fail!]]
             [re-frame.hicasso.impl.roots :as rf.hicasso.impl.roots]
             [re-frame.interop :as rf.interop]
             [re-frame.trace :as rf.trace]
@@ -72,8 +73,15 @@
   (docs/design/hicasso/product/dispositions.md HS-11, obstruction 2;
   witnesses in docs/design/hicasso/architecture.md, section The root)."
   [handle hiccup]
-  (let [app (provider (:frame handle)
-                      (rf.hicasso.impl.codec/root-element (:frame handle) hiccup))]
+  (let [frame-kw (:frame handle)
+        element  (rf.hicasso.impl.codec/root-element frame-kw hiccup)
+        ;; A handle with NO frame is a root whose TREE names its own —
+        ;; `h/frame-root` / `h/frame-provider` write the same one context
+        ;; this provider would, from inside the tree, so wrapping one
+        ;; here as well would put a second Provider fiber above every
+        ;; such root for nothing. The impl tier's own witness-driving
+        ;; shape still passes a frame and still gets the wrapper.
+        app      (if (some? frame-kw) (provider frame-kw element) element)]
     (if-some [window (:adoption handle)]
       (react/createElement (.-Fragment react) nil
                            (react/createElement adoption-window-closer
@@ -112,6 +120,71 @@
         (unchecked-set o "onRecoverableError" on-recoverable-error))
       o)))
 
+(def ^:private root-options-roster
+  "Every key a ROOT DOOR's config may carry. One key, because a root door
+  configures the REACT ROOT and nothing else: the frame is the TREE's
+  business now (`h/frame-root` / `h/frame-provider`)."
+  #{:identifier-prefix})
+
+(def ^:private frame-config-keys
+  "The two keys the root door used to own and no longer does. Named
+  separately from the unknown-key refusal so a caller who wrote the OLD
+  spelling is answered with the NEW one rather than with `is not an
+  option`."
+  {:frame          "frame-provider {:frame …} (SCOPE — the frame already exists) or frame-root {:id …} (ENSURE — create it if absent)"
+   :initial-events "frame-root {:id … :initial-events […]}"})
+
+(defn require-root-options!
+  "Refuse a root-door config carrying anything but `:identifier-prefix`.
+
+  A closed list that was *ignored without complaint* is what this
+  replaces, and the two refusals are separated because the two mistakes
+  are: `:frame` and `:initial-events` are FRAME configuration, which the
+  tree now spells, so they are answered with the head that spells them
+  (`:rf.error/hicasso-frame-config-misplaced`); anything else is an
+  option the door does not have
+  (`:rf.error/hicasso-unknown-root-option`), which is the No-silent-
+  swallow rule — `:fx-overrides` handed to a mount used to be dropped on
+  the floor, and the whole make-frame-then-join detour existed because of
+  it.
+
+  `where` is the door's own facade symbol, so the refusal names
+  `h/mount!` or `h/hydrate!` rather than an impl fn the caller did not
+  write. Answers nil."
+  [config where]
+  (when (some? config)
+    (when-not (map? config)
+      (fail! :rf.error/hicasso-unknown-root-option
+             where
+             (str "A root door's config is a MAP of root options, and this one "
+                  "is " (pr-str config) ". The shape is (node config view).")
+             {:config config}))
+    (doseq [k (keys config)]
+      (when-not (contains? root-options-roster k)
+        (if-some [head (get frame-config-keys k)]
+          (fail! :rf.error/hicasso-frame-config-misplaced
+                 where
+                 (str "The root door no longer configures a frame: " (pr-str k)
+                      " belongs in the TREE, on " head ". A root door carries "
+                      "ROOT options only (:identifier-prefix), and the frame "
+                      "boundary is a head you write:\n\n"
+                      "  (h/mount! node {} [h/frame-root {:id :app/main "
+                      ":initial-events [[:app/init]]} [root-view]])\n\n"
+                      "Scoping a frame that already exists — after "
+                      "`rf.ssr/hydrate!`, or a second root on the same frame — "
+                      "is [h/frame-provider {:frame :app/main} [root-view]].")
+                 {:option k :config config})
+          (fail! :rf.error/hicasso-unknown-root-option
+                 where
+                 (str (pr-str k) " is not a root option. A root door carries "
+                      ":identifier-prefix and nothing else — React's own "
+                      "`identifierPrefix`, so a page with two roots can keep "
+                      "their `useId` values apart. Frame configuration lives on "
+                      "the `h/frame-root` / `h/frame-provider` head in the tree, "
+                      "and every `rf/make-frame` option rides `h/frame-root` "
+                      "whole.")
+                 {:option k :roster root-options-roster :config config}))))))
+
 (defn ensure-frame!
   "Ensure `frame-kw` before its root's first render: create it through
   `rf/make-frame` seeded with `initial-events` when absent; join it
@@ -129,9 +202,16 @@
   (docs/core/hicasso/00-installation.md). Synchronous, and called before
   `createRoot`: `make-frame` drains the seed to a fixed point before it
   returns, so the first paint is the seeded one
-  (docs/design/hicasso/architecture.md, section The root)."
+  (docs/design/hicasso/architecture.md, section The root).
+
+  A NIL `frame-kw` ensures nothing, and is not an error: it is a root
+  whose TREE names its own frame — `h/frame-root`, whose ENSURE is core's
+  commit-owned two-pass, or `h/frame-provider`. That is the shape the
+  PUBLIC doors take; this positional ensure is the impl tier's, kept for
+  the witnesses that drive `root!` directly."
   [frame-kw initial-events]
-  (when (nil? (rf.frame/frame-incarnation-token frame-kw))
+  (when (and (some? frame-kw)
+             (nil? (rf.frame/frame-incarnation-token frame-kw)))
     (rf/make-frame (cond-> {:id frame-kw}
                      (seq initial-events) (assoc :initial-events initial-events))))
   frame-kw)

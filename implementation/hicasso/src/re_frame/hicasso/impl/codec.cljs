@@ -1004,6 +1004,57 @@
   [v]
   (and (some? v) (true? (unchecked-get v host-marker))))
 
+;; ---------------------------------------------------------------------------
+;; The frame-boundary heads — `h/frame-root` and `h/frame-provider`
+;; ---------------------------------------------------------------------------
+;;
+;; A frame boundary is the one head whose PROPS decide which frame its
+;; CHILDREN lower under, so it cannot be a `defhost` crossing: a crossing
+;; converts its props to React slots and lowers its children under the
+;; frame already in scope, which is exactly the two things a boundary has
+;; to do differently. It gets its own head kind instead, and the kind
+;; carries one fn — `element` — that the codec calls with the author's
+;; props map and a LOWERING CLOSURE.
+;;
+;; The closure is what keeps the contract in ONE place. The head reads
+;; its own props, runs core's shared validators in core's order, and
+;; only once it has resolved the frame's NAME does it call the closure to
+;; lower the children under that name. So the codec never has to know
+;; which prop key names the frame, and the head never has to know how
+;; Hicasso lowers hiccup.
+;;
+;; Nothing here needs the frame to EXIST. `*frame*` carries the frame
+;; KEYWORD (`impl.intent`), and `*dispatch*` — the binding that would
+;; need a live frame — is not bound by a lowering; a frame-locked
+;; dispatch is established per boundary at RENDER time, which under
+;; `frame-root`'s commit-owned two-pass is after the effect has made the
+;; frame. That is why an ENSURE boundary can be spelled in a tree a
+;; substrate lowers EAGERLY.
+
+(def ^:private frame-boundary-marker "hicassoFrameBoundary")
+
+(defn mint-frame-boundary!
+  "Mint a frame-boundary HEAD: a marked carrier legal in hiccup head
+  position, rendered by `vec->element`'s frame-boundary branch.
+
+  `element-fn` is `(props lower-children) -> React element`, where
+  `lower-children` is `(frame-kw) -> children`: a vector of React
+  elements lowered with `intent/*frame*` bound to `frame-kw`, or nil when
+  the vector carries no children. Calling it is what names the frame for
+  the subtree, so a head calls it exactly once, AFTER it has validated
+  its props and resolved the name."
+  [display-name element-fn]
+  (let [head #js {"element"     element-fn
+                  "displayName" display-name}]
+    (unchecked-set head frame-boundary-marker true)
+    head))
+
+(defn frame-boundary-head?
+  "Is `v` a minted frame-boundary head? `host-head?`'s shape exactly —
+  one own-property read behind a nil guard."
+  [v]
+  (and (some? v) (true? (unchecked-get v frame-boundary-marker))))
+
 (defn host-server
   "The `:server` policy `head` was declared with — `:client-only` or
   `:render` — read back as data for a server walk and the witnesses.
@@ -1436,6 +1487,52 @@
     (when-some [k (:key props)] (unchecked-set js-props "key" k))
     (make-element (unchecked-get head "gate") js-props argv (if has-props? 2 1))))
 
+(defn- lower-children-under
+  "The trailing forms of `argv` from `first-child`, each lowered to a
+  React child with `intent/*frame*` bound to `frame-kw` — the frame
+  boundary's whole mechanism. Answers a vector, or nil when the vector
+  has no children, which is the shape
+  `re-frame.adapter.context/normalize-children` reads.
+
+  The per-child call is `as-element`, `make-element`'s own, so a seq
+  splices and a nested vector is hiccup exactly as it is anywhere else;
+  what differs is only the binding the walk runs inside."
+  [argv first-child frame-kw]
+  (let [n (count argv)]
+    (when (< first-child n)
+      (binding [rf.hicasso.impl.intent/*frame* frame-kw]
+        (loop [i   first-child
+               acc (transient [])]
+          (if (< i n)
+            (recur (inc i) (conj! acc (as-element (nth argv i))))
+            (persistent! acc)))))))
+
+(defn- frame-boundary-element
+  "One frame-boundary vector as a React element — `[h/frame-root {:id …}
+  …]` and `[h/frame-provider {:frame …} …]`.
+
+  Props cross as the author's CLJS MAP, `boundary-element`'s hand-off
+  rather than `host-element`'s conversion: these are frame options, read
+  by core's shared cores, and a `make-frame` opt camelCased into a React
+  slot is an opt nothing honours. `:key` is the one prop the codec keeps
+  for itself — a keyed remount is how spec/002 says to re-point a
+  frame-root at a different `:id`, and it is React's key rather than a
+  frame option, so it is stripped from the props the head reads and set
+  on the built element."
+  [argv]
+  (let [^js head    (nth argv 0)
+        has-props?  (props-map? argv 1)
+        props       (if has-props? (nth argv 1) {})
+        first-child (if has-props? 2 1)
+        k           (:key props)
+        el          ((unchecked-get head "element")
+                     (dissoc props :key)
+                     (fn lower [frame-kw]
+                       (lower-children-under argv first-child frame-kw)))]
+    (if (some? k)
+      (react/cloneElement el #js {"key" k})
+      el)))
+
 ;; ---------------------------------------------------------------------------
 ;; The `[:>]` raw escape (HD-011) — the door with the declaration erased
 ;; ---------------------------------------------------------------------------
@@ -1588,16 +1685,18 @@
 
 (defn head-kind
   "WHICH KIND OF HEAD a hiccup vector has — `:fragment`, `:raw`, `:tag`,
-  `:boundary`, `:host` or `:invalid`. Named once: `vec->element` dispatches
-  on it to build a React element, the test kit to build a Spec 004B node."
+  `:boundary`, `:host`, `:frame-boundary` or `:invalid`. Named once:
+  `vec->element` dispatches on it to build a React element, the test kit
+  to build a Spec 004B node."
   [head]
   (cond
-    (fragment-head? head) :fragment
-    (raw-head? head)      :raw
-    (hiccup-tag? head)    :tag
-    (boundary-head? head) :boundary
-    (host-head? head)     :host
-    :else                 :invalid))
+    (fragment-head? head)       :fragment
+    (raw-head? head)            :raw
+    (hiccup-tag? head)          :tag
+    (boundary-head? head)       :boundary
+    (host-head? head)           :host
+    (frame-boundary-head? head) :frame-boundary
+    :else                       :invalid))
 
 (defn vector-kind
   "`head-kind`'s answer for this vector's head, after the two checks every
@@ -1629,11 +1728,12 @@
   runs, so every arm here reads a vector it knows is well formed."
   [argv]
   (case (vector-kind argv)
-    :fragment (fragment-element argv)
-    :raw      (raw-element argv)
-    :tag      (native-element argv)
-    :boundary (boundary-element argv)
-    :host     (host-element argv)
+    :fragment       (fragment-element argv)
+    :raw            (raw-element argv)
+    :tag            (native-element argv)
+    :boundary       (boundary-element argv)
+    :host           (host-element argv)
+    :frame-boundary (frame-boundary-element argv)
     :invalid
     ;; `:invalid` implies a head, because `vector-kind` refused the
     ;; headless vector — so this reads position 0 without a default, and
@@ -1712,11 +1812,19 @@
 (defn root-element
   "`as-element` for a hiccup form written OUTSIDE any boundary body — the
   root, or an outward React bridge. Every other element is created by an
-  ancestor body already inside `intent/with-frame`; this is the one
-  creator that has to NAME the frame. `*dispatch*` is deliberately not
-  bound: the frame is an identity the root has, while a frame-locked
-  dispatch is what makes an intent vector legal, and an intent outside a
-  boundary stays the loud `:rf.error/hicasso-intent-outside-boundary`."
+  ancestor body already inside `intent/with-frame`.
+
+  `frame-kw` is nil for a root whose TREE names its own frame, which is
+  what `h/frame-root` and `h/frame-provider` are for and what a
+  `h/mount!` root does today: the boundary head binds `*frame*` for its
+  own children (`lower-children-under`), so the root walk above it names
+  nothing. A non-nil `frame-kw` is the impl tier's own witness-driving
+  shape (`impl.mount/root!`), where the frame is the root handle's.
+
+  `*dispatch*` is deliberately not bound either way: the frame is an
+  identity, while a frame-locked dispatch is what makes an intent vector
+  legal, and an intent outside a boundary stays the loud
+  `:rf.error/hicasso-intent-outside-boundary`."
   [frame-kw hiccup]
   (binding [rf.hicasso.impl.intent/*frame* frame-kw]
     (as-element hiccup)))
