@@ -14,7 +14,7 @@
   adapter's `use-current-frame`, the narrow raw `useContext` read, which was
   retired as a public Var: it handed back the no-provider sentinel
   (`:rf.frame/no-provider`) as if it were an answer. `use-frame` is the
-  hook-shaped "which frame am I in", resolving through the full
+  hook-shaped `which frame am I in`, resolving through the full
   dynamic-var → React-context chain, and it is what the two boundary cases
   below now assert. The third case this file used to carry — no boundary above
   — moved with the sentinel: absence is a LOUD `:rf.error/no-frame-context`,

@@ -30,9 +30,13 @@
 
   Resolves PER CALL rather than at load, because an entry file binds this into
   a top-level `cfg` map while the adapter is installed by a per-test fixture.
-  `require-fn!` fails loud when no adapter publishing the hook is installed."
+  Throws when no installed adapter publishes the hook, so a fixture that forgot
+  to install one fails here rather than silently asserting nothing."
   [id metadata user-fn]
-  ((rf.late-bind/require-fn! :adapter/wrap-view) id metadata user-fn))
+  (if-let [f (rf.late-bind/get-fn :adapter/wrap-view)]
+    (f id metadata user-fn)
+    (throw (ex-info "no installed adapter publishes :adapter/wrap-view"
+                    {:hook :adapter/wrap-view}))))
 
 (defn react-element-attr
   "Pull `attr` (a string prop name) off a React element's `.-props`, or
