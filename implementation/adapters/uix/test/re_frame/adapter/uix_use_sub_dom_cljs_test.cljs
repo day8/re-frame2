@@ -325,6 +325,48 @@
          ($ ProbeGapMutator)
          ($ ProbeGapObserver)))))
 
+;; ---- rf2-1frc eviction / reacquisition probes -----------------------------
+;;
+;; Two INDEPENDENT consumers of the same (frame, query). The first is the
+;; ORIGINAL holder whose committed reaction the framework evicts underneath it;
+;; the second mounts afterwards onto the REBUILT entry, so the suite can prove
+;; the original's later cleanup does not decrement the successor's reference.
+;; Both take their frame from `evict-target` (a dedicated atom, so these cases
+;; cannot collide with the refcount probes above).
+
+(def ^:private evict-target                  (atom nil))
+(def ^:private probe-evict-observed          (atom []))
+(def ^:private probe-evict-successor-observed (atom []))
+
+(defui ProbeEvict []
+  (let [target @evict-target
+        v (rf.adapter.uix/use-sub [:rf.uix-evict/n] {:frame target})]
+    (swap! probe-evict-observed conj v)
+    ($ :div (str "n=" v))))
+
+(defui ProbeEvictSuccessor []
+  (let [target @evict-target
+        v (rf.adapter.uix/use-sub [:rf.uix-evict/n] {:frame target})]
+    (swap! probe-evict-successor-observed conj v)
+    ($ :div (str "s=" v))))
+
+;; ---- rf2-kuky.57 explicit-target probe ------------------------------------
+;;
+;; Reads its ENTIRE opts map from a side-channel atom, so one probe covers
+;; `{}`, `{:frame nil}`, a legal keyword target and a legal live frame VALUE
+;; without changing its hook shape between cases — the hook COUNT is identical
+;; on every one of them, which is the property the explicit-only design exists
+;; to preserve.
+
+(def ^:private nil-frame-opts     (atom {}))
+(def ^:private nil-frame-observed (atom []))
+
+(defui ProbeNilFrame []
+  (let [opts @nil-frame-opts
+        v (rf.adapter.uix/use-sub [:rf.uix-nil-frame/v] opts)]
+    (swap! nil-frame-observed conj v)
+    ($ :div (str "v=" v))))
+
 ;; ---- cfg + forwarded deftests ---------------------------------------------
 
 (def ^:private cfg
@@ -448,7 +490,23 @@
    ;; under a fresh isolated frame so it can't collide with the use-sub
    ;; cases above.
    :fr-frame              :rf.uix-flush-render/probe-frame
-   :fr-query              :rf.uix-use-sub-test/n})
+   :fr-query              :rf.uix-use-sub-test/n
+   ;; rf2-1frc — reacquisition after a framework-owned cache eviction, and the
+   ;; ownership edge on the committed release.
+   :probe-evict-element            (fn [] (uix/$ ProbeEvict))
+   :probe-evict-observed           probe-evict-observed
+   :probe-evict-successor-element  (fn [] (uix/$ ProbeEvictSuccessor))
+   :probe-evict-successor-observed probe-evict-successor-observed
+   :evict-target                   evict-target
+   :ev-frame                       :rf.uix-evict/frame
+   :ev-query                       :rf.uix-evict/n
+   ;; rf2-kuky.57 — the explicit arm resolves ONE concrete target before any
+   ;; acquisition; a missing / nil `:frame` refuses and retains nothing.
+   :probe-nil-frame-element        (fn [] (uix/$ ProbeNilFrame))
+   :nil-frame-opts                 nil-frame-opts
+   :nil-frame-observed             nil-frame-observed
+   :nf-frame                       :rf.uix-nil-frame/frame
+   :nf-query                       :rf.uix-nil-frame/v})
 
 (deftest use-sub-tracks-app-db-changes
   (rf.adapter.react-shared-suite/assert-use-sub-tracks-app-db-changes cfg))
@@ -698,3 +756,22 @@
                       "both trailing children rendered (not dropped)")
                   (finally
                     (try (.unmount root) (catch :default _ nil))))))))))))
+
+;; ---- rf2-1frc / rf2-kuky.57 — subscription lifetime -----------------------
+;;
+;; Real React lifecycle regressions: a MOUNTED component whose cached reaction
+;; the framework evicts, and the explicit-target arm's refusal. Neither surface
+;; was exercised by any existing gate — the merged PR that introduced the
+;; explicit arm was green at band with the nil-target leak in it.
+
+(deftest use-sub-reacquires-after-eviction
+  (rf.adapter.react-shared-suite/assert-use-sub-reacquires-after-eviction cfg))
+
+(deftest use-sub-stale-cleanup-does-not-release-a-successor
+  (rf.adapter.react-shared-suite/assert-use-sub-stale-cleanup-does-not-release-a-successor cfg))
+
+(deftest use-sub-nil-explicit-frame-refuses-without-retaining
+  (rf.adapter.react-shared-suite/assert-use-sub-nil-explicit-frame-refuses-without-retaining cfg))
+
+(deftest use-sub-live-frame-value-target-balances
+  (rf.adapter.react-shared-suite/assert-use-sub-live-frame-value-target-balances cfg))

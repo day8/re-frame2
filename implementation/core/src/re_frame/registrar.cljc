@@ -639,6 +639,33 @@
     ;; written into the resolver map intentionally stays untouched; the store
     ;; keeps its own provenance-stamped copy.
     (rf.source-store/record-descriptor! kind id metadata)
+    ;; RECORDING THE CHANGE COMPLETES BEFORE ANYTHING REACTS TO IT (rf2-1frc).
+    ;;
+    ;; These two hook batches are not peers. `registration-hooks` finish
+    ;; RECORDING what just happened — `re-frame.live-frame`'s
+    ;; `reproject-on-registration-change!` marks the live-frame projection dirty,
+    ;; which is what makes this registration visible to the next frame-generation
+    ;; resolution — while `replacement-hooks` REACT to it, and the reaction that
+    ;; matters here is `re-frame.subs.cache`'s cache invalidation.
+    ;;
+    ;; They used to run in the other order, and nothing noticed while every
+    ;; invalidated consumer merely dropped its cache entry and rebuilt LATER,
+    ;; past the mark. Since rf2-1frc one rebuilds DURING the invalidation: the
+    ;; React-hook spine reacquires from inside the disposal so a mounted
+    ;; component follows its subscription across the eviction instead of going
+    ;; deaf. Reacquiring before the projection was marked dirty resolved the
+    ;; frame's STALE generation and rebuilt the entry against the very body the
+    ;; re-registration had just replaced — the hot-reload the invalidation
+    ;; exists to serve, defeated by the order in which it was announced.
+    ;;
+    ;; Marking is a flag plus a coalesced `next-tick` schedule (per-frame
+    ;; conditional at flush time, so marking on every `reg-*` is safe by that
+    ;; hook's own contract), and both batches run ISOLATED, so the move changes
+    ;; no failure propagation. What it changes is that a reactor now observes a
+    ;; fully-recorded world.
+    (doseq [f @registration-hooks]
+      (try (f {:kind kind :id id :was previous :now metadata})
+           (catch #?(:clj Throwable :cljs :default) _ nil)))
     (cond
       ;; Re-registration path — fire hooks and emit handler-replaced.
       previous
@@ -710,15 +737,13 @@
     ;; without `:doc` does NOT re-fire the warning.
     (when rf.interop/debug-enabled?
       (maybe-emit-missing-doc! kind id metadata))
-    ;; Always-on registration hooks: fire on BOTH first-time
-    ;; and re-registration so cross-id invariants (e.g. routing's
-    ;; `:url-bound?` exclusivity per Spec 012 §Multi-frame routing) can
-    ;; be validated at the moment of any registration. Hooks run isolated
-    ;; — listener failures don't propagate so a buggy hook can't block
-    ;; the registration.
-    (doseq [f @registration-hooks]
-      (try (f {:kind kind :id id :was previous :now metadata})
-           (catch #?(:clj Throwable :cljs :default) _ nil)))
+    ;; The always-on registration hooks — fired on BOTH first-time and
+    ;; re-registration so cross-id invariants (e.g. routing's `:url-bound?`
+    ;; exclusivity per Spec 012 §Multi-frame routing) are validated at the
+    ;; moment of any registration — now run ABOVE, before the replacement
+    ;; hooks. See the rf2-1frc note there for why the order is load-bearing.
+    ;; Both sites are after the resolver-map and source-store writes, so a hook
+    ;; still inspects the final registry state exactly as it always did.
     {:was previous :now metadata}))
 
 (defn unregister!
