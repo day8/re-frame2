@@ -1311,8 +1311,6 @@ A parent that needs two parallel HTTP requests uses [Spec 005 §Spawn-and-join v
                     {:id :prefs :machine-id :rf.http/managed
                      :data {:request {:url "/api/prefs"}}}]
    :join             :all
-   :on-child-done    :asset/loaded
-   :on-child-error   :asset/failed
    :on-all-complete  [:hydrate/done]
    :on-any-failed    [:hydrate/aborted]}}}
 ```

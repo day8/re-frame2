@@ -1838,8 +1838,6 @@ Before:
 {:hydrating
  {:spawn-all {:children       [...]
                :join           :all
-               :on-child-done  :asset/loaded
-               :on-child-error :asset/failed
                :on-all-complete [:hydrate/done]
                :timeout-ms     60000
                :on-timeout     [:hydrate/timed-out]}
@@ -1853,8 +1851,6 @@ After:
 {:hydrating
  {:spawn-all {:children       [...]
                :join           :all
-               :on-child-done  :asset/loaded
-               :on-child-error :asset/failed
                :on-all-complete [:hydrate/done]}
   :after     {60000 :degraded}                 ;; whole-join wall-clock guard
   :on        {:hydrate/done :ready}}}
@@ -3161,8 +3157,6 @@ Codebases that hand-rolled spawn-and-join in machine specs — N siblings + coun
                       {:id :user :machine-id :load-user-profile}
                       {:id :dash :machine-id :load-dashboards}]
    :join             :all
-   :on-child-done    :asset/loaded
-   :on-child-error   :asset/failed
    :on-all-complete  [:hydrate/done]
    :on-any-failed    [:hydrate/failed]}
   :on    {:hydrate/done   :ready
