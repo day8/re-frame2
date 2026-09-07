@@ -1081,7 +1081,9 @@
      ["app-db-reset!"             {:ok? true :frame :rf/default}]
      [:default                    nil]]
     :fixture/eval-form-must-contain
-    ["app-db-reset! {:counter 0}"
+    ;; rf2-olqo — the `db` value is external EDN, so it rides the
+    ;; literal-data emission `(quote <datum>)`, not the print path.
+    ["app-db-reset! (quote {:counter 0})"
      ;; The raw-state tap posture is signalled (the unit suite pins it
      ;; lands BEFORE app-db-reset!; the corpus pins it IS emitted on the
      ;; write path with the gate-OFF posture).

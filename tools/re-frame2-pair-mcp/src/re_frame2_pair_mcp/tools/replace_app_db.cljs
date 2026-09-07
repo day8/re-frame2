@@ -21,11 +21,24 @@
   ## db is EDN data, not host source
 
   The `db` arg is parsed as EDN and emitted into the runtime call via
-  the normal `pr-str` path (NO `rt-raw` splice) — the same
-  injection-closing posture `dispatch` takes. A
-  prompt-injected `(println :pwn)` string is data, not code; it would
-  read as a symbol/list literal and be injected verbatim (and almost
-  certainly rejected by the frame's app-schema), never executed.
+  [[re-frame2-pair-mcp.tools.eval-form/rt-quote]] — the literal-data
+  emission path (NO `rt-raw` splice) — the same injection-closing
+  posture `dispatch` takes. A prompt-injected `(println :pwn)` string
+  is data, not code; it reads as a list literal and is injected
+  verbatim (and almost certainly rejected by the frame's app-schema),
+  never executed.
+
+  The `pr-str` path this used to take was NOT that guarantee (rf2-olqo,
+  the sibling of rf2-j2wz on this tool). Printing a value renders it as
+  SOURCE, and source is read as code: a list inside the app-db value is
+  a function call and a symbol is a name lookup, so the value the
+  runtime received was whatever those evaluated to rather than the
+  datum the caller sent — and a value shaped like one of the emitter's
+  own tagged vectors was recognised as IR and its payload spliced in as
+  raw source. `(quote <datum>)` evaluates to its datum for every EDN
+  value, which is the whole of what the paragraph above promises. The
+  `frame` argument is an internally-composed keyword and stays on the
+  default path.
 
   The injection can fail for the documented `:rf.epoch/*` reasons
   (no-such-frame, replace-during-drain, schema-mismatch — see
@@ -87,11 +100,16 @@
         (let [new-db payload
               ;; app-db-reset!'s runtime arglist is ([v] [v frame-id]) —
               ;; the value is FIRST, the frame is the optional SECOND.
-              ;; The value rides the normal pr-str arg path (data, not
-              ;; rt-raw source).
+              ;; The value is EXTERNAL EDN off the wire, so it rides
+              ;; `rt-quote` — the literal-data emission path — and not
+              ;; the default `pr-str` arg path, which prints a value as
+              ;; source and so re-evaluates any list or symbol inside it
+              ;; (rf2-olqo; rf2-j2wz is the same defect on `dispatch`).
+              ;; `frame` is composed here, not supplied, so it stays on
+              ;; the default path.
               call (if frame
-                     (ef/rt-call 'app-db-reset! new-db frame)
-                     (ef/rt-call 'app-db-reset! new-db))
+                     (ef/rt-call 'app-db-reset! (ef/rt-quote new-db) frame)
+                     (ef/rt-call 'app-db-reset! (ef/rt-quote new-db)))
               form (ef/emit call)]
           ;; The signalled prelude lands `signal-runtime!`
           ;; between `ensure-runtime!` and the `app-db-reset!` eval so the
