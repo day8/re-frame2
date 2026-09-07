@@ -868,19 +868,6 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
                   :elision       {:rf.size/threshold-bytes 8192}})
   ```
 
-### `feature-loaded?`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (feature-loaded? feature) → boolean
-  ```
-- **Description**: Is the named optional feature's implementation artefact on the classpath? Detection is a pure keyword lookup in the always-loaded feature registry (no exception, no classpath probe). Probe `(feature-loaded? :routing)` before taking a feature-dependent path. The known features are `:schemas`, `:machines`, `:routing`, `:flows`, `:http`, `:ssr`, `:epoch`, `:resources`.
-- **Example**:
-  ```clojure
-  (rf/feature-loaded? :epoch)   ;; => true when day8/re-frame2-epoch is on the classpath
-  ```
-
 ### `features`
 
 - **Kind**: function
@@ -888,24 +875,19 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
   ```clojure
   (features) → {feature-keyword inspection-entry}
   ```
-- **Description**: Return a map of every optional feature keyword to its inspection entry: the feature's static coordinate data (`:maven` / `:require` / `:spec`) merged with its live `:loaded?` status.
+- **Description**: Return a map of every optional feature keyword to its inspection entry: the feature's static coordinate data (`:maven` / `:require` / `:spec`) merged with its live `:loaded?` status. Detection is a pure keyword lookup in the always-loaded feature registry (no exception, no classpath probe). The known features are `:schemas`, `:machines`, `:routing`, `:flows`, `:http`, `:ssr`, `:epoch`, `:resources`.
+
+  This is the ONE feature-inspection door. Read the per-feature boolean out of the map; an **unknown** feature keyword has no entry, so the lookup reads `nil`. For boot-time rather than first-call failure, write the guard yourself — one line, and not an elidable `assert`.
 - **Example**:
   ```clojure
   (rf/features)
   ;; => {:epoch {:maven "day8/re-frame2-epoch" :require "re-frame.epoch" :loaded? true} …}
-  ```
 
-### `require-feature!`
+  (get-in (rf/features) [:routing :loaded?])   ;; => true when day8/re-frame2-routing is on the classpath
 
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (require-feature! feature) → true (or throws)
-  ```
-- **Description**: Assert the optional feature is loaded. Returns `true` when its implementation artefact is on the classpath. When it is not, throws a structured `:rf.error/feature-not-loaded` ex-info carrying the exact copy-pasteable Maven coordinate + require form. An unknown feature keyword throws `:rf.error/unknown-feature`. Use as an early guard at the top of code that depends on an optional feature.
-- **Example**:
-  ```clojure
-  (rf/require-feature! :epoch)   ;; absent => :rf.error/feature-not-loaded with copy-paste deps + require
+  (when-not (get-in (rf/features) [:epoch :loaded?])
+    (throw (ex-info "re-frame.epoch is not on the classpath"
+                    (get (rf/features) :epoch))))
   ```
 
 ## Instrumentation and listeners

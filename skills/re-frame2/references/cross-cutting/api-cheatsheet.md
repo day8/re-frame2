@@ -187,9 +187,9 @@ Six `:rf.egress/profile` values (closed enum): `:rf.egress/off-box-observability
 | `rf/clear-sub-cache!` | `(frame-id?)` — a DIFFERENT axis: evicts a frame's cached subscriptions (runtime state), not a registration. Keeps its bang, as do the other cache/buffer `clear-*!` names |
 | `rf/configure!` | `(:epoch-history\|:trace-buffer\|:elision opts)` — runtime knobs (`:elision` opts `{:rf.size/threshold-bytes N}`) |
 | `rf/registrations` / `rf/handler-meta` | registrar reads (ids via `(-> (registrations …) keys set)` — the `rf/handler-ids` projection was retired) |
-| `rf/features` | `()` → map of every optional-feature keyword → `{:maven :require :spec :loaded?}`. Ships to production (not elided) |
-| `rf/feature-loaded?` | `(feature)` → bool — is the optional feature's impl artefact on the classpath. Known: `:schemas` `:machines` `:routing` `:flows` `:http` `:ssr` `:epoch` `:resources` |
-| `rf/require-feature!` | `(feature)` → `true`, or throws `:rf.error/feature-not-loaded` carrying the exact Maven coord + require form. Self-explaining early guard before a feature-dependent path |
+| `rf/features` | `()` → map of every optional-feature keyword → `{:maven :require :spec :loaded?}`. The ONE inventory door — ships to production (not elided). Known: `:schemas` `:machines` `:routing` `:flows` `:http` `:ssr` `:epoch` `:resources` |
+| presence check | `(get-in (rf/features) [:epoch :loaded?])` → bool. An UNKNOWN feature keyword has no entry, so it reads `nil` |
+| boot-time guard | `(when-not (get-in (rf/features) [:epoch :loaded?]) (throw (ex-info "…" (get (rf/features) :epoch))))` — write it yourself, never an elidable `assert`; the entry carries the Maven coord + require ns |
 | `rf/frame-ids` / `rf/view` | registry reads |
 | `rf/frame-meta` | `(frame-id)` → flat map: `:id` + preset-expansion (`:preset` `:fx-overrides` `:drain-depth` `:doc` `:tags` `:url-bound?` `:platform` `:initial-events` `:on-destroy` `:observability` …) + lifecycle (`:created-at` `:destroyed?` `:listeners`) — all top-level per Spec-Schemas `:rf/frame-meta`. `:observability` is the sole surviving frame-owned classification key (`:sensitive` / `:large` retired, EP-0025). **No `:on-error` recovery-policy slot** — recovery is framework-owned |
 | `re-frame.subs.tooling/sub-cache-snapshot` / `sub-topology` | dynamic / static sub graph reads — subscription-tooling surfaces, **not** on the `rf/` façade |
