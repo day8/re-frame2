@@ -53,12 +53,23 @@
    :password ""})
 
 (def initial-data
-  {:draft        (draft-from-user nil)
-   :submitted    nil
-   :errors       {}
-   :touched      #{}
-   :submit-error nil
-   :loaded-at    nil})
+  {:draft         (draft-from-user nil)
+   :submitted     nil
+   :errors        {}
+   :touched       #{}
+   :submit-error  nil
+   :loaded-at     nil
+   ;; Whose session the in-flight submission was issued under — recorded by
+   ;; :begin-submit, read back by the two reply handlers. See the SESSION
+   ;; OWNERSHIP note above :settings/submit-success.
+   :session-owner nil})
+
+(defn- machine-data
+  "The `:settings/form` snapshot's `:data`, read out of runtime-db. The snapshot
+   lives at [:rf.runtime/machines :snapshots :settings/form]; naming that path
+   once here keeps the three handlers that need it from each spelling it out."
+  [runtime-db]
+  (get-in runtime-db [:rf.runtime/machines :snapshots :settings/form :data]))
 
 ;; ============================================================================
 ;; THE MACHINE — :settings/form  (one region; the form lifecycle)
@@ -165,9 +176,17 @@
     ;; examples/core/login's submit-form. Wipe :errors and :submit-error so
     ;; nothing lingers from a previous failed attempt while this one's in
     ;; flight.
-    (fn action-begin-submit [{data :data [_ {:keys [submitted]}] :event}]
+    ;;
+    ;; It also carries :session-owner — the identity the PUT is being sent as.
+    ;; THIS is the recording point rather than :load, because :load is only
+    ;; accepted from :neutral: a form sitting in :correct or :incorrect from an
+    ;; earlier attempt ignores a re-entry's :load, and an owner recorded there
+    ;; would still name whoever loaded the form last. A submit can only be made
+    ;; from :neutral or :incorrect, and it is the moment the request goes out.
+    (fn action-begin-submit [{data :data [_ {:keys [submitted session-owner]}] :event}]
       {:data (-> data
                  (assoc :submitted submitted)
+                 (assoc :session-owner session-owner)
                  (assoc-in [:draft :password] "")
                  (assoc :errors {})
                  (assoc :submit-error nil))})
@@ -317,11 +336,13 @@
          :settings/submit-success / :settings/submit-error broadcast
          :submit-succeeded / :submit-failed in turn."
    :rf.http/decode-schemas [schema/UserResponse]}
-  ;; The machine snapshot lives in runtime-db.
-  (fn handler-settings-submit [{rt :rf.db/runtime} _]
-    (let [draft (get-in rt [:rf.runtime/machines :snapshots :settings/form :data :draft])]
+  ;; The machine snapshot lives in runtime-db; the session identity lives in
+  ;; app-db, so this handler reads both partitions.
+  (fn handler-settings-submit [{:keys [db] rt :rf.db/runtime} _]
+    (let [draft (:draft (machine-data rt))]
       {:fx [[:dispatch [:settings/form
-                        [:submit-valid {:submitted draft}]]]
+                        [:submit-valid {:submitted     draft
+                                        :session-owner (auth/session-owner db)}]]]
             [:rf.http/managed
              (rh/request {:method     :put
                           :path       "/user"
@@ -333,39 +354,62 @@
                           :on-success [:settings/submit-success]
                           :on-failure [:settings/submit-error]})]]})))
 
+;; ----------------------------------------------------------------------------
+;; SESSION OWNERSHIP — the two reply handlers below ask one question first
+;; ----------------------------------------------------------------------------
+;;
+;; Both Logout buttons — the one on this page and the one in the navbar — stay
+;; live while a save is in flight, and they should: waiting is not what a user
+;; who wants out is asking for. But the PUT is already on the wire, and logging
+;; out does not unsend it. So either reply can land on a signed-out app.
+;;
+;; `:begin-submit` recorded who the request was sent as; these two handlers
+;; compare that against the live session (auth.cljs's `owns-session?`, which
+;; carries the full why) and refuse to act for any other. Refusal is not a
+;; no-op: the machine is sitting in :submitting, whose only way out is a reply,
+;; so a refused one broadcasts :reset instead — which settles the form AND
+;; scrubs the departed user's draft out of the snapshot on the way past.
 (rf/reg-event :settings/submit-success
   {:doc "Server said yes. Three things follow: fold the returned user into the
          machine's :data via :store-user (region lands in :correct), store the
          session (durable [:auth :token] + [:auth :user]) so the rest of the
-         app sees the update, and navigate off to the user's profile page.
-         The reply rides a map payload classified :sensitive — RealWorld's
-         PUT /user reply carries a fresh User (and therefore a fresh token,
-         just like login/register)."
+         app sees the update, and navigate off to the user's profile page —
+         unless the session that issued the save is gone, in which case the
+         form resets and none of it happens (storing the reply would restore
+         the logged-out user's credentials). The reply rides a map payload
+         classified :sensitive — RealWorld's PUT /user reply carries a fresh
+         User (and therefore a fresh token, just like login/register)."
    :sensitive [[:value :user :token]]}
-  (fn handler-settings-submit-success [{:keys [db]} [_ {:keys [value]}]]
-    (let [user (:user value)]
-      ;; `store-session-db` is called DIRECTLY (not via a nested
-      ;; `[:dispatch [:auth/store-session user]]`) for the same reason
-      ;; auth.cljs's own reply events do — see that fn's doc. The
-      ;; machine-routed :submit-succeeded sub-event never needs the token at
-      ;; all (:store-user's `draft-from-user` never reads it), so it is
-      ;; `dissoc`'d before crossing into the machine — the token is never
-      ;; even offered to that nested dispatch, not merely classified after
-      ;; the fact.
-      {:db (auth/store-session-db db user)
-       :fx [[:dispatch [:settings/form
-                        [:submit-succeeded {:user (dissoc user :token)}]]]
-            [:dispatch [:rf.route/navigate {:to :realworld.profile/show :params {:username (:username user)}}]]]})))
+  (fn handler-settings-submit-success [{:keys [db] rt :rf.db/runtime} [_ {:keys [value]}]]
+    (if-not (auth/owns-session? db (:session-owner (machine-data rt)))
+      {:fx [[:dispatch [:settings/form [:reset]]]]}
+      (let [user (:user value)]
+        ;; `store-session-db` is called DIRECTLY (not via a nested
+        ;; `[:dispatch [:auth/store-session user]]`) for the same reason
+        ;; auth.cljs's own reply events do — see that fn's doc. The
+        ;; machine-routed :submit-succeeded sub-event never needs the token at
+        ;; all (:store-user's `draft-from-user` never reads it), so it is
+        ;; `dissoc`'d before crossing into the machine — the token is never
+        ;; even offered to that nested dispatch, not merely classified after
+        ;; the fact.
+        {:db (auth/store-session-db db user)
+         :fx [[:dispatch [:settings/form
+                          [:submit-succeeded {:user (dissoc user :token)}]]]
+              [:dispatch [:rf.route/navigate {:to :realworld.profile/show :params {:username (:username user)}}]]]}))))
 
 (rf/reg-event :settings/submit-error
   {:doc "Server said no. Folds a readable error message into the machine's
          :data via :set-submit-error; the region lands in :incorrect — the very
          same surface the client-side validation path uses, since both show up
          through :submit-error / :errors. One place to render \"something's
-         wrong\", however it went wrong."}
-  (fn handler-settings-submit-error [_ [_ {:keys [error]}]]
-    {:fx [[:dispatch [:settings/form
-                      [:submit-failed {:submit-error (rh/failure->message error)}]]]]}))
+         wrong\", however it went wrong. Unless the session that issued the save
+         is gone: there is nobody left to show it to, and the message would sit
+         in the snapshot waiting for the next user, so the form resets instead."}
+  (fn handler-settings-submit-error [{:keys [db] rt :rf.db/runtime} [_ {:keys [error]}]]
+    (if-not (auth/owns-session? db (:session-owner (machine-data rt)))
+      {:fx [[:dispatch [:settings/form [:reset]]]]}
+      {:fx [[:dispatch [:settings/form
+                        [:submit-failed {:submit-error (rh/failure->message error)}]]]]})))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS
