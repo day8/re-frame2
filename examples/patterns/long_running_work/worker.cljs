@@ -5,10 +5,10 @@
    Here's the `:spawn-all` shape in one breath. The parent spawns N
    children. Each child works its own shard, politely handing control
    back to the browser between chunks via `:after`, and firing
-   `:progress` at the parent so the UI can keep up. When a child
-   finishes it dispatches the parent's `:on-child-done` keyword; once
-   all N have checked in, the runtime fires the parent's
-   `:on-all-complete`. And if the user bails out mid-flight with
+   `:progress` at the parent so the UI can keep up. A child finishes by
+   reaching its `:final?` `:done` state — completion is finality, not a
+   message the child sends — and once all N have, the runtime fires the
+   parent's `:on-all-complete`. And if the user bails out mid-flight with
    `:cancel`, the parent leaves `:working` and the exit cascade fires
    `:rf.machine/destroy` at every child still going — pending `:after`
    timers and all. See the `:spawn` glossary entry
@@ -54,10 +54,13 @@
   50)
 
 (def parent-id
-  "Where a child sends its messages home: the parent's registered id.
-   Children just name it directly, with no per-child plumbing to thread
-   an address through — and they can, because in a static `:spawn-all`
-   the parent's id is a literal sitting right there in its own source."
+  "Where a child sends its `:progress` reports home: the parent's
+   registered id. Children just name it directly, with no per-child
+   plumbing to thread an address through — and they can, because in a
+   static `:spawn-all` the parent's id is a literal sitting right there
+   in its own source. Note this address is for progress ONLY; finishing
+   needs no address at all, because a child completes by reaching a
+   `:final?` state rather than by dispatching anything."
   :work/flow)
 
 ;; ============================================================================
@@ -81,9 +84,11 @@
 ;;                       :done; more to do? → :yielding.
 ;;     :yielding       — the pause. :after {tick-ms :processing} lines
 ;;                       up the next chunk one browser tick later.
-;;     :done           — the end. :entry tells the parent :on-child-done.
-;;                       The parent's exit cascade clears this child away
-;;                       once :on-all-complete fires.
+;;     :done           — the end, and a :final? leaf. Reaching it IS the
+;;                       completion signal; :output-key names the :data
+;;                       slot the runtime hands the parent as the result.
+;;                       A finished child auto-destroys on the spot, so
+;;                       the parent's exit cascade never has to sweep it.
 ;;     :cancelled      — a child never actually walks in here:
 ;;                       cancellation comes from the parent as a
 ;;                       :rf.machine/destroy, not an event routed inward.
@@ -93,8 +98,8 @@
 (rf/defmachine processor-machine
   {:doc "Works one shard, a chunk at a time. Yields to the browser
          between chunks via `:after`, reports `:progress` to the parent
-         as it goes, and on reaching `:done` tells the parent
-         :on-child-done (`:work/child-done`)."
+         as it goes, and completes by reaching its `:final?` `:done`
+         state, which hands the parent the shard id as the result."
 
    :initial :idle
 
@@ -140,16 +145,7 @@
       (let [shard         (:shard data)
             new-processed (inc (:processed data))]
         {:data (assoc data :processed new-processed)
-         :fx   [[:dispatch [parent-id [:progress shard new-processed (:total data)]]]]}))
-
-    :dispatch-done
-    ;; The child's last words: tell the parent :on-child-done. The
-    ;; runtime catches this at the parent's boundary and updates the
-    ;; join. We pass the shard id (e.g. :s1) so the parent knows which
-    ;; child just crossed the line.
-    (fn action-dispatch-done [{:keys [data]}]
-      (let [shard (:shard data)]
-        {:fx [[:dispatch [parent-id [:work/child-done shard]]]]}))}
+         :fx   [[:dispatch [parent-id [:progress shard new-processed (:total data)]]]]}))}
 
    :states
    {:idle
@@ -192,12 +188,16 @@
              :processing}}
 
     :done
-    ;; Journey's end. The child's parting act is to tell the parent
-    ;; :on-child-done; the exit cascade then sweeps the child away once
-    ;; the parent's :on-all-complete fires.
-    {:meta  {:terminal? true}
-     :tags  #{:work/done}
-     :entry :dispatch-done}
+    ;; Journey's end, and the whole completion protocol: `:final? true`
+    ;; says arriving here IS finishing. The child dispatches nothing and
+    ;; names no parent keyword — the runtime notices the finality, reads
+    ;; :output-key's slot (:shard) out of :data as the result, folds it
+    ;; into the parent's join, and destroys this child on the spot.
+    ;; That's why one :work/processor drops unchanged under a single
+    ;; :spawn or under this :spawn-all: it carries no parent vocabulary.
+    {:final?     true
+     :output-key :shard
+     :tags       #{:work/done}}
 
     :cancelled
     ;; Defined, but this example never routes a child into it. The
@@ -295,10 +295,11 @@
     ;; surviving child and clears every one still standing.
     ;;
     ;; The :progress event is just a child checking in. It's an internal
-    ;; self-transition that updates :data :progress — and because
-    ;; :progress isn't the parent's :on-child-done / :on-child-error
-    ;; keyword, the join machinery leaves it alone and the runtime feeds
-    ;; it straight to the parent's :on table.
+    ;; self-transition that updates :data :progress — and since only
+    ;; finality completes a child, an ordinary message from a live one
+    ;; is never mistaken for a completion signal. The join machinery
+    ;; leaves it alone and the runtime feeds it straight to the parent's
+    ;; :on table.
     {:tags #{:flow/working}
      :spawn-all
      {:children [{:id :s1 :machine-id :work/processor
@@ -307,13 +308,12 @@
                   :data {:shard :s2 :total items-per-shard :processed 0 :tick-ms default-tick-ms}}
                  {:id :s3 :machine-id :work/processor
                   :data {:shard :s3 :total items-per-shard :processed 0 :tick-ms default-tick-ms}}]
+      ;; No child-vocabulary keys here: the parent never names an event
+      ;; for a child to phone home with, because a child completes by
+      ;; reaching a :final? state and the runtime counts those directly.
       :join             :all
-      ;; The keywords a child uses to phone home. The runtime watches
-      ;; for events whose inner id matches these and updates the join.
-      :on-child-done    :work/child-done
-      :on-child-error   :work/child-error
-      ;; And the events the runtime sends *back* into the parent once
-      ;; the join resolves. The :on table below picks each one up.
+      ;; The events the runtime sends *back* into the parent once the
+      ;; join resolves. The :on table below picks each one up.
       :on-all-complete  [:work/all-done]
       :on-any-failed    [:work/any-failed]}
      :on    {;; A progress report. Note there's no :target — that makes

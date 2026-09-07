@@ -104,11 +104,11 @@ The wrapper handles its own internal events and dispatches `[parent-id [:succeed
   {:children [{:id :user  :machine-id :rf.http/managed :data {:request {:url "/api/me"}}}
               {:id :prefs :machine-id :rf.http/managed :data {:request {:url "/api/prefs"}}}]
    :join :all
-   :on-child-done   :hydrate/child-done    ;; child-keyword children dispatch on success (REQUIRED)
-   :on-child-error  :hydrate/child-error    ;; child-keyword children dispatch on failure (REQUIRED)
-   :on-all-complete [:hydrate/done]
+   :on-all-complete [:hydrate/done]         ;; REQUIRED for :join :all
    :on-any-failed   [:hydrate/aborted]}}}
 ```
+
+The block declares only how results **combine** — there are no child-vocabulary keys, and a child dispatches nothing to the parent. Each child completes by reaching a `:final?` state, exactly as it would under a single `:spawn`, so the same child machine composes under both forms. Add `:on-done` to a child spec to fold that child's result into the parent's `:data` at its finality; failure control flow belongs to the block's `:on-any-failed` (a child spec may not declare `:on-error`).
 
 Each child wrapper aborts when the join resolves and surviving siblings are torn down; per-sibling cascade fires independently.
 

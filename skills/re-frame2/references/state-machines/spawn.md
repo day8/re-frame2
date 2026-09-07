@@ -67,15 +67,29 @@ re-frame2 ships first-class final-state-with-parent-notification — the xstate 
      :on    {:auth/cancelled :idle}}}})
 ```
 
-When `:auth-flow` enters `:done`, the runtime synchronously:
+When `:auth-flow` enters `:done`, the runtime:
 
 1. Reads the child's `:data` at `:output-key :token` — call it `result`.
-2. Runs the parent's `:on-done` against the parent's `:data` with `result`.
-3. Emits `:rf.machine/done` (`:machine-id` / `:output` / `:parent-id`).
+2. Mints the reserved completion carrier `[<parent-id> [:rf.machine.spawn/done <invoke-id> <completion>]]`.
+3. Emits `:rf.machine/done` (`:machine-id` / `:output` / `:parent-id`) as a trace — nothing subscribes to it as control.
 4. Tears down the child via the existing destroy path with `:reason :rf.machine/finished` on the `:rf.machine/destroyed` trace.
 5. Clears the child's `[:rf.runtime/machines :system-ids <sid>]` reverse-index entry (after `:on-done`).
+6. Applies the parent's `:on-done` to the parent's `:data` with `result`, **at the parent's handler boundary on its next macrostep** — not synchronously inside the child's finalize cascade.
 
 `:output-key` is optional — when absent, `:on-done` receives `nil`. `:on-done` is optional — when absent, the auto-destroy still fires.
+
+### The parent can ADVANCE on a child's completion
+
+The completion carrier does not stop at the `:on-done` fold — it flows into the parent's **ordinary macrostep**. So the parent moves state on its own child's finishing, declaratively, with no cooperation from the child:
+
+```clojure
+:configuring
+{:spawn  {:machine-id :app/loader
+          :on-done    (fn [{:keys [data result]}] (assoc data :config result))}
+ :always [{:guard :config-loaded? :target :loading-deps}]}
+```
+
+An explicit `:on {:rf.machine.spawn/done {:target :loading-deps}}` works equally well. **This is the replacement for a child hand-dispatching an event to advance its parent** — the child needs no knowledge of the parent at all.
 
 ### Singleton symmetry — "final means final"
 
@@ -162,12 +176,12 @@ When the parent needs to fan out N children and resume on a join condition (boot
 ```clojure
 {:hydrating
  {:spawn-all
-  {:children         [{:id :cfg  :machine-id :load-config       :on-spawn :record-cfg}
+  {:children         [{:id :cfg  :machine-id :load-config       :on-spawn :record-cfg
+                       :on-done (fn [{:keys [data result]}]      ;; optional per-child :data fold
+                                  (assoc-in data [:assets :cfg] result))}
                       {:id :user :machine-id :load-user-profile  :on-spawn :record-user}
                       {:id :dash :machine-id :load-dashboards    :on-spawn :record-dash}]
    :join             :all                            ;; :all (default) or :any
-   :on-child-done    :child/done                     ;; child-keyword the children dispatch on success
-   :on-child-error   :child/error                    ;; child-keyword the children dispatch on failure
    :on-all-complete  [:assets-loaded]                ;; parent event when :all fires
    :on-any-failed    [:asset-load-failed]            ;; parent event when any child fails
    :on-some-complete [:partial-load]}                ;; parent event when :any fires
@@ -177,9 +191,21 @@ When the parent needs to fan out N children and resume on a join condition (boot
           :partial-load      :degraded}}}
 ```
 
-Child id is the `:id` field inside each `:children` entry (NOT the `:machine-id`); each child dispatches `[:child/done :cfg & extra]` (or `:child/error`) back to the parent. The runtime intercepts these at the parent's machine boundary, updates join-state at `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]`, evaluates the join condition, and fires the resolved parent event — unconditionally cancelling surviving siblings on join resolution.
+**Completion is finality, under a join exactly as under a single `:spawn`.** A join child is an ordinary machine that carries **no parent vocabulary**: it finishes by entering a root-level `:final?` leaf and names its result with `:output-key`, so the same child machine composes unchanged under `:spawn` and under `:spawn-all`.
 
-Validation happens at registration (`re-frame.machines.lifecycle-fx.validation`): `:on-child-done` / `:on-child-error` are required keywords, `:on-all-complete` is required when `:join :all` (the default), `:on-some-complete` is required for `:any`.
+```clojure
+;; the child — identical whichever spawn form the parent used
+:done   {:final? true :output-key :result}
+:failed {:final? true :error? true :output-key :reason}
+```
+
+Child id is the `:id` field inside each `:children` entry (NOT the `:machine-id`). The runtime folds each child's finality into join-state at `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]`, evaluates the join condition, and fires the resolved parent event — unconditionally cancelling surviving siblings on join resolution. The resolved event carries the decisive child and one value: `[<parent-id> [<resolution-event…> <decisive-child-id> <result>]]`, where `<result>` is that child's `:output-key` slot (its error payload on `:on-any-failed`).
+
+Validation happens at registration (`re-frame.machines.lifecycle-fx.validation`):
+
+- The block's bare-key vocabulary is **closed** to `:children` / `:join` / `:on-all-complete` / `:on-some-complete` / `:on-any-failed`; anything else is `:rf.error/machine-spawn-all-bad-shape`. The retired child-vocabulary keys that once named the events children dispatched are rejected by that rule — delete them.
+- `:on-all-complete` is required when `:join :all` (the default); `:on-some-complete` is required for `:any`.
+- A child spec may declare `:on-done` (folds the parent's `:data` at that child's finality, before the join fold) but **not** `:on-error` — that is `:rf.error/machine-unknown-spawn-key`. Failure control flow under a join is the block's `:on-any-failed`, which decides for the whole fan-out.
 
 ## Common gotchas
 

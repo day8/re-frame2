@@ -52,9 +52,12 @@ spawn-and-join.
   one per shard. The runtime tracks the join in runtime-db at
   `[:rf.runtime/machines :spawned :work/flow [:working]]`. The parent's
   `:data` holds no join bookkeeping — just the `:progress` map the view
-  renders. The runtime watches the children report in and fires
-  `:on-all-complete` when the last one finishes. You declare 3 children
-  and a join policy (`:join :all`); the framework counts.
+  renders. A child completes by reaching its `:final?` `:done` state —
+  it dispatches nothing and names no parent keyword — and the runtime
+  fires `:on-all-complete` once the last one does. You declare 3 children
+  and a join policy (`:join :all`); the framework counts. Because
+  completion is finality rather than an agreed message, the same
+  `:work/processor` drops unchanged under a single `:spawn`.
 
 - Cooperative browser yielding. A worker that processes 100 items in a
   tight loop freezes the tab. Each `:work/processor` child does one item per
@@ -117,8 +120,6 @@ batch of files — where you'd reach for this.
   :working
     :spawn-all  three children (one per shard)
                  :join :all
-                 :on-child-done  :work/child-done
-                 :on-child-error :work/child-error
                  :on-all-complete [:work/all-done]
                  :on-any-failed  [:work/any-failed]
     :on
@@ -138,8 +139,8 @@ batch of files — where you'd reach for this.
                   :always  → :checking-done
   :checking-done  :always  → :done | :yielding   (guarded)
   :yielding       :after   → :processing  (browser-tick yield)
-  :done           :meta {:terminal? true}
-                  :entry :dispatch-done  (dispatches :work/child-done)
+  :done           :final? true  :output-key :shard
+                  (reaching it IS completion — no dispatch)
   :cancelled      :meta {:terminal? true}
                   (never reached via transition — cancellation
                    cascades via :rf.machine/destroy fx)

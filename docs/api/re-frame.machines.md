@@ -301,13 +301,14 @@ The framework-registered subscription vectors and reserved effect tuples that ad
       {:fx [[:rf.machine/destroy (rf.machines/machine-by-system-id :logger)]]}))
   ```
 
-**Final states and `:on-done`.** Leaf states marked `:final?` auto-destroy the machine on entry. The parent (if any) receives `:on-done` with the child's `:data` slot. So a spawn-shaped sub-process completes, the parent receives the result through `:on-done`, and the framework destroys the child. No manual `:rf.machine/destroy` is needed.
+**Final states and `:on-done`.** Completion is finality: a child reports back by entering a `:final?` leaf, whatever spawn form its parent used, and dispatches nothing to its parent. Leaf states marked `:final?` auto-destroy the machine on entry. The parent (if any) receives `:on-done` with the child's `:data` slot, and the completion event then flows into the parent's ordinary macrostep, so the parent can also **advance** on it (`:always`, or an explicit `:on {:rf.machine.spawn/done …}`). So a spawn-shaped sub-process completes, the parent receives the result through `:on-done`, and the framework destroys the child. No manual `:rf.machine/destroy` is needed.
 
 | State-node key | What it does |
 |---|---|
 | `:final?` | Marks a leaf state as terminal. Entering it auto-destroys the machine. Capability axis `:fsm/final-states`. |
+| `:error?` | Requires `:final?`. Marks that terminal a **failure** — the parent's `:spawn` `:on-error` transition fires instead of `:on-done`; under a `:spawn-all` join it counts as a failed child. |
 | `:output-key` | Requires `:final?`. Designates the child's `:data` slot reported back via the parent's `:on-done`. |
-| `:on-done` (spawn-spec key) | `(fn [{:keys [data result]}] new-data)` on the parent's `:spawn` map. Fires synchronously when the spawned child enters a `:final?` state. `result` is the child's `:data` slot named by the final state's `:output-key` (or `nil`). |
+| `:on-done` (spawn-spec key) | `(fn [{:keys [data result]}] new-data)` on the parent's `:spawn` map, or on a `:spawn-all` child spec. Fires when the spawned child enters a non-error `:final?` state — applied at the parent's handler boundary on its next macrostep, not inside the child's teardown cascade. `result` is the child's `:data` slot named by the final state's `:output-key` (or `nil`). |
 
 See [Final states](../machines/concepts.md#final-states) in [The table](../machines/concepts.md).
 
@@ -455,7 +456,7 @@ The fx handlers behind the reserved `:rf.machine/*` effect ids. This namespace r
   ```clojure
   (re-frame.machines/spawn-all-init-fx fx-ctx args)
   ```
-- **Description**: On entry to a `:spawn-all`-bearing state, the runtime emits this fx alongside the per-child `:rf.machine/spawn` fxs. It seeds the join state at `[:rf.runtime/machines :spawned <parent> <invoke-id>]` with the shape `{:children {…} :done #{} :failed #{} :resolved? false :spec …}`. Subsequent `:on-child-done` / `:on-child-error` events resolve the join. Machine-internal — not for direct application use.
+- **Description**: On entry to a `:spawn-all`-bearing state, the runtime emits this fx alongside the per-child `:rf.machine/spawn` fxs. It seeds the join state at `[:rf.runtime/machines :spawned <parent> <invoke-id>]` with the shape `{:children {…} :done #{} :failed #{} :resolved? false :spec …}`. Each child's finality — a `:final?` leaf, or an `:error? true` one — folds into that state and resolves the join; children dispatch nothing to the parent themselves. Machine-internal — not for direct application use.
 
 ### `re-frame.machines/destroy-machine-fx`
 

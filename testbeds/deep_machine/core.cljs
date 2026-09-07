@@ -22,10 +22,10 @@
       bound to the leaf's; on leaf exit the desugared destroy fires.
     - **`:spawn-all`** (parallel children + join) on `:phase-b` —
       three `:helper/job` workers spawn in parallel; each child
-      dispatches the parent's `:on-child-done` keyword from its
-      terminal `:done` `:entry`; on the third the runtime fires
-      `:on-all-complete` ([:helper/all-finished]) and the parent
-      transitions to `:done-b`.
+      completes by reaching its `:final?` `:done` leaf, dispatching
+      nothing; on the third the runtime fires `:on-all-complete`
+      ([:helper/all-finished]) and the parent transitions to
+      `:done-b`.
 
   This is NOT a tutorial — the bodies are minimal. The whole point is
   to give a consumer ONE machine whose snapshot, transitions, and
@@ -72,31 +72,22 @@
 (def helper-job-machine
   {:initial :running
 
-   :actions
-   {:dispatch-child-done
-    ;; Terminal action: dispatch the parent's :on-child-done keyword.
-    ;; Per Spec 005 §Child completion protocol the event shape is
-    ;;   [<parent-id> [<on-child-done-keyword> <child-id> & extra]]
-    ;; The runtime stamps :rf/parent-id and :rf/spawn-all-child-id
-    ;; into each spawned child's :data at allocate-time, so the child
-    ;; reads them out for the dispatch-back. The parent's
-    ;; make-machine-handler intercepts the event and updates the
-    ;; join state at [:rf/spawned :deep/main [:work :phase-b]].
-    (fn action-dispatch-child-done [{data :data}]
-      {:fx [[:dispatch [(:rf/parent-id data)
-                        [:helper/child-done (:rf/spawn-all-child-id data)]]]]})}
-
    :states
    {:running
     {:tags    #{:helper/running}
      ;; Each child runs once and transitions to its terminal :done
-     ;; leaf. The dispatch-back fires from :done's :entry — see below.
+     ;; leaf. Arriving there is the whole completion signal — see below.
      :on      {:helper.job/finish :done}}
     :done
-    {:meta   {:terminal? true}
-     :final? true
-     :tags   #{:helper/done}
-     :entry  :dispatch-child-done}}})
+    ;; Per Spec 005 §Child completion protocol, completion IS finality.
+    ;; `:final? true` alone completes this child: the runtime notices the
+    ;; finality, folds it into the join at
+    ;; [:rf/spawned :deep/main [:work :phase-b]], and destroys the child.
+    ;; It dispatches nothing and carries no parent vocabulary, which is
+    ;; what lets one `:helper/job` sit under `:spawn` or `:spawn-all`
+    ;; unchanged.
+    {:final? true
+     :tags   #{:helper/done}}}})
 
 (rf/reg-machine :helper/job helper-job-machine)
 
@@ -138,8 +129,8 @@
 
     :record-all-finished
     ;; Transition action — fires on the parent's :on-all-complete
-    ;; event after the third child's :on-child-done is intercepted
-    ;; by the runtime. The transition target settles into :done-b;
+    ;; event, once the runtime has seen the third child reach its
+    ;; :final? leaf. The transition target settles into :done-b;
     ;; this action stamps a :data flag so the view's mirror shows
     ;; the join resolved.
     (fn action-record-all-finished [{data :data}]
@@ -230,29 +221,27 @@
       :phase-b
       ;; Sibling of :phase-a, NOT nested under it. Hosts the
       ;; :spawn-all — three :helper/job children spawn in
-      ;; parallel; each child dispatches the parent's
-      ;; `:on-child-done` keyword (`:helper/child-done`) from its
-      ;; terminal `:done` `:entry`. The runtime intercepts these
-      ;; events at the parent's make-machine-handler boundary,
-      ;; updates the join state at [:rf/spawned :deep/main
-      ;; [:work :phase-b]], and — once all three have reported —
-      ;; dispatches the parent's `:on-all-complete` event vector
-      ;; (`[:helper/all-finished]`) which the parent's :on table
-      ;; routes to `:done-b`.
+      ;; parallel; each child completes by reaching its terminal
+      ;; `:final?` `:done` leaf, dispatching nothing. The runtime
+      ;; folds each finality into the join state at
+      ;; [:rf/spawned :deep/main [:work :phase-b]], and — once all
+      ;; three are final — dispatches the parent's
+      ;; `:on-all-complete` event vector (`[:helper/all-finished]`)
+      ;; which the parent's :on table routes to `:done-b`. The block
+      ;; declares no child vocabulary at all; there is nothing for a
+      ;; child to name.
       ;;
       ;; A consumer that watches the trace stream after :work/spawn
       ;; sees one :rf.machine.spawn-all/started plus three
-      ;; :rf.machine/spawn fxs in source order; the children's
-      ;; terminal states dispatch :helper/child-done back to the
-      ;; parent; after the third, :rf.machine.spawn-all/all-completed
+      ;; :rf.machine/spawn fxs in source order; then one
+      ;; :rf.machine.spawn-all/child-completed per child as it turns
+      ;; final; after the third, :rf.machine.spawn-all/all-completed
       ;; fires and `[:helper/all-finished]` lands.
       {:tags #{:work/phase-b}
        :spawn-all
        {:children        [{:id :j1 :machine-id :helper/job :data {:id :j1}}
                           {:id :j2 :machine-id :helper/job :data {:id :j2}}
                           {:id :j3 :machine-id :helper/job :data {:id :j3}}]
-        :on-child-done   :helper/child-done
-        :on-child-error  :helper/child-error
         :on-all-complete [:helper/all-finished]}
        :on   {:helper/all-finished {:target :done-b
                                     :action :record-all-finished}
