@@ -9,10 +9,10 @@
    They attach in two different ways, and the difference is just *where
    the thing being validated lives*:
 
-   - **App-db slices** sit at fixed app-db paths — `[:boot/staging]` plus
-     the four top-level slices (`[:config]`, `[:flags]`, `[:user]`,
-     `[:routes]`). Those attach with `rf/reg-app-schema` on the path; an
-     app schema validates the app-db partition only.
+   - **App-db slices** sit at fixed app-db paths — the four top-level
+     slices (`[:config]`, `[:flags]`, `[:user]`, `[:routes]`). Those
+     attach with `rf/reg-app-schema` on the path; an app schema validates
+     the app-db partition only.
    - **Machine `:data`** can't go through `reg-app-schema`, because a
      snapshot lives in runtime-db, not app-db (docs/core/glossary.md#runtime-db).
      Instead, each machine carries its own `[:schemas :data]` slot on
@@ -128,18 +128,6 @@
    [:rf/parent-id {:optional true} :any]
    [:rf/invoke-id {:optional true} :any]])
 
-(def BootStagingSlice
-  "Shape of `[:boot/staging]` — the hand-off slot the `:spawn-all`
-   children write into and the parent's `:enter-hydrating` action reads
-   back. Every key is optional because the slot fills in piecemeal, one
-   child at a time; by the moment the join resolves, all four are
-   present and carrying their payloads."
-  [:map
-   [:config {:optional true} [:maybe Config]]
-   [:flags  {:optional true} [:maybe Flags]]
-   [:user   {:optional true} [:maybe User]]
-   [:routes {:optional true} [:maybe Routes]]])
-
 ;; ============================================================================
 ;; SCHEMA REGISTRATION
 ;; ============================================================================
@@ -157,11 +145,6 @@
 ;; frame explicitly with `with-frame`. The registrations then carry a frame
 ;; stamp even though they run at module-load, before `init!`.
 (rf/with-frame :rf/default
-  ;; The :spawn-all children stage their payloads into [:boot/staging] before
-  ;; signalling done, and :enter-hydrating reads them back out. We register
-  ;; the slot so those staging writes get schema-checked like everything else.
-  (rf/reg-app-schema [:boot/staging] [:maybe BootStagingSlice])
-
   ;; The boot machine promotes its final payloads into these top-level slices
   ;; on entering `:hydrating` — the very slices the main app reads through subs
   ;; once the boot hits `:ready`.
