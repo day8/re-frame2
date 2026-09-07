@@ -8,7 +8,7 @@
   used `if-let`, so explicit nil / false tokens silently bypassed the
   validator; and the PRODUCTION boundary interceptor treated a nil schema
   as impossible and returned the context unchanged — a release-resident
-  fail-open in which `{:schema nil :interceptors [:rf.schema/at-boundary]}`
+  fail-open in which `{:schema nil :boundary? true}`
   registered successfully (the registrar checks `contains?`) and the
   handler then ran UNGUARDED on exactly the untrusted payloads the
   interceptor exists to gate.
@@ -100,51 +100,51 @@
 
 (deftest boundary-registration-with-explicit-nil-schema-succeeds
   (testing "the fail-open's precondition, pinned: {:schema nil} + the
-            boundary interceptor REGISTERS (the registrar checks key
+            boundary flag REGISTERS (the registrar checks key
             presence), and the registered metadata preserves the nil"
     (rf/reg-event :wire/received
-      {:schema       nil
-       :interceptors [:rf.schema/at-boundary]}
+      {:schema    nil
+       :boundary? true}
       (fn [_ _] {}))
     (let [meta (rf.registrar/lookup :event :wire/received)]
       (is (some? meta) "registration succeeded")
       (is (contains? meta :schema) "the :schema key is present")
       (is (nil? (:schema meta)) "…and its value is the authored nil"))))
 
-(deftest boundary-interceptor-delegates-a-present-nil-schema-in-production
-  (testing "rf2-6eh5h HEADLINE — the production branch of
-            :rf.schema/at-boundary hands a present nil schema to the
-            registered validator and rejects on its false verdict; the
-            handler is NOT invoked. Before the fix the interceptor's
+(deftest boundary-arm-delegates-a-present-nil-schema-in-production
+  (testing "rf2-6eh5h HEADLINE — the production boundary arm hands a present
+            nil schema to the registered validator and rejects on its false
+            verdict; the handler is NOT invoked. Before the fix a
             (nil? schema) arm returned the context unchanged and the
             handler ran unguarded."
     (let [seen (spy-validator!)]
       (rf/reg-event :wire/received
-        {:schema       nil
-         :interceptors [:rf.schema/at-boundary]}
+        {:schema    nil
+         :boundary? true}
         (fn [_ _] {}))
       (with-redefs [rf.spec/dev-mode? (constantly false)]
-        (let [before (:before rf/validate-at-boundary-interceptor)
-              ctx    (before {:coeffects {:event [:wire/received {:untrusted 1}]}})]
+        (let [meta    (rf.registrar/lookup :event :wire/received)
+              verdict (rf.spec/validate-at-boundary!
+                        :wire/received [:wire/received {:untrusted 1}] meta nil)]
           (is (= [nil] @seen)
               "the boundary delegated the EXACT nil token to the validator")
-          (is (true? (:rf/skip-handler? ctx))
+          (is (false? verdict)
               "the invalid event is rejected — the handler will not run"))))))
 
-(deftest boundary-interceptor-fails-closed-on-nil-schema-under-default-malli
+(deftest boundary-arm-fails-closed-on-nil-schema-under-default-malli
   (testing "AC 5 — with the DEFAULT Malli validator a present nil schema
             cannot silently run a boundary handler: Malli throws on the
             non-schema form, the seam isolates the throw to false, and the
             boundary rejects (the malformed-schema fail-closed route)"
     ;; Fixture reset restored the default Malli validator.
     (rf/reg-event :wire/received
-      {:schema       nil
-       :interceptors [:rf.schema/at-boundary]}
+      {:schema    nil
+       :boundary? true}
       (fn [_ _] {}))
     (with-redefs [rf.spec/dev-mode? (constantly false)]
-      (let [before (:before rf/validate-at-boundary-interceptor)
-            ctx    (before {:coeffects {:event [:wire/received {:untrusted 1}]}})]
-        (is (true? (:rf/skip-handler? ctx))
+      (let [meta (rf.registrar/lookup :event :wire/received)]
+        (is (false? (rf.spec/validate-at-boundary!
+                      :wire/received [:wire/received {:untrusted 1}] meta nil))
             "rejected — never registration success plus runtime no-op")))))
 
 (deftest boundary-nil-validator-still-disables-validation-in-production
@@ -153,13 +153,13 @@
             unchecked when validation is disabled"
     (rf.schemas/set-schema-fns! {:validate nil})
     (rf/reg-event :wire/received
-      {:schema       nil
-       :interceptors [:rf.schema/at-boundary]}
+      {:schema    nil
+       :boundary? true}
       (fn [_ _] {}))
     (with-redefs [rf.spec/dev-mode? (constantly false)]
-      (let [before (:before rf/validate-at-boundary-interceptor)
-            ctx    (before {:coeffects {:event [:wire/received {:untrusted 1}]}})]
-        (is (not (:rf/skip-handler? ctx))
+      (let [meta (rf.registrar/lookup :event :wire/received)]
+        (is (true? (rf.spec/validate-at-boundary!
+                     :wire/received [:wire/received {:untrusted 1}] meta nil))
             "no validator registered → no validation → handler runs")))))
 
 ;; ===========================================================================

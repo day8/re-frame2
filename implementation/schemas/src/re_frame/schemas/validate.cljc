@@ -438,7 +438,7 @@
 
   ## The record is BUILT FROM structural inputs, never filtered from `tags`
 
-  Same discipline as the `:rf.schema/at-boundary` arm's
+  Same discipline as the `:boundary? true` arm's
   `emit-boundary-rejection-record!` (router.cljc), and for the same reason:
   a validation failure's natural detail is the value that failed. So the key
   set is CLOSED and every member is composed here from a framework keyword,
@@ -818,7 +818,7 @@
   not apply: a candidate that violates a registered app-db schema
   INSTALLS, silently. Production app-db integrity is the handler's job;
   the production-side validation surfaces are the
-  `:rf.schema/at-boundary` interceptor and the
+  `:boundary? true` step-1 arm and the
   `:schemas/validate-with-registered-fn` seam, neither of which is gated
   this way. Per Spec 010 §Production builds and the rf2-bkvu5 ruling.
 
@@ -1273,12 +1273,12 @@
 
 ;; ---- public boundary-validation entry points ------------------------------
 ;;
-;; The boundary-validation interceptor (`re-frame.spec/validate-at-boundary-interceptor`,
-;; interceptor id `:rf.schema/at-boundary`)
+;; The boundary-validation entry point (`re-frame.spec/validate-at-boundary!`,
+;; reached when a handler declares `:boundary? true`)
 ;; runs `:schema` validation on a handler at production-build time —
 ;; outside the `interop/debug-enabled?` gate that guards the
 ;; hot-path validate-*! fns above. Per Spec 010 §Production builds the
-;; boundary interceptor MUST route through the same registered validator
+;; boundary arm MUST route through the same registered validator
 ;; the dev-mode hot path uses (so a substituted validator covers both
 ;; surfaces). This namespace publishes `validate-with-registered-fn` as
 ;; the call the interceptor reaches for via the

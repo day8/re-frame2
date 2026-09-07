@@ -45,7 +45,6 @@
             [re-frame.interceptor-registry :as rf.interceptor-registry]
             [re-frame.std-interceptors :as rf.std-interceptors]
             [re-frame.privacy :as rf.privacy]
-            [re-frame.spec :as rf.spec]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.features :as rf.features]
             [re-frame.source-coords :as rf.source-coords]
@@ -649,7 +648,7 @@
        that violates this schema installs silently — no rejection, no
        rollback, no diagnostic. Your app-db schemas do not run in
        production builds. Keep the real invariant in the handler, and
-       reach for the `:rf.schema/at-boundary` interceptor when untrusted
+       set `:boundary? true` on the ingress event handler when untrusted
        input has to be validated in production too. Per Spec 010
        §Production builds.
 
@@ -2274,20 +2273,6 @@
   off-box egress. Per Spec 009 §Privacy."}
   sensitive?           rf.privacy/sensitive?)
 
-(def ^{:doc "Production-side schema validation interceptor VALUE, registered
-  under the framework id `:rf.schema/at-boundary`. Reference it by id from a
-  `reg-event` handler's metadata `:interceptors` chain —
-  `{:interceptors [:rf.schema/at-boundary]}` (EP-0022: chains are
-  reference-only; this Var is the registration-boundary input, never an
-  inline chain entry) — to force `:schema` validation against the dispatched
-  event vector even in production builds where dev-time validation is elided.
-  The verb `validate-` telegraphs the time/build-mode axis the interceptor
-  lives on (no-op in dev, validates in prod); the `-interceptor` suffix (per
-  Conventions §Value-vs-fn naming) telegraphs that this is a Var holding a
-  value, not a fn. Per Spec 010 §Production builds. The interceptor reuses
-  the handler's existing `:schema` metadata — no parallel schema."}
-  validate-at-boundary-interceptor rf.spec/validate-at-boundary-interceptor)
-
 (def ^{:doc "Emit a trace event. Production builds elide the body
   entirely (Closure DCE on the `rf.interop/debug-enabled?` gate); in dev /
   JVM the envelope is built and delivered to the ring buffer, epoch
@@ -3088,11 +3073,6 @@
       ;; (into both the regular registrar AND the image standard registry) so it
       ;; resolves after a `rf.registrar/clear-all!`. Idempotent.
       (rf.events/register-set-db-standard!)
-      ;; EP-0022 (rf2-i3uxo2): re-seed the framework-standard
-      ;; `:rf.schema/at-boundary` interceptor so the ref form
-      ;; `[:rf.schema/at-boundary]` resolves after a `rf.registrar/clear-all!`.
-      ;; Idempotent.
-      (rf.spec/register-schema-interceptors!)
       nil)))
 
 ;; ---- feature inspection (rf2-3nbl5.5, API-governance G5) ------------------

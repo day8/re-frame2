@@ -542,8 +542,8 @@
   shape — but the candidate validator is elided, so nothing checks it.
   A candidate that violates this schema installs silently: no rejection,
   no rollback, no trace. Your app-db schemas do not run in production
-  builds. Keep the real invariant in the handler, and use the
-  `:rf.schema/at-boundary` interceptor where untrusted input must be
+  builds. Keep the real invariant in the handler, and set `:boundary? true`
+  on the ingress event handler where untrusted input must be
   validated in production too. Per Spec 010 §Production builds.
 
   The schema is the positional value slot:

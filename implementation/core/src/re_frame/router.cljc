@@ -21,6 +21,7 @@
             [re-frame.error :as rf.error]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.events :as rf.events]
+            [re-frame.spec :as rf.spec]
             [re-frame.cofx :as rf.cofx]
             [re-frame.fx :as rf.fx]
             [re-frame.router.diagnostics :as rf.router.diagnostics]
@@ -798,18 +799,26 @@
   skipped. Defaults to true when the schemas namespace hasn't been
   loaded.
 
-  Body gated on `rf.interop/debug-enabled?`. Spec 010
-  validate-*! is a dev-only validator surface — per
-  `re-frame.schemas.validate` §Production builds, every dev-time
-  `validate-*!` body sits inside its own `(if rf.interop/debug-enabled?
-  ...)` gate and DCE-elides under :advanced+goog.DEBUG=false. The
-  validator therefore unconditionally returns true in production
-  whether or not the schemas artefact is loaded (the boundary-
-  validation seam `:schemas/validate-with-registered-fn` is the
-  production-side surface, not this one). Gating the router-side
-  caller collapses the late-bind lookup, the try/catch frame, and
-  the `:schemas/validate-event!` keyword's interned slot to a
-  constant `true` on the hot path.
+  TWO ARMS, one site (rf2-kuky.40). The DEV arm is gated on
+  `rf.spec/dev-mode?` — a single read of `rf.interop/debug-enabled?` behind an
+  indirection tests can rebind. Spec 010 validate-*! is a dev-only validator
+  surface: per `re-frame.schemas.validate` §Production builds every dev-time
+  `validate-*!` body sits inside its own `(if rf.interop/debug-enabled? ...)`
+  gate and DCE-elides under :advanced+goog.DEBUG=false, so gating the
+  router-side caller collapses the late-bind lookup, the try/catch frame and
+  the `:schemas/validate-event!` keyword's interned slot on the hot path.
+
+  The PRODUCTION arm is `rf.spec/validate-at-boundary!`, which validates the
+  handlers that declared `:boundary? true` and no others (one map read per
+  dispatch for the rest). Both arms therefore check the SAME value — the
+  ORIGINAL dispatched event vector — at the SAME point, against the SAME
+  already-resolved handler `:schema`. The production arm is deliberately NOT
+  wrapped in the dev arm's catch-and-pass: a throwing boundary validator must
+  stay a REFUSAL, never be coerced into a pass.
+
+  Returns truthy when the handler should run, falsy when it should be
+  skipped; `run-chain` turns a falsy return into `:rf/skip-handler?`, plus
+  `:rf/boundary-rejected?` when the handler is boundary-guarded.
 
   `frame` is threaded so the `:where :event` failure
   trace carries a `:frame` tag and is captured into the in-flight
@@ -820,7 +829,7 @@
   nothing for an event-args schema failure (the `:where :app-db`
   path always tags `:frame`)."
   [event-id event handler-meta frame live?]
-  (if rf.interop/debug-enabled?
+  (if (rf.spec/dev-mode?)
     ;; Sticky hook — `:schemas/validate-event!` is published
     ;; once at re-frame.schemas load and never withdrawn in dev; fires
     ;; per-dispatch.
@@ -829,7 +838,7 @@
            (catch #?(:clj Throwable :cljs :default) _
              (if (live?) true :rf/stale-incarnation)))
       true)
-    true))
+    (rf.spec/validate-at-boundary! event-id event handler-meta frame)))
 
 (defn- assemble-initial-ctx
   "Build the initial interceptor context per the standard shape. Envelope
@@ -2545,9 +2554,9 @@
   collapses to a plain `execute-chain` invocation.
 
   rf2-mwv4e — this is the DEV half of the `:rf/boundary-rejected?` marker. When
-  step-1 refused an event whose handler REFERENCES `:rf.schema/at-boundary`,
+  step-1 refused an event whose handler declares `:boundary? true`,
   the refusal IS a boundary refusal and takes the same marker the production
-  interceptor stamps (`re-frame.spec`), so the router tail fans one always-on
+  arm earns (`re-frame.spec`), so the router tail fans one always-on
   record and settles `:outcome :rejected` in either posture. An ordinary
   dev-only `:schema` refusal on an UNGUARDED handler is deliberately NOT
   marked: that surface has no production counterpart (Spec 010 §Production
@@ -2633,7 +2642,7 @@
     :flow-error  — a flow's `:derive` threw (Spec 013 §Failure
                    semantics); the event aborted — no install, app-db
                    unchanged, no db-changed, :fx skipped.
-    :rejected    — the `:rf.schema/at-boundary` security gate REFUSED
+    :rejected    — the `:boundary? true` security gate REFUSED
                    the event's payload against the handler's `:schema`
                    (rf2-mwv4e). The handler never ran, so nothing it
                    would have written exists; entered interceptors
@@ -2756,7 +2765,7 @@
 
 ;; ---- the boundary-rejection always-on record (rf2-mwv4e) -------------------
 ;;
-;; `:rf.schema/at-boundary` is the ONE validation surface Spec 010 keeps
+;; `:boundary? true` is the ONE validation surface Spec 010 keeps
 ;; ungated in a production build — the opt-in gate for untrusted system
 ;; ingress (an HTTP response, a websocket frame, a `postMessage`, a query
 ;; string). Its REFUSAL always survived the gate; its REPORT did not.

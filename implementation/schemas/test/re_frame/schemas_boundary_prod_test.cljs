@@ -1,26 +1,26 @@
 (ns re-frame.schemas-boundary-prod-test
-  "Production-mode CLJS smoke for `:rf.schema/at-boundary` (rf2-r2uh,
-  rf2-84e9; renamed from `:spec/at-boundary` at rf2-ieu0i).
+  "Production-mode CLJS smoke for `:boundary? true` (rf2-r2uh, rf2-84e9;
+  the flag replaced the retired chain-ref opt-in at rf2-kuky.64).
 
   The JVM smoke (`re-frame.schemas-test`) exercises the dev/prod gate by
   rebinding `re-frame.spec/dev-mode?` via `with-redefs`. That proves the
-  *interceptor logic* under both branches, but it cannot prove the
+  *branch logic* under both arms, but it cannot prove the
   *real-world elision contract* — that under `:advanced` +
   `goog.DEBUG=false`, the Closure compiler constant-folds the dev gate
   to `false` so the production validation branch is the only code path
   that survives.
 
   The companion node-test smoke (`re-frame.schemas-cljs-test`) compiles
-  with `goog.DEBUG=true` (cljs default) and asserts the boundary
-  interceptor is a no-op in dev: step-1 validation in the router has
-  already run.
+  with `goog.DEBUG=true` (cljs default) and asserts the boundary arm is
+  unreachable in dev: step-1 takes its dev arm, which checks every
+  handler's `:schema` anyway.
 
   This namespace is the dual — it compiles under the dedicated
   `:browser-test-schemas-boundary-prod` shadow-cljs build with
   `:closure-defines {goog.DEBUG false}` + `release` (`:advanced`), so:
 
     1. `re-frame.spec/dev-mode?` constant-folds to `false`, and the
-       boundary's production validation branch runs.
+       router's step-1 site takes its production boundary arm.
     2. `re-frame.trace/emit-error!` ALSO elides under the same gate
        (its body sits inside `(when interop/debug-enabled? ...)`) — the
        boundary's failure-TRACE emission is silent in production, and
@@ -43,7 +43,7 @@
   the default `:browser-test` and `:node-test` builds (whose regexes
   match `-cljs-test$` / `cljs-test$`) do NOT pick this file up. The
   prod-mode assertions would fail under `goog.DEBUG=true` because the
-  boundary is a no-op in dev (per Spec 010 L145)."
+  boundary arm is unreachable in dev (per Spec 010 L145)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.late-bind :as rf.late-bind]
@@ -52,7 +52,7 @@
             ;; time by the `re-frame.schemas.malli` adapter ns — which the
             ;; facade below `:require`s in its own ns-form (rf2-v96fh,
             ;; Ruling A). Requiring `re-frame.schemas` is the whole opt-in,
-            ;; so the boundary interceptor sees real Malli verdicts here
+            ;; so the boundary arm sees real Malli verdicts here
             ;; with no second require at app boot.
             [re-frame.schemas :as rf.schemas]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
@@ -82,31 +82,31 @@
             the context, and the handler is NOT invoked.
 
             Under the same gate, the router's step-1 `validate-event!`
-            body has DCE'd — only the boundary interceptor is enforcing
-            the schema at this dispatch."
+            DEV arm has DCE'd — the `:boundary? true` arm is the only
+            thing enforcing the schema at this dispatch."
     (let [calls (atom 0)]
       (rf/reg-event :api/strict
-        {:schema [:cat [:= :api/strict] :int]
-         :interceptors [:rf.schema/at-boundary]}
+        {:schema    [:cat [:= :api/strict] :int]
+         :boundary? true}
         (fn [_ _] (swap! calls inc) {}))
       ;; Malformed payload: handler MUST be skipped.
       (rf/dispatch-sync [:api/strict "not-an-int"])
       (is (= 0 @calls)
-          "handler was skipped — boundary interceptor set :rf/skip-handler? on the context"))))
+          "handler was skipped — the boundary arm refused at step 1"))))
 
 (deftest boundary-passes-valid-event-through-in-prod
   (testing "Per Spec 010 §Production builds (rf2-r2uh): under `:advanced`
             + `goog.DEBUG=false` a valid event against the handler's
-            `:schema` flows through the boundary interceptor unchanged.
+            `:schema` flows through the boundary arm unchanged.
             The handler runs exactly once."
     (let [calls (atom 0)]
       (rf/reg-event :api/strict
-        {:schema [:cat [:= :api/strict] :int]
-         :interceptors [:rf.schema/at-boundary]}
+        {:schema    [:cat [:= :api/strict] :int]
+         :boundary? true}
         (fn [_ _] (swap! calls inc) {}))
       (rf/dispatch-sync [:api/strict 42])
       (is (= 1 @calls)
-          "handler ran exactly once — valid payload, boundary passed through"))))
+          "handler ran exactly once — valid payload, boundary arm passed it through"))))
 
 (deftest boundary-failure-trace-elides-in-prod
   (testing "Per Spec 009 §Production builds + Spec 010 §Production
@@ -125,8 +125,8 @@
             on the always-on axis instead — see the deftest below."
     (let [calls (atom 0)]
       (rf/reg-event :api/strict
-        {:schema [:cat [:= :api/strict] :int]
-         :interceptors [:rf.schema/at-boundary]}
+        {:schema    [:cat [:= :api/strict] :int]
+         :boundary? true}
         (fn [_ _] (swap! calls inc) {}))
       (with-trace-recorder! [traces]
         (rf/dispatch-sync [:api/strict "not-an-int"])
@@ -153,8 +153,8 @@
             trace. Red here means the promotion did not survive `:advanced`,
             which is the only build where it was needed."
     (rf/reg-event :api/strict
-      {:schema [:cat [:= :api/strict] :int]
-       :interceptors [:rf.schema/at-boundary]}
+      {:schema    [:cat [:= :api/strict] :int]
+       :boundary? true}
       (fn [_ _] {}))
     (let [errors (atom [])
           events (atom [])]
@@ -181,78 +181,49 @@
         (is (= :rejected (:outcome evt))
             "the :events record reports :rejected, not the old :ok lie")))))
 
-(deftest boundary-direct-before-invocation-in-prod
-  (testing "Per Spec 010 §Per-step recovery step 1: directly invoking the
-            boundary interceptor's `:before` slot is a deterministic
-            surface for asserting the recovery contract. Under
-            `:advanced` + `goog.DEBUG=false` (production), the
-            `:before` slot's prod branch validates the event and sets
-            `:rf/skip-handler?` on the context when the schema fails."
-    (rf/reg-event :api/strict
-      {:schema [:cat [:= :api/strict] :int]
-       :interceptors [:rf.schema/at-boundary]}
-      (fn [_ _] {}))
-    (let [before    (:before rf/validate-at-boundary-interceptor)
-          valid-ctx (before {:coeffects {:event [:api/strict 42]}})
-          bad-ctx   (before {:coeffects {:event [:api/strict "not-an-int"]}})]
-      (is (not (:rf/skip-handler? valid-ctx))
-          "valid event: :rf/skip-handler? unset — handler will run")
-      (is (true? (:rf/skip-handler? bad-ctx))
-          "MALFORMED event in prod: :rf/skip-handler? set true — handler is skipped"))))
-
-;; ---- EP-0022 by-ref chain form (rf2-i3uxo2) ------------------------------
-;;
-;; Per EP-0022 + API.md §`validate-at-boundary-interceptor`: a public
-;; `:interceptors` chain carries interceptor REFERENCES, not inline values.
-;; The canonical opt-in is `{:interceptors [:rf.schema/at-boundary]}` (a
-;; bare-keyword ref) — NOT the inline `rf/validate-at-boundary-interceptor`
-;; Var. rf2-i3uxo2 registers `:rf.schema/at-boundary` under the `:interceptor`
-;; registrar kind (re-seeded by the fixture's `rf/init!`), so the bare-keyword
-;; ref resolves at chain assembly and runs the SAME boundary validation as the
-;; inline value. These two tests are the by-ref counterparts of
-;; `boundary-skips-handler-on-invalid-event-in-prod` /
-;; `boundary-passes-valid-event-through-in-prod` above.
-
-(deftest boundary-ref-form-skips-handler-on-invalid-event-in-prod
-  (testing "Per rf2-i3uxo2 — the EP-0022 by-ref chain form
-            `{:interceptors [:rf.schema/at-boundary]}` resolves at chain
-            assembly and runs boundary validation. Under `:advanced` +
-            `goog.DEBUG=false`, a malformed event causes the handler to be
-            SKIPPED — identical behaviour to the inline-value form."
+(deftest boundary-arm-is-not-removable-by-interceptor-overrides-in-prod
+  (testing "Per rf2-kuky.64 — the check is no longer a chain entry, so under
+            `:advanced` + `goog.DEBUG=false` no `:interceptor-overrides` map
+            can disarm it. The predecessor ref COULD be removed that way, and
+            only in production: dev step-1 kept refusing, so the two builds
+            disagreed about whether the gate existed at all."
     (let [calls (atom 0)]
-      (rf/reg-event :api/strict-ref
-        {:schema [:cat [:= :api/strict-ref] :int]
-         :interceptors [:rf.schema/at-boundary]}   ;; EP-0022 ref by id
+      (rf/reg-event :api/override-probe
+        {:schema    [:cat [:= :api/override-probe] :int]
+         :boundary? true}
         (fn [_ _] (swap! calls inc) {}))
-      (rf/dispatch-sync [:api/strict-ref "not-an-int"])
+      (rf/dispatch-sync [:api/override-probe "not-an-int"]
+                        {:interceptor-overrides {:rf.interceptor/path nil}})
       (is (= 0 @calls)
-          "by-ref boundary interceptor resolved and skipped the handler on a malformed payload"))))
+          "the boundary arm still refused — no override reaches it"))))
 
-(deftest boundary-ref-form-passes-valid-event-through-in-prod
-  (testing "Per rf2-i3uxo2 — the by-ref form passes a VALID event through
-            the boundary unchanged; the handler runs exactly once. Confirms
-            the resolved ref is a live boundary interceptor, not a no-op."
+(deftest unflagged-handler-is-unchecked-in-prod
+  (testing "Per Spec 010 §Production builds — the NEGATIVE control for this
+            whole namespace. A handler carrying the identical `:schema` but
+            NO `:boundary?` flag ACCEPTS a non-conforming event here, because
+            step-1's dev arm really has DCE'd. Without this, `the handler did
+            not run` above would prove nothing about which mechanism stopped
+            it."
     (let [calls (atom 0)]
-      (rf/reg-event :api/strict-ref
-        {:schema [:cat [:= :api/strict-ref] :int]
-         :interceptors [:rf.schema/at-boundary]}
+      (rf/reg-event :api/unflagged
+        {:schema [:cat [:= :api/unflagged] :int]}
         (fn [_ _] (swap! calls inc) {}))
-      (rf/dispatch-sync [:api/strict-ref 42])
+      (rf/dispatch-sync [:api/unflagged "not-an-int"])
       (is (= 1 @calls)
-          "valid payload — by-ref boundary passed through, handler ran once"))))
+          "unflagged handler ran on the malformed payload — dev-time validation is elided"))))
 
 (deftest boundary-noop-when-validator-is-nil-in-prod
   (testing "Per Spec 010 §Non-Malli validators (rf2-froe): even under
             `:advanced` + `goog.DEBUG=false`, setting the validator to
             `nil` disables every validation surface — including the
-            boundary interceptor. The handler runs on a wildly malformed
+            boundary arm. The handler runs on a wildly malformed
             payload because validation has been opted out."
     (rf.schemas/set-schema-fns! {:validate nil})
     (try
       (let [calls (atom 0)]
         (rf/reg-event :api/disabled
-          {:schema [:cat [:= :api/disabled] :int]
-           :interceptors [:rf.schema/at-boundary]}
+          {:schema    [:cat [:= :api/disabled] :int]
+           :boundary? true}
           (fn [_ _] (swap! calls inc) {}))
         (rf/dispatch-sync [:api/disabled "wildly-malformed"])
         (is (= 1 @calls)
@@ -281,23 +252,23 @@
 ;; ---- rf2-6eh5h — a present NIL :schema cannot run a boundary handler -----
 ;;
 ;; Declaration presence is KEY-presence, not value truthiness. The
-;; registrar accepts `{:schema nil :interceptors [:rf.schema/at-boundary]}`
-;; (it checks `contains?`), and before rf2-6eh5h the boundary interceptor's
-;; production branch treated nil as impossible and returned the context
-;; unchanged — in THIS build configuration (step-1 DCE'd, boundary as the
-;; only guard) the handler ran UNGUARDED on the untrusted payload the
-;; interceptor exists to gate. These pins are the release-resident
-;; regression: the boundary must delegate the exact nil token and reject.
+;; registrar accepts `{:schema nil :boundary? true}` (it checks
+;; `contains?`), and before rf2-6eh5h the production branch treated nil as
+;; impossible and passed the event through — in THIS build configuration
+;; (step-1's dev arm DCE'd, the boundary arm as the only guard) the handler
+;; ran UNGUARDED on the untrusted payload the flag exists to gate. These pins
+;; are the release-resident regression: the boundary arm must delegate the
+;; exact nil token and reject.
 
 (deftest boundary-rejects-explicit-nil-schema-in-prod
   (testing "rf2-6eh5h — under `:advanced` + `goog.DEBUG=false` a handler
-            registered with {:schema nil} + the boundary interceptor does
+            registered with {:schema nil} + `:boundary? true` does
             NOT run on dispatch: the nil delegates to default Malli, which
             fails CLOSED through the seam's malformed-schema isolation"
     (let [calls (atom 0)]
       (rf/reg-event :wire/received
-        {:schema       nil
-         :interceptors [:rf.schema/at-boundary]}
+        {:schema    nil
+         :boundary? true}
         (fn [_ _] (swap! calls inc) {}))
       (rf/dispatch-sync [:wire/received {:untrusted "payload"}])
       (is (= 0 @calls)
@@ -313,8 +284,8 @@
         {:validate (fn [schema _value] (swap! seen conj schema) false)})
       (try
         (rf/reg-event :wire/custom
-          {:schema       nil
-           :interceptors [:rf.schema/at-boundary]}
+          {:schema    nil
+           :boundary? true}
           (fn [_ _] (swap! calls inc) {}))
         (rf/dispatch-sync [:wire/custom {:untrusted 1}])
         (is (= 0 @calls) "handler NOT invoked — rejected on the false verdict")

@@ -1467,22 +1467,21 @@
 (defn- inbound-boundary-structural-test []
   ;; The RELEASE-build half of the inbound contract, pinned structurally.
   ;; In this dev lane the router's step-1 validation enforces the :schema
-  ;; (the :rf.schema/at-boundary interceptor is a deliberate dev no-op —
-  ;; the framework pins that split in re-frame.schemas-cljs-test
-  ;; boundary-interceptor-noop-in-dev-cljs), so behavioural rejection
-  ;; alone cannot distinguish a dev-only :schema tripwire from a
-  ;; release-resident boundary: drop the interceptor and every dev-lane
-  ;; rejection test stays green while the production build loses the
-  ;; check entirely. What makes the check release-resident is the
-  ;; registration carrying BOTH the :schema and the :rf.schema/at-boundary
-  ;; reference — this is the assertion that goes red if someone removes
-  ;; the interceptor and leaves the dev tripwire.
+  ;; (the production boundary arm is unreachable in dev — the framework
+  ;; pins that split in re-frame.schemas-cljs-test
+  ;; boundary-arm-noop-in-dev-cljs), so behavioural rejection alone cannot
+  ;; distinguish a dev-only :schema tripwire from a release-resident
+  ;; boundary: drop the flag and every dev-lane rejection test stays green
+  ;; while the production build loses the check entirely. What makes the
+  ;; check release-resident is the registration carrying BOTH the :schema
+  ;; and :boundary? true — this is the assertion that goes red if someone
+  ;; removes the flag and leaves the dev tripwire.
   (doseq [ingress [:ws/handle-message :ws.app/request-reply]]
     (let [m (rf/handler-meta {:source :store :kind :event :id ingress})]
       (is (some? (:schema m))
           (str ingress " declares a :schema (the closed wire contract)"))
-      (is (some #{:rf.schema/at-boundary} (:interceptors m))
-          (str ingress " attaches :rf.schema/at-boundary — the release-resident half")))))
+      (is (true? (:boundary? m))
+          (str ingress " declares :boundary? true — the release-resident half")))))
 
 (defn- example-registrations-are-live-test []
   ;; rf2-idv1m — THE ANTI-SHADOWING CONTROL, and the reason the fixture
@@ -1495,7 +1494,7 @@
   ;; the suite became a certificate for the copy: a fault planted in
   ;; `websocket.messages`' `:ws.app/request-reply` body left all 29 tests
   ;; green, and `inbound-boundary-structural-test` read back the `:schema`
-  ;; and `:rf.schema/at-boundary` this very file had just installed rather
+  ;; and `:boundary?` flag this very file had just installed rather
   ;; than the example's. Three assertions, one per way the coupling can be
   ;; lost.
   (with-new-frame [f (new-frame)]
@@ -1510,15 +1509,15 @@
       (is (str/includes? (str (:doc m)) "RequestOutcome")
           "the live :ws.app/request-reply IS websocket.messages' registration")
       ;; (2) BOUNDARY METADATA, read off the live registry. Reds if the
-      ;; example drops `:rf.schema/at-boundary` (the release-resident half)
+      ;; example drops `:boundary? true` (the release-resident half)
       ;; or its closed `:schema`. This is the same pair
       ;; `inbound-boundary-structural-test` pins — asserted here too,
       ;; because until this fn existed that test was reading the fixture's
       ;; own metadata back to itself.
       (is (some? (:schema m))
           "the example declares the closed RequestOutcome wire contract")
-      (is (some #{:rf.schema/at-boundary} (:interceptors m))
-          "the example attaches :rf.schema/at-boundary"))
+      (is (true? (:boundary? m))
+          "the example declares :boundary? true"))
     ;; (3) BODY. Driven through a real dispatch, so it is the REGISTERED
     ;; handler that runs. Reds if the example's handler body stops
     ;; recording the outcome — the exact fault that used to pass.
@@ -1930,7 +1929,7 @@
 
 (deftest websocket-inbound-boundary-structural
   (testing "rf2-iyjae — both app-db-writing ingresses declare the closed wire
-            :schema AND attach :rf.schema/at-boundary, the release-resident
+            :schema AND declare :boundary? true, the release-resident
             half a dev-lane rejection test cannot see"
     (inbound-boundary-structural-test)))
 
@@ -1959,6 +1958,6 @@
 (deftest websocket-example-registrations-are-live
   (testing "rf2-idv1m — the suite exercises the EXAMPLE's ingress
             registration, not a fixture-local twin: its :doc, its closed
-            :schema, its :rf.schema/at-boundary and its handler body are all
+            :schema, its :boundary? flag and its handler body are all
             read back off the live registry / a real dispatch"
     (example-registrations-are-live-test)))

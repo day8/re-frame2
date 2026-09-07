@@ -211,7 +211,7 @@
       never this record.
 
       rf2-mwv4e adds a SECOND record from the same namespace —
-      `emit-boundary-rejection-record!` ships the `:rf.schema/at-boundary`
+      `emit-boundary-rejection-record!` ships the `:boundary? true`
       refusal (`:rf.error/schema-validation-failure`, `:source :boundary`) so an
       opt-in production security gate is observable to the person who opted in;
       before it, a refused untrusted payload skipped its handler, emitted

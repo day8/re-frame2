@@ -54,8 +54,8 @@
   so under `-Dre-frame.debug=false` the hot-path fx-args gate returns `true`
   — accept, do not skip — for EVERY input, conforming or not. That is Spec 010
   §Production builds: the per-step `validate-*!` hot-path fns are dev-only,
-  and production-build validation is the opt-in boundary interceptor
-  `:rf.schema/at-boundary`, which routes through `validate-with-registered-fn`
+  and production-build validation is the opt-in `:boundary? true` flag,
+  which routes through `validate-with-registered-fn`
   OUTSIDE the gate. So the layer-3 assertions are kept VERBATIM inside
   `(when rf.interop/debug-enabled? …)` arms marked `rf2-o5dbf`.
 

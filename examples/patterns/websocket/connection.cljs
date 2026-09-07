@@ -567,7 +567,7 @@
       ;;
       ;; The frame is still handed to `[:ws/handle-message body]`, and
       ;; that is deliberate: the ingress owns inbound-frame refusal, so
-      ;; its release-resident `:rf.schema/at-boundary` check produces the
+      ;; its release-resident `:boundary? true` check produces the
       ;; one canonical `:rf.error/schema-validation-failure` record. The
       ;; machine protects its own state; it does not mint a second
       ;; rejection vocabulary alongside the framework's.

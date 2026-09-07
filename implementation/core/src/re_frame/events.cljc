@@ -186,102 +186,62 @@
       (rf.interceptor-registry/resolve-ref entry)))
   chain)
 
-;; ---- validate-at-boundary-interceptor registration-time validation -------
+;; ---- `:boundary?` — registration-time validation -------------------------
 ;;
-;; The `:rf.schema/at-boundary` interceptor (per Spec 010 §Production builds)
-;; is structurally meaningless without a `:schema` to validate against. The
-;; registrar hard-rejects any handler that attaches the interceptor without
-;; `:schema` metadata, throwing `:rf.error/at-boundary-missing-schema` at reg
-;; time so the developer learns immediately, regardless of dev/prod gate.
-;;
-;; Detection is by interceptor `:id` (`:rf.schema/at-boundary`), not by var
-;; equality — keeps `events` decoupled from `re-frame.spec` (which depends
-;; transitively on this ns via core re-exports).
+;; `:boundary? true` (per Spec 010 §Production builds) is structurally
+;; meaningless without a `:schema` to validate against. The registrar
+;; hard-rejects any handler that raises the flag without `:schema` metadata,
+;; throwing `:rf.error/at-boundary-missing-schema` at reg time so the developer
+;; learns immediately, regardless of dev/prod gate.
 
-(defn- at-boundary-entry?
-  "Truthy when a single RAW chain entry attaches the `:rf.schema/at-boundary`
-  interceptor by REFERENCE — the bare keyword `:rf.schema/at-boundary` (the
-  only legal chain form, EP-0022; the chain stores refs UNRESOLVED, so the
-  bare keyword reaches here).
+(defn boundary-guarded-handler?
+  "True when a registration's `handler-meta` declares `:boundary? true` — the
+  app opted this handler into production-side validation of its own `:schema`
+  (Spec 010 §Production builds).
 
-  The `[:rf.schema/at-boundary arg]` 2-vector form is NOT detected here: it is
-  unreachable for this missing-schema check. `:rf.schema/at-boundary` is a
-  STATIC interceptor (no `:factory`), so an `[:rf.schema/at-boundary arg]`
-  chain ref is rejected at `validate-refs-registered!` with
-  `:rf.error/interceptor-factory-arity` BEFORE
-  `reject-at-boundary-without-schema!` (which calls this predicate) ever runs.
-  The `[id arg]` shape is therefore simply an unregistered-factory-shape
-  misuse and fails loud on its own.
+  THE one boundary predicate. Registration-time rejection
+  (`reject-at-boundary-without-schema!`), production enforcement
+  (`re-frame.spec/validate-at-boundary!`) and rejection attribution
+  (`re-frame.router/run-chain`, which stamps `:rf/boundary-rejected?` on a
+  step-1 refusal — rf2-mwv4e) all ask THIS question, so the three can never
+  disagree about which handlers are guarded. An ordinary dev-only `:schema`
+  refusal on an unflagged handler is deliberately NOT marked: that surface has
+  no production counterpart (rf2-bkvu5).
 
-  Chains are reference-only, so an inline `:rf.schema/at-boundary` value is
-  rejected by `validate-meta-interceptors!` with
-  `:rf.error/inline-interceptor-removed` before this runs. Detects by id
-  keyword so the check stays cycle-free against `re-frame.spec`."
-  [icpt]
-  ;; By-ref: bare keyword.
-  (= :rf.schema/at-boundary icpt))
-
-(defn- attaches-validate-at-boundary-interceptor?
-  "Truthy when the effective user interceptor chain attaches the
-  `:rf.schema/at-boundary` interceptor by REF (`[:rf.schema/at-boundary]`, the
-  only legal chain form, EP-0022). See
-  `at-boundary-entry?`. Detects by id so the check stays cycle-free against
-  `re-frame.spec`."
-  [interceptors]
-  (and (sequential? interceptors)
-       (boolean (some at-boundary-entry? interceptors))))
+  `true?` rather than truthy: `:boundary?` is `:boolean` in `EventHandlerMeta`,
+  so any other value is a mis-declaration and reads as unflagged."
+  [handler-meta]
+  (true? (:boundary? handler-meta)))
 
 (defn- reject-at-boundary-without-schema!
   "Raise `:rf.error/at-boundary-missing-schema` (ex-info) when the
-  metadata-map `:interceptors` chain includes `:rf.schema/at-boundary`
-  but the metadata-map carries no `:schema`. Per Spec 010 §Production
-  builds: the boundary interceptor is structurally
-  meaningless without a `:schema`, so the registrar rejects the call
-  at registration time rather than waiting until first dispatch.
+  metadata-map declares `:boundary? true` but carries no `:schema` KEY. Per
+  Spec 010 §Production builds: the flag re-uses the handler's own `:schema`
+  and is structurally meaningless without one, so the registrar rejects the
+  call at registration time rather than waiting until first dispatch.
+
+  KEY presence, not truthiness (rf2-6eh5h): `{:schema nil :boundary? true}`
+  registers, and the `nil` token is delegated to the backend as an opaque
+  value.
 
   Hard-fail by design (per the pre-alpha posture): no warn-and-accept
-  fallback. The two fixes are (1) attach a `:schema` to the metadata
-  map, or (2) remove the boundary interceptor."
-  [reg-fn-name id meta interceptors]
-  (when (and (attaches-validate-at-boundary-interceptor? interceptors)
+  fallback. The two fixes are (1) attach a `:schema` to the metadata map, or
+  (2) drop `:boundary?`."
+  [reg-fn-name id meta]
+  (when (and (boundary-guarded-handler? meta)
              (not (and (map? meta) (contains? meta :schema))))
     (rf.error/throw-error!
       :rf.error/at-boundary-missing-schema
       'rf/reg-event
-      (str reg-fn-name " for `" id "` attaches the "
-           "`:rf.schema/at-boundary` interceptor but the "
-           "registration carries no `:schema` metadata. "
-           "The boundary interceptor cannot validate "
-           "without a schema and is structurally "
-           "meaningless without one. Either attach a "
-           "`:schema` to the metadata-map "
-           "(recommended) or remove the boundary "
-           "interceptor from metadata `:interceptors`.")
+      (str reg-fn-name " for `" id "` declares `:boundary? true` but the "
+           "registration carries no `:schema` metadata. Boundary validation "
+           "re-uses the handler's own `:schema` and is structurally "
+           "meaningless without one. Either attach a `:schema` to the "
+           "metadata-map (recommended) or drop `:boundary?`.")
       {:recovery :no-recovery
        :extra    {:reg-fn reg-fn-name
                   :id     id}}))
   nil)
-
-(defn boundary-guarded-handler?
-  "True when a registered event handler's `handler-meta` REFERENCES the
-  `:rf.schema/at-boundary` interceptor — i.e. the app opted this handler into
-  production-side boundary validation (Spec 010 §Production builds).
-
-  rf2-mwv4e — the DEV half of the boundary-rejection marker. In a dev build the
-  boundary interceptor is a no-op and step-1 `validate-event!` does the
-  refusing, so the router cannot tell a boundary refusal from an ordinary
-  dev-only schema refusal without asking this question. It asks it ONLY on the
-  refusal path (`run-chain`, when `event-ok?` is falsy), so the hot path pays
-  nothing.
-
-  Reads the AUTHORED chain — the same surface `reject-at-boundary-without-
-  schema!` checks at registration time, and the one the docs name as the opt-in
-  (`{:interceptors [:rf.schema/at-boundary]}`). A per-frame `:interceptors`
-  chain that attaches the interceptor globally is deliberately NOT counted: the
-  interceptor is meaningless without the HANDLER's own `:schema`, which is what
-  the registration-time check binds it to."
-  [handler-meta]
-  (attaches-validate-at-boundary-interceptor? (:interceptors handler-meta)))
 
 ;; ---- effect-map shape policing (Spec migration M-8) -----------------------
 ;;
@@ -998,14 +958,13 @@
         _ (rf.reg-meta/validate-registration-metadata! :event 'rf/reg-event id raw-meta)
         [meta interceptors] (resolve-interceptors reg-fn-name id raw-meta)
         wrapped (wrap-event-handler handler-fn)]
-    ;; Per Spec 010 §Production builds: reject the
-    ;; registration when `:rf.schema/at-boundary` is attached but no
-    ;; `:schema` is declared on the metadata-map. The boundary
-    ;; interceptor is structurally meaningless without a schema, so
-    ;; surface the misconfiguration at the moment of registration
-    ;; (always — both dev and prod) rather than waiting for the first
-    ;; dispatch in production.
-    (reject-at-boundary-without-schema! reg-fn-name id meta interceptors)
+    ;; Per Spec 010 §Production builds: reject the registration when
+    ;; `:boundary? true` is declared but no `:schema` is. Boundary validation
+    ;; re-uses the handler's own schema and is structurally meaningless
+    ;; without one, so surface the misconfiguration at the moment of
+    ;; registration (always — both dev and prod) rather than waiting for the
+    ;; first dispatch in production.
+    (reject-at-boundary-without-schema! reg-fn-name id meta)
     ;; EP-0017 §4: parse + validate `:rf.cofx/requires` into the normalised
     ;; entry vector the satisfaction step consumes (`rf.cofx/deliver-declared-cofx`,
     ;; via `assemble-initial-ctx`), raising `:rf.error/cofx-request-invalid` /
