@@ -22,18 +22,25 @@
    {:namespace "day8.re-frame2-xray.panels.epoch-panel"  :var "Panel"}
    {:namespace "day8.re-frame2-xray.panels"              :var "mount-trace!"}
    ;; A non-Xray row that must never satisfy an Xray reference.
-   {:namespace "re-frame.core"                           :var "Panel"}])
+   {:namespace "re-frame.core"                           :var "Panel"}
+   ;; A re-frame.core facade row, for the rf2-6264 `(rf/<var>` path. It is
+   ;; deliberately NOT an Xray-namespaced row: the facade path resolves
+   ;; against ALL rows, where the two Xray paths filter to the Xray prefix.
+   {:namespace "re-frame.core"                           :var "trace-buffer"}])
 
 (defn- problems-for
-  "Run `reconcile` over `qualified-refs` / `bare-refs` against the
-   synthetic manifest with the given allowlists."
-  [{:keys [qualified-refs bare-refs qualified-allow bare-allow]
-    :or   {qualified-refs [] bare-refs [] qualified-allow #{} bare-allow #{}}}]
+  "Run `reconcile` over `qualified-refs` / `bare-refs` / `facade-refs`
+   against the synthetic manifest with the given allowlists."
+  [{:keys [qualified-refs bare-refs facade-refs qualified-allow bare-allow facade-allow]
+    :or   {qualified-refs [] bare-refs [] facade-refs []
+           qualified-allow #{} bare-allow #{} facade-allow #{}}}]
   (rf.api-manifest.xray-spec-check/reconcile {:rows            synthetic-rows
                    :qualified-refs  qualified-refs
                    :bare-refs       bare-refs
+                   :facade-refs     facade-refs
                    :qualified-allow qualified-allow
                    :bare-allow      bare-allow
+                   :facade-allow    facade-allow
                    :rel             "tools/xray/spec/API.md"}))
 
 (deftest qualified-symbol-resolves-by-exact-ns+var
@@ -95,6 +102,49 @@
                     {:bare-refs   [{:var "mount-gone!" :line 1 :raw "mount-gone!"}]
                      :bare-allow  #{"mount-gone!"}}))))))
 
+;; ---------------------------------------------------------------------------
+;; The facade path (rf2-6264) — `(rf/<var>` call-position references.
+;;
+;; The bead: a planted fault in a `(rf/...` form returned exit 0 with the
+;; reference count unmoved, because the extractor read only the two
+;; Xray-namespace shapes. These pin the third shape so that cannot recur
+;; silently.
+;; ---------------------------------------------------------------------------
+
+(deftest facade-reference-to-a-live-var-resolves
+  (testing "a `(rf/<var>` reference whose bare name any manifest row carries
+            resolves clean — resolution is over ALL rows, not the Xray-
+            filtered ones, because these name the re-frame CORE facade"
+    (is (empty? (problems-for
+                  {:facade-refs [{:var "trace-buffer" :line 502
+                                  :raw "rf/trace-buffer"}]}))
+        "rf/trace-buffer is a re-frame.core manifest row — must pass")))
+
+(deftest facade-reference-to-a-removed-var-is-rejected
+  (testing "THE BUG (rf2-6264): a `(rf/<var>` reference naming a renamed /
+            removed / never-manifested surface must go RED. This is the exact
+            plant the bead reported passing at exit 0."
+    (let [problems (problems-for
+                     {:facade-refs [{:var "trace-buffer-BOGUSPLANT" :line 502
+                                     :raw "rf/trace-buffer-BOGUSPLANT"}]})]
+      (is (= 1 (count problems))
+          "the planted facade reference must be flagged")
+      (is (= 502 (:line (first problems)))
+          "the problem must name the planted line")))
+
+  (testing "and a removed name is still caught even though the check filters
+            the OTHER two paths to the Xray namespace prefix — a facade var
+            deleted repo-wide has no row in any namespace"
+    (is (seq (problems-for
+               {:facade-refs [{:var "sub-cache" :line 512 :raw "rf/sub-cache"}]}))
+        "rf/sub-cache was removed (rf2-80mmlf) — must not resolve")))
+
+(deftest facade-allowlist-silences-a-named-reference
+  (testing "an explicitly allowlisted facade name passes"
+    (is (empty? (problems-for
+                  {:facade-refs  [{:var "sub-cache" :line 512 :raw "rf/sub-cache"}]
+                   :facade-allow #{"sub-cache"}})))))
+
 (deftest live-spec-and-manifest-reconcile-clean
   (testing "the committed tools/xray/spec/API.md reconciles against the
             committed manifest with zero problems (the CI contract)"
@@ -102,19 +152,27 @@
           sidecar         (rf.api-manifest.gen/read-sidecar)
           qualified-allow (set (map vec (:xray-spec-known-unmanifested-qualified sidecar)))
           bare-allow      (set (:xray-spec-known-unmanifested sidecar))
+          facade-allow    (set (:xray-spec-known-unmanifested-facade sidecar))
           file            (rf.api-manifest.projection/repo-file "tools" "xray" "spec" "API.md")
           rel             (rf.api-manifest.projection/repo-relative file)
           lines           (rf.api-manifest.projection/numbered-lines file)
           qualified-refs  (distinct (rf.api-manifest.projection/qualified-symbol-references
                                       "day8.re-frame2-xray." lines))
           bare-refs       (distinct (rf.api-manifest.xray-spec-check/mount-references lines))
+          facade-refs     (distinct (rf.api-manifest.projection/alias-call-references "rf" lines))
           problems        (rf.api-manifest.xray-spec-check/reconcile {:rows            rows
                                            :qualified-refs  qualified-refs
                                            :bare-refs       bare-refs
+                                           :facade-refs     facade-refs
                                            :qualified-allow qualified-allow
                                            :bare-allow      bare-allow
+                                           :facade-allow    facade-allow
                                            :rel             rel})]
       (is (pos? (count qualified-refs))
           "the spec must actually name fully-qualified Xray symbols")
+      (is (pos? (count facade-refs))
+          "the spec must actually name `(rf/<var>` facade references — a zero
+           here is the vacuous-green shape rf2-6264 was filed about, reached
+           through the facade extractor instead of the Xray ones")
       (is (empty? problems)
           (str "live drift: " (pr-str problems))))))
