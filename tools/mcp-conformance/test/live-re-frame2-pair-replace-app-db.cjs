@@ -52,7 +52,7 @@
 // The payload is chosen so that EVALUATION and QUOTATION give visibly
 // different answers, and the wrong one is not an error:
 //
-//   `(inc 41)`   quoted -> the three-element list `(inc 41)`
+//   `(inc 41)`   quoted -> `inc` and `41`, unevaluated
 //                printed -> `42`
 //   `js/window`  quoted -> the symbol `js/window`
 //                printed -> the host Window object (`#object[Window ...]`)
@@ -61,6 +61,18 @@
 // substitutes a computed value for the caller's data. That is precisely why an
 // assertion on the READ-BACK value, not on the call's success, is the one that
 // bites.
+//
+// ## What the read-back is NOT evidence about
+//
+// `get-path` runs the value through the framework's size-elision walker
+// before printing it, and that walker rebuilds any sequential collection into
+// a VECTOR. So the injected list arrives as `[inc 41]`, not as `(inc 41)`,
+// and that has nothing to do with quotation — it is the egress wire's own
+// normalisation, identical for a value that was stored as a vector all along.
+// The first revision of this file asserted the list DELIMITER and went red on
+// CI against a runtime that was behaving correctly; `assertQuotedDatumSurvived`
+// below now asserts the elements, which is the property that actually
+// separates `rt-quote` from `pr-str`.
 //
 // ## Gating
 //
@@ -116,13 +128,37 @@ async function readSlot(client, key, what) {
   return responseText(resp);
 }
 
+// The read-back arrives through `get-path`, and `get-path` does NOT hand
+// back the stored value verbatim: per `tools/re-frame2-pair-mcp/src/
+// re_frame2_pair_mcp/tools/elision.cljs` ("`get-path` tool: the value at the
+// requested path is run through the walker before pr-str") it is walked by
+// the framework's size-elision walker first. That walker's shared
+// map/vec/set/seq skeleton rebuilds EVERY sequential collection into a
+// vector — its `(or (vector? v) (seq? v))` branch accumulates into a
+// `(transient [])` — so a correctly QUOTED list necessarily reads back as
+// `[inc 41]` and can never read back as `(inc 41)`, however faithful the
+// injection was.
+//
+// So the delimiter is the egress walker's business, not this tool's, and an
+// assertion on it grades the wrong surface. The discriminator that actually
+// separates the two emission paths is what the ELEMENTS are:
+//
+//   QUOTED  (`rt-quote`) -> `inc` is still a bare symbol beside `41`
+//   PRINTED (`pr-str`)   -> the whole slot collapses to the number `42`
+//
+// Both readings are asserted below. Either bracketing is accepted for the
+// first; only the second can tell quotation from evaluation, which is why it
+// is kept as a separate assertion rather than folded into the first.
 function assertQuotedDatumSurvived(text, where) {
-  // POSITIVE: the datum came back as the datum.
-  if (!/:value\s+\(inc 41\)/.test(text)) {
+  // POSITIVE: the datum came back as the datum — unevaluated `inc` and `41`,
+  // in either bracketing (see the note above on seq -> vector normalisation).
+  if (!/:value\s+[[(]inc 41[\])]/.test(text)) {
     throw new Error(
-      where + ': the injected list MUST read back as the LIST `(inc 41)`. ' +
-        'A `:value 42` here is the print-is-not-quotation regression rf2-olqo ' +
-        'fixed — the runtime evaluated the caller\'s DATA. Got: ' +
+      where + ': the injected list MUST read back with its elements intact — ' +
+        '`[inc 41]` (get-path\'s elision walk normalises a quoted list to a ' +
+        'vector) or `(inc 41)`. A `:value 42` here is the ' +
+        'print-is-not-quotation regression rf2-olqo fixed — the runtime ' +
+        'evaluated the caller\'s DATA. Got: ' +
         text.slice(0, 400),
     );
   }
