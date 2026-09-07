@@ -16,8 +16,8 @@ between Xray and its host.
 
 The split: `configure!` is the **process-global** Xray surface (one
 atom per key, shared across every host that loads Xray) — distinct
-from `(xray/init! opts)` per [`API.md`](./API.md) §Public CLJS API
-which wires per-instance booleans into the panel's state machine, and
+from `(xray/init! opts)` per [`API.md`](./API.md) §Public CLJS API,
+the manual installation hook with optional target and Settings writes, and
 distinct from the persisted Settings shape per [`API.md`](./API.md)
 §Settings keys which round-trips through `localStorage`.
 
@@ -129,8 +129,8 @@ column, jump to the linked section, find the knob.
 | **Layout host** | `:rf.xray/` | `:rf.xray/layout-host-selector` | — | [`§:rf.xray/layout-host-selector`](#rfxraylayout-host-selector) |
 | **Launch** | `:rf.xray/` | `:rf.xray/auto-open?` | `:rf.xray/launch-restore-visibility?`, `:rf.xray/launch-popout-geometry` | [`§:rf.xray/auto-open?`](#rfxrayauto-open) + [Vision §Should-adds](#vision--full-configure-key-inventory-30-keys) |
 | **Keybinding** | `:rf.xray/` | `:rf.xray/keybinding-enabled?` | `:rf.xray/keybinding-handle-keys?`, `:rf.xray/keybinding-bindings` | [`§:rf.xray/keybinding-enabled?`](#rfxraykeybinding-enabled) |
-| **Settings popup (bulk-set)** | `:rf.xray/` | `:rf.xray/settings` (carries `:theme`, `:density`, `:buffer`, `:diff`, …) | — | [`§:rf.xray/settings`](#rfxraysettings) |
-| **Filters** | `:rf.xray/` | `:rf.xray/filters`, `:rf.xray/filters-storage-key` | `:rf.xray/filters-auto-hide-events`, `:rf.xray/filters-auto-hide-event-ns`, `:rf.xray/filters-auto-hide-error-overrides?` | [`§:rf.xray/filters`](#rfxrayfilters) + [`§:rf.xray/filters-storage-key`](#rfxrayfilters-storage-key) |
+| **Settings popup (bulk-set)** | `:rf.xray/` | `:rf.xray/settings` (carries `:general`, `:theme`, `:buffer`, `:diff`) | — | [`§:rf.xray/settings`](#rfxraysettings) |
+| **Filters** | `:rf.xray/` | `:rf.xray/filters`, `:rf.xray/filters-storage-key`, `:rf.xray/filters-auto-hide-error-overrides?` | `:rf.xray/filters-auto-hide-events`, `:rf.xray/filters-auto-hide-event-ns` | [`§:rf.xray/filters`](#rfxrayfilters) + [`§:rf.xray/filters-storage-key`](#rfxrayfilters-storage-key) + [`§Error overrides`](#rfxrayfilters-auto-hide-error-overrides) |
 | **Buffer depths** | `:rf.xray/` | (via `:rf.xray/settings` `:buffer` slot) | `:rf.xray/buffer-retained-epochs` (process-global escape hatch) | [Vision §Must-haves](#vision--full-configure-key-inventory-30-keys) |
 | **Render / inspector** | `:rf.xray/` | — | `:rf.xray/render-ns-aliases`, `:rf.xray/render-alias-namespaces?`, `:rf.xray/render-auto-expand-below`, `:rf.xray/render-uuids-as` | [Vision §Should-adds](#vision--full-configure-key-inventory-30-keys) |
 | **Trace collection** | `:rf.xray/` | — | `:rf.xray/trace-collect-when`, `:rf.xray/trace-fatten?` | [Vision §Should-adds](#vision--full-configure-key-inventory-30-keys) |
@@ -535,14 +535,22 @@ rf2-ttnst — Mike 2026-05-19 §0ter.4 walkthrough). Shape mirrors the
 `default-settings` block in `config.cljc`:
 
 ```clojure
-{:general   {:text-size              13          ; px; slider range 10–18
-             :panel-position         :right-rail ; :right-rail | :fullscreen (rf2-czcg5 dropped :popout — pop-out launches from the chrome ⛶ button)
-             :panel-width-px         480         ; number; clamped [320, 0.9 × viewport-width-px]
-             :auto-open-on-error?    false
-             :density                :cosy       ; #{:cosy :compact} — no :comfy in v1
-             :show-tool-frames?      false       ; reveal :rf/xray + :rf/re-frame2-pair in L1 picker
-             :long-keyword-threshold 24}         ; chars; long-keyword elision threshold
- :theme     :dark                                ; :dark | :light
+{:general   {:text-size               13          ; px; slider range 10–18
+             :panel-position          :right-rail ; :right-rail | :fullscreen; pop-out has its own launch button
+             :panel-width-px          560         ; number; clamped [320, 0.9 × viewport-width-px]
+             :events-list-height-px   200         ; L2/L3 resize seam
+             :auto-open-on-error?     false
+             :density                 :cosy       ; :cosy | :compact
+             :show-tool-frames?       false       ; reveal tool frames in L1 picker
+             :show-unchanged-subs?    false
+             :show-ungrouped?         false
+             :epoch-history           50          ; per-frame epoch ring depth
+             :long-keyword-threshold  24          ; characters
+             :reduced-motion-override :os         ; :os | :always | :never
+             :use-system-colors?      false
+             :event-list-col-widths   {:source 52 :timestamp 76 :duration 60}
+             :editor-override         nil}        ; nil uses host editor; otherwise same values as :rf.xray/editor
+ :theme     :light                               ; :light | :dark
  :diff      {:highlight-fn-ref-changes? false}   ; opt-in fn-ref classification
  :buffer    {:events-retained 50}}                ; per-frame trace-ring event count
 ```
@@ -600,7 +608,7 @@ The `:panel-width-px` slot (rf2-x8h9y) drives the
 [`007-UX-IA.md` §Resize affordance](./007-UX-IA.md#resize-affordance))
 writes through to this slot on drag-end; the slot persists via the
 existing `re-frame2.xray.settings.v1` localStorage key so width survives
-reloads. Default `480`. Ignored in `:popout` (window owns size) and
+reloads. Default `560`. Ignored in `:popout` (window owns size) and
 `:fullscreen` (viewport owns size) positions.
 
 > Note (rf2-jh9ws): a `:telemetry` slot shipped briefly with the
@@ -705,6 +713,20 @@ this key, until the next load's reset clears that storage and reapplies
 the baseline. When both are passed in one call the storage key is set first, but the
 ordering does not affect the seed — it lands via `mount.cljs`'s
 `::seed-configured-filters` hook, not through this key.
+
+### `:rf.xray/filters-auto-hide-error-overrides?`
+
+Controls the shipped error bypass in the frame-scoped filter chain.
+Default `true`: an errored event hidden by an IN/OUT pill or mute is
+surfaced anyway and tagged `:rf.xray/filter-bypassed?` for the UI cue.
+The bypass never crosses the selected frame's view scope. `false`
+lets those filters hide errored events too; `nil` resets to `true`.
+The per-key setter is `set-filters-auto-hide-error-overrides!`.
+
+This is a boot-time setting read by the filter subscriptions, not a
+persisted Settings-map slot. Its consumer and composition contract are
+in [018 §7 Error overrides](018-Event-Spine.md#7-filter-system), with
+end-to-end wiring covered by `filters/error_override_wiring_cljs_test.cljs`.
 
 ### Static mode availability
 
@@ -821,8 +843,8 @@ ownership rule below locks the contract for pre-alpha and forward.
 | Surface | Role | Mutability | Lifetime |
 |---|---|---|---|
 | `(xray-config/configure! {…})` | Static boot config — defaults, feature flags, host-environment wiring (editor target, project root, layout-host selector, auto-open, keybinding enabled, filter seed, …). | Host-code-mutable at boot; immutable from the user's perspective. | Process-global atoms; one set of values per host load. |
-| `(xray/init! opts)` | Lifecycle hook — called by host app code to bring Xray up (alternative to `:preloads`). The `opts` map carries per-instance panel-state wiring (Settings shape inputs such as `:theme`, `:density`, `:target-frame` (EP-0002 rf2-bd4div), `:buffer-depths`). Per rf2-2thl2 each accepted key is wired end-to-end; aspirational Settings-shape keys without backing infrastructure (`:ai-provider`, `:sidebar-mode`, `:launcher-pill`, `:keybindings`) land via the persisted Settings shape only — `init!` does not accept them on the opts map until the wiring catches up. Idempotent. | Host-code-driven; once-per-load. | Per-mount lifecycle. |
-| Persisted Settings (`localStorage` slot `day8.re-frame2-xray/settings/v1`) | User-mutable overrides — the Settings popup is the canonical UI; persists `:theme`, `:density`, `:ai-provider`, `:buffer-depths`, `:target-frame` (EP-0002 rf2-bd4div), `:sidebar-mode`, `:launcher-pill`, `:keybindings` per [`API.md`](./API.md) §Settings keys. | User-mutable via the Settings popup; round-trips through localStorage. | Survives reload until corrupted or cleared. |
+| `(xray/init! opts)` | Manual installation hook, alternative to `:preloads`; opening/mounting is a separate verb. Accepted options are `:target-frame`, `:theme`, `:density`, and `:buffer-depths {:epoch N}`. The Settings options address `:theme`, `[:general :density]`, and `[:general :epoch-history]`; target selection addresses Xray frame state. Aspirational AI/sidebar/launcher/keybinding-map slots are not accepted by either this hook or the shipped Settings map. Idempotent installation. | Host-code-driven; once-per-load. | Installation plus explicit option writes, not a new independent Settings instance. |
+| Persisted Settings (`localStorage` slot `re-frame2.xray.settings.v1`) | User-mutable overrides in the four slots `:general`, `:theme`, `:diff`, `:buffer`, as enumerated in [§`:rf.xray/settings`](#rfxraysettings). The popup and ribbon/resize controls write this map. Target selection and the separate `xray.mode` preference do not live in it. | User-mutable; round-trips through localStorage. | Survives reload until cleared; unreadable payloads fall back in memory. |
 
 **Merge order (lowest precedence first):**
 
@@ -836,7 +858,7 @@ hardcoded defaults  <  configure! overrides  <  persisted Settings overrides
 2. `configure!` writes overlay onto the process-global atoms before
    `init!` runs (or any `:preloads`-driven mount). Hosts that want a
    non-default starting value for a Settings-shape key (e.g. an
-   embed that forces `:theme :high-contrast`) MAY pass it through
+   embed that defaults to `:theme :dark`) MAY pass it through
    `configure!`; the value lands as the new default for any user
    who has not yet mutated that key via the Settings popup.
 3. The persisted Settings shape, loaded from localStorage on boot,
@@ -869,9 +891,9 @@ Settings popup's relevant tab out of their build via the panel
 inventory, or refuse persistence at the harness layer; the merge
 order does not change.
 
-The same rule applies symmetrically to every overlapping key today
-(`:density`, `:target-frame` (EP-0002 rf2-bd4div), `:buffer-depths`; `:ai-provider` once
-its backing infrastructure lands per rf2-2thl2). Future host-facing
+The same rule applies to overlapping Settings values today: theme,
+density and epoch depth, using the nested paths listed above. It does
+not make `:target-frame` a persisted Settings field. Future host-facing
 knobs added to `configure!` MUST declare whether they participate in
 the persisted Settings shape; knobs that do inherit this merge order
 automatically.
@@ -882,13 +904,16 @@ The following keys are **reserved** for future `configure!` extension.
 Hosts MUST NOT use them for their own purposes; future Xray releases
 MAY assign them semantics.
 
-- `:density`, `:target-frame` (EP-0002 rf2-bd4div), `:ai-provider`, `:buffer-depths`,
-  `:sidebar-mode`, `:launcher-pill`, `:keybindings` — all currently
-  owned by `(xray/init! opts)` and the persisted Settings shape per
-  [`API.md`](./API.md), and read via the merge order above. A future
-  consolidation MAY migrate them through `configure!` (so the host's
-  boot-time overlay slot becomes the canonical write site); until
-  then, set them via the per-instance / per-localStorage paths.
+- Bare top-level `:density`, `:target-frame`, and `:buffer-depths` are
+  not `configure!` keys. `init!` accepts these spellings as described
+  above; boot defaults for density and epoch depth instead go through
+  `:rf.xray/settings` at their nested `:general` paths.
+- `:ai-provider`, `:sidebar-mode`, `:launcher-pill`, and `:keybindings`
+  name earlier aspirations, not shipped inputs. Do not put them in the
+  persisted Settings map expecting behaviour; future work must establish
+  a real consumer before adding any such slot. In particular, Xray's
+  current [no-AI boundary](Principles.md#no-ai-in-the-panel-surface) is
+  unchanged.
 
 Note: `:theme` is **no longer reserved** — it now lives inside the
 `:rf.xray/settings` map (see above) and is reachable via the Settings

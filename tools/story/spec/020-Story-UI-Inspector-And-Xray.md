@@ -42,8 +42,8 @@
   [`../../xray/spec/008-Embedding-Contract.md`](../../xray/spec/008-Embedding-Contract.md)
   §"Host-facing focus API" §Status).
 - The substrate's two-level narrative projection (script spans over epoch
-  beats) for the evidence-spine display — BLOCKED until
-  [`017-Testing-Story.md`](017-Testing-Story.md) lands that projection.
+  beats) for the evidence-spine display — CURRENT in
+  `re-frame.story.play.evidence`, per [`017-Testing-Story.md`](017-Testing-Story.md).
 - The `story/explain` base data contract (CURRENT where 017 is present)
   for the Explain panel.
 
@@ -128,7 +128,7 @@ operation; the official MCP specs reconcile them against the registry.
 | Save current state as variant | gated register/update tool | Allowed only when the state projection is representable and write gates pass. |
 | Promote run artifact/failure | gated promote/register tool | Distinct from save-current-state. |
 | Open/focus Xray context | open/focus reference | Precise focus uses the Story-to-Xray focus API (§2.1). |
-| Share/export/copy artifact | egress-gated read/copy tool | Must use the same redaction/elision policy as human egress. |
+| Share/export/copy artifact | egress-gated read/copy tool | MCP uses its off-box egress policy. Human egress has the distinct reproducibility contract in [`022`](022-Story-UI-Docs-And-Share.md), not an MCP privacy gate. |
 
 Asymmetries are allowed only when explicit: write operations are gated,
 attached-frame operations require frame binding, redaction MAY remove data
@@ -181,9 +181,10 @@ script span, a fidelity badge, and "open this beat in Xray" commands.
 
 ### 2.1 Story-to-Xray focus (the `rf2-crtmq` focus API)
 
-Opening / popping out the full Xray shell is CURRENT. **Focusing** a
-specific Xray panel, epoch, cascade, or app-db path is TARGET StoryUI
-wiring over the existing host-facing focus API.
+Opening / popping out the full Xray shell is CURRENT. Focused
+open-in-Xray links also ship in `re-frame.story.ui.evidence-spine`:
+the selected beat composes a panel/epoch/cascade/path command over the
+host-facing focus API. Further callers use this same seam.
 
 The focus API is closed and CURRENT (`rf2-crtmq`): the entry point is
 `day8.re-frame2-xray.core/focus!`, a small one-way focus command
@@ -195,7 +196,8 @@ epoch/cascade, which path) plus opaque `:source` provenance and calls
 `:rf.xray/*` write surfaces. The **consumption** of this API — wiring
 narrative beats, assertion rows, canvas inspect commands, and docs/test
 links to call `focus!` — is Story-owned (explicitly so per that spec's
-§Status) and is the TARGET work this section locks.
+§Status). The evidence-spine consumer is current; this section remains
+the contract for every additional caller.
 
 Story MUST NOT introduce a second Xray runtime model; every focus is a
 thin composer over Xray's existing write surfaces.
@@ -206,8 +208,8 @@ Story pressure: S4, S6, S8, S9.
 
 The evidence spine is the answer to T1
 ([`018-Story-UI-North-Star.md`](018-Story-UI-North-Star.md) §4), not a
-decorative panel. It is TARGET/BLOCKED by the substrate's narrative
-projection.
+decorative panel. Both the narrative projection and its display ship in
+`re-frame.story.play.evidence` and `re-frame.story.ui.evidence-spine`.
 
 This section owns evidence-spine **display**; result linkage (which
 run-result row drives the selected span) is owned by
@@ -256,11 +258,11 @@ Xray for expert debugging.
 
 Story pressure: S4, S8.
 
-The `story/explain` data API is CURRENT where
-[`017-Testing-Story.md`](017-Testing-Story.md) and the Story plan
-compiler are present. The Explain panel UI is Story-owned and TARGET. It
-is a net-new Story surface over explain data and does **not** depend on
-Xray.
+The `story/explain` data API and the Story-owned Explain panel are
+CURRENT (`re-frame.story.ui.explain-panel`). The panel reads the
+[`017-Testing-Story.md`](017-Testing-Story.md) plan explanation; it does
+**not** depend on Xray. An absent explanation slot has an honest empty
+state, not invented provenance.
 
 It MUST show:
 
@@ -309,11 +311,11 @@ The Inspector and Xray contract is satisfied when:
   specs reference it without restating;
 - Xray is embedded for detailed diagnostics and not duplicated — no second
   app-db/views/trace/schema/epoch inspector competes with Xray;
-- the Xray embed preserves the locked seven-panel list, mounts one panel
+- the Xray embed preserves the locked six-panel list, mounts one panel
   at a time, exposes the chip-row picker and pop-out, and shows explicit
   empty states;
-- Story-to-Xray focus is wired over the closed `rf2-crtmq` focus API and
-  is presented as TARGET wiring, not as already-shipped behaviour;
+- Story-to-Xray focus is wired over the closed `rf2-crtmq` focus API,
+  including the current evidence-spine links;
 - the evidence spine is reachable from failed assertions, result rows,
   docs excerpts, promotion flows, and agent handoffs, and labels direct
   vs attributed evidence honestly;

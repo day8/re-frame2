@@ -91,7 +91,7 @@ servers:
 |---|---|---|
 | `--no-eval` | eval enabled | Pair-only opt-out for `eval-cljs`; disabled calls return `:rf.error/eval-cljs-disabled` before nREPL. |
 | `--allow-sensitive-reads` | closed | Allows per-call sensitive/raw opt-ins that are otherwise forced to the safe projection. |
-| `--allow-writes` | closed | Enables named state or registry writes. It does not make an eval-enabled pair server read-only; compose with `--no-eval` for that posture. |
+| `--allow-writes` | closed | Enables the named out-of-band state or registry writes. It is not a blanket read-only mode: Pair's `dispatch` and `replay-epoch` remain available, and `--no-eval` independently disables only `eval-cljs`. |
 
 Rules:
 

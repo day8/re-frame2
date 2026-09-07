@@ -5,7 +5,7 @@
 > axe-core panel; multi-substrate side-by-side rendering; the Xray
 > epoch panel embed contract (stub); the v1.1 deferrals (perf ribbon,
 > design tokens); production elision under `:advanced`
-> (`:rf.story/enabled?` sentinel pattern). The contract Stage 6
+> (`re-frame.story.config/enabled?` sentinel pattern). The contract Stage 6
 > implements + the production hygiene rules that apply across stages.
 
 See [`019-Story-UI-Controls-And-View-States.md`](019-Story-UI-Controls-And-View-States.md)
@@ -250,7 +250,7 @@ round-trip through it. The URL never leaves the dev's machine; with
 the share popover retired (rf2-ymnfx Issue B) there is no UI
 affordance that could serialise it for off-box transport.
 
-Production builds (`:rf.story/enabled?` false under `:advanced`) elide
+Production app builds (`re-frame.story.config/enabled?` false under `:advanced`) elide
 the entire Story UI shell; the a11y panel is reachable only from the
 disabled tree, so Closure DCE drops it. The bundle-isolation contract
 (`scripts/check-bundle-isolation.cjs`) verifies the Story sentinels
@@ -789,61 +789,61 @@ Story uses the same PRESENT-in-control / ABSENT-in-release pattern
 instrumentation:
 
 ```clojure
-;; compile-time flag (CLJS goog-define)
-(goog-define ^:dynamic *enabled?* true)
+;; CLJS compile-time flag, in re-frame.story.config:
+(goog-define ^boolean enabled? true)
 
-;; macros expand conditionally
-(defmacro reg-story [id metadata]
-  (if *enabled?*
-    `(re-frame.story.impl/reg-story* ~id ~metadata)
-    `nil))
+;; Every registration macro emits a guard into the CLJS program.
+;; Schematic expansion; the real macro also stamps source coordinates:
+(when re-frame.story.config/enabled?
+  (re-frame.story/reg-story* :story.example/counter {:doc "Counter"}))
 ```
 
 Under `:advanced` compile with
-`closure-defines {'re-frame.story.config/*enabled?*' false}`,
-every Story registration form expands to `nil` and the entire
-`re-frame.story.impl` ns becomes unreachable from the main namespace
-graph — Closure DCE removes it wholesale.
+`:closure-defines {re-frame.story.config/enabled? false}`. Closure folds
+the emitted guards to `nil` and removes unreachable registration-side
+code. The macro does not read a dynamically bound JVM flag to decide its
+expansion. `:advanced` alone leaves `enabled?` at its default `true`;
+static Story playgrounds intentionally keep Story enabled and use the
+separate `re-frame.story.config/static-mode?` define.
 
 ### What gets DCE'd
 
 - All variant / story / workspace / mode / panel registrations.
-- The `tools.story.registry` side-table.
-- The render shell (`tools.story.ui.*`).
+- Unreachable Story registrar/runtime dependencies.
+- The render shell (`re-frame.story.ui.*`) when not otherwise reachable.
 - The trace / a11y / perf panels.
 - The play-runner.
 - The control-derivation logic.
 
 ### What survives
 
-- The fn body of `re-frame.story/run-variant` (and friends), but with
-  no registrations to act on it returns an empty result map. This is
-  a feature: production code that *accidentally* calls `run-variant`
-  does not throw, it returns empty.
-- Public Var stubs (so `(:require [re-frame.story :as story])`
-  doesn't break a prod build that imports a stories ns
-  conditionally).
+- A reachable `re-frame.story/run-variant` call returns a resolved
+  promise of the no-registration result (`:app-db {}`, `:assertions []`,
+  zero elapsed time), not a synchronous `{}` and not an unknown-variant
+  exception. Unreferenced public functions need not survive DCE.
 
 ### Cross-library `:extends` under elision
 
 All registrations are dev-only. In a production build:
 
-- Lib A's `reg-variant` calls expand to `nil`.
-- Lib B's `reg-variant :extends :A/x` calls expand to `nil` too.
+- Lib A's guarded `reg-variant` calls are eliminated.
+- Lib B's guarded `reg-variant` calls with `:extends :A/x` are too.
 - No `:extends` resolution happens at all.
 
 There is therefore no production-build failure mode for cross-library
-`:extends`. Dev builds (with `*enabled?*` true) resolve `:extends` at
-registration time; an unresolved parent raises
-`:rf.error/story-extends-unknown` synchronously.
+`:extends`. Enabled builds store the raw registration and resolve
+`:extends` at plan construction, with the missing-parent diagnostic
+specified in [`017-Testing-Story.md`](017-Testing-Story.md) §Composition.
 
 ### Verification
 
-`scripts/check-bundle-isolation.cjs` (per
-[`tools/README.md`](../../README.md)) gets a Story sentinel: any
-`re-frame.story.impl.*` symbol surviving in a `:advanced` build
-output is a leak. Stage 8 (examples + guide) wires the example
-builds against this sentinel.
+`implementation/scripts/check-bundle-isolation.cjs` (per
+[`tools/README.md`](../../README.md)) checks live registrar/decorator
+sentinels are absent from the counter consumer that does not import
+Story, and present in its Story-enabled positive control. This verifies
+the no-import dependency boundary. The separate disabled-registration
+consumer is exercised by `tools/story/bench/bundle-size.cjs`; its
+historical measurement below is not a current CI result.
 
 ### Bundle-size comparison (rf2-xgay8)
 
@@ -855,7 +855,7 @@ Measured 2026-05-13 on `tools/story/testbeds/counter_with_stories` via
   That's the JS Story would add to a consumer's bundle if shipped
   to production.
 - Counter with Story disabled (`:advanced` +
-  `re-frame.story.config/*enabled?*=false`): **0 additional bytes**.
+  `re-frame.story.config/enabled?=false`): **0 additional bytes**.
   Elision verified by `scripts/check-bundle-isolation.cjs`.
 
 For reference, Storybook 9's `storybook` core package alone is

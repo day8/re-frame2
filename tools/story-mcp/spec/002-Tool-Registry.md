@@ -469,13 +469,15 @@ Full lifecycle invocation; returns the unified run-result (see
  :effects            [...]
  :sub-runs           [...]
  :renders            [...]
- :narrative          {...}
+ :narrative          [...]   ; ordered narrative beats
  :app-db             {...}
  :snapshot           {...}
  :elapsed-ms         ...}
 ```
 
-Inputs: `{:variant-id ... :substrate? ... :active-modes? ... :cell-overrides? ... :timeout-ms?}`.
+Inputs: `:variant-id` (required), plus optional `:substrate`,
+`:active-modes`, `:cell-overrides`, `:timeout-ms`, and
+`:include-sensitive`. See [the input schema](API.md#run-variant).
 
 Host prerequisite: with no re-frame adapter installed in the server JVM
 this REFUSES up front with `:rf.error/no-adapter-installed` and no
@@ -649,14 +651,12 @@ Each of these is a deliberate omission:
   method-not-found` path — no tombstone, no alias. A future headless
   capture surface requires an executable SDK witness with a
   transport-reachable event producer first.
-- **No `register-story`** at v1.1. The agent registers a story by
-  inference: it calls `register-variant` against a variant id whose
-  `:story.<path>` parent doesn't yet exist; Story's reg-variant
-  helper raises if the parent isn't there. The agent then *also*
-  needs to land the parent story — which it does by registering its
-  variants under the parent, in order, with `:doc` etc. attached to
-  the first one. (When v1.1 ships and the loop matures, a
-  `register-story` tool may follow.)
+- **No `register-story`**. `register-variant` registers only the
+  named variant; it neither requires nor synthesises a parent story.
+  A first variant's `:doc` remains variant metadata, not parent
+  metadata. To publish a parent story, register it in the application
+  namespace loaded by the server's launch alias through Story's
+  `reg-story` / `reg-story*` surface.
 - **No `register-decorator`** at v1.1. Decorators carry closures
   (`:wrap` slot) which JSON-RPC can't transport. A future shape
   would invoke a registered re-frame.story.* helper by id.

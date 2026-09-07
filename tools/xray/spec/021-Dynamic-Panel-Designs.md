@@ -465,6 +465,11 @@ The L4 tab label renders as `Views`.
 
 ### §3.1.1 Layout (rf2-e33ad · rf2-isun6)
 
+**Historical layout.** The two-section table design below preceded the
+graph reconciliation. The shipped layout is §3.2, implemented by
+`panels/reactive_panel_view.cljs`; this table is not a second required
+rendering of the same cascade.
+
 Per Mike-direction 2026-05-21 the panel renders the cascade as two
 bare-label pipeline sections (mirroring the rf2-n4ad0 numbered-cascade
 rhythm now carried forward by the §9.1 Epoch panel — thin left rail +
@@ -1563,6 +1568,12 @@ MVP chronological; stretch "next route activity" (skip silent epochs).
 ---
 
 ## §8 The Issues panel (per-epoch issues)
+
+**Retired — rf2-gbz39, Option (c).** There is no Issues tab or aggregate
+panel. This section preserves its former design only. The surviving
+issue surfaces are the Epoch panel's inline failures, L2 issue-row
+highlighting and the issues-ribbon signal, as specified in
+[016 §Issues](016-Auxiliary-Panels.md#issues--the-dedicated-tab-was-removed-rf2-gbz39-option-c).
 
 ### §8.1 Question
 

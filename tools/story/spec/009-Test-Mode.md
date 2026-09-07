@@ -9,10 +9,10 @@
 
 > **Result-reading superseded by [`021-Story-UI-Test-And-Evidence.md`](021-Story-UI-Test-And-Evidence.md).**
 > The split `:lifecycle` / `:assertions` result-reading contract below is
-> superseded by the unified run-result presentation once the
-> [`017-Testing-Story.md`](017-Testing-Story.md) substrate lands. Test
-> mode MUST migrate to that single status/result/evidence shape through
-> one converged path — no parallel schema. The pane's other contracts
+> superseded by the current unified run-result presentation from
+> [`017-Testing-Story.md`](017-Testing-Story.md). Test mode uses that
+> single status/result/evidence shape — no parallel lifecycle-derived
+> verdict. The pane's other contracts
 > (read-only contract, Re-run semantics, the chrome-level test widget +
 > sidebar status dots, and the play step-debugger) are carried forward by
 > `021`, not superseded.
@@ -20,8 +20,8 @@
 ## Why a dedicated test pane
 
 re-frame2-story already ships the programmatic test harness:
-`run-variant-as-test` (and the more general `run-variant` →
-`:assertions` round-trip per spec/004) drives a variant through its
+`story/is` (and the separate `run` / `run-variant` → unified-result
+round-trip per spec/004) drives a variant through its
 four-phase lifecycle and accumulates the seven dispatched
 `:rf.assert/*` records on the variant's frame (the eighth canonical
 id `:rf.assert/schema-error` is evaluated in the result boundary). What was missing

@@ -36,9 +36,10 @@ yet exist (e.g. browser-tier pixel diffing).
 
 ## Shipping vs target (grounding delta)
 
-The shipping Story implementation is close to the target; this table is
-the single inventory of what SHIPS today versus what is NET-NEW, so the
-code migration is not confused with greenfield design.
+This table distinguishes shipped substrate from remaining targets. The
+original P1 migration introduced plans and unified results; those are now
+implemented, not future prerequisites. A shipped surface still owes its
+normative contract: a tracked implementation defect is not a new API rule.
 
 | Surface | Status | Note |
 |---|---|---|
@@ -47,15 +48,15 @@ code migration is not confused with greenfield design.
 | `:assert-db` / `:assert-dom` script steps | SHIPS | Folded into the one assertion atom (§Assertions — one atom, two positions); do not drop them. |
 | bare event-vector script/setup shorthand | SHIPS (`play/runner.cljc` `coerce-script`) | P1 removes this authoring ambiguity; every setup/script step normalizes to a tagged step (§Script step grammar). |
 | `:setup` / `:script` / `:plays` | SHIPS | The rename from the retired `:events` / `:play-script` spellings is complete (§Public vocabulary); the schema rejects the retired keys. |
-| `:extends` | SHIPS as **straight merge** (child replaces) | The per-field plan-time merge (§Merge rules) is a **replacement** of this, not a refinement; a test MUST pin parent+child `:setup` *append*. |
+| `:extends` | SHIPS as plan-time per-field merge | The registrar stores raw bodies; the compiler appends setup, inherits context/checks and keeps scripts/ordinary assertions local (§Strict composition). |
 | `:decorators` incl. `[:rf.story/force-fx-stub …]` | SHIPS | The **real** fx-override authoring surface; `:fx-overrides` is the derived frame slot (§The effect-override surface). |
-| run-result key | SHIPS as `:lifecycle` | This document's top-level `:status` is **NET-NEW** (§Run result); the runtime's record-result map uses `:lifecycle` today. |
-| `:skipped?` on no-DOM assertion records | SHIPS | This IS the `:cannot-run` case at assertion granularity — reconcile, do not duplicate (§`:cannot-run`). |
-| `:rf.assert/schema-error` + schema-fail-the-run | NET-NEW | Today schema violations are trace events feeding a UI panel with **no fail mechanism** — must be wired (§Schema rule). |
+| Unified run-result | SHIPS | Top-level `:status` is the verdict; `:lifecycle` remains mount-state metadata, not a second verdict (§Run result). |
+| `:cannot-run` | SHIPS | Missing runner/evidence requirements produce explicit refusals, including no-DOM cases; they cannot pass vacuously. |
+| `:rf.assert/schema-error` + schema-fail-the-run | SHIPS | Expected violations are paired with selectors and unmatched violations enforce the run's schema floor (§Schema rule). |
 | reactive recompute / render-count probe | SHIPS as a PROJECTION (rf2-5x1wt.30) | Spec 009 already emits one `:rf.sub/run` per true sub recompute and one `:rf.view/rendered` per view render, both retained in the epoch tape. The probe is `re-frame.story.play.evidence/reactive-counts` — a pure projection over those rows, NOT a new core seam — surfaced as the `:reactive-counts` run-result slot and advertised by the `:cljs-reactive` runner. |
-| `:sub-overrides` for view-state variants | NET-NEW | Explicit lower-fidelity rendering affordance (§View-state subscription overrides); not proof of real subscription logic. |
-| view arg schema consumption | SHIPS partially / P1 hardens | Controls already derive from view schemas; P1 copies the view props schema into the plan and validates `:effective-args` before render (§View arg schemas). |
-| `variant-plan`, `explain`, `reg-fragment` / `reg-check`, runner abstraction, inline plans, run-artifacts, `canonicalize` / fingerprinting, narrative projection, `render-variant` | NET-NEW | This document. |
+| `:sub-overrides` for view-state variants | SHIPS | Explicit lower-fidelity rendering affordance (§View-state subscription overrides); not proof of real subscription logic. |
+| view arg schema consumption | SHIPS | The compiled plan carries the view props schema; required-key and validator-backed malformed-value checks retain the boundaries in §View arg schemas. |
+| `variant-plan`, `explain`, `reg-fragment` / `reg-check`, runner abstraction, inline plans, run-artifacts, `canonicalize` / fingerprinting, narrative projection, `render-variant` | SHIPS | Implemented through the facade and the plan/result/render modules; richer runner capabilities still depend on the installed host. |
 
 ### Shared primitive lock
 
@@ -264,9 +265,8 @@ map without reshaping the plan.
 map: source chain, parent chain, field-level merge decisions, resolved
 args + substitutions, final setup order and script order, checks and
 terminal assertions, required runner, platforms, tags, and source
-coords. Strict-conflict resolution and composed-fragment/check
-explanation (§Conflict resolution) are filled in by the composition
-bead; the foundation emits an empty `:compose` slot.
+coords. Strict-conflict resolution and composed-fragment/check explanation
+are part of the implemented composition contract (§Strict composition).
 
 ### Inline plan
 
@@ -1376,9 +1376,8 @@ Execution order is:
 
 ### Merge rules
 
-This per-field plan-time merge **replaces** the shipping
-registration-time straight-merge (where the child wholesale replaces; see
-§Shipping vs target). The change is intentional. A test MUST pin that
+This per-field plan-time merge replaced the earlier registration-time
+straight-merge. It is now the single merge authority. A test MUST pin that
 parent + child `:setup` *append* (a common silent-regression site). The
 existing drop-shadowed-siblings exclusive-group machinery is the
 per-field precedent.
@@ -2135,8 +2134,8 @@ the SAME normalization.
 
 ## Run result
 
-All runners MUST return the same shape. (Today the runtime uses a
-`:lifecycle` key; this top-level `:status` is NET-NEW.) Run result slots
+All test runners MUST return the same shape, with top-level `:status` as
+the verdict and optional `:lifecycle` as mount-state metadata. Run result slots
 are projections from the epoch tape wherever possible. The result shape
 is API-stable, but the storage/source of truth is one tape so Story UI,
 CI, docs, agents, and future golden/diff tools cannot disagree about what
@@ -2144,7 +2143,7 @@ happened.
 
 **Schema-backed, frozen contract (rf2-3nbl5.6).** This shape is a
 **frozen public contract** — the ONE result language spoken IDENTICALLY
-across `story/run`, `story/is`, `story/render-variant`, the Story UI Test
+across `story/run`, `story/is`, the Story UI Test
 mode, story-mcp `run-variant` / `read-failures`, and generated run
 artifacts. A result object moves **CLJS test → Story UI → MCP with NO
 semantic translation**. The contract is **executable**: the Malli schema
@@ -2161,6 +2160,11 @@ verdict is `:status`, read via `story/result-status` /
 lifecycle-as-verdict** (the clean break, rf2-ba86n.17 — a boolean could
 not express the distinct `:cannot-run` THIRD outcome, and a lifecycle
 state is the frame's mount state, not the run's judgement).
+
+`render-variant` is not a test runner: it returns the distinct workshop
+render result (`:rendered` / `:invalid-args` / `:cannot-run` / `:error`)
+defined in §Args, controls, and `render-variant`. Sharing the plan does not
+make a successful render a passing test.
 
 ```clojure
 {:status :pass                          ; :pass | :fail | :cannot-run | :error
@@ -2412,8 +2416,8 @@ is a registry lookup, a map is an inline plan:
 
 This collapses the potential
 `run-variant` / `is-variant` / `run-plan` / `is-plan` surface into three
-verbs. Only `run-variant` ships today; the point is to avoid multiplying
-public execution entry points as inline plans arrive. The variant-vs-plan
+verbs. All three verbs ship; `run-variant` remains the registered-variant
+lifecycle entry point. The variant-vs-plan
 distinction is real for *authoring* (`reg-variant` registers; an inline
 map does not) but is spurious at execution and MUST NOT leak into the
 verbs. `(variant-plan target)` returns the normalized plan for either

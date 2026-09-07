@@ -22,6 +22,10 @@ exactly three of those files.
 
 ## Invocation form
 
+These are the post-split forms. For the current monorepo template, use the
+[local-development invocation](API.md#local-development-invocation) with the
+same `:substrate` argument; the selector does not change with distribution.
+
 ```bash
 # Reagent — the default
 clojure -Tnew create :template io.github.day8/re-frame2-template \

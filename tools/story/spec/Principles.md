@@ -49,16 +49,21 @@ This keeps the registry the single source of truth.
 
 ## Production elision strict
 
-**No Story code reaches a `:advanced` build of a production app.**
+**Story is disabled in production app builds; published Story playgrounds
+deliberately keep it enabled.** `:advanced` is an optimization level, not
+an automatic choice between those products.
 
 The sentinel pattern under `:advanced` is documented in
 [`005-SOTA-Features.md`](005-SOTA-Features.md) §Production elision.
-Compile-time elision via `goog-define :rf.story/enabled?` collapses
-every Story `reg-*` macro to `nil` and lets Closure DCE remove the
-implementation namespaces wholesale.
+Set `:closure-defines {re-frame.story.config/enabled? false}` in the
+production app build. Each Story `reg-*` macro emits a `when` guarded by
+that CLJS `goog-define`, so Closure removes the disabled registration
+branches and their unreachable dependencies.
 
-This is a hard rule. The bundle-isolation sentinel in
-`scripts/check-bundle-isolation.cjs` is the CI gate.
+This is a hard rule. The bundle-isolation sentinels in
+`implementation/scripts/check-bundle-isolation.cjs` verify the separate
+no-Story-import consumer boundary with a Story-enabled positive control;
+they do not substitute for checking a consumer's disabled-registration build.
 
 ## No new framework registries
 

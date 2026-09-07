@@ -81,7 +81,7 @@ That compiles the entry point to `out/server.js`, which the `mcpServers` entry b
 
 ### Configure Claude Code
 
-Add to your `~/.claude/settings.json` (or per-project `.claude/settings.json`). From a clone, run the compiled server with `node`:
+Add the server to `.mcp.json` at the project root (project scope), merging with any existing `mcpServers` entries. User- or local-scoped registrations use `claude mcp add`; see [Claude Code's MCP configuration](https://code.claude.com/docs/en/mcp). From a clone, run the compiled server with `node`:
 
 ```json
 {
@@ -101,7 +101,7 @@ Once the package is published, a global install collapses `command` + `args` bac
 
 > After `claude mcp add`, start a fresh session — not `--continue`
 > (rf2-646lr). Registering the server with `claude mcp add` (or editing
-> `settings.json`) does not retroactively load the MCP into a session
+> `.mcp.json`) does not retroactively load the MCP into a session
 > that was already running. Field report: a session resumed with
 > `claude --continue` did not surface the re-frame2-pair tools even
 > though `claude mcp list` showed the server `Connected`; the tools only
@@ -172,8 +172,8 @@ from (highest precedence first):
 | Flag                        | Default | What it does                                                                         |
 |-----------------------------|---------|--------------------------------------------------------------------------------------|
 | `--no-eval`                 | absent (eval-cljs ON) | Opt OUT of the `eval-cljs` tool. Default is eval-cljs ENABLED (rf2-a0z0h; inverts the prior rf2-cxx5s default-OFF posture). See "eval-cljs gate" below. |
-| `--allow-sensitive-reads`   | OFF     | Honour caller-supplied `:include-sensitive true` and `:elision false` on every off-box value-egress surface — the direct-read tools (`snapshot` / `get-path` / `read-sub` / `list-subscriptions :include-values` / `trace-window` / `watch-epochs`), the signal recorders (`record` / `read-recording` / `watch-until`), `dispatch`'s epoch-bearing `:trace` / `:settle` modes (rf2-olvr5 / rf2-m9duxl), and `dispatch-dry-run` (rf2-z7roa, whose `:db-state-after-simulation` + `:would-fire-effects[*].args` are app-db/fx-derived egress). Default-OFF gate (rf2-c2dtu). Canonical cross-MCP flag name shared with story-mcp (rf2-2x3ql); see "sensitive-reads gate" below. |
-| `--allow-writes`            | OFF     | Enable the state-mutating tools `restore-epoch` (time-travel undo) and `replace-app-db` (state injection). Default-OFF gate (rf2-ee38b.18); without it both return `{:ok? false :reason :rf.error/writes-disabled}` without touching the nREPL socket. `dispatch` (which drives the app's own handlers) is unaffected. Note: this gate protects the named-write audit trail; it does NOT defend against eval-driven writes (eval can express the same writes), so for a true read-only posture compose with `--no-eval`. See "writes gate" below. |
+| `--allow-sensitive-reads` | OFF | Enables each value-egress tool's documented per-call disclosure knobs; not a blanket raw-payload bypass. See the [canonical launch-gate contract](spec/003-Tool-Catalogue.md#universal-server-launch-flags) and "sensitive-reads gate" below. |
+| `--allow-writes` | OFF | Enables `restore-epoch` and `replace-app-db`; without it both return `:rf.error/writes-disabled` before contacting nREPL. `dispatch` and `replay-epoch` retain their ordinary authority. `--no-eval` separately disables eval, but the combination is not a read-only mode. See "writes gate" below. |
 | `--port-file <path>`        | —       | Explicit, **cwd-independent** path to the nREPL port file. Highest precedence in port discovery (rf2-3dbwh); see "port-file flag" below. Accepts `--port-file <path>` and `--port-file=<path>`. |
 | `--http-port <n>`           | `9630`  | Shadow's web-server port for the auto-discovery probe. Only consulted at port-discovery step 4; setting it has no effect when `--port-file` or `SHADOW_CLJS_NREPL_PORT` is present. |
 
@@ -304,8 +304,13 @@ Operators who need raw state for offline debug opt in at server launch:
 }
 ```
 
-With the flag, the per-call args win again — `:include-sensitive true`
-and `:elision false` ride through to the walker unchanged. Same
+With the flag, each tool's documented per-call knobs become available.
+App-db reads keep independent sensitive and large-value axes. Epochs
+always project; `:include-sensitive` lifts only their app-db sensitive
+axis. Dry-run effect arguments need the additional
+`:include-fx-args true` opt-in. See the
+[catalogue](spec/003-Tool-Catalogue.md#universal-server-launch-flags).
+Same
 architecture as story-mcp's `--allow-sensitive-reads` (rf2-uaymx /
 rf2-g9fje) — they share the canonical cross-MCP flag name (rf2-2x3ql).
 The sibling `--no-eval` opt-out (rf2-a0z0h) keeps the inverse posture:
@@ -345,9 +350,9 @@ when the flag is on.
 > Note on composition with `eval-cljs`. This gate protects the
 > named-write audit trail. It does not defend against eval-driven
 > writes — `eval-cljs` (enabled by default post-rf2-a0z0h) can express
-> any write `--allow-writes` would block. For a true read-only debug
-> session (no app-db mutation through this MCP at all), compose with
-> `--no-eval`.
+> any write `--allow-writes` would block. `--no-eval` separately removes
+> that eval authority; `dispatch` and `replay-epoch` remain available
+> under both gates, so this is not a read-only debug mode.
 
 ### First call
 

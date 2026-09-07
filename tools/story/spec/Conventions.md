@@ -39,12 +39,14 @@ Every registration kind in Story ships **two surfaces** under the same name:
 - The `reg-<kind>` **macro** — author-facing. Captures call-site source-coords (file + line + ns) via `&form` meta + `*file*` + `(ns-name *ns*)`, threads them into the runtime helper via `re-frame.story.macros`. This is the form authors write in their stories ns.
 - The `reg-<kind>*` **fn** — programmatic. Same body shape, no source-coord stamping (callers supply coords explicitly if needed). This is the form MCP write tools and hot-reload tooling call.
 
-Mirror of [`re-frame.core`](../../../implementation/core/src/re_frame/core.cljc)'s `dispatch` / `dispatch*` precedent. The seven registration kinds ship both surfaces uniformly:
+Mirror of [`re-frame.core`](../../../implementation/core/src/re_frame/core.cljc)'s `dispatch` / `dispatch*` precedent. The nine registration kinds ship both surfaces uniformly:
 
 | Macro | `*`-fn partner | Body shape | Spec |
 |---|---|---|---|
 | `reg-story` | `reg-story*` | story body + optional `:variants` desugaring (Form B) | [001-Authoring.md](001-Authoring.md) |
 | `reg-variant` | `reg-variant*` | variant body (`:doc`, `:component`, `:args`, `:decorators`, `:script`, …) | [001-Authoring.md](001-Authoring.md) |
+| `reg-fragment` | `reg-fragment*` | reusable setup/script/world body; no judgement or nested composition | [017-Testing-Story.md](017-Testing-Story.md#strict-composition) |
+| `reg-check` | `reg-check*` | named reusable `:assertions` pack | [017-Testing-Story.md](017-Testing-Story.md#strict-composition) |
 | `reg-workspace` | `reg-workspace*` | workspace body (`:layout`, `:variants`, `:content`, `:render`, …) | [001-Authoring.md](001-Authoring.md) |
 | `reg-mode` | `reg-mode*` | mode body (`:doc`, `:axis`, `:args`) | [001-Authoring.md](001-Authoring.md) + [010-Toolbar.md](010-Toolbar.md) |
 | `reg-story-panel` | `reg-story-panel*` | panel body (`:title`, `:placement`, `:render`) | [001-Authoring.md](001-Authoring.md) + [003-Render-Shell.md](003-Render-Shell.md) |

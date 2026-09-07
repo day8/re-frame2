@@ -1,5 +1,14 @@
 # 005-Schema-Timeline
 
+> **Historical design — no standalone Schema Timeline ships.** The
+> panel was removed in the rf2-qy0nu sweep, and its proposed Issues-tab
+> home was removed under rf2-gbz39 Option (c). The body below preserves
+> that design, not a current panel or API contract. Schema failures are
+> inspected through the focused [Epoch panel](021-Dynamic-Panel-Designs.md#91-the-epoch-panel-numbered-cascade--rf2-sc3r1),
+> [Trace panel](023-Trace-Panel.md), L2 issue-row highlighting and the
+> issues-ribbon signal. Static Schemas browses definitions; it is not
+> this temporal violation view. See [the live panel inventory](000-Vision.md#the-tab-inventory).
+
 ## Bug class
 
 **"Schema violations are spamming the console; show me where + when."**

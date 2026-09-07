@@ -23,6 +23,14 @@ This doc is one of thirteen per-namespace contracts indexed from [`README.md`](R
 
 ## Surface
 
+### `sensitive-stamp? stamp` — raw rollup predicate
+
+Classifies a supplied stamp with the same fail-closed rule as
+`sensitive-event?`. Consumers of a different rollup slot (for example
+`:rf.epoch/sensitive?`) use this helper instead of duplicating the predicate.
+Malformed stamps increment `malformed-count` and emit the value-free warning;
+`(malformed-count)` reads that count and `(reset-malformed-count!)` resets it.
+
 ### `sensitive-event?` — predicate
 
 Predicate over a trace-event map. **Fail-closed**: literal `true` drops, and any other truthy non-boolean stamp drops with a value-free warning and malformed-counter increment. Only `false`, nil, or an absent stamp passes.
@@ -46,15 +54,24 @@ Definition (effectively):
 
 A literal-`true`-only predicate would fail open if serialization changed the stamp's type. The same fail-closed classifier applies to top-level trace batches and snapshot trace slices.
 
-### `strip-sensitive` — coll → `[kept dropped-count]`
+### `strip-sensitive events include?` → `[kept dropped-count]`
 
 Walks a collection of trace events; returns a `[kept dropped-count]` 2-vector where `kept` is the filtered collection and `dropped-count` is the integer for the `:dropped-sensitive` envelope slot (per [`vocab.md` §Envelope counter slots](vocab.md#envelope-counter-slots)).
 
 The count feeds the indicator-field slot the agent reads to know the payload was filtered without re-inferring from absence.
 
+`include?` is the caller's already-authorized opt-in, not a permission check:
+truthy returns `[events 0]` unchanged; false/nil applies the filter. A batch
+with no drops preserves the original collection identity.
+
 ### `scrub-snapshot` — per-frame snapshot scrubber
 
-Walks a snapshot map keyed by frame and, for each per-frame map, applies the strip-fn to the `:traces` and `:epochs` slices only. Returns `[scrubbed-snapshot total-dropped]`. Non-map slices and non-snapshot inputs pass through unchanged.
+Walks a snapshot map keyed by frame and, for each per-frame map, applies the
+strip-fn to sequential `:traces` and `:epochs` batches. Returns
+`[scrubbed-snapshot total-dropped]`. A single map slice is also classified
+through the supplied strip-fn: if sensitive it becomes `[]` and counts as one
+drop; otherwise it is unchanged. Other non-sequential slices and non-snapshot
+inputs pass through unchanged. An authorized `include?` bypasses the scrubber.
 
 `scrub-snapshot` is a **trace/epoch sensitivity filter only, not the complete snapshot privacy boundary.** It strips the `:traces` and `:epochs` slices but leaves `:app-db`, `:sub-cache`, and `:machines` untouched. Its output is not a fully projected snapshot.
 

@@ -56,11 +56,11 @@ Each handler returns a map of the form:
  :source-coord {:file "..." :line ...}}          ; from source-coord stamping
 ```
 
-> **Record slot name (rf2-ee38b.3).** The per-record source slot is
-> `:source-coord` (the impl's `assertion-record` builder writes this
-> key; the variant *body*'s coord slot is `:source`, per spec/001). The
-> test-mode reader accepts either for robustness, but `:source-coord` is
-> canonical for assertion records.
+> **Record slot name.** The raw accumulator record above uses
+> `:source-coord`. At the public result boundary, `story/assertion-record`
+> normalizes it to `:source` and adds the derived `:status`. Consumers of
+> `run` / `run-variant` read that unified record, whose canonical schema
+> is in [`017-Testing-Story.md`](017-Testing-Story.md) §Run result.
 
 The play-runner collects these into `:assertions`. The list survives
 the `run-variant` return.
@@ -119,10 +119,9 @@ constraint. See [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md)
 
 Each `:rf.assert/*` handler returns a map describing the assertion
 result; the play-runner concatenates these into the variant's
-`:assertions` list. `run-variant`'s test-runner adapter (Stage 5)
-post-processes the `:assertions` list and translates failures into
-the host test framework's failure signal — `cljs.test`'s `is`,
-kaocha's reporter, etc.
+`:assertions` list. `run` / `run-variant` return the unified result without
+emitting host-test reports. Use `story/is` to execute and report, or
+`story/report-result!` to report an already-resolved result.
 
 ## `:rf.assert/effect-emitted` payload shape
 
@@ -371,10 +370,10 @@ side. Details:
 - **Async plumbing done.** `run-variant` / `story/run` return a Promise
   (CLJS) / `CompletableFuture` (JVM); `story/is` BLOCKS on the JVM (the
   canonical headless gate, firing reports synchronously and returning the
-  unified result) and hands the promise back on CLJS — chain `then`, or use
-  the `cljs.test` `(async done …)` form and call `story/report-result!`
-  when it resolves. `report-result!` is the pure-report seam both runtimes
-  share.
+  unified result) and hands the promise back on CLJS, **after reporting**
+  when the run settles. Chain `then` inside `cljs.test`'s `(async done …)`
+  and finish the test; do not call `report-result!` again. That separate
+  reporting operation is for an already-resolved `story/run` result.
 
 Coverage: the JVM bridge is exercised by
 `re-frame.story.story-is-test` (`story-is-reports-per-assertion-pass`

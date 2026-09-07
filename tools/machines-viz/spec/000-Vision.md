@@ -687,9 +687,9 @@ surface Xray requires to ship its panel (Story reaches the same
 surface through Xray's `[Machines]` chip, not a separate panel).
 **The whole v1.0 foundation has shipped** (the renderer per the rf2-gpzb4 xyflow
 migration + Phase 2; the share-URL / viewer / exporter trio per
-rf2-8d7w1) — see the per-surface "Status" column in
-[`spec/README.md`](./README.md) §Shipped for the authoritative
-implementation-state list.
+rf2-8d7w1) — see the
+[implemented-surface inventory](README.md#implemented-surfaces) for the
+current list and its separately documented test lanes.
 
 - `MachineChart` component (per [`API.md`](./API.md) §MachineChart) —
   **shipped** (`src/.../chart.cljs`; xyflow + elkjs).

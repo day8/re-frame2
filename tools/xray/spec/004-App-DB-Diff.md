@@ -20,12 +20,12 @@ that you weren't expecting (a reset, a clobber).
 
 ## Insight Xray provides
 
-A **slice-centric view** — the slices that changed in this epoch,
-each shown with `before` and `after` values, colour-coded by op
-(`:added` green, `:modified` yellow, `:removed` red). Plus
-**clickable path segments** — every segment of every diff path opens
-a popup inspector at that path-prefix, so the user can inspect
-arbitrary sub-trees of `app-db` on demand.
+A **sectioned state inspector with inline diff** — the focused epoch's
+post-state, with its pre-state carried into the shared inspector for
+added, modified and removed annotations. APP STATE is separate from
+the reserved framework areas; the operator can expand any subtree
+without switching to another panel. Inspector path navigation opens
+the same shared popup machinery used elsewhere in Xray.
 
 This is the **single most-used Xray surface** after the Epoch panel.
 The 400ms yellow → transparent diff-flash on touched slices is the
@@ -33,44 +33,30 @@ attention-cue that keeps the user oriented across cascades.
 
 ## Affordance
 
-App-db tab — slice-centric mini-panels. Each section's breadcrumb
-path renders as individually clickable segments; clicking any
-segment opens an inspector popup at the path-prefix up to and
-including that segment.
+App-db tab — the sectioned state view specified by
+[021 §4](021-Dynamic-Panel-Designs.md#4-the-app-db-panel-state-bridge).
+The lazy inspector carries the diff in place; there is no separate
+changed-slices-only default surface.
 
 ---
 
-The app-db panel is **slice-centric**, not tree-centric. Real app-dbs
-run 1–50MB. Rendering the whole tree on every dispatch competes for
-canvas real estate, virtualisation only partly helps, and it isn't
-what programmers want. Programmers want to see **the slices that
-changed in this epoch**, plus a few slices they've pinned for
-watching.
+The state value is complete, but its DOM is lazy and collapsible.
+Changed nodes remain visible in context instead of being duplicated
+in a second diff list. The former pinned-slices strip is retired
+(§What this replaces); it is not a requirement on the current panel.
 
 ## Default view
 
-A stack of focused slice mini-panels:
+APP STATE comes first, followed by the reserved-area sections from
+`app-db-diff-helpers/current-state-sections`. Each section uses the
+shared `edn-inspector` widget; machine and spawned-instance areas
+fan out by identity, while singleton areas remain single sections.
+See [021 §4.2–§4.3](021-Dynamic-Panel-Designs.md#42-layout-figma-design--rf2-ad7zx)
+for the layout and missing-vs-present pre-image contract.
 
-```
-┌─ [:cart :items]   (modified) ─────────────────────┐
-│   ↑     ↑                                         │
-│   each segment is clickable; click opens the      │
-│   segment-inspector popup at that path-prefix     │
-│                                                   │
-│  before:  [{:id 7 :qty 1}]                        │
-│  after:   [{:id 7 :qty 1} {:id 22 :qty 1}]        │
-└────────────────────────────────────────────────────┘
-
-┌─ [:cart :totals :gross]   (added) ────────────────┐
-│  added:   $48.00                                  │
-└────────────────────────────────────────────────────┘
-```
-
-The panel never renders the whole tree by default. Slice mini-panels
-are bounded by the size of the touched path. A 50MB `app-db` with
-two touched slices renders the same as a 100KB one. Clicking the
-root segment of any breadcrumb opens the popup at `[]` — that's the
-escape hatch for 'show me app-db in its entirety'.
+With a focused epoch, the value is that record's `:db-after` and the
+diff base is its `:db-before`, not today's live db. With no focused
+epoch, the panel can show live state without inventing a pre-image.
 
 ## Changed-paths derivation
 

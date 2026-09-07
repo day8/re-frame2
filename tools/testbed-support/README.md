@@ -27,102 +27,28 @@ any path, on any OS.
 
 ## Story host
 
-`mount-with-hash-routing!` selects the surface from the current hash:
-
-- `#/stories...` mounts the Story shell
-- any other hash mounts the supplied live-app root view
-
-The consumer must create its frame, load its image, and complete its own boot
-before calling the host. The host owns only the React-root handoff and the
-`hashchange` listener. It unmounts the current root before the other surface
-claims `#app`.
-
-The listener handle is stored in a `defonce` atom and explicitly removed before
-each install. This matters during hot reload: recompiling a top-level CLJS
-function changes its JavaScript identity, so `addEventListener` cannot dedupe a
-listener from the previous compile.
-
-The host takes the live-app root view and nothing else:
+Call after the consumer has completed frame/image boot:
 
 ```clojure
 (mount-with-hash-routing! live-app)
 ```
 
-It neither reads nor writes Story configuration. A host that wants
-`:rf.story/project-root` set — an external or non-shadow host relying on the
-client's `editor://` URI fallback rather than on a dev server — calls
-`story/configure!` itself.
+The host switches between the live app and Story on the same `#app` node.
+See the [Story-host contract](spec/README.md#story-host) for hash selection,
+React-root ownership and hot reload. Consumer Story configuration stays with
+the consumer.
 
 ## Open-in-editor server
 
-The JVM namespace is a shadow-cljs `:dev-http` fallback handler. It resolves a
-classpath-relative `file` query parameter against the dev JVM's source paths,
-falls back to the process working directory, and invokes the `launch-editor`
-npm package through Node.
+Wire `re-frame.testbed.open-in-editor-server/handler` as the shadow-cljs
+fallback handler. It resolves source coordinates at request time and prefers
+the local editor endpoint; the browser retains its URI fallback on refusal.
 
-Because this endpoint can open a local file, it accepts launches only when all
-of these conditions hold:
-
-- the request arrives from a **loopback TCP peer** — Ring's `:remote-addr`
-- the request method is `POST`
-- the `Host` header names a loopback host
-- when present, `Origin` also names a loopback host
-
-The peer address is the boundary; the rest is defence in depth. `Host`,
-`Origin` and every `X-Forwarded-*` header are strings the client writes, so a
-remote caller can spell them as loopback — the socket the request arrived on is
-the one fact it cannot choose, and forwarding headers are deliberately ignored
-because a `:dev-http` server is a direct listener. Missing or malformed peer
-addresses are refused. A non-loopback peer reaches nothing here, not even the
-`OPTIONS` preflight.
-
-Accepted peers are the whole `127.0.0.0/8` block, IPv6 `::1` — which
-shadow-cljs reports in its expanded `0:0:0:0:0:0:0:1` spelling — and the
-IPv4-mapped `::ffff:127.0.0.1` a dual-stack socket may report. This matters
-because the testbeds listen beyond loopback: `:dev-http` entries that set no
-`:host` bind `0.0.0.0`, so the endpoint is reachable from the network and only
-the peer check turns those callers away.
-
-Running the testbed on another machine or in a container therefore no longer
-works by pointing a browser at it, and widening the check is not the answer. An
-SSH local port-forward is: `ssh -L 8031:localhost:8031 <host>` makes the tunnel
-itself the caller, so the peer the server sees is genuine loopback and nothing
-needs configuring at either end.
-
-CORS reflects only a validated loopback origin; it never emits `*`. Missing
-files return 422 before Node is spawned so the browser client can fall back to
-its `editor://` URI. The handler lives in a `.clj` file and is never compiled
-into a browser bundle.
-
-A 200 from this endpoint means the whole source coordinate reached an editor,
-not merely that a process exited. `launch-editor` encodes a position per editor
-binary and falls through to a bare-file launch for binaries it has no case for
-— which still exits 0. A coordinate-bearing request that would take that
-fall-through is declined with 422 `editor-position-unsupported`, and the
-browser's `editor://` fallback — which does carry the position — opens the file
-at the right place instead.
-
-Two routes answer that question, because the endpoint does not always choose
-the binary:
-
-- **A named editor.** `editor=windsurf` maps to a command the pinned
-  `launch-editor` has no `get-args.js` case for, so it is declined before Node
-  is spawned. The browser then navigates
-  `windsurf://file/<path>:<line>:<column>`.
-- **No editor at all.** The client sends no `editor` parameter for a nil
-  preference or a `{:custom …}` one, which puts `launch-editor` on auto-detect:
-  it picks a binary from the running process list, and that list reaches
-  editors with no position case (Brackets on every platform; on Windows also
-  `Cursor.exe`, whose capitalised process name the lowercase `cursor` case does
-  not match). The launch shim therefore asks `get-args.js` itself what it would
-  emit before launching, and declines the same way if the coordinate would be
-  dropped. A nil preference then falls back to the default `vscode://` scheme,
-  and a `{:custom …}` preference to its own template — which auto-detect had
-  been ignoring.
-
-A request carrying no line or column is never declined: there is nothing to
-lose, and classpath resolution is worth having. Editors whose position
-`launch-editor` does encode are unaffected and keep preferring the endpoint.
+The [editor contract](spec/README.md#open-in-editor-server) owns the loopback
+boundary and position-preserving launch behavior; the
+[wire contract](spec/README.md#endpoint-wire-contract) names request arguments
+and responses. For a remote dev host, use a local SSH port-forward rather than
+widening the endpoint's peer check.
 
 ## Wiring
 

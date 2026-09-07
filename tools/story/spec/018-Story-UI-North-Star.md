@@ -378,16 +378,16 @@ architecture, not because they are untouchable.
 | Three mode tabs `:dev`, `:docs`, `:test` | CURRENT | Keep as the alpha target. Evidence is a shared spine, not a fourth tab, provided debugger workflows can reach it quickly. | this spec §7 |
 | Right-hand Xray per-panel embed | CURRENT | Reuse Xray's panel ids, mount contract, and pop-out. | `020` §2 |
 | Current docs pane | CURRENT | Evolve with evidence excerpts and fidelity; supersede only through one converged docs path. | `022` §1 |
-| Current test pane/widget/stepper | CURRENT | Evolve to unified result when the substrate run-result lands. | `021` §1 |
+| Current test pane/widget/stepper | CURRENT | Reads the unified result; lifecycle is not a second verdict. | `021` §1 |
 | Toolbar clusters and `reg-mode` chips | CURRENT | Keep the toolbar axis separate from mode tabs unless deliberately superseded. | this spec §7 |
-| `render-variant` as shared render API | BLOCKED | Required by `017-Testing-Story`; canvas can be designed around it now. | this spec §8 |
-| Unified top-level run-result | BLOCKED | UI MAY adapt the current result shape until migration. | `021` §1 |
-| Two-level narrative | BLOCKED | Requires script-span + epoch-beat projection. | `020` §3 |
+| `render-variant` as shared render API | CURRENT | Ships; it and the canvas share resolved props and decorated-hiccup helpers. | this spec §8 |
+| Unified top-level run-result | CURRENT | One status/result/evidence shape. | `021` §1 |
+| Two-level narrative | CURRENT | Script-span + epoch-beat projection and evidence-spine display ship. | `020` §3 |
 | `story/explain` data API | CURRENT | Base compiler/explain data exists where `017-Testing-Story` has landed; panel UI is separate. | `020` §4 |
-| Explain panel UI | TARGET | Net-new Story surface over explain data; does not depend on Xray. | `020` §4 |
+| Explain panel UI | CURRENT | Story surface over explain data; does not depend on Xray. | `020` §4 |
 | Controls widget taxonomy | TARGET | Built incrementally over the current args/schema surface. | `019` §2 |
 | Save current state as variant | CURRENT/TARGET | Existing Story specs own the save affordance; this UI must place it coherently and keep it distinct from failure promotion. | `019` §3 |
-| Story-to-Xray focus API | CURRENT/TARGET | `rf2-crtmq` is closed (opening/focusing Xray is current); StoryUI still has to wire focused links from results/evidence/docs. | `020` §2.1 |
+| Story-to-Xray focus API | CURRENT | `rf2-crtmq` is closed; the evidence spine consumes it for focused links. Additional callers use the same seam. | `020` §2.1 |
 | Reproducibility honesty on human egress | CURRENT/TARGET | Human egress ships freely (not privacy-gated); each command carries a fully/partially/view-only reproducibility label. NOT blocked on a common redaction seam — `rf2-qarwq`'s real scope (AI/MCP + logs) is elsewhere. | `022` §3 |
 | Unified Test-mode result shape | SUPERSEDES | Supersedes [`009-Test-Mode.md`](009-Test-Mode.md) result-reading once the substrate run-result lands. | `021` §1 |
 | Third-party extension surface | FUTURE | Not justified by a primary P1 user story; keep only typed internal seams. | this spec §11 |
@@ -403,7 +403,7 @@ The shell has five conceptual regions:
 |---|---|---|---|
 | Sidebar | CURRENT/TARGET | Navigate stories, variants, workspaces, matrices, saved failures, and search. | this spec §7.1 |
 | Toolbar | CURRENT/TARGET | Chrome-wide context: modes, data, view, debug, recording/share commands. | this spec §7.2 |
-| Canvas | CURRENT/BLOCKED | Render the active variant, eventually through `render-variant`. | this spec §8 |
+| Canvas | CURRENT | Render the active variant with the same resolved props/decorated tree as `render-variant`. | this spec §8 |
 | Controls | CURRENT/TARGET | Edit explicit world inputs and runner/view-state affordances. | `019` |
 | Inspector | CURRENT/TARGET | Host the Xray embed, evidence spine, explain, and selected result/detail panels. | `020` |
 
@@ -491,10 +491,11 @@ Canvas MUST:
 - render cannot-render states explicitly;
 - expose source coordinates where available.
 
-Canvas SHOULD converge on `(story/render-variant target opts)` once the
-substrate ([`017-Testing-Story.md`](017-Testing-Story.md)) lands. Until
-then it MAY adapt the current render path but MUST NOT pretend
-`render-variant` is implemented.
+`(story/render-variant target opts)` is implemented. Canvas and that API
+MUST consume the same compiled view props and decorated render tree;
+the live shell additionally owns its prepare/render/resume lifecycle.
+Sharing those render helpers does not require Canvas to run a second
+programmatic lifecycle on each React render.
 
 Canvas SHOULD provide "inspect rendered view" commands. Opening the full
 Xray shell is CURRENT; focusing a specific Xray panel, epoch, or path is

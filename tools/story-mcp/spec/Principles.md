@@ -322,10 +322,11 @@ documented identically at the call site.
 ### Idempotence on no-dedup-opportunity
 
 A payload with no repeated subtrees deduplicates to a one-entry
-cache (`{:de-dupe.cache/cache-0 <root>}`) whose wire shape is
-slightly larger than the input. The encoder short-circuits the wrap
-in that case via an `empty-payload?` guard — empty collections,
-scalars, and nil pass through unchanged.
+cache keyed by the symbol `de-dupe.cache/cache-0`, whose wrapped wire
+shape would be larger than the input. Shared `dedup-value` detects
+that root-only cache through `no-substitutions?` and returns the
+original payload. Its earlier `empty-payload?` guard also passes
+empty collections, scalars, and nil through unchanged.
 
 ### Error envelopes skip dedup
 
@@ -340,12 +341,8 @@ loses the friendly inspection shape for zero compression win, so
 Tool names in story-mcp's catalogue pick from the verb table at
 [`tools/mcp-conformance/NAMING.md`](../../mcp-conformance/NAMING.md),
 the canonical home for the cross-MCP verb vocabulary
-shared with re-frame2-pair-mcp. The shared verbs the
-pair pins are `get-` / `list-` / `read-` / `discover-` /
-`restore-` / `reset-` / `register-` / `unregister-` / `run-` /
-`preview-` / `record-as-` / `tail-` plus the bare universals
-`dispatch`, `eval-cljs`, `subscribe`, `unsubscribe`. Story-mcp does
-NOT ship `dispatch`, `eval-cljs`, or the streaming pair — its
+shared with re-frame2-pair-mcp. Story-MCP does
+NOT ship `dispatch`, `eval-cljs`, or streaming tools — its
 mutation surface is `register-variant` / `unregister-variant` and
 its runtime is JVM-side without a browser eval substrate.
 
