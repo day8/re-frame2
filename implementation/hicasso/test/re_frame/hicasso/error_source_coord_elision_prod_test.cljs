@@ -81,9 +81,17 @@
             are none here"
     (is (nil? (rf.registrar/lookup :view rf.hicasso.coord-sentinel-source/view-id))))
 
-  (testing "and NO entry anywhere in the `:view` kind carries the alias's
-            slot — a build-wide absence rather than one id's"
-    (is (empty? (filter :hicasso/component
+  (testing "and NO entry anywhere in the `:view` kind holds a minted
+            boundary — a build-wide absence rather than one id's.
+
+            The discriminator is the HEAD rather than the slot key. The
+            alias now publishes under `:handler-fn`, the same key every
+            `reg-view` writes, so a filter on the key would answer
+            non-empty for the Reagent adapter's views and prove nothing
+            about Hicasso. `boundary-head?` reads the `hicassoBoundary`
+            own-property `mint-view!` stamps, so it names exactly the
+            entries this gate is supposed to have erased"
+    (is (empty? (filter (comp rf.hicasso.impl.codec/boundary-head? :handler-fn)
                         (vals (rf.registrar/registrations :view)))))))
 
 (deftest the-view-kind-is-populated-under-prod-so-the-absence-above-is-real

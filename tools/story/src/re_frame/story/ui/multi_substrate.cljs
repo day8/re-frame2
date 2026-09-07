@@ -36,7 +36,7 @@
 
       (story/register-substrate! :hicasso
         (fn [_variant-id view-id args]
-          (if-let [head (:hicasso/component (rf/handler-meta :view view-id))]
+          (if-let [head (rf/view view-id)]
             (h/as-element [head args])
             [:div (str \":component \" (pr-str view-id)
                        \" is not registered as a hicasso view\")])))
@@ -45,11 +45,17 @@
 
   **`h/defview` publishes the keyword a story names** (rf2-5qaf4). The
   declaration registers one `:view` entry under `(keyword \"<ns>\" \"<sym>\")`
-  carrying the minted head at `:hicasso/component`. It is an AUTHORING-TIME
-  ALIAS — debug-gated, and with NO `:handler-fn`, so `rf/view` answers nil
-  for it and this render fn reads the slot instead. A story therefore names
-  a Hicasso view exactly as it names a Reagent one, and `:component` stays
-  a keyword everywhere.
+  carrying the minted head at `:handler-fn` — the one executable slot every
+  substrate's `:view` entry uses — so `rf/view` resolves a Hicasso view
+  exactly as it resolves a Reagent or a UIx one (rf2-kuky.60). This recipe
+  used to read a private `:hicasso/component` off `rf/handler-meta`,
+  because the entry deliberately carried no `:handler-fn` and `rf/view`
+  answered nil; that is why the line above is now the framework's own
+  lookup rather than a second descriptor shape a host has to know. The
+  alias stays debug-gated, so `rf/view` answers nil for a Hicasso view in a
+  release build — the documented answer, and no concern for a Story deck,
+  which is a dev artefact. A story therefore names a Hicasso view exactly
+  as it names a Reagent one, and `:component` stays a keyword everywhere.
 
   **Resolution is LATE, per render, and that is not incidental to the
   shape.** Re-evaluating a `defview` replaces the entry behind the same id
@@ -123,6 +129,7 @@
   via `register-substrate!`. Story core consequently does not pull
   UIx into the classpath."
   (:require [clojure.string :as str]
+            [goog.object :as gobj]
             [reagent.core :as r]
             [re-frame.core :as rf]
             [re-frame.story.args :as rf.story.args]
@@ -224,16 +231,53 @@
 
 ;; ---- Reagent built-in substrate -----------------------------------------
 
+(defn- foreign-substrate
+  "The authoring substrate `head` belongs to, when it is one this hiccup
+  tree cannot mount; nil when the head is Reagent-mountable.
+
+  Each React-shaped authoring layer stamps an own-property on the head it
+  mints — Hicasso's `mint-view!` sets `hicassoBoundary`, the UIx adapter's
+  shell sets `uix-component?`. Two property reads, and Story core keeps
+  its independence from both: requiring either namespace to ask a
+  yes/no question would put the host's dependency in Story itself, which
+  is the same reason no installer ships for those substrates.
+
+  This became necessary when Hicasso started publishing its boundary
+  under `:handler-fn` (rf2-kuky.60). Before that, `rf/view` answered nil
+  for a Hicasso view and the diagnostic below fell out for free. Now the
+  lookup succeeds and the head is a React component type, so splicing it
+  into a Reagent tree would call a plain function with the wrong ABI —
+  the failure this guard converts into a sentence."
+  [head]
+  (cond
+    (gobj/get head "hicassoBoundary") :hicasso
+    (gobj/get head "uix-component?")  :uix))
+
 (defn- reagent-render
   "Default `:reagent` substrate render fn. Looks up the view via
   `re-frame.core/view` (the framework's late-bind view lookup) and
-  renders it inside a hiccup vector."
+  renders it inside a hiccup vector.
+
+  `rf/view` answers the installed substrate's mountable head, which is not
+  always a head THIS substrate can mount — see `foreign-substrate`."
   [_variant-id view-id eff-args]
-  (let [resolved (rf/view view-id)]
-    (if resolved
-      [resolved eff-args]
-      [:div {:style {:color (:text-secondary rf.story.theme.colors/tokens) :font-style "italic"}}
-       (str ":component " (pr-str view-id) " is not registered as a view")])))
+  (let [resolved   (rf/view view-id)
+        foreign    (some-> resolved foreign-substrate)
+        diagnostic (fn [message]
+                     [:div {:style {:color      (:text-secondary rf.story.theme.colors/tokens)
+                                    :font-style "italic"}}
+                      message])]
+    (cond
+      (nil? resolved)
+      (diagnostic (str ":component " (pr-str view-id) " is not registered as a view"))
+
+      foreign
+      (diagnostic (str ":component " (pr-str view-id) " is registered as a " foreign
+                       " view, which the :reagent substrate cannot mount — declare "
+                       foreign " in this variant's :substrates and register its renderer"))
+
+      :else
+      [resolved eff-args])))
 
 (defn install-reagent-substrate!
   "Register the default `:reagent` substrate. Idempotent. Called from

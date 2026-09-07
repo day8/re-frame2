@@ -118,7 +118,7 @@
     :submitting
     ;; The :auth/busy tag is how the view knows to dim the inputs and re-label
     ;; the button while the request is in flight — it asks
-    ;; @(rf/subscribe [:rf.machine/has-tag? :walkthrough.login/flow :auth/busy]) rather than checking for
+    ;; @(subscribe [:rf.machine/has-tag? :walkthrough.login/flow :auth/busy]) rather than checking for
     ;; this exact state by name. Ask what's true, not where you are.
     ;; See docs/machines/glossary.md#state-tag.
     {:tags  #{:auth/busy}

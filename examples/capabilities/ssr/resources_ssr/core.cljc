@@ -247,10 +247,10 @@
 ;; See docs/ssr/glossary.md#render-to-string.
 
 (rf/reg-view ^{:rf/id :pages/articles} articles-page []
-  (let [state @(rf/subscribe [:rf/resource
-                              {:resource :articles/list
-                               :scope    :rf.scope/global
-                               :params   {}}])]
+  (let [state @(subscribe [:rf/resource
+                           {:resource :articles/list
+                            :scope    :rf.scope/global
+                            :params   {}}])]
     [:div.page
      [:h1 "Recent articles"]
      (cond
