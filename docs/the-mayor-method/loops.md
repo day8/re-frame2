@@ -853,6 +853,22 @@ reads every open item, so this is where the check belongs in BULK, before a disp
 on it. The sweep is one command — for each open id, search the trunk's merged history for that
 id — and it costs a minute against a backlog of any size.
 
+**Search the whole commit MESSAGE, not the subject line.** Formatting that history to subjects
+alone is the obvious way to write this sweep, and it fails OPEN. A change whose subject describes
+the work without naming the item returns zero — and zero is the answer that causes a dispatch,
+indistinguishable on screen from a correct one. Measured: a sweep in that form reported an item
+outstanding whose work had already merged, and a worker was spent establishing that; re-running it
+over full messages surfaced four further open items already named on the trunk, one of them
+verified done at source minutes later. Where an identifier goes is a house style nobody enforces,
+so assume the body.
+
+**Two mechanics make the corrected form right rather than merely wider.** A body is multi-line, so
+a line-oriented search over full messages splits one change across several records and attributes
+an identifier to a neighbouring commit — flatten each change to one record before matching. And
+where identifiers share a prefix, a fixed-string match for the shorter one also matches every
+longer sibling, inflating a hit count for an item that has none; anchor the match so the
+identifier must end where it ends.
+
 **But a matching commit is a POINTER, never a closure.** Some hits are partial work; some are
 the very change the item was filed AGAINST, which is a fact the item's own title usually
 carries in a word like *still*. Closing on a subject match is the same error one level up —
