@@ -117,13 +117,13 @@ Here's the part people are usually nervous about, and it turns out to be the eas
 
 Three rules govern every UIx component, and once they click you won't think about them again:
 
-- **Read subs with `use-sub`.** It's a React hook built on `useSyncExternalStore`, which *is* the substrate's native "re-render when this changes" mechanism — so a re-frame2 subscription behaves like any other hook your team already trusts. It resolves the [frame](../glossary.md#frame) from the surrounding provider; the 2-arg form `(use-sub frame-id [:q …])` pins the read to an explicit frame instead.
+- **Read subs with `use-sub`.** It's a React hook built on `useSyncExternalStore`, which *is* the substrate's native "re-render when this changes" mechanism — so a re-frame2 subscription behaves like any other hook your team already trusts. It resolves the [frame](../glossary.md#frame) from the surrounding provider; the opts form `(use-sub [:q …] {:frame f})` — the same one `subscribe` takes — pins one read to an explicit frame instead.
 - **Hold frame ops with `use-frame`.** `(use-frame)` is a React hook that returns the [frame api](../glossary.md#capture-frame) — the ops map `{:frame :dispatch :dispatch-sync :subscribe}` — for the surrounding provider's frame; you pull `dispatch` (or `dispatch-sync`) off it and close over it. It is exactly what `(rf/capture-frame)` returns, in hook position. Grab it during render; never reach for a bare `rf/dispatch` inside a callback. (The next step explains exactly why.)
 - **There is no `reg-view` macro here.** That sugar is Reagent-only. UIx components are plain `defui`. (`rf/reg-view*` exists for the rare component that needs a registry id, but you'll reach for it about as often as you reach for `forwardRef`.)
 
 ??? info "For JavaScript developers"
 
-    `use-sub` *is* `useSelector`. If you've written a `useSelector`, you've written this — it's a hook over `useSyncExternalStore`, the same primitive react-redux uses under the hood. The 2-arg explicit-frame form is the same escape hatch Reagent gives you with `@(rf/subscribe [:q] {:frame f})`.
+    `use-sub` *is* `useSelector`. If you've written a `useSelector`, you've written this — it's a hook over `useSyncExternalStore`, the same primitive react-redux uses under the hood. The explicit-frame opts form is the same escape hatch Reagent gives you, spelled the same way: `(use-sub [:q] {:frame f})` beside `@(rf/subscribe [:q] {:frame f})`.
 
 ## Step 3 — Why callbacks dispatch off the frame api
 

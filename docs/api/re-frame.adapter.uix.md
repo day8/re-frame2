@@ -2,7 +2,7 @@
 
 The UIx adapter connects re-frame2's substrate-agnostic core to UIx, a hooks-first React substrate. It exposes:
 
-- the hooks `use-sub`, `use-frame`, and `use-current-frame`;
+- the hooks `use-sub` and `use-frame`;
 - the `frame-provider` (SCOPE) + `frame-root` (ENSURE) components;
 - the `client-root` / `render!` / `unmount!` root trio your entry namespace mounts through;
 - the `adapter` spec map you pass to `init!`;
@@ -91,15 +91,15 @@ Three things hold for that head, and they are the point of using the registry ra
 - **Kind**: UIx hook (function)
 - **Signature**:
   ```clojure
-  (use-sub query-v) → current sub value
-  (use-sub frame-kw query-v) → current sub value
+  (use-sub query-v)                  → current sub value
+  (use-sub query-v {:frame target})  → current sub value, from `target`
   ```
-- **Description**: Subscribe inside a UIx component. This is the hook-shaped equivalent of `subscribe`.
+- **Description**: Subscribe inside a UIx component. This is the hook-shaped equivalent of `subscribe`, and it carries the same name `re-frame.hicasso.native` publishes for a React island under Hicasso: one value-hook name for every React function component. The verb `subscribe` returns a subscription; this noun returns its value.
 
   Returns the current sub value and re-renders the calling component when the value changes.
 
   - The 1-arg form resolves the frame through the standard chain: `with-frame` dynamic scope first, then the surrounding `frame-provider` (SCOPE) / `frame-root` (ENSURE) via React context. It raises `:rf.error/no-frame-context` when neither is in scope (there is no `:rf/default` floor).
-  - The 2-arg form pins to an explicit frame-id, bypassing the chain.
+  - The opts form pins ONE read to an explicit frame, bypassing the chain — the same `{:frame target}` opts map `subscribe` takes, where `target` is a frame-id keyword or a live frame value. `:frame` is **required** there: the opts form is the explicit read and the 1-arity is the ambient one. Where a whole subtree shares a frame, scope it with `frame-provider {:frame target}` and read with the 1-arity instead.
 - **Example**:
   ```clojure
   (defui cart-total []
@@ -129,18 +129,12 @@ Three things hold for that head, and they are the point of using the registry ra
       ($ :button {:on-click #(dispatch [:counter/inc])} "+")))
   ```
 
-### `use-current-frame`
-
-- **Kind**: UIx hook (function)
-- **Signature**:
-  ```clojure
-  (use-current-frame) → frame-kw, or :rf.frame/no-provider
-  ```
-- **Description**: Returns the frame keyword supplied by the surrounding `frame-provider` (SCOPE) or `frame-root` (ENSURE) — both install the one shared React context this read consults. It exists for components that thread the frame through hand-written child callbacks.
-
-  This hook reads the React-context tier only. When neither `frame-provider` nor `frame-root` sits above, it returns the no-provider sentinel `:rf.frame/no-provider` — never nil, and never a synthesised default. It does not consult the `with-frame` dynamic var; for the full resolution chain, use `rf/current-frame-id`.
-
-> **NOT USED** — no call sites found in `implementation/`, `examples/`, or `tools/`.
+> **Asking which frame you are in.** There is no raw `useContext` reader on this
+> adapter. `(:frame (use-frame))` is the hook-shaped answer and resolves through
+> the full chain; `(rf/current-frame-id)` is the imperative one. The narrow
+> context read this namespace used to publish handed back the no-provider
+> sentinel `:rf.frame/no-provider` as if it were an answer, and was retired
+> under rf2-kuky.57.
 
 ## Components
 
@@ -255,23 +249,6 @@ The Root these functions manage is minted by the shared React spine through `rea
 
 ## Adapter seams
 
-### `wrap-view`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (wrap-view id metadata user-fn) → wrapped fn
-  ```
-- **Description**: Adapter-side source-coord injection: wraps a component head so its rendered root DOM element carries `data-rf2-source-coord` in debug builds (see the Notes below). Most users register through `reg-view*`; `wrap-view` is for code-gen and library scaffolding.
-- **Example**:
-  ```clojure
-  ;; Code-gen / scaffolding seam: wrap a component head so its root DOM element
-  ;; carries data-rf2-source-coord (dev only; elided in production builds).
-  (def wrapped-row
-    (uix-adapter/wrap-view ::row {:line 42 :column 7}
-                           (fn [_props] ($ :div "row"))))
-  ```
-
 ### `flush-views!`
 
 - **Kind**: function
@@ -307,7 +284,7 @@ The Root these functions manage is minted by the shared React spine through `rea
 ## Notes
 
 - **Shared React Context.** The `frame-provider` in both adapters (Reagent and UIx) consumes the same `createContext` object, factored into `re-frame.adapter.context` (a CLJS-only file in core). There is exactly one Context, not two. A mixed-substrate app therefore composes: a UIx `frame-provider` can wrap a Reagent subtree, and vice versa.
-- **DOM source-coord annotations.** Adapters inject `data-rf2-source-coord` on every registered view's root element; `wrap-view` is the explicit seam for that injection. The attribute is gated on debug builds and elided from production `:advanced` builds via dead-code elimination, so it costs no shipped bytes. It powers click-to-source in Xray and re-frame2-pair. The full contract is in the [Observability concept guide](../core/observability.md).
+- **DOM source-coord annotations.** Adapters inject `data-rf2-source-coord` on every registered view's root element. `rf/reg-view*` is the door: registration consults the `:adapter/wrap-view` late-bind hook, which is the whole of the injection seam (this adapter published a second, redundant door onto it until rf2-kuky.57). The attribute is gated on debug builds and elided from production `:advanced` builds via dead-code elimination, so it costs no shipped bytes. It powers click-to-source in Xray and re-frame2-pair. The full contract is in the [Observability concept guide](../core/observability.md).
 - **Controlled inputs use React's own implementation.** UIx can build a `<input>` two ways, and unset it chooses by asking whether Reagent happens to be on the classpath — so adding the Reagent adapter beside UIx used to change how the UIx app's inputs behaved, silently. Requiring `re-frame.adapter.uix` pins the choice to React's own path. See the note below for what that means for the caret.
 
 ## Controlled inputs and the caret

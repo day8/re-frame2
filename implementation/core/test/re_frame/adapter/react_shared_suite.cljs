@@ -6529,7 +6529,7 @@
 ;; 3-arity `[frame-id query-v opts]` was retired with the grace-period
 ;; mechanism: the cache disposes synchronously on the 1 → 0 transition
 ;; and there are no more per-call overrides. The spine cleanup at
-;; `re-frame.substrate.spine/use-sub-effect` is the only
+;; `re-frame.substrate.spine/use-subscribe-effect` is the only
 ;; production call site whose arity is invisible to the type checker
 ;; (it goes through the spy in the rf2-mwft2 stable-deps-key test).
 ;; This assertion locks the call-site arity so a future drift — adding

@@ -33,7 +33,7 @@
 
   ## The term that was priced, and the schedule on which it is recovered
 
-  `re-frame.substrate.spine/use-sub` USED TO take a BALANCED
+  `re-frame.substrate.spine/use-subscribe` USED TO take a BALANCED
   render-phase round trip — `rf.subs/subscribe` immediately followed by
   `rf.subs/unsubscribe` (the rf2-es09qq net-zero rule) — so a render that
   never commits retained no ref-count. For a query with NO live cache
