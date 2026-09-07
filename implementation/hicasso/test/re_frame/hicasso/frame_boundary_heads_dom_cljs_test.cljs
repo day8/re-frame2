@@ -58,12 +58,15 @@
 (rf/reg-event ::seed (fn [_ [_ label]] {:db {:label label}}))
 (rf/reg-event ::relabel (fn [{:keys [db]} [_ label]] {:db (assoc db :label label)}))
 
-;; The seeding event fires an EFFECT rather than writing the db directly, so
-;; `:fx-overrides` is what decides what lands. That is the whole point of W2:
-;; `:fx-overrides` could not ride the old root-door config at all, which is why
-;; the one shipped example had to call `rf/make-frame` first and mount to JOIN.
-(rf/reg-event ::stamp-via-fx (fn [_ _] {::stamp-fx :real}))
-(rf/reg-fx ::stamp-fx (fn [_] nil))
+;; The seeding event fires an EFFECT rather than writing the db, so
+;; `:fx-overrides` is what decides which handler runs. That is the whole point
+;; of W2: `:fx-overrides` could not ride the old root-door config at all, which
+;; is why the one shipped example had to call `rf/make-frame` first and mount to
+;; JOIN.
+(defonce ^:private !fx-seen (atom nil))
+
+(rf/reg-event ::stamp-via-fx (fn [_ _] {:fx [[::stamp-fx :fired]]}))
+(rf/reg-fx ::stamp-fx (fn [_ _] (reset! !fx-seen :real)))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
@@ -177,19 +180,23 @@
   (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (let [_ (bare!)
+          _ (reset! !fx-seen nil)
           a (rf.hicasso/mount! (rf.hicasso.impl.mount/fresh-container!) {}
               [rf.hicasso/frame-root
                {:id             ensured
                 :initial-events [[::seed "seeded"] [::stamp-via-fx]]
-                :fx-overrides   {::stamp-fx (fn [_] (rf/dispatch-sync [::relabel "overridden"]))}}
+                :fx-overrides   {::stamp-fx (fn [_ _] (reset! !fx-seen :override))}}
                [panel {:tag "opts"}]])]
       (try
         (testing "the override is LIVE on the ensured frame, and it ran during
                   the seed — so `:fx-overrides` reached `make-frame` untouched"
-          (is (= "overridden" (text-at a ".label"))
+          (is (= :override @!fx-seen)
               (str "the `:fx-overrides` entry did not take: the seeding event's "
-                   "effect ran the real handler. Got "
-                   (pr-str (text-at a ".label")))))
+                   "effect ran " (pr-str @!fx-seen) " rather than the override")))
+
+        (testing "and the ordinary options went in beside it, on the SAME head:
+                  the seed painted"
+          (is (= "seeded" (text-at a ".label"))))
         (finally
           (rf.hicasso/unmount! a)
           (detach! a)

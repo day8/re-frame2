@@ -251,7 +251,11 @@
         (testing "the door re-renders the EXISTING root — the new tree is on
                   the page and the boundary body ran again"
           (rf.hicasso.test.runtime/reset-body-runs!)
-          (rf.hicasso/render! a [panel {:tag "second"}])
+          ;; The frame boundary rides EVERY render of a root, not only the
+          ;; first: `render!` reconciles against the tree on the page, and a
+          ;; tree that dropped the boundary would drop the frame with it.
+          (rf.hicasso/render! a [rf.hicasso/frame-root {:id frame-a}
+                                 [panel {:tag "second"}]])
           (is (= "second" (attr-at a ".panel" "data-tag")))
           (is (pos? (rf.hicasso.test.runtime/body-runs))
               "the re-render did not run the boundary body"))
