@@ -1761,6 +1761,61 @@
         (is (= "bob-jwt" (get-in (rf/app-db-value f) [:auth :token]))
             "bob's token is untouched by the old account's reply")))))
 
+(deftest settings-reply-from-an-old-account-is-refused-after-the-new-one-opens-settings
+  (testing "examples/real-apps/realworld_resources — the account-switch refusal
+            survives BOB OPENING SETTINGS before alice's parked save replies.
+            Route entry runs :settings/load, which rebuilds the whole draft
+            slice from whoever is signed in; an ownership record living on that
+            slice would now read 'bob' and accept alice's reply. The record is
+            captured at submit into [:settings-save-owner] instead, which no
+            route entry writes (rf2-2ape audit residual, PR #9374)"
+    (with-new-frame [f (settings-frame!)]
+      (let [alice-args (park-a-settings-save! f "alice")]
+        (is (= "alice" (:settings-save-owner (rf/app-db-value f)))
+            ":settings/submit captured the issuing session's username")
+        ;; alice logs out, bob signs in — and bob visits Settings, which is the
+        ;; real /settings route's :on-match dispatch.
+        (rf/dispatch-sync [:auth/clear-session] {:frame f})
+        (rf/dispatch-sync [:auth/store-session {:username "bob" :email "b@b.c" :token "bob-jwt"
+                                                :bio nil :image nil}] {:frame f})
+        (rf/dispatch-sync [:settings/load] {:frame f})
+        (is (= "alice" (:settings-save-owner (rf/app-db-value f)))
+            "bob's route entry did NOT overwrite the parked save's owner")
+        (rf/dispatch-sync [:rf.route/navigate {:to :realworld/home}] {:frame f})
+        ;; alice's save finally succeeds.
+        (reply-success! alice-args
+                        {:user {:username "alice" :email "a@b.c" :token "alice-jwt-2"
+                                :bio "A brand new bio" :image nil}}
+                        f)
+        (is (= "bob" (get-in (rf/app-db-value f) [:auth :user :username]))
+            "bob is still the signed-in user")
+        (is (= "bob-jwt" (get-in (rf/app-db-value f) [:auth :token]))
+            "alice's fresh token did not land over bob's")
+        (is (not= :realworld.profile/show (route-id f))
+            "no stale navigation to the departed account's profile")
+        (is (nil? (:settings-save-owner (rf/app-db-value f)))
+            "the refusal retires the ownership record with the save")))))
+
+(deftest settings-success-still-lands-after-a-mid-save-detour-back-through-settings
+  (testing "examples/real-apps/realworld_resources — the same-session case the
+            refusal must not catch: alice parks a save, wanders off and comes
+            BACK to Settings (re-seeding the draft slice), and her own reply is
+            still accepted (rf2-2ape audit residual)"
+    (with-new-frame [f (settings-frame!)]
+      (let [alice-args (park-a-settings-save! f "alice")]
+        (rf/dispatch-sync [:rf.route/navigate {:to :realworld/home}] {:frame f})
+        (rf/dispatch-sync [:settings/load] {:frame f})
+        (reply-success! alice-args
+                        {:user {:username "alice" :email "a@b.c" :token "alice-jwt-2"
+                                :bio "A brand new bio" :image nil}}
+                        f)
+        (is (= "A brand new bio" (get-in (rf/app-db-value f) [:auth :user :bio]))
+            "the owner's own reply is still folded in after a detour")
+        (is (= :realworld.profile/show (route-id f))
+            "and still navigates to her profile")
+        (is (nil? (:settings-save-owner (rf/app-db-value f)))
+            "the settled save retires its ownership record")))))
+
 (deftest follow-author-continuation-restales-the-detail-article
   (testing "examples/real-apps/realworld_resources — :ui/follow-author fires the follow
             mutation with :reply-to [:ui/follow-author-replied slug]; on settle the
