@@ -691,9 +691,16 @@ what `rf/reg-view` derives from its own symbol, so one convention answers for bo
 substrates; the coordinate is stored at the top level of the registration
 metadata, where `(rf/handler-meta :view id)` already reads it, and the author's
 `:doc` rides along so the registrar's `:rf.warning/missing-doc` does not fire on
-a documented view. The entry is an alias and carries no `:handler-fn`: `rf/view`
-answers *the registered render fn* and a boundary is a React component, so
-`(rf/view id)` answers nil deliberately and the head is at `:hicasso/component`.
+a documented view. The head is stored at `:handler-fn`, the one executable slot
+every substrate's `:view` entry uses, so `(rf/view id)` answers a boundary the
+way it answers a Reagent or a UIx head (rf2-kuky.60). What comes back is
+`identical?` to what the `def` bound: `re-frame.views/view-head` returns a
+`:view` slot it did not itself build exactly as stored, so nothing composes,
+wraps or componentises a boundary that already is a React component. The entry
+carried a private `:hicasso/component` and no `:handler-fn` until rf2-kuky.60,
+on the reasoning that `rf/view` answers *the registered render fn*; the answer
+was that `view-head`'s pass-through makes the ordinary key free, and one lookup
+on every substrate is worth more than a contract sentence that was itself stale.
 It publishes resolvability, not identity — mounted boundary identity is still
 keyed by the read set and unnamed, which is what `re-frame.hicasso.tool` answers
 the backward question with. It goes through `registrar/register!` rather than
@@ -703,11 +710,14 @@ entry, and its first step consults the `:adapter/wrap-view` late-bind hook at
 registration time, while a `defview` is declared at namespace load, which
 routinely precedes `rf/init!`. A plain registration is adapter-neutral by
 construction. Re-evaluating a `defview` re-registers the same id and the
-registrar replaces the slot; what the entry has to say out loud is where its
-executable identity lives, and `:executable-key :hicasso/component` says it,
-because `register!` derives `:rf.registry/handler-replaced`'s `:different-fn?`
-from `:handler-fn` by default, and nil against nil would report a genuine swap of
-one component for another as an idempotent reload (`view_alias_registry_cljs_test`;
+registrar replaces the slot, and it reports that replacement correctly with
+nothing said out loud: `register!` derives `:rf.registry/handler-replaced`'s
+`:different-fn?` from `:handler-fn` by default, which is where the head now
+lives. The entry used to need an `:executable-key :hicasso/component` to point
+that derivation at its private slot, because nil against nil reports a genuine
+swap of one component for another as an idempotent reload — the second defect
+rf2-kuky.60 retired, and the reason `registrar/executable-identity` now has no
+caller in the tree naming a key (`view_alias_registry_cljs_test`;
 the whole door leaves the bundle under `goog.DEBUG=false`,
 `error_source_coord_elision_prod_test`).
 

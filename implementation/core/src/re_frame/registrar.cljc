@@ -545,15 +545,27 @@
   identity lives SOMEWHERE ELSE says where, by naming the key under
   `:executable-key`.
 
-  One registration needs that today and it is the reason this indirection
-  exists. Hicasso's authoring-time `:view` alias
-  (`re-frame.hicasso.impl.collector/publish-view-alias!`, rf2-5qaf4)
-  carries its minted head at `:hicasso/component` and deliberately has NO
-  `:handler-fn` — a boundary is a React component, not a hiccup-returning
-  render fn, so `rf/view` must keep answering nil for it. Comparing
-  `:handler-fn` on that shape compares nil with nil, which reports
-  `:different-fn? false` for a real component swap and tells every
-  hot-reload consumer the reload was idempotent when it was not.
+  NO registration in the tree needs that today, and the one that did is
+  worth recording because it is what the indirection was built for.
+  Hicasso's authoring-time `:view` alias
+  (`re-frame.hicasso.impl.collector/publish-view-alias!`, rf2-5qaf4) used
+  to carry its minted head at a private `:hicasso/component` with NO
+  `:handler-fn`, on the reasoning that a boundary is a React component
+  rather than a hiccup-returning render fn. Comparing `:handler-fn` on
+  that shape compares nil with nil, which reports `:different-fn? false`
+  for a real component swap and tells every hot-reload consumer the
+  reload was idempotent when it was not — so the alias named its private
+  slot here instead.
+
+  rf2-kuky.60 moved that head to `:handler-fn`, because `re-frame.views/
+  view-head` returns a `:view` slot it did not itself build exactly as
+  stored: the ordinary key costs the boundary nothing and buys
+  `(rf/view id)` an answer on every substrate. The default derivation is
+  therefore correct for it, and this indirection is now unexercised
+  rather than wrong. It stays — it is two `get`s and no branch, it is the
+  documented seam for the next registration that mints its executable
+  somewhere else, and removing it would put the next such registration
+  back on the silent-idempotent-reload defect above.
 
   It POINTS at the slot rather than duplicating the head into a second
   one: one home for the value, and a registrar that stays ignorant of

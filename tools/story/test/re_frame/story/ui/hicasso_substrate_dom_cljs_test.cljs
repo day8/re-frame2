@@ -542,8 +542,11 @@
             path, which is what makes registering into it worth anything.
             A variant declaring `:substrates #{:hicasso}` must reach the
             fn registered under `:hicasso` — and must NOT fall through to
-            `rf/view`, which answers nil for a hicasso alias and would
-            degrade to the missing-view diagnostic."
+            the `:reagent` branch, which since rf2-kuky.60 RESOLVES a
+            hicasso alias through `rf/view` and refuses it with the
+            foreign-substrate diagnostic. Before that flip the fall-through
+            degraded to the missing-view diagnostic instead; either way it
+            is a wrong pane, which is what this row holds."
     (rf.story/register-substrate! :hicasso hicasso-render)
     (let [tree (ready-tree :story.hicasso/card)
           el   (find-react-element tree)]

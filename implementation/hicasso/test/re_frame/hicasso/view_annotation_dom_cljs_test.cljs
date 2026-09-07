@@ -16,10 +16,11 @@
   The Reagent counterpart
   (`implementation/adapters/reagent/test/re_frame/view_id_attr_cljs_test.cljs`)
   reads the annotated hiccup straight back out of `(rf/view id)`, because
-  there the registered thing IS a hiccup-returning render fn. A Hicasso
-  boundary is a React component and `(rf/view id)` answers nil for it
-  deliberately, so there is no hiccup to read back; and the claim worth
-  proving is in any case the consumers' one — Xray's hover-highlight and
+  there the registered thing IS a hiccup-returning render fn. `(rf/view
+  id)` answers a Hicasso view too (rf2-kuky.60), but what it answers is a
+  React component rather than a render fn, so there is still no hiccup to
+  read back without mounting; and the claim worth proving is in any case
+  the consumers' one — Xray's hover-highlight and
   Pair's `ui/read` hold a DOM NODE and ask what view painted it. So the
   assertions here mount and query, which also proves the attributes
   survive the codec's prop conversion rather than merely being present in
