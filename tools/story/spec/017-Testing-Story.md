@@ -2660,6 +2660,35 @@ runtime dependency (the stub install is a runtime concern for running a
 `:network` variant, so the dep rides Story's main `:deps`, not the `:test`
 alias).
 
+#### One install, per-frame replies
+
+The helper registers **one** global stub fx id over a route map captured at
+install time, and its install stack is snapshot/restore (LIFO), not a merge.
+An install-per-variant would therefore make the second mounted variant's
+routes answer for both — the silent cross-variant overwrite. Story's
+mount/destroy order is not LIFO either, so it cannot balance that stack
+per variant.
+
+So the runner (`re-frame.story.network`) installs **once** and hands the
+helper a route map that resolves `[method url]` against
+`{frame-id → routes}` keyed on the frame in flight — legitimate because the
+helper reads its map with a plain `get` (any `ILookup` will do) and because
+`re-frame.router` binds the envelope's frame for the whole handler chain,
+the fx walk included. Ownership is per frame: the runner takes it before
+allocation — ahead of any `:frame-setup` `:init`, loader, `:setup` or script
+effect — and frame teardown (`destroy!` / `destroy-inline!`) releases exactly
+that one frame's fixture. The single install/uninstall pair is refcounted by
+that registry: installed when it goes empty → non-empty, uninstalled when it
+returns to empty.
+
+Two consequences the surface depends on. Two variants mounted at once
+stubbing the SAME url with DIFFERENT replies each keep their own; and a
+frame owning no fixture (or a request outside any frame) resolves to no
+route, so the helper's own "no stub matched" transport failure still fires
+unchanged. The lowered fx id stays `:rf.http/managed-test-stub`, so the
+recorded `:fx-decisions` redirect and the artifact replay path are
+unaffected.
+
 ### What the compiler emits
 
 When a variant's resolved (merged + arg-substituted) `:network` route map
