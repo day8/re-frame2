@@ -4901,7 +4901,18 @@
       (is (= true (get-in eff [:settings :enabled?]))
           "the sibling the caller never named is untouched")
       (is (= {:settings {:title "Edited" :enabled? true}} eff)
-          "no mixed-key residue survives the round trip"))))
+          "no mixed-key residue survives the round trip")
+      ;; MEASURED LIMIT of this particular observation, recorded because a
+      ;; reader would otherwise take it for the strongest of the three.
+      ;; With the alignment neutered, `:effective-args` deep-merges to
+      ;; `{:settings {:title "Nested title" :enabled? true "title"
+      ;; "Edited"}}` — and BOTH keys encode to the JSON member "title", so
+      ;; the last one wins on the way back and this projection reads
+      ;; IDENTICALLY to the repaired one. So these assertions witness the
+      ;; ingress route but do NOT discriminate the bug; the hash control in
+      ;; `ingress-nested-override-reaches-snapshot-identity` is the one that
+      ;; does, and it was confirmed to go red under exactly that fault.
+      )))
 
 (deftest ingress-nested-override-reaches-run-variant
   (testing "JSON ingress: run-variant runs the INTENDED tuple, same as the native call (rf2-49o8)"
