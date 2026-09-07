@@ -43,8 +43,14 @@
     (d) the `:exception` object is DROPPED under `:rf.egress/public-error`;
     (e) FAIL-CLOSED: a frame with no `:errors` policy routes nothing to a
         sink; a FRAMELESS (`:frame nil`) record routes nothing to a sink
-        (it has no frame-owned policy by definition) yet STILL reaches the
-        corpus-wide listener;
+        yet STILL reaches the corpus-wide listener. Both arms hold here
+        because NO PROCESS DEFAULT IS DECLARED in this suite — since
+        rf2-kuky.67 a frame omitting `:errors` inherits the default's, and a
+        frameless record reaches the default under an explicitly nil
+        governing frame. What survives unconditionally is the narrower
+        claim: no frame's policy is borrowed for either. The default's own
+        arms are pinned by
+        `re-frame.observability-process-default-cljs-test`;
     (f) a buggy (throwing) sink is isolated — the corpus listener + sibling
         sinks still receive the record.
 
