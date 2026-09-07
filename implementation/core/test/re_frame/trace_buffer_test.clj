@@ -161,8 +161,8 @@
           ":rf/default's ring stays within its slot cap"))))
 
 (deftest ^:requires-debug frame-isolation-trace-events-carry-only-their-own-frame
-  ;; Re-homed from the retired `group-by-event-with-events` projection
-  ;; (rf2-kuky.53). That fn existed so a consumer holding an ARBITRARY
+  ;; Re-homed from the arbitrary-stream event-bundle projection retired by
+  ;; rf2-kuky.53. That fn existed so a consumer holding an ARBITRARY
   ;; event stream could group by `[frame dispatch-id]` rather than by
   ;; `:rf.trace/dispatch-id` alone — dispatch ids are unique only WITHIN
   ;; a frame, so the weaker key merges two frames' runs and attaches each
