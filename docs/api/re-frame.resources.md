@@ -822,6 +822,6 @@ Cache *entries* (durable facts) and work-ledger *attempts* (in-flight records) a
 - [Glossary](../resources/glossary.md) — the resources and server-state vocabulary in one place.
 - [EP-0003 — Resource Queries](../EP/EP-0003-resource-queries.md) — rationale and prior-art benchmark.
 - [Migration: re-frame-query → resources](../../migration/from-re-frame-v1/re-frame-query-to-resources.md) — moving off `shipclojure/re-frame-query` or a hand-rolled Pattern-RemoteData cache.
-- [re-frame.http](re-frame.http.md) — the `:rf.http/managed` transport and the `:rf.http/*` failure taxonomy.
+- [Managed HTTP](re-frame.http.md) — the `:rf.http/managed` transport and the `:rf.http/*` failure taxonomy.
 - [re-frame.routing](re-frame.routing.md) — `:resources` route metadata.
 - [re-frame.ssr](re-frame.ssr.md) — the hydration install path.

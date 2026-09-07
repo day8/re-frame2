@@ -8,7 +8,7 @@ retries, and cancels; the reply arrives as an ordinary [event](../core/glossary.
 
 This page is the **model and reference** — every key, every contract. Build first with
 the [tutorial](tutorial.md). Idea underneath: [Why no await](continuations-are-data.md).
-API surfaces (interceptors, stubs, traces): [re-frame.http](../api/re-frame.http.md).
+API surfaces (interceptors, stubs, traces): [Managed HTTP](../api/re-frame.http.md).
 
 <a id="setup"></a>
 
@@ -330,36 +330,41 @@ The [managed-http counter example](../../examples/core/managed_http_counter) dem
 
 Every attempt has a per-attempt timeout, default `30000` ms. Set `:timeout-ms` to change it; `nil` or `0` opts out entirely. A fired timeout classifies as `:rf.http/timeout` with `:elapsed-ms` and `:limit-ms` on the failure map, and is retryable under a `:retry` policy that includes it.
 
-## Verb helpers
+## Your own request builder
 
-The canonical `[:rf.http/managed {:request {:method :get :url …} …}]` vector is always correct — but typing `{:request {:method :get :url …}}` on every call gets repetitive. The `re-frame.http` namespace ships a pure synthesis fn per HTTP verb that builds the same vector from a URL plus an optional args map:
+The canonical `[:rf.http/managed {:request {:method :get :url …} …}]` vector is always correct — and it is the *only* way to issue a request. There is no per-verb helper family: the request is data, and the framework does not compete with a `def`.
 
-```clojure
-(:require [re-frame.http :as rf.http])
-
-;; These two are exactly equal:
-[:rf.http/managed {:request {:method :get :url "/api/items"} :on-success [:items/loaded]}]
-(rf.http/get "/api/items" {:on-success [:items/loaded]})
-```
-
-Every verb is there — `rf.http/get` / `post` / `put` / `delete` / `patch` / `head` / `options` — each taking `url` and a required `args` map (`{:reply-to nil}` is the explicit fire-and-forget spelling; an unaddressed request fails loud with `:rf.error/http-no-reply-target`). The helper pins `:method` and `:url`; everything else in the args map (`:decode`, `:retry`, `:on-success`, and the `:request` sub-keys like `:body` and `:headers`) passes straight through:
+When typing `{:request {:method :get :url …}}` at every call site gets repetitive, that is the signal to write **one app-level builder fn** over the args map. A builder carries the policy a per-verb helper never could — a base URL, default headers, a default `:decode`, body encoding — so it shortens the call site *and* keeps a decision in one place:
 
 ```clojure
+(defn request
+  "Assemble a `:rf.http/managed` args map for our API."
+  [{:keys [method path body decode] :or {method :get decode :json} :as args}]
+  (let [req (cond-> {:method  method
+                     :url     (str "https://api.example.com" path)
+                     :headers {"Accept" "application/json"}}
+              body (assoc :body body :request-content-type :json))]
+    (-> args
+        (dissoc :method :path :body)
+        (assoc :request req :decode decode))))
+
 (rf/reg-event :comment/create
   (fn [_ [_ slug text]]
-    {:fx [(rf.http/post (str "/api/articles/" slug "/comments")
-                        {:request    {:body {:comment {:body text}}
-                                      :request-content-type :json}
-                         :decode     CommentResponse
-                         :on-success [:comment/created]
-                         :on-failure [:comment/create-error]})]}))
+    {:fx [[:rf.http/managed
+           (request {:method     :post
+                     :path       (str "/articles/" slug "/comments")
+                     :body       {:comment {:body text}}
+                     :on-success [:comment/created]
+                     :on-failure [:comment/create-error]})]]}))
 ```
 
-Two notes. `rf.http/get` shadows `clojure.core/get`, so the namespace is meant to be *aliased* (`:as rf.http`) and called qualified — `(rf.http/get …)` reads as "an HTTP GET", which is the whole point. And the helpers live in `re-frame.http`, **not** on the `rf/` facade: you require them explicitly. They ship in the same `day8/re-frame2-http` artefact as the fx they expand to, so loading the helpers and registering `:rf.http/managed` are one dep decision.
+The builder returns an args map, so it composes everywhere the args map is accepted — including the `:request` producers on [resources](../resources/concepts.md) and mutations, which take a map and would reject a pre-built fx vector.
+
+[`examples/real-apps/realworld_http/http.cljs`](../../examples/real-apps/realworld_http) ships the full version of this pattern: `rh/request` sets the base URL, a default `Accept` header, `:decode :json`, and JSON body encoding, and every call site in that app goes through it.
 
 ## Testing without a network
 
-Tests need no network: the canned-stub fxs (`:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`) and the `with-managed-request-stubs` route-stubbing macro — all registered by requiring the sibling `re-frame.http.test-support` namespace — synthesize replies with the exact envelope a live request produces. The [tutorial's test step](tutorial.md) shows the pattern; [Test a pipeline run](../core/testing/pipeline-runs.md) is the full recipe; [re-frame.http](../api/re-frame.http.md) documents every stub surface.
+Tests need no network: the canned-stub fxs (`:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`) and the `with-managed-request-stubs` route-stubbing macro — all registered by requiring the sibling `re-frame.http.test-support` namespace — synthesize replies with the exact envelope a live request produces. The [tutorial's test step](tutorial.md) shows the pattern; [Test a pipeline run](../core/testing/pipeline-runs.md) is the full recipe; [Managed HTTP](../api/re-frame.http.md) documents every stub surface.
 
 ## A complete request loop
 

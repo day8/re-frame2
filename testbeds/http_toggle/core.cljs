@@ -40,7 +40,6 @@
             ;; canned-stub fx ids register from re-frame.http.test-support.
             ;; A testbed IS a test affordance, so requiring it is correct.
             [re-frame.http.test-support]
-            [re-frame.http :as rf.http]
             [re-frame.views]
             [re-frame.adapter.reagent :as rf.adapter.reagent])
   (:require-macros [re-frame.core :refer [reg-view]]))
@@ -146,10 +145,11 @@
                 ;; is the static asset `/api/success.json` shipped
                 ;; alongside the testbed.
                 :success
-                (rf.http/get "api/success.json"
-                             {:decode     :json
-                              :request-id request-id
-                              :reply-to   [::go msg]})
+                [:rf.http/managed
+                 {:request    {:method :get :url "api/success.json"}
+                  :decode     :json
+                  :request-id request-id
+                  :reply-to   [::go msg]}]
 
                 ;; HOT PATH — synthesised :rf.http/http-4xx via the
                 ;; canned-failure stub. Same reply envelope as a live

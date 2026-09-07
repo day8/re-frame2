@@ -82,7 +82,7 @@ notation and nothing else.
 |---|---|
 | [re-frame.schemas](re-frame.schemas.md) | App / event / effect schemas |
 | [re-frame.flows](re-frame.flows.md) | Materialised derivations into app-db |
-| [re-frame.http](re-frame.http.md) | Managed HTTP fx and interceptors |
+| [Managed HTTP](re-frame.http.md) | Managed HTTP fx and interceptors |
 | [re-frame.machines](re-frame.machines.md) | State machines |
 | [re-frame.routing](re-frame.routing.md) | Router, routes, route link |
 | [re-frame.resources](re-frame.resources.md) | Resource cache, owners, mutations |

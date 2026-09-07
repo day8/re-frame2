@@ -1,19 +1,16 @@
 (ns re-frame.http-cljs-test
-  "CLJS-side coverage for HTTP helpers and the Fetch adapter.
+  "CLJS-side coverage for the Fetch adapter.
 
-  The JVM `re-frame.http-test` covers the full shape contract. This
-  smoke just confirms the helpers compile clean under CLJS (the file
-  is `.cljc` with no host-specific bits, but a CLJS-side load is the
-  fastest way to catch a regression that would otherwise only surface
-  in shadow-cljs builds).
-
-  Also covers the CLJS-only `:rf.http/cors` classification branch."
+  Covers the CLJS-only `:rf.http/cors` classification branch, the Fetch
+  transport's decode/body handling, and the in-flight registry seams that
+  only a shadow-cljs build exercises."
   (:require [cljs.reader :as edn]
             [cljs.test :refer-macros [deftest is testing async]]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.http :as rf.http]
+            ;; The closed retryable-category set the `:retry :on` gate reads.
+            [re-frame.http.handlers :as rf.http.handlers]
             ;; Drive the full `:rf.http/managed` pipeline (fx
             ;; registration + in-flight registry) for the backoff-window
             ;; cancellation test below.
@@ -69,55 +66,6 @@
       (finally
         (aset js/globalThis "location" orig)))))
 
-(deftest get-helper-shape
-  (testing "(rf.http/get url {:reply-to nil}) produces [:rf.http/managed {:request {:method :get :url url} :reply-to nil}] — rf2-3fc89f.9 the URL-only arity is gone; args map required"
-    (is (= [:rf.http/managed
-            {:request  {:method :get :url "/api/items"}
-             :reply-to nil}]
-           (rf.http/get "/api/items" {:reply-to nil})))))
-
-(deftest post-helper-shape
-  (testing "(rf.http/post url args) merges :request body with helper's verb + url"
-    (is (= [:rf.http/managed
-            {:request    {:method :post
-                          :url    "/api/items"
-                          :body   {:title "new"}
-                          :request-content-type :json}
-             :on-success [:item/created]}]
-           (rf.http/post "/api/items"
-                         {:request    {:body {:title "new"}
-                                       :request-content-type :json}
-                          :on-success [:item/created]})))))
-
-(deftest put-delete-patch-head-options-shapes
-  (testing "every verb pins the right :method (args map required — rf2-3fc89f.9)"
-    (is (= :put     (-> (rf.http/put     "/x" {:reply-to nil}) second :request :method)))
-    (is (= :delete  (-> (rf.http/delete  "/x" {:reply-to nil}) second :request :method)))
-    (is (= :patch   (-> (rf.http/patch   "/x" {:reply-to nil}) second :request :method)))
-    (is (= :head    (-> (rf.http/head    "/x" {:reply-to nil}) second :request :method)))
-    (is (= :options (-> (rf.http/options "/x" {:reply-to nil}) second :request :method)))))
-
-(deftest top-level-keys-pass-through
-  (testing ":decode, :accept, :retry, :timeout-ms, :request-id, :abort-signal pass through"
-    (let [accept (fn [v] {:ok v})
-          retry  {:on #{:rf.http/transport} :max-attempts 2}
-          out    (rf.http/get "/x"
-                              {:decode       :json
-                               :accept       accept
-                               :retry        retry
-                               :timeout-ms   5000
-                               :on-success   [:loaded]
-                               :on-failure   [:errored]
-                               :request-id   :search})
-          args   (second out)]
-      (is (= :json (:decode args)))
-      (is (identical? accept (:accept args)))
-      (is (= retry (:retry args)))
-      (is (= 5000 (:timeout-ms args)))
-      (is (= [:loaded] (:on-success args)))
-      (is (= [:errored] (:on-failure args)))
-      (is (= :search (:request-id args))))))
-
 ;; ---- rf2-r40km — :rf.http/cors retry-set membership ----------------------
 
 (deftest cors-is-a-valid-retry-on-member
@@ -125,16 +73,12 @@
   `:retry :on`. CORS sits in the closed retryable set documented at
   Spec 014 §Closed-set `:retry :on` validation
   (#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx
-  :rf.http/http-5xx}) and so composes cleanly with the helper arg path.
-  A semantic decision on whether to AUTO-retry CORS belongs to the
+  :rf.http/http-5xx}), which is the set the `:retry :on` membership gate
+  reads. A semantic decision on whether to AUTO-retry CORS belongs to the
   caller (typically NO — CORS is a config error, not transient — but a
   probing app may want to)."
-    (let [retry {:on #{:rf.http/transport :rf.http/cors :rf.http/timeout}
-                 :max-attempts 2}
-          out   (rf.http/get "https://api.example.invalid/x"
-                             {:retry retry})]
-      (is (contains? (-> out second :retry :on) :rf.http/cors)
-          ":rf.http/cors threads through the helper unchanged"))))
+    (is (contains? rf.http.handlers/retryable-categories :rf.http/cors)
+        ":rf.http/cors is in the shipped closed retryable set")))
 
 ;; ---- rf2-r40km — classify-cljs-error CORS branch -------------------------
 

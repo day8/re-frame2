@@ -4690,7 +4690,8 @@
         ;; external `:abort-signal` listener detaches, and both registry indexes
         ;; clear. Ordered AFTER machines/resources so their more specific
         ;; `:actor-destroyed` / ledger teardown wins first and this generic sweep
-        ;; no-ops on already-cleared handles. No-op when re-frame.http is absent.
+        ;; no-ops on already-cleared handles. No-op when re-frame.http.managed
+        ;; is absent.
         (safe-call-hook! :http/on-frame-destroyed! id)
         ;; Cancel + drop the destroyed frame's still-pending
         ;; `:dispatch-later` host timers (rf2-uxz52g). Each arms a host-clock

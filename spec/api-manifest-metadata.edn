@@ -953,7 +953,7 @@
                                           :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-ssr artefact, and the wrapper raises a documented :rf.error/ssr-artefact-missing when that artefact is absent. Moving the export to re-frame.ssr would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. The re-frame.ssr peer of this name is :implementation tier, so the facade row is the only SUPPORTED door -- a move would have nowhere supported to move to."}
   ["re-frame.core" "reg-http-interceptor"] {:tier :advanced   :owner "014" :status "v1 (optional capability)"
                                            :action :keep
-                                           :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-http artefact, and the wrapper raises a documented :rf.error/http-artefact-missing when that artefact is absent. Moving the export to re-frame.http would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. An app installs its auth or retry interceptor once, in the same boot file as its other registrations."}
+                                           :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-http artefact, and the wrapper raises a documented :rf.error/http-artefact-missing when that artefact is absent. Moving the export to re-frame.http.managed would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. An app installs its auth or retry interceptor once, in the same boot file as its other registrations."}
   ;; Resources — optional-artefact public-API wrappers (rf2-p10npe, Spec
   ;; 016, EP-0003 slice 2). The `re-frame.core` façade exports delegate
   ;; through the late-bind table to `day8/re-frame2-resources`; an app
@@ -1854,16 +1854,13 @@
   ["re-frame.flows" "reset-last-inputs!"]    {:tier :implementation :owner "013" :status "v1"}
 
   ;; =========================================================================
-  ;; re-frame.http — optional artefact (day8/re-frame2-http), §014.
-  ;; The verb helpers are advanced; the sensitive-declaration seams tooling.
+  ;; Managed HTTP — optional artefact (day8/re-frame2-http), §014.
+  ;; The public surface is the `[:rf.http/managed args-map]` fx and its
+  ;; keyword-addressed siblings, plus the `re-frame.core` facade re-exports;
+  ;; the artefact ships NO public var namespace of its own. The per-verb
+  ;; call-site helper namespace `re-frame.http` was deleted pre-alpha
+  ;; (rf2-kuky.11) — the data IS the API.
   ;; =========================================================================
-  ["re-frame.http" "get"]     {:tier :advanced :owner "014" :status "v1 (optional capability)"}
-  ["re-frame.http" "post"]    {:tier :advanced :owner "014" :status "v1 (optional capability)"}
-  ["re-frame.http" "put"]     {:tier :advanced :owner "014" :status "v1 (optional capability)"}
-  ["re-frame.http" "delete"]  {:tier :advanced :owner "014" :status "v1 (optional capability)"}
-  ["re-frame.http" "patch"]   {:tier :advanced :owner "014" :status "v1 (optional capability)"}
-  ["re-frame.http" "head"]    {:tier :advanced :owner "014" :status "v1 (optional capability)"}
-  ["re-frame.http" "options"] {:tier :advanced :owner "014" :status "v1 (optional capability)"}
   ;; EP-0025 §HTTP carriers — the app-specific HTTP carrier mutators
   ;; (declare-sensitive-header! / declare-sensitive-query-param! and the
   ;; clear-*! siblings) are REMOVED from the public API, AND the earlier frame

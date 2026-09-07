@@ -1809,7 +1809,7 @@ test('a sibling per-feature artefact does NOT arm the machines-viz lane (rf2-wq1
   for (const file of [
     'implementation/flows/src/re_frame/flows.cljc',
     'implementation/routing/src/re_frame/routing.cljc',
-    'implementation/http/src/re_frame/http.cljc',
+    'implementation/http/src/re_frame/http/managed.cljc',
   ]) {
     assert.equal(
       classify(file).tools_jvm_machines_viz,
@@ -2237,7 +2237,7 @@ test('example compilation has a dedicated changed-surface output (rf2-gzavkm)', 
     'implementation/machines/src/re_frame/machines.cljc',
     'implementation/routing/src/re_frame/routing.cljc',
     'implementation/flows/src/re_frame/flows.cljc',
-    'implementation/http/src/re_frame/http.cljc',
+    'implementation/http/src/re_frame/http/managed.cljc',
     'implementation/ssr/src/re_frame/ssr.cljc',
     'implementation/ssr-ring/src/re_frame/ssr/ring.clj',
     'implementation/resources/src/re_frame/resources.cljc',
@@ -4148,7 +4148,7 @@ test('narrowing the security tier leaves the production per-feature fan-out inta
     'implementation/machines/src/re_frame/machines.cljc',
     'implementation/routing/src/re_frame/routing.cljc',
     'implementation/flows/src/re_frame/flows.cljc',
-    'implementation/http/src/re_frame/http.cljc',
+    'implementation/http/src/re_frame/http/managed.cljc',
     'implementation/ssr/src/re_frame/ssr.cljc',
     'implementation/resources/src/re_frame/resources.cljc',
   ]) {

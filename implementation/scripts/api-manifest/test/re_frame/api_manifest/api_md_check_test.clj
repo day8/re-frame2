@@ -16,7 +16,7 @@
   THE FIX. Qualified rows resolve STRICTLY against the manifest
   `[namespace var]` index: the qualifier is mapped through the documented
   adapter `:as` aliases (`adapter-aliases`) else taken verbatim (the
-  full-namespace `re-frame.http/...` rows ARE literal manifest
+  full-namespace `re-frame.interop/...` rows ARE literal manifest
   namespaces), and the resolved `[namespace var]` pair must exist with a
   matching tier. Bare rows keep the original by-bare-name latitude + the
   bare-name allowlist. These tests pin that contract through the pure
@@ -35,7 +35,7 @@
    {:namespace "re-frame.adapter.uix"     :var "adapter" :tier :adapter}
    {:namespace "re-frame.adapter.helix"   :var "adapter" :tier :adapter}
    {:namespace "re-frame.ssr"             :var "adapter" :tier :implementation}
-   {:namespace "re-frame.http"            :var "get"     :tier :advanced}
+   {:namespace "re-frame.interop" :var "debug-enabled?" :tier :implementation}
    {:namespace "re-frame.core"            :var "reg-event" :tier :front-porch}])
 
 (defn- problems-for
@@ -70,10 +70,11 @@
 (deftest qualified-full-namespace-row-resolves-verbatim
   (testing "a full-namespace qualifier (not an alias) resolves verbatim"
     (is (empty? (problems-for
-                  [{:var "get" :qualifier "re-frame.http" :tier :advanced
-                    :line 349 :raw "re-frame.http/get"}]))
-        "re-frame.http is a literal manifest namespace — [re-frame.http get]
-         carries :advanced")))
+                  [{:var "debug-enabled?" :qualifier "re-frame.interop"
+                    :tier :implementation
+                    :line 349 :raw "re-frame.interop/debug-enabled?"}]))
+        "re-frame.interop is a literal manifest namespace —
+         [re-frame.interop debug-enabled?] carries :implementation")))
 
 (deftest unknown-qualifier-on-duplicate-bare-var-fails
   (testing "THE BUG (rf2-41j0a): a qualified duplicate bare var changed to an

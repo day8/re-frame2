@@ -1,16 +1,21 @@
-# re-frame.http
+# Managed HTTP
 
-Managed HTTP is an optional capability. An event dispatches the `[:rf.http/managed args-map]` fx. The implementation owns retries, cancellation, timeouts, decode, and failure classification. The `re-frame.http` namespace holds the verb-helper synthesis fns (`get`, `post`, `put`, `delete`, `patch`, `head`, `options`) that build that fx. The fx itself, its abort/canned siblings, the request-interceptor middleware, and the test stubs are keyword-addressed or re-exported on the `re-frame.core` façade.
+Managed HTTP is an optional capability. An event dispatches the `[:rf.http/managed args-map]` fx. The implementation owns retries, cancellation, timeouts, decode, and failure classification. **The request is data** — there is no verb-helper namespace to require: the fx, its abort/canned siblings, the request-interceptor middleware, and the test stubs are keyword-addressed or re-exported on the `re-frame.core` façade.
 
 The CLJS reference ships managed HTTP (Fetch in the browser, `java.net.http.HttpClient` on the JVM). Ports that omit it must not reuse the `:rf.http/*` namespace for anything else.
 
 See [Managed HTTP — The request is a map](../async/http.md) for the teaching guide.
 
 ```clojure
-(:require [re-frame.http :as rf.http])
+(:require [re-frame.core :as rf]
+          ;; Registers the `:rf.http/managed` fx at ns-load. Require it once,
+          ;; at boot — nothing on the `rf/` façade does it for you.
+          [re-frame.http.managed])
 ```
 
-The verb helpers live in `re-frame.http`. The `:rf.http/managed` fx is keyword-addressed — you use it in an event's `:fx`. The interceptor and test-stub fns (`reg-http-interceptor`, `clear-http-interceptor`, `with-managed-request-stubs`) are re-exported on the `re-frame.core` façade, so the examples below also require `[re-frame.core :as rf]`. Everything ships in the `day8/re-frame2-http` artefact.
+The `:rf.http/managed` fx is keyword-addressed — you use it in an event's `:fx`, and `re-frame.http.managed` is what registers it. The interceptor and test-stub fns (`reg-http-interceptor`, `clear-http-interceptor`, `with-managed-request-stubs`) are re-exported on the `re-frame.core` façade. Everything ships in the `day8/re-frame2-http` artefact.
+
+Repeating `{:request {:method :get :url …}}` at every call site is an **app** concern, not a framework one: an app that issues many requests writes one request-builder fn over the args map, carrying the policy a per-verb helper cannot — a base URL, default headers, a default `:decode`, body encoding. See [Your own request builder](../async/http.md#your-own-request-builder).
 
 ## Keyword surfaces — the managed-HTTP fx
 
@@ -106,121 +111,6 @@ Eight failure `:kind` values, all reserved under `:rf.http/*`. The set is closed
 | `:rf.http/aborted` | Request aborted via `:request-id` or `:abort-signal`. |
 
 See [Managed HTTP — Failures are a closed set](../async/http.md#failures-are-a-closed-set) for tags-by-kind.
-
-## Verb helpers
-
-Call-site helpers that synthesise the canonical `[:rf.http/managed args-map]` fx vector. Pure; no side effect — drop the result into `:fx`.
-
-Every helper takes `url` **and** a required `args` map. `args` MUST address the reply — supply `:reply-to`, `:on-success`, or `:on-failure` (an unaddressed request fails loud at dispatch with `:rf.error/http-no-reply-target`). `{:reply-to nil}` is the explicit fire-and-forget spelling. There is no URL-only arity: it would build an effect guaranteed to fail its own boundary validation.
-
-### `get`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (rf.http/get url args)
-  ```
-- **Description**: Synthesise a GET fx vector. `args` merges top-level into the canonical args map, and the caller wins. The exception is `:request`: it merges with `{:method :get :url url}`, and the helper's `:method` and `:url` overwrite caller-supplied ones. All seven helpers share this merge contract.
-
-### `post`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (rf.http/post url args)
-  ```
-- **Description**: POST. Pass `:body` in `args`.
-- **Example**:
-  ```clojure
-  {:fx [(rf.http/post "/api/items"
-                      {:request    {:body {:title "new"}
-                                    :request-content-type :json}
-                       :on-success [:items/created]})]}
-  ```
-
-### `put`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (rf.http/put url args)
-  ```
-- **Description**: PUT.
-- **Example**:
-  ```clojure
-  {:fx [(rf.http/put "/api/items/42"
-                     {:request    {:body {:title "updated"}
-                                   :request-content-type :json}
-                      :request-id [:item :update 42]})]}
-  ```
-
-### `delete`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (rf.http/delete url args)
-  ```
-- **Description**: DELETE.
-- **Example**:
-  ```clojure
-  {:fx [(rf.http/delete "/api/items/42"
-                        {:on-failure [:item/delete-failed]})]}
-  ```
-
-### `patch`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (rf.http/patch url args)
-  ```
-- **Description**: PATCH.
-- **Example**:
-  ```clojure
-  {:fx [(rf.http/patch "/api/items/42"
-                       {:request    {:body {:done true}
-                                     :request-content-type :json}
-                        :on-success [:items/patched]})]}
-  ```
-
-### `head`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (rf.http/head url args)
-  ```
-- **Description**: HEAD.
-- **Example**:
-  ```clojure
-  {:fx [(rf.http/head "/api/items"
-                      {:on-success [:items/exists?]})]}
-  ```
-
-### `options`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (rf.http/options url args)
-  ```
-- **Description**: OPTIONS.
-- **Example**:
-  ```clojure
-  {:fx [(rf.http/options "/api/items" {:on-success [:api/capabilities]})]}
-  ```
-
-The verb helpers require `[re-frame.http :as rf.http]` alongside `re-frame.core`. The namespace ships in the `day8/re-frame2-http` artefact — the same artefact as the fx.
-
-```clojure
-{:fx [(rf.http/get "/api/cart"
-        {:on-success [:cart/loaded]
-         :on-failure [:cart/load-failed]
-         :retry      {:on #{:rf.http/transport :rf.http/timeout}
-                      :max-attempts 3
-                      :backoff {:base-ms 100}}})]}
-```
 
 ## Request-interceptor middleware
 

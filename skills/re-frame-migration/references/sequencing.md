@@ -141,6 +141,7 @@ The M-rule numbering in [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/
 | 38 | **M-39** | If the codebase uses `reg-http-interceptor` / `clear-http-interceptor`. Pairs with M-31. |
 | 38a | **M-63** | If the codebase uses `reg-http-interceptor`. Reshape signature to single interceptor-map `(reg-http-interceptor id {:before … :after …})`. Pairs with M-39. |
 | 38b | **M-65** | If the codebase uses the HTTP stubbing macros (`with-managed-request-stubs` / `install-managed-request-stubs!` family). Add `[re-frame.http.test-support]` to the test ns require closure. Pairs with M-31. |
+| 38c | **M-76** | If the codebase requires `[re-frame.http :as rf.http]` (the removed per-verb call-site helpers). Drop the require and rewrite each `(rf.http/<verb> url args)` to the literal `[:rf.http/managed args']` fx vector, folding `{:method :<verb> :url url}` into `:request`. Pairs with M-31 — keep the `re-frame.http.managed` require, which is what registers the fx. |
 
 ### Group 9 — Conditional / opt-trigger rules
 

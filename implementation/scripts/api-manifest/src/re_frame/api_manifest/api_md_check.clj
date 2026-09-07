@@ -20,7 +20,7 @@
   are skipped — they are not vars and carry no Tier-for-a-var.
 
   QUALIFIER RESOLUTION. API.md writes some var names
-  namespace-qualified (`uix-adapter/adapter`, `re-frame.http/get`,
+  namespace-qualified (`uix-adapter/adapter`,
   `re-frame.interop/debug-enabled?`) and others bare (`reg-event`). The
   two SHAPES resolve against DIFFERENT manifest indexes, because they carry
       different identity:
@@ -37,8 +37,8 @@
       tier — a false-green drift gate. The qualifier is first resolved to
       an EXACT manifest namespace: a documented adapter `:as` alias via
       `adapter-aliases`, otherwise the qualifier verbatim (the
-      full-namespace rows `re-frame.http/...`, `re-frame.interop/...`,
-      `re-frame.performance/...` ARE literal manifest namespaces). A
+      full-namespace rows `re-frame.interop/...`, `re-frame.performance/...`,
+      `re-frame.alpha/...` ARE literal manifest namespaces). A
       qualifier that resolves to neither a known alias nor a manifest
       namespace+var pair fails as a wrong/unknown qualifier.
 
@@ -120,7 +120,8 @@
   "Split an API.md first-cell identifier into `[qualifier bare-var]`. For a
    QUALIFIED ident the qualifier is everything before the last `/`
    (`uix-adapter/adapter` -> `[\"uix-adapter\" \"adapter\"]`,
-   `re-frame.http/get` -> `[\"re-frame.http\" \"get\"]`); for a BARE ident
+   `re-frame.interop/debug-enabled?` ->
+   `[\"re-frame.interop\" \"debug-enabled?\"]`); for a BARE ident
    the qualifier is nil (`reg-event` -> `[nil \"reg-event\"]`). The
    qualifier is PRESERVED (not stripped) so a qualified row can be resolved
    strictly against the manifest's `[namespace var]` index — see the ns
@@ -211,7 +212,7 @@
    or nil> :tier <kw> :line <n> :raw <first-cell>} ...]` for every VAR-row
    found in any table that has a `Tier` column. `:qualifier` is the
    namespace/alias prefix for a qualified row (`uix-adapter`,
-   `re-frame.http`) or nil for a bare row — preserved so qualified rows can
+   `re-frame.interop`) or nil for a bare row — preserved so qualified rows can
    resolve strictly against the manifest `[namespace var]` index
    (rf2-41j0a).
 

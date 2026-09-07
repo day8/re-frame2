@@ -111,7 +111,6 @@
     re-frame.routing
     re-frame.resources
     re-frame.flows
-    re-frame.http
     re-frame.ssr
     re-frame.ssr.ring
     ;; The two JVM-loadable namespaces of the ssr-node crossing (rf2-8arzr.7).
