@@ -1,30 +1,37 @@
 (ns re-frame.form-3-direct-class-dom-cljs-test
-  "rf2-xccd — a `create-class` result handed DIRECTLY to `reg-view*` must be
-  MOUNTED as a React class, not called as a render function.
+  "rf2-xccd — pins the ADVERTISED direct Form-3 shape: a `create-class` result
+  handed straight to `reg-view*`, with no outer callable around it, as
+  `docs/api/re-frame.core.md` documents and `core.cljc`'s function contract
+  names. Nothing covered that shape before; the two existing Form-3 fixtures
+  both register an outer fn that RETURNS a class.
 
-  `docs/api/re-frame.core.md` advertises `(rf/reg-view* ::panel
-  (r/create-class {…}))` — the direct Form-3 shape, with no outer callable
-  around the class. Everything downstream of registration treated that value as
-  a render fn and ended in `(apply render-fn args)`. A `create-class`
-  constructor satisfies `fn?`, so the call succeeded in FORM: React never saw
-  the class as a component type, `:reagent-render` never ran under a class
-  instance, and `:component-did-mount` / `:component-will-unmount` never fired.
+  rf2-xccd predicted the shape was broken — `build-frame-aware-view` ends in an
+  unconditional `(apply render-fn args)`, a `create-class` constructor satisfies
+  `fn?`, and the annotation walk's `reagent-class?` guard inspects the render's
+  OUTPUT rather than the registered INPUT, so it cannot catch a constructor that
+  has already been called. That reading of the source is correct, and it was
+  never executed: on STOCK Reagent the shape mounts correctly anyway. Measured
+  on the `:browser-test` lane by disabling a candidate repair and confirming
+  every assertion here still passes, with the disabled build verified in the
+  compiled output, and the fixture itself proven discriminating by a planted
+  fault that took the lane red.
 
-  `re-frame.views/compose-view` now normalizes a recognized Reagent-family class
-  into a class-mounting render boundary before anything can call it. The
-  constructor object is never modified and never wrapped, so React still
-  reconciles it as one component type.
+  So this namespace is REGRESSION COVERAGE for a contract that held rather than
+  the witness of a repair. It asserts what the bug report said would be lost:
+  rendered props from `:reagent-render` under a real class instance, and
+  exactly-once `:component-did-mount` / `:component-will-unmount`. If a future
+  change breaks the direct shape, this is what says so.
 
-  Browser-only: the discriminating evidence is real React class construction
-  with exactly-once mount/unmount ordering, which no headless invocation
-  reproduces — calling the wrapper by hand is precisely the mistake under test.
-  The `-dom-cljs-test` suffix selects the `:browser-test` build; the
-  consolidated node build loads the namespace and takes the no-DOM branch.
+  Stock Reagent only. `reagent-slim` builds its class differently (it tags the
+  constructor `cljsReagentClass` and installs `prototype.render` rather than
+  `prototype.reagentRender`, and its constructor calls `React.Component` against
+  `this` and returns `this`), so nothing here speaks to that substrate.
 
-  NOT debug-gated: the erroneous `apply` sat outside every
-  `rf.interop/debug-enabled?` bracket, so the repair does too — a production
-  build mounts the class by the same normalization, with only the source-coord
-  annotation and trace emits elided around it.
+  Browser-only: the evidence is real React class construction and lifecycle
+  ordering, which no headless invocation reproduces — calling the wrapper by
+  hand is precisely the mistake the bug report described. The `-dom-cljs-test`
+  suffix selects the `:browser-test` build; the consolidated node build loads
+  the namespace and takes the no-DOM branch.
 
   `::preinit-panel` is registered AT NAMESPACE LOAD, before any adapter is
   installed, so it exercises the pre-init registration path: the reg-time
@@ -181,9 +188,9 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest form-1-view-still-annotates-its-dom-root
-  (testing "an ordinary Form-1 render fn is unaffected by the normalization: it
-            still renders and still carries the source-coord annotation the
-            hiccup walk stamps on a DOM root"
+  (testing "an ordinary Form-1 render fn renders and carries the source-coord
+            annotation the hiccup walk stamps on a DOM root — the control that
+            says the fixture is measuring the Form-3 shape specifically"
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test exercises the Form-1 control")
       (async done
@@ -202,10 +209,10 @@
                 "the Form-1 node unmounted")))))))
 
 (deftest outer-fn-returning-a-class-still-mounts
-  (testing "the pre-existing supported shape — an outer callable that RETURNS a
-            create-class — is unchanged: it is a plain render fn at registration,
-            so the normalization declines it and the annotation walk's
-            output-side reagent-class? guard keeps serving it"
+  (testing "the other supported shape — an outer callable that RETURNS a
+            create-class — mounts too. It is a plain render fn at registration,
+            so it reaches the annotation walk's output-side reagent-class?
+            guard, which passes the class through for Reagent to mount"
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test exercises the outer-fn control")
       (async done
