@@ -256,7 +256,7 @@ These names are not part of the API. Reaching for any of them is a wrong turn �
 | **any sensitivity propagation** — input → output inheritance through subs / flows, and an `:rf.egress/output-sensitivity` declassification claim | classify the output path directly. Nothing propagates; a derived secret is just a classified db path (see [no propagation](#no-propagation-no-taint)) |
 | `redact-interceptor` — positional payload scrubber on the handler | registration `:sensitive [[:path]]` metadata — privacy is a property of the value at a path, not of an interceptor's stack position |
 | `declare-sensitive-header!` / `declare-sensitive-query-param!` — process-global carrier mutation (and the frame `:sensitive {:http …}` block) | the `:rf.http/managed` `reg-fx` registration's `:carriers {:headers [...] :query-params [...]}` block, unioning onto the immutable built-in denylists |
-| an epoch-history `:redact-fn` storage hook | frame/profile projection at *export* (`project-egress`) — epoch records are causal-replay material, projected at export, never at rest |
+| an epoch-history `:redact-fn` hook | frame/profile projection at *export* (`project-egress`) — epoch records are causal-replay material, projected at export, never at rest; a further scrub composes at the forwarder |
 | handler-meta `{:sensitive? true}` as a whole-handler switch | registration `:sensitive` paths. Marking a handler `{:sensitive? true}` **does nothing** — it ships the payload unredacted |
 
 Calling any of these names fails the skills projection gate (it does not resolve to a `re-frame.core` manifest row) — that loud error is the point.

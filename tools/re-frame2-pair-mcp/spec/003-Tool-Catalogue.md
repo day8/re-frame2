@@ -132,113 +132,63 @@ vocabulary `[:rf.elision/at <path>]` are reserved per
 and [`Spec 009 §Size elision in traces`](../../../spec/009-Instrumentation.md);
 the shape is shared across re-frame2-pair-mcp and story-mcp.
 
-## Universal: app-installed `:redact-fn` on epoch consumers
+## Universal: framework projection on epoch consumers
 
 Every tool that ships `:rf/epoch-record` values — `dispatch`
 (trace AND settle modes, rf2-8fin7.3), `trace-window`,
 `watch-epochs`, and `snapshot` (the `:epochs` slot of each frame) —
-delivers whatever shape the
-framework's app-installed `:redact-fn` produced (per [Tool-Pair §Time-travel
-§Redaction hook](../../../spec/Tool-Pair.md#time-travel-epoch-snapshots-and-undo)
-and [Security §Epoch privacy posture](../../../spec/Security.md#epoch-privacy-posture--raw-in-process-records-vs-projected-egress)).
-When the consuming app has called `(rf/configure! {:epoch-history
-{:redact-fn (fn [record] …)}})`, the per-frame ring buffer and
-every `:epoch`-stream (`register-listener! :epoch`) listener still
-retain the **raw** assembled record (causal replay material) — the
-`:redact-fn` never runs at `build-record` / ring-append / listener
-fan-out. It runs projection-side, at off-box egress **only**: every
-record re-frame2-pair-mcp ships is first routed through
-`projected-record`, which applies the built-in frame/profile
-projection and THEN invokes `:redact-fn` once per projection call. So
-the redacted shape is what crosses the MCP wire, while the in-process
+routes every record server-side through
+`re-frame.core/projected-record`, the single normative off-box-egress
+emission site ([Security §Epoch privacy
+posture](../../../spec/Security.md#epoch-privacy-posture--raw-in-process-records-vs-projected-egress),
+[Tool-Pair §Time-travel](../../../spec/Tool-Pair.md#time-travel-epoch-snapshots-and-undo)).
+The per-frame ring buffer and every `:epoch`-stream
+(`register-listener! :epoch`) listener retain the **raw** assembled
+record (causal replay material); projection happens at egress **only**.
+So the projected shape is what crosses the MCP wire, while the in-process
 ring and listeners stay raw for exact replay.
-Tools cannot recover raw shapes from the wire: any slot the fn
+
+There is no app-installed `:redact-fn` hook (retired 2026-09-08,
+rf2-kuky.7 — zero installers measured). A consuming app that needs a
+further scrub composes it where the record leaves its process,
+`(-> r (rf/projected-record opts) scrub)`; that scrub is invisible to
+this server, which sees only what the app hands it.
+
+Tools cannot recover raw shapes from the wire: any slot the projection
 rewrote ships as `:rf/redacted` (the reserved sentinel, per
 [Spec-Schemas §`:rf/epoch-record`](../../../spec/Spec-Schemas.md#rfepoch-record))
-or whatever app-chosen shape the fn substituted. Agents that
-pattern-match on `:db-before` / `:db-after` / `:trigger-event` /
-`:trace-events` MUST tolerate `:rf/redacted` (and arbitrary
-app-supplied shapes) at every leaf.
+or a `:rf.size/large-elided` marker. Agents that pattern-match on
+`:db-before` / `:db-after` / `:trigger-event` / `:trace-events` MUST
+tolerate `:rf/redacted` (and arbitrary app-supplied shapes) at every leaf.
 
 The `:rf.epoch/sensitive?` rollup is computed from the raw
-record's schema-declared sensitive leaves **before** the
-`:redact-fn` runs, so it remains an accurate signal even when
-the fn erases the leaves it keyed on — `--allow-sensitive-reads OFF`
-strips records that carry the rollup regardless of what the fn
-did to the underlying slots.
+record's schema-declared sensitive leaves **before** the projection
+runs, so it remains an accurate signal even when the projection erases
+the leaves it keyed on — `--allow-sensitive-reads OFF` strips records
+that carry the rollup regardless.
 
-### Framework-default projection (the `:redact-fn`-independent backstop, rf2-8fin7.1)
+### Framework-default projection (rf2-8fin7.1)
 
-The app-installed `:redact-fn` is **optional** — an app that
-declared a slot `:sensitive?` in its app-db schema but installed
-no `:redact-fn` relies on the framework's own off-box projection,
-not the hook. For the pull-mode epoch tools the framework backstop
-is `re-frame.core/projected-record` (the single normative
-off-box-egress emission site, [Security §Epoch privacy
-posture](../../../spec/Security.md#epoch-privacy-posture--raw-in-process-records-vs-projected-egress)):
-each egressed record is routed through it server-side under the
-`--allow-sensitive-reads OFF` default, so a schema-declared
-sensitive **slot** sitting inside a **non-sensitive** epoch's
-`:db-before` / `:db-after` lands as `:rf/redacted` — even though
-the whole-epoch sensitivity rollup is false and the `:redact-fn`
-was never installed.
+For the pull-mode epoch tools the framework backstop is
+`re-frame.core/projected-record`: each egressed record is routed
+through it server-side under the `--allow-sensitive-reads OFF`
+default, so a schema-declared sensitive **slot** sitting inside a
+**non-sensitive** epoch's `:db-before` / `:db-after` lands as
+`:rf/redacted` — even though the whole-epoch sensitivity rollup is false.
 
 `snapshot`'s `:epochs` slot is held to the SAME projection
 contract as `trace-window` / `watch-epochs` (rf2-6wvh5): every
 epoch record in the slice is mapped through `projected-record`
 server-side when the slice expands to `:full`. The
 `:include-sensitive` two-key opt-in (launch flag AND per-call arg)
-changes only the app-db sensitive axis within that projection. Before rf2-8fin7.1 the `:epochs` slice was
-`:redact-fn`-only — the client-side sensitive scrub merely DROPS
-whole epochs stamped `:rf.epoch/sensitive? true` and never
-redacts a sensitive slot inside a non-sensitive epoch — so a
-`:redact-fn`-less app leaked the slot off-box under the OFF
+changes only the app-db sensitive axis within that projection. Before
+rf2-8fin7.1 the `:epochs` slice carried no server-side projection at
+all — the client-side sensitive scrub merely DROPS whole epochs
+stamped `:rf.epoch/sensitive? true` and never redacts a sensitive slot
+inside a non-sensitive epoch — so the slot leaked off-box under the OFF
 default. The projection closes that asymmetry; `snapshot :epochs`
 now carries the same fail-closed posture as the cursor-paged
 epoch tools.
-
-`dispatch`'s epoch egress is held to the SAME projection +
-boot-gate posture (rf2-8fin7.3). Three paths egress epoch-derived
-sensitive payloads under the `--allow-sensitive-reads OFF` default,
-and all three are now gated:
-
-- `trace` (`dispatch-and-collect`) and `settle`
-  (`dispatch-and-settle!`) return the raw `:epoch` (+ `:render-events`
-  for settle). Both route the result's epoch slots through
-  `re-frame.core/projected-record` on every call. The
-  `:include-sensitive` two-key opt-in (launch flag AND per-call arg)
-  lifts only the app-db sensitive axis inside that projection — identical
-  to `trace-window` / `watch-epochs` / `snapshot :epochs`; it is not a raw
-  epoch bypass. This projection runs on BOTH transports of the
-  epoch-bearing modes: the synchronous (non-await) path AND the
-  `await-render` path (where an explicit `trace` still resolves to
-  `dispatch-and-collect`'s raw `:epoch`) — the await-render epoch
-  projects the same way, so it never crosses the wire un-projected
-  (rf2-6klf02). The `:include-sensitive` arg parses through the safe
-  `args/parse-bool-arg` (the cross-MCP accept-shape parser), so a string
-  `"false"` over the JSON wire stays FALSE — it never fail-opens to a raw
-  read under `--allow-sensitive-reads` (rf2-66ippe).
-- The cascade-summary `:event-vector` (the raw `:trigger-event`) FAILS
-  CLOSED on its ARGS for EVERY epoch under the OFF default — the head
-  `<event-id>` keyword is retained while every positional / map arg
-  redacts to `:rf/redacted`, so `[:login "topsecret"]` egresses as
-  `[:login :rf/redacted]`. This is the same projection the framework's
-  `projected-record` applies to a record's `:trigger-event` slot
-  (rf2-nm611o, `epoch/tool_pair.cljc` §`elide-trigger-event-slot`): the
-  event args are registration-owned transient payloads the app-db
-  classification walker cannot prove safe, so a secret carried IN the
-  vector redacts whether or not the epoch is declared
-  `:rf.epoch/sensitive?`. Keying the redaction to the
-  `:rf.epoch/sensitive?` rollup ALONE leaked a non-declared
-  trigger-event's secret off-box (rf2-6klf02). `dispatch` issues
-  `configure-raw-state!` (`raw-state/signal-runtime!`) between the
-  preload probe and the dispatch eval — the same prelude every
-  state-emitting tool wears — so the runtime's `raw-state-config` flips
-  out of its permissive `{:allow-raw-state? true}` default and the
-  fail-close fires. Before rf2-8fin7.3 `dispatch` was the lone
-  state-emitting tool that never signalled, so a FIRST-in-session
-  sensitive dispatch shipped its raw event vector off-box even under
-  the OFF gate. Posture parity with `dispatch-dry-run`.
 
 ## Universal: `:typicalTokens` on every tool descriptor
 
@@ -1079,7 +1029,7 @@ settle's `:render-events` are selected from that projected epoch.
 The `--allow-sensitive-reads` + `include-sensitive true` combination
 only lifts declared-sensitive app-db leaves. It does not bypass
 runtime-db partition redaction, transient event/fx argument floors,
-large-value elision, or the app-installed `:redact-fn`.
+or large-value elision.
 
 The compact cascade-summary's `:event-vector` is a separate runtime
 surface. Under the default gate-OFF posture it preserves the event id

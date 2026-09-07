@@ -112,8 +112,8 @@
         ;; `incl?` (the sensitive opt-in) does NOT bypass the projection:
         ;; it threads `{:rf.size/include-sensitive? true}` INTO `projected-record`
         ;; (app-db sensitive axis only), so the orthogonal fx-args /
-        ;; runtime-db / large axes and the app `:redact-fn` stay
-        ;; fail-closed. An epoch record never crosses the wire as a raw
+        ;; runtime-db / large axes stay fail-closed. An epoch record
+        ;; never crosses the wire as a raw
         ;; fx-arg / runtime-db payload, gate ON or OFF.
         project-epochs?   true
         ;; EP-0001 (Mike ruling #14) — the `:machines` slice is

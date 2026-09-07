@@ -886,6 +886,18 @@ Proposed posture:
 - a custom record transform, if retained, should be advanced and explicitly
   warn that it may affect restore fidelity.
 
+**Disposition 2026-09-08 (rf2-kuky.7) — RETIRED OUTRIGHT.** The demoted
+projection-side hook shipped and then measured **zero installers** outside
+this repo's own tests: no application, tool, skill or example ever called
+`(rf/configure! {:epoch-history {:redact-fn f}})`. It was `comp` wearing a
+`configure!` key. Deleted along with `re-frame.epoch.assembly/apply-redact-fn`,
+its `epoch/state` config slot and validation arm, and the
+`:rf.warning/epoch-redact-fn-exception` catalogue row. A forwarder that wants
+an extra scrub now writes `(-> r (rf/projected-record opts) scrub)` at the
+sink, where its own error handling sees a throw. The section above is left
+standing as the design record that led here; it is history, not current
+contract.
+
 ### 16. Derived Sensitivity
 
 Derived values are the hardest unresolved case. A subscription, flow, resource
@@ -991,7 +1003,10 @@ what was ruled; dispositions and riders are inline.
    hardened:** the surviving hook is **projection-side only** (export/egress);
    storage-side mutation is **removed**, not discouraged — post-EP-0010, epoch
    records are causal replay material, and mutating them at rest corrupts the
-   replay contract, not merely restore fidelity.
+   replay contract, not merely restore fidelity. **Superseded 2026-09-08
+   (rf2-kuky.7): the demoted hook is now REMOVED as well — zero installers
+   were measured, and post-projection scrubbing is ordinary composition at
+   the forwarder. See §15's dated disposition.**
 7. **Cross-tool `show-sensitive?`.** Should on-box visibility be per tool, per
    session, per frame, or all three? Recommendation: no single process-global
    user toggle. **Disposition: as recommended, with the grain named:**

@@ -229,8 +229,7 @@ few more knobs than the trace ring:
 
 ```clojure
 (rf/configure! {:epoch-history {:depth            50    ;; how many epochs to keep (default)
-                                :trace-events-keep 50    ;; per-record raw-event budget (defaults to :depth)
-                                :redact-fn        my-fn}});; runs at off-box egress, never at storage
+                                :trace-events-keep 50}}) ;; per-record raw-event budget
 ```
 
 `:depth` is the obvious one — how far back time-travel reaches. `:trace-events-keep`
@@ -239,16 +238,16 @@ cheap structured projections; older records drop the raw events to bound memory.
 defaults to the `:depth` value (so trace detail and epoch evict together); set it
 smaller — `5`, say — to bound a long dev session's heap more aggressively.
 
-`:redact-fn` is the advanced safety valve, and where it runs matters: it is
-**projection-side, not storage-side**. The ring always stores the *raw* record,
-because an epoch record is causal replay material and mutating it at rest would
-corrupt `restore-epoch!`. The fn runs once per record at the **off-box egress
-boundary** — after the frame's normal `:sensitive` / `:large` classification has
-already projected the record — as a last scrub for something the declaration-driven
-projection can't prove (a sensitive slot no schema or classification covers). It is
-the rare escape hatch; ordinary redaction wants the
-[data classification](glossary.md#data-classification) model, not this. A throwing
-`redact-fn` falls back to the already-projected record rather than leaking.
+There is no scrub hook on this config key, and where redaction runs matters: it
+is **projection-side, not storage-side**. The ring always stores the *raw*
+record, because an epoch record is causal replay material and mutating it at
+rest would corrupt `restore-epoch!`. `rf/projected-record` applies the frame's
+`:sensitive` / `:large` classification at the **off-box egress boundary**, and a
+forwarder that needs a last scrub for something the declaration-driven
+projection can't prove (a sensitive slot no schema or classification covers)
+composes one over the result: `(-> record rf/projected-record my-scrub)`. That
+is the rare escape hatch; ordinary redaction wants the
+[data classification](glossary.md#data-classification) model, not this.
 
 Because each record holds real before-and-after state,
 [time travel](glossary.md#time-travel) falls out for free:

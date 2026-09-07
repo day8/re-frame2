@@ -1567,8 +1567,8 @@
 ;;   :sensitive?          — the record's `:rf.epoch/sensitive?` rollup;
 ;;                          when true, consumers branch on the absent-
 ;;                          slot pattern in `:db-diff` (sensitive paths
-;;                          are dropped from the projection by the
-;;                          framework's redact-fn before we read it)
+;;                          are dropped by the framework's off-box
+;;                          projection before we read it)
 ;;
 ;; Production builds elide the entire epoch-record path under
 ;; `rf.interop/debug-enabled? false`; cascade-summary inherits that —
@@ -1687,9 +1687,8 @@
   consumer still sees WHICH event ran, never its args. This matches
   `elide-trigger-event-slot` exactly — the fail-close fires on EVERY
   epoch (sensitive or not), because the args are unprovable regardless.
-  A degenerate non-vector / empty slot (or a value a `:redact-fn` already
-  scalarised) redacts wholesale to `:rf/redacted` — nothing safe to
-  expose.
+  A degenerate non-vector / empty slot (or a value already scalarised)
+  redacts wholesale to `:rf/redacted` — nothing safe to expose.
 
   Raw only on opt-in: when the gate is ON the operator deliberately
   asked for raw reads (the cascade-summary's equivalent of the

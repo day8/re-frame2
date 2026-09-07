@@ -115,14 +115,12 @@ Schema-attached slot props. These are the **one and only** classification route 
 
 ### `re-frame.epoch`
 
-Per EP-0015 issue 6 (graduated), epoch records are **causal replay material** (post-[EP-0010](../docs/EP/EP-0010-causal-world-inputs.md)) and **storage-side mutation is removed** — the raw record stays in the ring and every `register-epoch-listener!` listener receives it unmutated; **off-box egress MUST project** through `projected-record` / `projected-history` (which run `project-egress` under an off-box profile). The surviving `:redact-fn` hook is **projection-side only** (export/egress), not a storage-side record transform; it is an advanced escape for slots the frame's classification cannot prove.
+Per EP-0015 issue 6 (graduated), epoch records are **causal replay material** (post-[EP-0010](../docs/EP/EP-0010-causal-world-inputs.md)) and **storage-side mutation is removed** — the raw record stays in the ring and every `register-epoch-listener!` listener receives it unmutated; **off-box egress MUST project** through `projected-record` (which runs `project-egress` under an off-box profile), mapped over `epoch-history` when the whole ring egresses. There is no `:redact-fn` hook (retired 2026-09-08, rf2-kuky.7 — zero installers measured): a forwarder needing a further scrub for slots the frame's classification cannot prove composes one at the sink, `(-> r (rf/projected-record opts) scrub)`.
 
 | Surface | Kind | Purpose | Owner |
 |---|---|---|---|
-| `(configure! {:epoch-history {:redact-fn fn}})` | runtime config | **Projection-side advanced override.** Invoked **once per record at the off-box egress boundary** — inside the projected-record helper, **after** the frame/profile `project-egress` projection — and MUST NOT mutate the record at storage time. The in-process ring + every listener therefore deliver the **raw** record (mutating replay material at rest corrupts the EP-0010 replay contract). Failures emit `:rf.warning/epoch-redact-fn-exception` and fall back to the projected record for that egress only. Production elides the record **supply** — the capture / assembly / ring / listener machinery rides `debug-enabled?`, so normal dispatch assembles no record for the hook to run on — but the `projected-record` helper it runs inside is itself **ungated** and stays callable. | [015 §Epoch projection](015-Data-Classification.md#epoch-projection-no-storage-side-mutation), [Tool-Pair §Redaction hook](Tool-Pair.md), [API.md §Configure keys](API.md) |
 | `:rf.epoch/sensitive?` | record-level rollup | Top-level boolean on the assembled `:rf/epoch-record` — true iff any captured trace event / declared-sensitive leaf in the record was sensitive. Computed at build-time from the raw record's schema-declared sensitive leaves, so it stays an accurate off-box-branch signal on the raw ring record. | [Tool-Pair §Time-travel](Tool-Pair.md) |
-| `projected-record` | projection fn | `(rf/projected-record record)` — off-box-safe projection of a `:rf/epoch-record`. Routes each tree slot through `project-egress` (over `elide-wire-value`), strips raw `:db-before` / `:db-after`, keeps the structured fields (`:trigger-event`, `:fx`, `:halt-reason`, `:schema-digest`, `:rf.epoch/sensitive?`, `:rf.epoch/redacted-modified-paths-count`). The single projection site when shipping epoch data off-box; then applies the `:redact-fn` advanced override. Idempotent. | [Tool-Pair §Direct-read privacy](Tool-Pair.md#direct-read-privacy-posture-for-sub-cache-and-get-path) |
-| `projected-history` | projection fn | `(rf/projected-history frame-id)` — `(mapv projected-record (epoch-history frame-id))`. Off-box-safe equivalent of `epoch-history`. | [Tool-Pair §Time-travel](Tool-Pair.md) |
+| `projected-record` | projection fn | `(rf/projected-record record)` — off-box-safe projection of a `:rf/epoch-record`. Routes each tree slot through `project-egress` (over `elide-wire-value`), strips raw `:db-before` / `:db-after`, keeps the structured fields (`:trigger-event`, `:fx`, `:halt-reason`, `:schema-digest`, `:rf.epoch/sensitive?`, `:rf.epoch/redacted-modified-paths-count`). The single projection site when shipping epoch data off-box. Idempotent. The whole ring is `(mapv #(rf/projected-record % opts) (rf/epoch-history frame-id))`. | [Tool-Pair §Direct-read privacy](Tool-Pair.md#direct-read-privacy-posture-for-sub-cache-and-get-path) |
 
 ### `tools/mcp-base` (cross-MCP wire egress)
 
@@ -185,10 +183,6 @@ Machine **transition payloads** are transient payloads classified by the transit
 - `(rf/reg-fx :rf.http/managed {:carriers {:query-params ["my_token"]}} h)` — query-param carrier; unions onto the built-in query-param denylist
 - `{:rf.http/managed {:decode <malli-schema-with-:sensitive?-props>}}` — per-slot response-body classification
 - `{:rf.http/managed {:sensitive? true ...}}` — per-call opt-in (body redaction + ALL params scrubbed)
-
-### Runtime config — epoch redact hook
-
-- `(rf/configure! {:epoch-history {:redact-fn (fn [record] ...)}})` — single-pass record-in / record-out hook at the epoch boundary.
 
 ---
 
@@ -271,7 +265,7 @@ The single most-asked question this doc answers: **what runs when, in what order
 │       register-epoch-listener! listener UNMUTATED — storage-side mutation   │
 │       is REMOVED (EP-0015 issue 6): epoch records are EP-0010 causal replay │
 │       material, mutating them at rest corrupts the replay contract.         │
-│     - The :redact-fn runs at step 7 (off-box egress), not here.             │
+│     - Redaction runs at step 7 (off-box egress), not here.                  │
 └─────────────────────────────────────────────────────────────────────────────┘
                                   │
                                   ▼
@@ -283,9 +277,9 @@ The single most-asked question this doc answers: **what runs when, in what order
 │       walker, single emission site for :rf/redacted + :rf.size/large-       │
 │       elided) under the frame's classification + the boundary's             │
 │       :rf.egress/* profile.                                                 │
-│     - `projected-record` (epoch) strips raw :db-before / :db-after; THEN    │
-│       applies the projection-side :redact-fn advanced override (after the   │
-│       frame/profile projection, never at storage time).                     │
+│     - `projected-record` (epoch) strips raw :db-before / :db-after under    │
+│       the frame/profile projection, never at storage time. A forwarder      │
+│       may compose a further scrub over its RESULT, at the sink.             │
 │     - The structured :effects rows' :args (raw fx-handler payload, not      │
 │       app-db-rooted so the walker cannot prove it safe) FAIL CLOSED to      │
 │       :rf/redacted off-box, lifted only by :include-fx-args? true.          │
@@ -320,7 +314,7 @@ The single most-asked question this doc answers: **what runs when, in what order
 - **HTTP denylists are upstream of the trace stream.** They run inside `prepare-emit-tags` / `prepare-emit-failure` *before* `trace/emit!` fires — they shape the trace event itself, not its downstream consumers. Per [Spec 014 §Privacy](014-HTTPRequests.md).
 - **Real values are never redacted mid-handler.** The router stashes a scrubbed *copy* at `:rf/redacted-event`; the handler body continues to read the unredacted `:event` coeffect. Projection happens at the observation/egress boundary *after* the handler returns, never before.
 - **Production has one live path: the always-on error-emit substrate.** Everything else (dev trace bus, epoch ring, schema-validation traces, Xray) elides via `goog.DEBUG`. The error substrate honours `:sensitive?` *in production* — that's the load-bearing case for substrate-level enforcement.
-- **runtime-db is redacted/omitted off-box by default (EP-0001).** Off-box egress of frame-state — the epoch `projected-record` / `projected-history` pair, Xray-MCP, and pair recorders — redacts or omits the **runtime-db** side of frame-state by default; the off-box default fails closed. Only the app-db partition (subject to its own `:sensitive?` / `:large?` elision) and explicitly allowlisted serializable runtime-db facts cross the wire. The SSR hydration payload likewise ships only the serializable runtime-db facts the client needs to reconstitute (machine snapshots, route slice, elision declarations, SSR metadata — per [011 §The `:rf/hydrate` event](011-SSR.md#the-rfhydrate-event)), never transient runtime side-channel state. A **trusted-local** tool may request richer runtime-db diagnostics explicitly (the same opt-in shape as `:rf.size/include-sensitive?` for app-db); **off-box / AI / log** egress fails closed. This is the runtime-db peer of the app-db `:sensitive?` default: app-db redacts at marked paths, runtime-db redacts/omits wholesale unless explicitly opted in. The normative statement (including the elision-declarations-live-in-runtime-db corollary) is [009 §Privacy / sensitive data in traces](009-Instrumentation.md#privacy--sensitive-data-in-traces).
+- **runtime-db is redacted/omitted off-box by default (EP-0001).** Off-box egress of frame-state — the epoch `projected-record` boundary, Xray-MCP, and pair recorders — redacts or omits the **runtime-db** side of frame-state by default; the off-box default fails closed. Only the app-db partition (subject to its own `:sensitive?` / `:large?` elision) and explicitly allowlisted serializable runtime-db facts cross the wire. The SSR hydration payload likewise ships only the serializable runtime-db facts the client needs to reconstitute (machine snapshots, route slice, elision declarations, SSR metadata — per [011 §The `:rf/hydrate` event](011-SSR.md#the-rfhydrate-event)), never transient runtime side-channel state. A **trusted-local** tool may request richer runtime-db diagnostics explicitly (the same opt-in shape as `:rf.size/include-sensitive?` for app-db); **off-box / AI / log** egress fails closed. This is the runtime-db peer of the app-db `:sensitive?` default: app-db redacts at marked paths, runtime-db redacts/omits wholesale unless explicitly opted in. The normative statement (including the elision-declarations-live-in-runtime-db corollary) is [009 §Privacy / sensitive data in traces](009-Instrumentation.md#privacy--sensitive-data-in-traces).
 
 ---
 
@@ -373,7 +367,6 @@ Per [API.md §Configure keys](API.md) and [015](015-Data-Classification.md):
 | `(rf/configure! {<key> {...}})` | Privacy-relevant opt | Default | Purpose |
 |---|---|---|---|
 | `:elision` | `:rf.size/threshold-bytes N` | `16384` | Wire-elision size threshold — advisory, **not** a cap. An over-threshold value at an undeclared path fires `:rf.warning/large-value-unschema'd` but ships unchanged; only declared / schema-marked entries elide. Non-negative integer; 0 disables the auto-detect warning. |
-| `:epoch-history` | `:redact-fn fn` | `nil` | **Projection-side** advanced override — runs at off-box egress (inside `projected-record`, after the frame/profile projection), never at storage (EP-0015 issue 6). See [Tool-Pair §Redaction hook](Tool-Pair.md). |
 | `:epoch-history` | `:depth N` / `:trace-events-keep N` | depth `50`, trace-events-keep `nil` | Bounds the ring (doesn't redact; bounds the surface). |
 
 ---
@@ -388,7 +381,7 @@ Counters that ride alongside MCP tool responses so the calling agent knows the p
 | `:elided-large` | Integer count of leaves replaced with the `:rf.size/large-elided` marker. Omit when zero. | MCP response envelope (unqualified key) | Cross-MCP convention |
 | `[● REDACTED N]` / `[● ELIDED N]` | Panel-chrome mirror of the MCP slots for on-box surfaces (Xray, story panel) | Panel chrome (not JSON) | [Conventions §Reserved panel-chrome surface](Conventions.md) |
 
-The walker also emits a top-level `:rf.epoch/redacted-modified-paths-count` on `:rf/epoch-record` values when the `:redact-fn` substituted at non-schema-declared paths — apps can detect "the redact-fn touched these many slots" without re-walking.
+The walker also emits a top-level `:rf.epoch/redacted-modified-paths-count` on `:rf/epoch-record` values — apps can detect "this many classified sensitive slots changed under the sentinel" without re-walking.
 
 ---
 
@@ -469,21 +462,21 @@ Finding #8's canonical question: *"I have a `:password` field in `app-db` and a 
   {:inputs [[:db/auth]]}
   (fn [[auth] _] (str (subs (:token auth) 0 8) "...")))   ;; sanitised — ships raw
 
-;; 6. (Optional) — install a PROJECTION-SIDE epoch redact-fn for
-;;    defence-in-depth redaction of slots no classification covered (raw
-;;    exception messages, custom :trace-events slots). EP-0015 issue 6: the
-;;    hook runs at off-box EGRESS (inside projected-record, after the
-;;    frame/profile projection), NEVER at storage — the in-process ring
-;;    stays raw (causal replay material).
-(rf/configure! {:epoch-history
-  {:redact-fn (fn [record]
-                ;; Scrub :exception-message on any captured trace event.
-                (update record :trace-events
-                        #(mapv (fn [ev]
-                                 (cond-> ev
-                                   (= :error (:op-type ev))
-                                   (update :tags dissoc :exception-message)))
-                               %)))}})
+;; 6. (Optional) — compose a defence-in-depth scrub AT THE FORWARDER for
+;;    slots no classification covered (raw exception messages, custom
+;;    :trace-events slots). It runs over the value projected-record
+;;    returned, so the in-process ring stays raw (causal replay material).
+(defn- scrub-exception-messages [record]
+  (update record :trace-events
+          #(mapv (fn [ev]
+                   (cond-> ev
+                     (= :error (:op-type ev))
+                     (update :tags dissoc :exception-message)))
+                 %)))
+
+(rf/register-listener! :epoch ::ship
+  (fn [record]
+    (-> record rf/projected-record scrub-exception-messages ship!)))
 ```
 
 **What every observation surface sees after the drain settles:**
@@ -498,7 +491,7 @@ Finding #8's canonical question: *"I have a `:password` field in `app-db` and a 
 | MCP `get-app-db` tool response | `:rf/redacted` at the marked slots (projected under `:rf.egress/off-box-tool`); `:dropped-sensitive N` envelope counter set to the count of dropped leaves |
 | Off-box log shipper (Datadog/Sentry) | Routed by frame `:observability` under `:rf.egress/off-box-observability`; drops the whole `:rf.event/dispatched` and `:rf.fx/handled` events (top-level `:sensitive? true`); ships the structural skeleton only |
 | Always-on error-emit substrate (production survives) | The error record carries `:sensitive? true` and the listener-side projection honours it before egress to Sentry |
-| Epoch `projected-record` | All of the above redactions plus the projection-side `:redact-fn`'s extra scrub (applied at egress, never at storage); the structured `:effects` rows' `:args` fail closed to `:rf/redacted` off-box (lifted only by `:include-fx-args? true`); the in-process ring + listener fan-out see the RAW record |
+| Epoch `projected-record` | All of the above redactions, applied at egress and never at storage; the structured `:effects` rows' `:args` fail closed to `:rf/redacted` off-box (lifted only by `:include-fx-args? true`); the in-process ring + listener fan-out see the RAW record. A forwarder may compose a further scrub over the projected value |
 
 **What's NOT covered by this declaration set:**
 
@@ -549,7 +542,7 @@ Surfaces removed from this matrix. Listed here so readers don't search for them 
 - [009-Instrumentation §Size elision in traces](009-Instrumentation.md#size-elision-in-traces) — the size-elision peer of sensitive marking.
 - [010-Schemas §`:sensitive?`](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces) and [010-Schemas §`:large?`](010-Schemas.md#large--schema-driven-size-elision-nomination) — per-slot schema props for owner-local schema'd data and schema-validation error-trace redaction.
 - [014-HTTPRequests §Privacy](014-HTTPRequests.md) — HTTP-specific denylists, the `:rf.http/managed` `:carriers` block, and the per-call `:sensitive?` request arg.
-- [Tool-Pair §Time-travel — Redaction hook](Tool-Pair.md) — the projection-side `:redact-fn` config key on `(rf/configure! {:epoch-history ...})`; the `projected-record` / `projected-history` off-box egress pair.
+- [Tool-Pair §Time-travel](Tool-Pair.md) — the `projected-record` off-box egress boundary, and post-projection scrubbing as composition at the forwarder.
 - [Tool-Pair §Direct-read privacy posture](Tool-Pair.md#direct-read-privacy-posture-for-sub-cache-and-get-path) — the MCP wire-egress contract for direct-read tools.
 
 ### Cross-cutting conventions

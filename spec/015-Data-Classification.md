@@ -411,7 +411,7 @@ Epoch records are **causal replay material** (see [EP-0010](../docs/EP/EP-0010-c
 
 - raw epoch records remain **in-process local dev state** (replay-faithful by construction);
 - off-box epoch export **must use `project-egress`** under an off-box profile;
-- **storage-side mutation is removed**, not merely discouraged — there is no `:redact-fn` storage hook; projection at the export boundary is the answer.
+- **storage-side mutation is removed**, not merely discouraged — there is no `:redact-fn` hook at all (retired 2026-09-08, rf2-kuky.7); projection at the export boundary is the answer, and a forwarder wanting a further scrub composes one at the sink.
 
 Egress redacts; durable storage stays raw — the two surfaces diverge exactly so a redacted-frame epoch still replays the raw value through `restore-epoch`.
 
