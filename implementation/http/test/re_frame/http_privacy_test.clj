@@ -358,6 +358,25 @@
       (is (= {:note "plain"} (get-in r [:request :body])))
       (is (= :rf/redacted (get-in r [:request :headers "Cookie"]))))))
 
+;; The cases below are spelled out LITERALLY rather than read from
+;; `rf.http.encoding/reply-address-keys`, because that roster is the very
+;; thing under test: `project-managed-fx-args` reduces over it, so a test that
+;; also iterates it cannot see a key DROPPED from it. Measured — delete
+;; `:reply-to` from the roster and the projection stops classifying it while
+;; this namespace iterates the two survivors and reports 82 tests / 222
+;; assertions / 0 failures. That is exactly the rf2-uc7d defect returning
+;; through a door its own regression pin could not look at. The roster is
+;; pinned against this literal in its own assertion below, so the two cannot
+;; drift apart either.
+(def ^:private reply-address-keys-literal [:reply-to :on-success :on-failure])
+
+(deftest reply-address-roster-is-the-three-spelled-keys
+  (testing "rf2-uc7d — `reply-address-keys` is the unified `:reply-to` plus the
+            split `:on-success` / `:on-failure` sugar, in that order. Dropping
+            one silently un-classifies its payloads everywhere the roster is
+            reduced over, so the roster itself is pinned rather than trusted"
+    (is (= reply-address-keys-literal rf.http.encoding/reply-address-keys))))
+
 (deftest project-managed-fx-args-classifies-every-reply-address-key
   (testing "rf2-uc7d — the artefact-level fn applies the target registration's
             classification to ALL THREE reply-address keys. Core's
@@ -366,7 +385,7 @@
             `:http/project-managed-fx-args` hook actually resolves to, so the
             two doors cannot drift apart"
     (rf.registrar/register! :event ::reply-target {:sensitive [[:password]]})
-    (doseq [k rf.http.encoding/reply-address-keys]
+    (doseq [k reply-address-keys-literal]
       (let [r (rf.http.privacy/project-managed-fx-args
                 {:request {:method :post :url "https://api.example.test/save"}
                  k        [::reply-target {:password "hunter2" :user "ann"}]})]
@@ -380,7 +399,7 @@
 (deftest project-managed-fx-args-preserves-nil-reply-addresses
   (testing "rf2-uc7d — an explicit nil (fire-and-forget) survives as nil on
             every reply-address key, never a redaction sentinel"
-    (doseq [k rf.http.encoding/reply-address-keys]
+    (doseq [k reply-address-keys-literal]
       (let [r (rf.http.privacy/project-managed-fx-args
                 {:request {:method :get :url "/x"} k nil})]
         (is (contains? r k) (str k " stays present"))
