@@ -7,9 +7,11 @@
   payload**, classified per-slot via `:sensitive?` / `:large?` props on the
   request's `:decode` schema. This uses the shared schema-walker hooks
   (`:schemas/extract-sensitive-paths-from-schema` /
-  `:schemas/extract-large-paths-from-schema`) the resource `:data-schema`
-  surface (`re-frame.resources.classification`) and the app-schema elision
-  path consume — never a body-private walker.
+  `:schemas/extract-large-paths-from-schema`) the resource `:params-schema`
+  validation-failure-trace surface (`re-frame.resources.classification`, which
+  binds `(:params-schema spec)`) and the app-schema elision path consume —
+  never a body-private walker. The resource `:data-schema` is NOT among them:
+  it is a statically reflected shape fact with no runtime validation consumer.
 
   Three rules pin the contract:
 
