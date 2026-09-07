@@ -2426,9 +2426,38 @@ MARKER_BARE_URL='Generated with Claude Code https://claude.com/claude-code'
 PROSE_POLICY_LINK='Trailers declined per https://claude.com/claude-code'
 PROSE_POLICY_LINK_CITED='No such trailer was added; the rule is at https://claude.com/claude-code'
 
+# AND THE THIRD ROUND: A CITATION URL IS NOT THE TOOL'S LINK (rf2-uo5f again).
+#
+# The two above end on the tool's own host and pass on their FIRST anchor —
+# each carries letters before `Generated with`, so neither reaches the tail
+# test at all. These two do reach it, and they are the shapes the repair before
+# this one still refused: the tail test asked whether the last word CONTAINED
+# `claude` or `anthropic` once it had seen a `://`, so it read a URL's PATH as
+# though it were the host.
+#
+# Both were measured at exit 1 against the landed detector, and the second is
+# the one that shows it is nothing to do with the wording: the SAME sentence
+# citing README.md instead passed. What separated them was a filename in a
+# path — and this repository's rule file is literally called CLAUDE.md, so
+# linking the rule rather than naming it, which is the natural way to cite it,
+# was the one form refused.
+#
+# THE PAIRED CONTROL IS `MARKER_URL_PATHED` BELOW: same structure, tool's own
+# HOST, so the host test has teeth rather than having merely stopped reading.
+PROSE_POLICY_URL='Generated with [Claude Code] was declined per https://github.com/day8/re-frame2/blob/main/CLAUDE.md.'
+PROSE_POLICY_URL_PATHED='Generated with [Claude Code] was declined per https://github.com/day8/day8/claude-notes.'
+
+# The mirror image of those two, and the reason the repair is a HOST test
+# rather than a removal: the tool's own host wearing a path that names
+# something else entirely. Nothing in the last word except the host says
+# "Claude Code", so a repair that reached for the path, or that dropped the
+# tail anchor to make the pair above pass, fails here.
+MARKER_URL_PATHED='Generated with Claude Code https://claude.com/day8/re-frame2/blob/main/README.md'
+
 for t in "$PROSE_COMPLIANCE" "$PROSE_MARKER_NAMED" "$PROSE_URL_NAMED" \
          "$PROSE_COMPLIANCE_TAIL" "$PROSE_POLICY_LINK" \
-         "$PROSE_POLICY_LINK_CITED"; do
+         "$PROSE_POLICY_LINK_CITED" "$PROSE_POLICY_URL" \
+         "$PROSE_POLICY_URL_PATHED"; do
   key=$(printf '%s' "$t" | cut -c1-40)
   out=$(printf 'Fixes the thing.\n\n%s\n' "$t" | run_attr_body)
   case "$out" in
@@ -2451,13 +2480,20 @@ done
 # shares a head with `PROSE_COMPLIANCE_TAIL` — a repair that widened the tail
 # hatch far enough to let the prose through would let this through with it. The
 # linked-policy pair sharpens that: they end on the same link the marker does,
-# so a body carrying both must still be refused for the marker alone.
+# so a body carrying both must still be refused for the marker alone. The
+# citation pair rides along for the same reason from the other side — they end
+# on a URL that is NOT the tool's, and the body still has to go red.
+#
+# `MARKER_URL_PATHED` joins the offending list because it is the one shape that
+# distinguishes a HOST test from a path test: refusing it while permitting
+# `PROSE_POLICY_URL_PATHED` is the whole of the third repair.
 for t in "$TRAILER_GENWITH" "$TRAILER_SESSION_URL" "$TRAILER_COAUTHOR" \
-         "$TRAILER_SESSION" "$MARKER_BARE_URL"; do
+         "$TRAILER_SESSION" "$MARKER_BARE_URL" "$MARKER_URL_PATHED"; do
   key=$(printf '%s' "$t" | cut -c1-32)
-  out=$(printf 'Fixes the thing.\n\n%s\n%s\n%s\n%s\n\n%s\n' \
+  out=$(printf 'Fixes the thing.\n\n%s\n%s\n%s\n%s\n%s\n%s\n\n%s\n' \
     "$PROSE_COMPLIANCE" "$PROSE_COMPLIANCE_TAIL" "$PROSE_POLICY_LINK" \
-    "$PROSE_POLICY_LINK_CITED" "$t" | run_attr_body)
+    "$PROSE_POLICY_LINK_CITED" "$PROSE_POLICY_URL" \
+    "$PROSE_POLICY_URL_PATHED" "$t" | run_attr_body)
   case "$out" in
     EXIT=0) fail "(10q) DISARMED: a body CARRYING a real trailer was allowed: $key..." ;;
     *)
@@ -2501,6 +2537,41 @@ case "$out" in
   *EXIT=0*) pass "(10q) a commit message ENDING on the tool's own link is permitted" ;;
   *) fail "(10q) FALSE POSITIVE: prose citing the policy by URL was refused ($out)"
      cat "$AERR" >&2 ;;
+esac
+
+# The citation pair at the detector: a commit message that ends on a URL whose
+# PATH carries the word and whose HOST does not. This is the shape the previous
+# repair still refused, and the reason it went unnoticed is that both anchors
+# have to be crossed to reach it — the line has to start at `Generated`, AND
+# end on a link.
+out=$(printf 'docs(gates): record the attribution rule\n\n%s\n%s\n' \
+  "$PROSE_POLICY_URL" "$PROSE_POLICY_URL_PATHED" | run_attr_lib 2>"$AERR") || true
+case "$out" in
+  *EXIT=0*) pass "(10q) a commit message ending on a CITATION url is permitted" ;;
+  *) fail "(10q) FALSE POSITIVE: rule 3's tail test reads a host, not a path ($out)"
+     cat "$AERR" >&2 ;;
+esac
+
+# BOTH DIRECTIONS IN ONE MESSAGE, which is the pairing that makes the host test
+# mean something: the citation sentences and a marker on the tool's own host
+# with a path that names neither the tool nor itself. Only the marker may be
+# quoted back — a listing that also names the citations is the false positive
+# returning, and the exit code alone would not show it.
+out=$(printf 'docs(gates): record the attribution rule\n\n%s\n%s\n\n%s\n' \
+  "$PROSE_POLICY_URL" "$PROSE_POLICY_URL_PATHED" "$MARKER_URL_PATHED" \
+  | run_attr_lib 2>"$AERR") || true
+case "$out" in
+  *EXIT=1*)
+    if grep -Fq "$MARKER_URL_PATHED" "$AERR" &&
+       ! grep -Fq "$PROSE_POLICY_URL" "$AERR" &&
+       ! grep -Fq "$PROSE_POLICY_URL_PATHED" "$AERR"; then
+      pass "(10q) the marker is quoted and the citations beside it are not"
+    else
+      fail "(10q) the refusal listing named the wrong lines"
+      cat "$AERR" >&2
+    fi
+    ;;
+  *) fail "(10q) DISARMED: a marker on the tool's host with an ordinary path was allowed ($out)" ;;
 esac
 
 out=$(printf 'docs(gates): record the attribution rule\n\n%s\n\n%s\n' \
