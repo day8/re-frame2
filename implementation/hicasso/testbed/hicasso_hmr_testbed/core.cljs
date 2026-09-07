@@ -352,8 +352,10 @@
   []
   (doseq [{:keys [frame]} frames]
     (when-some [handle (get @!handles frame)]
-      (rf.hicasso/render! handle [views/app {:ref-sink    (get ref-sinks frame)
-                                    :island-refs (island-refs-for frame)}]))))
+      (rf.hicasso/render! handle
+                          [rf.hicasso/frame-root {:id frame}
+                           [views/app {:ref-sink    (get ref-sinks frame)
+                                       :island-refs (island-refs-for frame)}]]))))
 
 (defn- seed!
   [frame-kw label]

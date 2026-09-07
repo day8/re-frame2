@@ -55,7 +55,8 @@
   every scrap of component state survive it."
   []
   (when-some [root @!root]
-    (rf.hicasso/render! root [rf.hicasso.examples.typeahead.views/screen {}])))
+    (rf.hicasso/render! root [rf.hicasso/frame-root {:id frame-id}
+                             [rf.hicasso.examples.typeahead.views/screen {}]])))
 
 (defn ^:export -main
   "Start the application."

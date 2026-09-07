@@ -74,7 +74,8 @@
   code is different."
   []
   (when-some [root @!root]
-    (rf.hicasso/render! root [rf.hicasso.examples.slice.views/app {}])))
+    (rf.hicasso/render! root [rf.hicasso/frame-root {:id frame-id}
+                             [rf.hicasso.examples.slice.views/app {}]])))
 
 (defn ^:export -main
   "Start the application."

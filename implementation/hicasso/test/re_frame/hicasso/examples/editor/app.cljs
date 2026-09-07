@@ -62,7 +62,8 @@
   caret survive."
   []
   (when-some [root @!root]
-    (rf.hicasso/render! root [rf.hicasso.examples.editor.views/editor {}])))
+    (rf.hicasso/render! root [rf.hicasso/frame-root {:id frame-id}
+                             [rf.hicasso.examples.editor.views/editor {}]])))
 
 (defn ^:export -main
   "Mount the editor on `#app`.
