@@ -761,10 +761,15 @@ test('an exception that ESCAPES the render call carries nothing the module autho
     assert.strictEqual(err.message, ISOLATE_LOST_REFUSAL, 'the contract owns the wording');
     assert.deepStrictEqual(
       Object.keys(err.detail).sort(),
-      ['isolate', 'threadId'],
-      'the detail is service-owned: which isolate died, and its thread',
+      ['afterChunks', 'isolate', 'threadId'],
+      'the detail is service-owned: which isolate died, its thread, and the tear count',
     );
     assert.strictEqual(typeof err.detail.threadId, 'number');
+    // rf2-kirm — the count is SERVICE-owned, on the same footing as the two
+    // fields beside it and as `render-threw`'s own `afterChunks` above: the
+    // isolate counted the chunks it forwarded, and nothing the module
+    // authored reaches it. Nothing was emitted on this entry, so it is 0.
+    assert.strictEqual(err.detail.afterChunks, 0, 'nothing was written, so nothing is torn');
 
     assert.deepStrictEqual(
       asyncLeaks(err),
@@ -857,6 +862,36 @@ test('an escaped exception cannot choose the refusal header either', async () =>
     } finally {
       await http.close();
     }
+  });
+});
+
+test('an ESCAPED exception after a chunk is a TORN response, and names the count', async () => {
+  // rf2-kirm — the isolate-lost path's own torn arm, in process, where the
+  // discriminator is readable as data rather than as a destroyed socket. The
+  // worker crashed, so no `error` message ever arrives and the count cannot
+  // come from the worker: `_failPendingRender` is the only thing that still
+  // knows how many chunks were forwarded, and it used to drop that knowledge
+  // on the floor. The HTTP row below is the same failure seen by the
+  // transport, and it must go on behaving exactly as it did.
+  await withService('throws-async', { isolates: 1 }, async (service) => {
+    const chunks = [];
+    let complete = null;
+    const err = await refusalOf(async () => {
+      for await (const frame of service.renderFrames(asyncReq('app/uncaught-torn'))) {
+        if (frame.type === 'chunk') chunks.push(frame.html);
+        else complete = frame;
+      }
+    });
+    assert.strictEqual(chunks.length, 1, 'the chunk really did reach the caller');
+    assert.strictEqual(complete, null, 'no success completion follows the failure');
+    assert.strictEqual(err.code, CODE.ISOLATE_LOST, 'the distinction is kept');
+    assert.strictEqual(err.message, ISOLATE_LOST_REFUSAL, 'the contract still owns the wording');
+    assert.strictEqual(err.detail.afterChunks, 1, 'the tear is named, with its exact count');
+    assert.deepStrictEqual(
+      asyncLeaks(err),
+      [],
+      'stamping the count must not have opened a channel for the module',
+    );
   });
 });
 

@@ -23,6 +23,9 @@ const { CODE, RENDER_THREW_REFUSAL } = require('../src/protocol.cjs');
 
 const hang = (extra = {}) => ({ protocol: 1, entry: 'app/root', state: {}, ...extra });
 const quick = () => ({ protocol: 1, entry: 'app/quick', state: {} });
+// rf2-kirm — the same runaway loop, but with two chunks already emitted, so
+// the deadline lands on a TORN response rather than a clean one.
+const torn = (extra = {}) => ({ protocol: 1, entry: 'app/torn', state: {}, ...extra });
 
 test('a render that never returns is refused inside its budget', async () => {
   await withService('hang', { isolates: 1, admissionTimeoutMs: 10000 }, async (service) => {
@@ -85,6 +88,67 @@ test('the service ceiling binds a caller that asks for longer', async () => {
       assert.ok(Date.now() - started < 5000);
     },
   );
+});
+
+// ---------------------------------------------------------------------------
+// rf2-kirm — THE TORN-RESPONSE COUNT SURVIVES A TIMEOUT.
+//
+// `README.md` §refusals and `service.cjs`'s own header both promise that a
+// failure arriving AFTER chunks is a torn response carrying
+// `detail.afterChunks`, and name "the isolate dying under a render" as one of
+// the two ways it happens. The isolate counted chunks on `pendingRender` and
+// attached the count for worker-REPORTED errors — but the deadline rejection
+// and `_failPendingRender` built their refusals without it, so a transport or
+// consumer branching on the advertised discriminator saw `undefined` while
+// body bytes had already left. The throw rows below this block are the shape
+// that always worked; these are the same claim on the paths that dropped it.
+// ---------------------------------------------------------------------------
+
+test('a TIMEOUT before any chunk carries afterChunks 0', async () => {
+  await withService('hang', { isolates: 1, admissionTimeoutMs: 10000 }, async (service) => {
+    const err = await refusalOf(() => collect(service, hang({ timeoutMs: 200 })));
+    assert.strictEqual(err.code, CODE.RENDER_TIMEOUT);
+    assert.strictEqual(err.detail.afterChunks, 0, 'nothing was written, so nothing is torn');
+    // The distinctions the repair must not cost.
+    assert.strictEqual(err.detail.timeoutMs, 200);
+    assert.strictEqual(err.detail.entry, 'app/root');
+    assert.strictEqual(typeof err.detail.isolate, 'number');
+  });
+});
+
+test('a TIMEOUT after chunks is a TORN response, and names the exact count', async () => {
+  await withService('hang', { isolates: 1, admissionTimeoutMs: 10000 }, async (service) => {
+    const chunks = [];
+    const err = await refusalOf(async () => {
+      for await (const frame of service.renderFrames(torn({ timeoutMs: 400 }))) {
+        if (frame.type === 'chunk') chunks.push(frame.html);
+      }
+    });
+    assert.strictEqual(chunks.length, 2, 'both chunks really did reach the caller');
+    assert.strictEqual(err.code, CODE.RENDER_TIMEOUT, 'still a timeout, not reclassified');
+    assert.strictEqual(err.detail.afterChunks, 2, 'the tear is named, with its exact count');
+    assert.strictEqual(err.detail.timeoutMs, 400, 'the existing detail is intact');
+    assert.strictEqual(
+      err.detail.entry,
+      'app/torn',
+      'and the entry, so an operator can still name the render',
+    );
+  });
+});
+
+test('no success completion follows a torn timeout', async () => {
+  // The half a count alone would not prove: the caller must not be handed a
+  // `complete` frame describing the chunks it did get.
+  await withService('hang', { isolates: 1, admissionTimeoutMs: 10000 }, async (service) => {
+    let complete = null;
+    const err = await refusalOf(async () => {
+      for await (const frame of service.renderFrames(torn({ timeoutMs: 400 }))) {
+        if (frame.type === 'complete') complete = frame;
+      }
+    });
+    assert.ok(err, 'the render must not have succeeded');
+    assert.strictEqual(complete, null, 'a torn stream must never yield a complete frame');
+  });
 });
 
 test('a render that throws BEFORE emitting is a clean refusal', async () => {
@@ -178,4 +242,9 @@ test('CONTROL — with no deadline in reach, the fault really does run forever',
   await service.close();
   const err = await inFlight;
   assert.strictEqual(err.code, CODE.SERVICE_CLOSED, 'closing must refuse what is in flight');
+  // rf2-kirm — the third terminal path that clears `pendingRender`. Nothing
+  // was emitted here, so the count is 0; what matters is that the field is
+  // PRESENT, since a consumer branching on `detail.afterChunks` cannot tell an
+  // untorn response from a path that forgot to say.
+  assert.strictEqual(err.detail.afterChunks, 0, 'a close refusal names the tear count too');
 });

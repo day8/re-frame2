@@ -12,9 +12,24 @@ const { encode } = require('../observations.cjs');
 module.exports = {
   protocol: 1,
   buildId: 'hang-build-1',
-  entries: { 'app/root': { stateAllowlist: [':todos'], runtimeAllowlist: [] }, 'app/quick': { stateAllowlist: [], runtimeAllowlist: [] } },
+  entries: {
+    'app/root': { stateAllowlist: [':todos'], runtimeAllowlist: [] },
+    'app/quick': { stateAllowlist: [], runtimeAllowlist: [] },
+    // rf2-kirm — the TORN arm: chunks are already on their way when the
+    // deadline fires, so the refusal has to name how many. `app/root` is
+    // the clean counterpart (nothing emitted, `afterChunks` 0), and the
+    // pair is what makes the count a measurement rather than a constant.
+    'app/torn': { stateAllowlist: [], runtimeAllowlist: [] },
+  },
 
   render({ entry }, emit) {
+    if (entry === 'app/torn') {
+      emit('<p>first</p>');
+      emit('<p>second</p>');
+      while (true) {
+        Math.sqrt(Date.now());
+      }
+    }
     if (entry === 'app/quick') {
       // The thread id is what proves a REPLACEMENT rather than a revival:
       // a terminated isolate is never reused, so the isolate that serves
