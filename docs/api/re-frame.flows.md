@@ -70,7 +70,7 @@ See [Flows: derived values your handlers can read](../core/flows.md) for the con
 - **Example**:
   ```clojure
   ;; Deregister :cart/subtotal; clears [:cart :subtotal] in this frame's app-db.
-  (flows/clear-flow :cart/subtotal)
+  (rf/clear :flow :cart/subtotal)
   ```
 
 ## The 3-slot grammar

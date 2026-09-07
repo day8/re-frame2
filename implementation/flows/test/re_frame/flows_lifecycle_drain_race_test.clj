@@ -119,7 +119,7 @@
       (try
         (let [clearer
               (future
-                (rf.flows/clear-flow :doubled {:frame :rf/default}))
+                (rf/clear :flow :doubled {:frame :rf/default}))
               ;; Thread B: once clear-flow has vacated (and is parked under
               ;; the drain-lock), fire an input-changing event. It
               ;; spin-CAS-waits on the drain-lock until clear-flow finishes,
@@ -323,7 +323,7 @@
         ;; Thread B: clear :scaled. A pre-lock read would capture the OLD
         ;; `[:out-a]` now (A hasn't swapped yet); B then blocks on the
         ;; drain-lock A's drain holds.
-        (let [clearer (future (rf.flows/clear-flow :scaled {:frame :rf/default}))]
+        (let [clearer (future (rf/clear :flow :scaled {:frame :rf/default}))]
           ;; B must NOT complete while A holds the lock — it's blocked on the
           ;; drain-lock (bounded wait; B's pre-lock read, if any, is a few
           ;; instructions before the blocking acquire).
@@ -472,7 +472,7 @@
     ;; A handler that, mid-drain, clears :scaled and returns its db UNCHANGED.
     (rf/reg-event :clear-scaled
                   (fn [{:keys [db]} _]
-                    (rf.flows/clear-flow :scaled {:frame :rf/default})
+                    (rf/clear :flow :scaled {:frame :rf/default})
                     {:db db}))
     (rf/dispatch-sync [:clear-scaled] {:frame :rf/default})
 
@@ -507,7 +507,7 @@
     ;; returns its db UNCHANGED.
     (rf/reg-event :clear-solo
                   (fn [{:keys [db]} _]
-                    (rf.flows/clear-flow :solo {:frame :rf/default})
+                    (rf/clear :flow :solo {:frame :rf/default})
                     {:db db}))
     (rf/dispatch-sync [:clear-solo] {:frame :rf/default})
 

@@ -400,7 +400,7 @@
         (is (= "Bearer A" @seen-auth) "first request carried the auth header")
         ;; Clear + dispatch again.
         (reset! seen-auth nil)
-        (rf/clear-http-interceptor :auth-header)
+        (rf/clear :http-interceptor :auth-header)
         (rf/dispatch-sync [:load])
         (await-reply! #(= 2 (count (:replies %))) 5000)
         (is (nil? @seen-auth)
@@ -425,7 +425,7 @@
             delegate frame resolution to the impl's require-current-frame!,
             never inject :rf/default from absence."
     (binding [rf.frame/*current-frame* nil]
-      (let [thrown (try (rf/clear-http-interceptor :some-id)
+      (let [thrown (try (rf/clear :http-interceptor :some-id)
                         nil
                         (catch clojure.lang.ExceptionInfo e e))]
         (is (some? thrown)
@@ -460,7 +460,7 @@
     ;; the natural `(clear id {:frame f})` guess from the reg shape that USED to
     ;; silently no-op under the old public frame-first arity. It now binds
     ;; :fa/other correctly.
-    (rf/clear-http-interceptor :fa/on-other {:frame :fa/other})
+    (rf/clear :http-interceptor :fa/on-other {:frame :fa/other})
     (is (zero? (count (rf.http.managed/interceptors-snapshot :fa/other)))
         "opts {:frame :fa/other} cleared the named frame's slot (misbind closed)")
     (is (= [:fa/on-default] (mapv :id (rf.http.managed/interceptors-snapshot :rf/default)))
@@ -498,26 +498,26 @@
       (is (= [:s32bf/ambient]
              (mapv :id (rf.http.managed/interceptors-snapshot :rf/default))))
       ;; every malformed 2-arg form fails closed
-      (is (threw-bad? #(rf/clear-http-interceptor :s32bf/ambient {}))
+      (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient {}))
           "empty opts map (no :frame) fails closed")
-      (is (threw-bad? #(rf/clear-http-interceptor :s32bf/ambient {:frame nil}))
+      (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient {:frame nil}))
           "nil :frame fails closed")
-      (is (threw-bad? #(rf/clear-http-interceptor :s32bf/ambient {:fram :rf/default}))
+      (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient {:fram :rf/default}))
           "misspelled opts key fails closed")
-      (is (threw-bad? #(rf/clear-http-interceptor :s32bf/ambient {:frame :rf/default :extra 1}))
+      (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient {:frame :rf/default :extra 1}))
           "extra opts key fails closed (map must be exactly {:frame target})")
-      (is (threw-bad? #(rf/clear-http-interceptor :s32bf/ambient "not-a-map"))
+      (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient "not-a-map"))
           "non-map second arg fails closed")
-      (is (threw-bad? #(rf/clear-http-interceptor :s32bf/ambient 42))
+      (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient 42))
           "non-map scalar second arg fails closed")
-      (is (threw-bad? #(rf/clear-http-interceptor :s32bf/ambient :some-frame))
+      (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient :some-frame))
           "old two-scalar frame-first is not a public shape — fails closed")
       ;; NO rejected call touched the ambient chain
       (is (= [:s32bf/ambient]
              (mapv :id (rf.http.managed/interceptors-snapshot :rf/default)))
           "no malformed clear touched the ambient :rf/default interceptor")
       ;; the exact opts form still clears the ambient frame
-      (rf/clear-http-interceptor :s32bf/ambient {:frame :rf/default})
+      (rf/clear :http-interceptor :s32bf/ambient {:frame :rf/default})
       (is (zero? (count (rf.http.managed/interceptors-snapshot :rf/default)))
           "the exact {:frame target} form clears the named frame"))))
 
@@ -579,7 +579,7 @@
         (rf/reg-http-interceptor :c {:before (fn [ctx] (swap! order conj :c) ctx)})
 
         ;; Clear :a — slot is removed entirely.
-        (rf/clear-http-interceptor :a)
+        (rf/clear :http-interceptor :a)
         ;; Re-register :a. Per the contract this is a FRESH registration,
         ;; not a position-preserving replace — it appends to the end.
         (rf/reg-http-interceptor :a {:before (fn [ctx] (swap! order conj :a-fresh) ctx)})
@@ -621,7 +621,7 @@
         "bare re-reg preserves position (Spec 014 §Chain order, replace-in-place)")
 
     ;; Clear-then-reg of :a — appends to end; order changes.
-    (rf/clear-http-interceptor :a)
+    (rf/clear :http-interceptor :a)
     (rf/reg-http-interceptor :a {:before (fn [c] c)})
     (is (= [:b :a] (mapv :id (rf.http.managed/interceptors-snapshot :rf/default)))
         "clear-then-reg lands at the end (rf2-kg5nw contract)")))

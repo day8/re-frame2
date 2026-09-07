@@ -14,10 +14,20 @@
 
 (defwrapper clear-flow
   "Per Spec 013 §Lifecycle: clear a flow from a frame's registry and
-  vacate its output path. Late-bound via :flows/clear-flow."
+  vacate its output path. Late-bound via :flows/clear-flow.
+
+  Not a public name of its own — the public door is `(rf/clear :flow id)` /
+  `(rf/clear :flow id {:frame f})`, which is why `:where` names it.
+
+  The 1-arity DELEGATES rather than recurring into the 2-arity with `{}`
+  (rf2-kuky.80). Once the owning `clear-flow`'s opts became EXACT, `{}` was a
+  value the validator rejects, so the old `([id] [id {}])` would have turned
+  every ambient clear into a throw. An omitted opts must reach the owning
+  fn's own AMBIENT arity, never be normalised into its 2-arity."
   {:hook :flows/clear-flow :artefact flows-artefact :on-absent :throw
+   :where 'rf/clear
    :ex-data {:flow-id id}}
-  ([id]      [id {}])
+  ([id]      :delegate)
   ([id opts] :delegate))
 
 (defwrapper reg-flow

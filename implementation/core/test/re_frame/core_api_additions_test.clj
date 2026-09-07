@@ -506,13 +506,19 @@
     (doseq [sym ['restore-epoch 'reg-observability-sink! 'unregister-route!]]
       (is (nil? (ns-resolve 're-frame.core sym))
           (str "re-frame.core/" sym " must be GONE (no back-compat alias)")))
-    ;; rf2-wad2fl: `clear-route` is no longer a façade export — the routing
-    ;; URL/lifecycle helpers moved to their owned namespace.
+    ;; rf2-wad2fl demoted `clear-route` off the façade to its owned namespace;
+    ;; rf2-kuky.80 then deleted it there too. There is no public `clear-route`
+    ;; NAME at all now — the registrar inverse is the one kind-keyed
+    ;; `(rf/clear :route id)`, which routes through the restored
+    ;; `:routing/clear-route` late-bind hook so the removal still emits
+    ;; `:rf.route/cleared`.
     (is (nil? (ns-resolve 're-frame.core 'clear-route))
-        "re-frame.core/clear-route is GONE (demoted to re-frame.routing by rf2-wad2fl)")
+        "re-frame.core/clear-route is GONE")
     (require 're-frame.routing)
-    (is (some? (ns-resolve 're-frame.routing 'clear-route))
-        "clear-route is reached via re-frame.routing/clear-route")))
+    (is (nil? (ns-resolve 're-frame.routing 'clear-route))
+        "re-frame.routing/clear-route is GONE too (rf2-kuky.80)")
+    (is (some? (ns-resolve 're-frame.core 'clear))
+        "rf/clear is the one public registrar inverse")))
 
 ;; ===========================================================================
 ;; rf2-t3lftq — API-shrink #3 (frame-state-io)
@@ -544,8 +550,11 @@
     ;; NEW names present on the impl namespaces.
     (is (some? (ns-resolve 're-frame.epoch 'restore-epoch!))
         "re-frame.epoch/restore-epoch! resolves")
-    (is (some? (ns-resolve 're-frame.routing 'clear-route))
-        "re-frame.routing/clear-route resolves")
+    ;; rf2-kuky.80: `clear-route` is no longer a public name on the routing
+    ;; artefact either — `(rf/clear :route id)` reaches
+    ;; `re-frame.routing.registry/clear-route` through the late-bind hook.
+    (is (nil? (ns-resolve 're-frame.routing 'clear-route))
+        "re-frame.routing/clear-route is GONE (rf2-kuky.80)")
     (is (some? (ns-resolve 're-frame.observability 'register-observability-sink!))
         "re-frame.observability/register-observability-sink! resolves")
     ;; OLD names gone.
@@ -572,12 +581,12 @@
           "state rewound to the target epoch via the renamed surface"))))
 
 (deftest clear-route-removes-route-under-new-name
-  (testing "(rf/clear-route id) removes a registered route — the renamed
+  (testing "(rf/clear :route id) removes a registered route — the renamed
             declarative-removal surface (rf2-sd6amv)"
     (require 're-frame.routing :reload)
     (rf/reg-route :rn/route {} "/rn")
     (is (some? (rf.routing/match-url "/rn")) "route registered + matchable")
-    (rf.routing/clear-route :rn/route)
+    (rf/clear :route :rn/route)
     (is (nil? (rf.routing/match-url "/rn"))
         "clear-route removed the route — it no longer matches")))
 

@@ -167,7 +167,7 @@
       (let [flow-id (keyword "elt" (name label))]
         (is (some? (rf/reg-flow flow-id {:inputs [[:root elt]] :output-path [:out elt]} identity))
             (str "shared-domain segment " (pr-str elt) " is accepted on this host"))
-        (rf.flows/clear-flow flow-id)))))
+        (rf/clear :flow flow-id)))))
 
 ;; ===========================================================================
 ;; 3. reg-flow REJECTS host / composite segments (CLJS host — the gap)

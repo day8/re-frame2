@@ -2194,8 +2194,8 @@
     (rf/reg-route :route/transient {} "/transient")
     (let [traces (atom [])]
       (rf/register-listener! :trace ::cleared-trace (fn [ev] (swap! traces conj ev)))
-      (rf.routing/clear-route :route/transient)
-      (rf.routing/clear-route :route/transient) ;; idempotent, no trace
+      (rf/clear :route :route/transient)
+      (rf/clear :route :route/transient) ;; idempotent, no trace
       (rf/unregister-listener! :trace ::cleared-trace)
       ;; SEMANTIC, posture-independent (rf2-o5dbf): the clear the trace
       ;; announces really happened, and the SECOND clear really was idempotent

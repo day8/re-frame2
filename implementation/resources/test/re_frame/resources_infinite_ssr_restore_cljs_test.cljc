@@ -77,7 +77,7 @@
   "Register `:feed/timeline` as an enveloped infinite feed with a `:page->items`
   accessor (so the merged-items read needs the spec to resolve)."
   []
-  (rf/clear-resource :feed/timeline)
+  (rf/clear :resource :feed/timeline)
   (rf/reg-resource :feed/timeline
     {:scope           :rf.scope/global
      :infinite        true

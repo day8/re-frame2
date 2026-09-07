@@ -228,19 +228,16 @@
                     :id    id}))
     id))
 
-(defn- valid-clear-opts?
-  "The public two-arity opts map must be EXACTLY `{:frame target}` — the sole
-  key is `:frame` and its value is a PRESENT, non-nil frame TARGET (a frame-id
-  keyword or a live frame value). Rejects a missing `:frame`, a nil target, a
-  misspelled/unknown key, an extra key, and any non-map second argument. A
-  frame VALUE is itself a map (carries `:rf.frame/object`); `frame-value?`
-  distinguishes it from a bare-keyword target."
-  [opts]
-  (and (map? opts)
-       (= #{:frame} (set (keys opts)))
-       (let [target (:frame opts)]
-         (or (keyword? target)
-             (rf.frame/frame-value? target)))))
+(def ^:private valid-clear-opts?
+  "The public two-arity opts map must be EXACTLY `{:frame target}`.
+
+  rf2-kuky.80 replaced the private copy that used to live here with the ONE
+  shared validator in `re-frame.frame`, which `rf/clear` and the flows arm now
+  use as well. The rule (map, sole key `:frame`, value a frame-id keyword or a
+  live frame value) is unchanged; only the number of copies is. That the copy
+  WAS private here is why the identically-shaped flows door still carried the
+  tolerant destructure this one had already been fixed for (rf2-s32bf)."
+  rf.frame/frame-opts?)
 
 (defn clear-http-interceptor
   "Unregister an HTTP interceptor by id from a frame's chain.
@@ -276,7 +273,7 @@
    (clear-http-interceptor*
      (rf.frame/require-current-frame!
        :clear-http-interceptor
-       {:where 'rf/clear-http-interceptor :event-id id})
+       {:where 'rf/clear :event-id id})
      id))
   ([id opts]
    ;; rf2-s32bf — the PUBLIC two-arity is ONLY `(id {:frame target})`.
@@ -287,7 +284,7 @@
    ;; frame; the opts form never falls back to the ambient scope.
    (when-not (valid-clear-opts? opts)
      (rf.error/throw-error!
-       :rf.error/http-bad-interceptor 'rf/clear-http-interceptor
+       :rf.error/http-bad-interceptor 'rf/clear
        "expected (clear-http-interceptor id {:frame target}): the two-arity opts map must be exactly {:frame target} with a present, non-nil frame target (a frame-id keyword or a live frame value). Two-scalar frame-first (frame id) is not a public shape."
        {:extra {:received {:id id :opts opts}}}))
    (clear-http-interceptor* (:frame opts) id)))

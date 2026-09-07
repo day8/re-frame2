@@ -1506,16 +1506,12 @@
   [& args]
   (raise-removed-reg-event-by-row! (get removed-reg-event-by-sym 'reg-event-ctx) args))
 
-(defn clear-event
-  "Unregister an event handler. Zero-arity clears every registered
-  event handler in the registrar; one-arity clears the named one.
-
-  Hot-reload tools and test fixtures call this between rebuilds to
-  drop stale handlers; production code rarely needs it. Returns nil.
-
-  See also: `reg-event`."
-  ([] (rf.registrar/clear-kind! :event))
-  ([id] (rf.registrar/unregister! :event id)))
+;; rf2-kuky.80: no `clear-event` fn here. `:event` owns no tear-down lifecycle of
+;; its own — removal IS `rf.registrar/unregister!`, which forgets provenance,
+;; marks the live-frame projection dirty and emits `:rf.registry/handler-cleared`
+;; — so the kind-keyed `(rf/clear :event id)` calls the registrar directly and this
+;; one-line indirection is gone. The nilary clear-all went with it: its only
+;; callers were fixtures, which use `rf.registrar/clear-kind!`.
 
 ;; ---- EP-0023 inline-registration lowering --------------------------------
 ;;

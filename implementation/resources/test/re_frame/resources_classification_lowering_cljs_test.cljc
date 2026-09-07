@@ -38,7 +38,7 @@
 
 (defn- reg!
   [id overrides]
-  (rf/clear-resource id)
+  (rf/clear :resource id)
   (let [spec (merge {:scope         :rf.scope/global
                      :params-schema [:map [:slug :string]]}
                     overrides)]

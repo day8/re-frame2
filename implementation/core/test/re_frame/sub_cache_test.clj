@@ -439,7 +439,7 @@
       (is (= 7 @r1))
       (is (contains? (cache-keys) [:n])))
 
-    (rf/clear-sub :n)
+    (rf/clear :sub :n)
     ;; Cache slot survives clear-sub — this is the documented v1 contract.
     (is (contains? (cache-keys) [:n])
         "clear-sub leaves the cache slot in place; use clear-sub-cache! to evict")
@@ -468,9 +468,11 @@
     (rf/subscribe [:b])
     (is (= #{[:a] [:b]} (cache-keys)))
 
-    (rf/clear-sub)
+    (rf.registrar/clear-kind! :sub)
     (is (= #{[:a] [:b]} (cache-keys))
-        "clear-sub with no args wipes registrations but not cache slots")
+        "clearing every :sub REGISTRATION leaves the runtime cache slots
+         standing — the two are different axes, which is why
+         `clear-sub-cache!` keeps its own name (rf2-kuky.80)")
     (is (= {} (rf.registrar/registrations :sub))
         "every :sub registration is gone")
 

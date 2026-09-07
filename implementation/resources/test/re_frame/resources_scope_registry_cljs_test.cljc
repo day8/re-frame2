@@ -26,6 +26,7 @@
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   [re-frame.core :as rf]
    [re-frame.registrar :as rf.registrar]
    [re-frame.resources :as rf.resources]
    [re-frame.resources.scope-registry :as rf.resources.scope-registry]))
@@ -71,7 +72,7 @@
       (is (= {:username [:db [:auth :user :username]]} (:inputs m)))
       (is (false? (:whole-db? m)))))
   (testing "clear-resource-scope removes the registration"
-    (rf.resources/clear-resource-scope :realworld/session)
+    (rf/clear :resource-scope :realworld/session)
     (is (nil? (rf.resources/scope-resolver-meta :realworld/session)))
     (is (not (contains? (rf.registrar/registrations :resource-scope) :realworld/session)))))
 

@@ -45,7 +45,9 @@
 (def flow-meta-at       rf.flows.registry/flow-meta-at)
 
 (def reg-flow           rf.flows.registry/reg-flow)
-(def clear-flow         rf.flows.registry/clear-flow)
+;; rf2-kuky.80: no public `clear-flow` re-export here — the registrar inverse
+;; is the one kind-keyed `(rf/clear :flow id)`. The registry fn below stays as
+;; the late-bind hook target.
 (def reset-flows!       rf.flows.registry/reset-flows!)
 (def reset-last-inputs! rf.flows.registry/reset-last-inputs!)
 
@@ -482,7 +484,7 @@
 ;; as a literal call so the late-bind drift gate can discover it.
 
 (rf.late-bind/set-fn! :flows/reg-flow           reg-flow)
-(rf.late-bind/set-fn! :flows/clear-flow         clear-flow)
+(rf.late-bind/set-fn! :flows/clear-flow         rf.flows.registry/clear-flow)
 (rf.late-bind/set-fn! :flows/run-flows-on-db    run-flows-on-db)
 (rf.late-bind/set-fn! :flows/reset-flows!       reset-flows!)
 ;; The router owns post-transform commit rollback. These pairs let it restore

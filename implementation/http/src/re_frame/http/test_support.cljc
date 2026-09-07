@@ -513,7 +513,7 @@
       (rf.fx/reg-fx stub-fx-id
                  {:doc "with-managed-request-stubs synthesised stub"}
                  prior)
-      (rf.fx/clear-fx stub-fx-id)))
+      (rf.registrar/unregister! :fx stub-fx-id)))
   nil)
 
 ;; rf2-bxc8kf — the scoped wrapper's override target is registered at

@@ -579,7 +579,7 @@
       (is (= 1 @counter) "registered :test.634y/touch fired on dispatch")
 
       ;; 2. Clear via the public alias.
-      (rf/clear-fx :test.634y/touch)
+      (rf/clear :fx :test.634y/touch)
       (is (nil? (rf.registrar/lookup :fx :test.634y/touch))
           "registry slot is gone after clear-fx")
 
@@ -614,9 +614,9 @@
     ;; Tooling calls clear-fx defensively before re-registering; a
     ;; second clear on an already-gone slot must not throw.
     (rf/reg-fx :test.634y/once (fn [_ _] nil))
-    (rf/clear-fx :test.634y/once)
+    (rf/clear :fx :test.634y/once)
     ;; Second clear on the already-gone slot.
-    (is (nil? (rf/clear-fx :test.634y/once))
+    (is (nil? (rf/clear :fx :test.634y/once))
         "double-clear is a no-op, not an exception")
     (is (nil? (rf.registrar/lookup :fx :test.634y/once))
         "the slot stays gone")))

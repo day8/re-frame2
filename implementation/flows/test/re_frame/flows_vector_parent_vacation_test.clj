@@ -37,7 +37,7 @@
     (is (= [10 20 30 99] (:cells (rf/app-db-value :rf/default)))
         "precondition: the flow wrote its derived value into vector index 3")
 
-    (rf.flows/clear-flow :cell3)
+    (rf/clear :flow :cell3)
     (let [cells (:cells (rf/app-db-value :rf/default))]
       (is (nil? (get cells 3))
           (str "index 3 was vacated (assoc'd nil) — the stranded derived value "
