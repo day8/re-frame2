@@ -474,25 +474,48 @@
 
 ;; ---- 5c. rf2-s32bf — the public opts form is EXACT + FAIL-CLOSED ----------
 ;;
-;; The public 2-arity is ONLY `(clear-http-interceptor id {:frame target})`.
-;; A malformed opts map (empty, nil :frame, misspelled/unknown key, extra
-;; key), a non-map second arg, and the old two-scalar frame-first spelling
-;; all fail closed with the typed `:rf.error/http-bad-interceptor` BEFORE any
-;; ambient state is touched — the old `(or (:frame opts) ambient-frame)`
-;; resolution silently mis-cleared the ambient frame on any of these.
+;; The opts map is ONLY `{:frame target}`.  A malformed one (empty, nil
+;; :frame, misspelled/unknown key, extra key), a non-map second arg, and the
+;; old two-scalar frame-first spelling all fail closed BEFORE any ambient
+;; state is touched — the old `(or (:frame opts) ambient-frame)` resolution
+;; silently mis-cleared the ambient frame on any of these.
+;;
+;; rf2-kuky.80 put TWO doors on that rule, and this test pins both, because
+;; each is reachable on its own and they raise DIFFERENT typed errors by
+;; design.  The public front door `(rf/clear :http-interceptor id opts)`
+;; validates in `clear` itself and raises
+;; `:rf.error/registrar-clear-bad-request` — one error id for the one verb,
+;; covering an unknown kind and opts on a non-frame-scoped kind as well.  The
+;; artefact-level `re-frame.http.middleware/clear-http-interceptor`, which
+;; survives as the `:http/clear-http-interceptor` hook target and so is still
+;; reached by the `:rf.fx/clear-http-interceptor` fx, keeps its own
+;; `:rf.error/http-bad-interceptor` for its own arg validation.  Both now
+;; share ONE validator (`re-frame.frame/frame-opts?`), which is what stopped
+;; the identically-shaped flows door carrying the tolerant destructure this
+;; one had already been fixed for.
 
 (deftest clear-http-interceptor-opts-form-fail-closed-rf2-s32bf
-  (testing "rf2-s32bf — the public 2-arity opts map must be EXACTLY
-            {:frame target}; malformed opts, a non-map second arg, and the old
-            two-scalar frame-first shape fail closed with
-            :rf.error/http-bad-interceptor and leave the ambient interceptor
-            untouched; the exact {:frame target} form still clears."
-    (letfn [(threw-bad? [thunk]
+  (testing "rf2-s32bf — the opts map must be EXACTLY {:frame target}; malformed
+            opts, a non-map second arg, and the old two-scalar frame-first
+            shape fail closed at BOTH doors and leave the ambient interceptor
+            untouched — :rf.error/registrar-clear-bad-request through the public
+            (rf/clear :http-interceptor id opts), and
+            :rf.error/http-bad-interceptor through the artefact-level fn the
+            :rf.fx/clear-http-interceptor fx reaches (rf2-kuky.80). The exact
+            {:frame target} form still clears."
+    (letfn [(threw-with? [error-id thunk]
               (let [ex (try (thunk) nil
                             (catch clojure.lang.ExceptionInfo e e))]
                 (and (some? ex)
-                     (= :rf.error/http-bad-interceptor
-                        (:rf.error/id (ex-data ex))))))]
+                     (= error-id (:rf.error/id (ex-data ex))))))
+            ;; the public front door: `clear`'s own validator fires first
+            (threw-bad? [thunk]
+              (threw-with? :rf.error/registrar-clear-bad-request thunk))
+            ;; the artefact-level fn the fx path still reaches
+            (artefact-threw-bad? [opts]
+              (threw-with? :rf.error/http-bad-interceptor
+                           #(rf.http.middleware/clear-http-interceptor
+                              :s32bf/ambient opts)))]
       ;; ambient scope is :rf/default (fixture) — seed a slot there.
       (rf/reg-http-interceptor :s32bf/ambient {:before (fn [c] c)})
       (is (= [:s32bf/ambient]
@@ -512,6 +535,20 @@
           "non-map scalar second arg fails closed")
       (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient :some-frame))
           "old two-scalar frame-first is not a public shape — fails closed")
+      ;; the SECOND door — the artefact-level fn the `:rf.fx/clear-http-interceptor`
+      ;; fx reaches — keeps its own typed error over the same shared validator.
+      (is (artefact-threw-bad? {})
+          "artefact door: empty opts map fails closed with :rf.error/http-bad-interceptor")
+      (is (artefact-threw-bad? {:frame nil})
+          "artefact door: nil :frame fails closed")
+      (is (artefact-threw-bad? {:fram :rf/default})
+          "artefact door: misspelled opts key fails closed")
+      (is (artefact-threw-bad? {:frame :rf/default :extra 1})
+          "artefact door: extra opts key fails closed")
+      (is (artefact-threw-bad? "not-a-map")
+          "artefact door: non-map second arg fails closed")
+      (is (artefact-threw-bad? :some-frame)
+          "artefact door: old two-scalar frame-first fails closed")
       ;; NO rejected call touched the ambient chain
       (is (= [:s32bf/ambient]
              (mapv :id (rf.http.managed/interceptors-snapshot :rf/default)))
