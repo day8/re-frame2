@@ -60,7 +60,41 @@
                        day8/re-frame2-routing    {:local/root "../routing"}
                        day8/re-frame2-machines   {:local/root "../machines"}
                        ;; Silent-on-success reporter.
-                       day8/re-frame2-test-quiet {:local/root "../test-quiet"}}
+                       day8/re-frame2-test-quiet {:local/root "../test-quiet"}
+                       ;; rf2-s7l5 — TEST-ONLY HTML5 parser, and the only
+                       ;; non-re-frame dependency on this classpath.
+                       ;;
+                       ;; The leading-LF compensation this artefact emits
+                       ;; exists to survive an HTML PARSER: the tokenizer
+                       ;; discards one LF immediately after a `<pre>` /
+                       ;; `<listing>` / `<textarea>` start tag, so
+                       ;; `re-frame.ssr-hiccup-newline-test` can only witness
+                       ;; the repair by parsing the emitted markup and reading
+                       ;; the resulting node's `textContent`. A hand-written
+                       ;; MODEL of that rule cannot: it shares the belief it is
+                       ;; supposed to check, so a wrong rule agrees with itself
+                       ;; and the suite stays green (rf2-s7l5's own audit
+                       ;; residual, twice).
+                       ;;
+                       ;; WHY validator.nu AND NOT jsoup. jsoup is the obvious
+                       ;; reach and it is WRONG here — MEASURED on 1.22.1:
+                       ;; `HtmlTreeBuilderState` consumes the LF for `pre` /
+                       ;; `listing` but NOT for `textarea`, so
+                       ;; `<textarea>\n\nt</textarea>` parses to `"\n\nt"` and
+                       ;; a textarea witness written against it would pin the
+                       ;; parser's gap as the browser's behaviour.
+                       ;; `nu.validator/htmlparser` is a direct port of the
+                       ;; HTML5 tree-construction algorithm (it is the parser
+                       ;; behind the W3C/WHATWG validator), gets all three
+                       ;; right, and builds a real `org.w3c.dom` tree — so the
+                       ;; witness reads `Node.getTextContent()`, the literal
+                       ;; thing the browser contract is written in.
+                       ;;
+                       ;; One 417 KiB jar, no transitive dependencies, and
+                       ;; NOWHERE near a production build: `:paths ["src"]`
+                       ;; and `:deps` above are what ships, and nothing under
+                       ;; `src/` requires it.
+                       nu.validator/htmlparser  {:mvn/version "1.4.16"}}
          ;; The default PR/local gate excludes the heavy
          ;; `^:slow` / `^:stress` namespaces (here: the 2000-request
          ;; `ssr_teardown_load_test`). `re-frame.test-quiet.runner` passes
@@ -134,7 +168,13 @@
                  day8/re-frame2-flows      {:local/root "../flows"}
                  day8/re-frame2-routing    {:local/root "../routing"}
                  day8/re-frame2-machines   {:local/root "../machines"}
-                 day8/re-frame2-test-quiet {:local/root "../test-quiet"}}
+                 day8/re-frame2-test-quiet {:local/root "../test-quiet"}
+                 ;; rf2-s7l5 — see the `:test` alias for why. This alias does
+                 ;; NOT compose onto `:test` (unlike `:prod-gate`), and the
+                 ;; runner LOADS every namespace under `test/` before it
+                 ;; filters vars, so a dependency missing here fails the slow
+                 ;; lane on namespace load rather than on a test.
+                 nu.validator/htmlparser   {:mvn/version "1.4.16"}}
    :main-opts   ["-m" "re-frame.test-quiet.runner" "-i" ":slow" "-i" ":stress"]}
 
   ;; Clojars deployment.
