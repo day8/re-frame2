@@ -505,27 +505,59 @@
         (let [snap (get-in rt (rf.machines.paths/snapshot-path parent-id))
               ;; Per Spec 005 §Per-region :after scoping: for parallel-region
               ;; machines the snapshot's :state is a map
-              ;; of region-name → that region's state, and the invoke-id
-              ;; is `[<region-name> <state...>]` (prefix-region-invoke-id).
-              ;; Resolve the active path inside the bearing region; the
-              ;; epoch lives at the per-region epoch slot.
+              ;; of region-name → that region's state, and a REGION `:after`'s
+              ;; invoke-id is `[<region-name> <state...>]`
+              ;; (prefix-region-invoke-id).
               parallel-snap? (and snap (map? (:state snap)))
               ;; Per Spec 005 §Hierarchy interaction: the epoch slot holds
               ;; a per-decl-path map `{<path> <int>}`, so the per-region /
               ;; flat base path is suffixed with the scheduling node's
               ;; decl-path to read the node's own epoch.
-              [in-region-invoke-id active epoch-slot]
-              (if parallel-snap?
-                (let [rn (first invoke-id)
-                      iid-tail (vec (rest invoke-id))]
-                  [iid-tail
-                   (when-let [rs (get (:state snap) rn)] (rf.machines.transition/state-path rs))
+              ;;
+              ;; THREE cases, not two (rf2-ps7o). A parallel snapshot does not
+              ;; imply a REGION timer: Spec 005 §Root-level `:after` admits a
+              ;; ROOT-owned `:after` on a `:type :parallel` machine, whose
+              ;; declaring path is EMPTY and so names no region. Selecting the
+              ;; region branch on `(map? (:state snap))` ALONE sent it there,
+              ;; where `(first [])` is nil and `(get (:state snap) nil)` is nil
+              ;; — read as "the declaring state is gone", so the replacement arm
+              ;; was declined and a root machine-lifetime timeout was cancelled
+              ;; permanently the first time its delay moved. The initial
+              ;; scheduling path already discriminates on `(seq invoke-id)`
+              ;; (`schedule-after-timer!`'s `region` binding); this mirrors it.
+              [still-here? epoch-slot]
+              (cond
+                ;; a parallel REGION's `:after` — resolve the active path
+                ;; inside the bearing region; the epoch is that region's own.
+                (and parallel-snap? (seq invoke-id))
+                (let [rn       (first invoke-id)
+                      iid-tail (vec (rest invoke-id))
+                      active   (when-let [rs (get (:state snap) rn)]
+                                 (rf.machines.transition/state-path rs))]
+                  [(boolean (and active
+                                 (= iid-tail (vec (take (count iid-tail) active)))))
                    [:data :rf/after-epoch-by-region rn iid-tail]])
-                [invoke-id (when snap (rf.machines.transition/state-path (:state snap)))
-                 [:data :rf/after-epoch (vec invoke-id)]])
-              still-here? (and active
-                                (= (vec in-region-invoke-id)
-                                   (vec (take (count in-region-invoke-id) active))))]
+
+                ;; a parallel machine's ROOT-owned `:after`. The root is not a
+                ;; region and never exits during normal operation — it is
+                ;; "alive for the whole machine" — so a live snapshot IS the
+                ;; liveness test, and its epoch is the FLAT `[:data
+                ;; :rf/after-epoch []]` slot Spec 005 names, never a per-region
+                ;; one. (Teardown is still backstopped by the epoch invariant
+                ;; when the replacement timer fires, and by the incarnation
+                ;; fence above.)
+                parallel-snap?
+                [true [:data :rf/after-epoch []]]
+
+                ;; a flat / compound machine — `:state` is a keyword / vector
+                ;; path with no region head; the root case falls here too
+                ;; (invoke-id `[]` prefix-matches every active path).
+                :else
+                (let [active (when snap (rf.machines.transition/state-path (:state snap)))]
+                  [(boolean (and active
+                                 (= (vec invoke-id)
+                                    (vec (take (count invoke-id) active)))))
+                   [:data :rf/after-epoch (vec invoke-id)]]))]
           (when still-here?
             (let [epoch (or (get-in snap epoch-slot) 0)]
               (schedule-after-timer! frame-id parent-id invoke-id state
