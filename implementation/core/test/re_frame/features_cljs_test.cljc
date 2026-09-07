@@ -1,11 +1,15 @@
 (ns re-frame.features-cljs-test
   "Regression coverage for the feature-inspection front-porch
-  (rf2-3nbl5.5, API-governance G5):
+  (rf2-3nbl5.5, API-governance G5; pruned to ONE door by rf2-kuky.4 /
+  rf2-kuky.75):
 
-    (rf/features)               — lists every optional feature + status
-    (rf/feature-loaded? :epoch) — true/false per loaded / absent feature
-    (rf/require-feature! :epoch) — no-op when present; throws the exact
-                                  copy-pasteable coordinate when absent
+    (rf/features)   — every optional feature + its coordinate data and
+                      live :loaded? status. The boolean is a lookup:
+                      (get-in (rf/features) [:epoch :loaded?]); an
+                      UNKNOWN feature keyword is ABSENT from the map and
+                      so reads nil (where the deleted feature-loaded?
+                      read false — the lookup is taught, not claimed
+                      contract-identical).
 
   The in-tree test build loads all seven per-feature artefacts (see
   implementation/core/deps.edn `:test` extra-deps), so every probe key is
@@ -18,7 +22,6 @@
   cognitect test-runner, so this one `.cljc` file runs on both runtimes."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
-            [clojure.string :as str]
             [re-frame.features :as rf.features]
             [re-frame.late-bind :as rf.late-bind]))
 
@@ -35,29 +38,7 @@
       (finally
         (rf.late-bind/set-fn! probe-key original)))))
 
-;; ---- feature-loaded? ------------------------------------------------------
-
-(deftest feature-loaded?-true-when-artefact-present
-  (testing "every per-feature artefact is loaded in the in-tree test build"
-    (doseq [feature (keys rf.features/feature-registry)]
-      (is (true? (rf.features/feature-loaded? feature))
-          (str feature " probe key should be populated in the test build")))))
-
-(deftest feature-loaded?-false-when-artefact-absent
-  (testing "flipping a feature's probe key to nil reports it as not loaded"
-    (with-probe-absent :epoch
-      (fn []
-        (is (false? (rf.features/feature-loaded? :epoch))
-            "absent probe key => feature-loaded? false")))
-    (testing "the flip is isolated — other features stay loaded"
-      (is (true? (rf.features/feature-loaded? :schemas))))))
-
-(deftest feature-loaded?-false-for-unknown-feature
-  (testing "an unknown feature keyword is reported as not loaded, no throw"
-    (is (false? (rf.features/feature-loaded? :not-a-feature)))
-    (is (false? (rf.features/feature-loaded? nil)))))
-
-;; ---- features -------------------------------------------------------------
+;; ---- features — the one inventory door ------------------------------------
 
 (deftest features-lists-every-optional-feature-with-status
   (testing "features returns one entry per registry feature, carrying the
@@ -71,58 +52,59 @@
         (is (string? (:maven entry)))
         (is (string? (:require entry)))
         (is (boolean? (:loaded? entry))))
-      (is (true? (get-in m [:epoch :loaded?]))
-          "epoch loaded in the in-tree build")
       (is (= "day8/re-frame2-epoch" (get-in m [:epoch :maven])))
       (is (= "re-frame.epoch" (get-in m [:epoch :require]))))))
 
-(deftest features-reflects-absent-feature-status
-  (testing "features :loaded? tracks the live probe state"
+(deftest features-loaded-arm
+  (testing "every per-feature artefact is loaded in the in-tree test build,
+            read through the map lookup that replaced feature-loaded?"
+    (let [m (rf.features/features)]
+      (doseq [feature (keys rf.features/feature-registry)]
+        (is (true? (get-in m [feature :loaded?]))
+            (str feature " probe key should be populated in the test build"))))))
+
+(deftest features-not-loaded-arm
+  (testing "flipping a feature's probe key to nil reports it as not loaded,
+            and the flip is isolated to that feature"
     (with-probe-absent :routing
       (fn []
-        (is (false? (get-in (rf.features/features) [:routing :loaded?]))
-            "routing reports :loaded? false while its probe is nil")
-        (is (= "day8/re-frame2-routing" (get-in (rf.features/features) [:routing :maven]))
-            "coordinate is static — present regardless of loaded? status")))))
+        (let [m (rf.features/features)]
+          (is (false? (get-in m [:routing :loaded?]))
+              "routing reports :loaded? false while its probe is nil")
+          (is (= "day8/re-frame2-routing" (get-in m [:routing :maven]))
+              "coordinate is static — present regardless of :loaded? status")
+          (is (true? (get-in m [:schemas :loaded?]))
+              "the flip is isolated — other features stay loaded"))))))
 
-;; ---- require-feature! -----------------------------------------------------
+(deftest features-omits-unknown-feature
+  (testing "an unknown feature keyword has NO entry — the lookup reads nil,
+            not false; no throw"
+    (let [m (rf.features/features)]
+      (is (not (contains? m :not-a-feature)))
+      (is (nil? (get-in m [:not-a-feature :loaded?])))
+      (is (nil? (get m nil))))))
 
-(deftest require-feature!-no-op-when-present
-  (testing "require-feature! returns true when the feature is loaded"
-    (is (true? (rf.features/require-feature! :epoch)))
-    (is (true? (rf.features/require-feature! :schemas)))))
-
-(deftest require-feature!-throws-exact-coordinate-when-absent
-  (testing "require-feature! throws :rf.error/feature-not-loaded with the
-            exact copy-pasteable Maven coordinate + require form"
+(deftest features-supports-the-boot-time-guard
+  (testing "the documented replacement for the deleted require-feature! —
+            an explicit (when-not … (throw (ex-info …))) carrying the
+            inventory entry as its data, NOT an elidable assert"
     (with-probe-absent :epoch
       (fn []
-        (let [ex   (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-                                (rf.features/require-feature! :epoch)))
-              data (ex-data ex)]
-          (is (= :rf.error/feature-not-loaded (:rf.error/id data)))
-          (is (= :epoch (:feature data)))
+        (let [guard (fn []
+                      (when-not (get-in (rf.features/features) [:epoch :loaded?])
+                        (throw (ex-info "re-frame.epoch is not on the classpath"
+                                        (get (rf.features/features) :epoch)))))
+              ex    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
+                                 (guard)))
+              data  (ex-data ex)]
           (is (= "day8/re-frame2-epoch" (:maven data))
-              "exact Maven coordinate to add to deps")
-          (is (= "re-frame.epoch" (:require-ns data))
-              "exact namespace to require at boot")
-          (is (= :no-recovery (:recovery data)))
-          (let [reason (:reason data)]
-            (is (str/includes? reason "day8/re-frame2-epoch")
-                "reason carries the copy-pasteable Maven coordinate")
-            (is (str/includes? reason "re-frame.epoch")
-                "reason carries the copy-pasteable require namespace")))))))
-
-(deftest require-feature!-throws-unknown-feature
-  (testing "require-feature! on an unknown keyword throws :rf.error/unknown-feature
-            listing the known set"
-    (let [ex   (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-                            (rf.features/require-feature! :not-a-feature)))
-          data (ex-data ex)]
-      (is (= :rf.error/unknown-feature (:rf.error/id data)))
-      (is (= :not-a-feature (:feature data)))
-      (is (contains? (set (:known data)) :epoch)
-          ":known lists the registry features"))))
+              "the guard's data IS the inventory entry — exact Maven coordinate")
+          (is (= "re-frame.epoch" (:require data))
+              "…and the exact namespace to require at boot")
+          (is (false? (:loaded? data))))))
+    (testing "the guard is a no-op when the feature is loaded"
+      (is (nil? (when-not (get-in (rf.features/features) [:epoch :loaded?])
+                  (throw (ex-info "unreachable" {}))))))))
 
 ;; ---- bundle-isolation invariant (static-data, not a live require) ---------
 

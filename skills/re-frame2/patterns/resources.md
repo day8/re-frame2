@@ -14,7 +14,7 @@ Declarative server-state: a **named, cached read** of remote state that views re
 > | `useMutation` | `reg-mutation` + `[:rf.mutation/execute …]` (see [`resources-mutations.md`](resources-mutations.md)) | Keyed by **instance id** so concurrent submissions never clobber; success patches/populates entries then invalidates tags. |
 > | `useMutation({ onSuccess })` callback | call-site **`:reply-to`** on `[:rf.mutation/execute …]` | The continuation is a **causal event target**, not a callback — the runtime dispatches your event with a reply map after cache consequences settle, so it lands on the event tape (replayable, traced, interceptor-visible). Cache effects stay declarative on `reg-mutation`; **`:reply-to` is for app workflow**. |
 
-**Optional capability — `day8/re-frame2-resources` (Spec 016).** Resources is a post-v1 optional artefact. An app that does not require it expresses server state with [Pattern-RemoteData](remote-data.md) + managed HTTP directly — see §When to use vs plain managed HTTP. Everything below assumes the artefact is on the classpath; `(rf/feature-loaded? :resources)` answers whether it is.
+**Optional capability — `day8/re-frame2-resources` (Spec 016).** Resources is a post-v1 optional artefact. An app that does not require it expresses server state with [Pattern-RemoteData](remote-data.md) + managed HTTP directly — see §When to use vs plain managed HTTP. Everything below assumes the artefact is on the classpath; `(get-in (rf/features) [:resources :loaded?])` answers whether it is.
 
 ## When to load
 

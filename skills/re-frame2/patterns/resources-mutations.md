@@ -4,7 +4,7 @@ The **write** counterpart to [Pattern-Resources](resources.md): `reg-mutation` r
 
 > **Mental-model anchor:** `reg-mutation` + `[:rf.mutation/execute …]` is re-frame2's **`useMutation`**; call-site **`:reply-to`** is its **`onSuccess`** — but the continuation is a *causal event target*, not a callback (the runtime dispatches your event with a reply map after cache consequences settle, so it lands on the event tape: replayable, traced, interceptor-visible). The full TanStack / RTK-Query mapping is in [`resources.md`](resources.md)'s mental-model table.
 
-**Optional capability — `day8/re-frame2-resources` (Spec 016).** Mutations ship with Resources; `(rf/feature-loaded? :resources)` answers whether the artefact is on the classpath.
+**Optional capability — `day8/re-frame2-resources` (Spec 016).** Mutations ship with Resources; `(get-in (rf/features) [:resources :loaded?])` answers whether the artefact is on the classpath.
 
 ## When to load
 

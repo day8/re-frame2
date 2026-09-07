@@ -1223,15 +1223,14 @@
   ;; the process registrar. See `re-frame.core` `rf/image` /
   ;; `make-frame` rows and EP-0023 §Backwards Compatibility.
   ;; Feature registry (optional-artefact presence checks).
-  ["re-frame.core" "feature-loaded?"]      {:tier :advanced :owner "Conventions" :status "v1"
-                                           :action :keep
-                                           :justification "The reader half of the facade re-export, artefact require pattern: it answers whether the optional artefact a facade name late-binds to is actually loaded. Asking that question from anywhere but the facade whose names it is about would be incoherent."}
+  ;; rf2-kuky.4 (2026-09-08, slice rf2-kuky.75): `feature-loaded?` and
+  ;; `require-feature!` are DELETED from the facade and from the owning ns
+  ;; re-frame.features. `features` is the one inventory; the boolean is the
+  ;; lookup (get-in (features) [:epoch :loaded?]) and a boot-time guard is the
+  ;; app's own (when-not ... (throw (ex-info ... (get (features) :epoch)))).
   ["re-frame.core" "features"]             {:tier :advanced :owner "Conventions" :status "v1"
                                            :action :keep
-                                           :justification "The enumeration form of feature-loaded?, answering the same question about the same facade. Same reasoning, same door."}
-  ["re-frame.core" "require-feature!"]     {:tier :advanced :owner "Conventions" :status "v1"
-                                           :action :keep
-                                           :justification "The assert form of feature-loaded? -- fail at boot rather than at first call. Same question about the same facade, so the same door."}
+                                           :justification "The ONE feature-inspection door (rf2-kuky.4, 2026-09-06 ruling; slice rf2-kuky.75, landed 2026-09-08): it answers whether the optional artefact a facade name late-binds to is actually loaded, and asking that question from anywhere but the facade whose names it is about would be incoherent. The redundant projections over it -- feature-loaded? (a get-in) and require-feature! (a when-not + throw) -- were deleted rather than kept as spellings; data before magic."}
   ;; Public registrar query API (spec/API.md §Public registrar query API).
   ;; The `{:frame f …}` map ARITY added in rf2-wkw8na (EP-0023) extends these
   ;; two EXISTING exports — it adds NO new facade name, so it adds NO new row;

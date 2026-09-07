@@ -13,7 +13,7 @@
     4. the `:resource` registrar kind is in the core registrar's closed
        kind set, and `:query` is NOT;
     5. the feature probe (`:resources/reg-resource`) is published, so
-       `(rf/feature-loaded? :resources)` is true;
+       `(get-in (rf/features) [:resources :loaded?])` is true;
     6. the public-API late-bind hooks are published;
     7. the passive `:rf.resource/*` subs are registered;
     8. the `:rf.resource/*` event family is registered (and carries
@@ -290,7 +290,7 @@
 (deftest feature-probe-published
   (testing "the :resources feature is loaded? (the probe key is published)"
     (is (some? (rf.late-bind/get-fn :resources/reg-resource)))
-    (is (true? (rf.features/feature-loaded? :resources)))
+    (is (true? (get-in (rf.features/features) [:resources :loaded?])))
     (is (= "day8/re-frame2-resources" (:maven (:resources (rf.features/features)))))))
 
 (deftest public-api-hooks-published

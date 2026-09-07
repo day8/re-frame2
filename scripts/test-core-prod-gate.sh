@@ -139,7 +139,7 @@ test_root="$core/test"
 known_red=(
   # ── NOT a gate failure — a SUBSET artefact, and the only one.  This suite
   #    asserts that every optional per-feature artefact is loaded on the test
-  #    classpath (`feature-loaded?` for :http, :epoch, ...).  Those probe keys
+  #    classpath (`(get-in (features) [:http :loaded?])` and friends).  Those probe keys
   #    are populated by whichever namespace `require`s the artefact, and
   #    cognitect-test-runner requires only the namespaces a `-n` filter keeps —
   #    so excluding `conformance-test` / `examples-test` for gate reasons takes

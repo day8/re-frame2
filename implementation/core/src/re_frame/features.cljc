@@ -12,23 +12,29 @@
   artefact-missing error.
 
   This ns surfaces the optional-feature inventory so the binding is
-  self-explaining:
+  self-explaining, through ONE fn — data before magic:
 
-    `(features)`              — the optional features + their `loaded?`
-                                status, as a map.
-    `(feature-loaded? :epoch)` — boolean: is the feature's impl artefact
-                                on the classpath?
-    `(require-feature! :epoch)` — assert a feature is loaded; throw the
-                                EXACT copy-pasteable Maven coordinate +
-                                require form when it isn't.
+    `(features)`   — every optional feature + its coordinate data and
+                     live `:loaded?` status, as a map.
 
-  ## These three fns SHIP to production
+    `(get-in (features) [:epoch :loaded?])`   — the boolean. An unknown
+                     feature keyword reads `nil` here (its entry is
+                     simply absent from the map).
 
-  They are runtime queries, NOT dev-time instrumentation, so they are
-  deliberately NOT gated on `interop/debug-enabled?` and do NOT elide
+    ;; An app that wants boot-time failure rather than first-call
+    ;; failure writes the guard itself — one line, no framework verb,
+    ;; and NOT an `assert` (asserts are elidable):
+    (when-not (get-in (features) [:epoch :loaded?])
+      (throw (ex-info \"re-frame.epoch is not on the classpath\"
+                      (get (features) :epoch))))
+
+  ## `features` SHIPS to production
+
+  It is a runtime query, NOT dev-time instrumentation, so it is
+  deliberately NOT gated on `interop/debug-enabled?` and does NOT elide
   under `:advanced` + `goog.DEBUG=false`. A production caller may
-  legitimately probe `(feature-loaded? :routing)` before taking a
-  routing-dependent code path.
+  legitimately read `(get-in (features) [:routing :loaded?])` before
+  taking a routing-dependent code path.
 
   ## The coordinate table is STATIC DATA — never a live require
 
@@ -41,18 +47,17 @@
   that pulls epoch / machines / schemas / flows / routing / http / ssr
   into EVERY production bundle, breaking the bundle-isolation contract.
 
-  `feature-loaded?` therefore detects presence by a pure keyword lookup
-  in the always-loaded `rf.late-bind/hooks` atom — `(some? (get-fn
-  probe-key))` — which the impl artefact populates from its own ns-load.
-  No reach into the optional namespace; just an atom read.
+  `features` therefore detects presence by a pure keyword lookup in the
+  always-loaded `rf.late-bind/hooks` atom — `(some? (get-fn probe-key))`
+  — which the impl artefact populates from its own ns-load. No reach
+  into the optional namespace; just an atom read.
 
   The coordinate strings here are the single source of truth the per-
   feature `re-frame.core-<feature>` wrappers' `:reason` throws mirror
   (via `rf.late-bind/require-fn!`); every artefact-missing error in the
   framework carries the same copy-pasteable require/coordinate this
   table holds."
-  (:require [re-frame.error :as rf.error]
-            [re-frame.late-bind :as rf.late-bind]))
+  (:require [re-frame.late-bind :as rf.late-bind]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -110,25 +115,17 @@
                :spec      "Spec 016 (Resources)"
                :probe-key :resources/reg-resource}})
 
-(defn feature-loaded?
-  "Return `true` when the optional feature `feature`'s implementation
-  artefact is on the classpath, `false` otherwise (including when
-  `feature` is not a known optional feature keyword).
+(defn- loaded?
+  "Internal probe: is `probe-key` published in the always-loaded
+  `rf.late-bind/hooks` atom? The artefact publishes that key from its own
+  ns-load, so `(some? (rf.late-bind/get-fn probe-key))` faithfully signals
+  presence WITHOUT a static require into the optional namespace (which
+  would break bundle-isolation).
 
-  Detection is a pure keyword lookup in the always-loaded
-  `rf.late-bind/hooks` atom against the feature's representative
-  `:probe-key` — the artefact publishes that key from its own ns-load,
-  so `(some? (rf.late-bind/get-fn probe-key))` faithfully signals presence
-  WITHOUT a static require into the optional namespace (which would
-  break bundle-isolation). Ships to production — NOT elided.
-
-  Known feature keywords are the keys of `feature-registry`: `:schemas`,
-  `:machines`, `:routing`, `:flows`, `:http`, `:ssr`, `:epoch`,
-  `:resources`. Per spec/API.md §Feature inspection."
-  [feature]
-  (if-let [{:keys [probe-key]} (get feature-registry feature)]
-    (some? (rf.late-bind/get-fn probe-key))
-    false))
+  Private: `features` is the one public inventory door, and the boolean
+  is read from it as `(get-in (features) [:epoch :loaded?])`."
+  [probe-key]
+  (some? (rf.late-bind/get-fn probe-key)))
 
 (defn features
   "Return a map of every optional feature keyword to its inspection
@@ -144,69 +141,27 @@
       ;    ...}
 
   The `:probe-key` is internal plumbing and is dropped from the public
-  shape. Ships to production — NOT elided. Per spec/API.md §Feature
+  shape.
+
+  This is the ONE feature-inspection door. The boolean is a lookup —
+  `(get-in (features) [:epoch :loaded?])` — and an unknown feature
+  keyword reads `nil` there, because its entry is simply absent from
+  the map. An app wanting boot-time rather than first-call failure
+  writes the guard itself:
+
+      (when-not (get-in (features) [:epoch :loaded?])
+        (throw (ex-info \"re-frame.epoch is not on the classpath\"
+                        (get (features) :epoch))))
+
+  Ships to production — NOT elided. Per spec/API.md §Feature
   inspection."
   []
   (reduce-kv
-    (fn [acc feature {:keys [maven require spec]}]
+    (fn [acc feature {:keys [maven require spec probe-key]}]
       (assoc acc feature
              {:maven    maven
               :require  require
               :spec     spec
-              :loaded?  (feature-loaded? feature)}))
+              :loaded?  (loaded? probe-key)}))
     {}
     feature-registry))
-
-(defn require-feature!
-  "Assert the optional feature `feature` is loaded. Returns `true` when
-  the feature's implementation artefact is on the classpath; throws a
-  structured `:rf.error/feature-not-loaded` ex-info carrying the EXACT
-  copy-pasteable Maven coordinate + require form when it is not.
-
-      (rf/require-feature! :epoch)
-      ;; absent =>
-      ;; ExceptionInfo :rf.error/feature-not-loaded
-      ;;   {:rf.error/id :rf.error/feature-not-loaded
-      ;;    :where 'rf/require-feature!
-      ;;    :feature :epoch
-      ;;    :maven \"day8/re-frame2-epoch\"
-      ;;    :require-ns \"re-frame.epoch\"
-      ;;    :recovery :no-recovery
-      ;;    :reason \"The :epoch feature ... add day8/re-frame2-epoch to
-      ;;             deps and (require 're-frame.epoch) at app boot.\"}
-
-  Use as an early, self-explaining guard at the top of code that depends
-  on an optional feature, so the failure names the fix rather than
-  surfacing an opaque late-bind miss deep in a call chain. An unknown
-  feature keyword throws `:rf.error/unknown-feature` listing the known
-  set. Ships to production — NOT elided. Per spec/API.md §Feature
-  inspection."
-  [feature]
-  (let [entry (get feature-registry feature)]
-    (cond
-      (nil? entry)
-      (rf.error/throw-error!
-        :rf.error/unknown-feature
-        'rf/require-feature!
-        (str feature " is not a known optional feature. "
-             "Known features: "
-             (vec (sort (keys feature-registry))) ".")
-        {:recovery :no-recovery
-         :extra    {:feature feature
-                    :known   (vec (sort (keys feature-registry)))}})
-
-      (feature-loaded? feature)
-      true
-
-      :else
-      (let [{:keys [maven require]} entry]
-        (rf.error/throw-error!
-          :rf.error/feature-not-loaded
-          'rf/require-feature!
-          (str "The " feature " feature's implementation artefact "
-               "is not on the classpath. Add " maven
-               " to deps and (require '" require ") at app boot.")
-          {:recovery :no-recovery
-           :extra    {:feature    feature
-                      :maven      maven
-                      :require-ns require}})))))

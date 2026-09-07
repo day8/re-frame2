@@ -1762,13 +1762,13 @@ The late-binding is invisible at the call site: a developer who forgets to `:req
 
 #### Obligation 2 — the feature-inspection front-porch
 
-The inverse query — *which* optional features are present, and what to add for the absent ones — is exposed as three production-shipping `re-frame.core` surfaces (per [API §Feature inspection](API.md#feature-inspection)):
+The inverse query — *which* optional features are present, and what to add for the absent ones — is exposed as ONE production-shipping `re-frame.core` surface (per [API §Feature inspection](API.md#feature-inspection)):
 
 - `(rf/features)` → a map of every optional feature keyword to its coordinate data (`:maven` / `:require` / `:spec`) merged with a live `:loaded?` boolean.
-- `(rf/feature-loaded? :epoch)` → boolean presence check.
-- `(rf/require-feature! :epoch)` → asserts presence, throwing the exact copy-pasteable coordinate when absent (an early, self-explaining guard).
+- `(get-in (rf/features) [:epoch :loaded?])` → the presence boolean, read out of that map. An **unknown** feature keyword has no entry, so it reads `nil`.
+- An app wanting boot-time rather than first-call failure writes the guard itself — `(when-not (get-in (rf/features) [:epoch :loaded?]) (throw (ex-info … (get (rf/features) :epoch))))`, never an elidable `assert`. The inventory entry is the throw's data, so it carries the same copy-pasteable coordinate.
 
-**Static-data hard constraint (the production implication).** The feature→coordinate mapping these surfaces read MUST be **static data in the always-loaded facade** — a plain table of `{:feature {:maven … :require … …}}` strings. It MUST NOT `:require` (live-reach) into the optional impl namespaces. A live reach-in would create exactly the hard facade→optionals reference the whole pattern exists to avoid: it would pull every optional artefact (epoch, machines, schemas, flows, routing, http, ssr) onto every production classpath and break [§Bundle-isolation conformance](#bundle-isolation-conformance). Presence is therefore detected without reaching in — `feature-loaded?` does a pure keyword lookup in the always-loaded late-bind hooks atom against a representative key the impl publishes at its own ns-load. These three fns ship to production (runtime queries, not instrumentation — NOT elided), and the CLJS reference proves the static-table claim through the bundle-isolation, elision, and perf-bundle gates.
+**Static-data hard constraint (the production implication).** The feature→coordinate mapping this surface reads MUST be **static data in the always-loaded facade** — a plain table of `{:feature {:maven … :require … …}}` strings. It MUST NOT `:require` (live-reach) into the optional impl namespaces. A live reach-in would create exactly the hard facade→optionals reference the whole pattern exists to avoid: it would pull every optional artefact (epoch, machines, schemas, flows, routing, http, ssr) onto every production classpath and break [§Bundle-isolation conformance](#bundle-isolation-conformance). Presence is therefore detected without reaching in — `features` does a pure keyword lookup in the always-loaded late-bind hooks atom against a representative key the impl publishes at its own ns-load. It ships to production (a runtime query, not instrumentation — NOT elided), and the CLJS reference proves the static-table claim through the bundle-isolation, elision, and perf-bundle gates.
 
 ### Late-bind hook key grammar
 
