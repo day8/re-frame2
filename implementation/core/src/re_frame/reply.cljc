@@ -635,8 +635,13 @@
   wire slots redact to the `:rf/redacted` sentinel rather than ship under no
   policy (`elide-wire-value` enforces the live-frame gate; the carried stamp
   is policy-bearing only when it resolves). All other `opts` (size-threshold
-  overrides, `:rf.size/include-sensitive?`) forward unchanged. Returns a map
-  safe to place under a trace event's `:tags`.
+  overrides, `:rf.size/include-sensitive?`) forward unchanged, and must
+  therefore be members of the walker's CLOSED egress vocabulary
+  (`re-frame.elision/walker-opt-keys`) — anything else throws
+  `:rf.error/bad-egress-opts` there. The one exception is
+  `:rf.privacy/force-redact-wire?` below, which this layer consumes itself
+  and drops before forwarding. Returns a map safe to place under a trace
+  event's `:tags`.
 
   `:rf.privacy/force-redact-wire?` (opts) is the generic FORCED-wire-redaction
   escape hatch — the shared owner of the coarse per-call redaction a family
@@ -653,7 +658,12 @@
    (let [force-redact? (true? (:rf.privacy/force-redact-wire? opts))
          opts (cond-> opts
                 (and (nil? (:frame opts)) (contains? reply :rf.frame/id))
-                (assoc :frame (:rf.frame/id reply)))]
+                (assoc :frame (:rf.frame/id reply)))
+         ;; `:rf.privacy/force-redact-wire?` is THIS layer's own option — it
+         ;; is consumed above and is not part of the walker's CLOSED egress
+         ;; vocabulary (rf2-kuky.6), so it is dropped before forwarding
+         ;; rather than left to trip the closed-map guard.
+         opts (dissoc opts :rf.privacy/force-redact-wire?)]
      (reduce (fn [m slot]
                (if (contains? m slot)
                  (if force-redact?

@@ -274,7 +274,7 @@
                         false)
         ;; `elision-opts-edn` takes the walker-aligned `include-large?`
         ;; polarity directly. MCP `elision` true = emit markers =
-        ;; `:include-large?` false; hence `(not elision?)`.
+        ;; `:rf.size/include-large?` false; hence `(not elision?)`.
         elision-opts (elision/elision-opts-edn (not elision?) incl?)
         ;; Fail-CLOSED: the size walker over the app-db-rooted
         ;; `:db-state-after-simulation` slot runs UNLESS the caller opted

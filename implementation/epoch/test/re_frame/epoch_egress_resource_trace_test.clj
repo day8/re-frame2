@@ -26,7 +26,7 @@
   (`:resource/key`, `:removed`, rollback `:dispositions`) over the three
   classification arms EP-0015 names — sensitive params, large params, and a
   derived-sensitive `{:from-db}` scope — and that the trusted-local
-  `:include-sensitive?` opt-in lifts the redaction (the `local-raw` boundary).
+  `:rf.size/include-sensitive?` opt-in lifts the redaction (the `local-raw` boundary).
 
   resources is a TEST-ONLY dep here (production epoch never deps resources; the
   hook is nil-safe when absent — proven by the `epoch_egress_trace_events_test`
@@ -381,11 +381,11 @@
       (is (not (contains-secret? projected)) "no raw secret egresses"))))
 
 ;; ---------------------------------------------------------------------------
-;; (6) the trusted-local :include-sensitive? opt-in lifts the redaction
+;; (6) the trusted-local :rf.size/include-sensitive? opt-in lifts the redaction
 ;; ---------------------------------------------------------------------------
 
 (deftest trusted-local-include-sensitive-keeps-raw-keys
-  (testing "rf2-8x0gfa — the trusted-local :include-sensitive? opt-in keeps the
+  (testing "rf2-8x0gfa — the trusted-local :rf.size/include-sensitive? opt-in keeps the
             raw scoped key (the local-raw boundary), across :resource/key,
             :removed, and rollback :dispositions"
     (let [k-hit  (sk :rf.scope/global :secret/article {:auth-token secret})
@@ -400,14 +400,14 @@
                     (event :rf.mutation/optimistic-rolled-back
                            {:rf.frame/id :test/rt
                             :dispositions [{:resource/key k-disp :restored true}]})])
-          projected (rf.epoch/projected-record record {:include-sensitive? true})
+          projected (rf.epoch/projected-record record {:rf.size/include-sensitive? true})
           [hit succ roll] (:trace-events projected)]
       (is (= k-hit (:resource/key (:tags hit)))
-          "raw :resource/key rides with :include-sensitive?")
+          "raw :resource/key rides with :rf.size/include-sensitive?")
       (is (= [k-rem] (:removed (:tags succ)))
-          "raw :removed vector rides with :include-sensitive?")
+          "raw :removed vector rides with :rf.size/include-sensitive?")
       (is (= k-disp (:resource/key (first (:dispositions (:tags roll)))))
-          "raw rollback :dispositions key rides with :include-sensitive?"))))
+          "raw rollback :dispositions key rides with :rf.size/include-sensitive?"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (7) the load-more PAGINATION CURSOR — a FREE tag, owner-classified (rf2-3tysyj)
@@ -484,17 +484,17 @@
       (is (not (:sensitive? tags)) "a plain row is NOT stamped sensitive"))))
 
 (deftest trusted-local-include-sensitive-keeps-raw-cursor
-  (testing "rf2-3tysyj — the trusted-local :include-sensitive? opt-in keeps the
+  (testing "rf2-3tysyj — the trusted-local :rf.size/include-sensitive? opt-in keeps the
             raw cursor (the local-raw boundary)"
     (let [scoped-key (sk :rf.scope/global :secret/article {:auth-token secret})
           record     (record-with
                        [(event :rf.resource/load-more
                                {:rf.frame/id :test/rt :resource/key scoped-key
                                 :page-param cursor-secret :page-index 1})])
-          projected  (rf.epoch/projected-record record {:include-sensitive? true})
+          projected  (rf.epoch/projected-record record {:rf.size/include-sensitive? true})
           tags       (:tags (first (:trace-events projected)))]
       (is (= cursor-secret (:page-param tags))
-          "raw cursor rides with :include-sensitive?"))))
+          "raw cursor rides with :rf.size/include-sensitive?"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (rf2-7qbxbm) :error / :page-error HTTP failure envelope — the raw server
@@ -596,17 +596,17 @@
         (is (not (contains-secret? projected)))))))
 
 (deftest trusted-local-include-sensitive-keeps-raw-error-envelope
-  (testing "rf2-7qbxbm — the trusted-local :include-sensitive? opt-in keeps the
+  (testing "rf2-7qbxbm — the trusted-local :rf.size/include-sensitive? opt-in keeps the
             raw HTTP failure envelope (the local-raw boundary — the off-box
             redaction is the DEFAULT, not an unconditional strip)"
     (let [record    (record-with
                       [(event :rf.resource/failed
                               {:rf.frame/id :test/rt :status-after :error
                                :error http-error-envelope})])
-          projected (rf.epoch/projected-record record {:include-sensitive? true})
+          projected (rf.epoch/projected-record record {:rf.size/include-sensitive? true})
           tags      (:tags (first (:trace-events projected)))]
       (is (= http-error-envelope (:error tags))
-          "the raw envelope rides with :include-sensitive?"))))
+          "the raw envelope rides with :rf.size/include-sensitive?"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (rf2-wd9im) the SHAPE-driven fail-closed default — a scoped key sitting in a
@@ -862,7 +862,7 @@
           "a row with no key-bearing slot is NOT stamped sensitive"))))
 
 (deftest trusted-local-include-sensitive-keeps-raw-plan-membership
-  (testing "rf2-wd9im — the trusted-local :include-sensitive? opt-in keeps the
+  (testing "rf2-wd9im — the trusted-local :rf.size/include-sensitive? opt-in keeps the
             raw plan membership + the raw embedded work-id key (the local-raw
             boundary — the shape-driven redaction is the off-box DEFAULT, not an
             unconditional strip)"
@@ -872,7 +872,7 @@
                       [(event :rf.resource/route-plan (route-plan-tags [k1] [k1]))
                        (event :rf.resource/work-started
                               {:rf.frame/id :test/rt :work/id work-id})])
-          projected (rf.epoch/projected-record record {:include-sensitive? true})
+          projected (rf.epoch/projected-record record {:rf.size/include-sensitive? true})
           [plan work] (:trace-events projected)]
       (is (= [k1] (:blocking (:tags plan))) "raw :blocking rides")
       (is (= [k1] (:identities (:tags plan))) "raw :identities rides")
@@ -1408,7 +1408,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest trusted-local-include-sensitive-keeps-raw-free-scope
-  (testing "rf2-1zc33 — the trusted-local `:include-sensitive?` opt-in keeps the
+  (testing "rf2-1zc33 — the trusted-local `:rf.size/include-sensitive?` opt-in keeps the
             raw free `:scope` tag on every rostered row type, one of each driven
             below (the local-raw boundary — the tokenization is the off-box
             default, not a strip)"
@@ -1423,12 +1423,12 @@
                               {:rf.frame/id :test/rt :scope session-scope})
                        (event :rf.mutation/optimistic-applied
                               {:rf.frame/id :test/rt :scope session-scope})])
-          projected (rf.epoch/projected-record record {:include-sensitive? true})
+          projected (rf.epoch/projected-record record {:rf.size/include-sensitive? true})
           scopes    (mapv #(:scope (:tags %)) (:trace-events projected))]
       (is (= [session-scope session-scope session-scope
               session-scope session-scope]
              scopes)
-          "every row's raw :scope rides with :include-sensitive?"))))
+          "every row's raw :scope rides with :rf.size/include-sensitive?"))))
 
 ;; ===========================================================================
 ;; (rf2-425mm) the SAME free `:scope`, ONE CARRIER FURTHER OUT — inside the
@@ -1737,16 +1737,16 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest trusted-local-include-sensitive-keeps-raw-fx-carrier-scope
-  (testing "rf2-425mm — the trusted-local `:include-sensitive?` opt-in keeps the
+  (testing "rf2-425mm — the trusted-local `:rf.size/include-sensitive?` opt-in keeps the
             raw carrier scope (the local-raw boundary — the tokenization is the
             off-box default, not a strip)"
     (let [k1        (sk session-scope :derived/profile profile-params)
           args      (managed-args k1 session-scope)
           projected (rf.epoch/projected-record (fx-carrier-record args)
-                                            {:include-sensitive? true})]
+                                            {:rf.size/include-sensitive? true})]
       (is (= [session-scope session-scope session-scope session-scope]
              (carrier-scopes projected))
-          "every carrier's raw :scope rides with :include-sensitive?")
+          "every carrier's raw :scope rides with :rf.size/include-sensitive?")
       (is (= args (:rf.fx/args (:tags (first (:trace-events projected)))))
           "and so does the rest of the payload it sits in"))))
 
@@ -1809,7 +1809,7 @@
 ;; before the reply reaches any carrier (rf2-825mzj). The read reply has no
 ;; such source-side redaction and must not: the coarse `:sensitive?` claim
 ;; governs OFF-BOX egress, not in-process delivery — the app's own continuation
-;; handler is entitled to the decoded body, and `:include-sensitive?` must still
+;; handler is entitled to the decoded body, and `:rf.size/include-sensitive?` must still
 ;; show it. Hence the egress projector, and hence the owner gate.
 
 (def ^:private reply-params
@@ -2119,7 +2119,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest trusted-local-include-sensitive-keeps-raw-fx-carrier-reply
-  (testing "rf2-xx4ty — the trusted-local `:include-sensitive?` opt-in keeps the
+  (testing "rf2-xx4ty — the trusted-local `:rf.size/include-sensitive?` opt-in keeps the
             raw reply payload (the local-raw boundary — the tokenization is the
             off-box default, not a strip). This is load-bearing beyond the
             pattern: a `:reply-to` continuation is how a workflow reads a
@@ -2128,9 +2128,9 @@
     (let [k1        (sk session-scope :derived/profile reply-params)
           reply     (read-reply k1 session-scope reply-value)
           projected (rf.epoch/projected-record (reply-carrier-record reply)
-                                            {:include-sensitive? true})]
+                                            {:rf.size/include-sensitive? true})]
       (is (= [reply-value reply-value] (mapv :value (carrier-replies projected)))
-          "every carrier's raw :value rides with :include-sensitive?")
+          "every carrier's raw :value rides with :rf.size/include-sensitive?")
       (is (= [reply-params reply-params] (mapv :params (carrier-replies projected)))
           "and its :params")
       (is (= (conj read-reply-target reply)
@@ -2362,7 +2362,7 @@
 ;; `:params` beside `:scope` — so the counterpart is that same function, read at
 ;; the EGRESS projector instead of at the source (the read half must not redact
 ;; at source: the app's own continuation handler is entitled to the decoded
-;; body, and `:include-sensitive?` must still show it).
+;; body, and `:rf.size/include-sensitive?` must still show it).
 ;;
 ;; THE GRAIN, since taking the wrong one is how this family keeps regressing.
 ;; This arm is DECLARATION-conditional: it fires on the paths the owner
@@ -2604,7 +2604,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest trusted-local-include-sensitive-keeps-raw-declared-reply
-  (testing "rf2-ko5lm — the trusted-local `:include-sensitive?` opt-in keeps the
+  (testing "rf2-ko5lm — the trusted-local `:rf.size/include-sensitive?` opt-in keeps the
             raw declared slots (the local-raw boundary — the redaction is the
             off-box default, not a strip). Load-bearing for the same reason the
             coarse arm's opt-in is: a `:reply-to` continuation is how a workflow
@@ -2613,10 +2613,10 @@
     (let [k1        (sk :rf.scope/global :declared/profile declared-reply-params)
           reply     (read-reply k1 :rf.scope/global declared-reply-value)
           projected (rf.epoch/projected-record (reply-carrier-record reply)
-                                            {:include-sensitive? true})]
+                                            {:rf.size/include-sensitive? true})]
       (is (= [declared-reply-value declared-reply-value]
              (mapv :value (carrier-replies projected)))
-          "every carrier's raw :value rides with :include-sensitive?")
+          "every carrier's raw :value rides with :rf.size/include-sensitive?")
       (is (= (conj read-reply-target reply)
              (:rf.fx/args (:tags (first (:trace-events projected)))))
           "and so does the rest of the event vector it sits in"))))
@@ -2844,7 +2844,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest trusted-local-include-sensitive-keeps-raw-declared-feed-items
-  (testing "rf2-zaopo — the trusted-local `:include-sensitive?` opt-in keeps the
+  (testing "rf2-zaopo — the trusted-local `:rf.size/include-sensitive?` opt-in keeps the
             raw declared item fields, exactly as it does for the scalar reply.
             A feed's `:reply-to` continuation is how a workflow reads a page,
             and a local tool that could not see the declared field could not
@@ -2852,10 +2852,10 @@
     (let [k1        (sk :rf.scope/global :declared/feed declared-feed-params)
           reply     (read-reply k1 :rf.scope/global declared-feed-items)
           projected (rf.epoch/projected-record (reply-carrier-record reply)
-                                            {:include-sensitive? true})]
+                                            {:rf.size/include-sensitive? true})]
       (is (= [declared-feed-items declared-feed-items]
              (mapv :value (carrier-replies projected)))
-          "every carrier's raw merged item list rides with :include-sensitive?"))))
+          "every carrier's raw merged item list rides with :rf.size/include-sensitive?"))))
 
 ;; ===========================================================================
 ;; (rf2-wd9im audit #7013, and with it rf2-xx4ty's own carrier) NON-MAP
@@ -3037,7 +3037,7 @@
 
 (deftest trusted-local-include-sensitive-keeps-raw-non-map-param-keys
   (testing "rf2-wd9im audit #7013 — the redaction is the off-box DEFAULT, not an
-            unconditional strip: the trusted-local :include-sensitive? opt-in
+            unconditional strip: the trusted-local :rf.size/include-sensitive? opt-in
             keeps the raw vector-params plan membership and the raw embedded
             work-id key."
     (let [k1        (sk :rf.scope/global :secret/vector-params vector-params)
@@ -3046,7 +3046,7 @@
                       [(event :rf.resource/route-plan (route-plan-tags [k1] [k1]))
                        (event :rf.resource/work-started
                               {:rf.frame/id :test/rt :work/id work-id})])
-          projected (rf.epoch/projected-record record {:include-sensitive? true})
+          projected (rf.epoch/projected-record record {:rf.size/include-sensitive? true})
           [plan work] (:trace-events projected)]
       (is (= [k1] (:blocking (:tags plan))) "raw :blocking rides")
       (is (= [k1] (:identities (:tags plan))) "raw :identities rides")
@@ -3528,16 +3528,16 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest trusted-local-include-sensitive-keeps-raw-fx-carrier-error
-  (testing "rf2-rnsv2 — `:include-sensitive?` still shows the raw envelope. The
+  (testing "rf2-rnsv2 — `:rf.size/include-sensitive?` still shows the raw envelope. The
             redaction is the OFF-BOX default, not a strip: a local operator
             debugging a 422 needs the body."
     (let [k         (sk :rf.scope/global :plain/article {:slug plain-slug})
           reply     (failure-read-reply k :rf.scope/global failure-envelope)
           projected (rf.epoch/projected-record (both-carriers-of k reply)
-                                            {:include-sensitive? true})]
+                                            {:rf.size/include-sensitive? true})]
       (is (= [failure-envelope failure-envelope]
              (mapv :error (family-carrier-replies projected)))
-          "every carrier's raw envelope rides with :include-sensitive?")
+          "every carrier's raw envelope rides with :rf.size/include-sensitive?")
       (is (= failure-envelope (:error (:tags (first (:trace-events projected)))))
           "and so does the family row's copy"))))
 

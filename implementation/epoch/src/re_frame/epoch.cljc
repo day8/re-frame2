@@ -723,10 +723,18 @@
 
   The default profile is `:rf.egress/off-box-observability`. MCP and AI tools
   use `:rf.egress/off-box-tool`, which also includes structural marker
-  digests. Advanced trusted-local overrides are `:include-sensitive?`,
-  `:include-large?`, `:include-runtime-db?`, `:include-fx-args?`, and
-  `:include-event-args?`; each lifts only its own boundary. The 1-arity uses
-  safe defaults. Nil input returns nil."
+  digests. Advanced trusted-local overrides are `:rf.size/include-sensitive?`,
+  `:rf.size/include-large?`, `:include-runtime-db?`, `:include-fx-args?`, and
+  `:include-event-args?`; each lifts only its own boundary.
+
+  `opts` is a CLOSED map: those five plus `:rf.egress/profile`, and nothing
+  else. An unrecognised key throws `:rf.error/bad-egress-opts` naming it —
+  including the two shared axes' UNQUALIFIED spellings, which is what this
+  door used to read and every other door did not (rf2-kuky.6). The two
+  shared axes are `:rf.size/*`, the one egress vocabulary; the three
+  epoch-local knobs stay bare because they are not app-db axes at all.
+
+  The 1-arity uses safe defaults. Nil input returns nil."
   ([record] (rf.epoch.tool-pair/projected-record record))
   ([record opts] (rf.epoch.tool-pair/projected-record record opts)))
 

@@ -482,7 +482,7 @@
   off-box wire raw. EP-0025 (rf2-71dr8t) removed the
   `:rf.egress/output-sensitivity :rf.egress/public` declassification escape
   hatch, so the redaction is now always-on for every resolved-scope row — the
-  trusted-local `:include-sensitive?` opt-in at the epoch consumer is the only
+  trusted-local `:rf.size/include-sensitive?` opt-in at the epoch consumer is the only
   lift. The STRUCTURAL slots — `:resource-id` (the resolver id), `:kind`, the
   declared input NAMES (`:inputs`), `:whole-db?`, `:resolved-nil?` — ride
   verbatim (they carry no user value and a tool needs them to attribute the

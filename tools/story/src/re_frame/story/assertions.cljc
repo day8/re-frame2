@@ -73,6 +73,7 @@
   (:require [re-frame.core                :as rf]
             [re-frame.elision             :as rf.elision]
             [re-frame.interop             :as rf.interop]
+            [re-frame.privacy             :as rf.privacy]
             [re-frame.subs                :as rf.subs]
             [re-frame.story.config        :as rf.story.config]
             [re-frame.story.late-bind     :as rf.story.late-bind]
@@ -406,14 +407,22 @@
 (defn- redact-at
   "Project `v` through `rf.elision/elide-wire-value` as if it lives at
   `path` in `frame-id`'s app-db, so sensitive sub-paths (or a sensitive
-  root path) substitute `:rf/redacted`. Tolerant — any elision error or
-  a nil frame-id returns `v` unchanged (record-don't-throw: redaction
-  failure must never break the assertion)."
+  root path) substitute `:rf/redacted`. A nil frame-id walks under no
+  frame, which is the walker's own fail-closed arm.
+
+  Record-don't-throw, but FAIL CLOSED (rf2-kuky.6): an elision error
+  yields the `:rf/redacted` sentinel, never `v`. This catch used to
+  return the raw value — harmless while the walker could not reject an
+  opts map, and a LEAK the moment it could: once the egress opts map is
+  closed, a stale or misspelled key here becomes a throw, and a throw
+  that returns `v` ships the unprojected value to the very record the
+  projection exists to protect. Redaction failure still never breaks
+  the assertion — it just cannot be the thing that opens the door."
   [frame-id path v]
   (try
     (rf.elision/elide-wire-value v (cond-> {:path (vec path)}
                                   frame-id (assoc :frame frame-id)))
-    (catch #?(:clj Throwable :cljs :default) _ v)))
+    (catch #?(:clj Throwable :cljs :default) _ rf.privacy/redacted-sentinel)))
 
 (defn- sentinel-expected?
   "True iff the author wrote the framework redaction sentinel

@@ -34,7 +34,8 @@
   app-db. Per Conventions §Reserved runtime-db keys. Reads come off the
   runtime-db projection; writes go through `rf.frame/swap-runtime-db!` (the
   runtime-db partition write surface)."
-  (:require [re-frame.frame :as rf.frame]
+  (:require [re-frame.error :as rf.error]
+            [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.path :as rf.path]
@@ -662,7 +663,7 @@
     {:hint             hint
      :reason           source
      :as-of-epoch      (:as-of-epoch ctx)
-     :include-digests? (:include-digests? ctx)}))
+     :include-digests? (:rf.size/include-digests? ctx)}))
 
 (defn- warn-large-unschema'd!
   [frame-id path bytes]
@@ -960,8 +961,8 @@
         sensitive-tbl (:sensitive ctx)
         shadow-set    (:large-shadows-s ctx)
         decl-prefixes (:decl-prefixes ctx)
-        include-lg?   (:include-large? ctx)
-        include-s?    (:include-sensitive? ctx)
+        include-lg?   (:rf.size/include-large? ctx)
+        include-s?    (:rf.size/include-sensitive? ctx)
         threshold     (:threshold-bytes ctx)
         frame-id      (:frame-id ctx)]
     {:decide
@@ -1063,9 +1064,12 @@
                    ;; Empty when nothing is declared ⇒ the fork
                    ;; prunes to {} immediately and the walker is identity.
                    :decl-prefixes      (decl-prefix-set {:large large :sensitive sensitive})
-                   :include-large?     (true? (:rf.size/include-large? opts))
-                   :include-sensitive? (true? (:rf.size/include-sensitive? opts))
-                   :include-digests?   (true? (:rf.size/include-digests? opts))
+                   ;; One vocabulary all the way down (rf2-kuky.6): the walk
+                   ;; context carries the SAME `:rf.size/*` spelling the opts
+                   ;; map does, so no reader has to learn a second one.
+                   :rf.size/include-large?     (true? (:rf.size/include-large? opts))
+                   :rf.size/include-sensitive? (true? (:rf.size/include-sensitive? opts))
+                   :rf.size/include-digests?   (true? (:rf.size/include-digests? opts))
                    :threshold-bytes    threshold
                    :as-of-epoch        (:as-of-epoch opts)}
         seed-path (vec (:path opts))]
@@ -1074,6 +1078,79 @@
     ;; against `:decl-prefixes` on every map-key descent.
     (walk v seed-path #{seed-path} ctx)))
 
+;; ---------------------------------------------------------------------------
+;; The CLOSED egress-opts vocabulary (rf2-kuky.6).
+;;
+;; One policy vocabulary, spelled the same way at every door. A RECOGNISED
+;; policy key that the reading door does not read used to vanish without a
+;; signal — `:rf.egress/profile` is resolved by `re-frame.projection`, never
+;; here, so `(rf/elide-wire-value v {:rf.egress/profile :rf.egress/off-box-tool})`
+;; walked under the DEFAULT policy while reading as though it had named a
+;; boundary. The map is closed instead: an unknown key is a loud
+;; `:rf.error/bad-egress-opts`, which a closed map can only ever make SAFER
+;; (an unknown key did nothing before, so nothing that used to be redacted
+;; can now escape).
+;; ---------------------------------------------------------------------------
+
+(def walker-opt-keys
+  "The CLOSED key set `elide-wire-value` accepts.
+
+  `:rf.egress/profile` is deliberately ABSENT: profiles are a
+  `re-frame.projection` concern (`project-egress` resolves one to a
+  `:rf.size/*` opt-set and passes THAT down here). The two shared
+  inclusion axes' UNQUALIFIED spellings are absent for the same
+  reason — `:rf.size/*` is the one vocabulary (the `:rf.egress/*`
+  rename is rf2-kuky.93's, and this set moves with it)."
+  #{:frame
+    :path
+    :query-v
+    :as-of-epoch
+    :rf.size/include-sensitive?
+    :rf.size/include-large?
+    :rf.size/include-digests?
+    :rf.size/threshold-bytes})
+
+(defn bad-egress-opts-ex
+  "Build the `:rf.error/bad-egress-opts` `ex-info` for a CLOSED egress-opts
+  map that carried `unknown` keys. Shared by every closed egress door
+  (`elide-wire-value` here, `rf/project-egress` in `re-frame.projection`,
+  the epoch `projected-record` boundary) so the wording and the
+  machine-readable token cannot drift; each passes its own `where-sym` and
+  its own `accepted` set, because the sets differ by exactly the keys the
+  door itself owns.
+
+  Returns the `ex-info`; the caller throws."
+  [where-sym unknown accepted]
+  (let [unknown  (vec (sort unknown))
+        accepted (vec (sort accepted))
+        profile? (some #{:rf.egress/profile} unknown)]
+    (rf.error/thrown-ex-info
+      :rf.error/bad-egress-opts
+      where-sym
+      (str "unrecognised egress opts key(s) " (pr-str unknown)
+           " — the egress opts map is CLOSED, so a key this door does not "
+           "read is a loud error rather than a silent no-op; accepted keys "
+           "are " (pr-str accepted) "."
+           (when profile?
+             (str " :rf.egress/profile names a BOUNDARY and is resolved by "
+                  "rf/project-egress, which passes the resolved :rf.size/* "
+                  "opt-set down to the walker — pass the profile there.")))
+      {:recovery (if profile?
+                   :pass-the-profile-to-project-egress
+                   :use-a-recognised-egress-opts-key)
+       :extra    {:unknown-keys unknown
+                  :accepted     accepted}})))
+
+(defn assert-egress-opts!
+  "Throw `:rf.error/bad-egress-opts` when `opts` carries a key outside
+  `accepted`. A nil / empty opts map is always fine. Returns `opts` so the
+  guard can sit in a threading position."
+  [where-sym accepted opts]
+  (when (map? opts)
+    (when-let [unknown (seq (remove accepted (keys opts)))]
+      (throw (bad-egress-opts-ex where-sym unknown accepted))))
+  opts)
+
 (defn elide-wire-value
   "Walk `v` and substitute the frame's declared sensitive or large paths for
   wire egress (the durable declarations live in `[:rf.runtime/elision …]`,
@@ -1081,6 +1158,28 @@
   `:source :effect`, plus `reg-flow` outputs and subsystem
   projection-relative declarations — EP-0015 §8). Sensitive wins over large
   when both declarations match.
+
+  `opts` is a CLOSED map (`walker-opt-keys`) — one policy vocabulary,
+  spelled the same way at every egress door:
+
+      {:frame                      <frame-id>   ;; by KEY PRESENCE, see below
+       :path                       [...]        ;; absolute app-db offset of `v`
+       :query-v                    [...]        ;; route-sub re-seeding
+       :as-of-epoch                <epoch-id>
+       :rf.size/include-sensitive? <bool>
+       :rf.size/include-large?     <bool>
+       :rf.size/include-digests?   <bool>
+       :rf.size/threshold-bytes    <int>}
+
+  Any other key throws `:rf.error/bad-egress-opts` naming the offending
+  keys. `:rf.egress/profile` is NOT one of them: a profile names a
+  BOUNDARY and is resolved by `rf/project-egress`, which passes the
+  resolved `:rf.size/*` opt-set down here. Passing one to the walker used
+  to be a silent no-op — the call read as though it had named a boundary
+  while the walk ran under the default policy — and so did the two
+  shared axes' unqualified spellings. Closing the map
+  cannot widen egress: an unknown key did nothing before it, and does
+  nothing but throw after it.
 
   EP-0002 — the wire-egress frame resolves from the CARRIED
   stamp: the explicit `:frame` opt (*override*) wins, else the in-effect
@@ -1128,6 +1227,9 @@
   value asks for it on purpose."
   ([v] (elide-wire-value v nil))
   ([v opts]
+   ;; CLOSED opts (rf2-kuky.6) — FIRST, before the `:query-v` re-seed below
+   ;; can synthesise a `:path`, so the keys graded are exactly the caller's.
+   (assert-egress-opts! 'rf/elide-wire-value walker-opt-keys opts)
    (let [;; rf2-mtzv5m — route-sub egress re-seeding. A direct-read off-box
          ;; surface (Pair MCP read-sub / list-subscriptions :include-values /
          ;; snapshot :sub-cache / Xray) walks a route read sub's BARE value but

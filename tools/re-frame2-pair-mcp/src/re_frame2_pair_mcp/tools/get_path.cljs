@@ -177,7 +177,7 @@
                     false)
         ;; `elision-opts-edn` takes walker-aligned `include-large?`
         ;; polarity directly. MCP `elision` true = emit markers =
-        ;; `:include-large?` false; hence `(not elision?)`.
+        ;; `:rf.size/include-large?` false; hence `(not elision?)`.
         elision-opts  (elision/elision-opts-edn (not elision?) incl?)
         ;; Fail-CLOSED: the walker runs UNLESS the caller opted into
         ;; BOTH raw axes (`:elision false` ⇒ include-large? true AND

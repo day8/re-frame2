@@ -757,7 +757,7 @@
           ;; of the per-call `:sensitive?` flag (error bodies frequently echo
           ;; request context / tokens). On-box ring stays raw; the off-box
           ;; trace-events projector omits the slot, lifted only by the
-          ;; trusted-local `:include-sensitive?` opt-in.
+          ;; trusted-local `:rf.size/include-sensitive?` opt-in.
           redacted   (cond-> redacted
                        (contains? failure :decoded)
                        (assoc :rf.http/off-box-body

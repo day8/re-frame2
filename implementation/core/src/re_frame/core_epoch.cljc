@@ -235,7 +235,7 @@
   The legacy unqualified `:include-*` keys remain as ADVANCED per-call
   overrides composed OVER the selected profile (the `:rf.size/*` floor the
   profile resolves; the override wins) — NOT the primary boundary selector:
-  `:include-sensitive?` / `:include-large?` opt the APP-DB partition's privacy
+  `:rf.size/include-sensitive?` / `:rf.size/include-large?` opt the APP-DB partition's privacy
   / size posture back in across every payload slot (the trusted-local
   `local-raw` direction); they do NOT lift the frame-state `:rf.db/runtime`
   partition boundary, which stays `:rf/redacted` unless `:include-runtime-db?

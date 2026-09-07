@@ -134,7 +134,7 @@ The framework-published privacy filter every MCP forwarder composes. Apps don't 
 | `strip-sensitive` | walker | `(strip-sensitive coll)` → `[kept dropped-count]`. The `dropped-count` becomes the `:dropped-sensitive` envelope counter on the MCP response. | [`tools/mcp-base/spec/sensitive.md`](../tools/mcp-base/spec/sensitive.md) |
 | `scrub-snapshot` | walker | Snapshot-tree walker — descends into nested registration handles and removes `:sensitive?`-stamped sub-trees (stricter than top-level filtering). | [`tools/mcp-base/spec/sensitive.md`](../tools/mcp-base/spec/sensitive.md) |
 | `:include-sensitive` | cross-MCP wire arg | Per-call opt-in on every MCP tool surfacing trace-like data. Defaults to `false`. The wire-key spelling is now **uniform** across every server — story-mcp and re-frame2-pair-mcp both ship the unqualified `:include-sensitive` (no trailing `?` — the Anthropic tool-input-schema regex `^[a-zA-Z0-9_.-]{1,64}$` rejects `?`). The `?` is retained only on the internal walker option (`:rf.size/include-sensitive?`) and the config-knob verb (`include-sensitive?`), never the MCP wire key. | [`tools/mcp-base/spec/sensitive.md` §Cross-server arg-vocabulary](../tools/mcp-base/spec/sensitive.md#cross-server-arg-vocabulary-convention), [Conventions §Privacy config-knob](Conventions.md#privacy-config-knob-naming-on-box-ui-vs-off-box-wire-egress) |
-| `:rf.size/large-elided` (elision marker) + `:include-large?` (wire arg) | cross-MCP wire vocabulary | Size-elision peer of `:sensitive?`. The walker substitutes `:rf.size/large-elided {:bytes N :head "..." :handle ...}` at over-threshold or `:large?`-declared slots; off-box callers opt in with `{:include-large? true}`. | [`tools/mcp-base/spec/elision.md`](../tools/mcp-base/spec/elision.md), [009 §Size elision](009-Instrumentation.md#size-elision-in-traces) |
+| `:rf.size/large-elided` (elision marker) + `:rf.size/include-large?` (walker opt) | cross-MCP wire vocabulary | Size-elision peer of `:sensitive?`. The walker substitutes `:rf.size/large-elided {:bytes N :head "..." :handle ...}` at over-threshold or `:large?`-declared slots; off-box callers opt in with `{:rf.size/include-large? true}`. | [`tools/mcp-base/spec/elision.md`](../tools/mcp-base/spec/elision.md), [009 §Size elision](009-Instrumentation.md#size-elision-in-traces) |
 
 ---
 
@@ -296,7 +296,7 @@ The single most-asked question this doc answers: **what runs when, in what order
 │     - Composition rule: sensitive drop WINS over large elision when both    │
 │       apply at the same path (the size marker would otherwise leak :path /  │
 │       :bytes / :digest).                                                    │
-│     - Default `{:include-sensitive? false :include-large? false}` —         │
+│     - Default `{:rf.size/include-sensitive? false :rf.size/include-large? false}` —         │
 │       maximum elision unless the caller explicitly opts in.                 │
 └─────────────────────────────────────────────────────────────────────────────┘
                                   │
@@ -320,7 +320,7 @@ The single most-asked question this doc answers: **what runs when, in what order
 - **HTTP denylists are upstream of the trace stream.** They run inside `prepare-emit-tags` / `prepare-emit-failure` *before* `trace/emit!` fires — they shape the trace event itself, not its downstream consumers. Per [Spec 014 §Privacy](014-HTTPRequests.md).
 - **Real values are never redacted mid-handler.** The router stashes a scrubbed *copy* at `:rf/redacted-event`; the handler body continues to read the unredacted `:event` coeffect. Projection happens at the observation/egress boundary *after* the handler returns, never before.
 - **Production has one live path: the always-on error-emit substrate.** Everything else (dev trace bus, epoch ring, schema-validation traces, Xray) elides via `goog.DEBUG`. The error substrate honours `:sensitive?` *in production* — that's the load-bearing case for substrate-level enforcement.
-- **runtime-db is redacted/omitted off-box by default (EP-0001).** Off-box egress of frame-state — the epoch `projected-record` / `projected-history` pair, Xray-MCP, and pair recorders — redacts or omits the **runtime-db** side of frame-state by default; the off-box default fails closed. Only the app-db partition (subject to its own `:sensitive?` / `:large?` elision) and explicitly allowlisted serializable runtime-db facts cross the wire. The SSR hydration payload likewise ships only the serializable runtime-db facts the client needs to reconstitute (machine snapshots, route slice, elision declarations, SSR metadata — per [011 §The `:rf/hydrate` event](011-SSR.md#the-rfhydrate-event)), never transient runtime side-channel state. A **trusted-local** tool may request richer runtime-db diagnostics explicitly (the same opt-in shape as `:include-sensitive?` for app-db); **off-box / AI / log** egress fails closed. This is the runtime-db peer of the app-db `:sensitive?` default: app-db redacts at marked paths, runtime-db redacts/omits wholesale unless explicitly opted in. The normative statement (including the elision-declarations-live-in-runtime-db corollary) is [009 §Privacy / sensitive data in traces](009-Instrumentation.md#privacy--sensitive-data-in-traces).
+- **runtime-db is redacted/omitted off-box by default (EP-0001).** Off-box egress of frame-state — the epoch `projected-record` / `projected-history` pair, Xray-MCP, and pair recorders — redacts or omits the **runtime-db** side of frame-state by default; the off-box default fails closed. Only the app-db partition (subject to its own `:sensitive?` / `:large?` elision) and explicitly allowlisted serializable runtime-db facts cross the wire. The SSR hydration payload likewise ships only the serializable runtime-db facts the client needs to reconstitute (machine snapshots, route slice, elision declarations, SSR metadata — per [011 §The `:rf/hydrate` event](011-SSR.md#the-rfhydrate-event)), never transient runtime side-channel state. A **trusted-local** tool may request richer runtime-db diagnostics explicitly (the same opt-in shape as `:rf.size/include-sensitive?` for app-db); **off-box / AI / log** egress fails closed. This is the runtime-db peer of the app-db `:sensitive?` default: app-db redacts at marked paths, runtime-db redacts/omits wholesale unless explicitly opted in. The normative statement (including the elision-declarations-live-in-runtime-db corollary) is [009 §Privacy / sensitive data in traces](009-Instrumentation.md#privacy--sensitive-data-in-traces).
 
 ---
 
@@ -362,7 +362,7 @@ The two verb families that decide whether a sensitive value passes through a con
 | Verb | Where | Default | Trust boundary |
 |---|---|---|---|
 | `:rf.privacy/show-sensitive?` | On-box devtools panels (Xray, Story trace panel) — set via each tool's `configure!`, e.g. `(xray-config/configure! {:rf.privacy/show-sensitive? true})`. Reads back via `(re-frame.privacy/get-show-sensitive)`. Per — the `:rf.privacy/*` namespace is the cross-tool reservation (every re-frame2 tool that consumes the trace bus reads the same atom; one config flip covers every tool). | `false` (suppress) | The panel is for the operator running this process; toggle controls UI visibility, not egress. |
-| `:include-sensitive?` / `:rf.size/include-sensitive?` | Off-box wire egress (MCP servers, hosted-LLM preload, error monitors, Datadog/Sentry forwarders) | `false` (suppress) | The toggle controls whether sensitive values cross the process trust boundary. |
+| `include-sensitive?` (the verb) / `:rf.size/include-sensitive?` (the opt) | Off-box wire egress (MCP servers, hosted-LLM preload, error monitors, Datadog/Sentry forwarders) | `false` (suppress) | The toggle controls whether sensitive values cross the process trust boundary. |
 
 Both default to suppress per Spec 009's default-private posture. A sixth consumer adding a knob picks the verb by trust-boundary class — on-box panel → `show-sensitive?`; off-box wire → `include-sensitive?`.
 
@@ -562,7 +562,7 @@ Surfaces removed from this matrix. Listed here so readers don't search for them 
 ### Implementation cross-references
 
 - [`tools/mcp-base/spec/sensitive.md`](../tools/mcp-base/spec/sensitive.md) — cross-MCP `sensitive-event?` / `strip-sensitive` / `scrub-snapshot` walkers and the `:include-sensitive` arg vocabulary (the unqualified MCP wire key; the `?` is retained only on the internal `:rf.size/include-sensitive?` walker option and the config-knob verb).
-- [`tools/mcp-base/spec/elision.md`](../tools/mcp-base/spec/elision.md) — cross-MCP elision walker + the `:include-large?` arg vocabulary.
+- [`tools/mcp-base/spec/elision.md`](../tools/mcp-base/spec/elision.md) — cross-MCP elision walker; the size opt-in it resolves to is the framework walker opt `:rf.size/include-large?` (the `:rf.size/*` egress vocabulary, not a wire arg of its own).
 
 ### API.md projection
 

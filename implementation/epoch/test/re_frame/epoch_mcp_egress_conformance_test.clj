@@ -1257,7 +1257,7 @@
           "the schemas registry is unchanged"))))
 
 ;; ============================================================================
-;;  rf2-m9duxl — `:include-sensitive?` routes THROUGH projection, per-axis.
+;;  rf2-m9duxl — `:rf.size/include-sensitive?` routes THROUGH projection, per-axis.
 ;;
 ;; The Pair-MCP epoch-egress tools used to treat the operator's
 ;; `:include-sensitive true` opt-in as a FULL raw epoch bypass — they
@@ -1265,10 +1265,10 @@
 ;; sensitive axis with EVERY other independent projection axis and shipped
 ;; the raw fx-args payload, the raw runtime-db partition, and an
 ;; un-`:redact-fn`'d record off-box. The fix routes `:include-sensitive`
-;; THROUGH the projection as `{:include-sensitive? true}`, lifting ONLY the
+;; THROUGH the projection as `{:rf.size/include-sensitive? true}`, lifting ONLY the
 ;; app-db sensitive axis. These framework-side tests pin the per-axis
 ;; contract the tool-side form-shape tests depend on: with
-;; `{:include-sensitive? true}` the app-db sensitive leaf is REVEALED while
+;; `{:rf.size/include-sensitive? true}` the app-db sensitive leaf is REVEALED while
 ;; `:effects[*].args` / the `:rf.db/runtime` partition / large slots / the
 ;; `:redact-fn` override all stay at their fail-closed defaults.
 ;; ============================================================================
@@ -1283,7 +1283,7 @@
   (install-mcp-style-schemas! frame-id))
 
 (deftest include-sensitive-reveals-app-db-but-keeps-fx-args-redacted
-  (testing "rf2-m9duxl — `{:include-sensitive? true}` reveals the app-db
+  (testing "rf2-m9duxl — `{:rf.size/include-sensitive? true}` reveals the app-db
             sensitive leaf YET keeps the orthogonal `:effects[*].args`
             redacted (a different keyspace, governed by `:include-fx-args?`).
             This is the exact conflation the include-sensitive bypass
@@ -1301,11 +1301,11 @@
                           :fx [[:fxp/login c]]}))
       (rf/dispatch-sync [:do-login creds] {:frame :test/mcp})
       (let [raw      (last (rf/epoch-history :test/mcp))
-            proj     (rf.epoch/projected-record raw {:include-sensitive? true})
+            proj     (rf.epoch/projected-record raw {:rf.size/include-sensitive? true})
             fx-row   (some #(when (= :fxp/login (:fx-id %)) %) (:effects proj))]
         ;; App-db sensitive axis: REVEALED by include-sensitive.
         (is (= secret-password (get-in proj [:db-after :auth :password]))
-            "`:include-sensitive? true` reveals the app-db sensitive leaf")
+            "`:rf.size/include-sensitive? true` reveals the app-db sensitive leaf")
         ;; fx-args axis: STILL redacted (orthogonal — needs :include-fx-args?).
         (is (some? fx-row) "the fixture produced a payload-bearing fx row")
         (is (= :rf/redacted (:args fx-row))
@@ -1314,7 +1314,7 @@
         (is (= :fxp/login (:fx-id fx-row)) "value-free :fx-id preserved")))))
 
 (deftest include-sensitive-keeps-runtime-db-partition-redacted
-  (testing "rf2-m9duxl — `{:include-sensitive? true}` keeps the
+  (testing "rf2-m9duxl — `{:rf.size/include-sensitive? true}` keeps the
             `:rf.db/runtime` frame-state partition REDACTED. The runtime-db
             boundary is governed by the orthogonal `:include-runtime-db?`
             opt; asking for sensitive APP-DB values must not lift the
@@ -1331,7 +1331,7 @@
                                                  {:state :live})}))
     (rf/dispatch-sync [:seed-both] {:frame :test/mcp})
     (let [raw  (last (rf/epoch-history :test/mcp))
-          proj (rf.epoch/projected-record raw {:include-sensitive? true})]
+          proj (rf.epoch/projected-record raw {:rf.size/include-sensitive? true})]
       ;; Sanity: the raw record DOES carry a populated runtime-db partition
       ;; (the machine snapshot we wrote, alongside the frame's elision
       ;; registry which also lives in the runtime-db partition).
@@ -1342,23 +1342,23 @@
       ;; App-db sensitive axis: REVEALED.
       (is (= secret-password
              (get-in proj [:frame-state-after :rf.db/app :auth :password]))
-          "`:include-sensitive? true` reveals the app-db partition's sensitive leaf")
+          "`:rf.size/include-sensitive? true` reveals the app-db partition's sensitive leaf")
       ;; runtime-db axis: STILL redacted (orthogonal — needs :include-runtime-db?).
       (is (= :rf/redacted (get-in proj [:frame-state-after :rf.db/runtime]))
           "the `:rf.db/runtime` partition STAYS :rf/redacted under
            include-sensitive alone — runtime-db is orthogonal to the app-db
            sensitive axis")
       ;; And the explicit runtime-db opt DOES lift it (negative control).
-      (let [proj+rt (rf.epoch/projected-record raw {:include-sensitive?  true
+      (let [proj+rt (rf.epoch/projected-record raw {:rf.size/include-sensitive?  true
                                                  :include-runtime-db? true})]
         (is (not= :rf/redacted (get-in proj+rt [:frame-state-after :rf.db/runtime]))
             "the explicit `:include-runtime-db? true` opt lifts the partition —
              proving the axis is independently governed")))))
 
 (deftest include-sensitive-keeps-large-elision-independent
-  (testing "rf2-m9duxl — `{:include-sensitive? true}` keeps the app-db
+  (testing "rf2-m9duxl — `{:rf.size/include-sensitive? true}` keeps the app-db
             `:large?` slot elided to the `:rf.size/large-elided` marker.
-            Large is governed by the independent `:include-large?` opt;
+            Large is governed by the independent `:rf.size/include-large?` opt;
             the sensitive opt-in must not pull the full payload off-box."
     (rf/make-frame {:id :test/mcp})
     (install-fx-and-runtime-schemas! :test/mcp)
@@ -1367,26 +1367,26 @@
                                 :blob {:payload (big-string payload-size)}}}))
     (rf/dispatch-sync [:seed-large] {:frame :test/mcp})
     (let [raw  (last (rf/epoch-history :test/mcp))
-          proj (rf.epoch/projected-record raw {:include-sensitive? true})]
+          proj (rf.epoch/projected-record raw {:rf.size/include-sensitive? true})]
       ;; Sensitive REVEALED; large STILL elided.
       (is (= secret-password (get-in proj [:db-after :auth :password]))
-          "`:include-sensitive? true` reveals the app-db sensitive leaf")
+          "`:rf.size/include-sensitive? true` reveals the app-db sensitive leaf")
       (is (rf.elision/marker? (get-in proj [:db-after :blob :payload]))
           "the app-db large slot STAYS a `:rf.size/large-elided` marker —
            large elision is orthogonal to the sensitive axis")
       (is (zero? (count-leaf-strings-at-least payload-size proj))
           "no raw large-payload bytes egress under include-sensitive alone")
-      ;; Negative control: :include-large? true lifts it.
-      (let [proj+lg (rf.epoch/projected-record raw {:include-sensitive? true
-                                                 :include-large?     true})]
+      ;; Negative control: :rf.size/include-large? true lifts it.
+      (let [proj+lg (rf.epoch/projected-record raw {:rf.size/include-sensitive? true
+                                                 :rf.size/include-large?     true})]
         (is (not (rf.elision/marker? (get-in proj+lg [:db-after :blob :payload])))
-            "the explicit `:include-large? true` opt lifts the large slot —
+            "the explicit `:rf.size/include-large? true` opt lifts the large slot —
              proving the axis is independently governed")))))
 
 (deftest include-sensitive-still-applies-redact-fn-override
   (testing "rf2-m9duxl — the app-installed `:redact-fn` advanced override
             STILL runs over the projected record under
-            `{:include-sensitive? true}`. The override is the post-projection
+            `{:rf.size/include-sensitive? true}`. The override is the post-projection
             stage of the two-stage projection; a raw bypass would skip it
             entirely. We install a `:redact-fn` that stamps a sentinel slot
             and assert it lands even with the sensitive opt-in on."
@@ -1398,9 +1398,9 @@
                      (fn [{:keys [db]} _] {:db {:auth {:password secret-password}}}))
     (rf/dispatch-sync [:seed-sensitive] {:frame :test/mcp})
     (let [raw  (last (rf/epoch-history :test/mcp))
-          proj (rf.epoch/projected-record raw {:include-sensitive? true})]
+          proj (rf.epoch/projected-record raw {:rf.size/include-sensitive? true})]
       (is (= secret-password (get-in proj [:db-after :auth :password]))
-          "`:include-sensitive? true` reveals the app-db sensitive leaf")
+          "`:rf.size/include-sensitive? true` reveals the app-db sensitive leaf")
       (is (true? (:rf.test/redact-fn-ran proj))
           "the app `:redact-fn` override STILL runs under include-sensitive —
            the projection's post-stage is never skipped (no raw bypass)")
@@ -1519,9 +1519,9 @@
         (is (= :rf/redacted (get-in proj [:db-after :auth :password]))
             "the app-db sensitive leaf STAYS redacted — orthogonal axis"))
       ;; include-sensitive reveals the app-db leaf but keeps event args redacted.
-      (let [proj (rf.epoch/projected-record raw {:include-sensitive? true})]
+      (let [proj (rf.epoch/projected-record raw {:rf.size/include-sensitive? true})]
         (is (= secret-password (get-in proj [:db-after :auth :password]))
-            "`:include-sensitive? true` reveals the app-db sensitive leaf")
+            "`:rf.size/include-sensitive? true` reveals the app-db sensitive leaf")
         (is (= [:login :rf/redacted] (:trigger-event proj))
             "the trigger-event args STAY redacted — event-args axis is orthogonal")))))
 

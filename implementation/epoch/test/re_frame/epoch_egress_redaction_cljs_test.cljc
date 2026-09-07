@@ -37,7 +37,7 @@
        (`register-listener! :epoch` + `projected-history`), including the
        whole-structure \"no secret bytes anywhere\" scan and double-projection
        idempotence;
-    4. axis orthogonality — `:include-sensitive?` must not lift the fx-args,
+    4. axis orthogonality — `:rf.size/include-sensitive?` must not lift the fx-args,
        runtime-db partition, or large axes (the rf2-m9duxl / rf2-5w06uu
        Xray + Pair-MCP bypass leaks, both CLJS-side bugs);
     5. `:trigger-event` event-args fail-closed (rf2-nm611o);
@@ -377,14 +377,14 @@
       ;; NEGATIVE CONTROL on the new tag path: the trusted-local opt-in lifts it,
       ;; proving the elision is driven by the classification rather than by some
       ;; unrelated truncation on the way out.
-      (let [lifted (rf.epoch/projected-record raw {:include-large? true})]
+      (let [lifted (rf.epoch/projected-record raw {:rf.size/include-large? true})]
         (is (= payload-size (count (get-in (->> (:trace-events lifted)
                                                (filter #(= :rf.sub/run (:operation %)))
                                                (filter #(= :egress/big
                                                            (get-in % [:tags :rf.sub/id])))
                                                first)
                                           [:tags :rf.sub/value])))
-            "NEGATIVE CONTROL — `:include-large? true` DOES return the raw value
+            "NEGATIVE CONTROL — `:rf.size/include-large? true` DOES return the raw value
              to the trace tag, so the default elision is classification-driven")))))
 
 (deftest nil-and-non-map-input-projects-to-nil
@@ -431,7 +431,7 @@
 
 (deftest facade-threads-egress-opts-through-late-bind
   (testing "the consumers pass an opts map through the facade
-            (`{:include-sensitive? …}`, `:rf.egress/profile`). The 2-arity
+            (`{:rf.size/include-sensitive? …}`, `:rf.egress/profile`). The 2-arity
             must thread it — a dropped opts map would silently downgrade a
             trusted-local read, or worse, silently ignore a fail-closed
             profile choice."
@@ -439,7 +439,7 @@
     (reg-login!)
     (rf/dispatch-sync [:egress/login secret] {:frame frame-id})
     (let [raw (last-record)]
-      (is (= secret (get-in (rf/projected-record raw {:include-sensitive? true})
+      (is (= secret (get-in (rf/projected-record raw {:rf.size/include-sensitive? true})
                             [:db-after :auth :password]))
           "the opts map reaches the artefact through the facade")
       (is (= :rf/redacted (get-in (rf/projected-record raw {})
@@ -555,7 +555,7 @@
 (deftest include-sensitive-keeps-fx-args-redacted
   (testing "rf2-m9duxl was a CLJS bug: the Pair-MCP epoch tools treated an
             operator's `:include-sensitive true` as a FULL raw-epoch bypass,
-            shipping raw fx args off-box. `{:include-sensitive? true}` lifts
+            shipping raw fx args off-box. `{:rf.size/include-sensitive? true}` lifts
             the APP-DB sensitive axis ONLY; `:effects[*].args` is a different
             keyspace governed by `:include-fx-args?`."
     (fresh-frame!)
@@ -567,10 +567,10 @@
     (rf/dispatch-sync [:egress/do-login {:password secret :token "tok-abc"}]
                       {:frame frame-id})
     (let [raw    (last-record)
-          proj   (rf.epoch/projected-record raw {:include-sensitive? true})
+          proj   (rf.epoch/projected-record raw {:rf.size/include-sensitive? true})
           fx-row (some #(when (= :egress/login-fx (:fx-id %)) %) (:effects proj))]
       (is (= secret (get-in proj [:db-after :auth :password]))
-          "`:include-sensitive? true` reveals the app-db sensitive leaf
+          "`:rf.size/include-sensitive? true` reveals the app-db sensitive leaf
            (which also proves the opt-in is threaded at all)")
       (is (some? fx-row) "fixture: the cascade produced a payload-bearing fx row")
       (is (= :rf/redacted (:args fx-row))
@@ -596,18 +596,18 @@
                                   {:state :live})}))
     (rf/dispatch-sync [:egress/seed-both] {:frame frame-id})
     (let [raw  (last-record)
-          proj (rf.epoch/projected-record raw {:include-sensitive? true})]
+          proj (rf.epoch/projected-record raw {:rf.size/include-sensitive? true})]
       (is (= {:state :live}
              (get-in raw [:frame-state-after :rf.db/runtime
                           :rf.runtime/machines :snapshots :m/x]))
           "fixture: the raw record carries a populated runtime-db partition")
       (is (= secret (get-in proj [:frame-state-after :rf.db/app :auth :password]))
-          "`:include-sensitive? true` reveals the app-db partition's leaf")
+          "`:rf.size/include-sensitive? true` reveals the app-db partition's leaf")
       (is (= :rf/redacted (get-in proj [:frame-state-after :rf.db/runtime]))
           "the `:rf.db/runtime` partition STAYS redacted under
            include-sensitive alone")
       (is (not= :rf/redacted
-                (get-in (rf.epoch/projected-record raw {:include-sensitive?  true
+                (get-in (rf.epoch/projected-record raw {:rf.size/include-sensitive?  true
                                                      :include-runtime-db? true})
                         [:frame-state-after :rf.db/runtime]))
           "NEGATIVE CONTROL — the explicit `:include-runtime-db? true` opt DOES
@@ -615,7 +615,7 @@
            assertion above is not passing because the partition is empty"))))
 
 (deftest include-sensitive-keeps-large-elision-independent
-  (testing "`:include-sensitive?` and `:include-large?` are independent axes:
+  (testing "`:rf.size/include-sensitive?` and `:rf.size/include-large?` are independent axes:
             asking for sensitive values must not pull a bulk payload onto the
             wire (the token-budget claim), and vice versa."
     (fresh-frame!)
@@ -626,24 +626,24 @@
                     (assoc-in [:blob :payload] p))}))
     (rf/dispatch-sync [:egress/both secret (big-string payload-size)] {:frame frame-id})
     (let [raw (last-record)]
-      (let [proj (rf.epoch/projected-record raw {:include-sensitive? true})]
+      (let [proj (rf.epoch/projected-record raw {:rf.size/include-sensitive? true})]
         (is (= secret (get-in proj [:db-after :auth :password])))
         (is (rf.elision/marker? (get-in proj [:db-after :blob :payload]))
             "large stays elided under the sensitive opt-in")
         (is (zero? (count-leaves-at-least payload-size proj))
             "and no raw payload bytes egress anywhere in the record"))
-      (let [proj (rf.epoch/projected-record raw {:include-large? true})]
+      (let [proj (rf.epoch/projected-record raw {:rf.size/include-large? true})]
         (is (= :rf/redacted (get-in proj [:db-after :auth :password]))
             "sensitive stays redacted under the large opt-in")
         (is (not (rf.elision/marker? (get-in proj [:db-after :blob :payload])))
-            "NEGATIVE CONTROL — `:include-large? true` DOES lift the slot")
+            "NEGATIVE CONTROL — `:rf.size/include-large? true` DOES lift the slot")
         (is (pos? (count-leaves-at-least payload-size proj))
             "and the raw payload bytes ARE present, so the elision
              assertions above are not vacuous")))))
 
 (deftest include-sensitive-still-applies-the-redact-fn-override
   (testing "the app-installed `:redact-fn` is the SECOND stage of the
-            projection. A raw-record bypass on `:include-sensitive?` (the
+            projection. A raw-record bypass on `:rf.size/include-sensitive?` (the
             original rf2-m9duxl bug) skipped it entirely, so an app relying
             on the override to scrub material the classification registry
             cannot prove would have leaked. The override must still run."
@@ -653,7 +653,7 @@
                     {:redact-fn (fn [r] (assoc r :rf.test/redact-fn-ran true))}})
     (rf/dispatch-sync [:egress/login secret] {:frame frame-id})
     (let [raw  (last-record)
-          proj (rf.epoch/projected-record raw {:include-sensitive? true})]
+          proj (rf.epoch/projected-record raw {:rf.size/include-sensitive? true})]
       (is (= secret (get-in proj [:db-after :auth :password]))
           "the sensitive opt-in is in force")
       (is (true? (:rf.test/redact-fn-ran proj))
@@ -709,7 +709,7 @@
              fail-closed assertions above are testing redaction")
         (is (= :rf/redacted (get-in proj [:db-after :auth :password]))
             "the app-db sensitive leaf stays redacted"))
-      (let [proj (rf.epoch/projected-record raw {:include-sensitive? true})]
+      (let [proj (rf.epoch/projected-record raw {:rf.size/include-sensitive? true})]
         (is (= secret (get-in proj [:db-after :auth :password])))
         (is (= [:egress/login :rf/redacted] (:trigger-event proj))
             "the event args stay redacted under the app-db opt-in")))))
@@ -793,8 +793,8 @@
           "NEGATIVE CONTROL — the unprojected record DOES carry the token")
       (is (= body (:value (:tags (first (:trace-events
                                           (rf.epoch/projected-record
-                                            omit {:include-sensitive? true}))))))
-          "and the trusted-local `:include-sensitive?` opt-in lifts the
+                                            omit {:rf.size/include-sensitive? true}))))))
+          "and the trusted-local `:rf.size/include-sensitive?` opt-in lifts the
            omission, proving the assertion is about the disposition stamp"))))
 
 ;; ============================================================================

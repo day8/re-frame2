@@ -80,7 +80,7 @@
         ;; the post-dedup client count.
         ;; `elision-opts-edn` takes the walker-aligned
         ;; `include-large?` polarity directly (no in-helper inversion).
-        ;; MCP arg `elision` true = emit markers = `:include-large?` false,
+        ;; MCP arg `elision` true = emit markers = `:rf.size/include-large?` false,
         ;; hence the local `(not elision?)`.
         elision-opts-form (elision/elision-opts-edn (not elision?) incl?)
         ;; Fail-CLOSED: the per-slot walker over the app-db-
@@ -110,7 +110,7 @@
         ;; whenever the slice expanded to `:full`. The `:epochs` slice
         ;; ALWAYS projects — same posture trace-window / watch-epochs use.
         ;; `incl?` (the sensitive opt-in) does NOT bypass the projection:
-        ;; it threads `{:include-sensitive? true}` INTO `projected-record`
+        ;; it threads `{:rf.size/include-sensitive? true}` INTO `projected-record`
         ;; (app-db sensitive axis only), so the orthogonal fx-args /
         ;; runtime-db / large axes and the app `:redact-fn` stay
         ;; fail-closed. An epoch record never crosses the wire as a raw

@@ -35,11 +35,17 @@
   "Project `value` for an off-box sink (console, clipboard) through the
   framework's wire-elision walker with the off-box defaults BAKED IN.
 
-  Off-box defaults: `:include-sensitive?` and `:include-large?` are both
-  `false`, so a frame-declared sensitive slot egresses as `:rf/redacted` and
+  Off-box defaults: `:rf.size/include-sensitive?` and
+  `:rf.size/include-large?` are both `false`, so a frame-declared
+  sensitive slot egresses as `:rf/redacted` and
   a large slot as the `:rf.size/large-elided` marker. Xray's panel
   affordances expose no opt-in argument — the snapshot path is ALWAYS the
   redacted, size-elided projection, and any future affordance inherits that.
+
+  The two inclusion opts are read in the `:rf.size/*` spelling — the ONE
+  egress vocabulary (rf2-kuky.6). They were read here unqualified and
+  re-spelled on the way to the walker, a fourth private boundary of
+  exactly the class that bead abolished.
 
   Optional `:path` — the ABSOLUTE app-db path the value sits at. The
   framework's `:sensitive` / `:large` declarations (EP-0025 commit-plane
@@ -70,9 +76,11 @@
   `(rf/with-frame tf …)`."
   ([value]
    (egress-value value nil))
-  ([value {:keys [include-sensitive? include-large? path] :as opts
-           :or   {include-sensitive? false
-                  include-large?     false}}]
+  ([value {:rf.size/keys [include-sensitive? include-large?]
+           :keys         [path]
+           :as           opts
+           :or           {include-sensitive? false
+                          include-large?     false}}]
    (rf/elide-wire-value value
                         (cond-> {:rf.size/include-sensitive? include-sensitive?
                                  :rf.size/include-large?     include-large?}

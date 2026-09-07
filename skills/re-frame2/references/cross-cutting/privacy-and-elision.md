@@ -169,7 +169,7 @@ The framework projects, but needs to know *which trust boundary* a record is abo
 | `:rf.egress/ssr-hydration` | the projection applied **after** the SSR allowlist — defence-in-depth, never a parallel SSR mechanism. |
 | `:rf.egress/public-error` | client-safe server error projection; never includes internal raw values. |
 
-The boolean `:rf.size/*` flags (`:include-sensitive?`, `:include-large?`, `:include-digests?`) remain beneath the profiles as an **advanced override layer** — reach for them only to override one axis of a profile, not as the everyday choice.
+The boolean `:rf.size/*` flags (`:rf.size/include-sensitive?`, `:rf.size/include-large?`, `:rf.size/include-digests?`) remain beneath the profiles as an **advanced override layer** — reach for them only to override one axis of a profile, not as the everyday choice. Spell them qualified: the egress opts maps are **closed**, so an unqualified `include-*?` key is an `:rf.error/bad-egress-opts` throw, never a silently-ignored policy.
 
 ### The two projection primitives
 
@@ -187,8 +187,10 @@ Beneath it, **`rf/elide-wire-value`** is the single low-level walker for *tree-s
 ```clojure
 (rf/elide-wire-value app-db-slice
   {:frame :app/main :path [:auth]
-   :rf.egress/profile :rf.egress/off-box-tool})
+   :rf.size/include-digests? true})
 ```
+
+Its `opts` map is **closed** — `:frame` / `:path` / `:query-v` / `:as-of-epoch` plus the four `:rf.size/*` overrides. A `:rf.egress/profile` names a *boundary* and belongs to `project-egress`, which resolves it to those same `:rf.size/*` flags before delegating here; pass one to the walker (or an unqualified `include-*?`) and you get `:rf.error/bad-egress-opts` naming the key rather than a policy that quietly did not apply.
 
 ## Direct reads must project, with the frame known
 

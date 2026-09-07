@@ -79,7 +79,7 @@
         ;; "one missed `mapv projected-record` away from a leak").
         ;; `incl?` (gate-ON + explicit `:include-sensitive
         ;; true`) does NOT bypass projection. It is threaded as the
-        ;; `{:include-sensitive? true}` egress opt INTO `projected-record`,
+        ;; `{:rf.size/include-sensitive? true}` egress opt INTO `projected-record`,
         ;; lifting ONLY the app-db sensitive axis; fx-args / runtime-db /
         ;; large slots / `:redact-fn` stay fail-closed. Every egressed page
         ;; is ALWAYS projected.
@@ -119,7 +119,7 @@
             ;; record ALWAYS routes through `re-frame.core/projected-record`
             ;; (which reads `:frame` off the record itself and elides all
             ;; four payload slots). `incl?` threads
-            ;; `{:include-sensitive? true}` INTO the projection (app-db
+            ;; `{:rf.size/include-sensitive? true}` INTO the projection (app-db
             ;; sensitive axis only); it does NOT disable projection.
             page-src       (str "(vec (take " limit " filtered))")
             slice-src (ef/emit
