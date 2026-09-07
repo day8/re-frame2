@@ -4,7 +4,7 @@
 
   ## The gap this file closes
 
-  Every other route-link suite in the tree calls `rf.routing/route-link-render`
+  Every other route-link suite in the tree calls `rf.routing.link/route-link-render`
   — the bare render fn — directly, and every one of them establishes the
   frame with `rf/with-frame`. That is the DYNAMIC-VAR tier, tier 1 of the
   three-tier chain `frame/resolve-current-frame` reads, and it answers

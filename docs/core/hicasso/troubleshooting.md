@@ -529,7 +529,8 @@ the same change. So a reservation is promoted, never drifted into.
 | `:rf.error/hicasso-test-hook-is-opaque` | a React hook reached from a body run at L2, where no React is running |
 | `:rf.error/hicasso-test-native-is-opaque` | a native-tier element reaching the L2 semantic tree, as host and raw-React elements already do |
 | `:rf.error/hicasso-contenteditable-not-controllable` | a controlled `:value` binding on a contenteditable region |
-| `:rf.error/hicasso-route-link-bad-prefetch` | a route link's `:prefetch` carrying a value the link does not accept |
+| `:rf.error/route-link-bad-prefetch` | a route link's `:prefetch` carrying a value no link surface accepts — routing raises it, on both hosts, for `h/route-link` and `rf/route-link` alike |
+| `:rf.error/hicasso-route-link-claimed-intent-position` | a route link supplying `:prefetch :intent` *and* a value of its own at `:on-mouse-enter`, `:on-focus` or `:on-touch-start` — the three positions `:prefetch` claims |
 
 ### Dead
 

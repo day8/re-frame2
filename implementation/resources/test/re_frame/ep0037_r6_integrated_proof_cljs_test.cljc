@@ -337,7 +337,7 @@
     {:route  @(rf/subscribe [:rf/route])
      :chain  @(rf/subscribe [:rf.route/chain])
      :anchor #?(:clj  (rf.routing/route-link-render-ssr (article-link-props slug) "Read it")
-                :cljs (rf.routing/route-link-render     (article-link-props slug) "Read it"))}))
+                :cljs (rf.routing.link/route-link-render     (article-link-props slug) "Read it"))}))
 
 ;; ===========================================================================
 ;; helpers over the app's observable state
@@ -752,7 +752,7 @@
              milestones (atom [])
              props      (article-link-props slug (fn [_e] (swap! milestones conj :caller)))
              attrs      (second (rf/with-frame app
-                                  (rf.routing/route-link-render props "Read it")))]
+                                  (rf.routing.link/route-link-render props "Read it")))]
          (is (fn? (:on-mouse-enter attrs)))
          ;; render scope has unwound by the time a real pointer arrives, and a
          ;; DIFFERENT frame is ambient — exactly the rf2-o3nam4 hazard.

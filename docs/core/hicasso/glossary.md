@@ -549,8 +549,10 @@ Related: [Overlays and focus](13-overlays-and-focus.md).
 
 A routing helper on the door, called as `h/route-link`, that returns a real
 anchor and encodes navigation as a Hicasso intent. It supports route ids and
-params, native link semantics, and link-local veto behaviour. It declines
-`:prefetch`; warming a destination is an event you dispatch yourself.
+params, native link semantics, and link-local veto behaviour. `:prefetch
+:intent` warms the destination on hover, focus and touch, filling those three
+positions with routing's own prefetch event; supply a value at one of them
+yourself and the render is refused, because one position carries one intent.
 
 It is an inline function, not a separate view. Active-state styling comes from
 a route subscription comparison.

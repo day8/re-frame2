@@ -52,9 +52,8 @@
           :rf.nav/scroll      {:platforms #{:client}}}}
 
  ;; Per rf2-xak8u: no :sub override for :rf/route — the framework's
- ;; route-sub-fn projects the slice (select-keys over the routing-
- ;; runtime container at app-db :rf/route), which is what consumers
- ;; see. A fixture-DSL `[[:get [:rf/route]]]` body would return the
+ ;; :rf/route sub reads the slice at [:rf.runtime/routing :current]
+ ;; directly — no projection — and that is what consumers see. A fixture-DSL `[[:get [:rf/route]]]` body would return the
  ;; full container (including the internal counters), so we let the
  ;; real sub stand.
  :fixture/handlers

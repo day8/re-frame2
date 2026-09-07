@@ -72,6 +72,7 @@
             [re-frame.resources.state :as rf.resources.state]
             [re-frame.resources.test-support]
             [re-frame.routing :as rf.routing]
+            [re-frame.routing.link :as rf.routing.link]
             ;; the framework trace-ring buffer (Spec 009) — cleared around each
             ;; test body so this dispatching suite leaves no trace residue for a
             ;; later cross-cutting tooling test (e.g. the Xray/Story panel e2e
@@ -1914,7 +1915,7 @@
     (with-new-frame [f (rf.frame/make-anon-frame-record!
                          {:url-strategy app-routing/url-strategy})]
       (let [[_ attrs] (rf/with-frame f
-                        (rf.routing/route-link-render {:to :realworld.auth/login}))]
+                        (rf.routing.link/route-link-render {:to :realworld.auth/login}))]
         (is (= "/realworld-resources/login" (:href attrs))
             "the Reagent arm's generated link carries its own mount base")))))
 

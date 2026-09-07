@@ -37,6 +37,7 @@
             [re-frame.core :as rf]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.routing :as rf.routing]
+            [re-frame.routing.link :as rf.routing.link]
             [re-frame.routing.strategy :as rf.routing.strategy]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
@@ -324,7 +325,7 @@
     (register-routes!)
     ;; (a) route-link href — the :encode egress leg.
     (let [[_ attrs] (rf/with-frame :rf/default
-                      (rf.routing/route-link-render {:to :s/active}))]
+                      (rf.routing.link/route-link-render {:to :s/active}))]
       (is (= "/demos#/active" (:href attrs))
           "route-link href puts the base OUTSIDE the fragment (:encode authority)")
       (is (not (double-hash? (:href attrs))) "route-link href is not double-hashed"))
@@ -359,7 +360,7 @@
                                     rf.routing.strategy/history-url-strategy "/demos")})
     (register-routes!)
     (let [[_ attrs] (rf/with-frame :rf/default
-                      (rf.routing/route-link-render {:to :s/active}))]
+                      (rf.routing.link/route-link-render {:to :s/active}))]
       (is (= "/demos/active" (:href attrs))
           "route-link href re-adds the base to the path-form href"))
     (rf/dispatch-sync [:rf.route/url-requested {:url "/active"}])
