@@ -72,7 +72,9 @@ The options have direct responsibilities:
   frame above it; with none, it refuses at render rather than rendering a panel
   the platform may close behind app-db's back.
 - **`:anchor`** is the unique DOM id of the trigger. The module positions the
-  panel before first paint.
+  panel before first paint, and it is an ordinary prop: change it while the
+  panel is open — one shared menu reused for a newly selected row — and the
+  panel re-anchors in that same commit, without leaving the top layer.
 - **`:placement`** accepts positions such as `:bottom-start`, `:bottom-end`,
   `:top-start`, and `:right`.
 

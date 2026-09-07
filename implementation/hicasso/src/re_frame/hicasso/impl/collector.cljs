@@ -151,7 +151,7 @@
   retirement)."
   ::cell-watch)
 
-(declare flush!)
+(declare flush! retire-entries-naming!)
 
 (defn- mark-dirty! [^js cell]
   (when-not (.-disposed cell)
@@ -163,7 +163,32 @@
     (set! (.-disposed cell) true)
     (when-some [r (.-reaction cell)] (remove-watch r cell-watch-key))
     (swap! !cells dissoc (.-subKey cell))
-    (rf.subs/unsubscribe (.-frameKw cell) (.-queryV cell)))
+    (rf.subs/unsubscribe (.-frameKw cell) (.-queryV cell))
+    ;; A cell disposed while registrations STILL HOLD IT — the frame did not
+    ;; come back, so `invalidate-cell!`'s deferred phase chose disposal over
+    ;; a rewire — leaves every one of those memberships attached to a table
+    ;; slot that no longer exists. Nothing React does on its own repairs
+    ;; that: `subscribe` is cached per read-set entry, so a mounted boundary
+    ;; re-rendering the SAME read set is handed the same closure, React
+    ;; compares it by identity, does not call it again, and no
+    ;; `acquire-cell!` ever runs. The cold probe still answers a LATER
+    ;; incarnation's value on that render — which is why the paint looks
+    ;; recovered — but the boundary holds no cell, no watch and no reader
+    ;; edge, so the next write to the successor notifies nothing and the
+    ;; value freezes (rf2-3awu).
+    ;;
+    ;; So retire the cached subscribe identity: the entries naming this key
+    ;; are evicted, the next real render mints a fresh entry, and React's
+    ;; own re-subscribe is what re-acquires. The registrations themselves
+    ;; are NOT touched here — React releases each one exactly once through
+    ;; the cleanup it is already holding, which is what keeps teardown
+    ;; symmetric with mount whatever it did in between (`make-subscribe`).
+    ;;
+    ;; Guarded on the readers, so the reaper's own path — a cell whose LAST
+    ;; reader already left, disposed for idleness — keeps its entry and with
+    ;; it the keyed-reorder reuse the grace macrotask exists to buy.
+    (when (pos? (alength (.-readers cell)))
+      (retire-entries-naming! (.-subKey cell))))
   nil)
 
 ;; ---------------------------------------------------------------------------
@@ -650,6 +675,34 @@
                  (assoc entries-by-bucket bucket-key remaining-entries)
                  (dissoc entries-by-bucket bucket-key)))))
     nil))
+
+(defn- retire-entries-naming!
+  "Evict every cached read-set entry whose key set names `sub-key` — the
+  ownership half of `dispose-cell!`'s no-successor branch, and the whole
+  of it, because the cache is the only thing that could hand a mounted
+  boundary a subscription it can no longer be notified through.
+
+  Eviction and NOT a rebuild: nothing here subscribes, acquires or
+  notifies. A retired entry keeps working for as long as React holds its
+  cleanup — the closure is unaffected, only the table stops answering
+  with it — so the release still runs exactly once, from React's own
+  hand, and a boundary whose read set spans several keys is retired once
+  however many of its keys the same teardown disposes. What changes is
+  the NEXT render: `entry-for` misses, mints a fresh entry with a fresh
+  `subscribe`, React sees an identity it has not subscribed through, and
+  the commit re-acquires against whatever incarnation is live then.
+
+  Scans the whole cache rather than an index from key to entry. The cache
+  is a per-page render-set cache, this runs once per disposed cell with
+  live readers — a frame that was destroyed and did not come back — and a
+  reverse index would be a second structure to keep in step with
+  `entry-for`'s minting for no measured gain."
+  [sub-key]
+  (run! drop-entry!
+        (into []
+              (comp cat (filter (fn [^js entry] (contains? (.-set entry) sub-key))))
+              (vals @!entries)))
+  nil)
 
 (def entry-reap-horizon-ms
   "The provisional-entry reaper's delay: 4 ms, not 0. An entry is minted

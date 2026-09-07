@@ -203,8 +203,11 @@
 
   `:anchor` is the DOM id of the trigger; the module gives that element a
   generated CSS anchor name while the panel is open and puts back whatever
-  it found on the way out. `:placement` is the compass word that becomes a
-  `position-area` against it. With `:on-dismiss` the panel is a
+  it found on the way out. It is an ordinary prop and not an initial-only
+  one: change it on a panel that is already open — one shared menu moved
+  from row A to row B — and the claim moves with it, in the same commit
+  and without the panel leaving the top layer. `:placement` is the compass
+  word that becomes a `position-area` against it. With `:on-dismiss` the panel is a
   `popover=\"auto\"` and takes its place in the platform's LIFO stack;
   without one it is `popover=\"manual\"` and dismisses for nothing, because
   a dismissal with nowhere to go is how an open flag acquires a second

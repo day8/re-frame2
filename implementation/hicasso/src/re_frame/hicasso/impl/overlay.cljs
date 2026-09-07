@@ -3,25 +3,29 @@
   an element into the browser's top layer and take it out again. The
   posture and the vocabulary are the door's; this file is the mechanism.
 
-  Each component spends two hooks. A `useContext` for the frame, because
+  Each component spends three hooks. A `useContext` for the frame, because
   an overlay's children are hiccup written in the parent boundary's body
   and lowered in THIS component's render, after that body's extent has
   unwound, so the frame the codec's intent lowering reads has to be
-  re-established around the walk. And a `useRef` for the instance cell,
+  re-established around the walk. A `useRef` for the instance cell,
   because a ref callback whose identity changed between renders is one
   React detaches and re-attaches, which for an open dialog is
-  close-then-reopen on every parent render. Neither component is a
-  boundary shell, so HD-020's shell budget is not the ceiling
+  close-then-reopen on every parent render. And a `useLayoutEffect` for
+  the one thing a stable ref cannot see — a changed `:anchor` on an
+  overlay that is already open (`reconcile-anchor!`). Neither component is
+  a boundary shell, so HD-020's shell budget is not the ceiling
   (`docs/design/hicasso/decisions.md`);
-  `overlay-dom-cljs-test/an-overlay-costs-two-hooks-and-the-shell-still-costs-two`
+  `overlay-dom-cljs-test/an-overlay-costs-three-hooks-and-the-shell-still-costs-two`
   counts them.
 
-  All of the work is in the ref callback and none of it in an effect:
-  `showModal` / `showPopover` and both halves of the anchor claim run
-  during the commit, after the node is in the document and before the
-  browser paints, and the callback's cleanup closes through the platform
+  Every one of those runs in the COMMIT, before the browser paints:
+  `showModal` / `showPopover` and the anchor claim from the ref callback,
+  after the node is in the document; the anchor's reconciliation from a
+  layout effect, which React runs in the same phase and after the panel's
+  ref has attached. The ref callback's cleanup closes through the platform
   door while the node is still connected, which is what makes the
-  platform's own focus restoration reachable. The modal alone carries a
+  platform's own focus restoration reachable. Nothing here is a passive
+  effect, and nothing waits for a frame. The modal alone carries a
   keyboard handler, `wrap-tab!`, closing the two Tab edges the engine's
   inert-document trap leaves open; a popover is deliberately not a trap.
 
@@ -327,37 +331,107 @@
    :closed-only? true})
 
 ;; ---------------------------------------------------------------------------
-;; The instance cell, and the one ref callback that ever attaches
+;; The instance cell, the one ref callback that ever attaches, and the one
+;; reconciliation that follows a changed `:anchor`
 ;; ---------------------------------------------------------------------------
+
+(defn- take-anchor!
+  "Claim the trigger the cell's CURRENT `:anchor` names, point `panel` at
+  the claim, and record which anchor id the claim was taken for. The one
+  place a claim is ever taken — the ref callback's attach and
+  `reconcile-anchor!` both come through here, so the trigger's
+  `anchor-name`, the panel's `position-anchor` and the id they were taken
+  for cannot drift apart."
+  [^js cell ^js panel]
+  (let [ident     (unchecked-get cell "ident")
+        anchor-id (unchecked-get cell "anchorId")
+        claimed   (claim-anchor! anchor-id ident)]
+    (unchecked-set cell "claimed" claimed)
+    (unchecked-set cell "claimedFor" anchor-id)
+    ;; Both halves of one claim, or neither. `claim-anchor!` answers
+    ;; nil for exactly one case — no `:anchor` at all — since a
+    ;; missing element raises rather than returns, so this guard
+    ;; reads "the author asked for no anchor" and nothing else.
+    (when claimed
+      (anchor-panel! panel ident)))
+  nil)
+
+(defn- drop-anchor!
+  "Hand back whatever `take-anchor!` claimed, and forget it. The exact
+  inverse, in one place for the same reason: the ref callback's cleanup
+  and `reconcile-anchor!`'s release half are the same act."
+  [^js cell]
+  (when-some [claimed (unchecked-get cell "claimed")]
+    (release-anchor! claimed (unchecked-get cell "ident")))
+  (unchecked-set cell "claimed" nil)
+  (unchecked-set cell "claimedFor" nil)
+  nil)
+
+(defn- reconcile-anchor!
+  "Follow a changed `:anchor` on an overlay that is ALREADY OPEN: hand the
+  previous trigger back what it had, and claim the new one, keeping the
+  panel and its top-layer entry exactly where they are.
+
+  `:anchor` is the DOM id of the trigger to position against, and neither
+  the door's contract nor the guide makes it initial-only — a single
+  shared menu moved from row A to row B is the ordinary caller. But the
+  claim is imperative, and the only commit-phase door the module had was
+  the ref callback, which React calls on ATTACHMENT and not on an
+  ordinary prop update: the panel kept the fiber, the ref kept its
+  identity, and the claim stayed on A while the panel went on resolving
+  `position-anchor` against it (rf2-kx9f).
+
+  Release before claim, and both through the shared doors above, because
+  a trigger may carry an author's own `anchor-name` and two overlays may
+  share one trigger: `release-anchor!` restores only while this overlay's
+  ident is still the name on the element, so an out-of-order reconcile
+  leaves the other panel's claim standing rather than unanchoring it.
+
+  Idempotent by `claimedFor`, which is the anchor id the standing claim
+  was taken for. That is what makes it safe to run on the render that
+  MOUNTS the panel — the ref callback attached first and has already
+  claimed, so this sees no change and touches nothing — and what keeps an
+  unrelated re-render from churning a live claim."
+  [^js cell]
+  (let [^js panel (unchecked-get cell "panel")]
+    (when (and (some? panel)
+               (not= (unchecked-get cell "anchorId")
+                     (unchecked-get cell "claimedFor")))
+      (drop-anchor! cell)
+      (take-anchor! cell panel)))
+  nil)
 
 (defn- make-cell
   "The per-instance state: an anchor ident minted once, the trigger this
-  overlay claimed, and the stable ref callback that owns both. Every use
-  of the ident is inside that callback, which is what keeps it out of the
-  server bytes (see `anchor-panel!`)."
+  overlay claimed and the id it was claimed for, the panel node while one
+  is attached, and the stable ref callback that owns all of them. Every
+  use of the ident is inside that callback or inside
+  `reconcile-anchor!`, both of which run at the commit against a document
+  — which is what keeps it out of the server bytes (see `anchor-panel!`).
+
+  The ref's identity is STABLE across every render, deliberately: React
+  detaches and re-attaches a ref whose identity changed, which for an
+  open overlay would be `hidePopover()`/`showPopover()` — a real platform
+  dismissal, `beforetoggle` and all — on every render that moved the
+  anchor. Following a changed `:anchor` is therefore
+  `reconcile-anchor!`'s job and not the ref's."
   [{:keys [show! hide!]}]
-  (let [cell #js {"ident"    (next-anchor-ident)
-                  "anchorId" nil
-                  "claimed"  nil}]
+  (let [cell #js {"ident"      (next-anchor-ident)
+                  "anchorId"   nil
+                  "claimed"    nil
+                  "claimedFor" nil
+                  "panel"      nil}]
     (unchecked-set
       cell "ref"
       (fn [node]
         (when node
-          (let [ident   (unchecked-get cell "ident")
-                claimed (claim-anchor! (unchecked-get cell "anchorId") ident)]
-            (unchecked-set cell "claimed" claimed)
-            ;; Both halves of one claim, or neither. `claim-anchor!` answers
-            ;; nil for exactly one case — no `:anchor` at all — since a
-            ;; missing element raises rather than returns, so this guard
-            ;; reads "the author asked for no anchor" and nothing else.
-            (when claimed
-              (anchor-panel! node ident)))
+          (unchecked-set cell "panel" node)
+          (take-anchor! cell node)
           (show! node)
           (fn []
             (hide! node)
-            (when-some [claimed (unchecked-get cell "claimed")]
-              (release-anchor! claimed (unchecked-get cell "ident")))
-            (unchecked-set cell "claimed" nil)
+            (drop-anchor! cell)
+            (unchecked-set cell "panel" nil)
             nil))))
     cell))
 
@@ -424,6 +498,19 @@
       (set! (.-current ref-cell) (make-cell ops)))
     (let [cell (.-current ref-cell)]
       (unchecked-set cell "anchorId" (:anchor props))
+      ;; Hook 3 — the anchor's commit-phase reconciliation, and the module's
+      ;; only effect. It is a LAYOUT effect for the same reason everything
+      ;; else here is in the ref callback: the claim is a position, and a
+      ;; position corrected after paint is a visible jump from the old
+      ;; trigger to the new one. React attaches the panel's ref before it
+      ;; runs this parent's layout effects, so on the render that opens an
+      ;; overlay the claim is already taken and `reconcile-anchor!` finds
+      ;; nothing to do; on an ordinary re-render the dependency ties and it
+      ;; is not called at all. Unconditional and above the `:open?` branch,
+      ;; because a closed overlay renders nil and hooks may not be
+      ;; conditional — with no panel attached the reconciliation is a no-op.
+      (react/useLayoutEffect (fn [] (reconcile-anchor! cell) js/undefined)
+                             #js [(:anchor props)])
       ;; Zero cost when closed: no element, so no top-layer entry, no
       ;; listener, no anchor claim and no children rendered.
       (when (:open? props)
