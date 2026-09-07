@@ -19,9 +19,10 @@
 ;;
 ;; The restore/replay-faithfulness leg (a redacted-frame epoch replays the RAW
 ;; value through `restore-epoch`) is pinned by the unit test
-;; `re-frame.epoch-redact-fn-test/restore-replays-raw-value-under-redact-fn`
-;; (rf2-t55hxg.9), the per-artefact counterpart to this storage-invariant
-;; corpus pin.
+;; `re-frame.epoch-privacy-test/listener-fan-out-delivers-raw-record`
+;; (rf2-t55hxg.9; the redact-fn suites that formerly carried it were retired
+;; with the hook under rf2-kuky.7), the per-artefact counterpart to this
+;; storage-invariant corpus pin.
 ;;
 ;; Harness note: `:fixture/classification-effects` declares the sensitive path;
 ;; the runner loads `re-frame.epoch`, so `:epoch-records` asserts the per-frame

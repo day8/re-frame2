@@ -14,13 +14,12 @@
   gate OFF (the published default).
 
   The framework forbids exactly this hand-walk. `re-frame.core`
-  (core.cljc §projected egress) names `projected-record` /
-  `projected-history` the single normative off-box-egress emission site
-  and states that tools egressing the epoch ring MUST route through it
-  rather than walking `(epoch-history frame-id)` and re-wrapping by hand
-  — \"the hand-walk is one missed `mapv projected-record` away from
-  leaking un-elided data across the process boundary.\" Per Spec
-  Security.md §Epoch privacy posture.
+  (core.cljc §projected egress) names `projected-record` the single
+  normative off-box-egress emission site, and every record egressing the
+  epoch ring MUST go through it — a hand-walk of
+  `(epoch-history frame-id)` that re-wraps by hand is one missed
+  `projected-record` away from leaking un-elided data across the process
+  boundary. Per Spec Security.md §Epoch privacy posture.
 
   ## What this ns does
 
@@ -88,13 +87,11 @@
     governed by the orthogonal `:include-runtime-db?` opt.
   - app-db `:large?` slots stay `:rf.size/large-elided` — governed by the
     independent `:rf.size/include-large?` opt.
-  - the app-installed `:redact-fn` advanced override still runs over the
-    projected record.
 
   `:include-sensitive` lifts only the app-db sensitive axis — it is NOT a
   full raw epoch bypass. The app-db sensitive axis is independent of every
-  other axis, so the raw fx-args / runtime-db partition / un-`:redact-fn`'d
-  record never ship merely because sensitive app-db values were requested.
+  other axis, so the raw fx-args / runtime-db partition never ship merely
+  because sensitive app-db values were requested.
   This holds Security.md §98-108 (off-box epoch egress MUST route through
   `projected-record`; `:include-fx-args?` is orthogonal to app-db
   `:rf.size/include-sensitive?` / `:rf.size/include-large?`) and the EP-0015 projected-record
@@ -178,9 +175,9 @@
   `incl?` (the resolved `:include-sensitive` opt-in) is threaded as the
   `{:rf.size/include-sensitive? true}` egress opt INTO `projected-record` — NOT as a
   projection bypass. It lifts ONLY the app-db sensitive axis;
-  fx-args / runtime-db / large slots / `:redact-fn` stay at their
-  fail-closed defaults. There is no `:include-sensitive`-implied raw escape
-  hatch — the epoch always crosses the wire projected.
+  fx-args / runtime-db / large slots stay at their fail-closed defaults.
+  There is no `:include-sensitive`-implied raw escape hatch — the epoch
+  always crosses the wire projected.
 
   Non-map results (a degraded runtime, or the `:ok? false` frame-
   untargetable envelope — which carries no epoch) pass through
@@ -225,11 +222,11 @@
   `--allow-sensitive-reads` boot gate AND the per-call arg) is threaded as
   the `:rf.size/include-sensitive? true` egress opt INTO `projected-record`,
   composed OVER the off-box-tool floor, lifting ONLY the app-db sensitive
-  axis. The orthogonal fx-args / runtime-db / large axes and the app
-  `:redact-fn` stay at their fail-closed off-box-tool defaults regardless of
-  `:include-sensitive` (Security.md §Off-box egress). `:include-sensitive`
-  never disables projection wholesale: the raw fx-args / runtime-db
-  partition / un-`:redact-fn`'d record stay redacted regardless.
+  axis. The orthogonal fx-args / runtime-db / large axes stay at their
+  fail-closed off-box-tool defaults regardless of `:include-sensitive`
+  (Security.md §Off-box egress). `:include-sensitive` never disables
+  projection wholesale: the raw fx-args / runtime-db partition stays
+  redacted regardless.
 
   `projected-record` returns `nil` for non-map input; the page is a
   vector of epoch-record maps, so the `mapv` is total. The fn is a pure

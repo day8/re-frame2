@@ -406,9 +406,9 @@
         ;; the epoch projection: the `:trace` / `:settle` epoch ALWAYS
         ;; routes through `projected-record`, and `incl?` threads
         ;; `{:rf.size/include-sensitive? true}` INTO it (app-db sensitive axis
-        ;; only). The orthogonal fx-args / runtime-db / large axes and the
-        ;; app `:redact-fn` stay fail-closed regardless of
-        ;; `:include-sensitive` (Security.md §Off-box egress).
+        ;; only). The orthogonal fx-args / runtime-db / large axes stay
+        ;; fail-closed regardless of `:include-sensitive`
+        ;; (Security.md §Off-box egress).
         ;;
         ;; Use the established `args/parse-bool-arg` (the cross-MCP
         ;; accept-shape parser) rather than a raw `(boolean (wire/arg …))`

@@ -791,13 +791,13 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
 
   | Key | Opts | Default | Status | What it tunes |
   |---|---|---|---|---|
-  | `:epoch-history` | `{:depth N :trace-events-keep N :redact-fn fn}` | `{:depth 50, :trace-events-keep 50, :redact-fn nil}` | v1 (dev-only) | Per-frame epoch ring depth, trace-event retention cap per record, and an optional projection-side redactor applied only at off-box egress (inside `projected-record`). |
+  | `:epoch-history` | `{:depth N :trace-events-keep N}` | `{:depth 50, :trace-events-keep 50}` | v1 (dev-only) | Per-frame epoch ring depth and trace-event retention cap per record. |
   | `:trace-buffer` | `{:events-retained N}` | `{:events-retained 50}` | v1 (dev-only) | The dev-only per-frame trace ring's event-slot count: one slot per event, regardless of how many trace events its run emitted. 0 disables retention (the surface stays live). |
   | `:elision` | `{:rf.size/threshold-bytes N}` | `{:rf.size/threshold-bytes 16384}` | v1 | The size threshold above which `elide-wire-value` emits the `:rf.warning/large-value-unschema'd` advisory for an *undeclared* large string. It is a warning signal, not a cap: the value is forwarded raw. Substituting the `:rf.size/large-elided` marker requires declaring the path `:large`. 0 disables runtime auto-detect. |
 
   **An unrecognised top-level key applies nothing — and, if it is bare, says so.** The vocabulary above is closed and its keys are *bare*, so `{:epoch-histroy {:depth 100}}` is a typo of a real key rather than an extension point. A bare (or `rf`-namespaced) unknown key therefore emits `:rf.warning/unknown-configure-key` in dev builds, naming every offending key and the known set; the call still returns `nil` and still applies nothing (`:recovery :ignored` — observational, never a refusal), and the whole diagnostic is DCE'd out of production. A **user-namespaced** key (`:myapp/thing`) passes in silence, which is what lets a wrapper hand `configure!` a composed config value without filtering it first.
 
-  There is **no `:sub-cache` knob**: sub-cache disposal happens synchronously when the derefer count hits 0. SSR error-projection policy (`:public-error-id`, `:dev-error-detail?`) is **not** a `configure!` key; it is per-frame metadata on the frame's `:ssr` map. Framework-owned semantic sub-keys use a namespaced keyword (`:rf.size/threshold-bytes`); ergonomic per-knob sub-keys are unqualified (`:depth`, `:trace-events-keep`, `:redact-fn`).
+  There is **no `:sub-cache` knob**: sub-cache disposal happens synchronously when the derefer count hits 0. SSR error-projection policy (`:public-error-id`, `:dev-error-detail?`) is **not** a `configure!` key; it is per-frame metadata on the frame's `:ssr` map. Framework-owned semantic sub-keys use a namespaced keyword (`:rf.size/threshold-bytes`); ergonomic per-knob sub-keys are unqualified (`:depth`, `:trace-events-keep`).
 - **Example**:
   ```clojure
   (rf/configure! {:epoch-history {:depth 100}
@@ -818,13 +818,13 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
 
   **A subsystem's key is ABSENT when its OWN producer is unavailable** — not `nil`, and never a fabricated default. The two optional keys are **independent**, each read through its own late-bind hook: `:epoch-history` comes from the optional `day8/re-frame2-epoch` artefact, `:trace-buffer` from the dev-only trace-tooling sibling. A production bundle that DCEs the tooling ns therefore omits `:trace-buffer` *alone* — a loaded epoch artefact still reports `:epoch-history` beside it, and vice versa. `(get-in (rf/current-config) [:epoch-history :depth])` reads `nil` when the **epoch** artefact is absent, never merely because trace tooling is; that is the answer a health query wants — and the facade owns that branch, so callers do not resolve optional-artefact vars by symbol.
 
-  The result is a key-by-key snapshot rather than a transactional one, and it is not promised to be wire-serialisable (`:epoch-history` can carry a `:redact-fn`). A **user-namespaced** pass-through key `configure!` accepted in silence (`:myapp/thing`) is *not* reflected back: the vocabulary is closed, so only keys the runtime reads have live values to report.
+  The result is a key-by-key snapshot rather than a transactional one, and it is not promised to be wire-serialisable. A **user-namespaced** pass-through key `configure!` accepted in silence (`:myapp/thing`) is *not* reflected back: the vocabulary is closed, so only keys the runtime reads have live values to report.
 - **Example**:
   ```clojure
   (rf/configure! {:epoch-history {:depth 100}})
 
   (rf/current-config)
-  ;; => {:epoch-history {:depth 100 :trace-events-keep 50 :redact-fn nil}
+  ;; => {:epoch-history {:depth 100 :trace-events-keep 50}
   ;;     :trace-buffer  {:events-retained 50}
   ;;     :elision       {:rf.size/threshold-bytes 16384}}
 
@@ -1179,17 +1179,7 @@ Epoch-settled listeners are the `:epoch` stream of the stream-parameterized list
   (projected-record record)
   (projected-record record opts)
   ```
-- **Description**: Project an `:rf/epoch-record` for off-box egress. It routes the record through the egress projection, applying the optional `(rf/configure! {:epoch-history {:redact-fn …}})` redactor, so an epoch record can be shipped off-box safely. The ring and listeners always deliver the raw record, so projection never affects `restore-epoch!` fidelity. See [re-frame.epoch.md](re-frame.epoch.md).
-
-### `projected-history`
-
-- **Kind**: function (dev-only)
-- **Signature**:
-  ```clojure
-  (projected-history frame-id)
-  (projected-history frame-id opts)
-  ```
-- **Description**: Return the projected vector of records for a frame (each member projected as by `projected-record`). The off-box-safe companion to `epoch-history`.
+- **Description**: Project an `:rf/epoch-record` for off-box egress. It routes the record through the egress projection, so an epoch record can be shipped off-box safely. The ring and listeners always deliver the raw record, so projection never affects `restore-epoch!` fidelity. Projecting a whole ring is ordinary composition — `(mapv #(rf/projected-record % opts) (rf/epoch-history frame-id))`. See [re-frame.epoch.md](re-frame.epoch.md).
 
 ## Registrar queries
 

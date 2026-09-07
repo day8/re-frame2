@@ -158,8 +158,8 @@
     ;; `:include-sensitive true` is NOT a raw bypass. It routes THROUGH
     ;; `projected-record` as the `:rf.size/include-sensitive? true` egress opt
     ;; (app-db sensitive axis only), composed OVER the off-box-tool profile
-    ;; floor. fx-args / runtime-db / large slots / `:redact-fn` stay
-    ;; fail-closed because we do NOT pass their opts.
+    ;; floor. fx-args / runtime-db / large slots stay fail-closed because
+    ;; we do NOT pass their opts.
     (async done
       (raw-state/set-allow-raw-state! true)
       (let [forms (atom [])]

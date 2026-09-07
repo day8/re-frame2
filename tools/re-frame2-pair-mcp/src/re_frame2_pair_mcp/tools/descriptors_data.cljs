@@ -509,8 +509,8 @@
                                                                     "them through verbatim — honoured ONLY when the server was "
                                                                     "launched with --allow-sensitive-reads; otherwise forced false "
                                                                     "(rf2-z7roa). Governs the app-db sensitive axis ONLY: the "
-                                                                    "orthogonal fx-args / runtime-db / large axes and the app "
-                                                                    ":redact-fn stay fail-closed regardless. Ignored by the default "
+                                                                    "orthogonal fx-args / runtime-db / large axes stay "
+                                                                    "fail-closed regardless. Ignored by the default "
                                                                     "sync / queued / await-render consequence shapes (they carry no "
                                                                     "raw app-db).")}
                               :build {:type "string"}}

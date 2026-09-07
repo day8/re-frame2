@@ -184,35 +184,20 @@ Tools that forward epoch records across a process boundary must route through th
 (rf/projected-record record {:rf.egress/profile :rf.egress/off-box-tool})
 ```
 
-### `projected-history`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (projected-history frame-id)
-  (projected-history frame-id opts)
-  ```
-- **Description**: Returns the projected vector of records for a frame. Equivalent to `(mapv #(projected-record % opts) (epoch-history frame-id))`. Tools that egress the whole ring (an MCP `watch-epochs` initial snapshot, a recorder dumping a full session) call this once rather than walking the raw ring and re-wrapping each record. The 2-arity threads the trusted-local egress `opts` to every record; the 1-arity is the safe, fully-redacted off-box path.
-
-```clojure
-;; Project the whole ring for off-box forwarding.
-(rf/projected-history :app/main)
-```
-
 ## Configuration
 
-Buffer-depth and redactor knobs for the epoch ring are set through the facade, under the `:epoch-history` key:
+Buffer-depth knobs for the epoch ring are set through the facade, under the `:epoch-history` key:
 
 ```clojure
-(rf/configure! {:epoch-history {:depth N :trace-events-keep N :redact-fn fn}})
+(rf/configure! {:epoch-history {:depth N :trace-events-keep N}})
 ```
 
 `re-frame.epoch/configure!` is the implementation seam behind it (hook target for `:epoch/configure!`); it takes the inner map directly and is not a second public spelling. The keys:
 
 - `:depth` — non-negative integer; per-frame ring-buffer depth (default 50). `0` disables recording.
 - `:trace-events-keep` — non-negative integer. Caps how many of the most-recent records per frame retain their raw `:trace-events` vector; older records keep only the cheap structured `:sub-runs` / `:renders` / `:effects` projections. Defaults to 50 (matching the default `:depth`) so trace and epoch evict atomically. Pass a smaller value to bound dev-session heap.
-- `:redact-fn` — `fn?` or `nil`; the advanced projection-side override. It is invoked once per record at the off-box egress boundary inside `projected-record`, never at storage time. The ring buffer and every listener receive the raw record, since epoch records are causal replay material. A throwing fn emits `:rf.warning/epoch-redact-fn-exception` and falls back to the projected record. `nil` clears any previously-installed fn.
-- Invalid `:depth` / `:trace-events-keep` (not a non-negative integer) and a malformed `:redact-fn` (not `fn?` / `nil`) are silently dropped at the boundary.
+- There is no post-projection scrub hook. A forwarder that wants one composes it: `(-> record (rf/projected-record opts) scrub)`.
+- Invalid `:depth` / `:trace-events-keep` (not a non-negative integer) are silently dropped at the boundary.
 
 ```clojure
 ;; Shrink the ring and bound retained raw traces for a memory-conscious host.
@@ -272,5 +257,4 @@ Trace events emitted by the epoch-history machinery:
 | `:rf.epoch/replace-history-disabled` | `:frame` |
 | `:rf.epoch.cb/listener-exception` | `:frame`, `:cb-id`, `:rf.epoch/id`, `:message` |
 | `:rf.epoch.cb/silenced-on-frame-destroy` | `:frame`, `:cb-id`, `:observed-gen` |
-| `:rf.warning/epoch-redact-fn-exception` | `:frame`, `:rf.epoch/id`, `:ex-msg` |
 | `:rf.warning/restore-quiesce-hook-exception` | `:frame`, `:hook`, `:exception` |

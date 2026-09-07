@@ -82,9 +82,8 @@
         ;; true`) does NOT bypass projection. It is threaded as the
         ;; `{:rf.size/include-sensitive? true}` egress opt INTO `projected-record`,
         ;; lifting ONLY the app-db sensitive axis; the orthogonal fx-args /
-        ;; runtime-db / large axes and the app `:redact-fn` stay
-        ;; fail-closed (Security.md §Off-box egress). Every egressed page
-        ;; is ALWAYS projected.
+        ;; runtime-db / large axes stay fail-closed (Security.md §Off-box
+        ;; egress). Every egressed page is ALWAYS projected.
         incl?     (if (raw-state/raw-state-allowed?)
                     (args/parse-bool-arg raw-args :include-sensitive)
                     false)
