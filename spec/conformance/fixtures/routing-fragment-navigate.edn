@@ -26,9 +26,9 @@
 
  :fixture/registry
  {:event {:docs/load-page {:doc "Increments a counter so the fixture can detect :on-match re-fires."}}
-  ;; No :rf/route sub override — the framework route-sub-fn projects the slice
-  ;; exactly (route-id/params/query/fragment/transition/error/nav-token), which
-  ;; is what consumers see; a fixture-DSL body would leak the internal container.
+  ;; No :rf/route sub override — the framework :rf/route sub reads the slice
+  ;; at [:rf.runtime/routing :current] directly, and that is what consumers
+  ;; see; a fixture-DSL body would leak the internal container.
   :sub   {:rf/route {:doc "Current route slice."}}
   :route {:route/docs {:path     "/docs/:page"
                        :params   [:map [:page :string]]

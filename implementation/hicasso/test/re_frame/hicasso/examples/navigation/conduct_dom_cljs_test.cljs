@@ -77,11 +77,13 @@
   drives each of them — with a SYNTHETIC event, not a real DOM one: the
   suite that drove them through the browser retired with the compiled-view
   substrate (rf2-0yp7w), so no browser-level witness survives it.
-  Hicasso's own `h/route-link` wires none of the prefetch handlers in v0
-  — `:prefetch` is a key the link owns and does not read — so there is
-  nothing on this application's surface to witness. Admitting the key is
-  a naming-ledger question that is still open (row 36 — *keep as taught*,
-  status open), not this bead's to settle."
+  Hicasso's own `h/route-link` honours `:prefetch :intent` too since
+  rf2-kuky.37 (naming-ledger row 36, applied), filling the same three
+  positions with the same routing-minted vector through the
+  `:routing/link-model` seam — but no link in THIS application asks for
+  it, so there is still nothing on this surface to witness. The wired
+  contract is pinned as data and as a dispatch in
+  `re-frame.hicasso.route-link-cljs-test`."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]

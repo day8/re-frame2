@@ -182,7 +182,7 @@
             path-form — only the rendered href is encoded"
     (let [model (rf.routing.link/link-model {:to :route/active} :ssr/history-base)]
       (is (= "/demos/active" (:href model)))
-      (is (= [:rf.route/url-requested {:url "/active" :to :route/active}]
+      (is (= [:rf.route/url-requested {:url "/active"}]
              (:payload model))
           "the cascade is path-form throughout; the base never enters the payload"))
     (is (= "/demos#/active" (:href (rf.routing.link/link-model {:to :route/active} :ssr/hash-base)))))
@@ -217,7 +217,8 @@
 (deftest route-link-click-event-completes-navigation
   (testing ":rf.route/url-requested with a route-link's payload navigates"
     ;; Per Spec 012 §Standard runtime events the click handler emits
-    ;; `:rf.route/url-requested {:url ... :to ... :params ... :query ...}`.
+    ;; `:rf.route/url-requested {:url ...}` — ONE key, because a raw URL IS
+    ;; the address and the handler re-derives the rest from it.
     ;; The default `:rf.route/url-requested` handler classifies via match-url
     ;; and dispatches `:rf.route/transitioned`, which updates the :rf/route
     ;; slice. This test pins the round-trip without a DOM event — the

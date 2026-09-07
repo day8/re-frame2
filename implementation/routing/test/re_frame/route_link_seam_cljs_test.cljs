@@ -73,26 +73,62 @@
     (let [{:keys [href payload native?]} (rf.routing.link/link-model {:to :route/cart} nil)]
       (is (= "/cart" href))
       (is (false? native?))
-      (is (= [:rf.route/url-requested {:url "/cart" :to :route/cart}] payload))))
+      (is (= [:rf.route/url-requested {:url "/cart"}] payload))))
   (testing "params + query synthesise into href AND payload (route-url includes the query string, matching rf/route-link)"
     (let [{:keys [href payload]} (rf.routing.link/link-model {:to :route/article
                                                    :params {:id "intro"}
                                                    :query {:tab :summary}}
                                                   nil)]
       (is (= "/articles/intro?tab=summary" href))
-      (is (= {:url "/articles/intro?tab=summary" :to :route/article
-              :params {:id "intro"} :query {:tab :summary}}
-             (second payload)))))
-  ;; rf2-e9974: `:fragment` is the one payload slot neither link surface had an
-  ;; assertion for, and it is now synthesised by the SHARED
-  ;; `url-requested-payload` that `rf/route-link` also runs — so the slot is
-  ;; pinned here and at the `rf/route-link` click (see
-  ;; `plain-left-click-passes-params-query-and-fragment`).
-  (testing "a fragment rides the payload as well as the href"
+      (is (= {:url "/articles/intro?tab=summary"}
+             (second payload))
+          "rf2-kuky.36: the address rides IN the url, not beside it — params
+           and query are re-derived by the match the handler runs anyway")))
+  ;; rf2-e9974 pinned `:fragment` in the payload as a distinct slot;
+  ;; rf2-kuky.36 shrank the payload to `{:url …}`, so the fragment is pinned
+  ;; where it now lives — inside the synthesised url — on both surfaces (see
+  ;; `plain-left-click-passes-params-query-and-fragment` for the click side).
+  (testing "a fragment rides the url the payload carries, as well as the href"
     (let [{:keys [href payload]} (rf.routing.link/link-model {:to :route/cart :fragment "totals"} nil)]
       (is (= "/cart#totals" href))
-      (is (= {:url "/cart#totals" :to :route/cart :fragment "totals"}
-             (second payload))))))
+      (is (= {:url "/cart#totals"} (second payload))))))
+
+(deftest link-model-carries-the-prefetch-pair
+  (rf/reg-route :route/cart {} "/cart")
+  (rf/reg-route :route/article {:params [:map [:id :string]]
+                                :query  [:map [:tab [:enum :summary :details]]]}
+                "/articles/:id")
+  (testing "rf2-kuky.37: a link that opted in carries the minted warm-up
+           vector AND the positions it belongs at, so a seam consumer never
+           restates routing's position list"
+    (let [{:keys [prefetch prefetch-keys]}
+          (rf.routing.link/link-model {:to       :route/article
+                                       :params   {:id "intro"}
+                                       :query    {:tab :summary}
+                                       :fragment "notes"
+                                       :prefetch :intent}
+                                      nil)]
+      (is (= [:rf.route/prefetch {:to :route/article :params {:id "intro"}
+                                  :query {:tab :summary}}]
+             prefetch)
+          "the ONE prefetch calculation's output — :fragment excluded, because
+           a prefetch is resource-only")
+      (is (= rf.routing.link/prefetch-intent-keys prefetch-keys)
+          "the positions are routing's own list by identity of value, not a
+           copy: a position added there reaches every seam consumer at once")))
+  (testing "a passive link carries nil — never a partially-warm one — and the
+           positions travel regardless, so a consumer reads one shape"
+    (let [{:keys [prefetch prefetch-keys]}
+          (rf.routing.link/link-model {:to :route/cart} nil)]
+      (is (nil? prefetch) "an ABSENT :prefetch key is the only way to be passive")
+      (is (= rf.routing.link/prefetch-intent-keys prefetch-keys))))
+  (testing "a PRESENT-but-bad value is refused by the seam itself, so a
+           consumer cannot accept a mode routing rejects"
+    (doseq [bad [:render true false nil]]
+      (is (thrown-with-msg?
+            js/Error #"route-link-bad-prefetch"
+            (rf.routing.link/link-model {:to :route/cart :prefetch bad} nil))
+          (str ":prefetch " (pr-str bad) " is refused at the seam")))))
 
 (deftest link-model-detects-native-anchors
   (rf/reg-route :route/cart {} "/cart")
@@ -117,7 +153,7 @@
                     :render-frame :frame/main
                     :payload (:payload model) :native? (:native? model)})]
     (is prevented? "plain left-click prevents default")
-    (is (= [:rf.route/url-requested {:url "/cart" :to :route/cart}] dispatched))
+    (is (= [:rf.route/url-requested {:url "/cart"}] dispatched))
     (is (= :router source) "the click stamps :source :router (rf2-t1lxr / rf2-1ve9h)")
     (is (= :frame/main frame)
         "dispatch targets the captured render frame verbatim (committed-frame target)")))

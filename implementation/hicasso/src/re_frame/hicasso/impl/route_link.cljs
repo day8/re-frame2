@@ -54,14 +54,22 @@
     it, so it is not a door marker. **(Declined:** Replicant's routing posture of a GLOBAL
     body-level click interceptor — ambient behaviour no vector carries is
     exactly what the in-band school exists to avoid.**)**
-  - **Not wired in v0: the `:prefetch :intent` trio.** The census counts
-    no prefetch site, and the opt-in is sugar over an event a Hicasso
-    author can already spell (`:on-mouse-enter [:rf.route/prefetch
-    {…}]`). Routing publishes no late-bind seam for it either — the trio
-    was retired as orphaned in rf2-6r9j.15, since nothing read it — so
-    `rf/route-link` reaches the prefetch law by direct call. `:prefetch`
-    is still one of the keys the link owns (`control-keys`), so it never
-    reaches the anchor as a stray attribute.
+  - **From routing (taken whole): the prefetch warm-up.** `:prefetch
+    :intent` fills the three credible-intent positions — `:on-mouse-enter`,
+    `:on-focus`, `:on-touch-start` — with routing's own
+    `[:rf.route/prefetch {…}]` vector, and those lower like any other
+    in-band intent. Both halves come off the SAME `:routing/link-model`
+    seam call the href does (`:prefetch` and `:prefetch-keys`): the
+    positions are routing's list, not a copy of it here, so a position
+    routing adds reaches this anchor without an edit in this file. The
+    sugar is exactly the manual `:on-mouse-enter [:rf.route/prefetch {…}]`
+    an author could already write, minted once from the address the link
+    already carries — nothing is recomputed and no prefetch policy lives
+    here. `:prefetch` itself stays one of the keys the link owns
+    (`control-keys`), so it never reaches the anchor as a stray attribute.
+    Absent `:prefetch`, none of the three positions is touched: passive by
+    construction. See `claimed-intent-positions!` for the one refusal this
+    adds.
 
   ## Composition with `::h/prevent`
 
@@ -98,8 +106,11 @@
   verdict.
 
   `:prefetch` is owned too: it is a routing props key, not an HTML
-  attribute, and Hicasso wires none of the prefetch handlers in v0, so it
-  is kept off the anchor rather than emitted as a stray attribute."
+  attribute, so it is stripped rather than emitted as a stray attribute.
+  Owning it is not declining it — `route-link` honours `:prefetch :intent`
+  by filling routing's credible-intent positions, and stripping the key is
+  what keeps the request out of the DOM while the behaviour it asked for
+  reaches it."
   [:to :params :query :fragment :on-click :prefetch])
 
 (defn on-click-roster!
@@ -128,6 +139,62 @@
            {:on-click on-click}))
   on-click)
 
+(defn- claimed-intent-positions!
+  "Refuse, AT RENDER, a caller value at a position `:prefetch :intent` has
+  claimed. `prefetch-keys` is routing's own list of credible-intent
+  positions, taken off the link model rather than restated here.
+
+  The same law as `on-click-roster!`, one position along: the click already
+  produces the one routing intent, and here the hover already produces the
+  one prefetch intent — Hicasso's in-band grammar carries ONE intent per
+  position, so there is no composition to fall back on and nothing to
+  merge. An author who needs a position to carry something else omits the
+  sugar and spells the prefetch by hand at the positions they are not
+  using: `:prefetch` is the shorthand, `:on-mouse-enter [:rf.route/prefetch
+  {…}]` is the general form, and the general form is always available.
+
+  All-or-nothing, deliberately. A silent skip would leave a link warming at
+  two positions out of three — a partially-passive link, which is the
+  failure `validate-prefetch!` calls the one a prefetch can least afford,
+  since it looks identical to a working one until you measure. So either
+  every claimed position carries the prefetch intent or the render throws.
+
+  Unlike `route-link`'s two props refusals, this one runs AFTER the link
+  model is consulted, because the positions it polices are routing's to
+  name. That ordering is also what keeps the two prefetch diagnostics
+  distinct: a BAD `:prefetch` value never reaches here at all — routing's
+  `validate-prefetch!` has already thrown
+  `:rf.error/route-link-bad-prefetch` from inside the seam — so this id
+  means only \"the value is good and the position is taken\"."
+  [props prefetch-keys]
+  (when-let [claimed (seq (filter #(contains? props %) prefetch-keys))]
+    (fail! :rf.error/hicasso-route-link-claimed-intent-position
+           're-frame.hicasso.impl.route-link/route-link
+           (str "route-link was given :prefetch :intent, which claims "
+                (pr-str (vec prefetch-keys))
+                ", and also a value at " (pr-str (vec claimed))
+                ". One intent per position: the hover already produces the one "
+                "prefetch intent, so there is nothing to compose with. Either drop "
+                ":prefetch and spell the warm-up by hand at the positions you are "
+                "not using (:on-mouse-enter [:rf.route/prefetch {:to … :params …}]), "
+                "or move " (pr-str (vec claimed)) " elsewhere.")
+           {:positions (vec claimed)
+            :prefetch  :intent})))
+
+(defn- prefetch-attrs
+  "The prefetch half of the anchor's attrs: routing's `[:rf.route/prefetch
+  {…}]` vector at every position routing claims, or nothing at all when the
+  link is passive (`prefetch` nil — an absent `:prefetch` key).
+
+  One vector, three positions, and it is the SAME vector at each: the three
+  are independent triggers for one warm-up, so `=` sees the anchor's three
+  intents as equal and a structural test can read the prefetch decision off
+  the tree exactly as it reads the click decision."
+  [prefetch prefetch-keys]
+  (if prefetch
+    (zipmap prefetch-keys (repeat prefetch))
+    {}))
+
 (defn- require-frame! [to]
   (or rf.hicasso.impl.intent/*frame*
       (fail! :rf.error/hicasso-route-link-outside-boundary
@@ -144,21 +211,33 @@
   is the `[intent/navigate-head {…}]` data form. `children` land inside
   the anchor. A plain function — call it: `(route-link {:to …} \"jane\")`.
 
+  `:prefetch :intent` additionally fills routing's credible-intent
+  positions with its `[:rf.route/prefetch {…}]` vector, which lowers like
+  any other in-band intent; the positions and the vector both come off the
+  one link-model call.
+
   Fails loud at render when routing is absent
   (`:rf.error/routing-artefact-missing`, naming the `:to`), when rendered
-  outside a boundary, or when `:on-click` is outside the roster
-  (`on-click-roster!`) — the roster check runs BEFORE the link model is
-  consulted, so the author's own mistake is what the stack names."
+  outside a boundary, when `:on-click` is outside the roster
+  (`on-click-roster!`) — those two run BEFORE the link model is consulted,
+  so the author's own mistake is what the stack names — when `:prefetch`
+  carries an unsupported value (routing's `:rf.error/route-link-bad-prefetch`,
+  raised from inside the seam on BOTH hosts), and when a caller value sits
+  at a position `:prefetch :intent` claims
+  (`claimed-intent-positions!`, which necessarily runs after the model
+  because the positions are routing's to name)."
   [{:keys [to on-click] :as props} & children]
   (let [frame-kw (require-frame! to)
         _        (on-click-roster! on-click)
-        {:keys [href payload native?]}
+        {:keys [href payload native? prefetch prefetch-keys]}
         ((rf.late-bind/require-fn! :routing/link-model
                                 'route-link
                                 routing-artefact
                                 {:to to})
          (dissoc props :on-click) frame-kw)
+        _        (when prefetch (claimed-intent-positions! props prefetch-keys))
         attrs    (-> (apply dissoc props control-keys)
+                     (merge (prefetch-attrs prefetch prefetch-keys))
                      (assoc :href href
                             :on-click [rf.hicasso.impl.intent/navigate-head
                                        {:frame    frame-kw

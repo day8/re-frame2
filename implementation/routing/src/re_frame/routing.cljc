@@ -157,7 +157,12 @@
 ;; strategy, or calls `rf.routing.history/current-url` directly.
 
 ;; Route-link render fns
-#?(:cljs (def route-link-render rf.routing.link/route-link-render))
+;; rf2-kuky.36: no `route-link-render` facade alias. It existed "so tests can
+;; call it directly", and every one of its call sites was a test; they reach
+;; the render fn through its home, `rf.routing.link/route-link-render`, which
+;; is where the parity suite already called it. `route-link-render-ssr` STAYS:
+;; it is the value of the JVM `:routing/route-link` late-bind hook below, a
+;; real publication rather than a convenience re-export.
 (def route-link-render-ssr      rf.routing.link/route-link-render-ssr)
 
 ;; ---- event / fx / sub / hook / listener registrations -------------------

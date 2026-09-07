@@ -197,13 +197,18 @@
 ;; screen away. Neither had a caller outside this file's own pins.
 ;;
 ;; SCOPE NOTE, so a later reader does not mistake this pin for the whole
-;; claim: `ns-publics` on the JVM can only speak for the JVM. The routing-ns
-;; `route-link` def this bead also deleted was inside a `#?(:cljs ...)` arm,
-;; so it was never in this map to begin with and a nil assertion for it here
-;; would be VACUOUSLY green — exactly the shape the controls below exist to
-;; refuse. The CLJS side of that deletion is pinned where it can be seen:
-;; nothing dereferences the name, and `route_link_cljs_test` still renders
-;; through the registered `:route/link` view.
+;; claim: `ns-publics` on the JVM can only speak for the JVM. TWO of this
+;; bead's deletions were inside `#?(:cljs ...)` arms — the routing-ns
+;; `route-link` def and the `route-link-render` alias — so neither was ever
+;; in this map to begin with, and a nil assertion for either here would be
+;; VACUOUSLY green: it would read identically before and after the deletion.
+;; That is exactly the shape the controls below exist to refuse, so they are
+;; deliberately NOT listed in the `gone` vector. Their CLJS side is pinned
+;; where it can be seen: nothing dereferences either name (the call sites all
+;; moved to `rf.routing.link/route-link-render`, its home), and
+;; `route_link_cljs_test` still renders through the registered `:route/link`
+;; view. `route-link-render-ssr` is the cross-platform control below — it is
+;; a real `.cljc` publication, so its `some?` leg does bite on the JVM.
 ;; ===========================================================================
 
 (deftest trimmed-routing-read-edge-is-gone-rf2-kuky-36

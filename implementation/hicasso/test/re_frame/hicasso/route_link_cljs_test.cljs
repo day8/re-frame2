@@ -78,9 +78,7 @@
     (is (rf.hicasso.impl.intent/navigate-head? on-click) "the click position carries the navigate head")
     (let [{:keys [frame payload native? veto]} (second on-click)]
       (is (= frame-id frame) "the frame was captured at render, as data")
-      (is (= [:rf.route/url-requested {:url "/profile/jane"
-                                       :to :conduit.profile/show
-                                       :params {:username "jane"}}]
+      (is (= [:rf.route/url-requested {:url "/profile/jane"}]
              payload)
           "the payload is routing's own url-requested synthesis, in band")
       (is (false? native?))
@@ -140,16 +138,120 @@
         js/Error #"hicasso-route-link-outside-boundary"
         (rf.hicasso.impl.route-link/route-link {:to :conduit.profile/show :params {:username "jane"}} "jane"))))
 
+;; ---------------------------------------------------------------------------
+;; Prefetch on intent — the sugar, and the one refusal it brings
+;; ---------------------------------------------------------------------------
+
+(def ^:private prefetch-positions
+  "The three credible-intent positions `:prefetch :intent` claims. Routing
+  owns the list (`rf.routing.link/prefetch-intent-keys`) and hands it over
+  the seam as `:prefetch-keys`; it is restated here ONLY as the expected
+  value of an assertion, which is what a pin is for."
+  [:on-mouse-enter :on-focus :on-touch-start])
+
 (deftest a-prefetch-key-never-reaches-the-anchor
-  (testing "`:prefetch` is routing's link-model key, not an HTML attribute,
-           and Hicasso wires none of the prefetch handlers in v0 — so the key
-           is one the link owns and it is kept off the anchor rather than
-           emitted as a stray attribute"
+  (testing "`:prefetch` is routing's link-model key, not an HTML attribute, so
+           the key itself is consumed and never emitted as a stray attribute —
+           what it ASKS FOR reaches the anchor, the key does not"
     (let [[_ attrs] (rendered {:to :conduit.profile/show :params {:username "jane"}
                                :prefetch :intent}
                               "jane")]
       (is (not (contains? attrs :prefetch)))
       (is (string? (:href attrs)) "and the link still renders"))))
+
+(deftest prefetch-intent-fills-every-credible-intent-position
+  (testing "the sugar: `:prefetch :intent` puts routing's own prefetch event
+           at hover, focus and touch-start — one vector, three positions,
+           minted from the address the link already carries. `:fragment` is
+           excluded: a prefetch is resource-only and a #fragment is never a
+           resource input"
+    (let [[_ attrs] (rendered {:to       :conduit.profile/show
+                               :params   {:username "jane"}
+                               :fragment "bio"
+                               :prefetch :intent}
+                              "jane")]
+      (doseq [position prefetch-positions]
+        (is (= [:rf.route/prefetch {:to     :conduit.profile/show
+                                    :params {:username "jane"}}]
+               (get attrs position))
+            (str position " carries routing's prefetch intent, in band, "
+                 "with no :fragment")))
+      (is (apply = (map attrs prefetch-positions))
+          "the SAME vector at each position — three triggers for one warm-up,
+           so `=` still sees two renders of one link as equal"))))
+
+(deftest no-prefetch-key-means-no-position-is-touched
+  (testing "passive by construction: absent `:prefetch`, none of the three
+           positions appears at all — not nil, not present-and-empty. This is
+           the control that keeps the row above honest, since an assertion
+           that a key is PRESENT says nothing about a link that did not ask"
+    (let [[_ attrs] (rendered {:to :conduit.profile/show :params {:username "jane"}}
+                              "jane")]
+      (doseq [position prefetch-positions]
+        (is (not (contains? attrs position))
+            (str position " is absent on a passive link"))))))
+
+(deftest the-prefetch-intent-lowers-and-dispatches-on-the-render-frame
+  (testing "the rendered vector is not merely well-shaped data — lowered
+           through Hicasso's own intent lowering and fired, it DISPATCHES,
+           and it dispatches on the frame captured at RENDER (the same frame
+           `require-frame!` pinned the click to). Reading the vector alone
+           would pass on a link that warms nothing, which is the defect this
+           bead exists to close"
+    (let [!seen     (atom [])
+          [_ attrs] (rendered {:to :conduit.profile/show :params {:username "jane"}
+                               :prefetch :intent}
+                              "jane")
+          h         (rf.hicasso.impl.intent/with-frame frame-id
+                      (fn [ev] (swap! !seen conj ev) nil)
+                      (fn [] (rf.hicasso.impl.intent/lower-prop
+                               :on-mouse-enter (:on-mouse-enter attrs))))]
+      (is (fn? h) "the intent lowered to a closure, like any other in-band intent")
+      (h (ev {}))
+      (is (= [[:rf.route/prefetch {:to     :conduit.profile/show
+                                   :params {:username "jane"}}]]
+             @!seen)
+          "firing the hover dispatched the prefetch — recorded, not inspected"))))
+
+(deftest a-caller-value-at-a-claimed-position-is-refused-at-render
+  (testing "one intent per position: `:prefetch :intent` claims all three, so
+           a caller value at any of them is loud AT RENDER and names the
+           position. All-or-nothing — a silent skip would leave the link
+           warming at two positions out of three, which looks identical to a
+           working link until you measure"
+    (doseq [position prefetch-positions]
+      (is (thrown-with-msg?
+            js/Error #"hicasso-route-link-claimed-intent-position"
+            (rendered {:to       :conduit.profile/show
+                       :params   {:username "jane"}
+                       :prefetch :intent
+                       position  [:conduit/track "jane"]}
+                      "jane"))
+          (str "a caller value at " position " alongside :prefetch :intent "
+               "is refused"))))
+  (testing "…and the SAME position is legal without :prefetch — the control
+           that proves the refusal is the claim's, not a blanket ban on
+           writing an intent at a hover position"
+    (let [[_ attrs] (rendered {:to             :conduit.profile/show
+                               :params         {:username "jane"}
+                               :on-mouse-enter [:conduit/track "jane"]}
+                              "jane")]
+      (is (= [:conduit/track "jane"] (:on-mouse-enter attrs))
+          "the author's own hover intent passes through untouched"))))
+
+(deftest a-bad-prefetch-value-is-still-routings-refusal
+  (testing "unchanged by the wiring: a PRESENT `:prefetch` that is not
+           `:intent` is routing's `:rf.error/route-link-bad-prefetch`, raised
+           from inside the seam before Hicasso's claimed-position check is
+           reached. The two ids stay distinct — that one means the value is
+           bad, this bead's means the value is good and the position is taken"
+    (doseq [bad [:render :viewport true false nil]]
+      (is (thrown-with-msg?
+            js/Error #"route-link-bad-prefetch"
+            (rendered {:to :conduit.profile/show :params {:username "jane"}
+                       :prefetch bad}
+                      "jane"))
+          (str ":prefetch " (pr-str bad) " is refused")))))
 
 (defn- lower-navigate
   "Lower `[intent/navigate-head m]` at an event position and answer the closure."
@@ -162,7 +264,7 @@
            to the click closure; the map is `route-link`'s to mint, so the
            lowering reads it rather than re-validating it"
     (is (fn? (lower-navigate {:frame    frame-id
-                              :payload  [:rf.route/url-requested {:to :conduit.profile/show}]
+                              :payload  [:rf.route/url-requested {:url "/profile/jane"}]
                               :native?  false
                               :veto     nil})))))
 
@@ -270,9 +372,7 @@
       (let [{:keys [veto-fn frame payload native?]} @!seam]
         (is (identical? veto veto-fn) "the fn crossed the seam by identity")
         (is (= frame-id frame))
-        (is (= [:rf.route/url-requested {:url    "/profile/jane"
-                                         :to     :conduit.profile/show
-                                         :params {:username "jane"}}]
+        (is (= [:rf.route/url-requested {:url "/profile/jane"}]
                payload))
         (is (false? native?))))))
 

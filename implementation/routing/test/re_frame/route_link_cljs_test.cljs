@@ -98,7 +98,7 @@
           (reset! dispatched (-> ev :tags :rf.event/v))
           (reset! source     (:source ev)))))
     (try
-      (let [[_ attrs] (rf.routing/route-link-render props)
+      (let [[_ attrs] (rf.routing.link/route-link-render props)
             on-click (:on-click attrs)]
         (on-click event)
         {:dispatched @dispatched
@@ -115,9 +115,9 @@
     (rf/reg-route :route/cart    {} "/cart")
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
 
-    (let [[_ attrs] (rf.routing/route-link-render {:to :route/cart})]
+    (let [[_ attrs] (rf.routing.link/route-link-render {:to :route/cart})]
       (is (= "/cart" (:href attrs))))
-    (let [[_ attrs] (rf.routing/route-link-render
+    (let [[_ attrs] (rf.routing.link/route-link-render
                      {:to :route/article :params {:id "intro"}})]
       (is (= "/articles/intro" (:href attrs))))))
 
@@ -358,7 +358,7 @@
     (try
       ;; RENDER under the render-frame scope, capture the closure.
       (let [on-click (rf/with-frame render-frame
-                       (let [[_ attrs] (rf.routing/route-link-render props)]
+                       (let [[_ attrs] (rf.routing.link/route-link-render props)]
                          (:on-click attrs)))
             ;; FIRE after the render scope has unwound, under the click-time
             ;; ambient scope (nil ⇒ no scope at all).
@@ -434,8 +434,8 @@
            (reset! target     (-> ev :tags :frame)))))
      (try
        (let [attrs (second (if render-frame
-                             (rf/with-frame render-frame (rf.routing/route-link-render props))
-                             (rf.routing/route-link-render props)))]
+                             (rf/with-frame render-frame (rf.routing.link/route-link-render props))
+                             (rf.routing.link/route-link-render props)))]
          (when-let [h (get attrs attr-key)]
            (h (mk-event {})))
          {:dispatched @dispatched
@@ -517,7 +517,7 @@
                             (= :rf.route/prefetch (-> ev :tags :rf.event/v first)))
                    (reset! dispatched (-> ev :tags :rf.event/v)))))
       (try
-        (rf.routing/route-link-render {:to :route/cart :prefetch :intent})
+        (rf.routing.link/route-link-render {:to :route/cart :prefetch :intent})
         (is (nil? @dispatched) "a render is not an intent")
         (finally (rf.trace.tooling/unregister-listener! cb-key))))))
 
@@ -526,10 +526,10 @@
             bug at the render site, not a silently passive link"
     (rf/reg-route :route/cart {} "/cart")
     (doseq [v [true :render :viewport nil]]
-      (let [data (try (rf.routing/route-link-render {:to :route/cart :prefetch v}) nil
+      (let [data (try (rf.routing.link/route-link-render {:to :route/cart :prefetch v}) nil
                       (catch :default e (ex-data e)))]
         (is (= :rf.error/route-link-bad-prefetch (:rf.error/id data))
             (str "prefetch " (pr-str v) " must throw"))
         (is (= v (:value data)))))
     (testing "and :intent still renders"
-      (is (some? (rf.routing/route-link-render {:to :route/cart :prefetch :intent}))))))
+      (is (some? (rf.routing.link/route-link-render {:to :route/cart :prefetch :intent}))))))
