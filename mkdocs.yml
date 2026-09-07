@@ -323,6 +323,7 @@ nav:
     - "re-frame.routing": api/re-frame.routing.md
     - "re-frame.resources": api/re-frame.resources.md
     - "re-frame.ssr": api/re-frame.ssr.md
+    - "re-frame.ssr.head": api/re-frame.ssr.head.md
     - "re-frame.ssr.ring": api/re-frame.ssr.ring.md
     - "re-frame.epoch": api/re-frame.epoch.md
     - "re-frame.performance": api/re-frame.performance.md

@@ -103,7 +103,7 @@
     'rf/render
     (str "render is not supported on the plain-atom adapter (it is headless "
          "— JVM/SSR, no React reactivity); render server-side HTML with "
-         "rf/render-to-string instead of rf/render.")
+         "ssr/render-to-string instead of rf/render.")
     {:recovery :use-render-to-string}))
 
 ;; The hiccup emitter is set by re-frame.ssr at namespace-load time
@@ -123,7 +123,7 @@
     (emit render-tree opts)
     (rf.error/throw-error!
       :rf.error/no-hiccup-emitter-bound
-      'rf/render-to-string
+      'ssr/render-to-string
       (str "no hiccup emitter is bound on the plain-atom adapter; require the "
            "re-frame.ssr namespace (which calls set-hiccup-emitter! on load) "
            "before calling render-to-string.")

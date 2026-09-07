@@ -52,7 +52,7 @@
     :rf.error/render-on-headless-adapter
     'rf/render
     (str "render is not supported on the SSR adapter (it is headless — no "
-         "React reactivity); render server-side HTML with rf/render-to-string "
+         "React reactivity); render server-side HTML with ssr/render-to-string "
          "instead of rf/render.")
     {:recovery :use-render-to-string}))
 

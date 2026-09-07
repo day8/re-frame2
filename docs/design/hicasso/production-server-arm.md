@@ -829,7 +829,7 @@ sitting will want them:
    into a mismatch, which is exactly why `rf2-2rtt6.86` declined to invent one.
 2. **The production call site takes the hash from the root hiccup, before the
    render** — `lifecycle/render-document-hash` in `pipeline.clj`'s
-   `build-full-response*`, which is `rf/render-tree-hash` over the same
+   `build-full-response*`, which is `ssr/render-tree-hash` over the same
    degenerate form. So the
    degeneracy reaches production identically whichever arm renders.
 3. **Spec 011 already has a stated posture for this case.** Its
@@ -878,7 +878,7 @@ leaned on the hash. Three corrections, none of which move a figure:
 **Observation 2 is unchanged and still live.** The production call site still
 takes the hash from the root hiccup *before* the render
 (`lifecycle/render-document-hash`, which is
-`rf/render-tree-hash` over the same unresolved form), and the tier ruling did
+`ssr/render-tree-hash` over the same unresolved form), and the tier ruling did
 not touch it; it remains a question for the production pipeline, tracked on its
 own bead. So the degeneracy still reaches production identically whichever arm
 renders — what changed is only the *reason* nothing here leans on the hash: no

@@ -19,7 +19,7 @@
      comes up.
    - A client-only effect, gated with :platforms #{:client}, that the server
      render simply skips.
-   - The pure hiccup -> HTML emitter, rf/render-to-string. No DOM, just data
+   - The pure hiccup -> HTML emitter, rf.ssr/render-to-string. No DOM, just data
      in and a string out.
    - The hydration payload: the server's finished state, packed into the page
      for the client to adopt verbatim.
@@ -296,7 +296,7 @@
                  ;; channels below. `render-tree-hash` is a full walk of the
                  ;; tree, so computing it here rather than letting the emitter
                  ;; do its own is the difference between one walk and two.
-                 render-hash (rf/render-tree-hash hiccup)
+                 render-hash (rf.ssr/render-tree-hash hiccup)
                  ;; `:render-hash` stamps data-rf-render-hash="<hex>" onto the
                  ;; root element. That hex string is the tripwire: the client
                  ;; recomputes the hash after its first render, and if the two
@@ -312,7 +312,7 @@
                  ;; The same hash rides in the payload too, so something
                  ;; without a DOM to parse — a server log line, a CDN cache key
                  ;; — can read it straight.
-                 html     (rf/render-to-string hiccup
+                 html     (rf.ssr/render-to-string hiccup
                                                {:render-hash render-hash})
                  ;; You'll notice the payload carries no `:rf/frame-id`, and
                  ;; that's the intended shape. The server rendered under a

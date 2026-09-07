@@ -13,7 +13,9 @@ Ships in a separate artefact (`day8/re-frame2-ssr`); add it to your deps and req
 (:require [re-frame.ssr :as ssr])
 ```
 
-The `re-frame.core` facade re-exports a curated set of render and head primitives as late-bound wrappers: `rf/render-to-string`, `rf/render-tree-hash`, `rf/project-error`, the registration macros `rf/reg-head` / `rf/reg-error-projector`, and the head accessors `rf/render-head` / `rf/active-head` / `rf/head-model->html` (accessors documented in [`re-frame.core`](re-frame.core.md)). When the artefact is on the classpath, these wrappers resolve to this namespace at call time. When it is not, they throw a clear "SSR not loaded" error. Examples below use `rf/` at idiomatic call sites and `ssr/` for the host-adapter surface.
+The `re-frame.core` facade re-exports exactly two SSR surfaces, both REGISTRARS: the macros `rf/reg-head` and `rf/reg-error-projector`. They are late-bound wrappers — when the artefact is on the classpath they resolve to this namespace at call time; when it is not, they throw a clear "SSR not loaded" error naming the artefact and the namespace to require.
+
+Everything else is reached at home. `ssr/render-to-string`, `ssr/render-tree-hash`, `ssr/project-error`, `ssr/head-model->html` and `ssr/hydrate!` live here; `head/render-head` and `head/active-head` live on the sibling [`re-frame.ssr.head`](#the-head-model). There is no façade copy of any of them, because loading `re-frame.ssr` is what installs the SSR runtime in the first place — an app that server-renders has necessarily required it (rf2-kuky.44). Examples below use `ssr/` throughout, and `head/` for the two head reads.
 
 ## Rendering primitives
 
@@ -76,7 +78,7 @@ The `re-frame.core` facade re-exports a curated set of render and head primitive
   ;; Capture the hash at render time; it rides the hydration payload as
   ;; :rf/render-hash and is re-checked client-side after the first render.
   (let [hiccup      ((rf/view :app/root))
-        render-hash (rf/render-tree-hash hiccup)]
+        render-hash (ssr/render-tree-hash hiccup)]
     {:rf/render-hash render-hash})
   ```
 
@@ -251,7 +253,7 @@ The streaming surface is host-adapter territory. The SSR-aware host ([`re-frame.
 
 ## The head model
 
-The `<head>` is modelled separately from the body as a head-model: a data structure carrying `:title`, `:meta`, `:link`, `:json-ld`, `:html-attrs`, and `:body-attrs`. Head-models are registered per-route with `reg-head`. A registered head-fn is evaluated and rendered through the `re-frame.core` facade accessors `render-head` / `active-head` / `head-model->html` (documented in [`re-frame.core`](re-frame.core.md)). Those three fns are the whole read surface, and reading a head is a pure read — `render-head` / `active-head` RETURN the model, and nothing records it anywhere: `active-head` returns the active route's head-model. There is **no `:rf/head` subscription** — see [§Subscriptions](#subscriptions--there-are-none).
+The `<head>` is modelled separately from the body as a head-model: a data structure carrying `:title`, `:meta`, `:link`, `:json-ld`, `:html-attrs`, and `:body-attrs`. Head-models are registered per-route with `reg-head`. The two READS — `render-head` and `active-head` — live on the sibling [`re-frame.ssr.head`](re-frame.ssr.head.md), which consumers `(:require [re-frame.ssr.head :as head])` directly; the serialiser `head-model->html` is re-exported here (below) so the emission half sits beside `render-to-string`. Those three fns are the whole read surface, and reading a head is a pure read — `render-head` / `active-head` RETURN the model, and nothing records it anywhere: `active-head` returns the active route's head-model. There is **no `:rf/head` subscription** — see [§Subscriptions](#subscriptions--there-are-none).
 
 ### `reg-head`
 
@@ -269,7 +271,23 @@ The `<head>` is modelled separately from the body as a head-model: a data struct
        :meta  [{:name "description" :content (:summary db)}]}))
   ```
 
-*Exposed on the `re-frame.core` facade as `rf/reg-head`; there is no `re-frame.ssr/reg-head` alias. The brief facade entry in [`re-frame.core`](re-frame.core.md) points here for the full contract.*
+*Exposed on the `re-frame.core` facade as `rf/reg-head`; the fn-form delegate lives on [`re-frame.ssr.head`](re-frame.ssr.head.md) and there is no `re-frame.ssr/reg-head` alias. The brief facade entry in [`re-frame.core`](re-frame.core.md) points here for the full contract.*
+
+### `head-model->html`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (head-model->html head-model)
+  (head-model->html head-model {:wrap? bool})
+  ```
+- **Description**: Render a `:rf/head-model` to its inner-head HTML fragment in canonical order — `<title>`, then `<meta>` in declaration order, then `<link>`, then `<script>`, then JSON-LD. `:wrap?` (default `false`) wraps the fragment in `<head>…</head>`. `:html-attrs` / `:body-attrs` are deliberately NOT emitted — they belong to `<html>` / `<body>`, which the host shell stamps. Re-exported here from [`re-frame.ssr.head`](re-frame.ssr.head.md); the two names are the same function.
+- **Example**:
+  ```clojure
+  (ssr/head-model->html (head/active-head frame-id) {:wrap? true})
+  ```
+
+*The two head READS — `render-head` / `active-head` — are NOT re-exported here; reach them on [`re-frame.ssr.head`](re-frame.ssr.head.md).*
 
 ## Hydration
 
@@ -678,7 +696,7 @@ Read them through functions instead:
 
 | What you want | How to read it |
 |---|---|
-| The active route's head model | The `re-frame.core` facade accessors `render-head` / `active-head` / `head-model->html` — see [§The head model](#the-head-model) |
+| The active route's head model | `head/render-head` / `head/active-head` on `re-frame.ssr.head`, and `ssr/head-model->html` here — see [§The head model](#the-head-model) |
 | The sanitised public-error projection | [`project-error`](#project-error), or [`apply-error-projection!`](#apply-error-projection) which projects *and* stamps the response `:status` |
 
 The current request's **response accumulator** (status / headers / cookies / redirect) is *not* a registered subscription. It lives in a framework-private side-channel atom keyed by frame-id, and the runtime reads it exclusively via `re-frame.ssr/get-response`. The host adapter consumes the resolved value to build the wire response.
@@ -716,7 +734,7 @@ Detail in [the SSR tutorial §`:platforms`](../ssr/concepts.md).
 
 ## See also
 
-- [`re-frame.core`](re-frame.core.md) — the `reg-head` / `reg-error-projector` facade entries and the head accessors (`render-head` / `active-head` / `head-model->html`), plus the instrumentation / error-catalogue surface where the SSR trace events are defined.
+- [`re-frame.core`](re-frame.core.md) — the `reg-head` / `reg-error-projector` facade entries, plus the instrumentation / error-catalogue surface where the SSR trace events are defined. The head READS are not on the facade; they live on `re-frame.ssr.head`.
 - [`re-frame.ssr.ring`](re-frame.ssr.ring.md) — the Ring host adapter that drives the render pipeline and materialises the response accumulator onto the wire.
 - [`re-frame.routing`](re-frame.routing.md) — routes opt into head models via `:head` metadata.
 - [Server-side rendering — the tutorial](../ssr/concepts.md) — the conceptual walkthrough.

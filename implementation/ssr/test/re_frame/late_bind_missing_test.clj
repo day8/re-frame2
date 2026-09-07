@@ -1,6 +1,14 @@
 (ns re-frame.late-bind-missing-test
   "Per rf2-5b6x — assert the documented missing-artefact error contract for
-  the ssr artefact's `re-frame.core` re-exports.
+  the ssr artefact's `re-frame.core` REGISTRAR re-exports.
+
+  rf2-kuky.87 deleted the six QUERY re-exports (`render-to-string`,
+  `render-tree-hash`, `project-error`, `render-head`, `active-head`,
+  `head-model->html`) and their late-bind hooks: `re-frame.ssr` /
+  `re-frame.ssr.head` are their only door, so an app that calls one has
+  necessarily loaded the artefact and the guided-failure branch this test
+  pins cannot be reached for them. `reg-error-projector` and `reg-head`
+  remain on the façade and keep the contract.
 
   Each per-feature split (schemas / machines / routing / flows / http /
   ssr) raises a documented `:rf.error/<artefact>-artefact-missing`
@@ -38,52 +46,6 @@
       (finally
         (rf.late-bind/set-fn! hook-key original)))))
 
-(deftest render-to-string-raises-when-ssr-artefact-missing
-  (testing "rf/render-to-string raises :rf.error/ssr-artefact-missing when the :ssr/render-to-string hook is nil"
-    (with-hook-as-nil :ssr/render-to-string
-      (fn []
-        (let [thrown (try (rf/render-to-string [:div])
-                          nil
-                          (catch clojure.lang.ExceptionInfo e e))]
-          (is (some? thrown)
-              "render-to-string throws when the ssr artefact is absent")
-          ;; rf2-vvixub — message is the human :reason + trailing
-          ;; [:rf.error/<id>] token; assert the token + canonical :rf.error/id,
-          ;; not exact keyword-equality.
-          (is (re-find #"\[:rf\.error/ssr-artefact-missing\]" (.getMessage thrown))
-              "the message carries the [:rf.error/ssr-artefact-missing] token")
-          (is (= :rf.error/ssr-artefact-missing (:rf.error/id (ex-data thrown)))
-              "ex-data carries the canonical :rf.error/id discriminator")
-          (let [data (ex-data thrown)]
-            (is (= 'rf/render-to-string (:where data))
-                "ex-data carries :where = 'rf/render-to-string")
-            (is (= :no-recovery (:recovery data))
-                "ex-data carries :recovery = :no-recovery")
-            (is (string? (:reason data))
-                "ex-data carries :reason as a string")))))))
-
-(deftest render-tree-hash-raises-when-ssr-artefact-missing
-  (testing "rf/render-tree-hash raises :rf.error/ssr-artefact-missing when the :ssr/render-tree-hash hook is nil"
-    (with-hook-as-nil :ssr/render-tree-hash
-      (fn []
-        (let [thrown (try (rf/render-tree-hash [:div])
-                          nil
-                          (catch clojure.lang.ExceptionInfo e e))]
-          (is (some? thrown)
-              "render-tree-hash throws when the ssr artefact is absent")
-          ;; rf2-vvixub — message is the human :reason + trailing
-          ;; [:rf.error/<id>] token; assert the token + canonical :rf.error/id,
-          ;; not exact keyword-equality.
-          (is (re-find #"\[:rf\.error/ssr-artefact-missing\]" (.getMessage thrown))
-              "the message carries the [:rf.error/ssr-artefact-missing] token")
-          (is (= :rf.error/ssr-artefact-missing (:rf.error/id (ex-data thrown)))
-              "ex-data carries the canonical :rf.error/id discriminator")
-          (let [data (ex-data thrown)]
-            (is (= 'rf/render-tree-hash (:where data))
-                "ex-data carries :where = 'rf/render-tree-hash")
-            (is (= :no-recovery (:recovery data))
-                "ex-data carries :recovery = :no-recovery")))))))
-
 (deftest reg-error-projector-raises-when-ssr-artefact-missing
   (testing "rf/reg-error-projector (macro) raises :rf.error/ssr-artefact-missing when the :ssr/reg-error-projector hook is nil"
     ;; The macro forwards to -reg-error-projector which performs the
@@ -115,29 +77,5 @@
                 "ex-data carries :where = 'rf/reg-error-projector")
             (is (= :probe/projector (:id data))
                 "ex-data carries :id from the call site")
-            (is (= :no-recovery (:recovery data))
-                "ex-data carries :recovery = :no-recovery")))))))
-
-(deftest project-error-raises-when-ssr-artefact-missing
-  (testing "rf/project-error raises :rf.error/ssr-artefact-missing when the :ssr/project-error hook is nil"
-    (with-hook-as-nil :ssr/project-error
-      (fn []
-        (let [thrown (try (rf/project-error :rf/default {})
-                          nil
-                          (catch clojure.lang.ExceptionInfo e e))]
-          (is (some? thrown)
-              "project-error throws when the ssr artefact is absent")
-          ;; rf2-vvixub — message is the human :reason + trailing
-          ;; [:rf.error/<id>] token; assert the token + canonical :rf.error/id,
-          ;; not exact keyword-equality.
-          (is (re-find #"\[:rf\.error/ssr-artefact-missing\]" (.getMessage thrown))
-              "the message carries the [:rf.error/ssr-artefact-missing] token")
-          (is (= :rf.error/ssr-artefact-missing (:rf.error/id (ex-data thrown)))
-              "ex-data carries the canonical :rf.error/id discriminator")
-          (let [data (ex-data thrown)]
-            (is (= 'rf/project-error (:where data))
-                "ex-data carries :where = 'rf/project-error")
-            (is (= :rf/default (:frame data))
-                "ex-data carries :frame from the call site")
             (is (= :no-recovery (:recovery data))
                 "ex-data carries :recovery = :no-recovery")))))))

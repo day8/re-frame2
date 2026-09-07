@@ -112,6 +112,13 @@
     re-frame.resources
     re-frame.flows
     re-frame.ssr
+    ;; The head/meta contract's public door (rf2-kuky.87). It became a
+    ;; consumer-facing surface when the SSR query re-exports left
+    ;; `re-frame.core`: `render-head` / `active-head` are now reached
+    ;; ONLY here, so an app or host `(:require [re-frame.ssr.head :as
+    ;; head])` directly. Its two producing sub-namespaces
+    ;; (`re-frame.ssr.head.emit` / `.registry`) stay internal below.
+    re-frame.ssr.head
     re-frame.ssr.ring
     ;; The two JVM-loadable namespaces of the ssr-node crossing (rf2-8arzr.7).
     ;; Both are requires-directly host-adapter surfaces that nothing
@@ -328,8 +335,10 @@
      re-frame.ssr.request
      re-frame.ssr.response
      re-frame.ssr.ui-tree
-     ;; `<head>` collection and emission.
-     re-frame.ssr.head
+     ;; `<head>` emission and the registry behind the façade. The façade
+     ;; itself (`re-frame.ssr.head`) is a SCANNED public door as of
+     ;; rf2-kuky.87 — see `jvm-namespaces` above; these two remain the
+     ;; producing internals it re-exports.
      re-frame.ssr.head.emit
      re-frame.ssr.head.registry
      ;; Error capture and projection.

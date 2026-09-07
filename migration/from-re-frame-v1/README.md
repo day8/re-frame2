@@ -1508,7 +1508,7 @@ As the sixth per-feature artefact split (Strategy B), Spec 011's server-side ren
 
 **What to look for** in the codebase:
 
-- Any call to `re-frame.core/render-to-string` / `render-tree-hash` / `reg-error-projector` / `project-error`.
+- Any call to `re-frame.core/render-to-string` / `render-tree-hash` / `project-error` (these now live on `re-frame.ssr`), or to `re-frame.core/reg-error-projector` / `reg-head` (these stay on the façade).
 - Any `:rf.server/set-status` / `:rf.server/set-header` / `:rf.server/append-header` / `:rf.server/set-cookie` / `:rf.server/delete-cookie` / `:rf.server/redirect` / `:rf.server/safe-redirect` entry inside an `:fx` vector or effect map.
 - Any `[:rf/hydrate ...]` dispatch.
 - A direct `(:require [re-frame.ssr])` clause.
@@ -1516,9 +1516,9 @@ As the sixth per-feature artefact split (Strategy B), Spec 011's server-side ren
 
 **What to do.** Add `day8/re-frame2-ssr` alongside the core and adapter coords, at the coordinate kind and pin chosen at [M-0](#m-0-bump-the-dependency-coordinate-to-day8re-frame2) — one route, one pin, one commit across every `day8/re-frame2*` artefact; the per-artefact paths live in the setup skill's [`deps-versions.md` §Choosing the coordinate](../../skills/re-frame2-setup/references/deps-versions.md#choosing-the-coordinate-publication-state-decides-the-shape).
 
-Every namespace that calls `rf/render-to-string` / `rf/render-tree-hash` / `rf/reg-error-projector` / `rf/project-error`, dispatches `:rf/hydrate`, or registers a `:rf.server/*` fx call site MUST `(:require [re-frame.ssr])` so the namespace's load-time fx registrations and late-bind hook publications fire before the call site runs. Without the require, the four core re-exports raise `:rf.error/ssr-artefact-missing` with a clear "add the ssr artefact" message; the `:rf/hydrate` event resolves to no handler.
+Every namespace that calls `ssr/render-to-string` / `ssr/render-tree-hash` / `ssr/project-error`, dispatches `:rf/hydrate`, or registers a `:rf.server/*` fx call site MUST `(:require [re-frame.ssr :as ssr])` so the namespace's load-time fx registrations and late-bind hook publications fire before the call site runs — and the require is now what makes the names resolve at all. `rf/reg-error-projector` and `rf/reg-head` stay on the `re-frame.core` façade and raise `:rf.error/ssr-artefact-missing` with a clear "add the ssr artefact" message when the artefact is absent; without the require, the `:rf/hydrate` event also resolves to no handler.
 
-**Public API** (in `re-frame.core`) is unchanged — `(rf/render-to-string ...)`, `(rf/render-tree-hash ...)`, `(rf/reg-error-projector ...)` and `(rf/project-error ...)` still work, the wrappers in core late-bind through the hook table to the ssr artefact's implementations.
+**Public API — the QUERY surface moved off the façade** (rf2-kuky.44 / rf2-kuky.87). `re-frame.ssr` is the only door for `(ssr/render-to-string ...)`, `(ssr/render-tree-hash ...)`, `(ssr/project-error ...)` and `(ssr/head-model->html ...)`; the two head READS live on `re-frame.ssr.head` — `(:require [re-frame.ssr.head :as head])` for `(head/render-head ...)` / `(head/active-head ...)`. Only the two REGISTRARS ride `re-frame.core`: `(rf/reg-error-projector ...)` and `(rf/reg-head ...)` still work through the late-bind hook table exactly as before. The migration is a namespace-alias change at each call site, not a signature change.
 
 **Why:** see [Conventions §Adapter shipping convention](../../spec/Conventions.md#adapter-shipping-convention) (extended for per-feature artefacts); per-feature artefact splits give bundle-isolation through artefact split.
 

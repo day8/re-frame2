@@ -53,7 +53,7 @@
     `ensure` fresh-skips, and no request leaves the browser — which is what
     lets this static fixture run with no server behind it.
 
-    The `#app` subtree is the dev-build output of `rf/render-to-string` — the
+    The `#app` subtree is the dev-build output of `ssr/render-to-string` — the
     same string `handle-request` inlines, minus the `data-rf-render-hash`
     attribute (this offline stand-in bakes `:rf/render-hash nil` below, so
     neither the wire hash nor its DOM twin appears). In a dev build the reg-view

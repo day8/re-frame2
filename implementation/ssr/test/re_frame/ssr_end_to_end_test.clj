@@ -193,16 +193,16 @@
       ;; ---- (4) render against the registered root view -------------------
       (let [render-tree   [(rf/view :pages/articles)]
             html          (rf/with-frame server-frame
-                            (rf/render-to-string
+                            (rf.ssr/render-to-string
                               render-tree
-                              {:render-hash (rf/render-tree-hash render-tree)}))
+                              {:render-hash (rf.ssr/render-tree-hash render-tree)}))
             ;; The data-rf-render-hash embedded on the wire is the input-
             ;; tree hash (per render-to-string in ssr.cljc) — stable across
             ;; renders of the same view-ref. The hydration payload below
             ;; carries the RESOLVED-tree hash (state-dependent) so the
             ;; client can re-render and compare a state-derived value.
             embedded-hash (extract-render-hash html)
-            server-hash   (rf/render-tree-hash
+            server-hash   (rf.ssr/render-tree-hash
                             (resolve-tree server-frame render-tree))]
         (is (str/includes? html "Article A")
             "rendered HTML carries the title from server app-db")
@@ -258,7 +258,7 @@
             ;; First client render — same view, same hydrated state, same
             ;; resolved tree, same hash. Resolve under the client frame so
             ;; the subscribe-once reads the hydrated client app-db.
-            (let [client-hash-1 (rf/render-tree-hash
+            (let [client-hash-1 (rf.ssr/render-tree-hash
                                   (resolve-tree client-frame render-tree))
                   match-traces  (atom [])]
               (rf/register-listener! :trace ::match (fn [ev] (swap! match-traces conj ev)))
@@ -290,7 +290,7 @@
                                {:id "c" :title "Article C" :body "Body C"}]
                               {:frame client-frame})
 
-            (let [client-hash-2   (rf/render-tree-hash
+            (let [client-hash-2   (rf.ssr/render-tree-hash
                                      (resolve-tree client-frame render-tree))
                   mismatch-traces (atom [])]
               (rf/register-listener! :trace ::mismatch (fn [ev] (swap! mismatch-traces conj ev)))
@@ -2255,11 +2255,11 @@
             two documented reproductions from the bead."
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo #":rf\.error/invalid-tag-name"
-          (rf/render-to-string [(keyword "img src=x onerror=alert(1)")] {}))
+          (rf.ssr/render-to-string [(keyword "img src=x onerror=alert(1)")] {}))
         "img-with-event-handler injection rejected")
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo #":rf\.error/invalid-tag-name"
-          (rf/render-to-string [(keyword "div> <script") "x"] {}))
+          (rf.ssr/render-to-string [(keyword "div> <script") "x"] {}))
         "tag-break-into-script injection rejected"))
 
   (testing "rf2-z7gor — whitespace, separators, CTLs, empty all rejected"
@@ -2272,7 +2272,7 @@
                      (keyword "<script>")]]
       (is (thrown-with-msg?
             clojure.lang.ExceptionInfo #":rf\.error/invalid-tag-name"
-            (rf/render-to-string [hostile] {}))
+            (rf.ssr/render-to-string [hostile] {}))
           (str "hostile tag-name " (pr-str hostile)))))
 
   (testing "rf2-77l9w — admitting one namespaced colon segment does NOT
@@ -2285,38 +2285,38 @@
                      (keyword "svg:rect onload=x")]] ; injection after colon
       (is (thrown-with-msg?
             clojure.lang.ExceptionInfo #":rf\.error/invalid-tag-name"
-            (rf/render-to-string [hostile] {}))
+            (rf.ssr/render-to-string [hostile] {}))
           (str "malformed namespaced tag-name " (pr-str hostile))))))
 
 (deftest ssr-render-accepts-legit-tag-keywords
   (testing "rf2-z7gor — regression guard: HTML / SVG / MathML / custom
             element names + the :tag#id.cls sugar all still flow"
     (is (= "<div>x</div>"
-           (rf/render-to-string [:div "x"] {})))
+           (rf.ssr/render-to-string [:div "x"] {})))
     (is (= "<my-component></my-component>"
-           (rf/render-to-string [:my-component] {})))
+           (rf.ssr/render-to-string [:my-component] {})))
     (is (= "<svg></svg>"
-           (rf/render-to-string [:svg] {})))
+           (rf.ssr/render-to-string [:svg] {})))
     (is (= "<foreignObject>a</foreignObject>"
-           (rf/render-to-string [:foreignObject "a"] {}))
+           (rf.ssr/render-to-string [:foreignObject "a"] {}))
         "SVG camelCase element names still parse")
     (is (= "<div id=\"main\" class=\"col-12 bold\">x</div>"
-           (rf/render-to-string [:div#main.col-12.bold "x"] {}))
+           (rf.ssr/render-to-string [:div#main.col-12.bold "x"] {}))
         ":tag#id.cls sugar still parses (validator runs on the tag fragment)")
     (is (= "<p>a</p><p>b</p>"
-           (rf/render-to-string [:<> [:p "a"] [:p "b"]] {}))
+           (rf.ssr/render-to-string [:<> [:p "a"] [:p "b"]] {}))
         ":<> fragment renders children with no wrapper"))
 
   (testing "rf2-77l9w — XML-namespaced SVG/MathML tags carry a single colon
             segment and are admitted by the grammar"
     (is (= "<svg:rect></svg:rect>"
-           (rf/render-to-string [:svg:rect] {}))
+           (rf.ssr/render-to-string [:svg:rect] {}))
         "namespaced SVG tag `:svg:rect` is accepted")
     (is (= "<xlink:href>a</xlink:href>"
-           (rf/render-to-string [:xlink:href "a"] {}))
+           (rf.ssr/render-to-string [:xlink:href "a"] {}))
         "xlink-namespaced tag is accepted")
     (is (= "<svg:rect id=\"r\" class=\"c\"></svg:rect>"
-           (rf/render-to-string [:svg:rect#r.c] {}))
+           (rf.ssr/render-to-string [:svg:rect#r.c] {}))
         "namespaced tag still composes with the #id.cls sugar")))
 
 (deftest ssr-set-header-rejects-invalid-name
@@ -3170,7 +3170,7 @@
     ;; Server flow: dispatch the seed event, render the root, capture hash.
     (rf/dispatch-sync [:articles/seed])
     (let [tree [(rf/view :pages/articles)]
-          html (rf/render-to-string tree {:render-hash (rf/render-tree-hash tree)})]
+          html (rf.ssr/render-to-string tree {:render-hash (rf.ssr/render-tree-hash tree)})]
       (is (str/includes? html "Article A")
           "rendered HTML contains the title from app-db")
       (is (str/includes? html "Article B"))
@@ -3179,7 +3179,7 @@
           "root <div> carries a data-rf-render-hash attribute")
       ;; The hash is reproducible: re-render the same tree, same hash.
       (let [h1 (re-find #"data-rf-render-hash=\"([0-9a-f]{8})\""  html)
-            html-2 (rf/render-to-string tree {:render-hash (rf/render-tree-hash tree)})
+            html-2 (rf.ssr/render-to-string tree {:render-hash (rf.ssr/render-tree-hash tree)})
             h2 (re-find #"data-rf-render-hash=\"([0-9a-f]{8})\""  html-2)]
         (is (= (second h1) (second h2))
             "re-rendering the same view+state yields the same hash")))))

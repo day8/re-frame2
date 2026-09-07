@@ -127,7 +127,7 @@
   [head-id {:keys [frame] :as opts}]
   (let [frame (rf.frame/require-frame-stamp!
                 frame :rf.ssr/render-head
-                {:where 'rf/render-head :event-id head-id})
+                {:where 'head/render-head :event-id head-id})
         route (if (contains? opts :route)
                 (:route opts)
                 (frame-current-route frame))]
@@ -146,7 +146,7 @@
           (when-not head-registration
             (rf.error/throw-error!
               :rf.error/no-such-head
-              'rf/active-head
+              'head/active-head
               (str "No head registered under " head-id
                    " for frame " frame
                    "; register it with reg-head before rendering, pass a "
@@ -232,7 +232,7 @@
   [frame-id]
   (let [frame-id (rf.frame/require-frame-stamp!
                    frame-id :rf.ssr/active-head
-                   {:where 'rf/active-head})]
+                   {:where 'head/active-head})]
     ;; ONE resolution extent over the whole read (rf2-blpg): the route
     ;; registration that NAMES the head and the head registration itself must
     ;; come from the same image, or a route-declared head resolves in one

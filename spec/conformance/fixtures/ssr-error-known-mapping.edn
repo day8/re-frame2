@@ -54,7 +54,7 @@
     :tags      {:category :rf.error/no-such-handler}}]
 
   ;; Public-error shape produced by the runtime's default projector.
-  ;; Hosts read this via (rf/project-error frame-id trace-event).
+  ;; Hosts read this via (ssr/project-error frame-id trace-event).
   :ssr/public-error
   {:status     404
    :code       :not-found

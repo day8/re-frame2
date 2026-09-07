@@ -33,6 +33,7 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.routing :as rf.routing]
+            [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.ring :as rf.ssr.ring]
             [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]))
 
@@ -86,7 +87,7 @@
                       :platform     :server
                       :url-strategy strategy})
       (let [direct (rf/with-frame :parity/client-identical
-                     (rf/render-to-string [(rf/view :pages/linked)]))]
+                     (rf.ssr/render-to-string [(rf/view :pages/linked)]))]
         (is (= "/realworld/active" (first-href direct))
             "sanity: the direct-construction door renders the based href")
         (is (= (first-href direct) (first-href (:body response)))

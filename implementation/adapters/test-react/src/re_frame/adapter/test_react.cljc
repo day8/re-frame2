@@ -351,7 +351,7 @@
     (emit render-tree opts)
     (rf.error/throw-error!
       :rf.error/no-hiccup-emitter-bound
-      'rf/render-to-string
+      'ssr/render-to-string
       (str "Test-React adapter has no built-in hiccup emitter; call "
            "set-hiccup-emitter! (or require re-frame.ssr) before "
            "render-to-string if a test needs HTML output.")

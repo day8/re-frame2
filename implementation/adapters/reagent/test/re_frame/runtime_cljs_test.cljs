@@ -345,7 +345,7 @@
     ;; lands on the CLJS side of it too: a keyword head is an element on
     ;; every host, and `[:pages/list]` would render an empty `<list>`.
     (let [tree [(rf/view :pages/list)]
-          html (rf/render-to-string tree {:render-hash (rf/render-tree-hash tree)})]
+          html (rf.ssr/render-to-string tree {:render-hash (rf.ssr/render-tree-hash tree)})]
       (is (re-find #"<ul[^>]*data-rf-render-hash=\"[0-9a-f]{8}\"" html)
           "rendered HTML carries a stable hash on the root <ul>")
       (is (clojure.string/includes? html "<li>a</li>"))

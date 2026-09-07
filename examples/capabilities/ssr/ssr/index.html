@@ -25,7 +25,7 @@
     `:rf/hydrate` (replace-frame-state semantics, Spec 011), and renders
     against the now-seeded state.
 
-    The #app subtree is the dev-build output of `rf/render-to-string` — the
+    The #app subtree is the dev-build output of `ssr/render-to-string` — the
     same string `handle-request` inlines (minus the render-hash attribute
     noted below). In a dev build the reg-view REGISTRATION boundary stamps two
     annotations on every registered view's root DOM element (Spec 006

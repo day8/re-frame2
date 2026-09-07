@@ -1309,25 +1309,19 @@
   ;; RETIRED at rf2-kuky.64 along with the interceptor it held:
   ;; production boundary validation is now the `:boundary? true` reg-event
   ;; metadata key, so there is no public var left to classify.
-  ;; SSR query-surface re-exports (canonical home: re-frame.ssr).
-  ["re-frame.core" "render-to-string"]              {:tier :advanced :owner "011" :status "v1"
-                                                    :action :keep
-                                                    :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-ssr artefact, and the wrapper raises a documented :rf.error/ssr-artefact-missing when that artefact is absent. Moving the export to re-frame.ssr would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. It is the entry point of the whole server-render path, so it is the one name an SSR host reaches first."}
-  ["re-frame.core" "render-tree-hash"]              {:tier :advanced :owner "011" :status "v1"
-                                                    :action :keep
-                                                    :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-ssr artefact, and the wrapper raises a documented :rf.error/ssr-artefact-missing when that artefact is absent. Moving the export to re-frame.ssr would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. The hydration-mismatch read an SSR host takes beside render-to-string."}
-  ["re-frame.core" "project-error"]                 {:tier :advanced :owner "011" :status "v1"
-                                                    :action :keep
-                                                    :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-ssr artefact, and the wrapper raises a documented :rf.error/ssr-artefact-missing when that artefact is absent. Moving the export to re-frame.ssr would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. The public-error projection an SSR host applies on the same request as the render it accompanies."}
-  ["re-frame.core" "render-head"]                   {:tier :advanced :owner "011" :status "v1"
-                                                    :action :keep
-                                                    :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-ssr artefact, and the wrapper raises a documented :rf.error/ssr-artefact-missing when that artefact is absent. Moving the export to re-frame.ssr would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. Spec 011 Head/meta contract; called on the same request as render-to-string and with no rowed re-frame.ssr peer at all."}
-  ["re-frame.core" "active-head"]                   {:tier :advanced :owner "011" :status "v1"
-                                                    :action :keep
-                                                    :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-ssr artefact, and the wrapper raises a documented :rf.error/ssr-artefact-missing when that artefact is absent. Moving the export to re-frame.ssr would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. The read half of render-head, called on the same request; no rowed re-frame.ssr peer exists."}
-  ["re-frame.core" "head-model->html"]              {:tier :advanced :owner "011" :status "v1"
-                                                    :action :keep
-                                                    :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-ssr artefact, and the wrapper raises a documented :rf.error/ssr-artefact-missing when that artefact is absent. Moving the export to re-frame.ssr would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. Serialises what active-head returns, on the same request; no rowed re-frame.ssr peer exists."}
+  ;; SSR query surface: NOT re-exported (rf2-kuky.44, executed rf2-kuky.87).
+  ;; `render-to-string` / `render-tree-hash` / `project-error` /
+  ;; `render-head` / `active-head` / `head-model->html` carried
+  ;; `:action :keep` facade rows here until 2026-09. The justification was
+  ;; the guided `:rf.error/ssr-artefact-missing` a facade wrapper gives an
+  ;; app that calls an SSR fn without the artefact -- but loading
+  ;; `re-frame.ssr` is what REGISTERS the SSR runtime (`:rf/hydrate`, the
+  ;; `:rf.ssr/check-*` fx, the seven `:rf.server/*` fx, the
+  ;; `:rf.server/request` cofx), so no server-rendering app can be that app
+  ;; and the guided failure was unreachable. The six defs, their
+  ;; `re-frame.core-ssr` wrappers and their late-bind hooks are deleted;
+  ;; the two REGISTRARS (`reg-error-projector` / `reg-head`) stay on the
+  ;; facade and are classified with the other registration macros.
   ;; Routing re-exports. rf2-wad2fl (front-porch shrink): the URL-codec
   ;; QUERY helpers `match-url` / `route-url` are no longer façade exports —
   ;; reach them through `re-frame.routing` (already classified below).
@@ -1893,6 +1887,11 @@
   ["re-frame.ssr" "emit-ui-tree"]                  {:tier :advanced :owner "004B" :status "v1"}
   ["re-frame.ssr" "render-tree-hash"]              {:tier :advanced :owner "011" :status "v1"}
   ["re-frame.ssr" "project-error"]                 {:tier :advanced :owner "011" :status "v1"}
+  ;; rf2-kuky.87 re-exported the head-model SERIALISER here from
+  ;; `re-frame.ssr.head`, so the emission half of the head contract sits
+  ;; on the same door as `render-to-string`. The two head READS stay at
+  ;; home on `re-frame.ssr.head` (rowed below).
+  ["re-frame.ssr" "head-model->html"]              {:tier :advanced :owner "011" :status "v1"}
   ;; The cross-host suspense boundary COMPONENT — the streaming AUTHORING
   ;; surface (rf2-ycz3k). Advanced rather than front-porch: streaming SSR is
   ;; an opt-in capability in a separate artefact, not day-one app building.
@@ -1904,7 +1903,12 @@
   ["re-frame.ssr" "streaming-build-final-payload"] {:tier :advanced :owner "011" :status "v1"}
   ["re-frame.ssr" "reg-error-projector"]           {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr" "adapter"]                       {:tier :implementation :owner "011" :status "v1"}
-  ["re-frame.ssr" "hydrate!"]                      {:tier :implementation :owner "011" :status "v1"}
+  ;; rf2-kuky.87: the supported client boot, promoted from
+  ;; `:implementation` and rowed in spec/API.md SSR. A host that must
+  ;; observe the MOUNTED tree still splits it into read-server-payload +
+  ;; :rf/hydrate + verify-hydration!; `hydrate-page!` stays
+  ;; `:implementation` (ruled).
+  ["re-frame.ssr" "hydrate!"]                      {:tier :advanced :owner "011" :status "v1"}
   ["re-frame.ssr" "hydrate-page!"]                 {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr" "verify-hydration!"]             {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr" "set-request!"]                  {:tier :implementation :owner "011" :status "v1"}
@@ -1928,6 +1932,27 @@
   ["re-frame.ssr" "streaming-resolved-template"]   {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr" "streaming-failed-template"]     {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr" "streaming-hydrate-delta-script"] {:tier :implementation :owner "011" :status "v1"}
+
+  ;; =========================================================================
+  ;; re-frame.ssr.head — the head/meta contract's public door
+  ;; (day8/re-frame2-ssr, §011 §Head/meta contract). It became a
+  ;; consumer-facing surface under rf2-kuky.87: with the SSR query
+  ;; re-exports gone from `re-frame.core`, `render-head` / `active-head`
+  ;; are reached ONLY here, so an app or host `(:require
+  ;; [re-frame.ssr.head :as head])` directly. `head-model->html` is ALSO
+  ;; re-exported on `re-frame.ssr` (rowed above) so the emission half sits
+  ;; beside `render-to-string`; both rows are real. `reg-head` is the one
+  ;; head surface that also rides the `re-frame.core` facade, via the
+  ;; `:ssr/reg-head` late-bind hook. `default-head` is the fallback model
+  ;; `active-head` returns for a route with no `:head` — plumbing a host
+  ;; reads only when reimplementing the default flow, hence
+  ;; `:implementation`.
+  ;; =========================================================================
+  ["re-frame.ssr.head" "reg-head"]                 {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr.head" "render-head"]              {:tier :advanced :owner "011" :status "v1"}
+  ["re-frame.ssr.head" "active-head"]              {:tier :advanced :owner "011" :status "v1"}
+  ["re-frame.ssr.head" "head-model->html"]         {:tier :advanced :owner "011" :status "v1"}
+  ["re-frame.ssr.head" "default-head"]             {:tier :implementation :owner "011" :status "v1"}
 
   ;; =========================================================================
   ;; re-frame.ssr.render-state — the ssr-node crossing's render-visible

@@ -129,7 +129,7 @@
                           :rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
                                                    {:route-id :route/article :params {:id "123"}})}))
       (rf/dispatch-sync [:set-test-state] {:frame f})
-      (let [model (rf/render-head :head/article {:frame f})]
+      (let [model (rf.ssr.head/render-head :head/article {:frame f})]
         (is (= "Hello SSR" (:title model)))
         (is (= [{:name "description" :content "A summary"}]
                (:meta model)))))))
@@ -139,7 +139,7 @@
             {:frame frame-id})"
     (rf/reg-head :head/simple (fn [_ _] {:title "bare"}))
     (let [f (rf.frame/make-anon-frame-record! {:doc "shorthand frame" :platform :server})]
-      (is (= {:title "bare"} (rf/render-head :head/simple f))))))
+      (is (= {:title "bare"} (rf.ssr.head/render-head :head/simple f))))))
 
 (deftest render-head-accepts-explicit-route-override
   (testing ":route opt overrides the slice read from app-db — useful for
@@ -147,7 +147,7 @@
     (rf/reg-head :head/echo (fn [_ route] {:title (str (:route-id route))}))
     (let [f (rf.frame/make-anon-frame-record! {:doc "explicit-route frame" :platform :server})]
       (is (= ":route/explicit"
-             (:title (rf/render-head :head/echo
+             (:title (rf.ssr.head/render-head :head/echo
                                      {:frame f
                                       :route {:route-id :route/explicit}})))))))
 
@@ -155,7 +155,7 @@
   (testing "render-head against an unknown id throws :rf.error/no-such-head"
     (let [f (rf.frame/make-anon-frame-record! {:doc "missing-head frame" :platform :server})]
       (try
-        (rf/render-head :head/nope {:frame f})
+        (rf.ssr.head/render-head :head/nope {:frame f})
         (is false "expected exception")
         (catch clojure.lang.ExceptionInfo e
           ;; rf2-vvixub — branch on the canonical :rf.error/id; the message is
@@ -170,11 +170,11 @@
     (rf/reg-head :head/a (fn [_ _] {:title "A"}))
     (rf/reg-head :head/b (fn [_ _] {:title "B"}))
     (let [f (rf.frame/make-anon-frame-record! {:doc "render-head frame" :platform :server})]
-      (is (= {:title "A"} (rf/render-head :head/a {:frame f}))
+      (is (= {:title "A"} (rf.ssr.head/render-head :head/a {:frame f}))
           "the first call returns the first head's model")
-      (is (= {:title "B"} (rf/render-head :head/b {:frame f}))
+      (is (= {:title "B"} (rf.ssr.head/render-head :head/b {:frame f}))
           "the second call returns the SECOND head's model, not the first's")
-      (is (= {:title "A"} (rf/render-head :head/a {:frame f}))
+      (is (= {:title "A"} (rf.ssr.head/render-head :head/a {:frame f}))
           "re-reading the first head returns its model again — the read is pure"))))
 
 ;; ===========================================================================
@@ -203,7 +203,7 @@
                                                    {:route-id :route/article :params {:id "42"}})}))
       (rf/dispatch-sync [::seed-route] {:frame f})
       (is (= {:title "Article 42"}
-             (rf/active-head f))))))
+             (rf.ssr.head/active-head f))))))
 
 (deftest active-head-falls-back-to-default-when-route-omits-head
   (testing "no :head on the route → default-head fires (viewport only)"
@@ -214,7 +214,7 @@
                        (fn [{rt :rf.db/runtime} _]
                          {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :route/no-head})}))
       (rf/dispatch-sync [::seed-route-no-head] {:frame f})
-      (let [model (rf/active-head f)]
+      (let [model (rf.ssr.head/active-head f)]
         (is (= "Default-head probe" (:title model))
             ":doc rolls into :title per Spec 011 §Default head")
         (is (not-any? #(contains? % :charset) (:meta model))
@@ -226,7 +226,7 @@
 (deftest active-head-uses-default-when-no-route-at-all
   (testing "no route slice (e.g. a frame that hasn't routed yet) → default"
     (let [f (rf.frame/make-anon-frame-record! {:doc "Bare" :platform :server})
-          model (rf/active-head f)]
+          model (rf.ssr.head/active-head f)]
       (is (= "Bare" (:title model)))
       (is (seq (:meta model))))))
 
@@ -244,7 +244,7 @@
                            {:property "og:title" :content "Hello"}]
                  :script  [{:src "/main.js" :defer true}]
                  :json-ld [{"@type" "Article" "headline" "Hello"}]}
-          html  (rf/head-model->html model)]
+          html  (rf.ssr/head-model->html model)]
       (is (str/starts-with? html "<title>Hello</title>")
           "title is first")
       (let [t (.indexOf html "<title")
@@ -259,7 +259,7 @@
 (deftest head-model->html-meta-tags-shape
   (testing "meta tags render with declaration-order attributes; self-closing
             void elements emit without a closing tag"
-    (let [html (rf/head-model->html
+    (let [html (rf.ssr/head-model->html
                  {:meta [{:name "description" :content "A summary"}
                          {:property "og:title" :content "T"}]})]
       (is (str/includes? html "<meta"))
@@ -271,7 +271,7 @@
 
 (deftest head-model->html-link-tags
   (testing "link tags render with canonical/href/rel attrs"
-    (let [html (rf/head-model->html
+    (let [html (rf.ssr/head-model->html
                  {:link [{:rel "canonical" :href "https://example.com/x"}
                          {:rel "icon" :href "/favicon.ico"}]})]
       (is (str/includes? html "rel=\"canonical\""))
@@ -280,7 +280,7 @@
 
 (deftest head-model->html-script-tags
   (testing "script tags render with src + boolean attrs (async/defer)"
-    (let [html (rf/head-model->html
+    (let [html (rf.ssr/head-model->html
                  {:script [{:src "/main.js" :async true}
                            {:src "/other.js" :defer true :type "module"}]})]
       (is (str/includes? html "src=\"/main.js\""))
@@ -293,7 +293,7 @@
 (deftest head-model->html-json-ld
   (testing "JSON-LD tags serialise the structured map and ride a
             <script type=\"application/ld+json\"> envelope"
-    (let [html (rf/head-model->html
+    (let [html (rf.ssr/head-model->html
                  {:json-ld [{"@context" "https://schema.org"
                              "@type"    "Article"
                              "headline" "Hello"}]})]
@@ -307,7 +307,7 @@
             serialised; the printer's key and value handling are symmetric.
             A user supplying `{:my.app/key \"value\"}` must see
             `\"my.app/key\":\"value\"` in the rendered JSON-LD."
-    (let [html (rf/head-model->html
+    (let [html (rf.ssr/head-model->html
                  {:json-ld [{:my.app/key "value"
                              :unqualified "v2"}]})]
       (is (str/includes? html "\"my.app/key\":\"value\"")
@@ -316,7 +316,7 @@
           "unqualified keyword key still serialises as a bare name"))
     (testing "keyword values continue to preserve namespace (regression
               guard against accidental asymmetry resurfacing)"
-      (let [html (rf/head-model->html
+      (let [html (rf.ssr/head-model->html
                    {:json-ld [{"@type" :schema/Article
                                :my.app/headline :my.app/hello}]})]
         (is (str/includes? html "\"@type\":\"schema/Article\""))
@@ -327,7 +327,7 @@
             numbers. A Clojure ratio is coerced to a double (so the wire
             form is a JSON number, not `1/3`); JSON.parse never sees a
             ratio literal."
-    (let [html (rf/head-model->html
+    (let [html (rf.ssr/head-model->html
                  {:json-ld [{"@type" "Rating"
                              "ratingValue" 1/3}]})]
       (is (str/includes? html "\"ratingValue\":0.3333333333333333")
@@ -340,7 +340,7 @@
     (doseq [bad [##Inf ##-Inf ##NaN]]
       (is (thrown-with-msg?
             clojure.lang.ExceptionInfo #":rf\.error/invalid-json-ld-number"
-            (rf/head-model->html
+            (rf.ssr/head-model->html
               {:json-ld [{"@type" "Rating" "ratingValue" bad}]}))
           (str "non-finite JSON-LD number " (pr-str bad) " is rejected")))))
 
@@ -352,7 +352,7 @@
             on the client accepts `\\u003c` as a six-character escape
             for `<`, so the payload round-trips unchanged."
     (let [hostile "</script><script>alert(document.cookie)</script>"
-          html    (rf/head-model->html
+          html    (rf.ssr/head-model->html
                     {:json-ld [{"@context" "https://schema.org"
                                 "@type"    "Article"
                                 "headline" hostile}]})]
@@ -376,7 +376,7 @@
             map keys aren't a typical attack surface, but the helper
             walks the whole string, so this is free coverage."
     (let [hostile-key "</script>"
-          html        (rf/head-model->html
+          html        (rf.ssr/head-model->html
                         {:json-ld [{hostile-key "value"}]})]
       (is (not (str/includes? html "</script>\":"))
           "</script> as a key cannot close the envelope (the `:value`
@@ -394,7 +394,7 @@
             branch gets this for free via JSON.stringify, so the JVM
             hand-rolled emitter must match or the two branches diverge."
     (testing "the five JSON-named short escapes (\\b \\t \\n \\f \\r)"
-      (let [html (rf/head-model->html
+      (let [html (rf.ssr/head-model->html
                    {:json-ld [{"@type"   "Article"
                                "headline" (str "a" \newline "b" \tab "c"
                                                \return "d" \backspace "e"
@@ -410,7 +410,7 @@
             "no raw tab char survives in the JSON body")))
 
     (testing "other C0 control chars (U+0000..U+001F) use the \\u00XX escape"
-      (let [html (rf/head-model->html
+      (let [html (rf.ssr/head-model->html
                    {:json-ld [{"@type"   "Article"
                                "headline" (str "x" (char 0x00) (char 0x01)
                                                (char 0x1f) "y")}]})]
@@ -423,7 +423,7 @@
               bytes; assert every escape is present and no raw C0 byte
               survives in the post-`<`-decode body."
       (let [headline (str "line1" \newline "line2" \tab "tabbed" (char 0x07))
-            html     (rf/head-model->html
+            html     (rf.ssr/head-model->html
                        {:json-ld [{"@context" "https://schema.org"
                                    "@type"    "Article"
                                    "headline" headline}]})
@@ -444,7 +444,7 @@
                    (format "%04X" cp) " survives in the JSON body")))))
 
     (testing "ordinary printable content is untouched (no over-escaping)"
-      (let [html (rf/head-model->html
+      (let [html (rf.ssr/head-model->html
                    {:json-ld [{"@type" "Article" "headline" "Hello, world!"}]})]
         (is (str/includes? html "\"headline\":\"Hello, world!\"")
             "no spurious escapes on plain ASCII content")))))
@@ -456,29 +456,29 @@
             JSON.parse rejects; the CLJS branch coerces via JSON.stringify.
             The JVM branch now coerces every key to a quoted string."
     (testing "a numeric key is quoted (mirrors JSON.stringify)"
-      (let [html (rf/head-model->html {:json-ld [{1 "a"}]})]
+      (let [html (rf.ssr/head-model->html {:json-ld [{1 "a"}]})]
         (is (str/includes? html "\"1\":\"a\"")
             "the number key 1 is emitted as the quoted string key \"1\"")
         (is (not (str/includes? html "1:\"a\""))
             "no bare-number key survives — that is invalid JSON")))
     (testing "a boolean key is quoted"
-      (let [html (rf/head-model->html {:json-ld [{true "a"}]})]
+      (let [html (rf.ssr/head-model->html {:json-ld [{true "a"}]})]
         (is (str/includes? html "\"true\":\"a\""))
         (is (not (str/includes? html ">true:")))))
     (testing "a ratio key is coerced to its double then quoted"
-      (let [html (rf/head-model->html {:json-ld [{1/2 "a"}]})]
+      (let [html (rf.ssr/head-model->html {:json-ld [{1/2 "a"}]})]
         (is (str/includes? html "\"0.5\":\"a\""))))
     (testing "a nil key has no JSON representation — fail fast"
       (is (thrown-with-msg?
             clojure.lang.ExceptionInfo #":rf\.error/invalid-json-ld-key"
-            (rf/head-model->html {:json-ld [{nil "a"}]}))))))
+            (rf.ssr/head-model->html {:json-ld [{nil "a"}]}))))))
 
 (deftest head-model->html-empty-model
   (testing "an empty / minimal model emits nothing (no orphan tags)"
-    (is (= "" (rf/head-model->html {})))
-    (is (= "" (rf/head-model->html nil)))
+    (is (= "" (rf.ssr/head-model->html {})))
+    (is (= "" (rf.ssr/head-model->html nil)))
     (is (= "<head></head>"
-           (rf/head-model->html {} {:wrap? true})))))
+           (rf.ssr/head-model->html {} {:wrap? true})))))
 
 (deftest head-model->html-attr-name-validation
   (testing "rf2-vl8ir / security audit 2026-05-14 §P2.5 — attribute KEYS
@@ -488,7 +488,7 @@
             attacker-controlled `<meta>` / `<link>` attributes that
             could carry event-handler payloads."
     (testing "valid keys pass through unchanged"
-      (let [html (rf/head-model->html
+      (let [html (rf.ssr/head-model->html
                    {:meta [{:name        "viewport"
                             :content     "width=device-width"
                             :data-theme  "dark"}]})]
@@ -502,27 +502,27 @@
       (is (thrown-with-msg?
             clojure.lang.ExceptionInfo
             #":rf\.error/ssr-invalid-attribute-name"
-            (rf/head-model->html
+            (rf.ssr/head-model->html
               {:meta [{(keyword "onclick=alert(1) data-x") "v"}]}))))
 
     (testing "a key starting with a digit throws (HTML5 first-char rule)"
       (is (thrown-with-msg?
             clojure.lang.ExceptionInfo
             #":rf\.error/ssr-invalid-attribute-name"
-            (rf/head-model->html
+            (rf.ssr/head-model->html
               {:meta [{(keyword "1bad") "v"}]}))))
 
     (testing "a key with whitespace throws"
       (is (thrown-with-msg?
             clojure.lang.ExceptionInfo
             #":rf\.error/ssr-invalid-attribute-name"
-            (rf/head-model->html
+            (rf.ssr/head-model->html
               {:meta [{(keyword "bad attr") "v"}]}))))))
 
 (deftest head-model->html-escaping
   (testing "title and attribute values are HTML/attribute escaped — no raw
             tag injection"
-    (let [html (rf/head-model->html
+    (let [html (rf.ssr/head-model->html
                  {:title "Hello <script>alert(1)</script>"
                   :meta  [{:name "x" :content "\"weird\""}]})]
       (is (str/includes? html "&lt;script&gt;")
@@ -532,7 +532,7 @@
 
 (deftest head-model->html-wraps-on-opt
   (testing "the {:wrap? true} opt surrounds with <head></head>"
-    (let [html (rf/head-model->html {:title "Hi"} {:wrap? true})]
+    (let [html (rf.ssr/head-model->html {:title "Hi"} {:wrap? true})]
       (is (str/starts-with? html "<head>"))
       (is (str/ends-with? html "</head>"))
       (is (str/includes? html "<title>Hi</title>")))))
@@ -571,8 +571,8 @@
                    :head :head/article} "/articles/:id")
     (let [f (rf.frame/make-anon-frame-record! {:doc "article frame" :platform :server})]
       (rf/dispatch-sync [:seed-article] {:frame f})
-      (let [model (rf/active-head f)
-            html  (rf/head-model->html model)]
+      (let [model (rf.ssr.head/active-head f)
+            html  (rf.ssr/head-model->html model)]
         (is (= "Article: re-frame2 SSR — Example" (:title model)))
         (is (str/includes? html
                            "<title>Article: re-frame2 SSR — Example</title>"))
@@ -614,7 +614,7 @@
                                                  {:route-id :route/article-fr :params {:id "1"}})}))
     (let [f (rf.frame/make-anon-frame-record! {:platform :server})]
       (rf/dispatch-sync [:seed-fr] {:frame f})
-      (let [model (rf/active-head f)]
+      (let [model (rf.ssr.head/active-head f)]
         (is (= "Article — fr-FR" (:title model)))
         (is (= {:lang "fr" :data-theme "dark"} (:html-attrs model))
             ":html-attrs reaches the model verbatim")
@@ -625,7 +625,7 @@
   (testing "head-model->html does NOT inline :html-attrs / :body-attrs in the
             fragment — those bags belong on <html> / <body> in the surrounding
             shell, not in the head fragment"
-    (let [html (rf/head-model->html
+    (let [html (rf.ssr/head-model->html
                  {:title      "X"
                   :html-attrs {:lang "fr"}
                   :body-attrs {:class "page-x"}})]

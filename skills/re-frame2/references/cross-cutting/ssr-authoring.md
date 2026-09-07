@@ -2,6 +2,8 @@
 
 SSR has two halves: a **per-request server frame** that renders body + head to a string, and a **client bootstrap** that hydrates from the server-supplied payload. This leaf is the authoring surface for the **two registration channels SSR apps own**: (a) `reg-head` plus its query helpers, which turn `<title>`/`<meta>`/`<link>`/JSON-LD into pure data-from-app-db; and (b) the `:rf.ssr/check-version` + `:rf.ssr/check-schema-digest` fxs that a `:rf/hydrate` handler dispatches to detect deploy drift between the rendering server and the bundled client. Both ship in `day8/re-frame2-ssr`; the schema-digest check resolves its client-side value through an optional-artefact late-bind hook (`:schemas/app-schemas-digest`), while the version check reads the SSR artefact's own compiled-in `pattern-protocol-version` constant (no hook). Both are pre-baked into the runtime's default `:rf/hydrate` handler so most apps inherit them for free.
 
+**Namespace aliases used below.** `rf/` is `re-frame.core`, which carries the `reg-head` REGISTRAR and nothing else of SSR's head surface. `ssr/` is `[re-frame.ssr :as ssr]` and `head/` is `[re-frame.ssr.head :as head]` — the head READS live there, not on the façade (rf2-kuky.44: requiring `re-frame.ssr` is what installs SSR, so there is nothing for a façade copy to guard against).
+
 ## When to load
 
 Authoring `<title>` / `<meta>` / JSON-LD for an SSR app; **extending** the framework's shipped `:rf/hydrate` handler (it ships by default — you rarely write your own; re-register only as documented framework-extension code to change the merge policy); debugging `:rf.ssr/version-mismatch` / `:rf.ssr/schema-digest-mismatch` / `:rf.ssr/compatibility-check-skipped` trace events. Load alongside `patterns/boot.md` if the task is whole-app bootstrap.
@@ -44,8 +46,8 @@ The default head does **not** carry `<meta charset>`, and neither should a head 
 ## `render-head` — materialise the head model
 
 ```clojure
-(rf/render-head :head/article {:frame :rf/default
-                               :route active-route})           ;; :route optional; defaults to the frame's active route slice
+(head/render-head :head/article {:frame :rf/default
+                                 :route active-route})         ;; :route optional; defaults to the frame's active route slice
 ```
 
 Returns the head-model map. Pure, JVM-runnable. Used by the SSR pipeline (and by tooling that wants to inspect the head without re-rendering the body). With `:route` omitted it reads the frame's active route slice from the **runtime-db** at `[:rf.runtime/routing :current]` (the head fn reads the frame's app-db for its model; the route is a runtime-db read). Raises `:rf.error/no-such-head` when `head-id` is not registered.
@@ -53,18 +55,18 @@ Returns the head-model map. Pure, JVM-runnable. Used by the SSR pipeline (and by
 ## `active-head` — the current route's head model
 
 ```clojure
-(rf/active-head frame-id)       ;; frame is carried, not ambient
+(head/active-head frame-id)       ;; frame is carried, not ambient
 ```
 
 `active-head` is **1-arity only** — the no-arg form was removed (EP-0002); a `nil` `frame-id` raises `:rf.error/no-frame-context` rather than resolving against a synthesised default frame. Sugar: looks up the active route's `:head` metadata, resolves to a registered head id, calls `render-head`, returns the model; with no `:head` on the route (or no active route) it returns `default-head`.
 
-**There is no `:rf/head` subscription.** The SSR head registry registers none, so a view or tool that wants the active head calls `(rf/active-head frame-id)` — `(subscribe [:rf/head])` resolves nothing. (Per Cardinal rule 1, where a spec row and `implementation/**` disagree, the implementation is ground truth.)
+**There is no `:rf/head` subscription.** The SSR head registry registers none, so a view or tool that wants the active head calls `(head/active-head frame-id)` — `(subscribe [:rf/head])` resolves nothing. (Per Cardinal rule 1, where a spec row and `implementation/**` disagree, the implementation is ground truth.)
 
 ## `head-model->html` — explicit serialiser
 
 ```clojure
-(rf/head-model->html head-model)                       ;; inner-head HTML string (no <head> wrapper)
-(rf/head-model->html head-model {:wrap? true})         ;; wraps with <head>...</head>
+(ssr/head-model->html head-model)                       ;; inner-head HTML string (no <head> wrapper)
+(ssr/head-model->html head-model {:wrap? true})         ;; wraps with <head>...</head>
 ```
 
 The SSR pipeline calls this internally; reach for it only when emitting custom HTML envelopes (e.g. AMP variants, edge-injected fragments).

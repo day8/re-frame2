@@ -25,20 +25,21 @@
 ;;           day8/re-frame2-ssr {:mvn/version "..."}}}
 ;;
 ;; And require `re-frame.ssr` in any namespace that calls
-;; `rf/render-to-string`, `rf/render-tree-hash`, `rf/reg-error-projector`,
-;; `rf/project-error`, dispatches `:rf/hydrate`, or relies on the
+;; `ssr/render-to-string`, `ssr/render-tree-hash`, `ssr/project-error`,
+;; `rf/reg-error-projector`, dispatches `:rf/hydrate`, or relies on the
 ;; `:rf.server/*` fxs / the per-request response accumulator (read via
 ;; `re-frame.ssr/get-response`) — loading the namespace registers the
 ;; seven `:rf.server/*` fxs, the `:rf/hydrate` handler, and publishes the
-;; late-bind hooks (`:ssr/render-tree-hash`) and the plain-atom adapter's
-;; `:render-to-string` slot.
+;; late-bind hooks (`:ssr/reg-error-projector`) and the plain-atom
+;; adapter's `:render-to-string` slot.
 ;;
 ;; Per Spec 006 §Adapter shipping convention, this artefact depends on
 ;; core; core never depends on this artefact. The cross-references
-;; from core to ssr (`re-frame.core`'s `render-to-string` /
-;; `render-tree-hash` / `reg-error-projector` / `project-error`
-;; re-exports) flow through `re-frame.late-bind` exactly as the
-;; schemas / machines / routing / flows / http hooks already do.
+;; from core to ssr (`re-frame.core`'s `reg-error-projector` / `reg-head`
+;; REGISTRAR re-exports) flow through `re-frame.late-bind` exactly as the
+;; schemas / machines / routing / flows / http hooks already do. The SSR
+;; QUERY surface is NOT re-exported — `re-frame.ssr` is its only door
+;; (rf2-kuky.44).
 {:paths ["src"]
  :deps  {day8/re-frame2 {:local/root "../core"}}
 

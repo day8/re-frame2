@@ -68,7 +68,7 @@ Now install the headless SSR adapter, stand up a frame, seed it, render:
 ;; => "<div class=\"page\"><h1>Recent articles</h1><ul><li><h3>Hello, server</h3></li></ul></div>"
 ```
 
-**What you see:** real HTML, from your real view, on a machine with no browser. (`render-to-string` is also re-exported on the `rf/` facade — the example file spells it `rf/render-to-string`; same function.)
+**What you see:** real HTML, from your real view, on a machine with no browser. (`render-to-string` lives on `re-frame.ssr` and nowhere else — there is no `rf/` facade copy, because requiring `re-frame.ssr` is what installs SSR in the first place.)
 
 Nothing about the app changed to make this work. The event handler was already pure, the subscription was already a pure derivation, the view was already data-in-hiccup-out. `render-to-string` just walks the result. The rest of the tutorial builds on that: **the app was always able to run on a server — SSR is mostly deciding when to render and what to ship.**
 

@@ -1907,7 +1907,7 @@
       ;; hiccup tree can carry app-owned sensitive/large values.
       (rf.error/throw-error!
         :rf.error/no-hiccup-emitter-bound
-        'rf/render-to-string
+        'ssr/render-to-string
         "require re-frame.ssr (the SSR ns-load resolves the :reagent/set-hiccup-emitter! late-bind hook automatically), or call set-hiccup-emitter! directly"
         {:extra {:render-tree/summary (rf.error/diag-value-summary render-tree)}}))))
 

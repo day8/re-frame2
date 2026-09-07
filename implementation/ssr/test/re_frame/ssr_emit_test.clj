@@ -32,6 +32,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.emit :as rf.ssr.emit]
             [re-frame.ssr.streaming :as rf.ssr.streaming]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
@@ -361,7 +362,7 @@
             data-aware `\\u003c` escape, DISTINCT from the author-content
             raw-text closing-sequence rewrite. Removing the body refusal did
             NOT touch the data-payload escape path."
-    (let [html (rf/head-model->html
+    (let [html (rf.ssr/head-model->html
                  {:json-ld [{"@type"    "Article"
                              "headline" "</script><script>alert(1)</script>"}]})]
       (is (str/includes? html "\\u003c/script>\\u003cscript>")

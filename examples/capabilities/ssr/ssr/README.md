@@ -79,7 +79,7 @@ client picking it up:
   [pipeline](../../../../docs/core/glossary.md#event-pipeline) without real
   network traffic.
 - Pure [hiccup](../../../../docs/core/glossary.md#hiccup) → HTML.
-  `rf/render-to-string` is a pure function from hiccup to an HTML
+  `ssr/render-to-string` is a pure function from hiccup to an HTML
   string — no React server-render dependency, no DOM, JVM-runnable.
 - The hydration payload is the server→client contract. The server
   serialises the settled state into the `:rf/hydration-payload` shape

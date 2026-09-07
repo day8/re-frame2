@@ -320,7 +320,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
   (rf/with-new-frame [f (rf/make-frame {})]
     (rf/dispatch-sync [:feature/initialise] {:frame f})   ;; seed via a setup dispatch
     (let [hiccup [component-name "test-label" 42]
-          html   (rf/render-to-string hiccup {:frame f})]
+          html   (ssr/render-to-string hiccup {:frame f})]
       (is (str/includes? html "test-label"))
       (is (str/includes? html "Count: 42")))))
 ```
@@ -988,7 +988,7 @@ Routing has ONE URL-change event. `:rf.route/handle-url-change` is dispatched by
       (rf/dispatch-sync [:rf/server-init request] {:frame f})
       (let [final-db (rf/app-db-value f)
             hiccup   ((rf/view :app/root))                ;; the registered root view
-            html     (rf/render-to-string hiccup {:frame f})
+            html     (ssr/render-to-string hiccup {:frame f})
             payload  {:rf/version "1.0"
                       :rf/frame-id frame-id
                       :rf/app-db   final-db
