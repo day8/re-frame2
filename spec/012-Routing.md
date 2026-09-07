@@ -667,17 +667,14 @@ Users who want plain anchors to be interceptable register their own delegating h
 
 ### Reading the route is a sub
 
-The `:rf/route` sub projects the published slice keys via `select-keys` over the route slice at `[:rf.runtime/routing :current]`. The internal `:pending-navigation` slot lives alongside `:current` under `[:rf.runtime/routing]` in `runtime-db` (it has its own `:rf/pending-navigation` sub) but does not surface through the `:rf/route` sub — consumers that `deref` the route sub see only the slice. The nav-token / pending-nav **counters** are **not** `runtime-db` siblings at all — like the scroll-position cache they live in host-side transient caches (per [§Navigation tokens — stale-result suppression](#navigation-tokens--stale-result-suppression) and [§Scroll restoration](#scroll-restoration)) — so no internal counter tick ever touches `runtime-db` or risks a route-sub re-render.
+The `:rf/route` sub reads the route slice at `[:rf.runtime/routing :current]` **directly** — no projection. The isolation is structural rather than a filter: the internal `:pending-navigation` slot is a SIBLING of `:current` under `[:rf.runtime/routing]` in `runtime-db` (it has its own `:rf/pending-navigation` sub), so it was never inside the value the route sub reads, and a `select-keys` over the slice would have nothing to exclude. The nav-token / pending-nav **counters** are **not** `runtime-db` siblings at all — like the scroll-position cache they live in host-side transient caches (per [§Navigation tokens — stale-result suppression](#navigation-tokens--stale-result-suppression) and [§Scroll restoration](#scroll-restoration)) — so no internal counter tick ever touches `runtime-db` or risks a route-sub re-render.
 
 These are **framework subscriptions** — their layer-1 reader runs against the frame's **runtime-db** projection (where the route slice lives), not the app-db projection (per [002 §Subscriptions read the partition they belong to](002-Frames.md#subscriptions-read-the-partition-they-belong-to) and [006 §Frame-state container and partition projections](006-ReactiveSubstrate.md#frame-state-container-and-partition-projections)). The `rt` arg below is the runtime-db projection. A runtime-only route commit propagates to these subs (and to nothing in app-sub-land); app authors consume them through the public sub-ids, never by reaching into runtime-db.
 
 ```clojure
-(def route-slice-keys
-  [:route-id :params :query :fragment :transition :error :nav-token])
-
 (rf/reg-sub :rf/route
   {:doc "The current route slice: {:route-id :params :query :fragment :transition :error :nav-token}."}
-  (fn route-slice [rt _] (select-keys (get-in rt [:rf.runtime/routing :current]) route-slice-keys)))   ;; rt = runtime-db projection
+  (fn route-slice [rt _] (get-in rt [:rf.runtime/routing :current])))   ;; rt = runtime-db projection
 
 (rf/reg-sub :rf.route/id   ;; sub-id stays :rf.route/id; reads the slice's :route-id key
   {:inputs [[:rf.runtime/routing :current]]}

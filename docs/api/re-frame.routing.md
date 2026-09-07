@@ -162,15 +162,6 @@ The URL ↔ route mapping is a prism. `match-url` reads a URL into route data. `
 
   The `:rf.route/transitioned` / `:rf.route/handle-url-change` handlers use it to tell two cases apart: a plain route miss (`{:url url}`) and a malformed URL that failed closed (`{:url url :reason :malformed-url}`). Both cases end at `:rf.route/not-found`. The structured `:reason` lets per-route error UIs and SSR projections branch on the cause.
 
-### `current-url`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (current-url) → app-relative URL string
-  ```
-- **Description**: Read the current browser URL as an app-relative string (`pathname + search + hash`). Returns `"/"` when no `window.location` is available (JVM / SSR / Node). This is the history strategy's `:decode`. A hash app's listener decodes through its own strategy and never calls this directly. It is public so apps that wire their own history listener can recover the same projection the framework's listener uses.
-
 ## Introspection and slice access
 
 This is the read-side surface over the route registry and the live route slice. The static accessors answer "which routes are registered, and what is route X's spec?". The live readers expose the per-frame slice. The `*-algebra-view` helpers lower routes into the shared derivation/process-algebra node shape, so a tool can show subscriptions, flows, resources, route facts, and machine selectors as one family.
@@ -224,15 +215,6 @@ This is the read-side surface over the route registry and the live route slice. 
   (route-slice-algebra-view frame-id) → route-fact-node or nil
   ```
 - **Description**: The LIVE counterpart to `route-algebra-view`. It reads the route fact materialized in a frame's runtime-db at `[:rf.runtime/routing :current]` — the concrete matched route, with its params, query, transition state, and nav-token. Returns a single `:route-fact` node. Returns `nil` when the frame is missing or destroyed, or when no navigation has committed yet (so no route has been materialized). The node carries the same fixed classifications as the static node, plus `:route-id`, `:params`, `:query`, `:transition`, `:nav-token`, and `:owner` `[:route <route-id> <nav-token>]`. Runs on both CLJS and the JVM (a single runtime-db container deref).
-
-### `route-sub-fn`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (route-sub-fn db query-v) → route slice
-  ```
-- **Description**: The layer-1 sub fn behind `:rf/route`. It reads the route slice from `[:rf.runtime/routing :current]`. Exposed publicly so external callers (smoke tests, tooling) can read the slice without re-deriving the path.
 
 ### Reading the route and the pending-nav slot
 
@@ -446,7 +428,7 @@ The `:route/link` registered view renders an `<a href=...>` from a route id. It 
 
 ### `route-link`
 
-- **Kind**: component (CLJS-only; the registered `:route/link` view)
+- **Kind**: component (the registered `:route/link` view). There is no `re-frame.routing/route-link` **var** — the authoring name is `rf/route-link` on the `re-frame.core` facade, which reaches the view through routing's `:routing/route-link` late-bind hook.
 - **Signature**:
   ```clojure
   [route-link {:to :route-id :params {...} :query {...} :fragment "..."
