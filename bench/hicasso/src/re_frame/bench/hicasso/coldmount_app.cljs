@@ -679,7 +679,7 @@
                    :layer       layer
                    :witness-set "rf2-2rtt6.2 (converged; p0-converged-witness-set.md)"
                    :schedule    schedule-provenance
-                   :spine       (str "the SHIPPED re-frame.substrate.spine/use-sub — "
+                   :spine       (str "the SHIPPED re-frame.substrate.spine/use-subscribe — "
                                      "rf2-2rtt6.13 (no retained dead handle) AND rf2-2rtt6.25 "
                                      "(the hook-scoped provisional hand-off) both landed. Under "
                                      "THIS harness's forced-synchronous schedule the cold read "

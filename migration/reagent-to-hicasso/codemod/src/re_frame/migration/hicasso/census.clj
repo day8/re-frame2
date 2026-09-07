@@ -351,10 +351,8 @@
   '{client-root         {:class :root-mount               :verdict :human-decision}
     render!             {:class :root-mount               :verdict :human-decision}
     unmount!            {:class :root-mount               :verdict :human-decision}
-    use-sub       {:class :substrate-read-hook      :verdict :human-decision}
+    use-sub             {:class :substrate-read-hook      :verdict :human-decision}
     use-frame           {:class :substrate-read-hook      :verdict :human-decision}
-    use-current-frame   {:class :substrate-read-hook      :verdict :human-decision}
-    wrap-view           {:class :substrate-view-seam      :verdict :human-decision}
     set-hiccup-emitter! {:class :substrate-view-seam      :verdict :human-decision}
     flush-views!        {:class :substrate-test-seam      :verdict :human-decision}
     mount!              {:class :substrate-test-harness   :verdict :human-decision}
@@ -459,13 +457,13 @@
 
    :substrate-read-hook
    (str "A read through the substrate adapter's own hook tier - the UIx adapter's "
-        "`use-sub` / `use-frame` / `use-current-frame`. Hicasso reads with `h/sub` at the "
+        "`use-sub` / `use-frame`. Hicasso reads with `h/sub` at the "
         "point of use inside a declared view, so this is not a hook swap: the value stops "
         "arriving through React's hook order and starts arriving through the view's own "
         "reactive read, and a component whose hooks were conditional has to be re-shaped.")
 
    :substrate-view-seam
-   (str "The substrate adapter's own view seam - `wrap-view`, or the hiccup emitter the adapter "
+   (str "The substrate adapter's own view seam - the hiccup emitter the adapter "
         "was told to lower through. Hicasso owns both ends of that seam itself: views are "
         "declared with `h/defview` and lowered by Hicasso's own compiler, so an explicit seam "
         "call has no counterpart to be respelled into. Code-gen and library scaffolding that "
