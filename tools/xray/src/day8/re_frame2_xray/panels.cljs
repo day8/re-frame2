@@ -180,10 +180,19 @@
   been dispatching events.
 
   `ensure-xray-frame!` is idempotent, so multiple panel mounts and
-  shadow-cljs reloads collapse to one seed pass."
-  []
-  (registry/register-xray-handlers!)
-  (mount/ensure-xray-frame!))
+  shadow-cljs reloads collapse to one seed pass.
+
+  `frame-id` names the Xray-OWN frame to seat — the shell's own app-db,
+  not the inspected host target. It defaults to `shell/default-frame-id`,
+  which is what every per-panel mount takes; `mount-shell!` passes the
+  own frame its caller asked for (rf2-lffg), so a second embed gets its
+  own seeded frame rather than sharing the first's. The hook table's
+  run-once guard is keyed per `frame-id`, so each instance frame gets
+  exactly one seed pass."
+  ([] (ensure-xray-handlers-installed! shell/default-frame-id))
+  ([frame-id]
+   (registry/register-xray-handlers!)
+   (mount/ensure-xray-frame! frame-id)))
 
 (defn- render-panel!
   "Internal helper. Wraps `panel-view` in `[rf/frame-provider {:frame
@@ -370,10 +379,29 @@
   default in-app `[data-rf-xray-host]` mount; exposing it here lets
   hosts that own their own DOM (Story, custom dev surfaces) mount
   the shell at any element without going through Xray's auto-open
-  preload."
+  preload.
+
+  `opts` carries the two props `008-Embedding-Contract.md` §Embed props
+  inventory publishes:
+
+  - `:mode` — `:inline` (default) / `:overlay`, the shell's chrome mode.
+  - `:frame` — the shell's OWN frame, defaulting to
+    `shell/default-frame-id`. Distinct from the inspected host target,
+    which the frame-picker chooses and which lives in
+    `:rf.xray/target-frame` inside the own frame's db. It is forwarded to
+    `shell-view` as its `:frame-id` opt (rf2-lnluk's de-singleton axis)
+    and the frame is seated on the way through, so two embeds given
+    distinct `:frame`s hold independent tab / mode / focus state instead
+    of colliding on one app-db (rf2-lffg).
+
+  Unlike the per-panel mounts, no outer `frame-provider` is added here:
+  `shell-view` opens its own around `frame-id`."
   ([mount-point]      (mount-shell! mount-point nil))
   ([mount-point opts]
-   (ensure-xray-handlers-installed!)
-   (let [mode (get opts :mode :inline)
-         tree [shell/shell-view {:mode mode}]]
-     (rf.substrate.adapter/render tree mount-point nil))))
+   (let [frame-id (get opts :frame shell/default-frame-id)
+         mode     (get opts :mode :inline)]
+     (ensure-xray-handlers-installed! frame-id)
+     (rf.substrate.adapter/render [shell/shell-view {:mode     mode
+                                                     :frame-id frame-id}]
+                                  mount-point
+                                  nil))))

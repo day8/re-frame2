@@ -109,6 +109,37 @@
   non-blocking diagnostic when the default inline host is missing."
   mount/status)
 
+;; ---- the seated target-set (shared by init! and set-target-frame!) ------
+
+(defn- seat-and-set-target-frame!
+  "Seat `:rf/xray`, then dispatch `:rf.xray/set-target-frame` into it.
+
+  The seat is what makes the dispatch land. `:rf/xray` is normally seated
+  by the preload's readiness loop (rf2-avi7), but that loop polls on a
+  50ms tick, and both callers below reach here INSIDE that window on a
+  host whose boot re-orients the target on the same turn as `rf/init!` —
+  and `init!` is the MANUAL install, which deliberately loads no preload
+  and starts no poll at all, so on that route there is no eventual seat
+  to fall back on. Without the seat the dispatch is rejected at the
+  router with `:rf.error/frame-destroyed`, the host's boot target is
+  dropped, and a later `open!` cannot rescue a choice that never landed.
+
+  `mount/ensure-seated!` and NOT `mount/ensure-xray-frame!` (rf2-88f1):
+  the latter also runs the run-once first-mount hook fan-out, whose job
+  is to harvest the trace and epoch rings the user filled BEFORE opening
+  Xray. Firing it from here would spend that one run on an empty
+  boot-time ring. Seating is idempotent and is a no-op until a substrate
+  adapter exists, so it costs a live host nothing.
+
+  Factored out under rf2-bitb: `set-target-frame!` was correct and
+  `init!` — the other supported way a host states its boot target — was
+  not, because it hand-rolled the dispatch instead of taking this seam."
+  [frame-id]
+  (mount/ensure-seated!)
+  (rf/with-frame :rf/xray
+    (rf/dispatch [:rf.xray/set-target-frame frame-id]))
+  nil)
+
 ;; ---- init! (manual install, alternative to :preloads) ------------------
 
 (defn init!
@@ -188,9 +219,11 @@
    ;; Select the explicit inspected target frame in
    ;; Xray's OWN (`:rf/xray`) frame. Absent → leave unselected (the picker
    ;; / mount discovery policy chooses); never a `:rf/default` fallback.
+   ;; Routed through the seated seam (rf2-bitb) — none of the installs
+   ;; above seats `:rf/xray`, and this facade starts no readiness poll, so
+   ;; a raw dispatch here had no frame to land in.
    (when target-frame
-     (rf/with-frame :rf/xray
-       (rf/dispatch [:rf.xray/set-target-frame target-frame])))
+     (seat-and-set-target-frame! target-frame))
    (when theme
      (config/update-setting! :theme nil theme)
      (settings-effects/apply-theme! theme))
@@ -240,22 +273,15 @@
 
   ## Correct at boot instant (rf2-88f1)
 
-  Seats `:rf/xray` before dispatching. `:rf/xray` is normally seated by
-  the preload's readiness loop (rf2-avi7), but that loop polls on a
-  50ms tick and a host whose boot re-orients the target on the same
-  turn as `rf/init!` reaches this fn INSIDE the poll window — the
-  dispatch then landed in a frame that did not exist yet and the host
-  got `:rf.error/frame-destroyed` instead of the target it asked for.
-  Seating here is idempotent and is a no-op until the runtime is ready,
-  so it costs a live host nothing and makes the facade correct for
-  every host rather than for the ones that dispatch late enough.
+  Seats `:rf/xray` before dispatching, through the shared
+  `seat-and-set-target-frame!` seam above — see its docstring for why the
+  seat is load-bearing, and why it is `ensure-seated!` rather than
+  `ensure-xray-frame!`. `init!` takes the same seam (rf2-bitb), so the
+  two supported ways a host states its boot target now behave alike.
 
   Returns nothing."
   [frame-id]
-  (mount/ensure-seated!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch [:rf.xray/set-target-frame frame-id]))
-  nil)
+  (seat-and-set-target-frame! frame-id))
 
 ;; ---- Story → Xray focus -------------------------------------------------
 ;;

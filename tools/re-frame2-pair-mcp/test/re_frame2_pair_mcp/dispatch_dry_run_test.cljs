@@ -731,3 +731,84 @@
                  (let [edn (read-result-text r)]
                    (is (= :unexpected-shape (:reason edn))))
                  (done))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-j2wz — the parsed event reaches the runtime as DATA here too.
+;;
+;; `dispatch-dry-run` shares `dispatch`'s parser and its emitter, so it
+;; shared the defect: the vector check guards only the OUTER shape, and
+;; `pr-str` renders what got past it as SOURCE. A nested list evaluated, a
+;; symbol resolved, and a payload wearing the emitter's own IR tag was
+;; spliced in as raw source — all while the runtime call was being built,
+;; ahead of the simulation, and all reachable with `eval-cljs` disabled.
+;;
+;; Dry-run composes its call inside an `rt-let`, so the assertions below
+;; read the inner runtime call out of the emitted form: `read-string`
+;; consumes one balanced form, so slicing at the call's opening paren
+;; yields exactly it.
+;; ---------------------------------------------------------------------------
+
+(defn- quoted-datum
+  "The datum a `(quote <datum>)` form evaluates to, or `::not-quoted` for
+  anything else — an unquoted list is a call and an unquoted symbol is a
+  name lookup, so neither yields the datum it was printed from."
+  [form]
+  (if (and (seq? form) (= 'quote (first form)) (= 2 (count form)))
+    (second form)
+    ::not-quoted))
+
+(defn- runtime-call
+  "The `(re-frame2-pair.runtime/dispatch-dry-run <event> <opts>)` call read
+  out of the emitted `rt-let` form."
+  [forms*]
+  (let [form (dispatch-form forms*)
+        head "(re-frame2-pair.runtime/dispatch-dry-run "
+        i    (str/index-of form head)]
+    (when i (cljs.reader/read-string (subs form i)))))
+
+(deftest dry-run-event-payload-lists-are-not-evaluated
+  (async done
+    (let [forms (atom [])]
+      (-> (with-captured-eval! forms (wrap {:ok? true :dry-run? true :rolled-back? true} 0)
+            (fn []
+              (dry-run/dispatch-dry-run-tool (fresh-conn)
+                                             #js {:event "[:cart/add (inc 41)]"})))
+          (.then (fn [r]
+                   (is (not (err? r)))
+                   (is (= [:cart/add '(inc 41)]
+                          (quoted-datum (second (runtime-call forms))))
+                       "the nested list reaches the runtime as a list")
+                   (done)))))))
+
+(deftest dry-run-event-payload-symbols-are-not-resolved
+  (async done
+    (let [forms (atom [])]
+      (-> (with-captured-eval! forms (wrap {:ok? true :dry-run? true :rolled-back? true} 0)
+            (fn []
+              (dry-run/dispatch-dry-run-tool (fresh-conn)
+                                             #js {:event "[:cart/add js/window]"})))
+          (.then (fn [r]
+                   (is (not (err? r)))
+                   (is (= [:cart/add 'js/window]
+                          (quoted-datum (second (runtime-call forms))))
+                       "a symbol-valued event stays a symbol rather than resolving")
+                   (done)))))))
+
+(deftest dry-run-emitter-shaped-event-payload-is-not-spliced
+  (async done
+    (let [forms   (atom [])
+          raw-tag :re-frame2-pair-mcp.tools.eval-form/raw]
+      (-> (with-captured-eval! forms (wrap {:ok? true :dry-run? true :rolled-back? true} 0)
+            (fn []
+              (dry-run/dispatch-dry-run-tool
+                (fresh-conn)
+                #js {:event "[:re-frame2-pair-mcp.tools.eval-form/raw \"(inc 41)\"]"})))
+          (.then (fn [r]
+                   (is (not (err? r)))
+                   (is (= [raw-tag "(inc 41)"]
+                          (quoted-datum (second (runtime-call forms))))
+                       "the tagged vector rides through as the vector it is")
+                   (is (not (str/includes? (dispatch-form forms)
+                                           "dispatch-dry-run (inc 41)"))
+                       "no raw-source splice in the runtime call")
+                   (done)))))))

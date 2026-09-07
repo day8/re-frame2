@@ -308,6 +308,17 @@
 
       :else
       (let [event-vec payload
+            ;; rf2-j2wz — the parsed event is EXTERNAL data, so it rides
+            ;; through the literal-data emission path rather than the
+            ;; default `pr-str` arg path (which is right for the
+            ;; internally-composed `opts-form` below). Unquoted, a nested
+            ;; list in the payload would be a function call, a symbol a
+            ;; name lookup, and a payload shaped like one of the emitter's
+            ;; tagged vectors a raw-source splice — all evaluated while
+            ;; the call is CONSTRUCTED, before the simulation runs and
+            ;; regardless of whether `eval-cljs` is enabled. Dry-run shares
+            ;; `dispatch`'s parser and emitter, so it shares this seam too.
+            event-form (ef/rt-quote event-vec)
             opts-form (cond-> {}
                         frame        (assoc :frame frame)
                         ;; EP-0017 — thread the scripted
@@ -343,7 +354,7 @@
             form (if walk?
                    (ef/emit
                      (ef/rt-let
-                       ['env      (ef/rt-call 'dispatch-dry-run event-vec opts-form)
+                       ['env      (ef/rt-call 'dispatch-dry-run event-form opts-form)
                         'redacted (ef/rt-raw (str "(" redact-src " env)"))
                         'walked   (ef/rt-raw (str "(" (elide-envelope-src frame-edn elision-opts) " redacted)"))]
                        (ef/rt-raw
@@ -352,7 +363,7 @@
                               "                              (tree-seq coll? seq walked)))}"))))
                    (ef/emit
                      (ef/rt-let
-                       ['env      (ef/rt-call 'dispatch-dry-run event-vec opts-form)
+                       ['env      (ef/rt-call 'dispatch-dry-run event-form opts-form)
                         'redacted (ef/rt-raw (str "(" redact-src " env)"))]
                        (ef/rt-raw "{:value redacted :elided-count 0}"))))]
         (probe/eval-after-runtime-signalled!

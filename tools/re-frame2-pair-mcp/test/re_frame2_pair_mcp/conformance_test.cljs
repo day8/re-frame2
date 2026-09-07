@@ -767,8 +767,11 @@
                                    :would-fire-effects [{:fx-id :http :args {:url "/checkout"}}]
                                    :db-state-after-simulation {:cart {} :order {:id 1}}}]
      [:default                    nil]]
+    ;; rf2-j2wz — the parsed event rides as a QUOTED literal, so it
+    ;; evaluates to the datum the caller sent rather than to whatever its
+    ;; printed form means as source.
     :fixture/eval-form-must-contain
-    ["dispatch-dry-run [:cart/checkout]"]
+    ["dispatch-dry-run (quote [:cart/checkout])"]
     :fixture/expect
     {:isError? false
      :edn-submap {:ok? true :dry-run? true :rolled-back? true}}}

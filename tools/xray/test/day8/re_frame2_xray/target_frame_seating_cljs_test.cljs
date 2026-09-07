@@ -348,3 +348,96 @@
            before rf2-88f1")
       (is (= :other/frame (focus-frame))
           "aligning the focus axis with it"))))
+
+;; ---- (8) rf2-bitb — the MANUAL init route seats before it applies -------
+;;
+;; rf2-88f1 (deftests 4-6) fixed the standalone setter. `core/init!` — the
+;; documented alternative to wiring the preload into `:devtools/preloads` —
+;; is a SEPARATE supported call site that carries the same `:target-frame`
+;; intent and was never routed through the same seam: it installed handlers,
+;; collectors, exports and keys, then dispatched `:rf.xray/set-target-frame`
+;; into `:rf/xray` raw. None of those installs seats that frame, and the
+;; manual facade deliberately does not load the preload or start its
+;; readiness poll (`spec/API.md` §Public CLJS API), so this route has no
+;; eventual seat to fall back on. The dispatch was rejected at the router
+;; with `:rf.error/frame-destroyed` and the boot target was lost — an open!
+;; afterwards cannot rescue a choice that never landed.
+;;
+;; The existing `core-cljs-test` init! deftests miss it structurally: both
+;; call `setup-xray-frame!` before `init!`, and the `:target-frame` one also
+;; redefines `rf/dispatch-impl` to capture the vector, so neither reaches
+;; the real fresh-frame dispatch boundary. This deftest does the opposite of
+;; each — no pre-created `:rf/xray`, no replaced dispatch — and therefore
+;; stands exactly where deftest (1)'s control stands.
+
+(deftest manual-init-seats-xrays-frame-before-applying-its-target
+  (testing "rf2-bitb — on a fresh runtime with an adapter and a host frame
+            but no `:rf/xray` and no preload, the documented manual startup
+            `(init! {:target-frame :app/main})` seats Xray's own frame,
+            emits no `:rf.error/frame-destroyed`, and lands the target once
+            its queue drains."
+    (config/set-auto-open! false)
+    (rf/make-frame {:id :app/main})
+    (is (nil? (rf.frame/frame :rf/xray))
+        "precondition: nothing has seated Xray's frame — the same start
+         state as the control in deftest (1), and NOT what the existing
+         core-cljs-test init! deftests set up")
+    (with-redefs [rf/epoch-history stub-epoch-history]
+      (let [seen (capture-errors!)]
+        (core/init! {:target-frame :app/main})
+        (is (some? (rf.frame/frame :rf/xray))
+            "init! seated Xray's own frame before dispatching into it")
+        (flush-xray-queue!)
+        (is (empty? (frame-destroyed-records seen))
+            "and nothing recovered-but-emitted — a supported manual host
+             integration no longer errors on first startup"))
+      (is (= :app/main (core/target-frame))
+          "the host's boot target landed")
+      (is (= :app/main (focus-frame))
+          "on the `[:focus :frame]` axis the reducer moves with it")
+      (is (= main-epochs (xray-read [:rf.xray/epoch-history]))
+          "and `:epoch-history` reads the target's ring"))))
+
+(deftest manual-init-target-survives-first-open-against-a-competing-candidate
+  (testing "rf2-bitb — the seat is only half the contract. Because the
+            first-mount hook fan-out is still deferred to first OPEN, the
+            explicit target `init!` recorded must outrank whatever the
+            pre-open ring offers discovery — the same deference deftests
+            (5) and (6) pin for the standalone setter, now reached through
+            the manual boot route."
+    (config/set-auto-open! false)
+    (rf/make-frame {:id :app/main})
+    (with-redefs [rf/epoch-history stub-epoch-history]
+      (trace-collector/seed-trace-for-test!
+        (pre-mount-dispatch-event 1 100 :other/frame :other/event))
+      (core/init! {:target-frame :app/main})
+      (flush-xray-queue!)
+      (is (= :app/main (core/target-frame))
+          "precondition: the manual boot target landed")
+      (is (not (contains? (seeded-frame-ids) :rf/xray))
+          "and init! did NOT burn the run-once first-mount seed — it takes
+           `ensure-seated!`, not `ensure-xray-frame!`, for the same reason
+           deftest (5) gives for the setter")
+      (mount/ensure-xray-frame!)
+      (is (= :app/main (core/target-frame))
+          "first open preserves the manual boot target over the head
+           focusable bundle's frame")
+      (is (= :app/main (focus-frame))
+          "on the focus axis too")
+      (is (= main-epochs (xray-read [:rf.xray/epoch-history]))
+          "and the epoch history stays keyed on the surviving target"))))
+
+(deftest manual-init-without-a-target-leaves-the-existing-controls-intact
+  (testing "rf2-bitb control — the seat must not become an eager boot
+            protocol. `init!` with no `:target-frame` leaves the target
+            UNSELECTED (never absence-repaired to `:rf/default`), does not
+            open the shell, and stays idempotent."
+    (config/set-auto-open! false)
+    (core/init!)
+    (is (nil? (core/target-frame))
+        "no :target-frame opt leaves the inspected target unselected")
+    (is (false? (mount/mounted?))
+        "and nothing was opened")
+    (core/init!)
+    (is (nil? (core/target-frame))
+        "a second init! is still a no-op on the target")))

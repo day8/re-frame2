@@ -13,6 +13,7 @@
     contract every tool body relies on."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [cljs.reader]
+            [clojure.string :as str]
             [re-frame2-pair-mcp.tools.eval-form :as ef]))
 
 ;; ---------------------------------------------------------------------------
@@ -171,3 +172,79 @@
   ;; the output for the existing tool sites.
   (is (= "(re-frame2-pair.runtime/foo [1 2 3])"
          (ef/emit (ef/rt-call 'foo [1 2 3])))))
+
+;; ---------------------------------------------------------------------------
+;; rt-quote — the literal-data emission path (rf2-j2wz).
+;;
+;; `pr-str` is not a data quotation. It renders a value as SOURCE, and
+;; source is read as code: a nested EDN list becomes a function call and a
+;; symbol becomes a name lookup. That is invisible for the scalar payloads
+;; the internal tool sites compose — a keyword, a string, a number, a map of
+;; those — which is why the DSL got away with `pr-str` for so long, and it
+;; is exactly wrong for EXTERNAL EDN parsed off the wire, where lists and
+;; symbols are ordinary data the caller expects to reach the handler
+;; unchanged.
+;;
+;; `(quote <datum>)` is the only emission that evaluates to arbitrary EDN
+;; unchanged, so it is the one shape the data-only call sites take. The
+;; node's payload is NEVER walked by `emit-arg`: a caller-supplied vector
+;; that happens to wear an emitter tag is payload, not IR, and quoting it
+;; must not hand it back the splice.
+;; ---------------------------------------------------------------------------
+
+(defn- quoted-datum
+  "The datum a `(quote <datum>)` form evaluates to, or `::not-quoted` for
+  anything else. Reading an emitted arg through this is the difference
+  between pinning printed SYNTAX and pinning what evaluation yields."
+  [form]
+  (if (and (seq? form) (= 'quote (first form)) (= 2 (count form)))
+    (second form)
+    ::not-quoted))
+
+(deftest rt-quote-ir-shape
+  ;; The constructor is the fourth peer of rt-call / rt-raw / rt-let: a
+  ;; tagged vector, pinned as data so a tag rename surfaces here.
+  (is (= [::ef/quote [:cart/checkout]] (ef/rt-quote [:cart/checkout]))))
+
+(deftest rt-quote-emits-a-quoted-literal
+  (is (= "(quote [:cart/checkout])"
+         (ef/emit [::ef/quote [:cart/checkout]])))
+  (is (= "(quote :bare)"
+         (ef/emit [::ef/quote :bare]))))
+
+(deftest rt-quote-keeps-nested-lists-as-lists
+  ;; The defect in one line: unquoted, `(inc 41)` inside the payload
+  ;; evaluates to 42 and the handler never sees the list it was sent.
+  (let [datum [:cart/add '(inc 41)]
+        src   (ef/emit (ef/rt-call 'dispatch-consequence! [::ef/quote datum] {}))
+        arg   (second (cljs.reader/read-string src))]
+    (is (= datum (quoted-datum arg))
+        "the nested list survives as a list — it evaluates to itself")))
+
+(deftest rt-quote-keeps-symbols-as-symbols
+  (let [datum [:cart/add 'js/window]
+        src   (ef/emit (ef/rt-call 'dispatch-consequence! [::ef/quote datum] {}))
+        arg   (second (cljs.reader/read-string src))]
+    (is (= datum (quoted-datum arg))
+        "a symbol-valued event stays a symbol rather than resolving")))
+
+(deftest rt-quote-does-not-splice-an-emitter-shaped-payload
+  ;; A caller-supplied vector wearing the emitter's own `::raw` tag is
+  ;; PAYLOAD. Unquoted it was recognised as IR and its string spliced in
+  ;; as raw source, replacing the event outright.
+  (let [datum [::ef/raw "(inc 41)"]
+        src   (ef/emit (ef/rt-call 'dispatch-consequence! [::ef/quote datum] {}))
+        arg   (second (cljs.reader/read-string src))]
+    (is (= datum (quoted-datum arg))
+        "the tagged vector rides through as the vector it is")
+    (is (not (str/includes? src "dispatch-consequence! (inc 41)"))
+        "and its string is never spliced into the runtime call's arg position")))
+
+(deftest rt-quote-leaves-internal-raw-composition-alone
+  ;; The escape hatch the internal sites depend on is untouched: an
+  ;; `rt-raw` node built by the emitter itself still inlines verbatim.
+  (is (= "(re-frame.core/elide-wire-value db)"
+         (ef/emit (ef/rt-call* 're-frame.core/elide-wire-value
+                               (ef/rt-raw "db")))))
+  (is (= "(re-frame2-pair.runtime/foo [1 bar])"
+         (ef/emit (ef/rt-call 'foo [1 (ef/rt-raw "bar")])))))

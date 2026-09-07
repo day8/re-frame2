@@ -20,7 +20,7 @@
       [::call* qsym args]         →  `(<qsym> <emitted arg> ...)`  — fully-qualified
       [::let   bindings body]     →  `(let [<binding-name> <binding-val> ...] <body>)`
       [::raw   source-string]     →  `<source-string>`  — escape hatch
-      [::quote v]                 →  `(quote v)`  — embedded EDN literal
+      [::quote v]                 →  `(quote v)`  — literal DATA
       other value                 →  `(pr-str v)`  — EDN-printed literal
 
   `bindings` is a flat seq `[name form name form ...]`; binding NAMES
@@ -44,6 +44,15 @@
     For raw-source fragments (e.g. referring to a let-bound name, a
     `loop`/`recur`, or a `(if ...)` host form), wrap with
     [[rt-raw]].
+
+  - `pr-str` is a PRINT, not a quotation, and the difference only shows
+    up on values containing lists or symbols — which internally-composed
+    arguments never are, and EXTERNAL EDN parsed off the wire routinely
+    is. Arguments that came from a caller therefore take [[rt-quote]],
+    whose emission evaluates to its datum for every EDN value. This is
+    the boundary `dispatch` / `dispatch-dry-run` sit on (rf2-j2wz); every
+    other call site composes its own arguments and stays on the default
+    path.
 
   - The runtime prefix lives in ONE place — `runtime-ns`. A rename of
     the runtime ns flows to every callsite by editing one string.
@@ -92,9 +101,40 @@
   [source-string]
   [::raw source-string])
 
+(defn rt-quote
+  "Wrap a value so `emit` renders it as `(quote <v>)` — a LITERAL-DATA
+  argument — instead of the bare EDN print `pr-str` produces.
+
+  ## Why this is not the same as the default arg path (rf2-j2wz)
+
+  `pr-str` renders a value as SOURCE, and source is read as code. For
+  the scalar payloads the internal tool sites compose — a keyword, a
+  string, a number, a map of those — printing and quoting agree, which
+  is why the default path is fine there and stays unchanged. They part
+  company the moment the value contains a LIST or a SYMBOL: printed
+  unquoted, a nested list is a function call and a symbol is a name
+  lookup, so the argument the runtime fn receives is whatever those
+  evaluate to rather than the datum it was printed from. Worse, a value
+  that happens to be shaped like one of this DSL's own tagged vectors is
+  recognised by `emit-arg` as IR and its payload spliced in as raw
+  source.
+
+  That is invisible for internally-composed arguments, whose shapes the
+  emitter chose. It is exactly wrong for EXTERNAL EDN parsed off the
+  wire, where lists and symbols are ordinary event data and an
+  emitter-shaped vector is payload, not instruction. Data-only tool
+  surfaces (`dispatch`, `dispatch-dry-run`) therefore wrap their parsed
+  event with this node.
+
+  The payload is NEVER walked: `emit` prints it and stops. A quoted form
+  evaluates to its datum for every EDN value, which is the whole of what
+  this node promises."
+  [v]
+  [::quote v])
+
 (defn- node? [x]
   (and (vector? x)
-       (#{::call ::call* ::let ::raw} (first x))))
+       (#{::call ::call* ::let ::raw ::quote} (first x))))
 
 (declare emit)
 
@@ -175,6 +215,13 @@
     (let [[tag] form]
       (case tag
         ::raw  (let [[_ s] form] s)
+
+        ;; rf2-j2wz — the literal-data path. `pr-str` the payload and
+        ;; STOP: no `emit-arg` recursion, because a caller-supplied
+        ;; value that wears one of this DSL's tags is payload rather
+        ;; than IR, and walking it would hand back the raw-source
+        ;; splice this node exists to close.
+        ::quote (let [[_ v] form] (str "(quote " (pr-str v) ")"))
 
         ::call (let [[_ sym args] form]
                  (str "(" runtime-ns "/" (name sym)
