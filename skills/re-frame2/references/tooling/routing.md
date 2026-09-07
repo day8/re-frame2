@@ -14,12 +14,13 @@ Do **not** load this leaf to learn what routing is — that is training knowledg
 
 ## Canonical signatures
 
-The routing artefact ships separately in `day8/re-frame2-routing`. `re-frame.core` does **not** require it; the consuming app must `:require [re-frame.routing :as routing]` at boot, or `reg-route` throws `:rf.error/routing-artefact-missing`. The `reg-route` **registration macro** stays on the `re-frame.core` façade (`rf/`); the **URL-codec query helpers** `route-url` / `match-url` (and `clear-route`) live on the owning `re-frame.routing` namespace — they are not on the `re-frame.core` façade.
+The routing artefact ships separately in `day8/re-frame2-routing`. `re-frame.core` does **not** require it; the consuming app must `:require [re-frame.routing :as routing]` at boot, or `reg-route` throws `:rf.error/routing-artefact-missing`. The `reg-route` **registration macro** stays on the `re-frame.core` façade (`rf/`); the **URL-codec query helpers** `route-url` / `match-url` live on the owning `re-frame.routing` namespace — those two are not on the `re-frame.core` façade. Removing a route registration is neither: it is the one kind-keyed `(rf/clear :route id)` on the façade, which emits `:rf.route/cleared`. There is no `routing/clear-route` public var — `clear-route` survives only as the artefact-internal registry impl behind the `:routing/clear-route` late-bind hook.
 
 ```clojure
 (rf/reg-route id metadata path)                             ;; path is the 3rd positional arg; metadata keys below
 (routing/route-url {:to route-id :params path-params :query query-params :fragment fragment})  ;; pure; one address map
 (routing/match-url url)                 ;; pure; => {:route-id :params :query :fragment} or nil
+(rf/clear :route id)                    ;; deregister; kind-keyed façade verb, returns the id
 ```
 
 `route-url` takes a single **address map** — `:to` is required (requests spell the route id `:to`; facts spell it `:route-id`), `:params` / `:query` / `:fragment` optional. It is strictly address-only: `:url`, `:query-merge`, policy keys, and unknown keys reject **loud** (`:rf.error/route-url-validation`). A present `:fragment` appends the `#fragment` part; a `nil` (or empty-string) fragment is **omitted** from the URL — `route-url` percent-encodes a present fragment, `match-url` decodes it back and normalises absence to `nil`, so the fragment round-trips lawfully (EP-0012 route-prism law). Build fragment links through `:fragment`; do **not** hand-concatenate `(str url "#" frag)`.
