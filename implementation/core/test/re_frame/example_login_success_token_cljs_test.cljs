@@ -397,7 +397,7 @@
                       (is (empty? refusals)
                           (str "no event-schema refusal fired during the run; "
                                "got " (count refusals) " — "
-                               (pr-str (mapv #(-> % :tags :rf.event/id) refusals))))))
+                               (pr-str (mapv #(-> % :tags :event-id) refusals))))))
                   (finally
                     (restore!)
                     (rf.story/destroy-variant! :story.login/success)
