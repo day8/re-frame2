@@ -453,7 +453,9 @@ redirects) is always live — authors never declare it. See
 A story body carries the SAME `:images` slot. A Story declares its
 **application image** ONCE on the story; every variant under it INHERITS that
 image and MAY layer its own `:images` on top. The resolved composition order is
-`[story-images… variant-images… runtime-image]` (later wins). This is the
+`[story-images… variant-images… runtime-image]` (later wins — a variant with a
+`:network` fixture layers one further library-owned image between the two, see
+[002-Runtime.md](002-Runtime.md)). This is the
 app-isolation mechanism for a MULTI-app testbed (several apps co-loaded into
 one process): each story scopes its variant frames to its own app namespace via
 `:select-ns`, rather than the whole co-loaded store.

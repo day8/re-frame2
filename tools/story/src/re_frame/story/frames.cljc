@@ -560,7 +560,7 @@
   "Build the FULL `:images` vector a variant frame is created with (EP-0026
   §Layered Resolution — the later image WINS). The composition is:
 
-      [<story-images…> <variant-images…> runtime-image]
+      [<story-images…> <variant-images…> fixture-image? runtime-image]
 
   - `story-images`   — the parent story's `:images` (the app image declared once
                        on the story; inherited by every variant). See
@@ -568,6 +568,19 @@
   - `variant-images` — the variant body's own `:images`, layered on top of the
                        story image (a BEHAVIOUR variant overriding specific
                        `[kind id]`s with its own image).
+  - `fixture-image`  — rf2-shx4: PRESENT ONLY when this frame owns an authored
+                       `:network` fixture (`rf.story.network/install-for-frame!`
+                       ran for it upstream in phase 0). It carries exactly ONE
+                       inline `:reg-fx` — the frame-scoped managed-request stub
+                       the plan's `:fx-overrides` redirect names — so a variant
+                       with an EXPLICIT app image can resolve that redirect's
+                       target. Without it the redirect names an id the sealed
+                       generation cannot resolve and the request falls through
+                       to the REAL `:rf.http/managed` transport, which is
+                       invisible to a default-image-only test. Composed after
+                       every app image (nothing authored can shadow the
+                       fixture) and before `runtime-image` (they are disjoint;
+                       the runtime image keeps its LAST position).
   - `runtime-image`  — the canonical Story RUNTIME IMAGE, composed LAST so the
                        Story machinery (lifecycle machine, `:rf.assert/*`
                        handlers, fx-stub redirects, runtime helpers, toolbar
@@ -589,7 +602,15 @@
   (let [story-imgs (story-images variant-id)
         app-imgs   (into (vec story-imgs) variant-images)]
     (when (seq app-imgs)
-      (conj app-imgs (rf.story.runtime-image/runtime-image)))))
+      ;; rf2-shx4 — the fixture image is layered ONLY when this frame owns a
+      ;; `:network` fixture AND the stub is genuinely installed
+      ;; (`fixture-image` reads the source store, so it returns nil rather
+      ;; than inlining a stale handler).
+      (let [fixture-img (when (rf.story.network/routes-for variant-id)
+                          (rf.story.network/fixture-image))]
+        (cond-> app-imgs
+          fixture-img (conj fixture-img)
+          :always     (conj (rf.story.runtime-image/runtime-image)))))))
 
 (defn- ->classification-effects
   "Convert a variant body's `:sensitive` / `:large` classification declaration

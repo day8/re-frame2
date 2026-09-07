@@ -134,6 +134,88 @@
           "SENTINEL: no managed request reached the production fx slot"))))
 
 ;; ===========================================================================
+;; The EXPLICIT-APPLICATION-IMAGE path (rf2-shx4, merged-PR audit of #9398)
+;;
+;; The two registered tests above run on the DEFAULT image — `:images` absent,
+;; so the frame projects the WHOLE source store and the helper-installed
+;; `:rf.http/managed-test-stub` is visible through it. That is why they passed
+;; while the audit's case did not: a variant that declares (or inherits) an app
+;; image resolves through a SELECTED, sealed generation, and the stub the HTTP
+;; helper registers carries no selectable provenance at all, so the
+;; `:fx-overrides` redirect the frame DOES receive names a target its image
+;; cannot resolve — and the request falls through to the real
+;; `:rf.http/managed` slot (here, the capture sentinel).
+;;
+;; The fix makes the fixture reachable through the selected generation as well,
+;; WITHOUT widening the app image: `frames/compose-variant-images` layers the
+;; library-owned `:rf.story/network-fixture` image, which carries exactly ONE
+;; inline `:reg-fx` — the very handler `install-managed-request-stubs!`
+;; registered over the frame-scoped route map. One implementation, one route
+;; map, two projections.
+;; ===========================================================================
+
+(deftest registered-variant-with-inherited-app-image-realizes-its-fixture
+  (testing "a variant whose app image is INHERITED from its parent story still
+            gets its authored :network fixture — the selected generation
+            resolves the stub target rather than falling through to the
+            production :rf.http/managed slot (rf2-shx4 audit of PR #9398)"
+    (rf.story/reg-story :story.netimg
+                        {:doc    "Parent story declaring the app image once."
+                         :images [(rf/image {:id        :net/app-image
+                                             :select-ns {:include ["re-frame.story.network-runtime-test"]}})]})
+    (rf.story/reg-variant :story.netimg/cart
+                          {:network cart-fixture
+                           :setup   [[:dispatch [:net/load]]]})
+    (let [result (run-target :story.netimg/cart)]
+      (is (= [:net/app-image] (:images result))
+          "precondition: the variant really did inherit an EXPLICIT app image
+           (so the frame resolves a SELECTED generation, not the default
+           whole-store projection)")
+      (is (= {:items [1]} (:cart (:app-db result)))
+          "the authored fixture answered the managed request through the
+           selected image")
+      (is (= [] @live-requests)
+          "SENTINEL: no managed request reached the production fx slot"))))
+
+(deftest registered-variant-with-own-app-image-realizes-its-fixture
+  (testing "the same holds for an app image declared on the VARIANT body"
+    (rf.story/reg-variant :story.netimg2/cart
+                          {:images  [(rf/image {:id        :net/app-image
+                                                :select-ns {:include ["re-frame.story.network-runtime-test"]}})]
+                           :network cart-fixture
+                           :setup   [[:dispatch [:net/load]]]})
+    (let [result (run-target :story.netimg2/cart)]
+      (is (= [:net/app-image] (:images result))
+          "precondition: an explicit app image is in force")
+      (is (= {:items [1]} (:cart (:app-db result)))
+          "the authored fixture answered the managed request")
+      (is (= [] @live-requests)
+          "SENTINEL: no managed request reached the production fx slot"))))
+
+(deftest app-image-frame-keeps-application-isolation
+  (testing "the fixture image adds EXACTLY the one stub fx the redirect names —
+            it does not widen the app image to the whole store. A registration
+            the app image does not select stays UNRESOLVABLE in the frame."
+    ;; A registration authored OUTSIDE the app image's selected namespace.
+    (require 'story.test-helpers.image-behaviour-v1 :reload)
+    (rf.story/reg-variant :story.netimg3/cart
+                          {:images  [(rf/image {:id        :net/app-image
+                                                :select-ns {:include ["re-frame.story.network-runtime-test"]}})]
+                           :network cart-fixture
+                           :setup   [[:dispatch [:net/load]]]})
+    (let [result   (run-target :story.netimg3/cart)
+          resolver (:rf.gen/resolver (rf/frame-generation :story.netimg3/cart))]
+      (is (= {:items [1]} (:cart (:app-db result)))
+          "the fixture answered")
+      (is (contains? resolver [:fx :rf.http/managed-test-stub])
+          "the stub fx the :fx-overrides redirect names IS in the frame's
+           generation — that is the whole repair")
+      (is (not (contains? resolver [:event :img.counter/step]))
+          "and nothing else came with it: a registration authored outside the
+           app image's selected namespace is still invisible to the frame")
+      (is (= [] @live-requests) "SENTINEL: still no live request"))))
+
+;; ===========================================================================
 ;; Isolation + ownership
 ;; ===========================================================================
 

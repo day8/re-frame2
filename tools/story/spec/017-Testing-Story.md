@@ -2689,6 +2689,35 @@ unchanged. The lowered fx id stays `:rf.http/managed-test-stub`, so the
 recorded `:fx-decisions` redirect and the artifact replay path are
 unaffected.
 
+#### Reaching the fixture through a selected app image
+
+Installing the stub is necessary but **not sufficient**, and the missing
+half is invisible on the default image. The helper registers into the
+process **source store**. A variant frame created with no `:images`
+projects that whole store (the EP-0026 DEFAULT image), so it resolves the
+stub; a variant that declares an app image — or inherits one from its
+parent story — resolves through a **selected, sealed generation** instead,
+and the stub is not in it. An image selects by `:rf.provenance/ns`, and a
+descriptor registered by a runtime `reg-fx` call carries no source
+provenance at all, so no namespace glob can select it. Such a frame still
+receives the `:fx-overrides` redirect and still fails **open**: the target
+is unresolvable, so the request falls through to the REAL
+`:rf.http/managed` transport.
+
+So a frame that owns a fixture is composed with one further library-owned
+image, `:rf.story/network-fixture` (`re-frame.story.network/fixture-image`),
+carrying **exactly one** inline `:reg-fx` — the handler the install just put
+in the source store, over the same frame-scoped route map. It is layered
+after every app image (so nothing authored shadows the fixture) and before
+the runtime image, which keeps its LAST position; the two select disjoint
+sets. Two properties are normative here. The fixture image MUST republish
+the installed handler rather than build its own, so there is one canned-reply
+implementation and two projections of it; and it MUST carry that one fx id
+and nothing else — **widening the app image to the whole store is not an
+acceptable repair**, because it trades this defect for the loss of the
+isolation the image exists to provide. It is a library contract, not an
+authored behaviour image: it never appears on a run result's `:images`.
+
 ### What the compiler emits
 
 When a variant's resolved (merged + arg-substituted) `:network` route map
