@@ -1298,7 +1298,7 @@ The dropped surfaces (§2.2 list) were audit-confirmed zero-usage across re-com 
 | `r/force-update` | Form-3: kept (`reagent2.core/force-update`). Form-1/2: restructure to be reactive. |
 | `r/dom-node` | Use a `:ref` callback. (Absent — `findDOMNode` is gone in React 19; the call site fails to compile.) |
 | `r/class-names` | Userland one-liner. |
-| `r/is-client` | Use re-frame2's `(re-frame.interop/active-platform)` getter (settable at boot via `re-frame.core/init-platform`). |
+| `r/is-client` | Use re-frame2's `(re-frame.interop/active-platform)` host-default getter, or the frame's own `{:platform :client}` / `{:platform :server}` config key. |
 
 ### §13.4 SSR migration
 

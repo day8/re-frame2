@@ -3104,33 +3104,6 @@
       (rf.spec/register-schema-interceptors!)
       nil)))
 
-(defn init-platform
-  "Set the host-wide active-platform marker (`:server` or `:client`).
-  Per Spec 011 §Effect handling on the server: the runtime tracks the
-  active platform so `reg-fx`/`reg-cofx` `:platforms` metadata can
-  gate execution. CLJS hosts default to `:client`, JVM hosts to
-  `:server`; call this at boot to override:
-
-    (rf/init-platform :server)   ;; CLJS-on-Node SSR runtime
-    (rf/init-platform :client)   ;; JVM-runnable test simulating browser
-
-  Per-frame `:config :platform` (e.g. set by the `:ssr-server` preset)
-  still wins over this host-wide marker — `init-platform` is the
-  fallback when no per-frame override is in play.
-
-  `p` must be `:server` or `:client`; anything else raises
-  `:rf.error/invalid-platform`. Idempotent / re-callable."
-  [p]
-  (if (#{:server :client} p)
-    (do (rf.interop/set-platform! p) nil)
-    (rf.error/throw-error!
-      :rf.error/invalid-platform
-      'rf/init-platform
-      "rf/init-platform takes the platform keyword directly — :server or :client per Spec 011 §Effect handling on the server."
-      {:recovery :no-recovery
-       :extra    {:expected "one of #{:server :client}"
-                  :received p}})))
-
 ;; ---- feature inspection (rf2-3nbl5.5, API-governance G5) ------------------
 ;;
 ;; Front-porch for the optional-feature inventory: which `day8/re-frame2-

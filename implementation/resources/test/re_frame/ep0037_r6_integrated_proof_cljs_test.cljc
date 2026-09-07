@@ -285,7 +285,7 @@
   image selected BOTH the app's provenanced registration and the framework's
   own no-provenance default."
   ([] (seal-frame! {}))
-  ([{:keys [frame-id preset url-bound?]}]
+  ([{:keys [frame-id platform url-bound?]}]
    (let [id (or frame-id app-frame-id)]
      ;; NOT url-bound by default, deliberately. A url-bound frame is wired to
      ;; the HOST address bar: on a host that has one (the CLJS lane) claiming
@@ -296,7 +296,7 @@
      ;; proof's activations host-dependent and prove nothing about planning.
      ;; The exercise app drives its URL-driven doors explicitly instead.
      (rf/make-frame (cond-> {:id id :doc "conduit — the EP-0037 R6 exercise app"}
-                      preset     (assoc :preset preset)
+                      platform   (assoc :platform platform)
                       url-bound? (assoc :url-bound? true)))
      id)))
 
@@ -515,7 +515,7 @@
                                        door destination)]))
                      [:navigate :raw-url :link :url])
         server (let [srv (seal-frame! {:frame-id (keyword "conduit" (str label "-ssr"))
-                                       :preset   :ssr-server})]
+                                       :platform :server})]
                  (rf/dispatch-sync [:rf.route/handle-url-change (:url destination)]
                                    {:frame srv})
                  (plan-footprint srv))]
@@ -867,7 +867,7 @@
 (deftest ssr-hard-deny-stamps-the-403-floor
   (testing "on the app's SERVER frame, a guarded deep link with no application
             arm stamps the default 403 and commits nothing"
-    (let [srv (boot-app! {:auth-arm :none :frame-id :conduit/server :preset :ssr-server})]
+    (let [srv (boot-app! {:auth-arm :none :frame-id :conduit/server :platform :server})]
       (rf/dispatch-sync [:rf.route/handle-url-change "/settings"] {:frame srv})
       (is (= 403 (:status (rf.ssr/get-response srv))))
       (is (nil? (slice srv)) "no route committed for the denied target")
@@ -877,7 +877,7 @@
 (deftest ssr-application-redirect-supersedes-the-403
   (testing "the server entry point's arm emits Spec 011's canonical
             :rf.server/redirect, whose redirect precedence replaces the floor"
-    (let [srv (boot-app! {:auth-arm :server :frame-id :conduit/server :preset :ssr-server})]
+    (let [srv (boot-app! {:auth-arm :server :frame-id :conduit/server :platform :server})]
       (rf/dispatch-sync [:rf.route/handle-url-change "/settings"] {:frame srv})
       (let [resp (rf.ssr/get-response srv)]
         (is (= "/login" (get-in resp [:redirect :location])))
@@ -887,7 +887,7 @@
   (testing "the server activates through the same branch plan, the client
             hydrates it, and the fresh identities are REUSED — the client does
             not duplicate an SSR ensure merely because the branch was rebuilt"
-    (let [srv  (boot-app! {:frame-id :conduit/server :preset :ssr-server})
+    (let [srv  (boot-app! {:frame-id :conduit/server :platform :server})
           slug "hydrate-me"
           akey (article-key slug)]
       (rf/dispatch-sync [:rf.route/handle-url-change (str "/article/" slug)] {:frame srv})

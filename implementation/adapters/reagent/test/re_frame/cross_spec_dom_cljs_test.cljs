@@ -240,7 +240,7 @@
 
 (deftest after-noop-shape-under-ssr-server-preset
   "#4 Machines under SSR (allowed-subset) —
-   the :ssr-server preset stamps :platform :server on the frame, which
+   the frame is tagged :platform :server, which
    is the channel through which `:after` is suppressed. Per rf2-o83z
    the `:after`-no-op end-to-end check fires through the trace channel
    (`:rf.machine.timer/skipped-on-server`) — no real timer harness is
@@ -248,14 +248,14 @@
    schedule time. See machines.cljc §`:after`-scheduling, where the
    `:server` branch emits `:rf.machine.timer/skipped-on-server` in
    place of `:rf.machine.timer/scheduled`."
-  (rf/make-frame {:id :req :preset :ssr-server})
+  (rf/make-frame {:id :req :platform :server})
   (let [meta (rf/frame-meta :req)]
     (is (= :server (:platform meta))
-        ":ssr-server preset sets :platform :server on the frame metadata"))
+        "the frame tag lands as :platform :server on the frame metadata"))
   ;; Register a machine whose `:loading` state declares an `:after` table.
   ;; The transition `:idle → :loading` enters an `:after`-bearing state;
   ;; on a non-SSR frame this would emit `:rf.machine.timer/scheduled`. On
-  ;; the `:ssr-server` frame it must emit
+  ;; the `:platform :server` frame it must emit
   ;; `:rf.machine.timer/skipped-on-server` and NOT schedule a real timer
   ;; (per Cross-Spec-Interactions §4 and Spec 005 §SSR mode). The trace
   ;; channel is the observable end-to-end signal — no timer harness is
@@ -275,13 +275,13 @@
                                 (:operation %))
                             @traces)]
       (is (seq skipped)
-          ":after on :ssr-server emits :rf.machine.timer/skipped-on-server")
+          ":after on a :platform :server frame emits :rf.machine.timer/skipped-on-server")
       (is (some #(= :server (get-in % [:tags :platform])) skipped)
           "the skipped-on-server trace records :platform :server")
       (is (some #(= 500 (get-in % [:tags :delay])) skipped)
           "the trace carries the declared :after delay")
       (is (empty? scheduled)
-          "no :rf.machine.timer/scheduled trace fires on :ssr-server — :after is a true no-op, not a deferred schedule"))))
+          "no :rf.machine.timer/scheduled trace fires on a :platform :server frame — :after is a true no-op, not a deferred schedule"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 5 — Hydration with machine snapshots
@@ -320,7 +320,7 @@
    :rf.nav/push-url and :rf.nav/replace-url are no-ops on :server; the
    route slice itself is just app-db so it hydrates trivially."
   (rf/reg-route :user/show {} "/users/:id")
-  (rf/make-frame {:id :req :preset :ssr-server})
+  (rf/make-frame {:id :req :platform :server})
   ;; Re-register the framework nav fx (reset-runtime cleared the
   ;; registrar) so this test exercises the same platform-gating shape
   ;; the production fx use.
@@ -1332,7 +1332,7 @@
 
 (deftest server-error-projection-shape
   "#16 Error projection on the server —
-   when a handler throws on a :ssr-server frame, :rf.error/handler-
+   when a handler throws on a :platform :server frame, :rf.error/handler-
    exception fires; the user-supplied projector consumes the trace and
    stamps the public-error's :status onto the [:rf/response]
    accumulator (per Spec 011 §Server error projection — \"runtime sets
@@ -1340,7 +1340,7 @@
 
    This test pins both halves of the cross-spec contract:
      1. the trace channel — :rf.error/handler-exception fires under
-        :ssr-server, tagged with the request frame's id; and
+        :platform :server, tagged with the request frame's id; and
      2. the projection seam — apply-error-projection! resolves the
         active projector, projects the captured trace, and stamps
         :status onto :rf/response.
@@ -1355,7 +1355,7 @@
    response map, including listener-driven buffering) is covered by
    re-frame.ssr-end-to-end-test/ssr-default-error-projector-handler-
    exception."
-  (rf/make-frame {:id :req :preset :ssr-server})
+  (rf/make-frame {:id :req :platform :server})
   (rf/reg-event :handler-throws
     (fn [_ _] (throw (ex-info "boom" {}))))
   (with-trace-recorder! [traces]
@@ -1394,7 +1394,7 @@
    request frame; the snapshot is unchanged. As with the non-SSR case
    the machine-scoped :rf.error/machine-action-exception fires, NOT
    the generic :rf.error/handler-exception."
-  (rf/make-frame {:id :req :preset :ssr-server})
+  (rf/make-frame {:id :req :platform :server})
   (let [machine {:initial :idle
                  :data    {}
                  :states  {:idle  {:on {:bang {:target :angry :action :boom}}}
@@ -1407,13 +1407,13 @@
       (let [errs (filter #(= :rf.error/machine-action-exception (:operation %))
                          @traces)]
         (is (seq errs)
-            "machine action throw surfaces as :rf.error/machine-action-exception under :ssr-server")
+            "machine action throw surfaces as :rf.error/machine-action-exception on a :platform :server frame")
         (is (some #(= :req (get-in % [:tags :frame])) errs)
             "the trace records the request frame's id")
         (is (some #(= :test/m (get-in % [:tags :actor-id])) errs)
             "the trace identifies the live actor (rf2-yyvtk5 — :actor-id)"))
       (is (not (some #(= :rf.error/handler-exception (:operation %)) @traces))
-          "the generic :rf.error/handler-exception does NOT also fire under :ssr-server")
+          "the generic :rf.error/handler-exception does NOT also fire on a :platform :server frame")
       (let [snap (get-in (:rf.db/runtime (rf/frame-state-value :req)) [:rf.runtime/machines :snapshots :test/m])]
         (is (or (nil? snap) (= :idle (:state snap)))
             "no committed machine snapshot at :angry — the cascade halted")))))

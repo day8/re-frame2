@@ -2340,11 +2340,11 @@
 ;; A :preset key in metadata expands at registration time into a fixed
 ;; bundle of metadata keys. User-supplied keys win on conflict.
 ;; Per Spec 002 §Frame presets, the closed list is:
-;;   :default :test :story :ssr-server
+;;   :default :test :story
 
 (defn- preset-expansion [preset]
   ;; Per Spec 002 §Frame presets and Spec-Schemas §:rf/preset-expansion.
-  ;; The four canonical expansions:
+  ;; The three canonical expansions:
   ;;   :default    -> {} (explicit no-op; identical to omitting :preset)
   ;;   :test       -> redirect :rf.http/managed to its canned-success stub
   ;;                  (Spec 014); explicit :drain-depth 100 (matches the
@@ -2364,16 +2364,19 @@
   ;;                  NOT strict-by-default — a story is a live demo, not a
   ;;                  determinism fixture, so it rides the router's :live
   ;;                  default (no mint-policy entry).
-  ;;   :ssr-server -> :platform :server (gates fx via reg-fx :platforms).
   ;; User-supplied keys win on conflict; see expand-preset.
+  ;;
+  ;; Platform is NOT a preset concern: it is the host default, overridden
+  ;; per frame with an explicit `{:platform :server}` / `{:platform :client}`
+  ;; frame-config key (Spec 002 §Platform, Spec 011 §Effect handling on the
+  ;; server).
   ;;
   ;; The :test / :story redirect targets
   ;; `:rf.http/managed-canned-success`, which registers from the test-
   ;; support namespace `re-frame.http.test-support`. Apps that use these
   ;; presets must `:require [re-frame.http.test-support]` (alongside
   ;; `re-frame.http.managed`) so the redirect target resolves. Production
-  ;; / SSR code paths use `:default` / `:ssr-server` and never reach this
-  ;; branch.
+  ;; / SSR code paths use `:default` and never reach this branch.
   (case preset
     :default    {}
     :test       {:fx-overrides        {:rf.http/managed :rf.http/managed-canned-success}
@@ -2392,17 +2395,16 @@
                  :rf.cofx/mint-policy :strict}
     :story      {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}
                  :drain-depth  16}
-    :ssr-server {:platform :server}
     nil         {}
     (rf.error/throw-error!
       :rf.error/unknown-preset
       'rf/make-frame
       (str "unknown frame :preset " (pr-str preset)
-           "; valid presets are :default, :test, :story, :ssr-server "
+           "; valid presets are :default, :test, :story "
            "(or omit :preset). Use one of those.")
       {:recovery :use-a-valid-preset
        :extra    {:preset preset
-                  :valid  #{:default :test :story :ssr-server}}})))
+                  :valid  #{:default :test :story}}})))
 
 (defn- expand-preset [metadata]
   (let [preset    (:preset metadata)

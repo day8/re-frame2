@@ -2155,8 +2155,8 @@
 (defn- run-fx-effects!
   "Walk :fx in source order, threading fx-overrides through so per-frame
   / per-call overrides take effect. Per-frame :platform overrides the
-  host-wide platform marker (`rf.interop/active-platform`, toggled via
-  `re-frame.core/init-platform`) when set.
+  host default (`rf.interop/active-platform`, a per-host constant) when
+  set.
 
   Per Spec 002 §The binary fx-handler signature (line 603) and §Cascade
   propagation (line 1162): the originating dispatch envelope is

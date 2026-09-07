@@ -204,10 +204,9 @@
 
 (defn platform-for-frame-record
   "Resolve the active platform for a frame given its (already-resolved)
-  frame record. The frame's `:config :platform` override (set by the
-  `:ssr-server` preset, or any user-supplied frame config) takes
-  precedence over the host-wide platform marker
-  (`rf.interop/active-platform`, toggled via `re-frame.core/init-platform`).
+  frame record. The frame's `:config :platform` override takes
+  precedence over the host default (`rf.interop/active-platform`, a
+  per-host constant: `:client` on CLJS, `:server` on the JVM).
 
   Single definition of the per-frame platform resolution shared by the
   router's `:fx` walk (`router/run-fx-effects!`) and the cofx injector
