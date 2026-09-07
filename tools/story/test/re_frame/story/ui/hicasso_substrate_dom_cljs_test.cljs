@@ -34,11 +34,14 @@
 
   Three decisions ride in those five lines, all ruled on rf2-2dbpd:
 
-  - **resolve LATE, per render**, off `(rf/handler-meta :view id)` — so
-    re-evaluating a `defview` (which replaces the registrar entry behind
-    the same id) reaches the story with no story change;
-  - **read `:hicasso/component`**, because the alias entry deliberately
-    carries no `:handler-fn` and `rf/view` answers nil for it (rf2-5qaf4);
+  - **resolve LATE, per render**, off `(rf/view id)` — so re-evaluating a
+    `defview` (which replaces the registrar entry behind the same id)
+    reaches the story with no story change;
+  - **read it with `rf/view`**, the framework's own late-bind lookup,
+    because the alias publishes its minted head at `:handler-fn` like
+    every other substrate's `:view` entry (rf2-kuky.60). It used to read a
+    private `:hicasso/component` off `rf/handler-meta`, because the entry
+    carried no `:handler-fn` and `rf/view` answered nil (rf2-5qaf4);
   - **mint the element directly** with `rf.hicasso/as-element` rather than bridging
     through `rf.hicasso/as-component`. `element-type-is-stable-across-renders` is
     the evidence: `defview` already mints ONE `React.memo` wrapper per
@@ -163,7 +166,7 @@
   "The `:hicasso` substrate render fn, exactly as a host writes it (and
   exactly as `multi-substrate`'s ns docstring writes it out)."
   [_variant-id view-id args]
-  (if-let [head (:hicasso/component (rf/handler-meta :view view-id))]
+  (if-let [head (rf/view view-id)]
     (rf.hicasso/as-element [head args])
     [:div (str ":component " (pr-str view-id)
                " is not registered as a hicasso view")]))
@@ -583,15 +586,15 @@
       (is (identical? (.-type a) (.-type b)) "riding one stable type"))))
 
 (deftest resolution-is-late-so-a-hot-reload-reaches-the-story
-  (testing "the render fn reads `(rf/handler-meta :view id)` on EVERY
-            render rather than capturing a head. Re-evaluating a `defview`
-            replaces the registrar entry behind the same id; the story
-            must pick the new head up with no story change. Simulated the
-            way a reload works — a second entry written under the same id."
+  (testing "the render fn reads `(rf/view id)` on EVERY render rather than
+            capturing a head. Re-evaluating a `defview` replaces the
+            registrar entry behind the same id; the story must pick the new
+            head up with no story change. Simulated the way a reload works
+            — a second entry written under the same id."
     (rf.story/register-substrate! :hicasso hicasso-render)
     (let [before (.-type (hicasso-render :story.hicasso/card card-id {}))]
       (rf.registrar/register! :view card-id
-        (assoc (get alias-entries card-id) :hicasso/component hicasso-panel))
+        (assoc (get alias-entries card-id) :handler-fn hicasso-panel))
       (let [after (.-type (hicasso-render :story.hicasso/card card-id {}))]
         (is (not (identical? before after))
             "the story followed the replaced entry")
@@ -633,18 +636,53 @@
            bug, not the remedy")
       (rf.story/destroy-variant! :story.hicasso/card))))
 
-(deftest rf-view-still-answers-nil-for-a-hicasso-alias
-  (testing "the premise the whole render fn is built on (rf2-5qaf4): the
-            alias entry carries NO `:handler-fn`, so `rf/view`'s *returns
-            the registered render fn* contract stays honest and answers
-            nil. If this ever became non-nil the `:reagent` substrate would
-            start painting hicasso heads as Reagent components — a plain
-            function in head position, which Hicasso refuses loudly and
-            Reagent would call with the wrong ABI."
-    (is (nil? (rf/view card-id)))
-    (is (some? (rf/handler-meta :view card-id))
-        "the entry EXISTS — the nil above is the shape, not an absence")
-    (is (nil? (:handler-fn (rf/handler-meta :view card-id))))
-    (is (identical? hicasso-card
-                    (:hicasso/component (rf/handler-meta :view card-id)))
-        "and `:hicasso/component` is the very value the `def` binds")))
+(deftest rf-view-answers-the-hicasso-alias-and-answers-it-untouched
+  (testing "the premise the whole render fn is built on, and it INVERTED
+            under rf2-kuky.60. The alias entry publishes its minted head at
+            `:handler-fn` — the one executable slot every substrate's
+            `:view` entry uses — so `rf/view` answers a Hicasso boundary
+            the way it answers a Reagent or a UIx head, and this render fn
+            needs no second descriptor shape. What comes back is the `def`
+            value itself: `view-head` returns a slot it did not build
+            exactly as stored, so nothing wrapped or componentised a
+            boundary that already is a React component."
+    (is (some? (rf/view card-id)))
+    (is (identical? hicasso-card (rf/view card-id))
+        "the very value the `def` binds")
+    (is (identical? hicasso-card (:handler-fn (rf/handler-meta :view card-id))))
+    (is (not (contains? (rf/handler-meta :view card-id) :hicasso/component))
+        "and the private slot it used to ride is gone, so no consumer can
+         still be reading it"))
+
+  (testing "THE HAZARD THAT NIL USED TO COVER FOR, now covered by a guard
+            instead. While `rf/view` answered nil, the `:reagent` substrate
+            could not paint a Hicasso head because it could not find one.
+            Now it finds one — and a boundary is a React component type, so
+            splicing `[head args]` into a Reagent tree would call a plain
+            function with the wrong ABI. `reagent-render` reads the
+            `hicassoBoundary` own-property and returns its inline
+            diagnostic instead, naming the substrate that CAN mount it."
+    (rf.story.ui.multi-substrate/install-reagent-substrate!)
+    (let [painted (rf.story.ui.multi-substrate/render-view
+                    :reagent :story.hicasso/card card-id {:label "one"})
+          text    (pr-str painted)]
+      (is (not (identical? hicasso-card (first painted)))
+          "the head was NOT spliced into head position, which is the
+           wrong-ABI call this guard exists to prevent")
+      (is (= :div (first painted))
+          "what came back is the inline diagnostic")
+      (is (re-find #"hicasso" text)
+          "the diagnostic names the substrate that can mount it")
+      (is (re-find #":substrates" text)
+          "and tells the author what to declare")))
+
+  (testing "the guard DISCRIMINATES — it is not refusing every head.
+            `:views/reagent-probe` is an ordinary `reg-view` registered by
+            this file's own fixture, and it still paints, so the refusal
+            above is about the HEAD's substrate and not about the
+            `:reagent` branch having stopped working"
+    (rf.story.ui.multi-substrate/install-reagent-substrate!)
+    (let [painted (rf.story.ui.multi-substrate/render-view
+                    :reagent :story.hicasso/card :views/reagent-probe {})]
+      (is (identical? (rf/view :views/reagent-probe) (first painted))
+          "spliced in head position, exactly as before this change"))))
