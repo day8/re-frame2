@@ -622,9 +622,11 @@
         [:button {:type :submit :data-testid (str "edit-save-" id)} "Save"]
         [:button {:type :button :on-click #(dispatch [:linearlite/cancel-edit])} "Cancel"]]
        [:div.issue-row
-        [:span.issue-title (cond-> {:data-testid (str "title-" id)}
-                             creating?       (assoc :title "Waiting for the server to name this card…")
-                             (not creating?) (assoc :on-click #(dispatch [:linearlite/begin-edit id title])))
+        [:span.issue-title
+         (merge {:data-testid (str "title-" id)}
+                (if creating?
+                  {:title "Waiting for the server to name this card…"}
+                  {:on-click #(dispatch [:linearlite/begin-edit id title])}))
          title]
         (when pending? [:span.badge {:data-testid (str "pending-" id)} "saving…"])
         (when errored? [:span.badge.error {:data-testid (str "errored-" id)} "failed — reverted"])])
