@@ -318,7 +318,7 @@ nav:
     - "re-frame.core": api/re-frame.core.md
     - "re-frame.schemas": api/re-frame.schemas.md
     - "re-frame.flows": api/re-frame.flows.md
-    - "re-frame.http": api/re-frame.http.md
+    - "Managed HTTP": api/re-frame.http.md
     - "re-frame.machines": api/re-frame.machines.md
     - "re-frame.routing": api/re-frame.routing.md
     - "re-frame.resources": api/re-frame.resources.md

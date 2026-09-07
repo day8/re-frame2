@@ -48,10 +48,6 @@
             ;; so we reach for the registry ns directly. It's the same atom the
             ;; live transport writes into and the live abort fx resolves.
             [re-frame.http.registry :as rf.http.registry]
-            ;; The verb helpers (rf.http/get / post / put / delete / patch /
-            ;; head / options). Each builds the canonical
-            ;; [:rf.http/managed args-map] vector so the call site stays a line.
-            [re-frame.http :as rf.http]
             [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
 ;; ============================================================================
@@ -111,9 +107,12 @@
                       :http-counter/error  (:error reply)))}
 
       ;; No reply yet, so this is the opening move: fire the request and
-      ;; address its reply back to THIS event with `:reply-to`. `rf.http/get`
-      ;; builds the same `[:rf.http/managed args-map]` vector a hand-written
-      ;; `:method :get` entry would — just in one tidy line.
+      ;; address its reply back to THIS event with `:reply-to`. The request
+      ;; is DATA — a `[:rf.http/managed args-map]` vector, with the method
+      ;; and URL sitting under `:request` beside the wire fields. An app that
+      ;; issues many requests writes its own builder fn over this map (a base
+      ;; URL, default headers, a default `:decode`); see
+      ;; examples/real-apps/realworld_http/http.cljs for that pattern.
       ;;
       ;; Note this arm tests for the ABSENCE of a reply rather than sitting in
       ;; the `:else` slot. A reply-to-self handler is two handlers in one, and
@@ -123,7 +122,9 @@
       ;; fall through to the initiation arm and RE-ISSUE the request.
       (nil? reply)
       {:db (assoc db :http-counter/status :loading :http-counter/error nil)
-       :fx [(rf.http/get "api/inc.json" {:decode :json :reply-to [:http-counter/+1]})]}
+       :fx [[:rf.http/managed {:request  {:method :get :url "api/inc.json"}
+                               :decode   :json
+                               :reply-to [:http-counter/+1]}]]}
 
       ;; A reply arrived carrying some other status (a cancellation, say).
       ;; Settle the UI; never re-issue.
@@ -149,7 +150,7 @@
       ;; We never expect to land here — the URL is a deliberate 404.
       {:db (assoc db :http-counter/status :idle :http-counter/error nil)}
 
-      ;; Same `rf.http/get` helper as above, and a worthwhile detail hides in
+      ;; Same request shape as above, and a worthwhile detail hides in
       ;; here: status is classified *before* the body is decoded. So a 404 that
       ;; answers with HTML or plain text is :rf.http/http-4xx (raw body at
       ;; :body), never :rf.http/decode-failure — even if you'd asked for
@@ -162,7 +163,8 @@
       ;; status cannot be mistaken for "no reply yet" and re-issue the request.
       (nil? reply)
       {:db (assoc db :http-counter/status :loading :http-counter/error nil)
-       :fx [(rf.http/get "api/does-not-exist" {:reply-to [:http-counter/fail]})]}
+       :fx [[:rf.http/managed {:request  {:method :get :url "api/does-not-exist"}
+                               :reply-to [:http-counter/fail]}]]}
 
       :else
       {:db (assoc db :http-counter/status :idle)})))

@@ -2919,6 +2919,32 @@ Two or more inputs need no body change — they already bound a vector. Where th
 
 ---
 
+### M-76. The `re-frame.http` verb helpers are removed — issue the `[:rf.http/managed …]` fx directly
+
+**Type A** (mechanical). **v2-pre-rename codebases only** — v1 had no `re-frame.http` namespace (v1 issued requests through the `:http-xhrio` fx of the separate `day8.re-frame/http-fx` add-on, which is [O-17](#o-17-convert-day8re-framehttp-fx-http-xhrio-to-re-frame2-managed-http-rfhttpmanaged)'s subject, not this rule's).
+
+The `re-frame.http` namespace and its seven per-verb synthesis fns — `get` / `post` / `put` / `delete` / `patch` / `head` / `options` — are **removed**. Each returned a `[:rf.http/managed args-map]` fx vector with `:method` and `:url` pre-filled under `:request`; write that vector directly instead. Per pre-alpha posture there is no alias and no shim — a stale `(:require [re-frame.http :as rf.http])` fails at **compile** with a missing-namespace error, so the sweep is loud and exhaustive.
+
+```clojure
+;; v2-pre-rename
+(:require [re-frame.http :as rf.http])
+
+{:fx [(rf.http/get "/api/items" {:decode :json :reply-to [:items/loaded]})]}
+
+;; v2
+{:fx [[:rf.http/managed {:request  {:method :get :url "/api/items"}
+                         :decode   :json
+                         :reply-to [:items/loaded]}]]}
+```
+
+**The rewrite in full.** Drop the `[re-frame.http :as rf.http]` require (keep `[re-frame.http.managed]` — that is the require that registers the fx, per [M-31](#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http)). Then, at each call site, replace `(rf.http/<verb> url args)` with `[:rf.http/managed args']`, where `args'` is `args` with `:request` merged to carry `{:method :<verb> :url url}`. Note the direction of that merge: the helper's `:method` and `:url` **overwrote** any the caller had put under `:request`, so a call site that set either there loses nothing by folding — the helper's values are the ones that were in effect.
+
+**What to look for.** `rg -n 'rf\.http/(get|post|put|delete|patch|head|options)'` and `rg -n '\[\s*re-frame\.http\s+:as'` — the alias is the only spelling (the namespace `:refer-clojure :exclude`d `get`, so it was never `:refer`ed).
+
+**Why:** the data is the API. One fx-id and one args map is Spec 014's thesis, and a verb family is a second way to say the same thing — it hid nothing, saved one map literal, and cost a namespace, a `clojure.core/get` shadow, and a two-require trap. An app that finds the literal repetitive writes **one builder fn** returning the args map, which carries the policy a per-verb fn cannot (a base URL, default headers, a default `:decode`, body encoding) and composes with the resource / mutation `:request` producers, which consume args **maps** and would reject a pre-built fx vector. See [`docs/async/http.md` §Your own request builder](../../docs/async/http.md#your-own-request-builder).
+
+---
+
 ## Opt-in modernisation (only if asked)
 
 These are not required for migration. Apply them only if the user has explicitly asked to modernise the codebase to use re-frame2's new features.

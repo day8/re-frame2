@@ -1329,7 +1329,7 @@ M1_EXEMPT_NSES = [
     "re-frame.adapter.reagent", "re-frame.adapter.uix", "re-frame.adapter.helix",
     "re-frame.spec", "re-frame.interop",
     "re-frame.schemas", "re-frame.machines", "re-frame.routing", "re-frame.flows",
-    "re-frame.http", "re-frame.http.managed", "re-frame.http.test-support",
+    "re-frame.http.managed", "re-frame.http.test-support",
     "re-frame.ssr", "re-frame.epoch", "re-frame.test-support",
 ]
 

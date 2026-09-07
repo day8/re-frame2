@@ -206,8 +206,7 @@ The reserved set above fixes the framework's naming identity: an **`rf` root wit
           [re-frame.schemas  :as rf.schemas]
           [re-frame.ssr      :as rf.ssr]
           [re-frame.flows    :as rf.flows]
-          [re-frame.epoch    :as rf.epoch]
-          [re-frame.http     :as rf.http])
+          [re-frame.epoch    :as rf.epoch])
 ```
 
 The point is that a call site reads as **one language** beside the keywords it manipulates: `(rf.routing/match-url url)` sits next to `:rf.route/params` and `rf/dispatch` without changing dialect mid-line. An author who has learned the keyword scheme already knows the alias, and the alias already tells a reader "this symbol came from the framework, not from the app".

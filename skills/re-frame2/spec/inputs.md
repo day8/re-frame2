@@ -21,7 +21,7 @@ Specific files the leaves lean on:
 - `implementation/core/src/re_frame/substrate/plain_atom.cljc` — JVM-side adapter.
 - `implementation/adapters/reagent/src/re_frame/adapter/reagent.cljs` — `frame-provider`, plain-Reagent-fn warning.
 - `implementation/machines/src/re_frame/machines/**` — the 33-file machine artefact (`transition`, `parallel`, `spawn_order`, `timer`, `tooling`, `lifecycle_fx/`, …): `:spawn`, parallel regions, tags. `machines.cljc` beside it is the façade that re-exports that tree — read it for the public surface, the sub-namespaces for behaviour. The `reg-machine` / `defmachine` **macros** live in `implementation/core/src/re_frame/core.cljc`, not here.
-- `implementation/http/src/re_frame/http.cljc` — `:rf.http/managed`, failure categories, request stubs.
+- `implementation/http/src/re_frame/http/managed.cljc` — `:rf.http/managed`, failure categories, request stubs.
 
 ## 2. Secondary input — `examples/**`
 

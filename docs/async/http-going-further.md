@@ -29,7 +29,11 @@ transforms the request on the way out; `:after` transforms the reply on the way 
 ;; Now no handler threads auth — the header is added on the way out:
 (rf/reg-event :articles/list
   (fn [_ _]
-    {:fx [(rf.http/get "/articles" {:decode ArticleListResponse})]}))
+    {:fx [[:rf.http/managed
+           {:request    {:method :get :url "/articles"}
+            :decode     ArticleListResponse
+            :on-success [:articles/loaded]
+            :on-failure [:articles/load-failed]}]]}))
 ```
 
 The two phases:
@@ -59,7 +63,7 @@ The rules that matter:
 - **A throw is named, not swallowed.** A `:before` or `:after` that throws classifies as a named interceptor-failed error (carrying the offending `:interceptor-id`); a request-side throw means the transport never sees the request. Wrap recoverable logic inside the interceptor yourself — the chain has no recovery cofx.
 - **Clearing.** Inside a frame scope, `(rf/clear :http-interceptor id)` removes that frame's interceptor. Outside a frame scope, or when you want to name the frame directly, use the opts form `(rf/clear :http-interceptor id {:frame frame-id})` — the trailing `{:frame …}` opts map, mirroring `reg-http-interceptor`'s `:frame`. Calling the single-arity form with no frame in scope fails loud with `:rf.error/no-frame-context`. Re-registering an existing id replaces it *in place* (hot-reload-friendly); clear-then-reg appends a fresh slot at the end.
 
-`reg-http-interceptor` and `clear-http-interceptor` are the only two HTTP surfaces re-exported onto the `rf/` facade (everything else lives in `re-frame.http` / `re-frame.http.managed`). This same seam is where resources and mutations get *their* request decoration too: register the auth interceptor once and every `:rf.http/managed` request, whether you issued it directly or a [resource](../resources/concepts.md) did, carries the header.
+`reg-http-interceptor` and `clear-http-interceptor` are the only two HTTP surfaces re-exported onto the `rf/` facade (everything else is keyword-addressed on `re-frame.http.managed`). This same seam is where resources and mutations get *their* request decoration too: register the auth interceptor once and every `:rf.http/managed` request, whether you issued it directly or a [resource](../resources/concepts.md) did, carries the header.
 
 ## Keeping secrets out of the trace
 

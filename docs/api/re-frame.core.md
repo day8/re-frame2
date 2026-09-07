@@ -1498,7 +1498,7 @@ Server-side rendering is the same framework server-side. A curated set of render
 
 ### HTTP → [re-frame.http.md](re-frame.http.md)
 
-Managed HTTP is an optional capability: one fx-id (`[:rf.http/managed …]`), one args map, one closed failure taxonomy. The verb helpers (`rf.http/get`, `post`, …), the `[:rf.http/managed …]` / `[:rf.http/managed-abort …]` fx, the failure taxonomy, and the raw `install`/`uninstall` stub pair live in the HTTP doc.
+Managed HTTP is an optional capability: one fx-id (`[:rf.http/managed …]`), one args map, one closed failure taxonomy. The `[:rf.http/managed …]` / `[:rf.http/managed-abort …]` fx, the failure taxonomy, and the raw `install`/`uninstall` stub pair live in the HTTP doc.
 
 #### `reg-http-interceptor`
 

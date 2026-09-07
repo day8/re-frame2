@@ -87,7 +87,6 @@
             ;; register from re-frame.http.test-support. A testbed IS a
             ;; test affordance, so requiring it is correct.
             [re-frame.http.test-support]
-            [re-frame.http :as rf.http]
             [re-frame.views]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [runner.core :as runner])
@@ -260,11 +259,11 @@
          reply :status :ok."}
   (fn [{:keys [db]} _ev]
     {:db (-> db (assoc :status :loading :reply nil) (log-line "→ GET api/ok.json"))
-     :fx [(rf.http/get "api/ok.json"
-                       {:decode     :json
-                        :request-id ok-request-id
-                        :on-success [::reply]
-                        :on-failure [::reply]})]}))
+     :fx [[:rf.http/managed
+           {:request    {:method :get :url "api/ok.json"}
+            :decode     :json
+            :request-id ok-request-id
+            :reply-to   [::reply]}]]}))
 
 ;; (3) Error response — 4xx. Canned-failure-with-trace synthesises the
 ;; same reply envelope + error trace a live 404 would.

@@ -436,9 +436,9 @@
 
   1. Per-call `:sensitive?` on the args map (`true` opts in for this
      specific request).
-  2. Per-call `:sensitive?` under `:request` (sugar — callers reaching
-     for `(rf.http/post ... {:request {:sensitive? true}})` get the
-     same effect as the top-level form).
+  2. Per-call `:sensitive?` under `:request` (sugar — a caller who sets
+     it beside the wire fields, `{:request {:method :post :sensitive? true}}`,
+     gets the same effect as the top-level form).
 
   Returns `true` if any source declares sensitivity; `false` otherwise.
 
