@@ -1210,7 +1210,10 @@
                                            :justification "The capability half of current-adapter, read in the same sitting and from the same door; defined on re-frame.core with no owning public namespace."}
   ["re-frame.core" "configure!"]           {:tier :front-porch :owner "Conventions" :status "v1"
                                            :action :keep
-                                           :justification "Front-porch: the single process-level config door, and the config-mutation verb the lifecycle-verb law fixes across all three facades (Conventions, configure! vs describe-config / current-config). An app calls it once at boot."}
+                                           :justification "Front-porch: the single process-level config door, and the config-mutation verb the lifecycle-verb law fixes across all three facades (Conventions, configure! vs current-config). An app calls it once at boot."}
+  ["re-frame.core" "current-config"]       {:tier :advanced :owner "Conventions" :status "v1"
+                                           :action :keep
+                                           :justification "Ruled ADD by rf2-kuky.4 (2026-09-06, rider A-ii) on named callers, not on symmetry with configure!. Two of them: the pair preload health query read the epoch depth by (resolve 're-frame.epoch/current-config) because no facade door handled an OPTIONAL artefact being absent, and rf2-kuky.55 C1 deletes the two owning-ns readers (re-frame.epoch/current-config, re-frame.elision/current-config) onto this one door — net -2 public vars on the back of this +1. Deferring was defensible (codex); the consumers are why it was not deferred. Advanced rather than front-porch: an app configures at boot and never reads back, so the demand is tooling-shaped."}
   ;; EP-0013 -> EP-0023 supersession (rf2-pl97nd.2): the retired app/realm/module
   ;; COMPOSITION VOCABULARY left the public `re-frame.core` facade. The former
   ;; rows — `rf/module` / `rf/app` / `rf/app-registrations` / `rf/app-requires` /

@@ -75,8 +75,15 @@
             [re-frame.schemas :as rf.schemas]
             [re-frame.flows :as rf.flows]
             [re-frame.elision :as rf.elision]
+            [re-frame.late-bind :as rf.late-bind]
             [re-frame.trace :as rf.trace]
             [re-frame.trace.tooling :as rf.trace.tooling]
+            ;; rf2-kuky.76 — loads the OPTIONAL epoch artefact so its
+            ;; `:epoch/current-config` hook is published and the
+            ;; `:epoch-history` round trip below is exercised for real. The
+            ;; absent-artefact arm does not rely on this ns being unloaded
+            ;; (test order is not a contract); it drops the hook itself.
+            [re-frame.epoch :as rf.epoch]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (defn reset-runtime [test-fn]
@@ -120,6 +127,99 @@
     (rf/configure! {:elision {:rf.size/threshold-bytes 4096}})
     (is (= 4096 (:rf.size/threshold-bytes (rf.elision/current-config)))
         ":elision {:rf.size/threshold-bytes N} reaches the elision config")))
+
+;; ---------------------------------------------------------------------------
+;; rf2-kuky.76 — `current-config`, the read twin of `configure!`.
+;;
+;; The contract has three halves and each is pinned separately: what
+;; `configure!` wrote reads back in `configure!`'s own nested shape; a
+;; subsystem that is not loaded is ABSENT rather than defaulted; and the
+;; extension-key carve-out is write-only.
+;; ---------------------------------------------------------------------------
+
+(deftest current-config-round-trips-what-configure-wrote
+  (testing ":elision — PRODUCTION state, so this arm is always-on (rf2-d2841)"
+    (rf/configure! {:elision {:rf.size/threshold-bytes 8192}})
+    (is (= 8192 (get-in (rf/current-config) [:elision :rf.size/threshold-bytes]))
+        "the value configure! wrote reads back under the SAME key path"))
+
+  (testing ":epoch-history — via the optional epoch artefact's late-bind hook"
+    (try
+      (rf/configure! {:epoch-history {:depth 100}})
+      (is (= 100 (get-in (rf/current-config) [:epoch-history :depth]))
+          "(get-in (current-config) [:epoch-history :depth]) is the named
+           consumer's call — the pair preload's health query")
+      (finally
+        (rf/configure! {:epoch-history {:depth 50}}))))
+
+  (testing ":trace-buffer — dev-instrumentation arm (rf2-d2841). The WRITE is
+            gated on debug-enabled?, so only there is there a new value to read
+            back; the reader itself is ungated and reports the live default."
+    (is (contains? (rf/current-config) :trace-buffer)
+        "the tooling sibling is loaded in this ns, so the key is present in
+         BOTH postures")
+    (when rf.interop/debug-enabled?
+      (rf/configure! {:trace-buffer {:events-retained 25}})
+      (is (= 25 (get-in (rf/current-config) [:trace-buffer :events-retained]))
+          ":trace-buffer reads back the PROCESS default configure! set")))
+
+  (testing "one call, one read — the whole composite round trips at once"
+    (rf/configure! {:epoch-history {:depth 17}
+                    :elision       {:rf.size/threshold-bytes 4096}})
+    (try
+      (let [cfg (rf/current-config)]
+        (is (= 17 (get-in cfg [:epoch-history :depth])))
+        (is (= 4096 (get-in cfg [:elision :rf.size/threshold-bytes]))))
+      (finally
+        (rf/configure! {:epoch-history {:depth 50}})))))
+
+(deftest current-config-omits-an-absent-subsystem
+  (testing "an absent subsystem is an ABSENT KEY, never a fabricated default —
+            (get-in … [:epoch-history :depth]) reads nil, which is the answer
+            the pair preload's symbol-resolve gave before this door existed"
+    ;; Deterministic stand-in for a build without the optional artefact: drop
+    ;; the published hook, which is the exact condition `current-config`
+    ;; branches on. Both optional keys ride the same mechanism, so dropping
+    ;; either one proves it.
+    (let [epoch-hook (rf.late-bind/get-fn :epoch/current-config)
+          trace-hook (rf.late-bind/get-fn :trace.tooling/current-trace-buffer-config)]
+      (is (some? epoch-hook) "control: the hook IS published before we drop it")
+      (try
+        (swap! rf.late-bind/hooks dissoc
+               :epoch/current-config
+               :trace.tooling/current-trace-buffer-config)
+        (rf.late-bind/invalidate-cache! :epoch/current-config)
+        (rf.late-bind/invalidate-cache! :trace.tooling/current-trace-buffer-config)
+        (let [cfg (rf/current-config)]
+          (is (not (contains? cfg :epoch-history))
+              ":epoch-history is ABSENT, not nil — `contains?` is the assertion
+               that tells the two apart")
+          (is (not (contains? cfg :trace-buffer))
+              ":trace-buffer is ABSENT under a production bundle that DCEs the
+               dev-only trace.tooling sibling")
+          (is (nil? (get-in cfg [:epoch-history :depth]))
+              "so the consumer's get-in reads nil rather than a made-up depth")
+          (is (contains? cfg :elision)
+              "and the always-loaded subsystem is unaffected — this is an
+               omission, not an empty map"))
+        (finally
+          (rf.late-bind/set-fn! :epoch/current-config epoch-hook)
+          (rf.late-bind/set-fn! :trace.tooling/current-trace-buffer-config trace-hook))))
+    (is (contains? (rf/current-config) :epoch-history)
+        "restored — the fixture leaves no hole for the next test")))
+
+(deftest current-config-does-not-reflect-extension-keys
+  (testing "the USER-NAMESPACED carve-out is WRITE-only: configure! accepts a
+            composed config value in silence, but current-config reports only
+            the keys the runtime READS — its vocabulary is closed, so a
+            pass-through key has no live value to report"
+    (rf/configure! {:myapp/thing  {:a 1}
+                    :elision      {:rf.size/threshold-bytes 2048}})
+    (let [cfg (rf/current-config)]
+      (is (not (contains? cfg :myapp/thing))
+          "the extension key is not reflected back")
+      (is (= 2048 (get-in cfg [:elision :rf.size/threshold-bytes]))
+          "control: the same call's KNOWN key did land, so the write happened"))))
 
 (deftest trace-buffer-rejected-opts-warn-not-silent
   (testing "rf2-x3m8c finding 1 — the retired {:depth N} shape (and any

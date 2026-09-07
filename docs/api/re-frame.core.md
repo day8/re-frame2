@@ -868,6 +868,32 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
                   :elision       {:rf.size/threshold-bytes 8192}})
   ```
 
+### `current-config`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (current-config) → config-map
+  ```
+- **Description**: The read twin of `configure!` — the process-level config values currently in effect, in `configure!`'s own nested shape. Use it to answer "what is this process actually running with?" from a tool, a health check, or a diagnostic panel.
+
+  **Process values only.** There are no per-frame effective values here: a frame carrying its own `:rf.trace/events-retained` metadata is not reflected, because this reads back exactly the slots `configure!` writes.
+
+  **An unloaded subsystem's key is ABSENT** — not `nil`, and never a fabricated default. `:epoch-history` needs the optional `day8/re-frame2-epoch` artefact; `:trace-buffer` needs the dev-only trace-tooling sibling, so a production bundle that DCEs it reports neither key. `(get-in (rf/current-config) [:epoch-history :depth])` therefore reads `nil` on such a build, which is the answer a health query wants — and the facade owns that branch, so callers do not resolve optional-artefact vars by symbol.
+
+  The result is a key-by-key snapshot rather than a transactional one, and it is not promised to be wire-serialisable (`:epoch-history` can carry a `:redact-fn`). A **user-namespaced** pass-through key `configure!` accepted in silence (`:myapp/thing`) is *not* reflected back: the vocabulary is closed, so only keys the runtime reads have live values to report.
+- **Example**:
+  ```clojure
+  (rf/configure! {:epoch-history {:depth 100}})
+
+  (rf/current-config)
+  ;; => {:epoch-history {:depth 100 :trace-events-keep 50 :redact-fn nil}
+  ;;     :trace-buffer  {:events-retained 50}
+  ;;     :elision       {:rf.size/threshold-bytes 16384}}
+
+  (get-in (rf/current-config) [:epoch-history :depth])   ;; => 100
+  ```
+
 ### `features`
 
 - **Kind**: function

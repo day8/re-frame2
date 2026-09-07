@@ -814,6 +814,10 @@
    {:key         :epoch/configure!
     :producer-ns 're-frame.epoch
     :description "Configure epoch buffer size / capture policy."}
+   {:key         :epoch/current-config
+    :producer-ns 're-frame.epoch
+    :design-bead "rf2-kuky.76"
+    :description "Read the live epoch-history config map back. The read half of `:epoch/configure!`, consulted by `re-frame.core/current-config` for its `:epoch-history` key. Bound to the STATE-level reader (`re-frame.epoch.state/current-config`) rather than the owning-ns public var, so the facade door does not depend on a public var rf2-kuky.55 C1 deletes. Absent hook = absent key: a build without the optional epoch artefact reports no `:epoch-history` at all rather than a fabricated default."}
    {:key         :epoch/reset-config!
     :producer-ns 're-frame.epoch
     :design-bead "rf2-yw1w1u"
@@ -1070,6 +1074,10 @@
     :producer-ns 're-frame.trace.tooling
     :design-bead "rf2-qwm0a"
     :description "Set the trace ring buffer depth. Late-bound from `re-frame.core/configure!`'s `:trace-buffer` key so a no-tooling production build silently no-ops."}
+   {:key         :trace.tooling/current-trace-buffer-config
+    :producer-ns 're-frame.trace.tooling
+    :design-bead "rf2-kuky.76"
+    :description "Read the PROCESS-DEFAULT trace-ring retention back as `{:events-retained N}`. The read half of `:trace.tooling/configure-trace-buffer!`, consulted by `re-frame.core/current-config` for its `:trace-buffer` key. Reports the process default only — a frame carrying its own `:rf.trace/events-retained` override is not reflected, matching what `configure!` writes. Same seam and same reason as the write hook: a production build that never loads the tooling sibling reports no `:trace-buffer` key at all."}
    {:key         :trace.tooling/register-listener!
     :producer-ns 're-frame.trace.tooling
     :design-bead "rf2-r1ciy"

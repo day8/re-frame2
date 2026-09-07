@@ -3847,10 +3847,12 @@
      ;; non-tool frames) stay ambiguous until the session pins one.
      :ambiguous-frame?          (and (> (count app-fids) 1)
                                      (nil? @selected-frame))
-     :epoch-history-depth       (try
-                                  (let [requiring (resolve 're-frame.epoch/current-config)]
-                                    (when requiring (:depth (requiring))))
-                                  (catch :default _ nil))
+     ;; `current-config` is the facade's own read twin of `configure!`, and
+     ;; it handles the optional-artefact branch itself: a build without
+     ;; `day8/re-frame2-epoch` reports no `:epoch-history` key at all, so
+     ;; this reads nil rather than a fabricated depth. That is what retired
+     ;; the symbol-resolve this line used to carry (rf2-kuky.76).
+     :epoch-history-depth       (get-in (rf/current-config) [:epoch-history :depth])
      :epoch-counts              (into {} (map (fn [fid]
                                                 [fid (count (rf/epoch-history fid))])
                                               fids))
