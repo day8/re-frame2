@@ -226,7 +226,7 @@
 ;;      container, and a container asked for before `init!` fails loud with
 ;;      `:rf.error/no-adapter-installed`.
 ;;
-;;   2. `rf/make-frame` creates the frame — ONCE, here, with
+;;   2. `[h/frame-root {…}]` creates the frame — ONCE, in the tree, with
 ;;      `model/frame-config` merged in. That config is the substrate-free half
 ;;      of the boot, shared verbatim with the Reagent and UIx twins: its
 ;;      `:fx-overrides` points `:rf.http/managed` at the in-process demo stub
@@ -234,19 +234,16 @@
 ;;      form slice before the first paint — skip that and the inputs read `nil`
 ;;      for their `:value` and React quietly demotes them to uncontrolled.
 ;;
-;;      Why here rather than inside the mount? Because `rf.hicasso/mount!`'s config
-;;      carries exactly three keys — `:frame`, `:initial-events` and
-;;      `:identifier-prefix` — and `:fx-overrides` is not among them. That is
-;;      the root door's shape, not an omission, and the example bends to it
-;;      rather than the other way around: no shim is added to `rf.hicasso/mount!` for
-;;      this file's convenience.
+;;      `frame-root` takes the `rf/make-frame` option map WHOLE, so
+;;      `:fx-overrides` rides it like any other option and there is no separate
+;;      `rf/make-frame` call to keep in step with the mount. This example used
+;;      to make the frame first and mount to JOIN it, purely because the root
+;;      door's config could not carry `:fx-overrides`; the boundary in the tree
+;;      is what retired that detour (rf2-kuky.58).
 ;;
-;;   3. `rf.hicasso/mount!` associates the DOM node, the frame and one root view.
-;;      Mounting ENSURES its frame: it creates the frame when absent and JOINS
-;;      the live one otherwise. Step 2 already created `:rf/default`, so this
-;;      joins it untouched — no re-seed, no config refresh — which is why
-;;      `:initial-events` is NOT repeated here. It rides `frame-config` at
-;;      step 2, where the frame is actually made.
+;;   3. `rf.hicasso/mount!` associates the DOM node with one root view. Its
+;;      config carries ROOT options only — `:identifier-prefix` — and a key it
+;;      does not own now fails loud rather than being ignored.
 ;;
 ;; Nothing above this line touched the DOM. Namespace load registers handlers
 ;; and defines views and does no more, so another namespace can require this
@@ -284,16 +281,33 @@
 
 (defn run []
   (rf/init! rf.hicasso.substrate/adapter)
-  (rf/make-frame (merge {:id  frame-id
-                         :doc "Login (Hicasso) demo frame."}
-                        model/frame-config))
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById app-element-id))]
     (let [payload (rf.ssr/read-server-payload)
-          config  {:frame             frame-id
-                   :identifier-prefix identifier-prefix}]
+          config  {:identifier-prefix identifier-prefix}]
       (if (some? payload)
-        (do (rf.ssr/hydrate! {:frame frame-id :payload payload})
-            (reset! !root (rf.hicasso/hydrate! el config [root-view])))
-        (reset! !root (rf.hicasso/mount! el config [root-view])))))
+        ;; SSR: STATE COMES FIRST, and that is why this branch — and only
+        ;; this branch — still calls `rf/make-frame` by hand. `rf.ssr/hydrate!`
+        ;; dispatches `[:rf/hydrate payload]` INTO a frame; it does not make
+        ;; one, and the frame it dispatches into needs `:fx-overrides` already
+        ;; installed. So the frame is made, the payload replaces its app-db,
+        ;; and the tree SCOPEs the result. An ENSURE in the tree here would
+        ;; run at COMMIT — after the payload, and seeding replacement state
+        ;; over the state the server rendered from, which is exactly the
+        ;; mistake the frame-root / frame-provider split exists to name.
+        (do (rf/make-frame (merge {:id  frame-id
+                                   :doc "Login (Hicasso) demo frame."}
+                                  model/frame-config))
+            (rf.ssr/hydrate! {:frame frame-id :payload payload})
+            (reset! !root (rf.hicasso/hydrate! el config
+                            [rf.hicasso/frame-provider {:frame frame-id}
+                             [root-view]])))
+        ;; Client-only: the tree ENSUREs, with the whole `make-frame` option
+        ;; map on the head.
+        (reset! !root (rf.hicasso/mount! el config
+                        [rf.hicasso/frame-root
+                         (merge {:id  frame-id
+                                 :doc "Login (Hicasso) demo frame."}
+                                model/frame-config)
+                         [root-view]])))))
   nil)

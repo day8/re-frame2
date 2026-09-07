@@ -405,9 +405,18 @@
 (defn dispatch!
   "Dispatch through the package's synchronous door and commit the echo.
   The witness door; an intent written in a view reaches
-  `collector/dispatch!` on its own."
-  [handle event]
-  (rf.hicasso.impl.collector/dispatch! (:frame handle) event)
+  `collector/dispatch!` on its own.
+
+  `target` is the FRAME KEYWORD, or a handle that names one. A handle
+  names one only when it came from the impl tier's positional shape: a
+  root mounted through `h/mount!` scopes its frame in the TREE
+  (`h/frame-root` / `h/frame-provider`), so its handle names no frame and
+  a witness driving one names the frame itself — which is the honest
+  spelling anyway, since a root can hold more than one boundary."
+  [target event]
+  (rf.hicasso.impl.collector/dispatch!
+    (if (keyword? target) target (:frame target))
+    event)
   (settle!)
   nil)
 

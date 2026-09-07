@@ -172,8 +172,10 @@
   (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (let [_ (fresh!)
-          a (rf.hicasso/mount! (rf.hicasso.impl.mount/fresh-container!) {:frame frame-a} [panel {:tag "a"}])
-          b (rf.hicasso/mount! (rf.hicasso.impl.mount/fresh-container!) {:frame frame-b} [panel {:tag "b"}])]
+          a (rf.hicasso/mount! (rf.hicasso.impl.mount/fresh-container!) {}
+                      [rf.hicasso/frame-root {:id frame-a} [panel {:tag "a"}]])
+          b (rf.hicasso/mount! (rf.hicasso.impl.mount/fresh-container!) {}
+                      [rf.hicasso/frame-root {:id frame-b} [panel {:tag "b"}]])]
       (try
         (testing "premise: two roots, two frames, one cell each, both painted"
           (is (= #{[frame-a label-q] [frame-b label-q]} (cell-keys))
@@ -199,7 +201,7 @@
                   the reading the DOM alone cannot give — the markup React
                   last committed stays on the page whether or not anything
                   is still wired to it"
-          (rf.hicasso.impl.mount/dispatch! b [::relabel "beta-again"])
+          (rf.hicasso.impl.mount/dispatch! frame-b [::relabel "beta-again"])
           (is (= "beta-again" (text-at b ".label"))
               "root B stopped repainting when root A was torn down"))
 
@@ -237,7 +239,8 @@
   (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (let [_ (fresh!)
-          a (rf.hicasso/mount! (rf.hicasso.impl.mount/fresh-container!) {:frame frame-a} [panel {:tag "first"}])
+          a (rf.hicasso/mount! (rf.hicasso.impl.mount/fresh-container!) {}
+                      [rf.hicasso/frame-root {:id frame-a} [panel {:tag "first"}]])
           node (node-at a ".panel")]
       (try
         (testing "premise: the root is mounted and painted"
@@ -263,7 +266,7 @@
 
         (testing "the root is still wired after the re-render — a dispatch
                   still reaches its paint"
-          (rf.hicasso.impl.mount/dispatch! a [::relabel "alpha-again"])
+          (rf.hicasso.impl.mount/dispatch! frame-a [::relabel "alpha-again"])
           (is (= "alpha-again" (text-at a ".label"))))
 
         (finally
@@ -332,8 +335,10 @@
     (do
       ;; DISARMED — the shipped root-scoped door.
       (let [_ (fresh!)
-            a (rf.hicasso/mount! (rf.hicasso.impl.mount/fresh-container!) {:frame frame-a} [panel {:tag "a"}])
-            b (rf.hicasso/mount! (rf.hicasso.impl.mount/fresh-container!) {:frame frame-b} [panel {:tag "b"}])]
+            a (rf.hicasso/mount! (rf.hicasso.impl.mount/fresh-container!) {}
+                        [rf.hicasso/frame-root {:id frame-a} [panel {:tag "a"}]])
+            b (rf.hicasso/mount! (rf.hicasso.impl.mount/fresh-container!) {}
+                        [rf.hicasso/frame-root {:id frame-b} [panel {:tag "b"}]])]
         (try
           (is (= #{[frame-a label-q] [frame-b label-q]} (cell-keys))
               (str "premise: two roots, two frames, one cell each; got "
@@ -344,7 +349,7 @@
             (is (contains? (cell-keys) [frame-b label-q])
                 (str "got " (pr-str (cell-keys))))
             (is (= 1 (readers-of [frame-b label-q])))
-            (rf.hicasso.impl.mount/dispatch! b [::relabel "beta-again"])
+            (rf.hicasso.impl.mount/dispatch! frame-b [::relabel "beta-again"])
             (is (= "beta-again" (text-at b ".label"))
                 "root B stopped repainting when root A was torn down"))
           (finally
@@ -358,8 +363,10 @@
 
       ;; ARMED — the same construction, torn down through the page-wide door.
       (let [_ (fresh!)
-            a (rf.hicasso/mount! (rf.hicasso.impl.mount/fresh-container!) {:frame frame-a} [panel {:tag "a"}])
-            b (rf.hicasso/mount! (rf.hicasso.impl.mount/fresh-container!) {:frame frame-b} [panel {:tag "b"}])]
+            a (rf.hicasso/mount! (rf.hicasso.impl.mount/fresh-container!) {}
+                        [rf.hicasso/frame-root {:id frame-a} [panel {:tag "a"}]])
+            b (rf.hicasso/mount! (rf.hicasso.impl.mount/fresh-container!) {}
+                        [rf.hicasso/frame-root {:id frame-b} [panel {:tag "b"}]])]
         (try
           (is (= #{[frame-a label-q] [frame-b label-q]} (cell-keys))
               (str "premise: the same two roots as the disarmed half; got "
@@ -380,7 +387,7 @@
                     The only symptom is a screen that has stopped moving, which
                     is exactly why W1 reads the tables and the dispatch rather
                     than the DOM"
-            (rf.hicasso.impl.mount/dispatch! b [::relabel "beta-again"])
+            (rf.hicasso.impl.mount/dispatch! frame-b [::relabel "beta-again"])
             (is (= "beta" (text-at b ".label"))
                 (str "the page-wide door left root B repainting, so the dispatch
                       reading in W1 is not a discrimination either; got "
@@ -425,14 +432,15 @@
           _ (is (false? (live-frame? frame-ensured))
                 "premise: the frame this mount names must not exist yet, or the
                  ENSURE claim below is green against somebody else's frame")
-          a (rf.hicasso/mount! (rf.hicasso.impl.mount/fresh-container!)
-                      {:frame          frame-ensured
-                       ;; TWO steps, because order is part of the contract:
-                       ;; `::seed` installs a whole db and `::relabel` edits it,
-                       ;; so running them the other way round leaves "first"
-                       ;; rather than "second" and the reading discriminates.
-                       :initial-events [[::seed "first"] [::relabel "second"]]}
-                      [panel {:tag "ensured"}])]
+          a (rf.hicasso/mount! (rf.hicasso.impl.mount/fresh-container!) {}
+                      [rf.hicasso/frame-root
+                       {:id             frame-ensured
+                        ;; TWO steps, because order is part of the contract:
+                        ;; `::seed` installs a whole db and `::relabel` edits it,
+                        ;; so running them the other way round leaves "first"
+                        ;; rather than "second" and the reading discriminates.
+                        :initial-events [[::seed "first"] [::relabel "second"]]}
+                       [panel {:tag "ensured"}]])]
       (try
         (testing "the mount CREATED the frame it named — nothing else did"
           (is (true? (live-frame? frame-ensured))
@@ -453,7 +461,7 @@
 
         (testing "the root is ordinarily wired afterwards — the ensured frame is
                   a real frame, not a one-shot seeding trick"
-          (rf.hicasso.impl.mount/dispatch! a [::relabel "third"])
+          (rf.hicasso.impl.mount/dispatch! frame-ensured [::relabel "third"])
           (is (= "third" (text-at a ".label"))))
 
         (finally
@@ -484,17 +492,17 @@
   (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (let [_ (bare!)
-          a (rf.hicasso/mount! (rf.hicasso.impl.mount/fresh-container!)
-                      {:frame          frame-ensured
-                       :initial-events [[::seed "creator"]]}
-                      [panel {:tag "a"}])
+          a (rf.hicasso/mount! (rf.hicasso.impl.mount/fresh-container!) {}
+                      [rf.hicasso/frame-root
+                       {:id frame-ensured :initial-events [[::seed "creator"]]}
+                       [panel {:tag "a"}]])
           ;; The joining root names its own `:initial-events`, and they must be
           ;; IGNORED. A door that replayed would leave "joiner" on both screens
           ;; and this row would be the only thing on the page to notice.
-          b (rf.hicasso/mount! (rf.hicasso.impl.mount/fresh-container!)
-                      {:frame          frame-ensured
-                       :initial-events [[::seed "joiner"]]}
-                      [panel {:tag "b"}])]
+          b (rf.hicasso/mount! (rf.hicasso.impl.mount/fresh-container!) {}
+                      [rf.hicasso/frame-root
+                       {:id frame-ensured :initial-events [[::seed "joiner"]]}
+                       [panel {:tag "b"}]])]
       (try
         (testing "the joining root did NOT re-seed the frame — the creator's
                   state stands, on both screens"
@@ -507,7 +515,7 @@
 
         (testing "and it really is ONE frame, not two that happen to agree: a
                   single dispatch moves both roots' paint"
-          (rf.hicasso.impl.mount/dispatch! a [::relabel "shared"])
+          (rf.hicasso.impl.mount/dispatch! frame-ensured [::relabel "shared"])
           (is (= ["shared" "shared"] [(text-at a ".label") (text-at b ".label")])
               "the two roots did not join one frame"))
 

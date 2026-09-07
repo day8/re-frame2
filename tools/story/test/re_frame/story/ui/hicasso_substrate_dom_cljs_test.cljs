@@ -363,8 +363,9 @@
             container (make-mount-node!)]
         (rf/make-frame {:id frame-id})
         (rf/dispatch-sync [:hicsub/bump 1] {:frame frame-id})
-        (let [handle (rf.hicasso/mount! container {:frame frame-id}
-                               [hicasso-card {:label "ctl"}])]
+        (let [handle (rf.hicasso/mount! container {}
+                               [rf.hicasso/frame-provider {:frame frame-id}
+                                [hicasso-card {:label "ctl"}]])]
           (try
             (is (= "ctl/1"
                    (some-> (.querySelector container "[data-test=\"hicasso-card\"]")

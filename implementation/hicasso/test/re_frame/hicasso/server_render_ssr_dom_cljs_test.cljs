@@ -609,8 +609,9 @@
             reports        (atom [])]
         (rf/make-frame {:id wire-frame :initial-events [[:rf/set-db snapshot]]})
         (let [handle (rf.hicasso/hydrate! container
-                                 {:frame wire-frame :identifier-prefix "pfx-a-"}
-                                 [id-page {}])]
+                                 {:identifier-prefix "pfx-a-"}
+                                 [rf.hicasso/frame-provider {:frame wire-frame}
+                                  [id-page {}]])]
           (-> (rf.hicasso.roots-frames-support/adopted! handle)
               (.then (fn [shut?]
                        (is shut? "premise: the root really did adopt")
@@ -674,10 +675,16 @@
       (let [{:keys [html]} (rf.hicasso.server/render (request))
             container      (rf.hicasso.roots-frames-support/stamp-server-nodes! (rf.hicasso.roots-frames-support/server-dom! html))
             watch          (rf.hicasso.roots-frames-support/watch-mismatches!)
+            ;; The frame is made BEFORE the adopting root, because
+            ;; `frame-provider` is SCOPE-only and refuses an absent frame:
+            ;; the state a hydrating root adopts is installed first, always
+            ;; (`rf.ssr/hydrate!` in a real app), and the boundary in the
+            ;; tree is what says so out loud.
+            _              (rf/make-frame {:id wire-frame :initial-events [[:rf/set-db snapshot]]})
             handle         (rf.hicasso/hydrate! container
-                                       {:frame wire-frame :identifier-prefix "pfx-a-"}
-                                       [id-page {}])]
-        (rf/make-frame {:id wire-frame :initial-events [[:rf/set-db snapshot]]})
+                                       {:identifier-prefix "pfx-a-"}
+                                       [rf.hicasso/frame-provider {:frame wire-frame}
+                                        [id-page {}]])]
         (-> (rf.hicasso.roots-frames-support/adopted! handle)
             (.then (fn [shut?]
                      (is shut? "the root's own adoption window shut")
@@ -771,8 +778,9 @@
         ;; id.
         (rf/make-frame {:id wire-frame :initial-events [[:rf/set-db snapshot]]})
         (let [handle (rf.hicasso/hydrate! container
-                                 {:frame wire-frame :identifier-prefix "pfx-a-"}
-                                 [id-page {}])]
+                                 {:identifier-prefix "pfx-a-"}
+                                 [rf.hicasso/frame-provider {:frame wire-frame}
+                                  [id-page {}]])]
           (-> (rf.hicasso.roots-frames-support/adopted! handle)
               (.then (fn [shut?]
                        (is shut? "the root's own adoption window shut")
@@ -828,8 +836,9 @@
             capture   (rf.hicasso.roots-frames-support/open-console-capture! {:swallow-uncaught? true})]
         (rf/make-frame {:id wire-frame :initial-events [[:rf/set-db snapshot]]})
         (let [handle (rf.hicasso/hydrate! container
-                                 {:frame wire-frame :identifier-prefix "pfx-a-"}
-                                 [id-page {}])]
+                                 {:identifier-prefix "pfx-a-"}
+                                 [rf.hicasso/frame-provider {:frame wire-frame}
+                                  [id-page {}]])]
           (-> (rf.hicasso.roots-frames-support/adopted! handle)
               (.then (fn [shut?]
                        ;; Closed HERE and not only in the settlement: the
@@ -951,8 +960,9 @@
             (is (not (contains? db :secret)))))
 
         (let [handle (rf.hicasso/hydrate! container
-                                 {:frame wire-frame :identifier-prefix "pfx-a-"}
-                                 [id-page {}])]
+                                 {:identifier-prefix "pfx-a-"}
+                                 [rf.hicasso/frame-provider {:frame wire-frame}
+                                  [id-page {}]])]
           (-> (rf.hicasso.roots-frames-support/adopted! handle)
               (.then (fn [shut?]
                        (is shut? "the root's own adoption window shut")

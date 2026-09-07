@@ -453,9 +453,9 @@
     (rf/make-frame (merge {:id cfid} model/frame-config))
     (rf.ssr/hydrate! {:frame cfid :payload payload})
     (let [handle (rf.hicasso/hydrate! container
-                             {:frame             cfid
-                              :identifier-prefix views/identifier-prefix}
-                             [views/root-view])]
+                             {:identifier-prefix views/identifier-prefix}
+                             [rf.hicasso/frame-provider {:frame cfid}
+                              [views/root-view]])]
       (.then (rf.hicasso.roots-frames-support/adopted! handle)
              (fn [_]
                (let [seen  ((:stop! watch))

@@ -38,6 +38,7 @@
   []
   (rf/init! rf.adapter.uix/adapter)
   (rf/make-frame {:id frame-id :initial-events (initial-events)})
-  (reset! !root (rf.hicasso/mount! (js/document.getElementById "app") {:frame frame-id}
-                          [rf.hicasso.examples.ledger.views/ledger {}]))
+  (reset! !root (rf.hicasso/mount! (js/document.getElementById "app") {}
+                          [rf.hicasso/frame-root {:id frame-id}
+                           [rf.hicasso.examples.ledger.views/ledger {}]]))
   nil)
