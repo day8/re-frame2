@@ -651,3 +651,160 @@
                                                 :params {} :owner [:v :c]}])
         (is (= {:method :get :url "/profile"} (:request @last-managed-args))
             "the next live-owner ensure issued the recovery request")))))
+
+;; ===========================================================================
+;; 7. IN-FLIGHT-READ ROLLBACK (rf2-veef) — a refetch that STARTS between the
+;;    optimistic apply and the failed reply must survive the rollback.
+;;
+;;    `entry-start-load` deliberately does NOT bump `:revision` (EP-0019 Open
+;;    Issue 5 / `resources_revision_substrate_cljs_test` — a read START must not
+;;    false-conflict), so the settle correctly sees an UNMOVED revision and
+;;    chooses `:restore`. Restoring the snapshot WHOLE then put back the
+;;    pre-read `:generation` / `:current-work`, after which
+;;    `reply-handlers/live-slot-for-reply` suppressed the read's own valid
+;;    reply — the newer read was orphaned and its data never arrived — and any
+;;    owner that load had attached was dropped and reindexed away.
+;;
+;;    The two rules are each right; their composition was not. An optimistic
+;;    apply writes an entry's PAYLOAD and FRESHNESS only, so the read-work and
+;;    ownership facts were never the rollback's to restore.
+;; ===========================================================================
+
+(deftest a-refetch-started-mid-flight-survives-the-rollback
+  ;; THE ORPHAN (rf2-veef): load A; start an optimistic favorite (B); start a
+  ;; refetch while it is pending; the mutation FAILS before the refetch replies.
+  ;; B must roll back, the read must stay acceptable, and its eventual reply (C)
+  ;; must land.
+  (stub-lifecycle-fx!)
+  (reg-article-resource!)
+  (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"}
+                :owner [:v :first]}
+               {:article {:favorited false :favoritesCount 9}})
+  (rf/reg-mutation :m/favorite favorite-plan favorite-plan-request)  ;; :on-conflict -> :invalidate
+  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :f1}])
+  (let [mutation-args @last-managed-args]
+    (testing "precondition — the optimistic value B is applied"
+      (is (= true (get-in (entry article-key) [:data :article :favorited])))
+      (is (= 10 (get-in (entry article-key) [:data :article :favoritesCount]))))
+
+    ;; A refetch STARTS while the mutation is still pending.
+    (rf/dispatch-sync [:rf.resource/refetch {:resource :r/article :scope :rf.scope/global
+                                             :params {:slug "w"} :owner [:v :first]}])
+    (let [read-args  @last-managed-args
+          reading    (entry article-key)
+          read-work  (:current-work reading)
+          read-gen   (:generation reading)]
+      (testing "precondition — a NEWER read is in flight over the optimistic value"
+        (is (some? read-work) "the refetch recorded a :current-work pointer")
+        (is (not= mutation-args read-args) "the read issued its own request")
+        (is (= {:method :get :url "/a/w"} (:request read-args))))
+
+      ;; ---- the mutation FAILS -> conflict-aware rollback runs -------------
+      (reply-failure! mutation-args {:kind :rf.http/http-5xx :status 500})
+
+      (testing "the optimistic value B rolled back exactly — the payload IS the
+                rollback's to own"
+        (is (= false (get-in (entry article-key) [:data :article :favorited])))
+        (is (= 9 (get-in (entry article-key) [:data :article :favoritesCount]))))
+
+      (testing "THE REGRESSION — the newer read's work facts SURVIVED the
+                rollback, so its reply is still acceptable"
+        (let [e (entry article-key)]
+          (is (= read-work (:current-work e))
+              "the in-flight :current-work pointer was NOT replaced by the
+               pre-read snapshot's")
+          (is (= read-gen (:generation e))
+              "…nor was its :generation — both are what live-slot-for-reply checks")
+          (is (= :fetching (:status e))
+              "and the status is coherent with the preserved read: :fetching over
+               the restored data, not the snapshot's terminal :loaded")))
+
+      ;; ---- the read finally replies with C -------------------------------
+      (reply-success! read-args {:article {:favorited false :favoritesCount 42}})
+      (testing "the read's own valid reply LANDS (it was suppressed before)"
+        (is (= 42 (get-in (entry article-key) [:data :article :favoritesCount])))
+        (is (= :loaded (:status (entry article-key))))
+        (is (nil? (:current-work (entry article-key))) "the read settled"))
+      (testing "the public subscription shows C"
+        (is (= {:article {:favorited false :favoritesCount 42}}
+               @(rf/subscribe [:rf.resource/data {:resource :r/article
+                                                  :scope :rf.scope/global
+                                                  :params {:slug "w"}}])))))))
+
+(deftest an-owner-attached-by-that-refetch-survives-the-rollback
+  ;; THE MIRROR (rf2-veef): the mid-flight refetch also attaches a NEW owner.
+  ;; `entry-start-load` attaches it WITHOUT bumping `:revision` (unlike a
+  ;; standalone `attach-owner`, which bumps precisely so a rollback cannot
+  ;; clobber it — rf2-cxwuhl), so the no-conflict restore dropped it and the
+  ;; reindex removed its ownership too.
+  (stub-lifecycle-fx!)
+  (reg-article-resource!)
+  (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"}
+                :owner [:v :first]}
+               {:article {:favorited false :favoritesCount 9}})
+  (rf/reg-mutation :m/favorite favorite-plan favorite-plan-request)
+  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :f1}])
+  (let [mutation-args @last-managed-args]
+    (rf/dispatch-sync [:rf.resource/refetch {:resource :r/article :scope :rf.scope/global
+                                             :params {:slug "w"} :owner [:v :second]}])
+    (let [read-args @last-managed-args]
+      (is (= #{[:v :first] [:v :second]} (:active-owners (entry article-key)))
+          "precondition — the refetch attached a second owner")
+
+      (reply-failure! mutation-args {:kind :rf.http/http-5xx :status 500})
+
+      (testing "the freshly attached owner is NOT dropped by the rollback"
+        (is (= #{[:v :first] [:v :second]} (:active-owners (entry article-key)))
+            "both owners survive — ownership was never the rollback's to restore"))
+      (testing "the derived owner-index agrees (reindex saw the surviving owner)"
+        (is (contains? (get-in (runtime-db) (conj (rf.resources.state/owner-index-path) [:v :second]))
+                       (rf.resources.state/key-id article-key))
+            "the second owner still indexes the entry — it would have been
+             reindexed away with a wholesale restore"))
+      (testing "and that read still settles"
+        (reply-success! read-args {:article {:favorited false :favoritesCount 42}})
+        (is (= 42 (get-in (entry article-key) [:data :article :favoritesCount])))))))
+
+;; ---- the pure seam: the two properties the whole repair rests on -----------
+
+(deftest reconcile-restored-entry-is-a-no-op-without-newer-work
+  (testing "rf2-veef — an optimistic apply never writes the live-work keys, so
+            copying them back off an unchanged entry changes nothing: the
+            existing exact rollback is preserved by construction"
+    (let [before (-> (rf.resources.state/empty-entry :r/article article-key)
+                     (rf.resources.state/entry-succeeded
+                       {:data {:n 1} :loaded-at 100 :stale-at nil :tags #{}}))]
+      (is (= before (rf.resources.mutation-runtime/reconcile-restored-entry before before))
+          "an entry whose work facts match the snapshot's restores verbatim")
+      (is (= before (rf.resources.mutation-runtime/reconcile-restored-entry before nil))
+          "a vanished entry (:force over a removed key) restores verbatim too"))))
+
+(deftest an-absent-restore-keeps-a-live-read-rather-than-dissocing-it
+  (testing "rf2-veef — rolling back an optimistic SEED restores the absence,
+            UNLESS a read started on that key while the mutation was pending:
+            dissoc'ing the entry would orphan that read exactly as a wholesale
+            restore does, so the empty pre-seed entry is seated carrying it"
+    (let [reading (-> (rf.resources.state/empty-entry :r/article article-key)
+                      (rf.resources.state/entry-start-load
+                        {:generation 7 :work-id [:r/article 7]
+                         :request-id :rq7 :owner [:v :reader]}))
+          rdb     (assoc-in {} (rf.resources.state/entry-path article-key) reading)
+          disp    {:resource/key article-key :disposition :restore
+                   :before rf.resources.mutation-runtime/absent-snapshot :forward :seed}
+          e       (get-in (rf.resources.mutation-runtime/restore-before rdb disp)
+                          (rf.resources.state/entry-path article-key))]
+      (is (some? e) "the entry was NOT dissoc'd out from under the live read")
+      (is (= [:r/article 7] (:current-work e)) "the read's work pointer survived")
+      (is (= 7 (:generation e)) "…and its generation")
+      (is (contains? (:active-owners e) [:v :reader]) "…and the owner it attached")
+      (is (nil? (:data e)) "the SEEDED data is gone — the rollback still happened")
+      (is (= :loading (:status e))
+          "status coherent with the preserved first-load (no data yet)"))
+    (testing "CONTROL — with no read in flight the absence is restored exactly"
+      (let [idle (rf.resources.state/empty-entry :r/article article-key)
+            rdb  (assoc-in {} (rf.resources.state/entry-path article-key) idle)
+            disp {:resource/key article-key :disposition :restore
+                  :before rf.resources.mutation-runtime/absent-snapshot :forward :seed}]
+        (is (nil? (get-in (rf.resources.mutation-runtime/restore-before rdb disp)
+                          (rf.resources.state/entry-path article-key)))
+            "the seeded key is removed, exactly as before")))))
