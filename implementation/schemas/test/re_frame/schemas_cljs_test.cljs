@@ -376,14 +376,13 @@
       (finally
         (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)))))
 
-;; ---- rf2-r2uh — :rf.schema/at-boundary dev-mode no-op (rf2-84e9) ---------
+;; ---- rf2-r2uh — `:boundary? true` dev-mode no-op (rf2-84e9) --------------
 ;;
 ;; The :node-test build compiles with `goog.DEBUG=true` (cljs default,
 ;; no closure-define override) — the runtime-equivalent of a dev build.
-;; Per Spec 010 §Production builds (L145), in dev the boundary
-;; interceptor is a no-op: the router's step-1 validate-event! call has
-;; already run, and running validation a second time would just duplicate
-;; the trace.
+;; Per Spec 010 §Production builds (L145), in dev the boundary arm is
+;; never reached: the router's step-1 site takes its dev arm, which
+;; checks every handler's `:schema` anyway.
 ;;
 ;; A complementary `:browser-test` build (`:browser-test-schemas-boundary-prod`)
 ;; compiles `schemas_boundary_prod_test.cljs` under `:advanced` +
@@ -393,46 +392,36 @@
 ;; JVM tests cover via `with-redefs spec/dev-mode?` (which cannot prove
 ;; the genuine `:advanced` constant-fold).
 
-(deftest boundary-interceptor-noop-in-dev-cljs
+(deftest boundary-arm-noop-in-dev-cljs
   (testing "Per Spec 010 §Production builds (rf2-r2uh): under `:node-test`
-            (goog.DEBUG=true) the boundary interceptor's :before slot is
-            a no-op even on a malformed event — it does NOT set
-            :rf/skip-handler? and does NOT emit a boundary-tagged trace.
-            Step-1 validation in the router is what enforces the schema
-            in dev; the boundary interceptor's prod-mode body never runs."
+            (goog.DEBUG=true) the boundary arm is not reached even on a
+            malformed event — it emits no boundary-tagged trace. Step-1's
+            DEV arm is what enforces the schema here; the production arm's
+            body never runs."
     (rf/reg-event :api/strict
-      {:schema [:cat [:= :api/strict] :int]
-       :interceptors [:rf.schema/at-boundary]}
+      {:schema    [:cat [:= :api/strict] :int]
+       :boundary? true}
       (fn [_ _] {}))
     (with-trace-recorder! [traces]
-      ;; Direct :before invocation isolates the boundary's behaviour
-      ;; from the surrounding router/step-1 path so we observe the
-      ;; boundary's own dev-mode contract.
-      (let [before    (:before rf/validate-at-boundary-interceptor)
-            valid-ctx (before {:coeffects {:event [:api/strict 42]}})
-            bad-ctx   (before {:coeffects {:event [:api/strict "not-an-int"]}})]
-        (is (not (:rf/skip-handler? valid-ctx))
-            "valid event: boundary did not set :rf/skip-handler? (no-op)")
-        (is (not (:rf/skip-handler? bad-ctx))
-            "MALFORMED event in dev: boundary STILL did not set :rf/skip-handler? — the dev-mode no-op contract")
-        (let [boundary-violations (filter #(and (= :rf.error/schema-validation-failure (:operation %))
-                                                (= :boundary (-> % :tags :source)))
-                                          @traces)]
-          (is (empty? boundary-violations)
-              "no boundary-tagged trace fired — boundary was a no-op in dev"))))))
+      (rf/dispatch-sync [:api/strict 42])
+      (rf/dispatch-sync [:api/strict "not-an-int"])
+      (let [boundary-violations (filter #(and (= :rf.error/schema-validation-failure (:operation %))
+                                              (= :boundary (-> % :tags :source)))
+                                        @traces)]
+        (is (empty? boundary-violations)
+            "no boundary-tagged trace fired — the production arm is unreachable in dev")))))
 
-(deftest boundary-interceptor-dev-dispatch-skips-via-step-1
+(deftest boundary-flag-dev-dispatch-skips-via-step-1
   (testing "Per Spec 010 §Production builds (rf2-r2uh): under `:node-test`
             (goog.DEBUG=true) a full dispatch of a malformed payload
-            still skips the handler — but via the router's step-1
-            validate-event! path, NOT via the boundary. The boundary's
-            contract is silent in dev. We observe the handler-skip
-            (router did its job) and the absence of a :source :boundary
-            trace tag (boundary itself stayed quiet)."
+            still skips the handler — but via step-1's DEV arm, not the
+            boundary arm, which is silent in dev. We observe the
+            handler-skip (step 1 did its job) and the absence of a
+            :source :boundary trace tag."
     (let [calls (atom 0)]
       (rf/reg-event :api/strict
-        {:schema [:cat [:= :api/strict] :int]
-         :interceptors [:rf.schema/at-boundary]}
+        {:schema    [:cat [:= :api/strict] :int]
+         :boundary? true}
         (fn [_ _] (swap! calls inc) {}))
       (with-trace-recorder! [traces]
         (rf/dispatch-sync [:api/strict "not-an-int"])

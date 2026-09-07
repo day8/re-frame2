@@ -3589,7 +3589,7 @@ jobs:
       - name: Install Playwright (Chromium + system deps)
         run: timeout -k 10 720 npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh" $?
 
-      # Production-mode CLJS smoke for `:rf.schema/at-boundary`
+      # Production-mode CLJS smoke for `:boundary? true`
       # (Spec 010 §Production builds, rf2-r2uh / rf2-84e9). Compiles
       # `re-frame.schemas-boundary-prod-test` under `:advanced` +
       # `goog.DEBUG=false` so Closure constant-folds the dev gate.

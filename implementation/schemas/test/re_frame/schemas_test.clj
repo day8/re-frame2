@@ -28,6 +28,7 @@
             [re-frame.core :as rf]
             [re-frame.late-bind]
             [re-frame.interop :as rf.interop]
+            [re-frame.registrar :as rf.registrar]
             [re-frame.schemas :as rf.schemas]
             ;; White-box tests reach raw state through its owning namespace;
             ;; callers outside this artefact use the encapsulated facade.
@@ -1519,45 +1520,40 @@
       (is (= before (rf.schemas/schema-fns))
           "and leaves the live state untouched"))))
 
-;; ---- rf2-r2uh — :rf.schema/at-boundary interceptor ---------------------
+;; ---- rf2-r2uh / rf2-kuky.64 - the `:boundary? true` production arm -------
 ;;
-;; Per Spec 010 §Production builds — the boundary-validation interceptor
-;; runs the handler's :schema check inline in production builds (where
-;; dev-time validation has been elided). Re-uses the dev-time validator
-;; seam (rf2-froe) so a substituted validator covers both surfaces.
+;; Per Spec 010 SS-Production builds - `:boundary? true` keeps a handler's own
+;; `:schema` check alive in production builds, where dev-time validation has
+;; been elided. It re-uses the dev-time validator seam (rf2-froe) so a
+;; substituted validator covers both surfaces with one registration.
 ;;
-;; The interceptor's dev/prod gate is `re-frame.spec/dev-mode?` — a
-;; private fn wrapping `interop/debug-enabled?`. The indirection lets
-;; tests rebind the boundary's dev-vs-prod decision INDEPENDENTLY of
-;; the trace surface's `interop/debug-enabled?` read, so a JVM test can
-;; (a) keep `debug-enabled?` true so emit-error! / emit! actually fire
-;; their bodies, and (b) flip `dev-mode?` to false so the boundary
-;; takes its production validation branch.
+;; The dev/prod gate is `re-frame.spec/dev-mode?` - a fn wrapping
+;; `interop/debug-enabled?`. The indirection lets tests rebind the boundary's
+;; dev-vs-prod decision INDEPENDENTLY of the trace surface's
+;; `interop/debug-enabled?` read, so a JVM test can (a) keep `debug-enabled?`
+;; true so emit-error! / emit! actually fire their bodies, and (b) flip
+;; `dev-mode?` to false so the router's step-1 site takes its production arm.
 ;;
-;; In genuine `:advanced` + `goog.DEBUG=false` production both flags
-;; resolve to false together: the boundary validates inline, but the
-;; trace surface elides — so the handler-skip is silent. The tests
-;; below are JVM tests that decouple the two flags to make the
-;; emission observable.
+;; In genuine `:advanced` + `goog.DEBUG=false` production both flags resolve to
+;; false together: the boundary validates, but the trace surface elides - so
+;; the handler-skip is silent. The tests below are JVM tests that decouple the
+;; two flags to make the emission observable. rf2-kuky.64 moved the check off
+;; the interceptor chain and onto the step-1 site, so these tests now drive it
+;; through an ORDINARY DISPATCH rather than by invoking an interceptor's
+;; `:before` directly - the production arm IS step 1.
 
-(deftest boundary-interceptor-passes-valid-event-through
-  (testing "Per Spec 010 §Production builds (rf2-r2uh) — a valid event
+(deftest boundary-flag-passes-valid-event-through
+  (testing "Per Spec 010 SS-Production builds (rf2-r2uh) - a valid event
             against the handler's :schema passes through, the handler runs."
     (let [calls (atom 0)]
       (rf/reg-event :api/response
-        {:schema [:cat [:= :api/response]
+        {:schema    [:cat [:= :api/response]
                      [:map [:status :int] [:body :string]]]
-         :interceptors [:rf.schema/at-boundary]}
+         :boundary? true}
         (fn [_ [_ payload]]
           (swap! calls inc)
           {:db {:last-response payload}}))
       (with-trace-recorder! [traces]
-        ;; Production build path — flip the boundary's gate without
-        ;; killing the trace surface. The router's step-1
-        ;; validation also fires (debug-enabled? still true on JVM)
-        ;; and passes for the well-typed payload, so the chain runs
-        ;; and the boundary interceptor then validates again — both
-        ;; passes silently.
         (with-redefs [rf.spec/dev-mode? (constantly false)]
           (rf/dispatch-sync [:api/response {:status 200 :body "OK"}]))
         (is (= 1 @calls)
@@ -1566,20 +1562,15 @@
                             @traces))
             "no validation-failure trace fired for the valid payload")))))
 
-(deftest boundary-interceptor-skips-handler-on-invalid-event
-  (testing "Per Spec 010 §Production builds (rf2-r2uh) — an invalid event
-            against the handler's :schema causes the handler to be
-            skipped. Under genuine `:advanced` + `goog.DEBUG=false` the
-            router's step-1 validate-event! body elides and the
-            boundary path is the only validation site; on the JVM
-            test the router's step-1 also fires (debug-enabled? is
-            true), but the handler-skip behaviour is what the spec
-            promises in either path."
+(deftest boundary-flag-skips-handler-on-invalid-event
+  (testing "Per Spec 010 SS-Production builds (rf2-r2uh) - an invalid event
+            against the handler's :schema causes the handler to be skipped,
+            in a production build as in a dev one."
     (let [calls (atom 0)]
       (rf/reg-event :api/response
-        {:schema [:cat [:= :api/response]
+        {:schema    [:cat [:= :api/response]
                      [:map [:status :int] [:body :string]]]
-         :interceptors [:rf.schema/at-boundary]}
+         :boundary? true}
         (fn [_ [_ payload]]
           (swap! calls inc)
           {:db {:last-response payload}}))
@@ -1588,37 +1579,34 @@
       (is (= 0 @calls)
           "handler was skipped on the malformed payload"))))
 
-(deftest boundary-interceptor-emits-failure-trace-with-source-tag
-  (testing "Per Spec 010 L149 — the boundary failure trace flows through
-            the same `:rf.error/schema-validation-failure :where :event`
-            path as dev-mode step-1 failures, and carries `:source
-            :boundary` so consumers can distinguish the boundary
-            emission from the dev step-1 emission.
+(deftest boundary-flag-emits-failure-trace-with-source-tag
+  (testing "Per Spec 010 L149 - the boundary failure trace flows through the
+            same `:rf.error/schema-validation-failure :where :event` path as
+            dev-mode step-1 failures, and carries `:source :boundary` so
+            consumers can distinguish the two emissions.
 
-            We exercise the trace shape via direct interceptor
-            invocation — the dispatch path's router-side step-1
-            short-circuits the chain when the schema fails, so the
-            boundary :before never reaches its emit body. Direct
-            invocation isolates the boundary's emission for shape
-            assertion."
+            rf2-kuky.64: this is now observable through an ORDINARY DISPATCH.
+            The old ref form validated at its chain position, which the
+            router's step-1 short-circuit could pre-empt, so the shape had to
+            be asserted by invoking the interceptor's `:before` by hand. The
+            flag IS step 1, so the dispatch path reaches the emit body."
     (rf/reg-event :api/strict
-      {:schema [:cat [:= :api/strict] :int]
-       :interceptors [:rf.schema/at-boundary]}
+      {:schema    [:cat [:= :api/strict] :int]
+       :boundary? true}
       (fn [_ _] {}))
     (with-trace-recorder! [traces]
-      ;; dev-mode? false → boundary takes its prod branch; but
-      ;; debug-enabled? stays true on the JVM so emit-error! actually
-      ;; fires its body and the trace is observable.
+      ;; dev-mode? false -> step 1 takes its boundary arm; but debug-enabled?
+      ;; stays true on the JVM so emit-error! actually fires its body and the
+      ;; trace is observable.
       (with-redefs [rf.spec/dev-mode? (constantly false)]
-        (let [before (:before rf/validate-at-boundary-interceptor)]
-          (before {:coeffects {:event [:api/strict "not-an-int"]}})))
+        (rf/dispatch-sync [:api/strict "not-an-int"]))
       (let [violations (filter #(= :rf.error/schema-validation-failure (:operation %))
                                @traces)]
         (is (= 1 (count violations))
             "exactly one schema-validation-failure trace fired from the boundary path")
         (let [v (first violations)]
           (is (= :event (-> v :tags :where))
-              ":where is :event — same path as dev-mode step-1 failures (Spec 010 L149)")
+              ":where is :event - same path as dev-mode step-1 failures (Spec 010 L149)")
           (is (= :api/strict (-> v :tags :event-id))
               ":event-id names the boundary-validated handler")
           (is (= :api/strict (-> v :tags :failing-id)))
@@ -1628,53 +1616,54 @@
           (is (= [:api/strict "not-an-int"] (-> v :tags :received))
               ":received carries the failing event vector verbatim")
           (is (= [:api/strict "not-an-int"] (-> v :tags :value))
-              ":value mirrors :received per Spec 010 §`:sensitive?`")
+              ":value mirrors :received per Spec 010 SS-`:sensitive?`")
           (is (not (contains? (:tags v) :event))
-              ":event slot is gone (rf2-4fbsd) — consumers reach for :received")
+              ":event slot is gone (rf2-4fbsd) - consumers reach for :received")
           (is (string? (-> v :tags :reason))
-              ":reason carries a human-readable explanation per Spec 009 §Style rubric")
+              ":reason carries a human-readable explanation per Spec 009 SS-Style rubric")
           (is (= :no-recovery (:recovery v))
-              ":recovery is :no-recovery — handler is not invoked"))))))
+              ":recovery is :no-recovery - handler is not invoked"))))))
 
-(deftest boundary-interceptor-sets-skip-handler-on-context
-  (testing "Per Spec 010 §Per-step recovery step 1 — the boundary
-            interceptor's :before sets :rf/skip-handler? on the context
-            when validation fails, so the handler-as-interceptor (the single
-            EP-0018 framework wrapper events.cljc :rf/event-handler)
-            short-circuits.
-
-            The recovery is identical to the dev-mode step-1 path
-            (validate-event! returning false), so the runtime's existing
-            skip mechanism carries the boundary failure through without
-            additional plumbing."
+(deftest boundary-flag-verdict-is-the-step-1-verdict
+  (testing "Per Spec 010 SS-Per-step recovery step 1 - the boundary arm
+            returns the step-1 verdict: truthy to run the handler, false to
+            skip it. `run-chain` turns a false into `:rf/skip-handler?` plus
+            `:rf/boundary-rejected?`, which is the recovery the dev-mode
+            step-1 path already used, so the boundary failure carries through
+            with no additional plumbing."
     (rf/reg-event :api/strict
-      {:schema [:cat [:= :api/strict] :int]
-       :interceptors [:rf.schema/at-boundary]}
+      {:schema    [:cat [:= :api/strict] :int]
+       :boundary? true}
       (fn [_ _] {}))
-    ;; Direct invocation of the interceptor's :before fn — gives us a
-    ;; deterministic surface for asserting the recovery contract
-    ;; without the dispatch's other moving parts. Production-side path
-    ;; (dev-mode? false); the boundary interceptor takes its prod
-    ;; branch and validates inline.
-    (with-redefs [rf.spec/dev-mode? (constantly false)]
-      (let [before    (:before rf/validate-at-boundary-interceptor)
-            valid-ctx (before {:coeffects {:event [:api/strict 42]}})
-            bad-ctx   (before {:coeffects {:event [:api/strict "not-an-int"]}})]
-        (is (not (:rf/skip-handler? valid-ctx))
-            ":rf/skip-handler? unset when the event conforms — handler will run")
-        (is (true? (:rf/skip-handler? bad-ctx))
-            ":rf/skip-handler? set when the event fails the schema — handler is skipped")))))
+    (let [meta (rf.registrar/lookup :event :api/strict)]
+      (with-redefs [rf.spec/dev-mode? (constantly false)]
+        (is (true? (rf.spec/validate-at-boundary!
+                     :api/strict [:api/strict 42] meta nil))
+            "a conforming event runs the handler")
+        (is (false? (rf.spec/validate-at-boundary!
+                      :api/strict [:api/strict "not-an-int"] meta nil))
+            "a non-conforming event skips the handler")))))
 
-(deftest boundary-interceptor-honours-custom-validator
-  (testing "Per Spec 010 §Boundary-validation seam (rf2-froe + rf2-r2uh) —
-            the boundary interceptor routes through the registered
-            validator the same way the dev-time hot path does. A
-            substituted validator covers both surfaces with one
-            registration."
-    ;; Sentinel custom validator — passes the literal :good value,
-    ;; fails everything else. Records every call. We use a
-    ;; predicate that overrides Malli so we can observe routing
-    ;; through the late-bind hook end-to-end.
+(deftest boundary-flag-is-a-no-op-for-unflagged-handlers
+  (testing "Per rf2-kuky.64 - the production arm reads ONE map key per
+            dispatch and falls straight through for a handler that did not
+            declare `:boundary? true`, even when that handler carries a
+            `:schema` a production build no longer checks."
+    (let [calls (atom 0)]
+      (rf/reg-event :api/unflagged
+        {:schema [:cat [:= :api/unflagged] :int]}
+        (fn [_ _] (swap! calls inc) {}))
+      (with-redefs [rf.spec/dev-mode? (constantly false)]
+        (rf/dispatch-sync [:api/unflagged "not-an-int"]))
+      (is (= 1 @calls)
+          "an unflagged handler's :schema is a dev-only diagnostic and does not run here"))))
+
+(deftest boundary-flag-honours-custom-validator
+  (testing "Per Spec 010 SS-Boundary-validation seam (rf2-froe + rf2-r2uh) -
+            the boundary arm routes through the registered validator the same
+            way the dev-time hot path does. A substituted validator covers
+            both surfaces with one registration, and it is called EXACTLY
+            ONCE per dispatch (rf2-kuky.64: one check, one site)."
     (let [validator-calls (atom 0)
           custom (fn [_schema value]
                    (swap! validator-calls inc)
@@ -1682,85 +1671,201 @@
           handler-calls (atom 0)]
       (rf.schemas/set-schema-fns! {:validate custom})
       (rf/reg-event :api/custom
-        {:schema :rf/any                     ;; opaque to the custom validator
-         :interceptors [:rf.schema/at-boundary]}
+        {:schema    :rf/any                    ;; opaque to the custom validator
+         :boundary? true}
         (fn [_ _] (swap! handler-calls inc) {}))
       (with-redefs [rf.spec/dev-mode? (constantly false)]
-        ;; Direct :before invocation so we observe the boundary's
-        ;; validator call path without the router-side step-1 also
-        ;; firing the same custom validator (which would double-count
-        ;; the calls).
-        (let [before (:before rf/validate-at-boundary-interceptor)
-              ok     (before {:coeffects {:event [:api/custom :good]}})
-              bad    (before {:coeffects {:event [:api/custom :bad]}})]
-          (is (not (:rf/skip-handler? ok))
-              "custom validator passed — boundary did not set :rf/skip-handler?")
-          (is (true? (:rf/skip-handler? bad))
-              "custom validator failed — boundary set :rf/skip-handler?")
-          (is (>= @validator-calls 2)
-              "custom validator was invoked at least once per boundary check"))))))
+        (reset! validator-calls 0)
+        (rf/dispatch-sync [:api/custom :good])
+        (is (= 1 @handler-calls)
+            "custom validator passed - the handler ran")
+        (is (= 1 @validator-calls)
+            "EXACTLY one validator call per dispatch - one check at one site")
 
-(deftest boundary-interceptor-noop-when-validator-is-nil
-  (testing "Per Spec 010 §Non-Malli validators — set-schema-fns! {:validate nil}
-            disables every validation surface, including the boundary
-            interceptor. The handler runs even with a malformed payload."
+        (reset! validator-calls 0)
+        (rf/dispatch-sync [:api/custom :bad])
+        (is (= 1 @handler-calls)
+            "custom validator failed - the handler did not run again")
+        (is (= 1 @validator-calls)
+            "EXACTLY one validator call on the refusing dispatch too")))))
+
+(deftest boundary-flag-noop-when-validator-is-nil
+  (testing "Per Spec 010 SS-Non-Malli validators - set-schema-fns! {:validate nil}
+            disables every validation surface, the boundary arm included. The
+            handler runs even with a malformed payload."
     (rf.schemas/set-schema-fns! {:validate nil})
     (let [calls (atom 0)]
       (rf/reg-event :api/disabled
-        {:schema [:cat [:= :api/disabled] :int]
-         :interceptors [:rf.schema/at-boundary]}
+        {:schema    [:cat [:= :api/disabled] :int]
+         :boundary? true}
         (fn [_ _] (swap! calls inc) {}))
       (with-trace-recorder! [traces]
         (with-redefs [rf.spec/dev-mode? (constantly false)]
           (rf/dispatch-sync [:api/disabled "wildly-malformed"]))
         (is (= 1 @calls)
-            "handler ran — nil validator means no boundary check")
+            "handler ran - nil validator means no boundary check")
         (is (empty? (filter #(and (= :rf.error/schema-validation-failure (:operation %))
                                   (= :boundary (-> % :tags :source)))
                             @traces))
             "no boundary-emitted validation trace fires when the validator is nil")))))
 
-(deftest boundary-interceptor-noop-in-dev-mode
-  (testing "Per Spec 010 L145 — in dev builds (dev-mode? true), the
-            boundary interceptor is a no-op. Dev-mode step-1
-            validation in the router has already run; the boundary
-            interceptor doesn't validate a second time."
+(deftest boundary-flag-fails-closed-on-a-throwing-validator
+  (testing "Per rf2-a5kzs / rf2-gro94 - a validator that THROWS is a REFUSAL,
+            never a pass. The flag exists to gate untrusted system-boundary
+            payloads, so coercing the throw into a pass would run the handler
+            on an unvalidated one. The router does not route the boundary arm
+            through its dev-arm catch-and-pass, so the throw cannot be
+            swallowed there either."
+    (rf.schemas/set-schema-fns!
+      {:validate (fn [_ _] (throw (ex-info "malformed schema" {})))})
     (let [calls (atom 0)]
-      (rf/reg-event :api/dev
-        {:schema [:cat [:= :api/dev] :int]
-         :interceptors [:rf.schema/at-boundary]}
+      (rf/reg-event :api/throwing
+        {:schema    :rf/any
+         :boundary? true}
+        (fn [_ _] (swap! calls inc) {}))
+      (with-redefs [rf.spec/dev-mode? (constantly false)]
+        (rf/dispatch-sync [:api/throwing :anything]))
+      (is (= 0 @calls)
+          "a throwing validator SKIPS the handler - fail closed"))))
+
+(deftest boundary-flag-throwing-explainer-leaves-the-verdict-standing
+  (testing "Per rf2-kuky.64 - the EXPLAINER is diagnosis, not verdict. When it
+            throws, the refusal stands and only the `:explain` tag is lost."
+    (rf.schemas/set-schema-fns!
+      {:validate (fn [_ _] false)
+       :explain  (fn [_ _] (throw (ex-info "explainer blew up" {})))})
+    (let [calls (atom 0)]
+      (rf/reg-event :api/bad-explainer
+        {:schema    :rf/any
+         :boundary? true}
         (fn [_ _] (swap! calls inc) {}))
       (with-trace-recorder! [traces]
-        ;; Dev mode (the JVM default). The router's step-1
-        ;; validate-event! call fires for the malformed payload; the
-        ;; boundary interceptor SHOULD NOT fire a second trace.
+        (with-redefs [rf.spec/dev-mode? (constantly false)]
+          (rf/dispatch-sync [:api/bad-explainer :anything]))
+        (is (= 0 @calls)
+            "the refusal stands - a throwing explainer cannot reverse it")
+        (let [violations (filter #(and (= :rf.error/schema-validation-failure (:operation %))
+                                       (= :boundary (-> % :tags :source)))
+                                 @traces)]
+          (is (= 1 (count violations))
+              "still exactly one boundary record")
+          (is (nil? (-> (first violations) :tags :explain))
+              "the diagnosis is what was lost, not the verdict"))))))
+
+(deftest boundary-flag-nil-schema-token-is-delegated-verbatim
+  (testing "Per rf2-6eh5h - `{:schema nil :boundary? true}` registers (KEY
+            presence, not truthiness) and the nil token is handed to the
+            backend as an opaque value rather than read as nothing-to-check.
+            Reading it as a no-op would run the handler UNGUARDED on exactly
+            the payloads the flag exists to gate."
+    (let [seen (atom [])]
+      (rf.schemas/set-schema-fns!
+        {:validate (fn [schema _] (swap! seen conj schema) false)})
+      (rf/reg-event :api/nil-schema
+        {:schema    nil
+         :boundary? true}
+        (fn [_ _] {}))
+      (with-redefs [rf.spec/dev-mode? (constantly false)]
+        (rf/dispatch-sync [:api/nil-schema :whatever]))
+      (is (= [nil] @seen)
+          "the nil token reached the backend verbatim"))))
+
+(deftest boundary-flag-is-not-removable-by-interceptor-overrides
+  (testing "Per rf2-kuky.64 - the check is no longer a chain entry, so
+            `:interceptor-overrides` cannot remove it. Before the flag,
+            `{:interceptor-overrides {<the ref> nil}}` silently disarmed the
+            production check while leaving dev refusing - the two builds
+            disagreeing about whether the gate existed at all."
+    (let [calls (atom 0)]
+      (rf/reg-event :api/override-probe
+        {:schema    [:cat [:= :api/override-probe] :int]
+         :boundary? true}
+        (fn [_ _] (swap! calls inc) {}))
+      (with-redefs [rf.spec/dev-mode? (constantly false)]
+        (rf/dispatch-sync [:api/override-probe "not-an-int"]
+                          {:interceptor-overrides {:rf.interceptor/path nil}}))
+      (is (= 0 @calls)
+          "the boundary check still refused - no override reaches it"))))
+
+(deftest boundary-flag-noop-in-dev-mode
+  (testing "Per Spec 010 L145 - in dev builds (dev-mode? true) every handler's
+            `:schema` is checked anyway, so the boundary arm is never reached
+            and emits nothing of its own. The refusal is the ordinary
+            dev-mode step-1 refusal."
+    (let [calls (atom 0)]
+      (rf/reg-event :api/dev
+        {:schema    [:cat [:= :api/dev] :int]
+         :boundary? true}
+        (fn [_ _] (swap! calls inc) {}))
+      (with-trace-recorder! [traces]
         (rf/dispatch-sync [:api/dev "not-an-int"])
         (is (= 0 @calls)
-            "handler skipped — but by the dev-mode step-1 path, not the boundary")
+            "handler skipped - but by the dev-mode step-1 path")
         (let [boundary-violations (filter #(and (= :rf.error/schema-validation-failure (:operation %))
                                                 (= :boundary (-> % :tags :source)))
                                           @traces)]
           (is (empty? boundary-violations)
-              "no boundary-tagged trace fired — only the dev-mode step-1 trace ran"))))))
+              "no boundary-tagged trace fired - only the dev-mode step-1 trace ran"))))))
+
+(deftest dev-and-prod-agree-under-an-event-transforming-interceptor
+  (testing "Per rf2-kuky.40 - THE reason the flag replaced the chain ref. The
+            old ref validated `(get-coeffect ctx :event)` at its own chain
+            position, AFTER any interceptor that had rewritten the event, and
+            re-derived the handler id from that rewritten value. Dev validated
+            the ORIGINAL vector at step 1. An event-transforming interceptor
+            therefore made the two builds check different values against
+            possibly different schemas.
+
+            The flag checks the ORIGINAL dispatched vector against the
+            ALREADY-RESOLVED handler's `:schema` at step 1 in BOTH builds, so
+            the verdicts are identical by construction."
+    (rf/reg-interceptor :api/rewrites-event
+      {:before (fn [ctx]
+                 (assoc-in ctx [:coeffects :event] [:api/transformed 999]))})
+    (let [calls (atom 0)]
+      (rf/reg-event :api/transform-probe
+        {:schema       [:cat [:= :api/transform-probe] :int]
+         :boundary?    true
+         :interceptors [:api/rewrites-event]}
+        (fn [_ _] (swap! calls inc) {}))
+
+      (testing "a CONFORMING original vector is accepted in both builds"
+        (reset! calls 0)
+        (rf/dispatch-sync [:api/transform-probe 7])
+        (let [dev-calls @calls]
+          (reset! calls 0)
+          (with-redefs [rf.spec/dev-mode? (constantly false)]
+            (rf/dispatch-sync [:api/transform-probe 7]))
+          (is (= 1 dev-calls @calls)
+              "dev and prod both ran the handler on the conforming original")))
+
+      (testing "a NON-CONFORMING original vector is refused in both builds"
+        (reset! calls 0)
+        (rf/dispatch-sync [:api/transform-probe "not-an-int"])
+        (let [dev-calls @calls]
+          (reset! calls 0)
+          (with-redefs [rf.spec/dev-mode? (constantly false)]
+            (rf/dispatch-sync [:api/transform-probe "not-an-int"]))
+          (is (= 0 dev-calls @calls)
+              "dev and prod both refused the non-conforming original"))))))
 
 (deftest boundary-without-schema-rejected-at-registration
-  (testing "Per Spec 010 §Production builds + rf2-iftj4 — a registration
-            that attaches `:rf.schema/at-boundary` but carries no
-            `:schema` metadata is rejected at registration time with
-            `:rf.error/at-boundary-missing-schema`. Pre-rf2-iftj4 the
-            warning fired at first dispatch in production builds only;
-            now the misconfiguration surfaces immediately regardless of
-            dev/prod gate."
-    (testing "metadata :interceptors without :schema"
+  (testing "Per Spec 010 SS-Production builds + rf2-iftj4 - a registration
+            declaring `:boundary? true` but carrying no `:schema` metadata is
+            rejected at registration time with
+            `:rf.error/at-boundary-missing-schema`. Pre-rf2-iftj4 the warning
+            fired at first dispatch in production builds only; now the
+            misconfiguration surfaces immediately regardless of dev/prod gate."
+    (testing ":boundary? true without :schema"
       (let [calls (atom 0)]
         (is (thrown-with-msg?
               clojure.lang.ExceptionInfo
               #":rf\.error/at-boundary-missing-schema"
               (rf/reg-event :api/no-schema-2
-                {:interceptors [:rf.schema/at-boundary]}
+                {:boundary? true}
                 (fn [_ _] (swap! calls inc) {}))))
         (let [data (try (rf/reg-event :api/no-schema-2-data
-                          {:interceptors [:rf.schema/at-boundary]}
+                          {:boundary? true}
                           (fn [_ _] {}))
                         (catch clojure.lang.ExceptionInfo e
                           (ex-data e)))]
@@ -1768,57 +1873,54 @@
           (is (= "reg-event" (:reg-fn data)))
           (is (= :api/no-schema-2-data (:id data)))
           (is (string? (:reason data)))
-          (is (str/includes? (:reason data) ":rf.schema/at-boundary"))
+          (is (str/includes? (:reason data) ":boundary?"))
           (is (str/includes? (:reason data) ":schema"))
           (is (= :no-recovery (:recovery data))))
-        (is (= 0 @calls) "handler never invoked — registration rejected")))
+        (is (= 0 @calls) "handler never invoked - registration rejected")))
 
-    (testing "metadata-map without :schema + interceptors"
+    (testing ":boundary? true alongside other metadata but still no :schema"
       (is (thrown-with-msg?
             clojure.lang.ExceptionInfo
             #":rf\.error/at-boundary-missing-schema"
             (rf/reg-event :api/no-schema-3
-              {:doc "metadata-map but no :schema"
-               :interceptors [:rf.schema/at-boundary]}
+              {:doc       "metadata-map but no :schema"
+               :boundary? true}
               (fn [_ _] {})))))
 
-    (testing "rejection covers a db-shaped handler and a full-context interceptor as well"
+    (testing "rejection covers a db-shaped handler and one carrying a chain too"
       (is (thrown-with-msg?
             clojure.lang.ExceptionInfo
             #":rf\.error/at-boundary-missing-schema"
             (rf/reg-event :api/db-no-schema
-              {:interceptors [:rf.schema/at-boundary]}
+              {:boundary? true}
               (fn [{:keys [db]} _] {:db db}))))
-      ;; EP-0022 reference-only flip (rf2-0adhqs.9): chains carry refs only,
-      ;; so the full-context probe is registered and referenced by id alongside
-      ;; the boundary ref. The missing-`:schema` rejection still fires (it runs
-      ;; after the reference-shape validation, which both refs pass).
       (rf/reg-interceptor :api/ctx-probe {:before (fn [ctx] ctx)})
       (is (thrown-with-msg?
             clojure.lang.ExceptionInfo
             #":rf\.error/at-boundary-missing-schema"
             (rf/reg-event :api/ctx-no-schema
-              {:interceptors [:rf.schema/at-boundary :api/ctx-probe]}
+              {:boundary?    true
+               :interceptors [:api/ctx-probe]}
               (fn [_ _] {})))))
 
-    (testing "registration with `:schema` + validate-at-boundary-interceptor completes silently"
+    (testing "registration with `:schema` + `:boundary? true` completes silently"
       (is (= :api/with-schema
              (rf/reg-event :api/with-schema
-               {:schema [:cat [:= :api/with-schema] :int]
-                :interceptors [:rf.schema/at-boundary]}
+               {:schema    [:cat [:= :api/with-schema] :int]
+                :boundary? true}
                (fn [_ _] {})))
           "registration returns the event id when the metadata carries :schema"))
 
-    (testing "registration without validate-at-boundary-interceptor is unaffected by the new check"
+    (testing "registration without `:boundary?` is unaffected by the check"
       (is (= :api/no-boundary
              (rf/reg-event :api/no-boundary
                (fn [_ _] {})))
-          "no validate-at-boundary-interceptor, no schema, no error")
+          "no :boundary?, no schema, no error")
       (is (= :api/just-meta
              (rf/reg-event :api/just-meta
                {:doc "no boundary, no schema"}
                (fn [_ _] {})))
-          "metadata-map without :schema is fine when validate-at-boundary-interceptor isn't attached"))))
+          "metadata-map without :schema is fine when :boundary? is absent"))))
 
 ;; ---- snapshot / restore / clear schemas-by-frame (rf2-6lka) --------------
 ;;
@@ -2029,22 +2131,18 @@
 ;; single name — `:schema`. Alpha posture: no back-compat shims, no
 ;; deprecation aliases. v1→v2 rename is recorded in MIGRATION §M-54.
 
-(deftest boundary-interceptor-reads-schema-key
-  (testing "rf2-ieu0i — `:rf.schema/at-boundary` interceptor reads the
-            canonical `:schema` key."
-    ;; Verify the interceptor id was renamed.
-    (is (= :rf.schema/at-boundary (:id rf/validate-at-boundary-interceptor))
-        ":id of the boundary interceptor is :rf.schema/at-boundary (rf2-ieu0i)")
-    ;; Canonical :schema path — validation reads :schema.
+(deftest boundary-arm-reads-schema-key
+  (testing "rf2-ieu0i — the boundary arm reads the canonical `:schema` key,
+            never a parallel one."
     (rf/reg-event :api/schema-key
-      {:schema [:cat [:= :api/schema-key] :int]
-       :interceptors [:rf.schema/at-boundary]}
+      {:schema    [:cat [:= :api/schema-key] :int]
+       :boundary? true}
       (fn [_ _] {}))
-    (with-redefs [rf.spec/dev-mode? (constantly false)]
-      (let [before  (:before rf/validate-at-boundary-interceptor)
-            valid   (before {:coeffects {:event [:api/schema-key 7]}})
-            invalid (before {:coeffects {:event [:api/schema-key "no"]}})]
-        (is (not (:rf/skip-handler? valid))
+    (let [meta (rf.registrar/lookup :event :api/schema-key)]
+      (with-redefs [rf.spec/dev-mode? (constantly false)]
+        (is (true? (rf.spec/validate-at-boundary!
+                     :api/schema-key [:api/schema-key 7] meta nil))
             ":schema metadata + valid payload → handler proceeds")
-        (is (true? (:rf/skip-handler? invalid))
+        (is (false? (rf.spec/validate-at-boundary!
+                      :api/schema-key [:api/schema-key "no"] meta nil))
             ":schema metadata + invalid payload → handler skipped")))))

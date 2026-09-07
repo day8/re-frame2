@@ -225,7 +225,7 @@ known_red=(
   #    `(if interop/debug-enabled? (run-validation …) true)`, per Spec 010
   #    §Production builds: the per-step `validate-*!` hot-path fns are
   #    dev-only and production-build validation is the OPT-IN boundary
-  #    interceptor `:rf.schema/at-boundary`, which routes through
+  #    flag `:boundary? true`, which routes through
   #    `validate-with-registered-fn` outside the gate.
   #
   #    That short-circuit also makes the suite's POSITIVE control pass for

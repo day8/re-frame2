@@ -667,7 +667,7 @@
 
   Routes through the shared `:schemas/validate-with-registered-fn` /
   `:schemas/explain-with-registered-fn` late-bind seam (the same one
-  `re-frame.spec/validate-at-boundary-interceptor` uses). FAILS CLOSED on a
+  `re-frame.spec/validate-at-boundary!` uses). FAILS CLOSED on a
   validator that throws (a malformed schema, or a non-schemas validator that
   escapes its isolation) — coercing the throw to a PASS would fold an
   unvalidated value into the durable ledger, the exact fail-OPEN class this

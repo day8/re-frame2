@@ -353,7 +353,7 @@
   since rf2-ov56u — the `:kind :route` URL miss the default projector maps
   to 404), `:rf.error/drain-depth-exceeded` (rf2-fcbrjo), and — since
   rf2-mwv4e — `:rf.error/schema-validation-failure` from the
-  `:rf.schema/at-boundary` interceptor, which the default projector's
+  `:boundary? true` step-1 check, which the default projector's
   `:where`-gated arm maps to 400 (RFC 9110 §15.5.1: a refused request
   payload is a client fault, not a server one). In dev both listeners fire
   for those — last-write-wins + idempotent projection makes the duplicate

@@ -30,7 +30,7 @@
    `resolve-credential` exchanges the machine's opaque `:cred-ref` for the
    real bearer at the instant of the auth write (credentials leaving the
    app), and `:ws/handle-message` / `:ws.app/request-reply` hold inbound
-   frames to the closed wire schemas with `:rf.schema/at-boundary` (frames
+   frames to the closed wire schemas with `:boundary? true` (frames
    entering it). The connection machine's `:trusted-frame?` guard applies
    the same inbound contract before it touches correlation state — see
    `websocket.connection`."
@@ -478,7 +478,7 @@
   ;;
   ;; This is a SYSTEM BOUNDARY: the body is the server's bytes, and on a
   ;; compromised or hostile server it is whatever the sender chose.
-  ;; `:rf.schema/at-boundary` is what keeps the check in the RELEASE build
+  ;; `:boundary? true` is what keeps the check in the RELEASE build
   ;; (a bare `:schema` is a dev diagnostic and elides under :advanced). A
   ;; frame that fails the closed `InboundMessage` union is dropped whole:
   ;; the handler never runs, nothing reaches app-db, and the always-on
@@ -502,7 +502,7 @@
            on identity from the wire, and list position shifts as new
            messages arrive at the top.)"
      :schema       [:cat [:= :ws/handle-message] schema/InboundMessage]
-     :interceptors [:rf.schema/at-boundary]}
+     :boundary?    true}
     (fn handler-ws-handle-message [{:keys [db]} [_ body]]
       {:db (let [rx-seq (get-in db [:messages :rx-count] 0)]
         (-> db
@@ -583,7 +583,7 @@
            boundary. Either way the outcome files at [:messages :last-reply].
            See :ws.app/request for the correlation it completes."
      :schema       [:cat [:= :ws.app/request-reply] schema/RequestOutcome]
-     :interceptors [:rf.schema/at-boundary]}
+     :boundary?    true}
     (fn handler-app-request-reply [{:keys [db]} [_ body]]
       {:db (assoc-in db [:messages :last-reply] body)}))
 

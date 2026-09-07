@@ -695,61 +695,54 @@
           "filtering by :rf/default? leaves the two user interceptor refs (keywords)")
       (is (= [:test.twt7m/a :test.twt7m/b] (chain-ids user-only))))))
 
-;; ---- rf2-iftj4 — validate-at-boundary-interceptor without :schema is rejected at registration --
+;; ---- rf2-iftj4 / rf2-kuky.64 - `:boundary? true` without `:schema` is rejected at registration --
 ;;
-;; Per Spec 010 §Production builds + rf2-iftj4 (audit rf2-ycqtv finding #8):
-;; attaching `:rf.schema/at-boundary` to a handler that has no `:schema`
-;; metadata is structurally meaningless — the interceptor has nothing to
-;; validate against. Pre-rf2-iftj4 the registrar accepted the call and the
-;; runtime emitted `:rf.warning/boundary-without-spec` at first dispatch in
-;; production builds only (silent in dev). Now `register-event!` raises
-;; `:rf.error/at-boundary-missing-schema` at registration time so the
-;; developer learns immediately, regardless of dev/prod gate.
+;; Per Spec 010 SS-Production builds + rf2-iftj4 (audit rf2-ycqtv finding #8):
+;; declaring `:boundary? true` on a handler that has no `:schema` metadata is
+;; structurally meaningless - boundary validation re-uses the handler's own
+;; schema and has nothing to validate against. Pre-rf2-iftj4 the registrar
+;; accepted the call and the runtime emitted `:rf.warning/boundary-without-spec`
+;; at first dispatch in production builds only (silent in dev). Now
+;; `register-event!` raises `:rf.error/at-boundary-missing-schema` at
+;; registration time so the developer learns immediately, regardless of the
+;; dev/prod gate.
+;;
+;; rf2-kuky.64 replaced the retired interceptor REF with the `:boundary? true`
+;; FLAG, so the check is now a map lookup rather than a chain scan: there is no
+;; interceptor to attach, nothing to register, and no chain-shape arm left to
+;; test.
 ;;
 ;; These tests live alongside `events_test.clj` because the policing happens
 ;; inside `register-event!` (the common body of the one `reg-event`
 ;; surface), independently of the optional `day8/re-frame2-schemas`
-;; artefact — the rejection is structural ("you attached a boundary
-;; interceptor but declared no schema"), not a Malli validation. The
-;; schemas-artefact test file carries the dispatch-time companion test.
+;; artefact - the rejection is structural ("you asked for boundary validation
+;; but declared no schema"), not a Malli validation. The schemas-artefact test
+;; file carries the dispatch-time companion test.
 
-(defn- reg-at-boundary-stub!
-  "Register a surface-faithful stand-in for the boundary interceptor under the
-  canonical id `:rf.schema/at-boundary` (what `register-event!` looks for) and
-  return the chain REF `:rf.schema/at-boundary`. Avoids pulling `re-frame.spec`
-  and its schemas-late-bind dance into this core test. EP-0022 reference-only:
-  the boundary interceptor is attached by REF, never as an inline value."
-  []
-  (rf/reg-interceptor :rf.schema/at-boundary {:before identity :after identity})
-  :rf.schema/at-boundary)
+(deftest boundary-without-schema-rejected-at-registration
+  (testing "Per rf2-iftj4 - `:boundary? true` on a handler that carries no
+            :schema raises :rf.error/at-boundary-missing-schema at
+            registration time."
+    (testing ":boundary? true with no :schema"
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo
+            #":rf\.error/at-boundary-missing-schema"
+            (rf/reg-event :test.iftj4/no-schema-2
+              {:boundary? true}
+              (fn [_ _] {})))))
 
-(deftest at-boundary-without-schema-rejected-at-registration
-  (testing "Per rf2-iftj4 — attaching :rf.schema/at-boundary to a handler
-            that carries no :schema raises :rf.error/at-boundary-missing-schema
-            at registration time."
-    (testing "metadata :interceptors with no :schema"
-      (let [at-boundary (reg-at-boundary-stub!)]
-        (is (thrown-with-msg?
-              clojure.lang.ExceptionInfo
-              #":rf\.error/at-boundary-missing-schema"
-              (rf/reg-event :test.iftj4/no-schema-2
-                {:interceptors [at-boundary]}
-                (fn [_ _] {}))))))
-
-    (testing "metadata without :schema plus :interceptors"
-      (let [at-boundary (reg-at-boundary-stub!)]
-        (is (thrown-with-msg?
-              clojure.lang.ExceptionInfo
-              #":rf\.error/at-boundary-missing-schema"
-              (rf/reg-event :test.iftj4/no-schema-3
-                {:doc "metadata-map but no :schema"
-                 :interceptors [at-boundary]}
-                (fn [_ _] {}))))))
+    (testing ":boundary? true alongside other metadata but still no :schema"
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo
+            #":rf\.error/at-boundary-missing-schema"
+            (rf/reg-event :test.iftj4/no-schema-3
+              {:doc       "metadata-map but no :schema"
+               :boundary? true}
+              (fn [_ _] {})))))
 
     (testing "ex-data carries actionable diagnostic slots"
-      (let [at-boundary (reg-at-boundary-stub!)
-            data (try (rf/reg-event :test.iftj4/data-probe
-                        {:interceptors [at-boundary]}
+      (let [data (try (rf/reg-event :test.iftj4/data-probe
+                        {:boundary? true}
                         (fn [_ _] {}))
                       (catch clojure.lang.ExceptionInfo e (ex-data e)))]
         (is (= :rf.error/at-boundary-missing-schema (:rf.error/id data))
@@ -757,7 +750,7 @@
         (is (= "reg-event" (:reg-fn data)))
         (is (= :test.iftj4/data-probe (:id data)))
         (is (string? (:reason data)))
-        (is (re-find #":rf\.schema/at-boundary" (:reason data)))
+        (is (re-find #":boundary\?" (:reason data)))
         (is (re-find #":schema" (:reason data)))
         (is (= :no-recovery (:recovery data)))))
 
@@ -766,140 +759,70 @@
       ;; trace in the registrar. The `reject-...!` call is sequenced
       ;; before `rf.registrar/register!` in `register-event!`, so the
       ;; handler-id should be absent from the :event kind after the throw.
-      (let [at-boundary (reg-at-boundary-stub!)]
-        (try (rf/reg-event :test.iftj4/no-side-effect
-               {:interceptors [at-boundary]}
-               (fn [_ _] {}))
-             (catch clojure.lang.ExceptionInfo _ nil))
-        (is (nil? (rf.registrar/lookup :event :test.iftj4/no-side-effect))
-            "registry slot is untouched when the validate-at-boundary-interceptor check throws")))))
+      (try (rf/reg-event :test.iftj4/no-side-effect
+             {:boundary? true}
+             (fn [_ _] {}))
+           (catch clojure.lang.ExceptionInfo _ nil))
+      (is (nil? (rf.registrar/lookup :event :test.iftj4/no-side-effect))
+          "registry slot is untouched when the missing-schema check throws"))))
 
-(deftest at-boundary-with-schema-registers-cleanly
-  (testing "Per rf2-iftj4 — attaching :rf.schema/at-boundary alongside a
-            `:schema` metadata key completes registration without error.
-            The check fires only when the schema is absent."
-    (let [at-boundary (reg-at-boundary-stub!)]
-      (is (= :test.iftj4/with-schema
-             (rf/reg-event :test.iftj4/with-schema
-               {:schema [:cat [:= :test.iftj4/with-schema] :int]
-                :interceptors [at-boundary]}
-               (fn [_ _] {})))
-          "registration returns the event id when :schema is present")))
+(deftest boundary-with-schema-registers-cleanly
+  (testing "Per rf2-iftj4 - `:boundary? true` alongside a `:schema` metadata
+            key completes registration without error. The check fires only when
+            the schema is absent."
+    (is (= :test.iftj4/with-schema
+           (rf/reg-event :test.iftj4/with-schema
+             {:schema    [:cat [:= :test.iftj4/with-schema] :int]
+              :boundary? true}
+             (fn [_ _] {})))
+        "registration returns the event id when :schema is present"))
 
-  (testing "registration without validate-at-boundary-interceptor is unaffected by the check"
+  (testing "registration without :boundary? is unaffected by the check"
     (is (= :test.iftj4/no-boundary
            (rf/reg-event :test.iftj4/no-boundary
              (fn [_ _] {})))
-        "no validate-at-boundary-interceptor, no schema, no error"))
+        "no :boundary?, no schema, no error"))
 
-  (testing "metadata-map without :schema is fine when validate-at-boundary-interceptor isn't attached"
+  (testing "metadata-map without :schema is fine when :boundary? is absent"
     (is (= :test.iftj4/just-meta
            (rf/reg-event :test.iftj4/just-meta
              {:doc "no boundary, no schema"}
+             (fn [_ _] {})))))
+
+  (testing "Per rf2-6eh5h - KEY presence, not truthiness: `{:schema nil
+            :boundary? true}` registers and delegates the nil token to the
+            backend as an opaque value."
+    (is (= :test.kuky64/nil-schema
+           (rf/reg-event :test.kuky64/nil-schema
+             {:schema    nil
+              :boundary? true}
+             (fn [_ _] {}))))
+    (is (= :test.kuky64/false-schema
+           (rf/reg-event :test.kuky64/false-schema
+             {:schema    false
+              :boundary? true}
              (fn [_ _] {}))))))
 
-;; ---- rf2-i3uxo2 — missing-schema detection fires for the BY-REF form too --
+;; ---- rf2-kuky.64 - boundary-guarded-handler? is THE one boundary predicate --
 ;;
-;; Per EP-0022 + API.md §`validate-at-boundary-interceptor` a public
-;; `:interceptors` chain carries REFS, not inline values: the canonical
-;; opt-in is `{:interceptors [:rf.schema/at-boundary]}` (a bare-keyword ref),
-;; not the inline `validate-at-boundary-interceptor` Var. The chain stores
-;; refs UNRESOLVED, so the missing-schema detection (`register-event!` →
-;; `reject-at-boundary-without-schema!`) sees the RAW bare keyword, not a map.
-;; rf2-i3uxo2 extends the detection so it fires for BOTH the by-ref form and
-;; the legacy inline-value form. The interceptor itself is registered by
-;; `re-frame.spec/register-schema-interceptors!` (re-seeded by `rf/init!`,
-;; which the fixture calls AFTER `clear-all!`), so the ref resolves at
-;; registration's `validate-refs-registered!` step BEFORE the missing-schema
-;; check runs — i.e. an unregistered-interceptor error does NOT pre-empt it.
+;; Registration-time rejection, production enforcement
+;; (`re-frame.spec/validate-at-boundary!`) and rejection attribution
+;; (`re-frame.router/run-chain`) all ask this one question, so the three can
+;; never disagree about which handlers are guarded. `:boundary?` is `:boolean`
+;; in `EventHandlerMeta`, so the predicate is `true?`, not truthiness.
 
-(deftest at-boundary-ref-form-resolves-at-registration
-  (testing "Per rf2-i3uxo2 — the bare-keyword ref `[:rf.schema/at-boundary]`
-            resolves at chain assembly (the interceptor is registered, re-seeded
-            by init!). A handler carrying the ref AND a `:schema` registers
-            cleanly — no :rf.error/unregistered-interceptor, no missing-schema."
-    (is (= :test.i3uxo2/ref-ok
-           (rf/reg-event :test.i3uxo2/ref-ok
-             {:schema [:cat [:= :test.i3uxo2/ref-ok] :int]
-              :interceptors [:rf.schema/at-boundary]}
-             (fn [_ _] {})))
-        "by-ref form with :schema registers and returns the id")))
-
-(deftest at-boundary-ref-form-without-schema-rejected-at-registration
-  (testing "Per rf2-i3uxo2 — the missing-schema detection fires for the BY-REF
-            form (bare keyword) exactly as it does for the inline value: a
-            handler that references `:rf.schema/at-boundary` but declares no
-            `:schema` raises :rf.error/at-boundary-missing-schema at reg time."
-    (testing "bare-keyword ref, no :schema"
-      (is (thrown-with-msg?
-            clojure.lang.ExceptionInfo
-            #":rf\.error/at-boundary-missing-schema"
-            (rf/reg-event :test.i3uxo2/ref-no-schema
-              {:interceptors [:rf.schema/at-boundary]}
-              (fn [_ _] {})))))
-
-    (testing "ex-data carries the same actionable slots as the inline form"
-      (let [data (try (rf/reg-event :test.i3uxo2/ref-probe
-                        {:interceptors [:rf.schema/at-boundary]}
-                        (fn [_ _] {}))
-                      (catch clojure.lang.ExceptionInfo e (ex-data e)))]
-        (is (= :rf.error/at-boundary-missing-schema (:rf.error/id data)))
-        (is (= :test.i3uxo2/ref-probe (:id data)))
-        (is (re-find #":rf\.schema/at-boundary" (:reason data)))))
-
-    (testing "rejection happens BEFORE the registry slot is written (ref form)"
-      (try (rf/reg-event :test.i3uxo2/ref-no-side-effect
-             {:interceptors [:rf.schema/at-boundary]}
-             (fn [_ _] {}))
-           (catch clojure.lang.ExceptionInfo _ nil))
-      (is (nil? (rf.registrar/lookup :event :test.i3uxo2/ref-no-side-effect))
-          "no partial registry trace after the ref-form rejection"))))
-
-;; ---- rf2-48ypb6 / rf2-48ypb6.1 — at-boundary-entry? detects the bare keyword (unit) ----------
-;;
-;; `at-boundary-entry?` (events.cljc) detects the `:rf.schema/at-boundary`
-;; attachment by REFERENCE in its ONLY reachable form: the bare keyword
-;; `:rf.schema/at-boundary`. The existing registration-path tests above exercise
-;; that bare-keyword form end-to-end; this pins the predicate directly.
-;;
-;; REMOVED ARM (rf2-48ypb6.1 verdict, resolves rf2-wjr8ow): the predicate
-;; previously also detected an `[:rf.schema/at-boundary arg]` 2-vector, but that
-;; arm was VESTIGIAL via the public `reg-event` registration path and has been
-;; removed. The standard `:rf.schema/at-boundary` interceptor is registered as a
-;; STATIC interceptor (no `:factory`), so an `[:rf.schema/at-boundary arg]` chain
-;; ref is rejected at `validate-refs-registered!` with
-;; `:rf.error/interceptor-factory-arity` BEFORE
-;; `reject-at-boundary-without-schema!` (which calls this predicate) ever runs —
-;; verified empirically (with AND without `:schema`). The 2-vector branch was
-;; therefore unreachable for its intended missing-schema rejection purpose; the
-;; `[id arg]` form is simply an unregistered-factory-shape misuse that fails
-;; loud on its own. This test now pins the bare-keyword form and asserts the
-;; 2-vector form is NOT detected.
-
-(deftest at-boundary-entry?-detects-bare-keyword-ref
-  (testing "Per rf2-48ypb6 / rf2-48ypb6.1 — the private at-boundary-entry?
-            predicate detects the `:rf.schema/at-boundary` attachment in its
-            ONLY reachable ref form: the bare keyword. The `[id arg]` 2-vector
-            arm was removed (rf2-48ypb6.1, rf2-wjr8ow) as vestigial — a static
-            interceptor's `[id arg]` ref is rejected at validate-refs-registered!
-            with :rf.error/interceptor-factory-arity before this predicate runs."
-    (let [at-boundary-entry? @#'rf.events/at-boundary-entry?]
-      (testing "bare-keyword ref"
-        (is (true? (boolean (at-boundary-entry? :rf.schema/at-boundary)))
-            "the bare keyword is detected"))
-
-      (testing "non-matching entries are NOT detected"
-        (is (false? (boolean (at-boundary-entry? :some/other-interceptor)))
-            "an unrelated bare keyword is not detected")
-        (is (false? (boolean (at-boundary-entry? [:rf.schema/at-boundary {:some :arg}])))
-            "the `[id arg]` 2-vector is NOT detected — that arm was removed; the
-             static-interceptor factory-arity rejection pre-empts this check")
-        (is (false? (boolean (at-boundary-entry? [:some/other-interceptor {:k 1}])))
-            "an unrelated [id arg] 2-vector is not detected")
-        (is (false? (boolean (at-boundary-entry? [:rf.schema/at-boundary])))
-            "a 1-vector ref is not detected (only the bare keyword is)")
-        (is (false? (boolean (at-boundary-entry? {:id :rf.schema/at-boundary})))
-            "an inline map value is not a ref form and is not detected")))))
+(deftest boundary-guarded-handler?-reads-the-flag
+  (testing "true only for a literal `true`"
+    (is (true? (rf.events/boundary-guarded-handler? {:boundary? true})))
+    (is (false? (rf.events/boundary-guarded-handler? {:boundary? false})))
+    (is (false? (rf.events/boundary-guarded-handler? {}))
+        "an absent flag reads as unguarded")
+    (is (false? (rf.events/boundary-guarded-handler? nil))
+        "nil handler-meta is defensively unguarded")
+    (is (false? (rf.events/boundary-guarded-handler? {:boundary? :yes}))
+        "a mis-declared non-boolean reads as unguarded")
+    (is (false? (rf.events/boundary-guarded-handler? {:interceptors [:some/ref]}))
+        "an interceptor chain is not a boundary declaration")))
 
 ;; ---- rf2-3ut12 — a BARE interceptor is rejected loudly at registration ----
 ;;

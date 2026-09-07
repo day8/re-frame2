@@ -61,9 +61,9 @@ suffix). Consumers that want the registration anchor reach
 - no app-steering recovery policy (the per-frame `:on-error` recovery
   policy was removed per rf2-hiqtk8) — the framework's default per-`:where`
   recovery is what consumers verify against
-- no `:rf.schema/at-boundary` interceptor — that interceptor is for
-  production-mode schema enforcement on untrusted-input handlers, not
-  for the dev-mode validation surfaces this testbed exercises
+- no `:boundary? true` handler — that flag is for production-mode schema
+  enforcement on untrusted-input handlers, not for the dev-mode validation
+  surfaces this testbed exercises
 - no `:sensitive?` slots in the schemas. A `:sensitive?` slot prop would
   redact the offending `:value` in this very trace (validation-failure-trace
   redaction is the one schema-prop axis that survives EP-0025); this testbed

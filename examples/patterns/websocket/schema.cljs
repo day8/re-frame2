@@ -17,7 +17,7 @@
    - The inbound WIRE contract: a closed union of every frame the server
      is allowed to deliver (`InboundMessage`), plus the shape of what may
      land on the request-reply callback (`RequestOutcome`). These back the
-     `:rf.schema/at-boundary` checks on the two untrusted-ingress events
+     `:boundary? true` checks on the two untrusted-ingress events
      in `messages.cljs` — see spec/Pattern-WebSocket.md §Inbound frames
      are untrusted. `valid-inbound-frame?` is the same `InboundMessage`
      compiled to a predicate, so the connection machine can hold a frame
@@ -127,7 +127,7 @@
 ;; it carries whatever the sender chose. These schemas are the demo's
 ;; closed wire contract: `:ws/handle-message` and `:ws.app/request-reply`
 ;; (the two events that write server bytes into app-db) validate against
-;; them with `:rf.schema/at-boundary`, so the check survives the release
+;; them with `:boundary? true`, so the check survives the release
 ;; build. A closed `:multi` with no default arm is what makes an
 ;; unrecognised `:type` a rejection rather than a `case` fall-through.
 ;; See spec/Pattern-WebSocket.md §Inbound frames are untrusted.

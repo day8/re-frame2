@@ -24,7 +24,7 @@
        out-of-contract value into the durable causal ledger is corrupt state,
        so the check fires in production too.\"
 
-    2. **The `:rf.schema/at-boundary` interceptor** (010:204, 010:220) —
+    2. **The `:boundary? true` registration flag** (010:204, 010:220) —
        \"Boundary validation runs even when global validation is elided.\" It
        is the opt-back-in for handlers fed by an untrusted system boundary
        (HTTP response, websocket frame, postMessage, query string), and it is
@@ -56,7 +56,7 @@
   the rest passing vacuously. It runs ONLY in the gate lane (the default
   `:test` alias excludes the tag) and asserts the NEGATIVE control: in this
   same JVM, a handler carrying the identical `:schema` but NOT referencing
-  `:rf.schema/at-boundary` accepts a non-conforming event, because ordinary
+  `:boundary? true` accepts a non-conforming event, because ordinary
   step-1 validation really has been elided. Without it, \"the handler did not
   run\" would prove nothing about which mechanism stopped it.
 
@@ -99,8 +99,7 @@
   (rf.event-emit/clear-event-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)
   ;; `rf.registrar/clear-all!` drops the framework-standard interceptor
-  ;; registrations; `init!` re-seeds them, including `:rf.schema/at-boundary`
-  ;; (`re-frame.spec/register-schema-interceptors!`). Reloading the schemas
+  ;; registrations; `init!` re-seeds them. Reloading the schemas
   ;; artefact republishes the late-bind validation hooks the two surfaces
   ;; under test reach through.
   (require 're-frame.schemas :reload)
@@ -279,16 +278,16 @@
             "the always-on error record fired for the generated arm too")))))
 
 ;; ===========================================================================
-;; Surface 2 — `:rf.schema/at-boundary` runs even when global validation is
+;; Surface 2 — `:boundary? true` runs even when global validation is
 ;;             elided
 ;; ===========================================================================
 
 (deftest at-boundary-rejects-a-non-conforming-event-in-every-posture
-  (testing "rf2-bza6e / Spec 010:220 — a handler that REFERENCES
-            `:rf.schema/at-boundary` does not run on an event that fails its
+  (testing "rf2-bza6e / Spec 010:220 — a handler that declares
+            `:boundary? true` does not run on an event that fails its
             `:schema`, in dev AND under `-Dre-frame.debug=false`. The
             enforcing code differs by posture (step-1 `validate-event!` in
-            dev, the boundary interceptor in production); the observable — the
+            dev, the boundary arm in production); the observable — the
             handler is skipped and app-db is untouched — does not.
 
             Red here under the gate means an untrusted system-boundary payload
@@ -296,8 +295,8 @@
             defect of the rf2-9c2jf class, not a test-spelling problem."
     (let [calls (atom 0)]
       (rf/reg-event :prod/boundary
-        {:schema       [:cat [:= :prod/boundary] :int]
-         :interceptors [:rf.schema/at-boundary]}
+        {:schema    [:cat [:= :prod/boundary] :int]
+         :boundary? true}
         (fn [{:keys [db]} [_ n]]
           (swap! calls inc)
           {:db (assoc db :n n)}))
@@ -314,8 +313,8 @@
             postures."
     (let [calls (atom 0)]
       (rf/reg-event :prod/boundary
-        {:schema       [:cat [:= :prod/boundary] :int]
-         :interceptors [:rf.schema/at-boundary]}
+        {:schema    [:cat [:= :prod/boundary] :int]
+         :boundary? true}
         (fn [{:keys [db]} [_ n]]
           (swap! calls inc)
           {:db (assoc db :n n)}))
@@ -337,12 +336,12 @@
             It now fans exactly ONE always-on record. `EXACTLY ONE` is
             load-bearing in the DEV arm of this posture-independent deftest:
             dev refuses in step-1 and production refuses inside the boundary
-            interceptor, and both routes converge on a single emit site in the
+            arm, and both routes converge on a single emit site in the
             router tail, so neither posture can double-report a rejection."
     (let [calls (atom 0)]
       (rf/reg-event :prod/boundary
-        {:schema       [:cat [:= :prod/boundary] :int]
-         :interceptors [:rf.schema/at-boundary]}
+        {:schema    [:cat [:= :prod/boundary] :int]
+         :boundary? true}
         (fn [{:keys [db]} [_ n]]
           (swap! calls inc)
           {:db (assoc db :n n)}))
@@ -395,8 +394,8 @@
             reaches a shipper whether or not anyone reviewed it, and this
             assertion is the review."
     (rf/reg-event :prod/boundary
-      {:schema       [:cat [:= :prod/boundary] :int]
-       :interceptors [:rf.schema/at-boundary]}
+      {:schema    [:cat [:= :prod/boundary] :int]
+       :boundary? true}
       (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
     (let [secret   "sentinel-secret-value"
           captured (record-both-axes
@@ -432,8 +431,8 @@
             would corrupt working semantics; keeping `:ok` preserved a known
             lie."
     (rf/reg-event :prod/boundary
-      {:schema       [:cat [:= :prod/boundary] :int]
-       :interceptors [:rf.schema/at-boundary]}
+      {:schema    [:cat [:= :prod/boundary] :int]
+       :boundary? true}
       (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
     (let [captured (record-both-axes
                      #(rf/dispatch-sync [:prod/boundary "not-an-int"]))
@@ -452,8 +451,8 @@
             shipper's `:rejected` count is a count of real refusals and its
             silence is real silence."
     (rf/reg-event :prod/boundary
-      {:schema       [:cat [:= :prod/boundary] :int]
-       :interceptors [:rf.schema/at-boundary]}
+      {:schema    [:cat [:= :prod/boundary] :int]
+       :boundary? true}
       (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
     (let [captured (record-both-axes #(rf/dispatch-sync [:prod/boundary 42]))]
       (is (empty? (boundary-records captured))
@@ -463,7 +462,7 @@
 
 (deftest unguarded-schema-refusal-is-not-a-boundary-rejection-in-every-posture
   (testing "rf2-mwv4e — the promotion's NARROWNESS, pinned. A handler carrying
-            a `:schema` but NOT referencing `:rf.schema/at-boundary` is a
+            a `:schema` but NOT declaring `:boundary? true` is a
             DEV-ONLY validation surface (Spec 010 §Production builds,
             rf2-bkvu5): in dev step-1 refuses it, in production it is elided
             and the handler simply runs. Neither posture may fan the always-on
@@ -496,8 +495,8 @@
             This deftest runs ONLY in the `jvm-core-prod-gate` lane (the
             default `:test` alias excludes `^:prod-gate`), so it is a
             statement about the JVM it is running in. It asserts the NEGATIVE:
-            a handler carrying the IDENTICAL `:schema` but NOT referencing
-            `:rf.schema/at-boundary` ACCEPTS a non-conforming event here,
+            a handler carrying the IDENTICAL `:schema` but NOT declaring
+            `:boundary? true` ACCEPTS a non-conforming event here,
             because ordinary step-1 validation has been elided by the load-time
             gate exactly as Spec 010 §Validation order says it should be.
 

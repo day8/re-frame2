@@ -1,13 +1,13 @@
 (ns re-frame.ssr-boundary-rejection-400-production-test
   "rf2-qwydk ACCEPTANCE — an SSR request whose payload the
-  `:rf.schema/at-boundary` interceptor refuses answers HTTP 400 under the
+  `:boundary? true` step-1 check refuses answers HTTP 400 under the
   REAL production gate, and the record it answers from carries nothing the
   attacker sent.
 
   THE HOLE THIS CLOSES. `re-frame.interop/debug-enabled?` reads
   `-Dre-frame.debug=false` ONCE at namespace-load time. Until rf2-mwv4e the
   boundary rejection reached the outside world through ONE channel —
-  `spec/validate-at-boundary-interceptor` → `trace/emit-error!`, which sits
+  `spec/validate-at-boundary!` → `trace/emit-error!`, which sits
   inside that gate. The CHECK was never elided (Spec 010 §Production builds
   keeps this one surface ungated, and it is the whole point of the
   interceptor), so a production server really did refuse the payload; what it
@@ -104,7 +104,7 @@
   ;; undeclared one, which is the shape (3) needs.
   (rf/reg-event :api/ingest
     {:schema       [:cat [:= :api/ingest] [:map [:qty :int]]]
-     :interceptors [:rf.schema/at-boundary]}
+     :boundary?    true}
     (fn [{:keys [db]} [_ payload]]
       {:db (assoc db :ingested payload)})))
 
@@ -148,7 +148,7 @@
 ;; ===========================================================================
 
 (deftest a-refused-payload-projects-400-under-the-production-gate
-  (testing "rf2-qwydk: THE BEAD. A handler carrying `:rf.schema/at-boundary`
+  (testing "rf2-qwydk: THE BEAD. A handler carrying `:boundary? true`
             refuses a non-conforming payload in every build; since rf2-mwv4e
             the refusal also produces an always-on record, which the SSR
             projection listener buffers and the default projector maps to

@@ -248,7 +248,7 @@
     :rf.error/safe-redirect-host-disallowed
     ;; rf2-mwv4e / rf2-lvsen: ONE ARM of `:rf.error/schema-validation-failure`
     ;; graduated `always-on` in the Spec 009 catalogue — the
-    ;; `:rf.schema/at-boundary` rejection (`:source :boundary`, `:where
+    ;; `:boundary? true` rejection (`:source :boundary`, `:where
     ;; :event`). The category's dev-time `validate-*!` arms stay diagnostic,
     ;; but the `Channel` column is per-category (the `:rf.error/no-such-handler`
     ;; shape, whose row reads always-on though only its `:kind :route` arm was

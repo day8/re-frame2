@@ -34,7 +34,7 @@
                    as evidence that no schema was violated.
     :flow-error  — a flow's `:output` threw (Spec 013 §Failure
                    semantics rule 3); the cascade halted before `:fx`.
-    :rejected    — the `:rf.schema/at-boundary` interceptor REFUSED the
+    :rejected    — the `:boundary? true` step-1 check REFUSED the
                    event's payload against the handler's `:schema`
                    (Spec 010 §Production builds, rf2-mwv4e). The handler
                    never ran; entered interceptors still unwound in

@@ -64,7 +64,11 @@
   "Per-kind canonical set of accepted BARE registration-metadata keys. Any bare
   key outside a kind's set (and not in `retired-bare-keys`) is an unknown key —
   a likely typo — and warns. Namespaced keys are never checked against this set."
-  {:event       (into base-bare-keys (conj classification-bare-keys :interceptors))
+  ;; `:boundary?` is the Spec 010 §Production builds opt-in: it makes THIS
+  ;; handler's `:schema` run at step 1 in every build, not just dev. It is an
+  ;; `:event`-only key (`re-frame.spec/validate-at-boundary!` reads it off the
+  ;; handler meta at the router's step-1 site).
+  {:event       (into base-bare-keys (conj classification-bare-keys :interceptors :boundary?))
    ;; `:inputs` is `reg-sub`'s DEPENDENCY DECLARATION (Spec 006
    ;; §Subscription input producers) — the same slot `reg-flow` uses. Both
    ;; registration paths lift it into the runtime-owned `:input-kind` /
