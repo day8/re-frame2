@@ -413,8 +413,8 @@ For each capability included in Part 1, the implementor makes the per-capability
 #### SSR3. Platform gating
 
 - **Why it matters.** `reg-fx` carries `:platforms` metadata; effects gated on platform skip on the wrong side and emit `:rf.fx/skipped-on-platform`.
-- **Options by host.** Per [011 §`:platforms`](011-SSR.md). `init-platform` sets the active platform per build target.
-- **Reference-impl picks.** CLJS calls `(init-platform :server)` or `(init-platform :client)` at boot.
+- **Options by host.** Per [011 §`:platforms`](011-SSR.md). The frame's `:platform` key sets the active platform; an untagged frame takes the host default.
+- **Reference-impl picks.** CLJS tags a frame `{:platform :server}` when it wants server semantics; otherwise the CLJS host default `:client` applies.
 - **Trade-offs.** Without platform gating, shared event handlers can't be reused across server and client — the gate is what makes one handler work both sides.
 
 ### Schemas (if Q4 is yes)

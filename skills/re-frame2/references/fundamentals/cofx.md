@@ -31,7 +31,7 @@ Verified in `re-frame.cofx` (`reg-cofx`, `parse-requires`, `deliver-declared-cof
 - `:recordable?` — mark the fact **recordable** (see grades below). Default `false` (ambient).
 - `:provided?` — (recordable only) the fact has **no generator** (see grades below).
 - `:schema` — Malli schema validating supplied / replayed values. A generated value is validated against `:schema` at processing-start (a production hard error on mismatch) before it is written into the recorded token.
-- `:platforms` — `#{:client :server}`; defaults to both. A supplier tagged `:platforms #{:client}` is **skipped** on server-side frames (emits `:rf.cofx/skipped-on-platform`; the declaring handler sees no value for that id). Mirrors `reg-fx`'s contract per `spec/011-SSR.md`. Example: `(rf/reg-cofx :browser-locale {:platforms #{:client}} (fn [] js/navigator.language))` is safe to register on both platforms; under an `:ssr-server` frame the supplier is skipped.
+- `:platforms` — `#{:client :server}`; defaults to both. A supplier tagged `:platforms #{:client}` is **skipped** on server-side frames (emits `:rf.cofx/skipped-on-platform`; the declaring handler sees no value for that id). Mirrors `reg-fx`'s contract per `spec/011-SSR.md`. Example: `(rf/reg-cofx :browser-locale {:platforms #{:client}} (fn [] js/navigator.language))` is safe to register on both platforms; under a `{:platform :server}` frame the supplier is skipped.
 
 > **`:platforms` lives in the metadata-map, NOT reader metadata.** `reg-cofx` reads `:platforms` only from the optional metadata-map argument. Reader metadata on the form (`^{:platforms #{:client}} (rf/reg-cofx ...)`) is **never consulted** — it would register a browser-only supplier for both platforms.
 

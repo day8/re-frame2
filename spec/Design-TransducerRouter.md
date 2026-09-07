@@ -153,7 +153,7 @@ runs and returns a handle the runtime can use to schedule, pause, and tear down.
 
 The driver is per-frame, set at frame-construction time via `:driver` (default `:macrotask`). Frame
 presets (per [002 §Frame presets](002-Frames.md#frame-presets--capability-bundles-for-common-configurations))
-fix the driver: `:default` → `:macrotask`, `:test` → `:manual`, `:ssr-server` → `:manual`,
+fix the driver: `:default` → `:macrotask`, `:test` → `:manual`,
 `:story` → `:macrotask`.
 
 ### 2.4 Public surface

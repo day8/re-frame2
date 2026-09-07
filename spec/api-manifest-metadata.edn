@@ -1189,10 +1189,7 @@
   ;; Lifecycle / adapter bootstrap.
   ["re-frame.core" "init!"]                {:tier :front-porch :owner "002" :status "v1"
                                            :action :keep
-                                           :justification "Front-porch: the one boot call. Its lower-level siblings init-platform and install-adapter! are advanced precisely so this one stays the whole answer to how do I start."}
-  ["re-frame.core" "init-platform"]        {:tier :advanced :owner "002" :status "v1"
-                                           :action :keep
-                                           :justification "API.md Tier taxonomy names init-platform as a canonical advanced example -- the lower-level lifecycle beneath front-porch init!. It is called in the same boot file as init!, so a separate require would split one sitting across two namespaces. Defined on re-frame.core; no owning-namespace peer."}
+                                           :justification "Front-porch: the one boot call. Its lower-level lifecycle siblings (destroy-adapter!, current-adapter) are advanced precisely so this one stays the whole answer to how do I start."}
   ["re-frame.core" "destroy-adapter!"]     {:tier :advanced :owner "006" :status "v1"
                                            :action :keep
                                            :justification "The destroy-* lifecycle inverse of install-adapter! -- identity, a creation moment and owned resources, exactly the Lifecycle-verb law's discriminator. It must sit on the door that carries the call it undoes."}

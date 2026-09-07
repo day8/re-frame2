@@ -292,7 +292,7 @@ Day to day, `:initial-events` is the key you reach for. But the frame config —
    :fx-overrides   {:my-app/http http-stub-fn}     ;; per-frame fx replacements (test doubles)
    :interceptors   [:my-app/recorder]              ;; interceptor REFS prepended to every event in this frame
    :drain-depth    100                             ;; run-to-completion drain depth limit
-   :preset         :test})                         ;; capability bundle — :default / :test / :story / :ssr-server
+   :preset         :test})                         ;; capability bundle — :default / :test / :story
 ```
 
 Notes:
@@ -301,7 +301,7 @@ Notes:
 2. **`:fx-overrides`** swaps registered [effect handlers](glossary.md#effect-handler) by id — the test-double mechanism (stub `:my-app/http` so a frame never hits the network).
 3. **`:interceptors`** prepends [interceptor](glossary.md#interceptor) *refs* (registered ids, never inline interceptor values) to every event in the frame — "global within this frame." (Interceptors get [their own page](interceptors.md) later.)
 4. **`:drain-depth`** caps the run-to-completion drain.
-5. **`:preset`** expands into a named bundle of frame-config defaults (`:test`, `:story`, `:ssr-server` — what each sets is in the [API reference](../api/re-frame.core.md)) so a frame's *intent* is visible at the call site and machine-readable from `(rf/frame-meta :cart)`.
+5. **`:preset`** expands into a named bundle of frame-config defaults (`:test`, `:story` — what each sets is in the [API reference](../api/re-frame.core.md)) so a frame's *intent* is visible at the call site and machine-readable from `(rf/frame-meta :cart)`.
 
 The `:observability` sink policy — the production-telemetry key not shown above — is covered in [Observability](observability.md#consuming-production-telemetry-declare-a-sink); the full frame-config grammar is in the [API reference](../api/re-frame.core.md).
 
