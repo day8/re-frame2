@@ -87,6 +87,16 @@
 ;;    registrations. Capturing AT DEFTEST START guarantees our inter-fixture
 ;;    reset doesn't strand them.
 
+;; The registry atom is `^:private` and reaching into it is deliberate: no
+;; public surface hands back the registry MAP, and only the map can be
+;; snapshotted here and restored in `reset-runtime!` below (the public verbs
+;; register, unregister and clear — none of them reads). Same reach, same
+;; suppression, as `re-frame.hicasso.server-render-recovered-error-ssr-cljs-test`
+;; on `re-frame.error-emit/listeners`. The access itself is unchanged since
+;; rf2-qwm0a; only this ns's `:require` of `re-frame.trace.tooling` is new, and
+;; with it clj-kondo can resolve — and so grade — a symbol that previously
+;; reached the namespace transitively.
+#_{:clj-kondo/ignore [:private-call]}
 (def ^:private baseline-trace-listeners
   ;; Per rf2-qwm0a the listener registry atom moved from
   ;; `re-frame.trace/listeners` to `re-frame.trace.tooling/listeners` (the
@@ -169,6 +179,8 @@
   (rf/init! rf.substrate.plain-atom/adapter)
   ;; 6. Restore the baseline trace-listener set (preserves the SSR
   ;;    error-projection listener while dropping per-fixture listeners).
+  ;;    Deliberate private-registry reach — see `baseline-trace-listeners`.
+  #_{:clj-kondo/ignore [:private-call]}
   (reset! re-frame.trace.tooling/listeners baseline-trace-listeners)
   ;; 7. rf2-wxe9t — drop every corpus-wide error-emit listener so a recorder
   ;;    installed for one fixture can't fire against the next fixture's drains.
