@@ -98,6 +98,7 @@ There is no `[:rf.scope/global]` fallthrough.
 
 - Event resolution precedence: payload `:scope` → route resolver → spec resolver. A `{:from-db <id>}` reference that resolves `nil` at an event/route site raises `:rf.error/resource-scope-unresolved-reference`.
 - Subscription resolution: payload `:scope` → sub-resolvable spec policy → loud `:rf.error/resource-sub-unresolved-scope` (never a silent global read or `:idle`).
+- **Registration is the DEFAULT; a use-site `:scope` is an OVERRIDE.** Declare the scope once on the resource; a route entry, subscription payload or event payload that omits `:scope` inherits it. Supply one at a use site only when that site genuinely reads under a *different* principal (an admin reading tenant X). Repeating the registration's own policy at every use site is noise, not safety.
 
 See [Guide ch.27 §Scope](../resources/concepts.md).
 
@@ -219,14 +220,13 @@ A resource (or payload, or route) references a named resolver as `{:from-db <sco
 - **Kind**: function (post-v1 lib)
 - **Signature**:
   ```clojure
-  (reg-resource-scope scope-id metadata resolve-fn)
-  (reg-resource-scope scope-id resolve-fn)           ;; whole-db sugar (no metadata)
+  (reg-resource-scope scope-id metadata resolve-fn)   ;; ONE arity; :inputs is required
   ```
 - **Description**: Register a **pure** named scope resolver under `scope-id` in the canonical 3-slot grammar. Returns `scope-id`. Ships in `day8/re-frame2-resources`; require `re-frame.resources` at boot. An app that omits the artefact sees the wrapper throw `:rf.error/resources-artefact-missing`.
   - `resolve-fn` (value/third slot): the resolver. Its first arg is ALWAYS the resolved inputs map. It MUST be pure — it MUST NOT fetch, dispatch, mutate state, or read ambient host state. The `ctx` arg is reserved and invoked as literal `nil` in this slice. A `nil` resolve result is fail-closed.
   - `metadata` (middle slot): carries the declared `:inputs {name [:db <rf-path>]}` plus optional `:doc`. The only shipped input source is `[:db <rf-path>]` (a concrete `:rf/path`). `[:runtime …]` (route-derived scope) is reserved and rejected with `:rf.error/resource-scope-source-reserved`.
-  - Whole-db form: omit `:inputs` — either the 2-arg sugar, or a `:doc`-only metadata — and the resolver reads the whole db as its first arg. This is the one deliberate, documented exception.
-  - A non-map metadata, a malformed `:inputs` descriptor, a `:resolve` left inside the metadata map, or a non-fn value slot is rejected with `:rf.error/invalid-resource-scope-spec`.
+  - Whole-db form: declare the whole db as an ordinary input on the root path — `{:inputs {:db [:db []]}}`. There is no bare-fn sugar and no first-arg meaning-shift; the stored `:whole-db?` cost mark is DERIVED from that declaration.
+  - A missing `:inputs` (an empty or `:doc`-only metadata), a non-map metadata, a malformed `:inputs` descriptor, a `:resolve` left inside the metadata map, or a non-fn value slot is rejected with `:rf.error/invalid-resource-scope-spec`.
   - Writes a `:resource-scope`-kind registrar entry carrying the canonical spec plus captured source coords.
 
 ```clojure
@@ -281,7 +281,7 @@ A resource (or payload, or route) references a named resolver as `{:from-db <sco
   ```clojure
   (re-frame.resources/scope-resolver-meta scope-id) → spec-map or nil
   ```
-- **Description**: The registered resolver's canonical spec map (`:inputs`, `:resolve`, `:whole-db?`, `:doc`) for `scope-id`, or nil if none is registered. The introspection counterpart of `resource-meta` / `mutation-meta`. The whole-db sugar stores `:whole-db? true` with a synthetic `:inputs {:db [:db []]}`.
+- **Description**: The registered resolver's canonical spec map (`:inputs`, `:resolve`, `:whole-db?`, `:doc`) for `scope-id`, or nil if none is registered. The introspection counterpart of `resource-meta` / `mutation-meta`. `:whole-db?` is DERIVED, not authored: true iff some declared input targets the root path (`{:inputs {:db [:db []]}}`).
 
 ```clojure
 (re-frame.resources/scope-resolver-meta :realworld/session)

@@ -46,10 +46,11 @@
      and the feed declares `:scope {:from-db :realworld/session}`
      (resources.cljs), so a subscription resolves the scope itself — no view ever
      threads a scope payload, and the sub re-keys reactively across login/logout;
-   - the home ROUTE plans the feed as a `:resources` entry with
-     `:scope {:from-db :realworld/session}` (routing.cljs); the viewer reads take
-     their scope from their spec policy at route entry. Both resolve against the
-     navigation handler's app-db, owned by the nav-token, released on leave;
+   - the home ROUTE plans the feed as a plain `:resources` entry carrying NO
+     `:scope` (routing.cljs) — it inherits the registration's, exactly as the
+     viewer reads do. Registration is the default; a use-site `:scope` is an
+     OVERRIDE, never a required repetition. Both resolve against the navigation
+     handler's app-db, owned by the nav-token, released on leave;
    - the MUTATIONS carry per-target invalidation / populate / optimistic-patch
      descriptors naming `{:from-db :realworld/viewer}` (the article / profile /
      comment reads) and `{:from-db :realworld/session}` (the feed) — so one

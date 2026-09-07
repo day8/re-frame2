@@ -262,8 +262,10 @@
 ;;   - a `[:rf/resource {:resource :realworld/feed :params {…}}]` sub
 ;;     resolves the scope itself — no view ever passes a `:scope` payload — and
 ;;     re-keys reactively the moment you log in or out;
-;;   - the home route owns the feed as a plain `:resources` entry carrying
-;;     `:scope {:from-db :realworld/session}` (routing.cljs);
+;;   - the home route owns the feed as a plain `:resources` entry carrying NO
+;;     `:scope` at all (routing.cljs) — it inherits the policy declared here.
+;;     Registration is the default; a use-site `:scope` is an OVERRIDE for a
+;;     site reading under a different principal, never a repetition;
 ;;   - logged out, the reference resolves to nil, fail-closed: the sub becomes a
 ;;     loud 'scope unresolved' signal, never a quiet read of someone else's cache.
 ;; See the named resolver in scope.cljs and

@@ -1494,7 +1494,7 @@ Resources are an optional capability (cached server-state reads plus mutations) 
 
 - **Kind**: macro
 - **Signature**: `(reg-resource-scope scope-id metadata resolve-fn)`
-- Register a named resource-scope resolver under `scope-id`; a resource's `:scope` policy references it. The canonical 3-slot grammar applies: the `:resolve` fn is the value slot, and `metadata` carries the declared `:inputs` (omit `:inputs` for the 2-arg whole-db sugar). Returns `scope-id`. Full contract in [re-frame.resources.md](re-frame.resources.md).
+- Register a named resource-scope resolver under `scope-id`; a resource's `:scope` policy references it. The canonical 3-slot grammar applies — and it is the ONLY arity: the `:resolve` fn is the value slot, and `metadata` carries the declared `:inputs`, which is REQUIRED (read the whole db by declaring it on the root path, `{:inputs {:db [:db []]}}`). Returns `scope-id`. Full contract in [re-frame.resources.md](re-frame.resources.md).
 
 #### Clearing a resource registration
 

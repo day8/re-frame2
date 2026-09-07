@@ -76,10 +76,15 @@
    {:resource  :realworld/tags
     :params    (fn [_route] {})
     :blocking? false}
-   ;; The personalised feed — a declarative route resource, scoped by the named
-   ;; `{:from-db :realworld/session}` resolver. The runtime resolves the scope
-   ;; against the navigation handler's app-db at route entry, owns it under the
-   ;; route nav-token, and releases it on leave, just like the public reads above.
+   ;; The personalised feed — a declarative route resource. It carries NO
+   ;; `:scope`: the scope is declared ONCE, on the `:realworld/feed`
+   ;; registration (`:scope {:from-db :realworld/session}`, resources.cljs), and
+   ;; this entry INHERITS it. That is the rule everywhere — registration is the
+   ;; default, a use-site `:scope` is an OVERRIDE for the case where a site
+   ;; genuinely reads under a different principal (an admin reading another
+   ;; tenant), never a required repetition. The runtime resolves the inherited
+   ;; reference against app-db at use time, owns the entry under the route
+   ;; nav-token, and releases it on leave, just like the public reads above.
    ;;
    ;; The feed is planned ONLY on the following-feed arm (`?feed=following`, the
    ;; official-contract token), and that admission is route-derived on purpose:
@@ -87,14 +92,12 @@
    ;; so "when signed in" is not something it can ask. It doesn't need to. The
    ;; home view shows the feed only on that arm, so the bare `/` never wants it,
    ;; and a logged-out visitor lands on a plan that forms. On the following-feed
-   ;; arm a nil session (nobody signed in) is a whole-plan planning error, BY
-   ;; DESIGN: a route `:scope` that is present and resolves nil is never a silent
-   ;; omission — that rule is what keeps one user's feed from ever being read
-   ;; under another identity — and the route slice carries the error for the
-   ;; shell to show. `?page=` flows into params here like every other paginated
-   ;; list.
+   ;; arm a nil session (nobody signed in) still FAILS CLOSED — the inherited
+   ;; `{:from-db …}` reference resolving nil at a scope-requiring site is the
+   ;; unresolved condition, never a silent global read — which is what keeps one
+   ;; user's feed from ever being read under another identity. `?page=` flows
+   ;; into params here like every other paginated list.
    {:resource  :realworld/feed
-    :scope     {:from-db :realworld/session}
     :when      (fn [route _ctx] (= "following" (get-in route [:query :feed])))
     ;; Default to page 1 — the feed subscription reads `(or (:page q) 1)` too, so
     ;; the route has to own `{:page 1}` on the bare URL.
