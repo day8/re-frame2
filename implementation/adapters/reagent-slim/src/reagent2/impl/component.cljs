@@ -259,6 +259,39 @@
   [render-fn]
   (some-> render-fn meta :reagent2/form))
 
+(defn- class-mounting-render-fn
+  "Wrap a factory-returned Reagent class `klass` in a render fn that MOUNTS
+  it (rf2-oyrj).
+
+  A class made by `create-class*` is a JS function, so the bare `fn?`
+  test that classifies a Form-2 inner render fn also matches it. Calling
+  it is NOT mounting it: the constructor assigns instance fields and
+  returns `this`, while the real render lives on the prototype and the
+  lifecycle methods are installed separately. The supported Form-3
+  FACTORY shape — a plain `defn` whose body returns `create-class` (see
+  `FORM-3.md`'s google-map recipe) — therefore never reached its class.
+
+  Returning `[klass & args]` instead hands the class back as a hiccup
+  HEAD, which `template/vec-to-elem` already routes through
+  `react-component-element` → `React.createElement`. React then owns the
+  instance: the class type is stable across renders, so an update
+  reconciles in place and the factory's per-mount closure survives.
+  Mirrors stock Reagent's `reagent.impl.component/wrap-render`, which
+  caches exactly this wrapper for a `reagent-class?` render result."
+  [klass]
+  (fn mount-class [& args]
+    (into [klass] args)))
+
+(defn- form-2-inner-fn
+  "Classify a render fn's fn-valued output for caching as the Form-2 inner
+  render fn. A factory-returned Reagent class is wrapped so it is MOUNTED
+  rather than invoked (rf2-oyrj); a genuine inner render closure is cached
+  unchanged."
+  [out]
+  (if (reagent-class? out)
+    (class-mounting-render-fn out)
+    out))
+
 (defn wrap-render
   "Runtime Form-1/Form-2 detection on the user render fn `render-fn`,
   invoked on `c` (the React component instance). Returns the resulting
@@ -279,7 +312,14 @@
 
   Form-3 dispatches via the `:reagent-render` key in the spec map and
   reaches this fn directly with the user's render fn (the spec's
-  `:reagent-render` value)."
+  `:reagent-render` value).
+
+  Form-3 FACTORY (rf2-oyrj): when `render-fn` is a plain factory whose
+  body RETURNS a `create-class` result — `FORM-3.md`'s supported
+  per-instance shape — the returned class is a JS function and so
+  matches the same `fn?` test that detects a Form-2 inner render fn.
+  `form-2-inner-fn` discriminates it and caches a wrapper that mounts
+  the class (`[klass & args]`) instead of invoking its constructor."
   [^js c render-fn]
   (let [args   (argv-args c)
         cached (.-cljsRenderFn c)]
@@ -305,8 +345,9 @@
       (= :reagent2/form-1 (form-tag render-fn))
       (let [out (apply render-fn args)]
         (if (fn? out)
-          (do (set! (.-cljsRenderFn c) out)
-              (apply out args))
+          (let [inner (form-2-inner-fn out)]
+            (set! (.-cljsRenderFn c) inner)
+            (apply inner args))
           out))
 
       :else
@@ -319,10 +360,12 @@
 
           ;; Form-2: render-fn returned a fn. Cache it and recall with
           ;; the current args so this render produces actual hiccup.
+          ;; A factory-returned Reagent CLASS is also a fn — `form-2-inner-fn`
+          ;; wraps that case so the class is mounted, not called (rf2-oyrj).
           (fn? out)
-          (do
-            (set! (.-cljsRenderFn c) out)
-            (apply out args))
+          (let [inner (form-2-inner-fn out)]
+            (set! (.-cljsRenderFn c) inner)
+            (apply inner args))
 
           ;; Seq-as-fragment shape — coerce to a vector for React's
           ;; children-of-a-fragment handling.
