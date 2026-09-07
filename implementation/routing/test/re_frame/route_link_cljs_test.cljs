@@ -21,6 +21,7 @@
   Per Spec 012 §Linking from views — plain-anchor semantics and
   API.md `route-link` row's click-rules paragraph."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [clojure.string :as str]
             [re-frame.core :as rf]
             ;; rf2-o3nam4: the delayed-click regression rebinds the ambient
             ;; frame scope directly to model a real browser click firing
@@ -138,12 +139,15 @@
       ;; routing-substrate dispatch, not :ui.
       (is (= :router source)
           "the route-link dispatch stamps :source :router (not :unknown / :ui)")
-      (let [payload (second dispatched)]
-        (is (= "/cart" (:url payload)))
-        (is (= :route/cart (:to payload)))))))
+      ;; rf2-kuky.36: the payload is ONE key. `=` on the whole map is the
+      ;; pin — an address key creeping back in fails here rather than being
+      ;; tolerated. The route id is not lost: `/cart` is what `:route/cart`
+      ;; synthesised, and the handler matches it back.
+      (is (= {:url "/cart"} (second dispatched))
+          "the click payload carries the url and nothing else"))))
 
 (deftest plain-left-click-passes-params-query-and-fragment
-  (testing "the dispatched payload carries :params, :query and :fragment when present"
+  (testing "params, query and fragment all reach the dispatch — INSIDE the url"
     (rf/reg-route :route/article {:params [:map [:id :string]]
                                   :query  [:map [:tab [:enum :summary :details]]]} "/articles/:id")
     ;; :tab is declared as a BOUNDED [:enum …] keyword slot in the route's
@@ -157,15 +161,21 @@
                    :fragment "notes"}
                   (mk-event {}))
           payload (second dispatched)]
-      (is (= {:id "intro"} (:params payload))
-          ":params lands in the dispatched payload")
-      (is (= {:tab :summary} (:query payload))
-          ":query lands in the dispatched payload")
-      ;; rf2-e9974: the click payload now comes from the SHARED
-      ;; `url-requested-payload` rather than an inlined `cond->`, and
-      ;; `:fragment` was the one slot no assertion covered on either surface.
-      (is (= "notes" (:fragment payload))
-          ":fragment lands in the dispatched payload"))))
+      ;; rf2-kuky.36 shrank the payload to `{:url …}`, so the three address
+      ;; components are asserted where they now live — synthesised into the
+      ;; path-form url by the shared `url-requested-payload`. rf2-e9974's
+      ;; concern is unchanged and still covered: `:fragment` was the one slot
+      ;; no assertion reached on either surface, and it is pinned here (the
+      ;; `#notes` tail) and in the seam suite.
+      (is (= {:url "/articles/intro?tab=summary#notes"} payload)
+          "params, query and fragment are all in the url, and the url is all
+           the payload carries")
+      ;; Component-wise, so a failure names WHICH part went missing rather
+      ;; than printing two long strings.
+      (let [url (:url payload)]
+        (is (str/includes? url "/articles/intro") ":params reached the url")
+        (is (str/includes? url "tab=summary")     ":query reached the url")
+        (is (str/includes? url "#notes")          ":fragment reached the url")))))
 
 ;; ---- modifier-key clicks defer to browser ------------------------------
 
