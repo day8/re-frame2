@@ -6,7 +6,7 @@
 
    1. **Acceptance.** `reg-machine` accepts a machine-level `[:schemas :data]`
       schema on the machine spec; registration completes without error and the
-      registered spec carries the schema through `(rf.machines/machine-meta id)`.
+      registered spec carries the schema through the `:rf/machine` registrar projection.
 
    2. **Macrostep boundary.** After a transition action returns a new
       `:data` that violates the schema, the runtime emits
@@ -68,10 +68,10 @@
                       :schemas {:data DataSchema}
                       :states  {:idle {}}}]
       (rf/reg-machine :rf.machine-schema/accepted spec)
-      (let [meta (rf.machines/machine-meta :rf.machine-schema/accepted)]
+      (let [meta (:rf/machine (rf/handler-meta {:source :store :kind :event :id :rf.machine-schema/accepted}))]
         (is (some? meta) "machine-meta returns the registered spec")
         (is (= DataSchema (get-in meta [:schemas :data]))
-            "the [:schemas :data] schema round-trips through machine-meta")))))
+            "the [:schemas :data] schema round-trips through the `:rf/machine` projection")))))
 
 ;; ---- (2) macrostep boundary: action returns bad :data → rollback + emit --
 

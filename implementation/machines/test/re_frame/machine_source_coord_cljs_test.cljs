@@ -32,13 +32,19 @@
   (rf.machines.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.reagent/adapter}))
 
+;; The registered machine's SPEC map, read through the generic registrar query
+;; + `:rf/machine` projection (Spec 005 §Querying machines). nil unless the
+;; `:event` registration carries `:rf/machine? true`.
+(defn- machine-spec [machine-id]
+  (:rf/machine (rf/handler-meta {:source :store :kind :event :id machine-id})))
+
 (defn- element-coords [machine-id slot id]
-  (get-in (rf.machines/machine-meta machine-id) [slot id :source-coords]))
+  (get-in (machine-spec machine-id) [slot id :source-coords]))
 
 ;; Read a co-located reference-site `:source-coords` off the MAP node
 ;; (state-node / transition map) at `spec-path` in the registered spec.
 (defn- node-coords [machine-id spec-path]
-  (get-in (rf.machines/machine-meta machine-id) (conj (vec spec-path) :source-coords)))
+  (get-in (machine-spec machine-id) (conj (vec spec-path) :source-coords)))
 
 ;; ---- definition-site stamping --------------------------------------------
 
@@ -72,7 +78,7 @@
     (is (some? (node-coords :rf2-8bp3/refs [:states :idle :on :cancel]))
         "transition map for :cancel carries co-located :source-coords")
     ;; Inline-fn :action holds a fn VALUE, not a map — no coord on the slot.
-    (is (fn? (get-in (rf.machines/machine-meta :rf2-8bp3/refs)
+    (is (fn? (get-in (machine-spec :rf2-8bp3/refs)
                      [:states :idle :on :cancel :action]))
         "inline-fn :action value round-trips at its slot")))
 
@@ -137,8 +143,8 @@
     (is (some? (node-coords :rf2-8bp3/ee [:states :a]))
         "state-node :a carries the coord standing in for its :entry / :exit")
     ;; The inline-fn :exit value round-trips; the keyword :entry too.
-    (is (fn? (get-in (rf.machines/machine-meta :rf2-8bp3/ee) [:states :a :exit])))
-    (is (= :enter-a (get-in (rf.machines/machine-meta :rf2-8bp3/ee) [:states :a :entry])))
+    (is (fn? (get-in (machine-spec :rf2-8bp3/ee) [:states :a :exit])))
+    (is (= :enter-a (get-in (machine-spec :rf2-8bp3/ee) [:states :a :entry])))
     ;; Definition coord co-located on the named action.
     (is (some? (element-coords :rf2-8bp3/ee :actions :enter-a)))))
 
@@ -163,7 +169,7 @@
 ;; Read the inline-fn `:source-code` string for an inline slot off the
 ;; enclosing `:states`-tree map node.
 (defn- inline-source [machine-id enclosing-path slot]
-  (get-in (rf.machines/machine-meta machine-id)
+  (get-in (machine-spec machine-id)
           (conj (vec enclosing-path) :source-code slot)))
 
 (deftest reg-machine-stamps-inline-action-source-code-cljs
@@ -190,8 +196,8 @@
     ;; Inline transition :guard.
     (is (re-find #":ready\?"   (inline-source :rf2-se70xj/inline [:states :idle :on :submit] :guard)))
     ;; Slot values stay bare fns — not wrapped into a map.
-    (is (fn? (get-in (rf.machines/machine-meta :rf2-se70xj/inline) [:states :idle :on :cancel :action])))
-    (is (fn? (get-in (rf.machines/machine-meta :rf2-se70xj/inline) [:states :idle :entry])))))
+    (is (fn? (get-in (machine-spec :rf2-se70xj/inline) [:states :idle :on :cancel :action])))
+    (is (fn? (get-in (machine-spec :rf2-se70xj/inline) [:states :idle :entry])))))
 
 (deftest reg-machine-stamps-inline-always-single-map-source-code-cljs
   (testing "an inline `:always` `:action` written as a SINGLE MAP (not a
@@ -220,9 +226,9 @@
           "single-map :always :guard carries :source-code at [:states :a :always]")
       (is (re-find #":pending\?" guard-src)))
     ;; The slot values stay bare fns (the runtime resolves them via fn?).
-    (is (fn? (get-in (rf.machines/machine-meta :rf2-k7yqod/always-single-map)
+    (is (fn? (get-in (machine-spec :rf2-k7yqod/always-single-map)
                      [:states :a :always :action])))
-    (is (fn? (get-in (rf.machines/machine-meta :rf2-k7yqod/always-single-map)
+    (is (fn? (get-in (machine-spec :rf2-k7yqod/always-single-map)
                      [:states :a :always :guard])))
     ;; The single-map form does NOT mistakenly key under an index 0.
     (is (nil? (inline-source :rf2-k7yqod/always-single-map [:states :a :always 0] :action))
@@ -268,7 +274,7 @@
         :done {}}})
     (is (nil? (inline-source :rf2-se70xj/kw [:states :idle :on :submit] :action)))
     (is (nil? (inline-source :rf2-se70xj/kw [:states :idle :on :submit] :guard)))
-    (is (string? (get-in (rf.machines/machine-meta :rf2-se70xj/kw) [:actions :do :source-code])))))
+    (is (string? (get-in (machine-spec :rf2-se70xj/kw) [:actions :do :source-code])))))
 
 ;; ---- >8 stampable nodes: transient promotion must not drop stamps --------
 
@@ -313,7 +319,7 @@
     (let [spec {:initial :a :states {:a {}}}]
       (rf/reg-machine :rf2-8bp3/programmatic spec))
     (is (= {:initial :a :states {:a {}}}
-           (rf.machines/machine-meta :rf2-8bp3/programmatic))
+           (machine-spec :rf2-8bp3/programmatic))
         "registered spec round-trips with no co-located source")))
 
 ;; ---- reg-machine* plain-fn surface ---------------------------------------
@@ -326,5 +332,5 @@
     (is (some? (some #{:rf2-8bp3/plain} (rf.machines/machines)))
         "(rf.machines/machines) lists the plain-fn registered machine")
     (is (= {:initial :a :states {:a {}}}
-           (rf.machines/machine-meta :rf2-8bp3/plain))
+           (machine-spec :rf2-8bp3/plain))
         "spec round-trips verbatim")))

@@ -15,7 +15,7 @@
 
   - `(spec->scxml machine-spec)` — produces an SCXML XML string for
     the given normalised machine definition (the same shape
-    `(rf.machines/machine-meta id)` returns).
+    the `:rf/machine` registrar projection returns).
   - `(scxml->spec scxml-string)` — parses an SCXML XML string into a
     re-frame machine spec.
 
