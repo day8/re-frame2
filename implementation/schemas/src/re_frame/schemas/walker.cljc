@@ -93,10 +93,12 @@
   elision in traces and Spec 010 §`:sensitive?` — `:hint` is optional
   and omitted when absent so the marker shape stays minimal. The
   `:source :schema` slot records schema provenance for the owner-local
-  consumer (machine `[:schemas :data]` / resource `:data-schema`,
-  HTTP body-privacy,
-  story-mcp) that reads the extracted map, not the durable app-db
-  classification registry."
+  consumer that reads the extracted map — the validation-failure-trace
+  redactor (the ONLY consumer of a machine `[:schemas :data]` or a resource
+  `:data-schema` schema's props), HTTP body-privacy, story-mcp — never the
+  durable app-db classification registry, and never durable machine `:data`
+  classification, which rides top-level `:sensitive` / `:large` on the
+  `reg-machine` spec instead (Spec 015)."
   [flag-key props]
   (when (true? (get props flag-key))
     (cond-> {flag-key true
@@ -281,11 +283,13 @@
   Spec 009 §Size elision in traces — the schema-driven nomination path.
 
   Returned declarations carry `:source :schema` per Spec 009 so the
-  owner-local consumer (machine `[:schemas :data]` / resource
-  `:data-schema`, HTTP
-  body-privacy, story-mcp) that reads this map can report schema
-  provenance for its wire-boundary elision. This map does not feed durable
-  app-db classification."
+  owner-local consumer that reads this map can report schema provenance for
+  its wire-boundary elision — the validation-failure-trace redactor (the ONLY
+  consumer of a machine `[:schemas :data]` or a resource `:data-schema`
+  schema's props), HTTP body-privacy, story-mcp. This map does not feed
+  durable app-db classification, nor durable machine `:data` classification —
+  a machine declares that projection-relative at the top level of its
+  `reg-machine` spec (Spec 015)."
   [schema base-path]
   (walk-flagged-schema :large? schema base-path {}))
 

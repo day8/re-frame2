@@ -472,8 +472,13 @@
   whose durable slice is absent contributes no key.
 
   rf2-jm2u63 — the `:rf.runtime/machines` slice is NOT shipped raw: each
-  durable machine snapshot's `:data` is projected per the owning machine's
-  `[:schemas :data]` `:sensitive?` / `:large?` classification under the
+  durable machine snapshot's `:data` is projected per the owning FRAME's
+  elision-registry `:sensitive` / `:large` classification for that actor —
+  declared projection-relative by top-level `:sensitive` / `:large` on the
+  `reg-machine` spec and lowered per actor instance under `:source :machine`
+  (Spec 015 §State machines), NOT by the machine's `[:schemas :data]` per-slot
+  `:sensitive?` / `:large?` props, which VALIDATE `:data` and redact only the
+  schema's own validation-failure trace — under the
   `:rf.egress/ssr-hydration` boundary (via the late-bound machines-owned
   `:machines/project-ssr-runtime-db` hook), so a sensitive/large field inside a
   durable snapshot redacts/elides rather than riding the hydration blob raw —

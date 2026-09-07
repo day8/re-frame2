@@ -351,9 +351,9 @@ The default validator ships Malli's `validate` / `explain` pair (plus an EDN can
 
 The pure-data per-slot flag extractors and predicates. They walk a Malli **vector-form** EDN schema and report which slots carry `:sensitive? true` or `:large? true` per-slot props.
 
-Two kinds of consumers read them: the schema-validation-failure-trace redactor, and the owner-local schema-prop consumers — a machine's `[:schemas :data]` schema, a resource's data/params schema, the HTTP body-privacy projector, and story-mcp's tool-egress projector.
+Two kinds of consumers read them: the schema-validation-failure-trace redactor — which is the *only* consumer for a machine's `[:schemas :data]` schema and a resource's data/params schema — and the transient-payload projectors, the HTTP body-privacy projector and story-mcp's tool-egress projector.
 
-They describe **shape**, not durable `app-db` egress policy. Durable `app-db` classification is event-owned: a `reg-event` returns `:sensitive` / `:large` alongside `:db`. A compiled / opaque `m/schema` value is treated as an opaque leaf, so register the vector form when per-slot flags need to be visible.
+They describe **shape**, not durable egress policy — for `app-db` or for anything else. Durable `app-db` classification is event-owned: a `reg-event` returns `:sensitive` / `:large` alongside `:db`. Durable *machine* `:data` classification is likewise not schema-driven: a machine declares projection-relative `:sensitive` / `:large` paths at the top level of its `reg-machine` spec, and the runtime lowers them per actor instance into the frame's elision registry ([Spec 015 §Subsystem projection-relative classification](../../spec/015-Data-Classification.md#subsystem-projection-relative-classification)). Putting `{:sensitive? true}` on a `[:schemas :data]` slot redacts that slot in the schema's own validation-failure trace and **nowhere else** — it will not redact the snapshot in SSR hydration, an epoch record, or the Xray Machine Inspector. A compiled / opaque `m/schema` value is treated as an opaque leaf, so register the vector form when per-slot flags need to be visible.
 
 ### `extract-large-paths-from-schema`
 
