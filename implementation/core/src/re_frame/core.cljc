@@ -2832,12 +2832,30 @@
                  (some? received) (assoc :received received))}))
 
 (defn init!
-  "Idempotent boot — installs a substrate adapter. Pass the adapter spec
-  map directly (no default-adapter registry; rf2-agql):
+  "Boot — installs a substrate adapter. Pass the adapter spec map
+  directly (no default-adapter registry; rf2-agql):
     (require '[re-frame.adapter.reagent :as reagent])
     (rf/init! reagent/adapter)
   Non-map / nil raises `:rf.error/no-adapter-specified`. Per Spec 006
   §Adapter selection at boot.
+
+  IDEMPOTENT FOR THE SEATED ADAPTER, NOT FOR ANY ADAPTER. Re-calling
+  `init!` with the adapter already seated is a no-op, as it has always
+  been. Calling it with a DIFFERENT adapter raises
+  `:rf.error/adapter-already-installed` and leaves the seated adapter
+  untouched — swapping substrates means `(rf/destroy-adapter!)` first.
+  Two spec maps are the same adapter when they carry the same canonical
+  `:rf.adapter/*` `:kind`, or when they are the identical map.
+
+  That rule is what keeps hot reload working. Every adapter Var is a
+  plain `def`, so a reload re-evaluates the map with fresh fn identities
+  and a `^:dev/after-load` boot re-calls `init!` with a structurally
+  fresh map — but a canonical `:rf.adapter/*` kind is a stable token that
+  survives the re-evaluation, so the re-call stays the no-op it was. A
+  CUSTOM adapter with no canonical kind falls back to object identity,
+  so re-evaluating its Var on reload and re-calling `init!` DOES raise:
+  hold such an adapter in a `defonce`, or call `destroy-adapter!` in the
+  after-load fn.
 
   `init!` does NOT create a `:rf/default` frame. Per Spec 002 §`:rf/default`
   is an ordinary id (EP-0002), the runtime never synthesises a default
@@ -2853,7 +2871,28 @@
     (not (map? adapter-map))  (bad-init-arg! adapter-map)
     :else
     (do
-      (when-not (rf.substrate.adapter/current-adapter)
+      ;; rf2-kuky.1. The guard used to be `(when-not (current-adapter) …)`,
+      ;; which asked only "is ANYTHING seated?" — so `(rf/init! reagent/adapter)`
+      ;; followed by `(rf/init! uix/adapter)` returned nil, left Reagent seated
+      ;; and said nothing. That is the shape Conventions §No silent swallow
+      ;; forbids: a recognised input the runtime cannot honour MUST signal.
+      ;; The question is instead "is the adapter I was handed the seated one?",
+      ;; asked with `same-adapter?` — the same stable-token predicate hook
+      ;; routing uses (rf2-dkl5z1). Nothing seated → install. Seated and the
+      ;; same → the idempotent no-op `init!` has always been. Seated and
+      ;; DIFFERENT → `install-adapter!` throws
+      ;; `:rf.error/adapter-already-installed`, and the throw stays in the
+      ;; owning ns rather than being duplicated here.
+      ;;
+      ;; `same-adapter?` rather than `=` / `identical?` is what keeps hot
+      ;; reload working: every adapter Var is a plain `def`, so a reload
+      ;; re-evaluates the map with fresh fn identities, and 30 of the 40
+      ;; in-repo `init!` call sites fire from a `^:dev/after-load` fn. A
+      ;; canonical `:rf.adapter/*` kind survives that re-evaluation as a
+      ;; stable token, so the re-call stays a no-op.
+      (when-not (rf.substrate.adapter/same-adapter?
+                  adapter-map
+                  (rf.substrate.adapter/current-adapter-spec))
         (rf.substrate.adapter/install-adapter! adapter-map))
       ;; EP-0022 (rf2-0adhqs.2): re-seed the framework-standard interceptors
       ;; (`:rf.interceptor/path`) so the standard refs survive a test fixture's

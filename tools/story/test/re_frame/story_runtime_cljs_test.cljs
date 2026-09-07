@@ -38,9 +38,13 @@
   (rf.story/clear-all!)
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
-  ;; Seat the plain-atom adapter. `rf/init!` is idempotent at the
-  ;; install-adapter! layer (the test build may have seated it
-  ;; already via another suite's boot).
+  ;; Seat the plain-atom adapter. `rf/init!` is idempotent for the adapter it
+  ;; seated, so a re-boot of plain-atom is a no-op (the test build may have
+  ;; seated it already via another suite's boot). The catch covers the case a
+  ;; sibling suite seated a DIFFERENT adapter, which raises
+  ;; `:rf.error/adapter-already-installed` rather than being ignored
+  ;; (rf2-kuky.1); this ns's assertions do not depend on which of the two
+  ;; plain-atom-shaped substrates is live.
   (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch :default _ nil))
   ;; Re-register the machines artefact's framework-shipped sub

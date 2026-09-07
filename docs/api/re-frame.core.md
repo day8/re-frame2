@@ -753,8 +753,10 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
   ```clojure
   (init! adapter-map)
   ```
-- **Description**: The idempotent boot. Required arg: the adapter spec map. Each adapter ns exports an `adapter` Var; require the ns and pass the Var, e.g. `(rf/init! reagent-adapter/adapter)`.
+- **Description**: The boot. Required arg: the adapter spec map. Each adapter ns exports an `adapter` Var; require the ns and pass the Var, e.g. `(rf/init! reagent-adapter/adapter)`.
   - `(init!)` with no args raises `ArityException` at compile / load time; `(init! nil)` or `(init! :reagent)` raises `:rf.error/no-adapter-specified` at runtime.
+  - **Idempotent for the *seated* adapter, not for any adapter.** Re-calling `init!` with the adapter already seated is a no-op. Calling it with a **different** adapter raises `:rf.error/adapter-already-installed` and leaves the seated adapter untouched — call `destroy-adapter!` first to swap substrates. Two spec maps are the same adapter when they carry the same canonical `:rf.adapter/*` `:kind`, or when they are the identical map.
+  - **Hot reload is safe.** An adapter Var is a plain `def`, so a reload re-evaluates the map with fresh fn identities — but a canonical `:rf.adapter/*` kind is a stable token that survives that, so a `^:dev/after-load` re-call stays a no-op. A **custom** adapter with no canonical kind is compared by object identity instead, so re-evaluating its Var and re-calling `init!` *does* raise: hold it in a `defonce`, or call `destroy-adapter!` in the after-load fn.
   - Installs adapters and runtime capabilities only; does **not** create or guarantee any frame — mount your app frame at the root with `frame-root` (ENSURE), or construct it explicitly with `make-frame`.
 - **Example**:
   ```clojure

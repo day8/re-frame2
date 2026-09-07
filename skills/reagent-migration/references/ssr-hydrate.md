@@ -87,7 +87,9 @@ run.
               [views/page {}]))
 ```
 
-- **The install is per process, not per load.** `rf/init!` is idempotent,
+- **The install is per process, not per load.** `rf/init!` is idempotent for the
+  adapter it seated (a different adapter raises
+  `:rf.error/adapter-already-installed`),
   `run` is the page's one boot entry, and a hot-reload pass re-renders through
   the root handle (MIG-15's `h/render!` shape) rather than re-running `run` —
   the hydration/HMR path never re-runs `rf/init!`.

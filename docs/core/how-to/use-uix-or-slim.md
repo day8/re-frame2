@@ -61,7 +61,7 @@ There's deliberately no registry and no auto-install here, because boot is held 
 
 !!! note "Install once, install one"
 
-    Calling `init!` a second time after an adapter is already installed is an idempotent no-op — the first adapter wins and the second spec is ignored, so the runtime never swaps substrates underneath a running app. One adapter, installed once, for the life of the runtime.
+    Calling `init!` a second time with the adapter that's already seated is an idempotent no-op, which is what makes hot reload safe. Calling it with a **different** adapter is an error — `:rf.error/adapter-already-installed` — rather than a silent win for the first: the runtime never swaps substrates underneath a running app, and it doesn't quietly ignore the adapter you handed it either. One adapter, installed once, for the life of the runtime; to genuinely swap, `(rf/destroy-adapter!)` first.
 
 ??? note "Going deeper: what is an adapter, really?"
 
