@@ -136,7 +136,7 @@
   view code is different."
   []
   (when-some [root @!root]
-    (rf.hicasso/render! root [app {}])))
+    (rf.hicasso/render! root [rf.hicasso/frame-root {:id frame-id} [app {}]])))
 
 (defn ^:export -main
   "The `:hicasso-release` build's `:init-fn`, and the three lines that

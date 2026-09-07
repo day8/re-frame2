@@ -73,7 +73,8 @@
   discard all three."
   []
   (when-some [root @!root]
-    (rf.hicasso/render! root [rf.hicasso.examples.todo.views/app {}])))
+    (rf.hicasso/render! root [rf.hicasso/frame-root {:id frame-id}
+                             [rf.hicasso.examples.todo.views/app {}]])))
 
 (defn ^:export -main
   "Start the application."

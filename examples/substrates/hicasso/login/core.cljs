@@ -254,6 +254,21 @@
   !root
   (atom nil))
 
+(defonce ^{:doc "The frame boundary this page booted with, as `[head opts]`.
+
+  The root door carries root options only, so the FRAME lives in the tree —
+  which means a re-render has to put the same boundary back or the tree it
+  hands React has no frame at all. Held rather than rebuilt because the two
+  boot paths choose DIFFERENT heads (`frame-provider` after SSR, `frame-root`
+  client-only), and re-rendering with the other one is a React type change:
+  the subtree unmounts and remounts, discarding exactly the DOM, subscriptions
+  and component state this hook exists to preserve.
+
+  The boundary is held; the VIEW is not. `root-view` is read fresh on every
+  re-render, so the reload's newly minted head is what meets the position."}
+  !boundary
+  (atom nil))
+
 ;; Shadow's cue to re-run this after each reload. `rf.hicasso/render!` reconciles the new
 ;; tree against the DOM already on the page, so edited views meet their own
 ;; nodes and the frame beneath them is untouched. Calling `rf.hicasso/mount!` again would
@@ -261,7 +276,8 @@
 ;; of component state.
 (defn ^:dev/after-load re-render! []
   (when-some [root @!root]
-    (rf.hicasso/render! root [root-view])))
+    (when-some [[head opts] @!boundary]
+      (rf.hicasso/render! root [head opts [root-view]]))))
 
 ;; ONE boot, two pages. A client-only load has no `__rf_payload` in the
 ;; document, so `rf.ssr/hydrate!` is a no-op and the root MOUNTS — exactly the
@@ -299,15 +315,17 @@
                                    :doc "Login (Hicasso) demo frame."}
                                   model/frame-config))
             (rf.ssr/hydrate! {:frame frame-id :payload payload})
+            (reset! !boundary [rf.hicasso/frame-provider {:frame frame-id}])
             (reset! !root (rf.hicasso/hydrate! el config
                             [rf.hicasso/frame-provider {:frame frame-id}
                              [root-view]])))
         ;; Client-only: the tree ENSUREs, with the whole `make-frame` option
         ;; map on the head.
-        (reset! !root (rf.hicasso/mount! el config
-                        [rf.hicasso/frame-root
-                         (merge {:id  frame-id
-                                 :doc "Login (Hicasso) demo frame."}
-                                model/frame-config)
-                         [root-view]])))))
+        (let [ensure (merge {:id  frame-id
+                             :doc "Login (Hicasso) demo frame."}
+                            model/frame-config)]
+          (reset! !boundary [rf.hicasso/frame-root ensure])
+          (reset! !root (rf.hicasso/mount! el config
+                          [rf.hicasso/frame-root ensure
+                           [root-view]]))))))
   nil)

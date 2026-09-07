@@ -31,7 +31,8 @@
   "Re-render the mounted root after a hot reload."
   []
   (when-some [root @!root]
-    (rf.hicasso/render! root [rf.hicasso.examples.ledger.views/ledger {}])))
+    (rf.hicasso/render! root [rf.hicasso/frame-root {:id frame-id}
+                             [rf.hicasso.examples.ledger.views/ledger {}]])))
 
 (defn ^:export -main
   "Mount the ten-thousand-row ledger on `#app`."

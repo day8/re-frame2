@@ -33,7 +33,8 @@
   "Re-render the mounted root after a hot reload."
   []
   (when-some [root @!root]
-    (rf.hicasso/render! root [rf.hicasso.examples.grid.views/grid {}])))
+    (rf.hicasso/render! root [rf.hicasso/frame-root {:id frame-id}
+                             [rf.hicasso.examples.grid.views/grid {}]])))
 
 (defn ^:export -main
   "Mount the 100-cell grid on `#app`."
