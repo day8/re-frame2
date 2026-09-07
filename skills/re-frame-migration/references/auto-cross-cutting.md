@@ -132,8 +132,8 @@ The `stream` keyword (`:trace`) is a **required leading arg** on the unified ver
 **Late-bind hook keys** (tool authors only — most apps will not touch these):
 
 ```
-:trace.tooling/register-trace-cb! → :trace.tooling/register-listener!
-:trace.tooling/remove-trace-cb! → :trace.tooling/unregister-listener!
+:trace.tooling/register-trace-cb! → removed — (rf/register-listener! :trace id f)
+:trace.tooling/remove-trace-cb! → removed — (rf/unregister-listener! :trace id)
 :epoch/register-epoch-cb! → :epoch/register-epoch-listener!
 :epoch/remove-epoch-cb! → :epoch/unregister-epoch-listener!
 :epoch/clear-epoch-cbs! → :epoch/clear-epoch-listeners!

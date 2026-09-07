@@ -870,7 +870,7 @@
    {:key         :error-emit/register-error-listener!
     :producer-ns 're-frame.error-emit
     :design-bead "rf2-87f7fb"
-    :description "Register a TRANSIENT always-on error listener under a key on the corpus-wide error-emit registry (the same surface `rf/register-error-listener!` exports). Published so `frame/fire-on-destroy-event!` can observe the router's always-on `:rf.error/handler-exception` fan-out for the duration of a throwing `:on-destroy` dispatch and re-emit the discriminable `:rf.error/on-destroy-handler-exception` category — WITHOUT a static `re-frame.frame` → `re-frame.error-emit` require (that closes the `error-emit` → `elision` → `frame` load cycle). Replaces the dev-only `:trace.tooling/register-listener!` capture the common path used pre-EP-0008 (which DCE'd under `goog.DEBUG=false`, so the dedicated teardown discriminator did not survive prod, rf2-87f7fb). Survives `:advanced` + `goog.DEBUG=false`."}
+    :description "Register a TRANSIENT always-on error listener under a key on the corpus-wide error-emit registry (the same surface `rf/register-error-listener!` exports). Published so `frame/fire-on-destroy-event!` can observe the router's always-on `:rf.error/handler-exception` fan-out for the duration of a throwing `:on-destroy` dispatch and re-emit the discriminable `:rf.error/on-destroy-handler-exception` category — WITHOUT a static `re-frame.frame` → `re-frame.error-emit` require (that closes the `error-emit` → `elision` → `frame` load cycle). Replaces the dev-only trace-listener capture the common path used pre-EP-0008 (which DCE'd under `goog.DEBUG=false`, so the dedicated teardown discriminator did not survive prod, rf2-87f7fb). Survives `:advanced` + `goog.DEBUG=false`."}
    {:key         :error-emit/unregister-error-listener!
     :producer-ns 're-frame.error-emit
     :design-bead "rf2-87f7fb"
@@ -1078,14 +1078,6 @@
     :producer-ns 're-frame.trace.tooling
     :design-bead "rf2-kuky.76"
     :description "Read the PROCESS-DEFAULT trace-ring retention back as `{:events-retained N}`. The read half of `:trace.tooling/configure-trace-buffer!`, consulted by `re-frame.core/current-config` for its `:trace-buffer` key. Reports the process default only — a frame carrying its own `:rf.trace/events-retained` override is not reflected, matching what `configure!` writes. Same seam and same reason as the write hook: a production build that never loads the tooling sibling reports no `:trace-buffer` key at all."}
-   {:key         :trace.tooling/register-listener!
-    :producer-ns 're-frame.trace.tooling
-    :design-bead "rf2-r1ciy"
-    :description "Register a dev-trace listener. Hook retained for the directory contract (the family is published as one rf2-r1ciy seam), but the live consumers — tests, tools, and SSR's listener registration — call `re-frame.trace.tooling/register-listener!` directly. The former `:on-destroy`-throw capture that drove this hook from `re-frame.frame/fire-on-destroy-event!` migrated to the production-survivable always-on axis (`:error-emit/register-error-listener!`) under EP-0008 / rf2-87f7fb."}
-   {:key         :trace.tooling/unregister-listener!
-    :producer-ns 're-frame.trace.tooling
-    :design-bead "rf2-r1ciy"
-    :description "Drop a dev-trace listener. Sibling of `:trace.tooling/register-listener!` — same rf2-r1ciy seam; same direct-call consumers (tests / tools / SSR)."}
 
    ;; ---- re-frame.trace.tooling — per-frame trace rings ----------------------
    ;;

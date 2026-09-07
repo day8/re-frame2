@@ -57,7 +57,6 @@
       `:trace.tooling/current-trace-buffer-config` (the write / read pair
                                             behind `re-frame.core`'s
                                             `configure!` + `current-config`)
-    - `:trace.tooling/register-listener!` / `:trace.tooling/unregister-listener!`
 
   Absent the load (production CLJS bundles that never `:require` this
   ns), every lookup returns nil and the trace fast path / registrar
@@ -1332,18 +1331,6 @@
 
 (rf.late-bind/set-fn! :trace.tooling/configure-trace-buffer! configure-trace-buffer!)
 (rf.late-bind/set-fn! :trace.tooling/current-trace-buffer-config current-trace-buffer-config)
-
-;; Per rf2-r1ciy: `re-frame.frame/fire-on-destroy-event!` installs a one-
-;; shot trace listener around the `:on-destroy` dispatch so it can
-;; observe the router's `:rf.error/handler-exception` trace and re-emit
-;; it under the dedicated `:rf.error/on-destroy-handler-exception`
-;; category. The listener-install must run only when the tooling sibling
-;; is loaded (otherwise the trace fan-out is dead anyway and there's
-;; nothing to observe), so we route through late-bind here — identical
-;; pattern to `:trace.tooling/deliver!` above.
-
-(rf.late-bind/set-fn! :trace.tooling/register-listener!   register-listener!)
-(rf.late-bind/set-fn! :trace.tooling/unregister-listener! unregister-listener!)
 
 ;; Per rf2-g1b2m / rf2-8uwce — published hooks for B4 dedup-by-shape
 ;; (consulted by the registrar at emit time) and frame-destroy ring
