@@ -370,10 +370,40 @@ Four shapes, case-insensitive, all anchored at **column 0**:
 |-------|---------|
 | the session trailer | a `Claude-Session:` line |
 | the co-author trailer, *when the address is the assistant's* | a `Co-Authored-By:` line whose value carries `@anthropic.com` |
-| the generated-with marker | a `Generated with …` line naming `claude` or `anthropic` |
-| the bare session URL | an `https://claude.ai/code/session_…` line with no key in front |
+| the generated-with marker | a line that IS `… Generated with [Claude Code](…)` — decoration in front, its own link at the end |
+| the bare session URL | an `https://claude.ai/code/session_…` line, the URL and nothing else |
 
-That is the whole set. This is **not** a commit-message linter: it does not
+That is the whole set.
+
+**A trailer is a line that *is* the attribution; prose merely names one.** That
+distinction is rules 3 and 4's whole shape, and it cost a PR to learn
+(rf2-uo5f). Rule 3 was a bare substring test and rule 4 a bare prefix test, so a
+line that only *mentioned* a forbidden shape was refused as though it carried
+one — and the line that found it, on PR #9330 at column 0, was the author's own
+statement that they had **complied**:
+
+     No Co-Authored-By: Claude and no Generated with [Claude Code] trailer,
+     in the commit message or in this description.
+
+Every dispatch brief tells the worker to decline the trailers, so that sentence
+is written by design, and the guard reddened a PR per worker per wave for saying
+it. The red could not even be cleared by fixing the body: `test.yml` reads the
+body from the **frozen event payload**, so a re-run re-reads the old text for
+ever, and only a new event — a push, or a close/reopen that then leaves two
+check generations in the rollup — clears it. `CLAUDE.md`'s own statement of the
+rule was refused by the same bug.
+
+**The repair is structural, not sentimental.** It looks for no negation, no "I
+declined", no phrasing of any kind — that was considered and rejected as fragile
+and trivially defeatable. It asks the only question that separates the two
+cases: is this line the attribution, or a sentence about it? `git
+interpret-trailers` recognises a trailer only as a whole line, and GitHub links
+a co-author only from a whole line, so a marker spliced into the middle of a
+sentence attributes nothing to anyone. Rules 1 and 2 needed nothing from this
+and are unchanged: both key on a trailer **token** at column 0, which is already
+precisely git's own definition of a trailer, and widening what is already exact
+would only open a hole. Layer 10q pins both directions — prose permitted, a real
+trailer beside that same prose still refused. This is **not** a commit-message linter: it does not
 grade subject length, mood or trailer hygiene, and a `Co-Authored-By:` naming a
 human colleague is ordinary git and stays permitted. Only AI attribution, which
 is the only thing the convention forbids.
@@ -620,9 +650,11 @@ channel, the mayor's pre-commit will refuse the commit.
   `--pre-pull` says whether clearing `.beads` is safe yet.
 - rf2-2e8f — three commits carrying AI-attribution trailers reached main
   because two instruction sources contradict and nothing checked. Source of the
-  `commit-msg` block and `scripts/check-commit-attribution.sh`. Whether to
-  rewrite those three is a separate, unmade operator decision; this guard only
-  closes the source.
+  `commit-msg` block and `scripts/check-commit-attribution.sh`. Those three are
+  **accepted and stay in history** — ruled 2026-09-06, option C; this guard
+  closes the source rather than rewriting the trunk.
+- rf2-uo5f — the guard's PR-body arm refused a body's own compliance statement.
+  Source of the trailer-versus-prose anchors in rules 3 and 4, and of layer 10q.
 - `CLAUDE.md` > Git Conventions — the rule the `commit-msg` block enforces.
 - `CLAUDE.md` > Beads durability — the operator-facing rules,
   including the merge-side rule (never `--theirs`/`--ours` on `.beads`;
