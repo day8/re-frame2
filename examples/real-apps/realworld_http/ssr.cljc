@@ -12,6 +12,7 @@
    example, while this one shows where a larger app draws its own payload
    boundary — which is to say, what it's willing to send down the wire."
   (:require [re-frame.core :as rf]
+            [re-frame.ssr :as rf.ssr]
             ;; The SSR artefact owns the hydration pattern-protocol version as a
             ;; compiled-in constant; the payload sources `:rf/version` from it
             ;; rather than pinning a literal, so a future bump reaches every
@@ -76,7 +77,7 @@
   {:rf/version     rf.ssr.payload-policy/pattern-protocol-version  ;; the SSR-owned constant, not a literal
    :rf/app-db      (exportable-app-db app)
    :rf/runtime-db  (exportable-runtime-db runtime)
-   :rf/render-hash (rf/render-tree-hash render-tree)})
+   :rf/render-hash (rf.ssr/render-tree-hash render-tree)})
 
 #?(:cljs
    (defn read-server-payload []

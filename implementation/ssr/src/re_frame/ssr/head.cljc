@@ -25,9 +25,11 @@
                                       registration after a `clear-all!`.
 
   Per the optional-artefact wrapper convention (Conventions.md
-  §Optional-artefact wrapper convention), each public surface is
-  reachable via `re-frame.core` through a late-bind hook so core never
-  statically `:require`s `re-frame.ssr.head`."
+  §Optional-artefact wrapper convention), the REGISTRAR `reg-head` is
+  reachable via `re-frame.core` through the `:ssr/reg-head` late-bind hook
+  so core never statically `:require`s this namespace. The READS are not
+  re-exported: consumers require this namespace (or `re-frame.ssr`, which
+  re-exports `head-model->html`) directly — rf2-kuky.44 / rf2-kuky.87."
   (:require [re-frame.late-bind :as rf.late-bind]
             [re-frame.ssr.head.emit :as rf.ssr.head.emit]
             [re-frame.ssr.head.registry :as rf.ssr.head.registry]))
@@ -43,17 +45,9 @@
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
-;; Late-bind hooks fire on ns load. Keeping them in the façade (rather
-;; than in the producing sub-ns) means that `(require 're-frame.ssr.head
-;; :reload)` — the canonical test-fixture reset shape — re-publishes
-;; every hook, regardless of which sub-ns happened to define the
-;; underlying fn.
+;; The one late-bind hook fires on ns load. Keeping it in the façade
+;; (rather than in the producing sub-ns) means that `(require
+;; 're-frame.ssr.head :reload)` — the canonical test-fixture reset shape —
+;; re-publishes it, regardless of which sub-ns defined the underlying fn.
 
 (rf.late-bind/set-fn! :ssr/reg-head          reg-head)
-(rf.late-bind/set-fn! :ssr/render-head       render-head)
-(rf.late-bind/set-fn! :ssr/active-head       active-head)
-;; NB: late-bind keys conventionally use `-` only (the drift-detector
-;; regex limits its grammar to alpha-numeric + standard symbol chars);
-;; the user-facing fn is `head-model->html` but the hook key drops the
-;; `->` decoration.
-(rf.late-bind/set-fn! :ssr/head-model-html   head-model->html)

@@ -224,9 +224,9 @@
           ;; and not from :rf/default.
           hiccup      ((rf/view :app/root))
           ;; One walk, two channels — the shape the example itself uses.
-          render-hash (rf/render-tree-hash hiccup)
+          render-hash (rf.ssr/render-tree-hash hiccup)
           html        (rf/with-frame f
-                        (rf/render-to-string hiccup {:render-hash render-hash}))]
+                        (rf.ssr/render-to-string hiccup {:render-hash render-hash}))]
       ;; State was loaded.
       (is (= 2 (count (:articles final-db))))
       ;; HTML contains the article titles.
@@ -313,7 +313,7 @@
           frames-before  (set (keys @rf.frame/frames))]
       (with-redefs [;; Force the render to throw AFTER the frame + request
                     ;; slot were allocated, exercising the `finally` path.
-                    rf/render-to-string
+                    rf.ssr/render-to-string
                     (fn [& _] (throw (ex-info "boom — render failure" {})))]
         (is (thrown? clojure.lang.ExceptionInfo
                      (rf/with-fx-overrides
@@ -466,7 +466,7 @@
                                        :platform :client
                                        :ssr {:detect-mismatch? true}})
           client-tree  [:div.page [:h1 "Recent articles"]]
-          matched-hash (rf/render-tree-hash client-tree)
+          matched-hash (rf.ssr/render-tree-hash client-tree)
           payload      {:rf/version 1 :rf/render-hash matched-hash
                         :rf/app-db {:articles []} :rf/runtime-db {}}
           traces       (capture-traces!
@@ -856,7 +856,7 @@
         ;; The example's OWN view renders both titles on the first client render
         ;; (no skeleton, no empty <ul>) — the pre-rendered static rows stay put.
         (let [html (rf/with-frame client-frame
-                     (rf/render-to-string ((rf/view :app/root)) {}))]
+                     (rf.ssr/render-to-string ((rf/view :app/root)) {}))]
           (is (clojure.string/includes? html "Welcome to re-frame2")
               "first client render shows the first article title")
           (is (clojure.string/includes? html "Server-state as resources")
@@ -921,7 +921,7 @@
 (defn- resources-ssr-html
   "Render the example's own root view through `frame` — the first client paint."
   [frame]
-  (rf/with-frame frame (rf/render-to-string ((rf/view :app/root)) {})))
+  (rf/with-frame frame (rf.ssr/render-to-string ((rf/view :app/root)) {})))
 
 (defn- reg-counting-transport!
   "Register a managed-HTTP stand-in under `fx-id` that COUNTS every request the

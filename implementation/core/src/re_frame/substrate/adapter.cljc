@@ -616,7 +616,7 @@
   `:rf.error/no-adapter-installed` / `:rf.error/adapter-disposed` when no
   adapter is seated (per `require-adapter!`). Per Spec 006."
   [render-tree opts]
-  (let [a (require-adapter! 'rf/render-to-string)]
+  (let [a (require-adapter! 'ssr/render-to-string)]
     ((:render-to-string a) render-tree opts)))
 
 (defn flush-render!

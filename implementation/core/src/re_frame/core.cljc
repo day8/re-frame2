@@ -877,45 +877,6 @@
                           sym
                           more)))
 
-;; ---- SSR re-exports (Spec 011, rf2-uo7v) ---------------------------------
-
-(def ^{:doc "Render a hiccup tree to an HTML string. Per Spec 011 §The
-  render-tree → HTML emitter. Delegates to the installed substrate
-  adapter's `:render-to-string` slot; `opts` may carry `:doctype?` and
-  `:render-hash`. Implementation ships in `day8/re-frame2-ssr`. Late-bound
-  via `:ssr/render-to-string`."}
-  render-to-string rf.core-ssr/render-to-string)
-
-(def ^{:doc "Stable structural hash of a render tree (FNV-1a 32-bit, lowercase
-  hex). Identical output on JVM and CLJS for the same canonical-EDN
-  representation. Per Spec 011 §Hydration-mismatch detection.
-  Implementation ships in `day8/re-frame2-ssr`. Late-bound via
-  `:ssr/render-tree-hash`."}
-  render-tree-hash rf.core-ssr/render-tree-hash)
-
-(def ^{:doc "Apply the active error projector for `frame-id` to the trace
-  event; returns an `:rf/public-error` map. Per Spec 011 §Server error
-  projection. Implementation ships in `day8/re-frame2-ssr`. Late-bound
-  via `:ssr/project-error`."}
-  project-error    rf.core-ssr/project-error)
-
-(def ^{:doc "Apply the head fn registered under `head-id` against a frame's
-  app-db and active route; returns the produced `:rf/head-model`. Per
-  Spec 011 §Head/meta contract. Implementation ships in
-  `day8/re-frame2-ssr`. Late-bound via `:ssr/render-head`."}
-  render-head      rf.core-ssr/render-head)
-
-(def ^{:doc "Look up the active route's `:head` metadata and render its
-  model; returns the default head when none is configured (per Spec 011
-  §Default head). Implementation ships in `day8/re-frame2-ssr`.
-  Late-bound via `:ssr/active-head`."}
-  active-head      rf.core-ssr/active-head)
-
-(def ^{:doc "Render an `:rf/head-model` map to its inner-head HTML fragment
-  in canonical order. Per Spec 011 §Default flow step 4. Implementation
-  ships in `day8/re-frame2-ssr`. Late-bound via `:ssr/head-model-html`."}
-  head-model->html rf.core-ssr/head-model->html)
-
 ;; ---- images (EP-0023) ----------------------------------------------------
 
 #?(:clj

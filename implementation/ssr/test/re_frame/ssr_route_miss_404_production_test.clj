@@ -133,7 +133,7 @@
           _    (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"]
                                  {:frame f})
           html (rf/with-frame f
-                 (rf/render-to-string [(rf/view :pages/not-found)]))]
+                 (rf.ssr/render-to-string [(rf/view :pages/not-found)]))]
       (is (str/includes? html "No such page")
           "the app's not-found body rendered — the projection did not
            short-circuit the render")

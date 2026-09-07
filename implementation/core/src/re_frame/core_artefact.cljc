@@ -121,8 +121,8 @@
      "Filter `ex-data` to entries whose value-symbol appears in the
      arity's `args`. Lets a single spec-level `:ex-data` map scope
      itself correctly across multi-arity wrappers where shorter arities
-     bind fewer locals (e.g. `render-head [head-id]` vs
-     `render-head [head-id opts]`)."
+     bind fewer locals (e.g. `-reg-head [id head-fn]` vs
+     `-reg-head [id metadata head-fn]`)."
      [ex-data args]
      (let [arg-set (set (remove #{'&} args))]
        (into {}

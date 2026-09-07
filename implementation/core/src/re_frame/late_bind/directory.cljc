@@ -707,12 +707,6 @@
     :description "Redact a :rf.http/managed fx args map for the generic fx-arg-bearing trace slots (the :rf.event/fx aggregate on :rf.fx/do-fx + every [:rf.fx/id :rf.fx/args]-shaped slot). Honours the DYNAMIC per-call :sensitive? flag + the carrier denylists the dedicated :rf.http/* trace composers apply — a static registration :sensitive path cannot express them. Consumed by re-frame.classification/project-fx-args; unbound (http artefact absent) the entry passes through, matching the unregistered-fx fail-open."}
 
    ;; ---- re-frame.ssr ---------------------------------------------------------
-   {:key         :ssr/render-tree-hash
-    :producer-ns 're-frame.ssr
-    :description "Compute the stable hash of a rendered tree (SSR cache key)."}
-   {:key         :ssr/render-to-string
-    :producer-ns 're-frame.ssr
-    :description "Render a view tree to an HTML string for SSR."}
    {:key         :ssr/current-hiccup-emitter
     :producer-ns 're-frame.ssr.emit
     :design-bead "rf2-vxgfnd.204"
@@ -720,9 +714,6 @@
    {:key         :ssr/reg-error-projector
     :producer-ns 're-frame.ssr
     :description "Register a fn projecting SSR render errors to user-facing markup."}
-   {:key         :ssr/project-error
-    :producer-ns 're-frame.ssr
-    :description "Apply the registered error-projector to an SSR render error."}
    {:key         :ssr/on-frame-destroyed
     :producer-ns 're-frame.ssr
     :design-bead "rf2-fcj33"
@@ -739,18 +730,6 @@
     :producer-ns 're-frame.ssr.head
     :design-bead "rf2-4dra9"
     :description "Register a head-fragment producer fn `(fn [db route] head-model)` under id, per Spec 011 §Head/meta contract."}
-   {:key         :ssr/render-head
-    :producer-ns 're-frame.ssr.head
-    :design-bead "rf2-4dra9"
-    :description "Apply the head fn registered under `head-id` against a frame's app-db and active route, returning the produced `:rf/head-model`."}
-   {:key         :ssr/active-head
-    :producer-ns 're-frame.ssr.head
-    :design-bead "rf2-4dra9"
-    :description "Look up the active route's `:head` metadata; if set, call `render-head` and return the model. Otherwise return the default head per Spec 011 §Default head."}
-   {:key         :ssr/head-model-html
-    :producer-ns 're-frame.ssr.head
-    :design-bead "rf2-4dra9"
-    :description "Render a `:rf/head-model` map to its inner-head HTML fragment in canonical order: title → meta → link → script → JSON-LD."}
    ;; ---- re-frame.epoch (Tool-Pair surface) ---------------------------------
    {:key         :epoch/settle!
     :producer-ns 're-frame.epoch

@@ -30,6 +30,7 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.schemas :as rf.schemas]
             [re-frame.flows :as rf.flows]
+            [re-frame.ssr :as rf.ssr]
             ;; Pull http-managed in so its late-bind hooks (in particular
             ;; :http/reg-http-interceptor) are published — the
             ;; registry-introspection-round-trip test below exercises
@@ -632,7 +633,7 @@
 (deftest render-to-string-emits-hash
   (testing ":render-hash opts adds data-rf-render-hash on the root element"
     (let [tree [:div [:p "hi"]]
-          out  (rf/render-to-string tree {:render-hash (rf/render-tree-hash tree)})]
+          out  (rf.ssr/render-to-string tree {:render-hash (rf.ssr/render-tree-hash tree)})]
       (is (re-find #"<div data-rf-render-hash=\"[0-9a-f]{8}\">" out)
           "root element carries the data-rf-render-hash attribute"))))
 
@@ -956,7 +957,7 @@
     ;; `re-frame.ssr-source-coord-test`), so assert the RESOLUTION
     ;; structurally here rather than couple the smoke test to the
     ;; annotation format.
-    (let [html (rf/render-to-string [(rf/view :greet) "world"])]
+    (let [html (rf.ssr/render-to-string [(rf/view :greet) "world"])]
       (is (clojure.string/includes? html "hello <strong>world</strong>")
           "render-to-string resolves a callable head")
       ;; SEMANTIC, posture-independent (rf2-d2841): the resolved view's root
@@ -980,7 +981,7 @@
     (rf/reg-view* :greet
       (fn [name] [:p "hello " [:strong name]]))
     (is (= "<greet>world</greet>"
-           (rf/render-to-string [:greet "world"])))))
+           (rf.ssr/render-to-string [:greet "world"])))))
 
 (deftest ssr-render-to-string-basics
   (testing "basic hiccup → HTML"

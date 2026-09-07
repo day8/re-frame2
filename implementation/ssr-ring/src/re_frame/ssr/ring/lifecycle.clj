@@ -9,6 +9,8 @@
             [re-frame.error :as rf.error]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
+            [re-frame.ssr :as ssr]
+            [re-frame.ssr.head :as head]
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
             [re-frame.ssr.ring.trust :as rf.ssr.ring.trust]
             [re-frame.trace :as rf.trace]))
@@ -165,7 +167,7 @@
   step 4: `:html-attrs` populate `<html>`; `:body-attrs` populate
   `<body>` — the host shell stamps them, not the head emitter).
 
-  `:head-model` is the raw `rf/active-head` value used by the separately
+  `:head-model` is the raw `head/active-head` value used by the separately
   client-reconstructible head hash; emitted HTML is not a stable shared input.
 
   Exceptions during resolution degrade gracefully — empty fragment,
@@ -175,8 +177,8 @@
   empty head while the usable body remains a 200."
   [frame-id]
   (try
-    (let [model (rf/active-head frame-id)]
-      {:head-html  (rf/head-model->html model)
+    (let [model (head/active-head frame-id)]
+      {:head-html  (ssr/head-model->html model)
        :html-attrs (:html-attrs model)
        :body-attrs (:body-attrs model)
        :head-model model})
@@ -225,7 +227,7 @@
 
   **Returns nil — the channel is OMITTED — for the unresolved root form**
   (rf2-q1b96), the same way `render-head-hash` below omits a head the
-  client cannot reconstruct. `rf/render-tree-hash` is a PURE structural
+  client cannot reconstruct. `ssr/render-tree-hash` is a PURE structural
   FNV-1a over canonical EDN: it never expands a callable head, and every
   raw fn serialises to the identity-free token `#fn[]` (a ruled
   requirement — no fn `.toString` is stable across JVM and CLJS,
@@ -265,7 +267,7 @@
   #((rf/view :app/root))`. See `resolve-root-view`."
   [body-hiccup]
   (when-not (unresolved-root-form? body-hiccup)
-    (rf/render-tree-hash body-hiccup)))
+    (ssr/render-tree-hash body-hiccup)))
 
 (defn render-head-hash
   "The canonical structural hash for the CLIENT-RECONSTRUCTIBLE head
@@ -275,11 +277,11 @@
   `:rf/head-hash` key.
 
   `head-model` is the RAW model `resolve-head` attaches under
-  `:head-model` — the map `rf/active-head` (or a registered `reg-head` fn)
+  `:head-model` — the map `head/active-head` (or a registered `reg-head` fn)
   returns (`{:title :meta :link :script :json-ld :html-attrs
   :body-attrs}`), NOT the rendered `:head-html` string. Hashing the model
   (not emitted HTML) is what makes the channel client-reconstructible at
-  all: the client calls the SAME `(rf/active-head frame-id)` against the
+  all: the client calls the SAME `(head/active-head frame-id)` against the
   just-hydrated app-db + the route slice carried in `:rf/runtime-db`
   (Spec 011 §Default flow step 5) and hashes the resulting model identically.
 
@@ -292,7 +294,7 @@
   never match."
   [head-model]
   (when head-model
-    (rf/render-tree-hash head-model)))
+    (ssr/render-tree-hash head-model)))
 
 (defn resolve-initial-events!
   "Resolve the caller's `:initial-events` opt to the setup vector

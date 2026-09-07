@@ -22,8 +22,9 @@
             [re-frame.ssr.suspense :as rf.ssr.suspense]
             [re-frame.ssr.error-listener :as rf.ssr.error-listener]
             [re-frame.ssr.error-projector :as rf.ssr.error-projector]
-            ;; Publishes the head hooks at namespace load.
-            re-frame.ssr.head
+            ;; Publishes the `:ssr/reg-head` hook at namespace load, and is
+            ;; the home of the head READS (`render-head` / `active-head`).
+            [re-frame.ssr.head :as rf.ssr.head]
             [re-frame.ssr.hash :as rf.ssr.hash]
             [re-frame.ssr.hydrate :as rf.ssr.hydrate]
             [re-frame.ssr.request :as rf.ssr.request]
@@ -56,6 +57,11 @@
 ;; now lives at the reg-view registration boundary
 ;; (`re-frame.views.jvm-source-coord-annotation`), not in the emitter.
 (def render-tree-hash                rf.ssr.hash/render-tree-hash)
+;; The head-model serialiser, re-exported here so the emission half of
+;; the head contract sits on the same door as `render-to-string`
+;; (rf2-kuky.87). `reg-head`, `render-head` and `active-head` stay at
+;; home on `re-frame.ssr.head`.
+(def head-model->html                rf.ssr.head/head-model->html)
 ;; framework-private: tests reach into `#'ssr/canonical-edn` for the
 ;; JVM↔CLJS canonical-EDN parity check (hash_check_cljs_test).
 (def ^:private canonical-edn         rf.ssr.hash/canonical-edn)
@@ -405,24 +411,23 @@ explicitly."
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
-;; Core's `render-to-string`, `render-tree-hash`,
-;; `reg-error-projector`, and `project-error` re-exports look the
-;; producing fns up through this hook table — core never statically
-;; `:require`s `re-frame.ssr`. When the ssr artefact is not on the
-;; classpath the lookups return nil and the consumer raises
+;; Core's `reg-error-projector` REGISTRAR re-export looks its producing fn
+;; up through this hook table — core never statically `:require`s
+;; `re-frame.ssr`. When the ssr artefact is not on the classpath the
+;; lookup returns nil and the consumer raises
 ;; `:rf.error/ssr-artefact-missing`.
+;;
+;; The QUERY surface publishes no hook: `re-frame.ssr` is the only door for
+;; `render-to-string` / `render-tree-hash` / `project-error`, so there is
+;; nothing on the façade to late-bind (rf2-kuky.44 / rf2-kuky.87).
 
-(rf.late-bind/set-fn! :ssr/render-tree-hash    render-tree-hash)
-(rf.late-bind/set-fn! :ssr/render-to-string    render-to-string)
 (rf.late-bind/set-fn! :ssr/reg-error-projector reg-error-projector)
-(rf.late-bind/set-fn! :ssr/project-error       project-error)
 ;; Frame teardown looks up this hook and clears the SSR side-channel atoms
 ;; (`pending-error-traces`, `request-slots`, `response-slots`) for the
 ;; destroyed frame.
 (rf.late-bind/set-fn! :ssr/on-frame-destroyed  on-frame-destroyed!)
 
-;; `re-frame.ssr.head` is required above so its late-bind hooks
-;; (`:ssr/reg-head`, `:ssr/render-head`, `:ssr/active-head`,
-;; `:ssr/head-model-html`) land at ssr-ns load time on both JVM and
-;; CLJS. Reading a head is a pure read, so the head ns keeps no
-;; per-frame bookkeeping and teardown has nothing to release for it.
+;; `re-frame.ssr.head` is required above so its `:ssr/reg-head` late-bind
+;; hook lands at ssr-ns load time on both JVM and CLJS. Reading a head is a
+;; pure read, so the head ns keeps no per-frame bookkeeping and teardown has
+;; nothing to release for it.

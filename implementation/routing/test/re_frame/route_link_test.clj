@@ -34,6 +34,7 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.routing :as rf.routing]
             [re-frame.routing.link :as rf.routing.link]
+            [re-frame.ssr :as rf.ssr]
             [re-frame.routing-test-support :as rf.routing-test-support]))
 
 ;; rf2-6qclsc: use the shared `reset-runtime` fixture directly rather than a
@@ -154,7 +155,7 @@
             frame — the production path: `[rf/route-link …]` in a render tree,
             walked by `render-to-string` inside the frame's scope"
     (let [html (rf/with-frame :ssr/history-base
-                 (rf/render-to-string [rf/route-link {:to :route/active} "Active"]))]
+                 (rf.ssr/render-to-string [rf/route-link {:to :route/active} "Active"]))]
       (is (str/includes? html "href=\"/demos/active\"")
           (str "the emitted <a> carries the base-prefixed href, got: " html))
       (is (not (str/includes? html "href=\"/active\""))

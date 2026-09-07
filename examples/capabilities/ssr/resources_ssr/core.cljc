@@ -383,8 +383,8 @@
                  ;; verifies still belongs on the fragment's root element.
                  ;; Hash ONCE and spend it on both channels: the emitter takes
                  ;; the hash rather than computing a second walk of its own.
-                 render-hash   (rf/render-tree-hash hiccup)
-                 html          (rf/render-to-string hiccup {:render-hash render-hash})
+                 render-hash   (rf.ssr/render-tree-hash hiccup)
+                 html          (rf.ssr/render-to-string hiccup {:render-hash render-hash})
                  ;; (2) Build the payload exactly the way the Ring host does:
                  ;; the app-db slice through the fail-closed allowlist, and the
                  ;; runtime-db through the SSR projection (the allowed resource

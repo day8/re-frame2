@@ -1385,7 +1385,9 @@ Malli schemas attached to `app-db` paths; validated on writes in dev, elided in 
 
 ### SSR → [re-frame.ssr.md](re-frame.ssr.md)
 
-Server-side rendering is the same framework server-side. A curated set of rendering and head primitives is re-exported here as **late-bound wrappers**. Each wrapper resolves to the `re-frame.ssr` implementation when the `day8/re-frame2-ssr` artefact is on the classpath, and throws a clear "SSR not loaded" error otherwise. The host-adapter surface ([re-frame.ssr.ring.md](re-frame.ssr.ring.md)) and the per-request `:rf.server/*` fx are **not** re-exported. Standard SSR events (`:rf/server-init`, `:rf/hydrate`) and the server-only fx live in the SSR doc. SSR registers **no subscriptions** — `:rf/head` and `:rf/public-error` name data shapes, not registry entries, and are read through `active-head` / `render-head` and `project-error` respectively ([re-frame.ssr.md](re-frame.ssr.md#subscriptions--there-are-none)).
+Server-side rendering is the same framework server-side. **Only the two REGISTRARS are re-exported here** — `reg-head` and `reg-error-projector`, as late-bound wrappers that resolve to the `re-frame.ssr` implementation when the `day8/re-frame2-ssr` artefact is on the classpath and throw a clear "SSR not loaded" error otherwise.
+
+The SSR **query** surface is reached at home: `render-to-string`, `render-tree-hash`, `project-error`, `head-model->html` and `hydrate!` on [`re-frame.ssr`](re-frame.ssr.md), and `render-head` / `active-head` on the sibling `re-frame.ssr.head`. There is no facade copy of any of them — requiring `re-frame.ssr` is what installs the SSR runtime, so an app that renders server-side has necessarily named the namespace. The host-adapter surface ([re-frame.ssr.ring.md](re-frame.ssr.ring.md)) and the per-request `:rf.server/*` fx are likewise not re-exported. Standard SSR events (`:rf/server-init`, `:rf/hydrate`) and the server-only fx live in the SSR doc. SSR registers **no subscriptions** — `:rf/head` and `:rf/public-error` name data shapes, not registry entries, and are read through `active-head` / `render-head` and `project-error` respectively ([re-frame.ssr.md](re-frame.ssr.md#subscriptions--there-are-none)).
 
 #### `reg-head`
 
@@ -1398,50 +1400,6 @@ Server-side rendering is the same framework server-side. A curated set of render
 - **Kind**: macro
 - **Signature**: `(reg-error-projector id ?metadata projector-fn)`
 - Register a trace-event → public-error projector `(fn [trace-event] :rf/public-error)`, named per-frame via the frame's `:ssr {:public-error-id …}` metadata. Full contract in [re-frame.ssr.md](re-frame.ssr.md).
-
-#### `render-to-string`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (render-to-string view-or-hiccup) → HTML string
-  (render-to-string view-or-hiccup opts) → HTML string
-  ```
-- The canonical server-side render: it walks the hiccup tree once and emits a string. `opts` may carry `:doctype?` and `:render-hash`. JVM-runnable; pure. Full contract in [re-frame.ssr.md](re-frame.ssr.md).
-
-#### `render-tree-hash`
-
-- **Kind**: function
-- **Signature**: `(render-tree-hash render-tree) → 32-bit FNV-1a structural hash (lowercase hex)`
-- A deterministic structural fingerprint of a render tree (same canonical-EDN → same hash on JVM and CLJS); used by the hydration compatibility check. Full contract in [re-frame.ssr.md](re-frame.ssr.md).
-
-#### `project-error`
-
-- **Kind**: function
-- **Signature**: `(project-error frame-id trace-event) → :rf/public-error`
-- Apply the active error-projector (selected by the frame's `:ssr {:public-error-id …}` metadata) — the seam between an internal error trace event and a client-safe public-error projection. Full contract in [re-frame.ssr.md](re-frame.ssr.md).
-
-#### `render-head`
-
-- **Kind**: function
-- **Signature**: `(render-head head-id opts) → :rf/head-model`
-- Evaluate the registered head-fn for `head-id`, returning a head-model. Full contract in [re-frame.ssr.md](re-frame.ssr.md).
-
-#### `active-head`
-
-- **Kind**: function
-- **Signature**: `(active-head frame-id) → :rf/head-model`
-- Resolve the head-model for the currently active route in the named frame. This is a frame-scoped read: the frame is carried, not ambient, and a `nil` frame-id raises `:rf.error/no-frame-context`. Full contract in [re-frame.ssr.md](re-frame.ssr.md).
-
-#### `head-model->html`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (head-model->html head-model)
-  (head-model->html head-model {:wrap? bool})
-  ```
-- Render a head-model to its inner-head HTML string (`:wrap?` controls whether `<head>` tags are emitted; default false). Full contract in [re-frame.ssr.md](re-frame.ssr.md).
 
 ### HTTP → [re-frame.http.md](re-frame.http.md)
 

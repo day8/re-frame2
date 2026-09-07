@@ -74,6 +74,7 @@
             ;; validator routes through (Spec 010 §Recommended soft-pass /
             ;; rf2-t0hq); without it `reg-app-schema` validation soft-passes.
             [re-frame.schemas.malli]
+            [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
@@ -487,7 +488,7 @@
     ;; Render against the installed db — the sub over the flow's path feeds
     ;; the rendered HTML.
     (let [tree [(rf/view :pages/greeting)]
-          html (rf/render-to-string tree {:render-hash (rf/render-tree-hash tree)})]
+          html (rf.ssr/render-to-string tree {:render-hash (rf.ssr/render-tree-hash tree)})]
       (is (str/includes? html "Hello, Ada Lovelace")
           "the rendered HTML carries the FLOW-AUGMENTED value — the sub read
            the installed flow output under SSR's synchronous drain")

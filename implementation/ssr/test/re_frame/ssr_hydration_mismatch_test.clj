@@ -71,7 +71,7 @@
     - `mismatch-trace-client-hash-is-8-char-lowercase-hex` pinned the shape
       of `render-tree-hash`'s output by reading it back off a trace tag. The
       shape claim is about the hash function, so it is now also asserted
-      directly against `rf/render-tree-hash`, which is not gated at all.
+      directly against `rf.ssr/render-tree-hash`, which is not gated at all.
     - `mismatch-trace-is-an-error-op-type-event` asserts an
       ERROR-severity classification; its always-on counterpart is that the
       same condition carries `:rf.error/id :rf.ssr/hydration-mismatch` — an
@@ -205,7 +205,7 @@
           ;; invariant, not the literal.
           render-tree  [:div {:data-testid "counter-panel"}
                         [:p "count=" [:span {:data-testid "count"} 0]]]
-          client-hash  (rf/render-tree-hash render-tree)]
+          client-hash  (rf.ssr/render-tree-hash render-tree)]
       (rf/dispatch-sync [:rf/hydrate mismatch-payload] {:frame client-frame})
 
       ;; SEMANTIC, posture-independent (rf2-lwtlk): the SHAPE claim is about

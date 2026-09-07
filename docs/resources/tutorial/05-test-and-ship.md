@@ -246,7 +246,7 @@ Three helpers from `re-frame.test-helpers` do the work, all pure walkers over hi
 
 !!! note "Two flavours of view test"
 
-    Reach for hiccup-walk (above) when you care about *structure* or *handlers* — which testid is present, which `:on-click` is wired. Reach for `rf/render-to-string` when you care about the rendered *markup* — "is the `<button>` disabled?", "does the `<h1>` carry the right class?". It emits the whole view to an HTML string, also JVM-runnable, also no DOM. Only tests that need real React mounting (a click firing through actual DOM listeners, scroll behaviour) need a CLJS runtime — a small minority.
+    Reach for hiccup-walk (above) when you care about *structure* or *handlers* — which testid is present, which `:on-click` is wired. Reach for `ssr/render-to-string` when you care about the rendered *markup* — "is the `<button>` disabled?", "does the `<h1>` carry the right class?". It emits the whole view to an HTML string, also JVM-runnable, also no DOM. Only tests that need real React mounting (a click firing through actual DOM listeners, scroll behaviour) need a CLJS runtime — a small minority.
 
 ??? note "Going deeper — the `test-support` sugar"
 

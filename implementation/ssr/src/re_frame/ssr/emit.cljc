@@ -898,7 +898,7 @@
          body)))))
 
 ;; Wire render-to-string into the plain-atom adapter so callers using
-;; rf/render-to-string (delegating through the substrate adapter) get
+;; ssr/render-to-string (delegating through the substrate adapter) get
 ;; this implementation. Per rf2-uo7v the Reagent adapter wires its own
 ;; set-hiccup-emitter! through `:reagent/set-hiccup-emitter!`; we
 ;; consume that hook below so ssr does not statically :require the

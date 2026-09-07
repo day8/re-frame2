@@ -105,7 +105,7 @@
    :ssr      {:maven     "day8/re-frame2-ssr"
               :require   "re-frame.ssr"
               :spec      "Spec 011 (SSR & hydration)"
-              :probe-key :ssr/render-to-string}
+              :probe-key :ssr/reg-error-projector}
    :epoch    {:maven     "day8/re-frame2-epoch"
               :require   "re-frame.epoch"
               :spec      "Tool-Pair (Time-travel / epoch)"

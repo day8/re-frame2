@@ -351,7 +351,7 @@ exactly what "let frequent shapes justify syntax" should judge against.
 | 12 | Status-driven attributes | `:disabled` **100**; dynamic `:class` (cond->/str/when) **19**; dynamic `:style` **2** | flight_booker :227; views.cljs:268-270; editor :499 |
 | 13 | Async-status branching in views | machine-tag booleans (25), resource-state maps (14), mutation-instance maps (11); nine_states maps tag→render as a DATA table | nine_states/core.cljs:630-631; infinite_feed:267-293 (three error channels) |
 | 14 | Test hooks `:data-testid` | **364** — the single most frequent view attribute in the corpus | everywhere; e.g. flight_booker :216 |
-| 15 | SSR/hydration touchpoints | 4 entrypoints (`ssr/core.cljc`, `ssr_streaming`, `resources_ssr`, `realworld_http/ssr.cljc`): views shared via cljc + `^{:rf/id}` stable identity + `rf/render-to-string`; client `#?(:cljs …)` mount split | ssr/core.cljc:233,250,308,399-426 |
+| 15 | SSR/hydration touchpoints | 4 entrypoints (`ssr/core.cljc`, `ssr_streaming`, `resources_ssr`, `realworld_http/ssr.cljc`): views shared via cljc + `^{:rf/id}` stable identity + `ssr/render-to-string`; client `#?(:cljs …)` mount split | ssr/core.cljc:233,250,308,399-426 |
 | 16 | Mount/boot ceremony | per-example `defonce react-root` + `frame-root {:id … :initial-events […]}` + `^:dev/after-load mount!` (~24 `with-frame` sites for ns-load registration) | flight_booker :240-270 — the canonical block, ~30 lines/app |
 | 17 | Measurement/scroll observation | **0** IntersectionObserver/ResizeObserver; infinite scroll is a load-more BUTTON dispatching an event | infinite_feed/core.cljs:21-24,248-293 |
 
