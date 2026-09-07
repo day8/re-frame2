@@ -151,10 +151,11 @@
       (testing "green's :event registrations include the green-only :counter/reset"
         (is (= #{:counter/inc :counter/reset} (set (keys green-events))))
         (is (= ::green-inc (:handler-fn (get green-events :counter/inc)))))
-      (testing "a :pred narrows the frame-targeted result by metadata"
-        (let [only-reset (rf/registrations {:frame :green/main
-                                            :kind  :event
-                                            :pred  #(= :counter/reset (:id %))})]
+      (testing "narrowing a frame-targeted result is `filter` over it — there is
+                no :pred key (rf2-kuky.30)"
+        (let [only-reset (into {}
+                               (filter (fn [[id _m]] (= :counter/reset id)))
+                               (rf/registrations {:frame :green/main :kind :event}))]
           (is (= #{:counter/reset} (set (keys only-reset)))))))))
 
 ;; ===========================================================================

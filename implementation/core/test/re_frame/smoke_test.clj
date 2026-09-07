@@ -1088,19 +1088,15 @@
     ;; ---- (1) the id set per kind — the (set (keys (registrations kind)))
     ;;          projection that replaced the removed rf/handler-ids (rf2-i4hk4b)
     (testing "(set (keys (rf/registrations {:source :store :kind kind}))) enumerates ids per kind"
-      (let [ids-of          (comp set keys rf/registrations)
+      (let [ids-of          (fn [kind]
+                              (set (keys (rf/registrations {:source :store
+                                                            :kind   kind}))))
             event-ids       (ids-of :event)
             sub-ids         (ids-of :sub)
             fx-ids          (ids-of :fx)
             cofx-ids        (ids-of :cofx)
             view-ids        (ids-of :view)
             route-ids       (ids-of :route)
-            ;; Per rf2-en00bk `:flow` is a RESERVED-but-empty registrar kind —
-            ;; reg-flow writes only to the flows artefact's per-frame store, so
-            ;; the registrar :flow id set is empty (same pattern as
-            ;; `:http-interceptor`). Flow introspection reads
-            ;; `rf.flows/flow-meta-at` / `rf.flows/flows-snapshot`.
-            flow-ids        (ids-of :flow)
             ep-ids          (ids-of :error-projector)]
         (is (set? event-ids) "the id projection returns a set")
         (is (contains? event-ids :rf2-o1bp/evt1))
@@ -1112,12 +1108,13 @@
         (is (contains? cofx-ids :rf2-o1bp/cofx1))
         (is (contains? view-ids :rf2-o1bp/view1))
         (is (contains? route-ids :rf2-o1bp/route1))
-        ;; Per rf2-en00bk `:flow` is RESERVED-but-empty — the registrar
-        ;; :flow id set does NOT carry the flow (it lives in the
-        ;; flows artefact's per-frame store). Asserted via `rf.flows/flow-meta-at`
-        ;; below instead.
-        (is (not (contains? flow-ids :rf2-o1bp/flow1))
-            "registrar :flow id set is empty — flows own their per-frame store (rf2-en00bk)")
+        ;; Per rf2-en00bk `:flow` is a RESERVED-but-EMPTY registrar kind —
+        ;; reg-flow writes only to the flows artefact's per-frame store. Per
+        ;; rf2-kuky.30 the query path no longer answers `{}` for it (an
+        ;; authoritative-looking empty catalogue over a store that lives
+        ;; elsewhere); it THROWS, naming the owning read.
+        (is (thrown? clojure.lang.ExceptionInfo (ids-of :flow))
+            "querying the reserved-empty :flow slot throws rather than answering {}")
         (is (some? (rf.flows/flow-meta-at :rf2-o1bp/flow1))
             "the flow IS introspectable via rf.flows/flow-meta-at (the per-frame store)")
         (is (contains? ep-ids :rf2-o1bp/err1))
@@ -1155,10 +1152,13 @@
         (is (= "/rf2-o1bp/landing" (:path m))
             ":route metadata carries :path"))
       ;; Flows carry :output-path and :inputs. Per rf2-en00bk they are NOT in
-      ;; the registrar (`handler-meta :flow` is nil); the per-frame store is
-      ;; the single source of truth, read via `rf.flows/flow-meta-at`.
-      (is (nil? (rf/handler-meta {:source :store :kind :flow :id :rf2-o1bp/flow1}))
-          "registrar handler-meta :flow is nil — flows are not a registrar slot (rf2-en00bk)")
+      ;; the registrar; the per-frame store is the single source of truth, read
+      ;; via `rf.flows/flow-meta-at`. Per rf2-kuky.30 a `:flow` query THROWS
+      ;; and names that door, rather than answering the nil which reads as
+      ;; "no such flow".
+      (is (thrown? clojure.lang.ExceptionInfo
+            (rf/handler-meta {:source :store :kind :flow :id :rf2-o1bp/flow1}))
+          "a :flow query throws :rf.error/registrar-kind-not-queryable (rf2-kuky.30)")
       (let [m (rf.flows/flow-meta-at :rf2-o1bp/flow1)]
         (is (= [:rf2-o1bp/flow-output] (:output-path m)))
         (is (= [] (:inputs m))))
