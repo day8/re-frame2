@@ -34,7 +34,8 @@
   | zero cost when closed | [[a-closed-overlay-has-no-element-no-listener-and-no-rendered-body]] |
   | an intent inside an overlay lowers in the overlay's frame | [[an-intent-on-an-overlay-child-dispatches-in-the-frame-above-it]] |
   | the anchor is claimed while open and put back after | [[the-anchor-is-claimed-while-open-and-handed-back-on-teardown]] |
-  | two hooks here, and still two in the shell | [[an-overlay-costs-two-hooks-and-the-shell-still-costs-two]] |
+  | an OPEN panel's anchor follows the prop that names it | [[an-open-popovers-anchor-follows-the-prop-that-names-it]] |
+  | three hooks here, and still two in the shell | [[an-overlay-costs-three-hooks-and-the-shell-still-costs-two]] |
   | a close request arrives as an intent | [[a-close-request-on-a-modal-arrives-as-an-intent]] |
   | a REAL Escape takes that same door, and a synthetic one takes none | [[a-real-escape-dismisses-the-modal-and-a-synthetic-one-does-nothing]] |
   | the focus one-shot, and which spelling reaches the platform | [[the-focus-one-shot-is-the-platforms-focus-delegate-and-not-reacts-autofocus]] |
@@ -156,6 +157,15 @@
 (rf/reg-event ::retag (fn [{:keys [db]} [_ tag]] {:db (assoc db :dismiss-tag tag)}))
 (rf/reg-event ::clicked (fn [{:keys [db]} [_ k]] {:db (assoc-in db [:clicked k] true)}))
 (rf/reg-sub ::body-read (fn [db _] (:body-read db)))
+;; The moving-anchor row's model: WHICH trigger an open popover is anchored
+;; to is ordinary application state, so a dispatch moves it while the panel
+;; stays open and the row can ask which element carries the claim.
+(rf/reg-sub ::anchor (fn [db _] (:anchor db)))
+(rf/reg-event ::anchored (fn [{:keys [db]} [_ id]] {:db (assoc db :anchor id)}))
+;; A write that changes NOTHING the overlay reads — the churn control's
+;; re-render trigger.
+(rf/reg-sub ::tick (fn [db _] (:tick db 0)))
+(rf/reg-event ::ticked (fn [{:keys [db]} _] {:db (update db :tick (fnil inc 0))}))
 
 ;; MAP fixtures (`:async? true`), and not a preference: this file now
 ;; carries an `(async done …)` row — the trusted-input bridge presses a
@@ -1274,13 +1284,143 @@
                 "and the panel never opened"))
           (finally (rf.hicasso.impl.mount/release! handle)))))))
 
+;; --- the anchor that MOVES -------------------------------------------------
+
+(rf.hicasso/defview moving-anchor-page [_]
+  [:div
+   ;; TWO persistent triggers with distinct stable ids, both mounted for the
+   ;; whole row, each carrying an author-written `anchor-name` the module
+   ;; must hand back untouched. Neither is unmounted or re-keyed: what moves
+   ;; is the `:anchor` PROP of one open panel.
+   [:button#move-a {:type "button" :style {:anchor-name "--mine-a"}} "A"]
+   [:button#move-b {:type "button" :style {:anchor-name "--mine-b"}} "B"]
+   ;; No `:on-dismiss`, so `popover="manual"`: this row is about the anchor,
+   ;; and a light dismiss firing mid-row would close the panel for a reason
+   ;; that has nothing to do with what is being measured.
+   [rf.hicasso.overlay/popover {:open?     (rf.hicasso/sub [::open? :mv])
+                     :anchor    (rf.hicasso/sub [::anchor])
+                     :placement :bottom-start
+                     :id        "pop-mv"
+                     ;; Read but unused — the churn control's re-render
+                     ;; arrives through the same boundary and must reach
+                     ;; this component's props without moving the claim.
+                     :data-tick (str (rf.hicasso/sub [::tick]))}
+    [:p "Menu"]]
+   ;; Room below the triggers, for the reason `anchored-page` gives.
+   [:div {:style {:height "1200px"}}]])
+
+(deftest an-open-popovers-anchor-follows-the-prop-that-names-it
+  ;; `:anchor` is the DOM id of the trigger to position against, and neither
+  ;; the door's contract nor the guide makes it initial-only. But the claim
+  ;; is imperative and the module's only commit-phase door used to be the ref
+  ;; callback, which React calls on ATTACHMENT — so a shared menu moved from
+  ;; row A to row B kept the claim on A, and the panel went on resolving
+  ;; `position-anchor` against the row the user had just left (rf2-kx9f).
+  ;;
+  ;; Every reading is the ENGINE's: which element carries the name the
+  ;; panel's `position-anchor` resolves, and where the engine actually put
+  ;; the box. An attribute the module just wrote would be green for a
+  ;; runtime that wrote it and anchored nothing.
+  (if-not (rf.hicasso.impl.mount/browser?)
+    (skip! ":node-test resolves no anchors, because it computes no style")
+    (do
+      (fresh!)
+      (rf/with-frame frame-id (rf/dispatch-sync [::anchored "move-a"]))
+      (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!)
+                                                frame-id [moving-anchor-page {}])]
+        (try
+          (rf.hicasso.impl.mount/settle!)
+          (let [a ($ "#move-a")
+                b ($ "#move-b")]
+            (is (and (= "--mine-a" (.. a -style -anchorName))
+                     (= "--mine-b" (.. b -style -anchorName)))
+                "premise: both triggers carry their author's own anchor name")
+            (.scrollIntoView a #js {"block" "center"})
+
+            (go! [::opened :mv])
+            (let [panel ($ "#pop-mv")]
+              (testing "OPEN ON A: the claim is on the first trigger, the panel
+                        points at it, and the engine put the box there"
+                (is (.matches panel ":popover-open") "premise: the panel is open")
+                (let [claimed (.. a -style -anchorName)]
+                  (is (not= "--mine-a" claimed) "A is claimed")
+                  (is (= claimed (.. panel -style -positionAnchor))
+                      "and the panel's `position-anchor` names that very claim"))
+                (is (= "--mine-b" (.. b -style -anchorName))
+                    "B is untouched — one overlay, one claim")
+                (let [ra (.getBoundingClientRect a)
+                      rp (.getBoundingClientRect panel)]
+                  (is (< (js/Math.abs (- (.-left rp) (.-left ra))) 2)
+                      (str ":bottom-start left-aligns the panel with A. "
+                           "A.left=" (.-left ra) " panel.left=" (.-left rp)))))
+
+              (testing "MOVED TO B: the same open panel, the same node, the
+                        same top-layer entry — and the claim released from A
+                        and taken on B"
+                (go! [::anchored "move-b"])
+                (is (identical? panel ($ "#pop-mv"))
+                    "premise: React kept the node — this is a prop update and
+                     not a remount")
+                (is (.matches panel ":popover-open")
+                    "and the panel never closed and reopened")
+                (is (= "--mine-a" (.. a -style -anchorName))
+                    "A got back exactly what its author wrote")
+                (let [claimed (.. b -style -anchorName)]
+                  (is (not= "--mine-b" claimed) "B is claimed now")
+                  (is (= claimed (.. panel -style -positionAnchor))
+                      "and it is the name the panel's `position-anchor` uses,
+                       which is the whole of what anchoring is"))
+                (let [rb (.getBoundingClientRect b)
+                      rp (.getBoundingClientRect panel)]
+                  (is (< (js/Math.abs (- (.-left rp) (.-left rb))) 2)
+                      (str "so the ENGINE moved the box to B. B.left=" (.-left rb)
+                           " panel.left=" (.-left rp)
+                           " A.left=" (.-left (.getBoundingClientRect a))))))
+
+              (testing "AN UNRELATED RE-RENDER does not churn a live claim: the
+                        panel re-renders for a prop it does not anchor on, and
+                        the name on B is the one that was already there"
+                (let [held (.. b -style -anchorName)]
+                  (go! [::ticked])
+                  (is (= "1" (.getAttribute panel "data-tick"))
+                      "premise: the panel really did re-render")
+                  (is (= held (.. b -style -anchorName))
+                      "and the claim was neither released nor re-taken")))
+
+              (testing "REMOVED WHILE OPEN: dropping `:anchor` releases the
+                        claim rather than leaving it standing, which is the
+                        same defect read from the other end"
+                (go! [::anchored nil])
+                (is (= "--mine-b" (.. b -style -anchorName))
+                    "B got back exactly what its author wrote")
+                (is (= "--mine-a" (.. a -style -anchorName))
+                    "and A is still holding its own")
+                (is (.matches panel ":popover-open")
+                    "with the panel still open, now at the UA's default
+                     position — which is what no anchor means"))
+
+              (testing "and a claim taken after a removal is still a whole
+                        claim, so the module did not merely stop claiming"
+                (go! [::anchored "move-a"])
+                (let [claimed (.. a -style -anchorName)]
+                  (is (not= "--mine-a" claimed) "A is claimed again")
+                  (is (= claimed (.. panel -style -positionAnchor))))))
+
+            (testing "TEARDOWN: closing hands back whatever the last claim
+                      found, and both triggers end the row as their author
+                      wrote them"
+              (go! [::closed :mv])
+              (is (= "--mine-a" (.. a -style -anchorName)))
+              (is (= "--mine-b" (.. b -style -anchorName)))))
+          (finally (rf.hicasso.impl.mount/release! handle)))))))
+
 ;; --- the budget ------------------------------------------------------------
 
 (rf.hicasso/defview budget-page [_]
   [rf.hicasso.overlay/modal {:open? (rf.hicasso/sub [::open? :m]) :on-dismiss [::dismissed :m]}
    [:p "cost"]])
 
-(deftest an-overlay-costs-two-hooks-and-the-shell-still-costs-two
+(deftest an-overlay-costs-three-hooks-and-the-shell-still-costs-two
   (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test does not run this suite's mount")
     (if-not (rf.hicasso.hook-probe/install!)
@@ -1304,16 +1444,21 @@
                   "and the declared shell ledger is still two"))
 
             (let [tail (vec (distinct (drop 2 names)))]
-              (testing "THE MODULE'S OWN ROSTER: two names, and neither is a
+              (testing "THE MODULE'S OWN ROSTER: three names, and none is a
                         subscription. The ≤2-hook ceiling I9 polices is the
                         boundary SHELL's, which this module does not touch —
                         it adds no hook to any boundary at all"
-                (is (= ["useContext" "useRef"] tail)
-                    (str "the frame hook and the instance cell. Raw tail: "
+                (is (= ["useContext" "useRef" "useLayoutEffect"] tail)
+                    (str "the frame hook, the instance cell, and the anchor's
+                          commit-phase reconciliation. Raw tail: "
                          (pr-str (drop 2 names))))
                 (is (empty? (filter #{"useSyncExternalStore" "useState" "useEffect"
-                                      "useLayoutEffect" "useMemo" "useCallback"}
+                                      "useMemo" "useCallback"}
                                     tail))
-                    "no effect, no state, no second store subscription — the
-                     work happens in a ref callback, which is not a hook")))
+                    "no state, no passive effect, no second store subscription
+                     — the show/hide and the anchor claim happen in a ref
+                     callback, which is not a hook, and the one hook that was
+                     unavoidable is a LAYOUT effect, because the thing it
+                     corrects is a position (`impl.overlay/reconcile-anchor!`,
+                     rf2-kx9f)")))
             (finally (when @handle (rf.hicasso.impl.mount/release! @handle)))))))))

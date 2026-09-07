@@ -26,8 +26,12 @@
     nothing is omitted, and no fallback stands in — because none is
     needed.
   - **HS-32, overlays.** The module's whole client mechanism is one ref
-    callback (`impl.overlay/make-cell`), and React does not call refs
-    during `renderToString`. What that omits is the *top-layer entry*,
+    callback (`impl.overlay/make-cell`) and one layout effect that
+    follows a changed `:anchor` (`impl.overlay/reconcile-anchor!`), and
+    `renderToString` calls neither — React does not attach refs on the
+    server, and its server dispatcher's `useLayoutEffect` is `noop`
+    (read off the pinned `react-dom-server.node.development.js` rather
+    than assumed). What that omits is the *top-layer entry*,
     not the markup: an open overlay's panel and all of its children ARE
     in the server bytes. They are invisible there because a `<dialog>`
     without `open` and an unshown `[popover]` are both `display:none` by
