@@ -319,7 +319,36 @@ The sink consumes the **already-projected** record — the framework projects un
   (fn [projected-record] (datadog/send projected-record)))   ;; already projected
 ```
 
-Each sink invocation is **isolated** (a throwing sink is dropped, never crashes the dispatch). Routing is **fail-closed** and frame-scoped: an unresolved or policy-less frame routes nothing — the runtime never synthesizes `:rf/default`, never borrows another frame's policy, and never ships a record under unknown classification.
+Each sink invocation is **isolated** (a throwing sink is dropped, never crashes the dispatch). Routing is **fail-closed** and frame-scoped: the runtime never synthesizes `:rf/default`, never borrows another frame's policy, and never ships a record under unknown classification. A frame that resolves to no policy — and no process default — routes nothing.
+
+### The process default — `(rf/configure! {:observability …})`
+
+<a id="the-process-default"></a>
+
+The same policy value is also declarable **once per process**, beside every other `configure!` knob:
+
+```clojure
+(rf/configure! {:observability {:errors [{:sink :app/sentry}]}})
+(rf/register-observability-sink! :app/sentry (fn [projected-record] …))
+```
+
+The entry grammar is the **same closed map** a frame takes, validated by the **same validator** at call time — `:rf.error/bad-frame-classification` with `:where 'rf/configure!`. One grammar, two doors: a second validator would be a second grammar that drifts, and an entry key `make-frame` refuses would otherwise install silently from `configure!` and surface only as a dropped record at the first sink fire.
+
+It exists for two reasons, and the second is what makes it structural rather than a convenience. A multi-frame app restated its policy on every `make-frame` call, though policy is a **deployment** property rather than a per-frame one. And **three producers emit records with no resolvable frame owner**, so no frame policy can ever route them: `:rf.error/no-frame-context` (by construction there is no frame), the pre-frame SSR hydration-parse arm of `:rf.error/malformed-hydration-payload`, and hicasso's compute-sub `:rf.error/sub-exception`, stamped `:frame nil` by construction. Before the default those records reached only the corpus-wide listener stream that [EP-0015](../docs/EP/EP-0015-frame-owned-egress-policy.md) relegates to an advanced integration API; the process default is where they land instead, which is what lets that door close without opening a gap.
+
+**Precedence is per stream, never whole-map.** A frame that **declares** a stream uses its own entries for it; a frame that **omits** the stream inherits the default's entries for it. So a frame declaring only `:handled-events` still inherits the default's `:errors`. Declaration is read by **key presence**, not truthiness, so `{:errors []}` on a frame is that frame's **opt-out** — it declares the stream and names no sink, which is a different statement from omitting it. `(rf/configure! {:observability nil})` clears the default; omitting the key from a `configure!` call leaves it untouched.
+
+Exactly **one** policy source is consulted per record per stream. A sink id named by both the frame's entries and the default's is therefore invoked **once** — the no-duplicate rule is a consequence of that shape rather than a de-duplication pass over a merged list. Whole-map replacement is rejected for the same reason it would be surprising: declaring one stream must not silently disable the other.
+
+**Which frame's classification governs is a separate question from which entries apply.** A frame inheriting the default's entries is still projected under its **own** classification — inheritance moves the sink list, never the redaction authority.
+
+**Records with no frame authority** — the frameless three above, and any record whose `:frame` no longer resolves (a destroyed frame, a dissociated incarnation's exact-incarnation teardown report) — route to the **process default only**, projected with the governing frame **explicitly nil**. That is the fail-closed case of [§`project-egress`](#project-egress--the-record-level-boundary-primitive): tree slots project to `:rf/redacted` while the summary ids stay intact, so the record reaches an operator without any frame's classification vouching for its contents. A stale `:frame` id is **kept in the summary as a diagnostic** and is **never re-resolved** against the live registry: a same-id successor is not the owner, and handing a dead incarnation's report to its successor's sink is the confusion this rule exists to refuse.
+
+That last rule cannot be enforced by testing the id at the routing seam, and the reason is worth stating because it constrains the implementation. Frame lookup cannot distinguish *never registered* from *dissociated*, so **any** unresolved-id test a successor would pass. The authority is therefore carried **from the producer** — the emitting site already knows it is reporting on a dead incarnation — and a producer that revokes frame authority no longer suppresses the sink route: it means *no frame authority, and the process default still delivers*, not *no sink route*.
+
+A **cross-frame raw hook**, where an operator genuinely wants records from every frame unprojected, is an explicit `{:sink … :rf.egress/profile :rf.egress/local-raw}` entry on the process default — a projection **profile** on the `:rf.observe/*` record, within the enum above. It is deliberately **not** an additive global observer sitting beside the frame policy: that would be a third routing model, and the per-stream rules here are the model.
+
+Delivery to a **registered** default sink **owns** the record on exactly the same terms as a frame's policy does — the dev console fallback stands down for it — while an entry naming a sink the app never registered does not. Declaring a policy is not routing.
 
 > **Zero in-repo consumers is EXPECTED for `register-observability-sink!` (do not demand-bar it).** No namespace in this repository calls `register-observability-sink!`, and that is by design — its consumer is an **external operator wiring an APM** (`(rf/register-observability-sink! :app.sinks/datadog (fn [rec] (datadog/send rec)))`), and the framework ships no Datadog / Sentry client (EP-0015 Non-Goals). It is therefore **not** a parked-until-demanded surface under [Principles §The demand bar](Principles.md#the-demand-bar): the demand it serves is the whole point of the production-observability channel, and it is exercised end-to-end by the conformance fixtures and `docs/core/observability.md`, not by a framework caller. A demand-bar / dead-surface audit that flags it for zero in-repo callers is a false positive — its counterpart is the operator's integration code, which lives outside this repo. (Contrast `reg-error-projector` and the frame `:observability` policy, which the runtime itself routes into — different jobs, different consumers; see [EP-0015](../docs/EP/EP-0015-frame-owned-egress-policy.md).)
 
