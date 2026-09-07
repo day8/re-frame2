@@ -94,11 +94,13 @@
   and omitted when absent so the marker shape stays minimal. The
   `:source :schema` slot records schema provenance for the owner-local
   consumer that reads the extracted map — the validation-failure-trace
-  redactor (the ONLY consumer of a machine `[:schemas :data]` or a resource
-  `:data-schema` schema's props), HTTP body-privacy, story-mcp — never the
-  durable app-db classification registry, and never durable machine `:data`
-  classification, which rides top-level `:sensitive` / `:large` on the
-  `reg-machine` spec instead (Spec 015)."
+  redactor (the ONLY consumer of a machine `[:schemas :data]` or a resource's
+  REQUIRED `:params-schema` props), HTTP body-privacy (over the request's
+  `:decode`), story-mcp — never the durable app-db classification registry,
+  and never durable machine `:data` classification, which rides top-level
+  `:sensitive` / `:large` on the `reg-machine` spec instead (Spec 015). A
+  resource's OPTIONAL `:data-schema` is not on this list at all: it has no
+  runtime validation consumer, only static reflection (Spec 016)."
   [flag-key props]
   (when (true? (get props flag-key))
     (cond-> {flag-key true
@@ -285,8 +287,10 @@
   Returned declarations carry `:source :schema` per Spec 009 so the
   owner-local consumer that reads this map can report schema provenance for
   its wire-boundary elision — the validation-failure-trace redactor (the ONLY
-  consumer of a machine `[:schemas :data]` or a resource `:data-schema`
-  schema's props), HTTP body-privacy, story-mcp. This map does not feed
+  consumer of a machine `[:schemas :data]` or a resource's REQUIRED
+  `:params-schema` props), HTTP body-privacy (over the request's `:decode`),
+  story-mcp. A resource's OPTIONAL `:data-schema` has no runtime validation
+  consumer and is not one of them (Spec 016). This map does not feed
   durable app-db classification, nor durable machine `:data` classification —
   a machine declares that projection-relative at the top level of its
   `reg-machine` spec (Spec 015)."
