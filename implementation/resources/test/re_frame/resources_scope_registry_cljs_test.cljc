@@ -33,9 +33,19 @@
 
 ;; ---- fixtures -------------------------------------------------------------
 
+;; FN form, not the `{:before … :after …}` map form (rf2-4yw1). `cljs.test`
+;; accepts both shapes; `clojure.test` accepts only a function, and given a map
+;; it invokes it as one — a map called with the test thunk is a KEY LOOKUP that
+;; returns nil and never runs the test. The JVM lane then reports zero tests for
+;; this namespace, silently and with exit 0. This file is `.cljc`, so it runs on
+;; both lanes and must use the shape both accept.
 (use-fixtures :each
-  {:before (fn [] (rf.registrar/clear-kind! :resource-scope))
-   :after  (fn [] (rf.registrar/clear-kind! :resource-scope))})
+  (fn [test-fn]
+    (rf.registrar/clear-kind! :resource-scope)
+    (try
+      (test-fn)
+      (finally
+        (rf.registrar/clear-kind! :resource-scope)))))
 
 ;; rf2-bqstzr — the canonical declared-inputs resolver split into the 3-slot
 ;; grammar's metadata middle slot (`session-meta`: `:doc` + `:inputs`) and the
