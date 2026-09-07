@@ -2945,6 +2945,48 @@
                               "composed config value straight in.")}))))
   nil)
 
+(defn current-config
+  "Return the process-level config values currently in effect, in
+  `configure!`'s own nested shape — the read twin of `configure!`:
+
+      (configure! {:epoch-history {:depth 100}})
+      (current-config)
+      ;; => {:epoch-history {:depth 100 :trace-events-keep 50 :redact-fn nil}
+      ;;     :trace-buffer  {:events-retained 50}
+      ;;     :elision       {:rf.size/threshold-bytes 16384}}
+
+      (get-in (current-config) [:epoch-history :depth])   ;; => 100
+
+  PROCESS values only. There are no per-frame effective values here: a
+  frame carrying its own `:rf.trace/events-retained` metadata is not
+  reflected, because this reads the same slots `configure!` writes and
+  nothing else.
+
+  A subsystem key is ABSENT — not `nil`, not a fabricated default —
+  when that subsystem is not loaded in this build. `:epoch-history`
+  needs the optional `day8/re-frame2-epoch` artefact; `:trace-buffer`
+  needs the dev-only `re-frame.trace.tooling` sibling, so a production
+  bundle that DCEs the tooling ns reports neither key. `(get-in
+  (current-config) [:epoch-history :depth])` therefore reads `nil` on
+  an absent artefact, which is the answer a health query wants; the
+  facade handles the optional-availability branch so callers do not
+  resolve owning-ns vars by symbol.
+
+  The returned map is a snapshot read key-by-key, not a transactional
+  one, and it is not promised to be wire-serialisable — epoch config
+  can carry a `:redact-fn`. Namespaced pass-through keys handed to
+  `configure!` (the `:myapp/thing` extension carve-out) are NOT
+  reflected back: `configure!`'s vocabulary is closed, so only the keys
+  it READS have live values to report.
+
+  Per Conventions §`configure!` (mutation) vs `current-config` (read)."
+  []
+  (let [epoch-read (rf.late-bind/get-fn :epoch/current-config)
+        trace-read (rf.late-bind/get-fn :trace.tooling/current-trace-buffer-config)]
+    (cond-> {:elision (rf.elision/current-config)}
+      epoch-read (assoc :epoch-history (epoch-read))
+      trace-read (assoc :trace-buffer (trace-read)))))
+
 (def ^{:doc "Install the substrate adapter for this process. Once. A
   second call without an intervening `destroy-adapter!` raises
   `:rf.error/adapter-already-installed`. Most apps call `init!` rather

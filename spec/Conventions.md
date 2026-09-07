@@ -1287,17 +1287,18 @@ The law is a **closed verb vocabulary**. Each verb owns one shape of operation; 
 - `close!` vs `unmount!`/`destroy-*` — `close!` is **visibility** (the thing is hidden but intact and reopenable); `unmount!`/`destroy-*` is **lifecycle** (the thing leaves the DOM / is torn down). A modal you `close!` keeps its state for the next `open!`; one you `unmount!` does not.
 - `watch-*`'s stop-fn vs an `unwatch-*` that does not exist — observation teardown rides the **returned stop fn**, never a separate id-keyed verb. If you find yourself wanting `unwatch-x`, you wanted to capture and call the stop fn `watch-x` already handed you.
 
-### `configure!` (mutation) vs `describe-config` / `current-config` (reads) — resolving the bang inconsistency
+### `configure!` (mutation) vs `current-config` (read) — resolving the bang inconsistency
 
-The law extends to the **configuration surface**, and in doing so resolves an inconsistency the three facades carry today. The config-**mutation** verb is `configure!` — it ends in `!` because it mutates a process-level slot (per [§Naming](#naming-when-does-a-surface-carry-) bucket 2/3), exactly like `attach!` and `mount!`. The config-**read** verbs are `describe-config` (the declared shape / schema of the config surface) and `current-config` (the live values now in effect) — no bang, because reads mutate nothing.
+The law extends to the **configuration surface**, and in doing so resolves an inconsistency the three facades carry today. The config-**mutation** verb is `configure!` — it ends in `!` because it mutates a process-level slot (per [§Naming](#naming-when-does-a-surface-carry-) bucket 2/3), exactly like `attach!` and `mount!`. The config-**read** verb is `current-config` (the live values now in effect) — no bang, because reads mutate nothing.
 
 | Surface | Verb | `!`? | Owns |
 |---|---|---|---|
 | Mutate config | `configure!` | yes | Set process-level / tool-level config knobs. |
-| Read the config **shape** | `describe-config` | no | The declared key set + value shapes the surface accepts. |
-| Read the **live** config | `current-config` | no | The values currently in effect. |
+| Read the **live** config | `current-config` | no | The values currently in effect, in the shape `configure!` accepts. |
 
-**Config mutation takes the bang.** Config mutation is a process-level mutation, so it takes the `!` the rest of the bang axis mandates for that mechanism: it is **`configure!`** across `re-frame.core`, `re-frame.story`, and `day8.re-frame2-xray.core` (e.g. `(story/configure! {…})`, `(xray-config/configure! {…})`). The read pair `describe-config` / `current-config` is the no-bang counterpart on every facade. The [§Configuration surfaces](#configuration-surfaces-configure-vs-set--vs-per-frame-metadata) bucketing applies to `configure!` for bucket 1.
+**Config mutation takes the bang.** Config mutation is a process-level mutation, so it takes the `!` the rest of the bang axis mandates for that mechanism: it is **`configure!`** across `re-frame.core`, `re-frame.story`, and `day8.re-frame2-xray.core` (e.g. `(story/configure! {…})`, `(xray-config/configure! {…})`). `current-config` is the no-bang counterpart on every facade. The [§Configuration surfaces](#configuration-surfaces-configure-vs-set--vs-per-frame-metadata) bucketing applies to `configure!` for bucket 1.
+
+**One read verb, not two.** The law names exactly one config read, and it reads VALUES. A schema-shaped companion — a runtime query for the key set and value shapes a `configure!` surface accepts — is deliberately NOT reserved here: that shape is documented prose ([API.md §Configure keys](API.md#configure-keys) for `re-frame.core`), and a second name promised on every facade with nothing behind it is worse than no promise at all (rf2-kuky.4, 2026-09-06). A tool that ever needs the shape programmatically is a new proposal against this table, not a name already held open for it.
 
 ### How to name a new lifecycle or facade surface
 
@@ -1309,7 +1310,7 @@ Ask, in order:
 4. Does it **release one ref-count** on a cache entry? → `unsubscribe` (the carve-out — do not coin a new `un-*`).
 5. Does it **start an observation**? → `watch-*`, **returning a 0-arity stop fn** (never an `unwatch-*`).
 6. Is it a listener on a **host surface** — window, document, host events, outside any framework table? → `attach!` / `detach!`. A **DOM/shell** in/out? → `mount!` / `unmount!`. A **visibility** toggle? → `open!` / `close!`.
-7. Is it **config mutation**? → `configure!`. A **config read**? → `describe-config` (shape) / `current-config` (live values).
+7. Is it **config mutation**? → `configure!`. A **config read**? → `current-config` (the live values, in `configure!`'s own shape).
 
 The roster is **closed**: a surface that fits none of these is evidence the law is missing a verb — file a bead against this section rather than coining `dispose-` / `teardown-` / `shutdown-` / a fresh `un-*`. Adding a verb is a Spec change to this table, not a per-author call.
 
@@ -1427,7 +1428,7 @@ If neither fits, the surface is evidence the axis is missing a bucket — file a
 
 ## Configuration surfaces: `configure!` vs `set-!` vs per-frame metadata
 
-re-frame2 has three orthogonal configuration surfaces. The user-facing question "where do I configure X?" depends on the **lifetime** of X and on whether the consumer needs to hand the framework a specific **implementation reference** (a function or component) versus just a keyword/value setting. The three buckets are exhaustive; every framework-owned config option slots into exactly one. New options pick their bucket by mechanism, not by feel. The mutation verb is `configure!` and the read pair is `describe-config` / `current-config` per [§Lifecycle-verb law — `configure!` vs reads](#configure-mutation-vs-describe-config--current-config-reads--resolving-the-bang-inconsistency).
+re-frame2 has three orthogonal configuration surfaces. The user-facing question "where do I configure X?" depends on the **lifetime** of X and on whether the consumer needs to hand the framework a specific **implementation reference** (a function or component) versus just a keyword/value setting. The three buckets are exhaustive; every framework-owned config option slots into exactly one. New options pick their bucket by mechanism, not by feel. The mutation verb is `configure!` and the read verb is `current-config` per [§Lifecycle-verb law — `configure!` vs reads](#configure-mutation-vs-current-config-read--resolving-the-bang-inconsistency).
 
 ### 1. `(rf/configure! {key opts})` — process-level runtime knobs
 

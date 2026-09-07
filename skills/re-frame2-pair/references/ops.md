@@ -211,7 +211,7 @@ When `restore-epoch` returns `false`, read the matching trace event from `(re-fr
 If you're coming from the v1 `re-frame-pair` skill, a few of its surfaces have no direct re-frame2 equivalent. What to reach for instead:
 
 - **`subs/live` (10x's "currently subscribed query vectors" view)** — there is none; use `subs/cache` (`re-frame.subs.tooling/sub-cache-snapshot`), the public Tool-Pair-pinned shape `{query-v {:value v :ref-count n}}`.
-- **A 10x-style internal epoch-buffer accessor + ring-rollover detection** — there is none; use `(rf/epoch-history frame-id)`, which is bounded and self-describing (size = `(count history)`, depth = `(:depth (epoch/current-config))`).
+- **A 10x-style internal epoch-buffer accessor + ring-rollover detection** — there is none; use `(rf/epoch-history frame-id)`, which is bounded and self-describing (size = `(count history)`, depth = `(get-in (rf/current-config) [:epoch-history :depth])`).
 - **A 10x-style internal undo / step-back navigation** — there is none; use first-class `(rf/restore-epoch! frame-id epoch-id)` with seven documented failure modes (see [Time-travel](#time-travel-epoch-restore)).
 - **`re-com-debug-disabled` heuristic** — the source-coord story leads with re-frame2's own mandatory registered-view annotation (debug builds, no opt-in); re-com's `data-rc-src` is a fallback source-coord source, not the only path.
 - **`trace-enabled?` discovery check** — use `interop/debug-enabled?` (the `goog.DEBUG` mirror per Spec 009 §Production builds).

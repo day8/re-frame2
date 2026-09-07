@@ -796,6 +796,10 @@
    ;; two-query composite a consumer would otherwise write is not linearizable.
    :epoch/epoch-silence-current?     epoch-silence-current?
    :epoch/configure!                 configure!
+   ;; The read half, published for `re-frame.core/current-config`. Bound to
+   ;; the STATE-level reader rather than this ns's `current-config`, so the
+   ;; facade door does not depend on a public var rf2-kuky.55 C1 deletes.
+   :epoch/current-config             rf.epoch.state/current-config
    ;; Test-support config-isolation hook. `re-frame.test-
    ;; support`'s reset-hook table fires this to restore epoch config to
    ;; the shipped default between tests, keeping the private `state/config`

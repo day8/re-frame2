@@ -53,7 +53,10 @@
     - `:trace.tooling/dedup-allow?`        (B4 dedup check at registrar
                                             emit sites)
     - `:trace.tooling/release-frame-ring!` (frame-destroy cleanup)
-    - `:trace.tooling/configure-trace-buffer!`
+    - `:trace.tooling/configure-trace-buffer!` /
+      `:trace.tooling/current-trace-buffer-config` (the write / read pair
+                                            behind `re-frame.core`'s
+                                            `configure!` + `current-config`)
     - `:trace.tooling/register-listener!` / `:trace.tooling/unregister-listener!`
 
   Absent the load (production CLJS bundles that never `:require` this
@@ -610,6 +613,20 @@
     (reset! process-events-retained default-events-retained)
     (clear-dedup-table!))
   nil)
+
+(defn current-trace-buffer-config
+  "Return the live PROCESS-DEFAULT retention as `{:events-retained N}` —
+  the read twin of `configure-trace-buffer!`, in the same shape
+  `re-frame.core/configure!` accepts under its `:trace-buffer` key.
+
+  Process default only. A frame carrying its own
+  `:rf.trace/events-retained` metadata override is deliberately not
+  reflected: this reads back the one slot `configure-trace-buffer!`
+  writes, and per-frame caps are frame metadata rather than process
+  config. Published to `re-frame.core/current-config` through
+  `:trace.tooling/current-trace-buffer-config` (rf2-kuky.76)."
+  []
+  {:events-retained @process-events-retained})
 
 (defn configure-trace-buffer!
   "Apply a process-default ring depth. Per Spec 009 §Retention contract:
@@ -1314,6 +1331,7 @@
 ;; nothing on the hot path.
 
 (rf.late-bind/set-fn! :trace.tooling/configure-trace-buffer! configure-trace-buffer!)
+(rf.late-bind/set-fn! :trace.tooling/current-trace-buffer-config current-trace-buffer-config)
 
 ;; Per rf2-r1ciy: `re-frame.frame/fire-on-destroy-event!` installs a one-
 ;; shot trace listener around the `:on-destroy` dispatch so it can
