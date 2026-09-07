@@ -122,11 +122,46 @@
                   (.initEvent e type true true)
                   e)))))))
 
+#?(:cljs
+   (defn native-value-setter
+     "Return the `value` SETTER declared on `node`'s DOM PROTOTYPE
+     (`HTMLInputElement` / `HTMLTextAreaElement` / `HTMLSelectElement` …),
+     skipping any own-property setter a framework installed on the node
+     ITSELF. Returns nil when the chain declares no `value` setter.
+
+     WHY THIS EXISTS (rf2-7aqo). React tracks a controlled input's last
+     value by redefining `value` as an OWN accessor on the node
+     (`trackValueOnNode`): its setter records the incoming value in the
+     tracker and THEN forwards to the native setter. A plain
+     `(set! (.-value node) text)` therefore leaves the tracker holding the
+     text we just wrote, so React's `updateValueIfChanged` reports 'value
+     did not change' and DROPS the synthetic `input`/`change` events —
+     the DOM shows the text while the component's `on-change` never
+     fires. Writing through the PROTOTYPE setter leaves the tracker stale,
+     which is exactly the state a real keystroke produces, so React
+     synthesises the change and the controlled component sees it.
+
+     This reads a standard property descriptor; it never mutates React's
+     private tracker fields. Walking the chain (rather than naming
+     `js/HTMLInputElement`) keeps textarea / select / custom elements
+     working through one code path and degrades to nil — and hence to the
+     plain assignment below — in a runtime with no such descriptor."
+     [node]
+     (loop [proto (js/Object.getPrototypeOf node)]
+       (when (some? proto)
+         (let [d (js/Object.getOwnPropertyDescriptor proto "value")]
+           (if (and (some? d) (fn? (.-set d)))
+             (.-set d)
+             (recur (js/Object.getPrototypeOf proto))))))))
+
 (defn type!
   "Simulate the user typing `text` into the input matched by
-  `selector-or-node`. Sets the `value` property and dispatches an
-  `input` event + a `change` event so reagent / onChange handlers
-  observe the new value. Returns true on success. JVM → false."
+  `selector-or-node`. Writes the value through the node's NATIVE
+  prototype setter (see `native-value-setter` — a direct
+  `(set! (.-value node) …)` is swallowed by React's controlled-input
+  value tracker) and dispatches an `input` event + a `change` event so
+  reagent / React / plain-DOM `onChange` handlers observe the new value.
+  Returns true on success. JVM → false."
   [selector-or-node text]
   #?(:clj  false
      :cljs (let [node (cond
@@ -134,7 +169,13 @@
                         (some?  selector-or-node)  selector-or-node
                         :else                      nil)]
              (if (some? node)
-               (do (set! (.-value node) text)
+               (do (if-let [setter (native-value-setter node)]
+                     (.call setter node text)
+                     ;; No prototype-declared setter (a plain object stand-in
+                     ;; in a test harness, an exotic element): fall back to
+                     ;; the ordinary assignment so the plain-DOM path keeps
+                     ;; working.
+                     (set! (.-value node) text))
                    ;; Reagent's onChange is wired to the React synthetic
                    ;; `change` event but reads from the underlying DOM
                    ;; `input` event; we dispatch both to be friendly to
