@@ -32,7 +32,7 @@
             [clojure.string :as string]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.machines :as rf.machines]
+            [re-frame.machines]  ;; loaded for its late-bind hooks (`rf/reg-machine`)
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
@@ -80,7 +80,7 @@
     (setup!)
     ;; The transition map carries the inline action's source on the enclosing
     ;; node (the machine-side contract this test consumes).
-    (is (string? (get-in (rf.machines/machine-meta :inline/sample)
+    (is (string? (get-in (:rf/machine (rf/handler-meta {:source :store :kind :event :id :inline/sample}))
                          [:states :idle :on :go :source-code :action]))
         "the inline transition :action's :source-code is co-located on the
          enclosing transition map (rf2-se70xj machine-meta contract)")

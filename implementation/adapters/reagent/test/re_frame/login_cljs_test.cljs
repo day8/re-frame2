@@ -34,7 +34,7 @@
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.machines :as rf.machines]
+            [re-frame.machines]  ;; loaded for its late-bind hooks (`rf/reg-machine`)
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
             ;; The schemas Malli adapter publishes the registered validator
@@ -96,7 +96,7 @@
 
 (deftest data-schema-attached
   (testing "the login machine carries AuthLoginData on its [:schemas :data] slot"
-    (let [meta (rf.machines/machine-meta :auth.login/flow)]
+    (let [meta (:rf/machine (rf/handler-meta {:source :store :kind :event :id :auth.login/flow}))]
       (is (some? meta) "machine-meta resolves the registered login machine")
       (is (= login.model/AuthLoginData (get-in meta [:schemas :data]))
           "the [:schemas :data] schema round-trips as login.model/AuthLoginData")))

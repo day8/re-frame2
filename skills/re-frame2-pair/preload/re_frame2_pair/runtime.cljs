@@ -1152,7 +1152,7 @@
    wire. `dissoc :handler-fn` first for the top-level slot, exactly as
    `registrar-describe` does."
   [machine-id]
-  (if-let [spec (rf.machines/machine-meta machine-id)]
+  (if-let [spec (:rf/machine (rf/handler-meta {:source :store :kind :event :id machine-id}))]
     (-> spec (dissoc :handler-fn) strip-fns)
     {:ok? false :reason :not-a-machine :id machine-id}))
 

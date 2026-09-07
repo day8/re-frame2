@@ -35,8 +35,10 @@
       map over `re-frame.machines.parallel`'s engine seam (flat /
       compound delegates to `re-frame.machines.transition`'s
       `machine-transition-single`)
-    - `machines`, `machine-meta`, `machine-by-system-id` — owned
-      directly on this façade (Spec 005 §Querying machines)
+    - `machines`, `machine-by-system-id` — owned directly on this
+      façade (Spec 005 §Querying machines; a single machine's spec is
+      read through the generic `rf/handler-meta` + `:rf/machine`
+      projection, not a per-kind alias)
     - `spawn-fx`, `spawn-all-init-fx` —
       `re-frame.machines.lifecycle-fx.spawn`
     - `destroy-machine-fx` — `re-frame.machines.lifecycle-fx.destroy`
@@ -164,14 +166,24 @@
 
 ;; ---- query API (Spec 005 §Querying machines) -----------------------------
 ;;
-;; Three thin lookup fns over the existing event registry and the
+;; Two thin lookup fns over the existing event registry and the
 ;; runtime-owned `[:rf.runtime/machines :system-ids]` reverse index — derived views, not a
 ;; new registry kind. `(rf.machines/machines)` filters event handlers whose
 ;; registration metadata carries `:rf/machine? true`;
-;; `(rf.machines/machine-meta id)` returns the registered machine's spec map;
 ;; `(rf.machines/machine-by-system-id sid)` resolves the spawned-machine id
 ;; currently bound to `sid` in the active frame's
 ;; `[:rf.runtime/machines :system-ids]` reverse index.
+;;
+;; A single machine's registered SPEC is read through the generic registrar
+;; query rather than a per-kind alias (rf2-kuky.31 — the `<kind>-meta` family
+;; is retired in favour of the one `{id meta}` grammar every tool already
+;; uses):
+;;
+;;   (:rf/machine (rf/handler-meta {:source :store :kind :event :id id}))
+;;
+;; which is nil unless that `:event` registration carries `:rf/machine? true`.
+;; That inner-key projection is the DOCUMENTED contract (Spec 005 §Querying
+;; machines, spec/API.md §Public registrar query API), not a helper.
 ;;
 ;; These query fns live on the public artefact surface (not a level
 ;; below) since they're how Spec 005 §Querying machines is reached.
@@ -184,14 +196,6 @@
   (->> (rf.registrar/registrations :event)
        (keep (fn [[id m]] (when (:rf/machine? m) id)))
        (vec)))
-
-(defn machine-meta
-  "Return the registered machine's spec map (`:initial`, `:data`,
-  `:schemas`, `:guards`, `:actions`, `:states`, `:doc`, source
-  coords) for `machine-id`, or nil if no machine is registered under
-  that id. Per Spec 005 §Querying machines."
-  [machine-id]
-  (rf.machines.lifecycle-fx.resolver/spec-from-registry machine-id))
 
 (defn machine-by-system-id
   "Look up the spawned-machine id currently bound to `system-id` in the
@@ -510,7 +514,10 @@
 (rf.late-bind/set-fn! :machines/make-machine-handler make-machine-handler)
 (rf.late-bind/set-fn! :machines/machine-transition     machine-transition)
 (rf.late-bind/set-fn! :machines/machines               machines)
-(rf.late-bind/set-fn! :machines/machine-meta           machine-meta)
+;; The hook key is retained (rf2-kuky.31): the retired `machine-meta` alias was
+;; a one-line delegate to `resolver/spec-from-registry`, so the hook publishes
+;; that resolver directly — same 1-arity, same value, one fewer public name.
+(rf.late-bind/set-fn! :machines/machine-meta           rf.machines.lifecycle-fx.resolver/spec-from-registry)
 (rf.late-bind/set-fn! :machines/machine-by-system-id   machine-by-system-id)
 (rf.late-bind/set-fn! :machines/reset-timers!          reset-timers!)
 ;; Per-frame timer-table cleanup wired into `rf.frame/destroy-frame!`.

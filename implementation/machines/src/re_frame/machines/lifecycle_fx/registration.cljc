@@ -49,7 +49,7 @@
 ;; A machine that carries a `[:schemas :data]` schema MUST flow through the
 ;; single registration home so the `:rf/machine?` / `:rf/machine` registration-
 ;; metadata stamp runs — the `:where :machine-data` post-commit walker resolves
-;; the `[:schemas :data]` schema THROUGH `(machine-meta id)`, so without the
+;; the `[:schemas :data]` schema THROUGH the `:rf/machine` registrar projection, so without the
 ;; stamp the schema validates NOTHING.
 ;;
 ;; `register-machine-event!` below is the SINGLE HOME that stamps it (it is the
@@ -893,7 +893,7 @@
   ;; event-`:schema` arity), which is the ONLY place the `:rf/machine?` /
   ;; `:rf/machine` registration-metadata stamp runs — the `:where :machine-data`
   ;; post-commit walker resolves the `[:schemas :data]` schema THROUGH
-  ;; `(machine-meta id)`, so without the stamp the schema validates NOTHING. The
+  ;; the `:rf/machine` registrar projection, so without the stamp the schema validates NOTHING. The
   ;; bare `(reg-event id meta (make-machine-handler spec))` direct path does not
   ;; stamp it — so a `[:schemas :data]` schema reached here outside the home
   ;; would be silently inert. Surface it at the moment of construction rather
@@ -1243,7 +1243,7 @@
   "THE single home for registering a machine as an event handler. It
   stamps the `:rf/machine?` / `:rf/machine` registration metadata
   so the `:where :machine-data` post-commit walker resolves the
-  `[:schemas :data]` schema through `(machine-meta id)` (without the stamp the
+  `[:schemas :data]` schema through the `:rf/machine` registrar projection (without the stamp the
   schema validates nothing).
 
   `reg-machine*` (both arities) routes through here. The bare
@@ -1365,7 +1365,7 @@
   Per Spec 005 §Querying machines, the registration metadata is stamped
   with `:rf/machine? true` and `:rf/machine` (the spec map).
   `(rf.machines/machines)` filters the `:event` registry by `:rf/machine?`;
-  `(rf.machines/machine-meta id)` reads the spec back out via the standard
+  the `:rf/machine` registrar projection reads the spec back out via the standard
   registrar query API.
 
   Per Spec 001 §Source-coordinate capture, the call-site `:ns` /

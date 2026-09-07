@@ -6,7 +6,7 @@
 
    1. **Acceptance.** `reg-machine` accepts a machine-level `[:schemas
       :output]` schema; registration completes and the schema round-trips
-      through `(rf.machines/machine-meta id)`.
+      through the `:rf/machine` registrar projection.
 
    2. **Completion boundary — conforming output.** A finishing machine whose
       `:output-key` payload CONFORMS to `[:schemas :output]` emits NO
@@ -38,7 +38,7 @@
   :machine-data` boundary routes through."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines :as rf.machines]
+            [re-frame.machines]  ;; loaded for its late-bind hooks (`rf/reg-machine`)
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.schemas]
             [re-frame.schemas.malli]
@@ -57,7 +57,7 @@
                    (= :machine-output (-> % :tags :where)))
              @traces)))
 
-;; ---- (1) acceptance: `[:schemas :output]` round-trips through machine-meta -
+;; ---- (1) acceptance: `[:schemas :output]` round-trips through the `:rf/machine` projection -
 
 (deftest reg-machine-accepts-output-schema-key
   (testing "reg-machine completes registration when the spec carries [:schemas :output]"
@@ -68,10 +68,10 @@
                                   :done    {:final?     true
                                             :output-key :result}}}]
       (rf/reg-machine :rf.machine-output/accepted spec)
-      (let [meta (rf.machines/machine-meta :rf.machine-output/accepted)]
+      (let [meta (:rf/machine (rf/handler-meta {:source :store :kind :event :id :rf.machine-output/accepted}))]
         (is (some? meta) "machine-meta returns the registered spec")
         (is (= OutputSchema (get-in meta [:schemas :output]))
-            "the [:schemas :output] schema round-trips through machine-meta")))))
+            "the [:schemas :output] schema round-trips through the `:rf/machine` projection")))))
 
 ;; ---- (2) conforming completion output → no trace -------------------------
 

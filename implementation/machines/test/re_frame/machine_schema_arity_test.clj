@@ -5,7 +5,7 @@
   Background. A machine carrying a `[:schemas :data]` schema must flow through the
   single registration home so the `:rf/machine?` / `:rf/machine`
   registration-metadata stamp runs — the `:where :machine-data` post-commit
-  walker resolves the `[:schemas :data]` schema THROUGH `(machine-meta id)`, so
+  walker resolves the `[:schemas :data]` schema THROUGH the `:rf/machine` registrar projection, so
   without the stamp the schema validates nothing.
 
   The single home (`reg-machine*` and its event-`:schema` arity) stamps the
@@ -136,10 +136,10 @@
       (rf.machines/reg-machine* flow-id {:schema AuthLoginEvent} spec)
       ;; The machine meta is stamped — machine-meta reads the spec + [:schemas :data]
       ;; back (so the schema is live, not inert).
-      (let [meta (rf.machines/machine-meta flow-id)]
+      (let [meta (:rf/machine (rf/handler-meta {:source :store :kind :event :id flow-id}))]
         (is (some? meta) "machine-meta is non-nil (meta WAS stamped)")
         (is (= AuthLoginData (get-in meta [:schemas :data]))
-            "[:schemas :data] round-trips through machine-meta — it is LIVE"))
+            "[:schemas :data] round-trips through the `:rf/machine` projection — it is LIVE"))
       ;; And it actually validates: an action returning a non-int :attempts
       ;; trips the :where :machine-data boundary (inert before the fix).
       (rf/dispatch-sync [flow-id [:noop]]) ;; bootstrap cleanly
@@ -336,7 +336,10 @@
        :data    {:attempts 0 :token nil :error nil}
        :schemas {:data AuthLoginData}
        :states  {:idle {}}})
-    (is (some? (rf.machines/machine-meta :rf.machine-arity/plain))
-        "2-arity still stamps machine-meta")
-    (is (= AuthLoginData (get-in (rf.machines/machine-meta :rf.machine-arity/plain) [:schemas :data]))
-        "2-arity stamps the [:schemas :data] schema so it round-trips (validation is LIVE)")))
+    (let [spec (:rf/machine (rf/handler-meta {:source :store
+                                              :kind   :event
+                                              :id     :rf.machine-arity/plain}))]
+      (is (some? spec)
+          "2-arity still stamps the :rf/machine registration metadata")
+      (is (= AuthLoginData (get-in spec [:schemas :data]))
+          "2-arity stamps the [:schemas :data] schema so it round-trips (validation is LIVE)"))))

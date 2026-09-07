@@ -12,7 +12,7 @@
 
    1. **Accepted categories.** A `:schemas` map carrying only members of the
       closed set (`:data` / `:events` / `:output` / `:tags` / `:meta`)
-      registers cleanly and round-trips through `(machine-meta id)`.
+      registers cleanly and round-trips through the `:rf/machine` registrar projection.
    2. **Unknown sub-key fails loud.** A `:schemas` map carrying an unknown
       sub-key raises `:rf.error/machine-bad-schemas-key`.
    3. **`:input` rejected.** `[:schemas :input]` raises
@@ -23,7 +23,7 @@
       registers cleanly."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines :as rf.machines]
+            [re-frame.machines]  ;; loaded for its late-bind hooks (`rf/reg-machine`)
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
@@ -41,7 +41,7 @@
 
 (deftest accepted-schemas-categories-register
   (testing "a :schemas map of accepted categories registers cleanly and
-            round-trips through machine-meta"
+            round-trips through the `:rf/machine` projection"
     (let [schemas {:data   [:map [:n :int]]
                    :events {:counter/inc [:map [:by :int]]}
                    :output [:map [:result :int]]
@@ -49,10 +49,10 @@
                    :meta   [:map [:rf/snapshot-version :int]]}]
       (rf/reg-machine :rf.machine-schemas/full
         {:initial :idle :schemas schemas :states {:idle {}}})
-      (let [meta (rf.machines/machine-meta :rf.machine-schemas/full)]
+      (let [meta (:rf/machine (rf/handler-meta {:source :store :kind :event :id :rf.machine-schemas/full}))]
         (is (some? meta) "registration completed")
         (is (= schemas (:schemas meta))
-            "the whole :schemas map round-trips through machine-meta")
+            "the whole :schemas map round-trips through the `:rf/machine` projection")
         (is (= [:map [:n :int]] (get-in meta [:schemas :data]))
             "[:schemas :data] is the wired data-context schema home")))))
 

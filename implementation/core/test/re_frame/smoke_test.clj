@@ -897,6 +897,13 @@
                (rf/compute-sub [:rf/machine :test/tiny] rt))
             ":rf/machine sub returns the same snapshot")))))
 
+;; The registered machine's SPEC map, read through the generic registrar query
+;; + the `:rf/machine` inner-key projection (Spec 005 §Querying machines,
+;; spec/API.md §Public registrar query API). nil unless that `:event`
+;; registration carries `:rf/machine? true`.
+(defn- machine-spec [machine-id]
+  (:rf/machine (rf/handler-meta {:source :store :kind :event :id machine-id})))
+
 (deftest machines-introspection
   (testing "(rf.machines/machines) returns only ids whose registration was via reg-machine"
     (let [tiny-spec   {:initial :idle
@@ -922,19 +929,26 @@
         (is (not (contains? ids :test/regular))
             "(rf.machines/machines) excludes plain event handlers"))
 
-      (testing "(rf.machines/machine-meta id) returns the spec map for registered machines"
-        (is (= tiny-spec (rf.machines/machine-meta :test/tiny))
-            "machine-meta returns the spec map passed to reg-machine")
-        (is (= other-spec (rf.machines/machine-meta :test/other)))
-        (is (= "A tiny test machine."
-               (:doc (rf.machines/machine-meta :test/tiny)))
-            "the spec's :doc round-trips through machine-meta"))
+      ;; A single machine's SPEC is read through the generic registrar query
+      ;; plus the `:rf/machine` inner-key projection — the documented contract
+      ;; (Spec 005 §Querying machines), not a per-kind `machine-meta` alias.
+      (testing "the :rf/machine projection returns the spec map for registered machines"
+        (is (= tiny-spec (machine-spec :test/tiny))
+            "the projection returns the spec map passed to reg-machine")
+        (is (= other-spec (machine-spec :test/other)))
+        (is (= "A tiny test machine." (:doc (machine-spec :test/tiny)))
+            "the spec's :doc round-trips through the projection"))
 
-      (testing "(rf.machines/machine-meta id) returns nil for unregistered or non-machine ids"
-        (is (nil? (rf.machines/machine-meta :test/regular))
+      (testing "the :rf/machine projection is nil for unregistered or non-machine ids"
+        (is (nil? (machine-spec :test/regular))
             "non-machine event handlers return nil")
-        (is (nil? (rf.machines/machine-meta :test/never-registered))
-            "unregistered ids return nil")))))
+        (is (nil? (machine-spec :test/never-registered))
+            "unregistered ids return nil"))
+
+      (testing "the retired per-kind `machine-meta` alias is GONE from re-frame.machines
+                (rf2-kuky.31 — the generic read above replaces it)"
+        (is (nil? (ns-resolve 're-frame.machines 'machine-meta))
+            "re-frame.machines/machine-meta must not be re-introduced")))))
 
 ;; ssr-with-fx-override and ssr-end-to-end moved to the ssr artefact's
 ;; ssr_end_to_end_test.clj (rf2-zqar3 cohort split — co-located with the
