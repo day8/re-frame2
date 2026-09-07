@@ -70,29 +70,34 @@
   (rf.frame/make-anon-frame-record! {:initial-events [[:work/flow [:reset]]]}))
 
 (defn- dispatch-synthetic-child-completion!
-  "Synthesise one child's :on-child-done arrival, carrying the SAME
-   exact-attempt coordinate the member child's own handler boundary would
-   have stamped (rf2-nvxehu). The join interceptor checks every completion
-   carrier's coordinate for exact-current EQUALITY with the join attempt —
-   parent/invoke identity, logical child id, exact current actor id, exact
-   per-attempt token — so a bare hand-dispatched carrier is suppressed as
-   :attempt-unverified. A headless test that bypasses the live children
-   (dispatch-sync fires no :after timers) therefore reads the runtime-owned
-   join state and presents the equivalent exact-current `:rf/join-attempt`
-   coordinate on the recordable `:rf.cofx` slot (rf2-nsbwft — the one
-   coordinate slot; the metadata slot is not read). An exact-current
-   coordinate is accepted regardless of source, including this deliberate
-   test authoring."
+  "Synthesise the completion carrier the runtime mints when a child reaches its
+   `:final?` state — `[:work/flow [:rf.machine.spawn/done <invoke-id>
+   <completion>]]` — carrying the SAME exact-attempt coordinate the runtime
+   would have copied off the child's own `:rf/join-child` membership record
+   (rf2-nvxehu). The join fold checks every carrier's coordinate for
+   exact-current EQUALITY with the join attempt — parent/invoke identity,
+   logical child id, exact current actor id, exact per-attempt token — so a
+   bare hand-authored carrier is suppressed as :attempt-unverified.
+
+   The children complete by reaching `:final?` and dispatch nothing themselves
+   (completion IS finality), but they get there through `:after`-driven
+   progress loops, and `dispatch-sync` fires no `:after` timers. So a headless
+   test cannot drive them the ordinary way: it reads the runtime-owned join
+   state and presents the exact-current carrier those children's finality would
+   have minted. An exact-current coordinate is accepted regardless of source,
+   including this deliberate test authoring."
   [test-frame shard]
   (let [join-snapshot (join-state test-frame)]
     (rf/dispatch-sync
-      [:work/flow [:work/child-done shard]]
-      {:frame   test-frame
-       :rf.cofx {:rf.machine/join-attempt {:parent-id  :work/flow
-                                         :invoke-id  [:working]
-                                         :child-id   shard
-                                         :spawned-id (get-in join-snapshot [:children shard])
-                                         :attempt    (:rf/attempt join-snapshot)}}})))
+      [:work/flow [:rf.machine.spawn/done [:working]
+                   {:result     shard
+                    :error?     false
+                    :parent-id  :work/flow
+                    :invoke-id  [:working]
+                    :child-id   shard
+                    :spawned-id (get-in join-snapshot [:children shard])
+                    :attempt    (:rf/attempt join-snapshot)}]]
+      {:frame test-frame})))
 
 ;; ============================================================================
 ;; (1) SPAWN CASCADE — :start spawns 3 children
@@ -125,22 +130,21 @@
       (is (empty?  (:failed join-snapshot))))))
 
 ;; ============================================================================
-;; (2) HAPPY-PATH JOIN COMPLETION — synthesised :on-child-done events
+;; (2) HAPPY-PATH JOIN COMPLETION — synthesised completion carriers
 ;; ============================================================================
 
 (defn- test-happy-path-join []
   (with-new-frame [f (new-frame)]
     (rf/dispatch-sync [:work/flow [:start]] {:frame f})
 
-    ;; The child machines would normally drive themselves to :done
-    ;; via :after-yield loops and dispatch :work/child-done on entry
-    ;; to their terminal state. dispatch-sync doesn't fire :after
-    ;; timers, so for the headless test we synthesise the
-    ;; child-done events directly — carrying the exact-attempt
-    ;; stamp the member child's boundary would have stamped
-    ;; (rf2-nvxehu; see dispatch-synthetic-child-completion!). With the stamp, the
-    ;; runtime's join interceptor treats them identically to live
-    ;; child completions.
+    ;; The child machines would normally drive themselves to their
+    ;; :final? :done state via :after-yield loops, at which point the
+    ;; runtime mints each one's completion carrier. dispatch-sync doesn't
+    ;; fire :after timers, so for the headless test we synthesise those
+    ;; carriers directly — carrying the exact-attempt coordinate the
+    ;; runtime would have copied off each child's membership record
+    ;; (rf2-nvxehu; see dispatch-synthetic-child-completion!). With the
+    ;; coordinate, the join folds them identically to live completions.
 
     (dispatch-synthetic-child-completion! f :s1)
     ;; After the first :work/child-done, the join state's :done
@@ -259,7 +263,7 @@
     (test-spawn-cascade)))
 
 (deftest long-running-work-happy-path-join
-  (testing "synthesised :on-child-done events resolve the :all join and stamp :complete"
+  (testing "synthesised completion carriers resolve the :all join and stamp :complete"
     (test-happy-path-join)))
 
 (deftest long-running-work-cancel-cascade
