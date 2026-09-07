@@ -33,6 +33,13 @@ a capable agent. Placeholders:
 
 The order is what makes it accurate. Each step is a check the next depends on.
 
+**Keep the brief to what is specific to THIS item.** The blocks below travel verbatim into every
+dispatch and already carry the standing rules, so restating them is the commonest way a brief doubles
+in length while adding nothing — and the worker pays for every word twice, once reading and once
+obeying. Measured on one fleet: briefs of roughly two thousand words, sitting on top of a five-thousand
+word block file, against workers that finished comparable items in a third of the time on briefs of
+four hundred.
+
 1. **Read the tracker item, and order it by the tracker's own TIMESTAMPS** — not by
    position, and not by dates written in the prose. The full mechanics are spelled out
    for the worker under *Common preamble* below: the description is usually the oldest
@@ -913,18 +920,22 @@ surface, as a dated amendment where one exists and a new page only when the evid
 
 ## Quality gates — which gate
 
-Every editing dispatch runs the project's pre-checkin gate before opening a change, and lists what ran in a
-change-body section headed **exactly** `## Quality gates` with pass and fail counts. **The readers are the
-mayor's merge sweep and the merged-change audits — both of them agents, and no machinery whatever.** An
-earlier version of this line called the verbatim heading a contract for automated audits; a controlled
-fixed-string search for it found no script, no workflow and no audit tool anywhere in the tracked tree.
-**Exactly** stays regardless, because it is what lets a reader jump to the section in a long change body
-rather than read the whole thing — but that is a convention for readers, not a contract, and what the false
-justification cost is measured: one change carrying every fact the rule asks for under a differently-worded
-heading was hand-edited to conform seconds before it merged. **A heading that does not conform is a note to
-the worker and nothing more.** It is never grounds to edit somebody else's change body, and never a merge
-blocker — the five clauses are the merge criterion, and this is not among them.
+Every editing dispatch runs gates before opening a change, and lists what ran in a change-body section
+headed **exactly** `## Quality gates`, with pass and fail counts. The readers are the mayor's merge sweep
+and the merged-change audits — agents, not machinery — so the exact heading is a reader's convenience,
+letting them jump to it in a long body rather than read the whole thing. **A heading that does not conform
+is a note to the worker and nothing more**: never grounds to edit somebody else's change body, and never a
+merge blocker, since the five clauses are the criterion and this is not among them.
 
+- **Nominate the NARROWEST gate that covers the diff — gate time is the dominant cost of a dispatch.**
+  Measured on one project: CI ran the whole required matrix in 22 minutes across parallel runners, while
+  that project's own pre-checkin script — sequential, one core — took 62 minutes for a *subset*. The merge
+  criterion reads CI, never the local run, so a local gate that duplicates CI buys wall-clock rather than
+  information. It answers *did I break something obvious* once; every further run of it is CI's job.
+  **So do not brief a re-run after a rebase, and do not brief red-to-green iteration on a heavyweight
+  gate** — push, and let CI's automatic re-run be the evidence about the new base. Local iteration is
+  right only for the focused failing test the worker is writing. The re-run is easy to miss because each
+  one is individually justified: a rebase really does invalidate the previous green.
 - **Gate the transitive surface, not just the file you changed.** A public-surface change breaks its
   *consumers*, not itself. Gate every artefact reachable from the diff through import edges.
 - **Local-green is not CI.** "Green locally" usually means the subset the worker ran; the red gate is one it
