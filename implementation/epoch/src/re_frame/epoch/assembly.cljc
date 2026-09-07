@@ -1,7 +1,7 @@
 (ns re-frame.epoch.assembly
   "Pure assembly of raw `:rf/epoch-record` values.
 
-  Three responsibilities live here:
+  Two responsibilities live here:
 
     1. `build-record`   — produces one record per dequeued event and delegates
                           capture-buffer walks to
@@ -9,11 +9,9 @@
     2. `sensitive-rollup` — computes `:rf.epoch/sensitive?` from raw
                           signals (trace-event stamps + frame-declared
                           sensitive paths).
-    3. `apply-redact-fn` — runs the installed `:redact-fn` advanced
-                           override at off-box egress only. The ring and
-                           listeners retain raw replay material; redaction
-                           happens inside
-                          `re-frame.epoch.tool-pair/projected-record`.
+
+  The ring and listeners retain raw replay material; redaction happens at
+  off-box egress inside `re-frame.epoch.tool-pair/projected-record`.
 
   `current-schema-digest` pins the schema identity later compared by restore
   preconditions."
@@ -88,38 +86,6 @@
                    :rf.epoch/id       epoch-id
                    :rf.trace/event-id event-id
                    :outcome           (outcome->consumer-facing outcome)}))))
-
-;; ---- projection-side redaction override ----------------------------------
-
-(defn apply-redact-fn
-  "Apply the configured advanced override to an already-projected record.
-
-  Nil record or nil override is an identity operation. A throwing override
-  emits `:rf.warning/epoch-redact-fn-exception`, including frame and qualified
-  epoch identity, then returns the built-in projected record. This runs only at
-  egress; raw replay storage and listener delivery are never changed. Callers
-  own the shared debug gate."
-  [record]
-  (if-let [redact-fn (rf.epoch.state/redact-fn)]
-    (if (some? record)
-      (try
-        (redact-fn record)
-        (catch #?(:clj Throwable :cljs :default) redaction-error
-          ;; Failure isolation: emit the warning, fall back to the
-          ;; projected record. The keyword literal sits inside an
-          ;; `(when interop/debug-enabled? ...)` gate at the call site
-          ;; (the projection helper is itself gated), so Closure DCE
-          ;; elides the warning emit + literals under :advanced +
-          ;; goog.DEBUG=false.
-          ;; Trace identity is qualified; the record field read below is bare.
-          (rf.trace/emit! :warning :rf.warning/epoch-redact-fn-exception
-                       {:frame       (:frame record)
-                        :rf.epoch/id (:epoch-id record)
-                        :ex-msg      #?(:clj (.getMessage ^Throwable redaction-error)
-                                        :cljs (.-message redaction-error))})
-          record))
-      record)
-    record))
 
 ;; ---- schema-digest --------------------------------------------------------
 
@@ -218,9 +184,9 @@
 ;; A post-projection diff cannot reveal a sensitive change when both sides are
 ;; the same redaction sentinel. The raw record therefore carries the number of
 ;; classified sensitive app-db paths whose values differ between before and
-;; after. It uses value equality and counts nil/non-nil transitions. An opaque
-;; `:redact-fn` may redact additional undeclared paths; those cannot be inferred
-;; here and are deliberately outside this count.
+;; after. It uses value equality and counts nil/non-nil transitions. Paths the
+;; projection redacts without a sensitive declaration cannot be inferred here
+;; and are deliberately outside this count.
 
 (defn redacted-modified-paths-count
   "Compute the record-level `:rf.epoch/redacted-modified-paths-count`
@@ -332,9 +298,10 @@
          sensitive? (sensitive-rollup frame-id db-before db-after events)
          ;; Count frame-declared sensitive
          ;; paths whose value differs between :db-before / :db-after.
-         ;; Closes Xray's "redact-fn ⇒ empty diff but something changed"
-         ;; gap by surfacing the suppressed signal directly on the
-         ;; record. Computed BEFORE :redact-fn runs (parallel to the
+         ;; Closes Xray's "both sides redacted ⇒ empty diff but something
+         ;; changed" gap by surfacing the suppressed signal directly on the
+         ;; record. Computed from the RAW values, before the off-box
+         ;; projection substitutes the sentinel (parallel to the
          ;; :rf.epoch/sensitive? rollup above).
          redacted-modified-path-count (redacted-modified-paths-count
                                         frame-id db-before db-after)]

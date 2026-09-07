@@ -1,7 +1,7 @@
 (ns re-frame.epoch.tool-pair
   "Tool boundary surfaces: preconditions, restore, state injection, and
-  off-box projection helpers behind `restore-epoch!`, `replace-frame-state!`,
-  `projected-record`, and `projected-history`.
+  off-box projection helpers behind `restore-epoch!`, `replace-frame-state!`
+  and `projected-record`.
 
   Responsibilities:
 
@@ -21,10 +21,11 @@
       container replace + `:rf.epoch/restored` emit once preconditions
       have passed.
 
-    * **Projected egress** — `projected-record` and `projected-history`
-      route every payload-bearing slot through the privacy projection
-      for off-box egress (Xray-MCP `watch-epochs`, story / pair
-      recorders). That is: the canonical `:frame-state-before` /
+    * **Projected egress** — `projected-record` routes every
+      payload-bearing slot through the privacy projection for off-box
+      egress (Xray-MCP `watch-epochs`, story / pair recorders). A caller
+      that egresses the whole ring maps it over `epoch-history`. That is:
+      the canonical `:frame-state-before` /
       `:frame-state-after` slots (app-db partition elided, runtime-db
        partition default-redacted), the derived
       `:db-before` / `:db-after` app-db projections, `:trigger-event`,
@@ -1523,10 +1524,9 @@
   second pass against an already-redacted value just walks scalars
   that no longer match any declaration.
 
-  A user-supplied `:redact-fn` may have already replaced the whole
-  `:trace-events` slot with a scalar sentinel (`:rf/redacted`) — the
-  fn returns it untouched in that case (no descend into a non-
-  vector)."
+  A caller may hand in a slot already replaced by a scalar sentinel
+  (`:rf/redacted`) — the fn returns it untouched in that case (no
+  descend into a non-vector)."
   [trace-events frame-id opts]
   (if-not (sequential? trace-events)
     trace-events
@@ -2041,8 +2041,7 @@
 (defn- elide-sub-runs-slot
   "Project the structured `:sub-runs` vector for off-box egress: walk
   each row through `elide-sub-run-row` with the per-call `opts`. Nil- and
-  non-sequential-preserving (a `:redact-fn` may have already replaced the
-  slot with a scalar sentinel)."
+  non-sequential-preserving (the slot may already be a scalar sentinel)."
   [sub-runs opts]
   (if-not (sequential? sub-runs)
     sub-runs
@@ -2082,9 +2081,8 @@
 (defn- elide-effects-slot
   "Project the structured `:effects` vector for off-box egress:
   walk each row through `elide-effect-row`, fail-closed-redacting the
-  payload-bearing `:args` slot. Nil- and non-sequential-preserving (a
-  `:redact-fn` may have already replaced the whole slot with a scalar
-  sentinel)."
+  payload-bearing `:args` slot. Nil- and non-sequential-preserving (the
+  slot may already be a scalar sentinel)."
   [effects opts]
   (if-not (sequential? effects)
     effects
@@ -2141,9 +2139,9 @@
     (and (vector? trigger-event) (seq trigger-event))
     (into [(first trigger-event)]
           (repeat (dec (count trigger-event)) :rf/redacted))
-    ;; Degenerate non-vector / empty slot (or a `:redact-fn` that already
-    ;; substituted a scalar sentinel) — redact wholesale; nothing safe to
-    ;; expose, and the open schema admits `:rf/redacted` here.
+    ;; Degenerate non-vector / empty slot (or one already substituted with
+    ;; a scalar sentinel) — redact wholesale; nothing safe to expose, and
+    ;; the open schema admits `:rf/redacted` here.
     :else :rf/redacted))
 
 (defn projected-record
@@ -2152,9 +2150,10 @@
 
   Each present payload slot is delegated to its own helper under the selected
   frame/profile. Record bookkeeping and absent slots remain unchanged. The
-  configured advanced override runs last over the built-in projection, never
-  the raw ring. A throwing override falls back to the built-in result.
-  Non-map input returns nil.
+  raw ring is never touched. Non-map input returns nil.
+
+  The whole ring is ordinary composition:
+  `(mapv #(projected-record % opts) (epoch-history frame-id))`.
 
   `opts` is a CLOSED map (`projected-record-opt-keys`): an unrecognised
   key — the two shared axes' retired UNQUALIFIED spellings included —
@@ -2195,14 +2194,4 @@
              ;; Effect args are not app-db-rooted and fail closed.
              (contains? record :effects)
              (update :effects elide-effects-slot opts))]
-       ;; Apply the advanced override only to the projected copy.
-       (rf.epoch.assembly/apply-redact-fn built-in-projected-record)))))
-
-(defn projected-history
-  "INTERNAL — the public contract lives on
-  `re-frame.epoch/projected-history`. Maps `projected-record` over the
-  frame's raw ring (`state/history-for`), threading `opts` to each record;
-  the 1-arity is the fully-redacted off-box path."
-  ([frame-id] (projected-history frame-id nil))
-  ([frame-id opts]
-   (mapv #(projected-record % opts) (rf.epoch.state/history-for frame-id))))
+       built-in-projected-record))))

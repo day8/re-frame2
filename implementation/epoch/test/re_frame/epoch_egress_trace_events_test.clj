@@ -175,11 +175,11 @@
           "the raw secret appears NOWHERE in the projected record — not in
            :db-after, not nested inside any :trace-events :rf.event/db tag"))))
 
-(deftest projected-history-redacts-sensitive-leaf-inside-db-pending-trace
-  (testing "rf2-ta0y7 — the bulk-egress path (projected-history) applies
-            the same per-event re-root: no projected record in the ring
-            leaks the sensitive leaf nested inside a t1/t2 trace's
-            :rf.event/db tag"
+(deftest whole-ring-projection-redacts-sensitive-leaf-inside-db-pending-trace
+  (testing "rf2-ta0y7 — the bulk-egress composition (mapv projected-record
+            over epoch-history) applies the same per-event re-root: no
+            projected record in the ring leaks the sensitive leaf nested
+            inside a t1/t2 trace's :rf.event/db tag"
     (rf/make-frame {:id :test/eg})
     (install-sensitive-schema! :test/eg)
     (rf/reg-event :seed  (fn [{:keys [db]} _] {:db {}}))
@@ -187,7 +187,8 @@
     (rf/dispatch-sync [:seed]  {:frame :test/eg})
     (rf/dispatch-sync [:login] {:frame :test/eg})
 
-    (let [snapshot (rf.epoch/projected-history :test/eg)]
+    (let [snapshot (mapv rf.epoch/projected-record
+                         (rf.epoch/epoch-history :test/eg))]
       (is (pos? (count snapshot)))
       (is (not-any? contains-secret? snapshot)
           "no record in the bulk snapshot leaks the secret anywhere —
@@ -335,9 +336,9 @@
           "the non-map :trace-events entry passes through untouched"))))
 
 (deftest reroot-handles-scalar-sentinel-trace-events
-  (testing "rf2-ta0y7 — when an upstream :redact-fn has already replaced the
-            whole :trace-events slot with the scalar :rf/redacted sentinel,
-            the re-root returns it untouched (no descent into a non-vector)"
+  (testing "rf2-ta0y7 — when the whole :trace-events slot is already the
+            scalar :rf/redacted sentinel, the re-root returns it untouched
+            (no descent into a non-vector)"
     (let [record    {:epoch-id      1
                      :frame         :test/eg
                      :committed-at  0

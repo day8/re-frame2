@@ -205,7 +205,6 @@
   ;;   :rf.epoch/replace-during-drain       (rf2-zq55 — failure mode A)
   ;;   :rf.epoch/replace-schema-mismatch    (rf2-zq55 — failure mode B)
   ;;   :rf.epoch/replace-history-disabled   (rf2-unpldn — failure mode C, depth 0)
-  ;;   :rf.warning/epoch-redact-fn-exception       (rf2-wp70d — redact-fn throw)
   ;;
   ;; Every emit site sits inside `(when interop/debug-enabled? ...)`
   ;; (or guarded by an `if-not interop/debug-enabled?` early-return in
@@ -225,34 +224,6 @@
   ;;      `:rf.epoch/snapshotted` through rf.trace/emit!, sourcing the
   ;;      snapshotted sentinel.
   (rf/configure! {:epoch-history {:depth 10}})
-  ;; rf2-wp70d.5 — install a throwing :redact-fn so the gated
-  ;; `maybe-redact` branch (and its `:rf.warning/epoch-redact-fn-
-  ;; exception` emit site) is REACHED at probe time. Without an
-  ;; installed fn the `(if-let [f (redact-fn)] ...)` branch is taken
-  ;; via the nil arm and the catch's literals never see the closure
-  ;; reachability graph from the probe — the catalogue sentinel would
-  ;; still survive in the control bundle because the keyword literal
-  ;; lives in the source ns (which is required), but rooting the
-  ;; gated body through an actual call sharpens the methodology
-  ;; assertion: the control build proves the (when interop/debug-
-  ;; enabled? ...) gate is the load-bearing surface, not require-
-  ;; closure alone. The throw is caught by `maybe-redact` itself
-  ;; (`:rf.warning/epoch-redact-fn-exception` fires under DEBUG=true)
-  ;; so the probe does not crash.
-  (rf/configure! {:epoch-history {:redact-fn (fn [_record]
-                              (throw (ex-info "probe-redact-throw" {})))}})
-  ;; Register an event we own here (not :probe/inc, which
-  ;; touch-registrar! has already unregistered) and dispatch it so
-  ;; settle! reaches `maybe-redact` with the throwing fn installed.
-  ;; The catch branch fires `:rf.warning/epoch-redact-fn-exception`
-  ;; under DEBUG=true, exercising the gated body's literal
-  ;; reachability through an actual call site rather than relying
-  ;; on require-closure alone.
-  (rf/reg-event :probe/redact-fire (fn [{:keys [db]} _ev] {:db {:redact :fired}}))
-  (rf/dispatch-sync [:probe/redact-fire])
-  ;; Clear so subsequent probe sites (replace-app-db! below,
-  ;; on-frame-destroyed!) are not perturbed by the throwing fn.
-  (rf/configure! {:epoch-history {:redact-fn nil}})
   (rf/register-listener! :epoch ::probe-epoch (fn [_record] nil))
   (let [_history (rf/epoch-history :rf/default)]
     nil)

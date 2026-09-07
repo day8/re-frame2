@@ -303,21 +303,6 @@ const DEV_ONLY_SENTINELS = [
   // must elide in production.
   { source: 're-frame.epoch/on-frame-destroyed! (rf.epoch.cb/silenced-on-frame-destroy)',
     sentinel: 'rf.epoch.cb/silenced-on-frame-destroy' },
-  // re-frame.epoch — :rf.warning/epoch-redact-fn-exception (rf2-wp70d,
-  // EP-0015 issue 6 rf2-ba0eum). EP-0015 RULED storage-side `:redact-fn`
-  // mutation removed: the `:redact-fn` advanced override is now
-  // PROJECTION-SIDE only — it runs at the OFF-BOX egress boundary inside
-  // `re-frame.epoch.tool-pair/projected-record`, AFTER the frame/profile
-  // `re-frame.projection/project-egress` projection, never at storage
-  // time (settle! / replace-app-db! / on-frame-destroyed! deliver the
-  // raw record UNMUTATED). The warning is emitted by
-  // `re-frame.epoch.assembly/apply-redact-fn` when an installed
-  // projection-side :redact-fn throws; the emit body sits inside the
-  // universal `interop/debug-enabled?` gate (the projection helper is
-  // itself gated), so this string literal must elide in :advanced +
-  // goog.DEBUG=false.
-  { source: 're-frame.epoch.assembly/apply-redact-fn (rf.warning/epoch-redact-fn-exception, projection-side)',
-    sentinel: 'rf.warning/epoch-redact-fn-exception' },
   // re-frame.views — :rf.view/render trace op (Spec 009 §`:op-type`
   // vocabulary, rf2-piag / rf2-t5tx). Emitted by the reg-view*
   // wrapper on every render of a registered view; the entire emit

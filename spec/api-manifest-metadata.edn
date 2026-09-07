@@ -1418,12 +1418,12 @@
                                             :justification "A Spec 009 trace surface whose producing home, re-frame.trace.tooling, is internal plumbing rather than an enumerated public artefact namespace -- it carries no manifest rows, so there is no clearer door to move to and Conventions forbids inventing one to tidy the column. The domino-classification read of the same Spec 009 projection family."}
   ;; Epoch history re-exports (canonical home: re-frame.epoch) — §Tool-Pair.
   ;;
-  ;; WHY THE SEVEN EPOCH JUSTIFICATIONS BELOW READ DIFFERENTLY FROM THEIR 31
+  ;; WHY THE SIX EPOCH JUSTIFICATIONS BELOW READ DIFFERENTLY FROM THEIR 31
   ;; optional-artefact siblings above (rf2-2hpxo, post-merge audit of PR
   ;; #9187). Epoch is the ONE optional artefact whose facade wrappers do NOT
   ;; raise `:rf.error/<feature>-artefact-missing` when the artefact is absent:
-  ;; `core_epoch.cljc` gives `epoch-history` / `projected-history`
-  ;; `:on-absent :empty-vec`, `restore-epoch!` / `replay-epoch!` /
+  ;; `core_epoch.cljc` gives `epoch-history` `:on-absent :empty-vec`,
+  ;; `restore-epoch!` / `replay-epoch!` /
   ;; `epoch-silence-current?` `:on-absent :false`, and `projected-record`
   ;; `:on-absent :nil`. Only the WRITE surface `replace-frame-state!` carries
   ;; `:on-absent :throw`, because a silent no-op would lie about its caller's
@@ -1431,7 +1431,7 @@
   ;; places — Tool-Pair §Time-travel "Artefact home", the
   ;; `:rf.error/epoch-artefact-missing` row of the Spec 009 error catalogue,
   ;; and Conventions §Adapter shipping convention "Dependency direction" — so
-  ;; the six read-shaped rows justify their `:keep` on the silent-degrade /
+  ;; the five read-shaped rows justify their `:keep` on the silent-degrade /
   ;; release-DCE seam rather than on a guided exception they do not throw.
   ["re-frame.core" "epoch-history"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"
                                                  :action :keep
@@ -1481,9 +1481,6 @@
   ["re-frame.core" "projected-record"]           {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"
                                                  :action :keep
                                                  :justification "Facade re-export, optional artefact (Conventions Optional-artefact wrapper convention) -- but epoch is that convention's SILENT-DEGRADE exception, not its raising case. core_epoch.cljc gives this wrapper :on-absent :nil, so an absent day8/re-frame2-epoch artefact no-ops returning nil rather than raising; only the write surface replace-frame-state! raises :rf.error/epoch-artefact-missing (Tool-Pair Time-travel Artefact home; the 009 :rf.error/epoch-artefact-missing catalogue row; Conventions Adapter shipping convention Dependency direction). That degrade is only expressible from the ALWAYS-LOADED facade: moving the export to re-frame.epoch would turn a leftover dev-time call site into a hard require failure in a release build that omits the artefact, and would pull the artefact onto the production classpath against Conventions Bundle-isolation conformance. The surface is dev-tier, gated on interop/debug-enabled? and elided by Closure DCE under :advanced + goog.DEBUG=false (Tool-Pair Time-travel Production elision), so the facade row IS the optional-capability and release-DCE seam, not a convenience alias. The record projection of the same Tool-Pair epoch surface."}
-  ["re-frame.core" "projected-history"]          {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"
-                                                 :action :keep
-                                                 :justification "Facade re-export, optional artefact (Conventions Optional-artefact wrapper convention) -- but epoch is that convention's SILENT-DEGRADE exception, not its raising case. core_epoch.cljc gives this wrapper :on-absent :empty-vec, so an absent day8/re-frame2-epoch artefact returns the empty vector rather than raising; only the write surface replace-frame-state! raises :rf.error/epoch-artefact-missing (Tool-Pair Time-travel Artefact home; the 009 :rf.error/epoch-artefact-missing catalogue row; Conventions Adapter shipping convention Dependency direction). That degrade is only expressible from the ALWAYS-LOADED facade: moving the export to re-frame.epoch would turn a leftover dev-time call site into a hard require failure in a release build that omits the artefact, and would pull the artefact onto the production classpath against Conventions Bundle-isolation conformance. The surface is dev-tier, gated on interop/debug-enabled? and elided by Closure DCE under :advanced + goog.DEBUG=false (Tool-Pair Time-travel Production elision), so the facade row IS the optional-capability and release-DCE seam, not a convenience alias. The history projection of the same Tool-Pair epoch surface."}
   ;; Size-elision / privacy wire surfaces — §009.
   ["re-frame.core" "elide-wire-value"]                  {:tier :tooling  :owner "009" :status "v1"
                                                         :action :keep
@@ -2015,9 +2012,9 @@
   ;; ring through the facade 46:0. The namespace therefore rows only what
   ;; the facade does NOT already name:
   ;;
-  ;;   * SEVEN vars the facade re-exports under the SAME name —
+  ;;   * SIX vars the facade re-exports under the SAME name —
   ;;     epoch-history, epoch-silence-current?, projected-record,
-  ;;     projected-history, replace-frame-state!, replay-epoch!,
+  ;;     replace-frame-state!, replay-epoch!,
   ;;     restore-epoch! — are `^:no-doc` in epoch.cljc and therefore NOT
   ;;     rowed here at all (spec/API.md §Not-rowed internal carve-outs).
   ;;     Their `re-frame.core` rows above carry the classification, so one

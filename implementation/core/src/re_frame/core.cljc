@@ -2648,27 +2648,12 @@
   pass through unchanged. Tools that egress epoch records across a
   process boundary (Xray-MCP `watch-epochs`, recorders, forwarders)
   MUST route through this fn. Per Security.md §Epoch privacy posture
-  (rf2-mrsck). Late-bound via `:epoch/projected-record`."}
+  (rf2-mrsck). Late-bound via `:epoch/projected-record`.
+
+  The whole ring is ordinary composition:
+
+      (mapv #(projected-record % opts) (epoch-history frame-id))"}
   projected-record   rf.core-epoch/projected-record)
-
-(def ^{:doc "Off-box egress safety primitive for whole-ring epoch
-  egress. Returns the projected vector of records for a frame —
-  every record routed through `projected-record` so payload slots are
-  wire-elided with off-box defaults. Tools that egress the entire
-  epoch ring (initial-snapshot dumps, full session captures, recorders
-  / forwarders) MUST call `projected-history` rather than walking
-  `(epoch-history frame-id)` and re-wrapping by hand: the hand-walk is
-  one missed `mapv projected-record` away from leaking un-elided data
-  across the process boundary. The convenience framing is incidental;
-  the safety framing is the reason the surface is kept (per rf2-p7vf9).
-
-  Mechanically equivalent to `(mapv projected-record (epoch-history
-  frame-id))` but spelled as a single normative emission site so the
-  hand-walk anti-pattern has nowhere to land. Empty vector when the
-  frame has no recorded epochs or the epoch artefact is absent. Per
-  Security.md §Epoch privacy posture. Late-bound via
-  `:epoch/projected-history`."}
-  projected-history  rf.core-epoch/projected-history)
 
 ;; ---- Spec 014 — :rf.http/managed -----------------------------------------
 ;;
@@ -2917,7 +2902,7 @@
 
       (configure! {:epoch-history {:depth 100}})
       (current-config)
-      ;; => {:epoch-history {:depth 100 :trace-events-keep 50 :redact-fn nil}
+      ;; => {:epoch-history {:depth 100 :trace-events-keep 50}
       ;;     :trace-buffer  {:events-retained 50}
       ;;     :elision       {:rf.size/threshold-bytes 16384}}
 
@@ -2945,8 +2930,8 @@
   branch so callers do not resolve owning-ns vars by symbol.
 
   The returned map is a snapshot read key-by-key, not a transactional
-  one, and it is not promised to be wire-serialisable — epoch config
-  can carry a `:redact-fn`. Namespaced pass-through keys handed to
+  one, and it is not promised to be wire-serialisable. Namespaced
+  pass-through keys handed to
   `configure!` (the `:myapp/thing` extension carve-out) are NOT
   reflected back: `configure!`'s vocabulary is closed, so only the keys
   it READS have live values to report.

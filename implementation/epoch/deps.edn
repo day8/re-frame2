@@ -76,10 +76,10 @@
   ;; existed. This lane closes that half.
   ;;
   ;; `-e :requires-debug` is core's existing DEV-ONLY DECLARATION (rf2-d2841),
-  ;; reused here rather than a new tag invented beside it. Two deftests in
-  ;; `epoch_jvm_prod_gate_test.clj` assert epoch's DEV parity — that the ring
-  ;; still fills, that `projected-record` still fires the `:redact-fn` — and
-  ;; under a real load-time gate the ring is empty, so both must fail. Tagging is
+  ;; reused here rather than a new tag invented beside it. One deftest in
+  ;; `epoch_jvm_prod_gate_test.clj` asserts epoch's DEV parity — that the ring
+  ;; still fills — and
+  ;; under a real load-time gate the ring is empty, so it must fail. Tagging is
   ;; right rather than a `(when interop/debug-enabled? …)` posture arm: an arm
   ;; would leave a deftest with no assertion at all, reporting GREEN for a run
   ;; that executed nothing, which is the false green this lane exists to close.

@@ -521,12 +521,11 @@
 ;; RAW back-fill under CAS contention. `back-fill-event!` mutates the single
 ;; global `histories` atom under `swap!`. Per EP-0015 §15 + open-issue 6
 ;; (RULED, hardened) the back-fill stores the RAW delta — the ring is causal
-;; replay material, so it stays raw; the `:redact-fn` advanced override runs
-;; projection-side only. The swap update fn (the pure splice inside
-;; `back-fill-event!`, rf2-c0rv4v) is therefore PURE — it invokes no injected
-;; fn, so a JVM CAS retry re-runs only the pure splice. With no per-back-fill
-;; redact invocation there is no double-invoke / duplicate-warning hazard
-;; inside the swap.
+;; replay material, so it stays raw; every redaction runs projection-side
+;; only. The swap update fn (the pure splice inside `back-fill-event!`,
+;; rf2-c0rv4v) is therefore PURE — it invokes no injected fn, so a JVM CAS
+;; retry re-runs only the pure splice. With no per-back-fill projection
+;; invocation there is no double-invoke hazard inside the swap.
 ;;
 ;; This scenario drives N threads, each performing M post-settle sub-run
 ;; back-fills (`state/back-fill-sub-run!`) against its OWN frame's settled

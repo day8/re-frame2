@@ -433,8 +433,8 @@
                                        shipped default baseline (rf2-yw1w1u).
                                        `(rf/configure! {:epoch-history ...})`
                                        MERGES, so without this a prior test's
-                                       `:depth` / `:trace-events-keep` /
-                                       `:redact-fn` would leak into the next.
+                                       `:depth` / `:trace-events-keep`
+                                       would leak into the next.
                                        Suites that want a non-default value
                                        re-apply it through `configure!` in
                                        their `:init-fn` (which runs after the

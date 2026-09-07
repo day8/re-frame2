@@ -441,7 +441,6 @@
   rows (Spec 009 §Error event catalogue) and dropped them from this list in
   the same PR. The earlier rf2-hhutya pass folded original-set rows into
   the catalogue (`:rf.epoch.cb/listener-exception`,
-  `:rf.warning/epoch-redact-fn-exception`,
   `:rf.warning/resource-sub-scope-mismatch`) and PROMOTED + catalogued
   `:rf.error/ssr-ring-error-view-failed`. rf2-r8oiw7 then catalogued the rest:
   the resources clock-skew advisories, the routing `:can-leave` / navigate

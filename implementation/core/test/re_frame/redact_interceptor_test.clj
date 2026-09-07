@@ -13,8 +13,8 @@
     4. Composes additively with schema-derived redaction
        (`:rf/schema-redaction` interceptor; the user-installed
        interceptor extends `:rf/redacted-event` rather than overwriting).
-    5. Composes independently with epoch `:redact-fn` (the per-record
-       hook reads already-scrubbed trace events).
+    5. Composes independently with the epoch off-box projection
+       (`rf/projected-record` reads already-scrubbed trace events).
 
   Negative coverage: handlers without `redact-interceptor` see no redaction;
   unrelated keys pass through; non-map payload shapes pass through; an

@@ -792,7 +792,7 @@
    {:key         :epoch/reset-config!
     :producer-ns 're-frame.epoch
     :design-bead "rf2-yw1w1u"
-    :description "Restore epoch-history config to the shipped default baseline (test isolation) so a prior test's (rf/configure! {:epoch-history ...}) merge can't leak :depth / :trace-events-keep / :redact-fn. Fired by re-frame.test-support's reset-hook table so test namespaces don't reset the private re-frame.epoch.state/config var directly."}
+    :description "Restore epoch-history config to the shipped default baseline (test isolation) so a prior test's (rf/configure! {:epoch-history ...}) merge can't leak :depth / :trace-events-keep. Fired by re-frame.test-support's reset-hook table so test namespaces don't reset the private re-frame.epoch.state/config var directly."}
    {:key         :epoch/clear-history!
     :producer-ns 're-frame.epoch
     :description "Clear the committed-epoch ring buffer (test isolation)."}
@@ -810,10 +810,6 @@
     :producer-ns 're-frame.epoch
     :design-bead "rf2-mrsck"
     :description "Project an :rf/epoch-record for off-box egress: route :db-before / :db-after / :trigger-event / :trace-events through elide-wire-value with off-box defaults; bookkeeping and structured projections pass through. Per Security.md §Epoch privacy posture."}
-   {:key         :epoch/projected-history
-    :producer-ns 're-frame.epoch
-    :design-bead "rf2-mrsck"
-    :description "Convenience wrapper returning (mapv projected-record (epoch-history frame-id))."}
 
    ;; ---- re-frame.event-emit (always-on event observability) ----------------
    {:key         :event-emit/dispatch-on-event

@@ -3,7 +3,7 @@
 
   State is split by access pattern:
 
-    config                  per-frame ring-buffer config + redact-fn
+    config                  per-frame ring-buffer config
     epoch-counter           monotonically-increasing :epoch-id source
     histories               frame-id → vector<:rf/epoch-record>
     last-settled-epoch      frame-id → epoch-id of the most-recently-
@@ -37,10 +37,8 @@
   50)
 
 (def ^:private default-config
-  ;; `:redact-fn` is an optional projection-side override, not a storage hook.
   {:depth             default-depth
-   :trace-events-keep default-trace-events-keep
-   :redact-fn         nil})
+   :trace-events-keep default-trace-events-keep})
 
 (defonce ^:private config
   (atom default-config))
@@ -67,7 +65,7 @@
 ;; benign. A writer that captured the PREVIOUS depth can commit its append
 ;; after `configure!` has already returned, which republishes the exact defect
 ;; the boundary prune exists to close: the excess record is queryable through
-;; `epoch-history` / `projected-history`, and it is a live `restore-epoch!` /
+;; `epoch-history`, and it is a live `restore-epoch!` /
 ;; `replay-epoch!` target. Swapping the config before the prune makes that
 ;; escape self-repairing for a POSITIVE depth — the next append re-caps the
 ;; ring — but PERMANENT at depth 0, where `record!` never appends again. And
@@ -85,8 +83,8 @@
 ;; ledger lock order documented further down (nor in the `:drain-lock`
 ;; argument beside it). This is a LEAF: every section it guards is atom swaps
 ;; over the epoch stores and nothing else — no other lock is acquired
-;; underneath it and no foreign code runs there (`:redact-fn` is STORED here,
-;; never invoked). A lock that acquires nothing cannot supply the second edge
+;; underneath it and no foreign code runs there. A lock that acquires nothing
+;; cannot supply the second edge
 ;; of a cycle. `commit-frame-owner-record!` reaches it from INSIDE the
 ;; frame-owner serialization, which fixes the only nesting that exists as
 ;; frame-owner → retention; the JVM monitor is reentrant, so the two writers
@@ -106,8 +104,8 @@
 (defn merge-config!
   "Validate and merge an `opts` map into the live config atom. Returns
   nil. Silently drops invalid slot values (`:depth` /
-  `:trace-events-keep` must be non-negative integers; `:redact-fn`
-  accepts `fn?` or `nil` for explicit-clear; anything else is dropped).
+  `:trace-events-keep` must be non-negative integers; anything else is
+  dropped).
 
   Validation at this boundary keeps numeric assumptions out of the hot path.
 
@@ -124,22 +122,10 @@
   [opts]
   (when (map? opts)
     (let [numeric-options (select-keys opts [:depth :trace-events-keep])
-          valid-numeric-options (into {}
-                                      (filter (fn [[_ option-value]]
-                                                (non-neg-int? option-value)))
-                                      numeric-options)
-          ;; :redact-fn validated separately — accept fn? OR nil
-          ;; (explicit-clear); anything else silently dropped.
-          ;; `contains?` distinguishes 'absent slot' from 'present
-          ;; nil' so the explicit-clear path lands while a callsite
-          ;; that didn't mention :redact-fn doesn't clobber a
-          ;; previously-installed fn.
-          valid-redact-option (when (contains? opts :redact-fn)
-                                (let [redact-fn-value (:redact-fn opts)]
-                                  (when (or (nil? redact-fn-value)
-                                            (fn? redact-fn-value))
-                                    {:redact-fn redact-fn-value})))
-          valid-options (merge valid-numeric-options valid-redact-option)]
+          valid-options (into {}
+                              (filter (fn [[_ option-value]]
+                                        (non-neg-int? option-value)))
+                              numeric-options)]
       (when (seq valid-options)
         (with-retention-lock
           (fn []
@@ -160,9 +146,8 @@
 
 (defn reset-config!
   "Restore the live config atom to the shipped `default-config`
-  baseline (`:depth` 50, `:trace-events-keep` 50, `:redact-fn` nil).
-  Replacing the whole map ensures test fixtures also clear an installed
-  projection override. Returns nil."
+  baseline (`:depth` 50, `:trace-events-keep` 50). Replacing the whole
+  map ensures test fixtures start from the shipped values. Returns nil."
   []
   (reset! config default-config)
   nil)
@@ -172,13 +157,6 @@
 
 (defn trace-events-keep []
   (:trace-events-keep @config default-trace-events-keep))
-
-(defn redact-fn
-  "Return the currently-installed `:redact-fn` (or nil). One config
-  deref per record-build — the hot path for installed-fn cases is one
-  keyword lookup, no allocation."
-  []
-  (:redact-fn @config))
 
 ;; ---- epoch-id counter -----------------------------------------------------
 
@@ -1007,8 +985,8 @@
 ;;
 ;; Enforcing only at append time left the excess reachable by two different
 ;; routes, and closing one without the other would still be a defect. It
-;; stayed QUERYABLE — `epoch-history` and `projected-history` both read the
-;; ring vector directly — and it stayed RESTORABLE, because `restore-epoch!`
+;; stayed QUERYABLE — `epoch-history` reads the ring vector directly — and
+;; it stayed RESTORABLE, because `restore-epoch!`
 ;; and `replay-epoch!` resolve their targets off that same vector, so an id
 ;; the operator believed retired still rewound the frame to state the app had
 ;; moved past. Depth 0 was permanent as well as sharp: `record!` skips

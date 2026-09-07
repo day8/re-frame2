@@ -1,6 +1,6 @@
 (ns re-frame.core-epoch-egress-profile-test
-  "rf2-ylvp4m — the CORE epoch projection WRAPPER (`rf/projected-record` /
-  `rf/projected-history`, `re-frame.core-epoch`) honors the EP-0015 §10 named
+  "rf2-ylvp4m — the CORE epoch projection WRAPPER (`rf/projected-record`,
+  `re-frame.core-epoch`) honors the EP-0015 §10 named
   `:rf.egress/profile` boundary selector, not just the legacy unqualified
   `:include-*` opts.
 
@@ -215,25 +215,32 @@
         (is (= (ex-data canonical) data)
             "the epoch throw's ex-data == the shared builder's")))))
 
-(deftest core-projected-history-threads-egress-profile
-  ;; rf2-d2841 — `projected-history` maps `projected-record` over the RING, so
-  ;; it has nothing to thread a profile to under -Dre-frame.debug=false. There
-  ;; is no synthetic stand-in: the ring is the subject. The per-record profile
-  ;; threading it delegates to is covered always-on above. Kept verbatim.
+(deftest whole-ring-composition-threads-egress-profile
+  ;; rf2-kuky.7 — the whole-ring convenience (`projected-history`) is GONE;
+  ;; the supported spelling is ordinary composition over `epoch-history`.
+  ;; This pins that the composition carries the named profile to every
+  ;; record, which is the property the retired door used to own.
+  ;;
+  ;; rf2-d2841 — the composition maps over the RING, so it has nothing to
+  ;; thread a profile to under -Dre-frame.debug=false. There is no synthetic
+  ;; stand-in: the ring is the subject. The per-record profile threading it
+  ;; delegates to is covered always-on above.
   (when rf.interop/debug-enabled?
-  (testing "rf2-ylvp4m — `rf/projected-history` threads the named
-            :rf.egress/profile boundary to every record (the whole-ring
-            convenience over `projected-record`)."
+  (testing "rf2-kuky.7 — `(mapv #(rf/projected-record % opts)
+            (rf/epoch-history frame-id))` threads the named
+            :rf.egress/profile boundary to every record."
     (rf/make-frame {:id :ep/main})
     (install-large-path! :ep/main)
     (rf/reg-event :store
                   (fn [{:keys [db]} [_ payload]]
                     {:db (assoc-in db [:blob :payload] payload)}))
     (rf/dispatch-sync [:store (big-string 50000)] {:frame :ep/main})
-    (let [tool-hist (rf/projected-history
-                      :ep/main {:rf.egress/profile :rf.egress/off-box-tool})
-          obs-hist  (rf/projected-history :ep/main)]
-      (is (seq tool-hist) "projected-history returns the ring")
+    (let [ring      (rf/epoch-history :ep/main)
+          tool-hist (mapv #(rf/projected-record
+                             % {:rf.egress/profile :rf.egress/off-box-tool})
+                          ring)
+          obs-hist  (mapv rf/projected-record ring)]
+      (is (seq tool-hist) "the composition returns the ring")
       (is (every? #(contains? (large-marker-body %) :digest)
                   (filter large-marker-body tool-hist))
           "every large marker in the tool-profile history carries the :digest")

@@ -42,11 +42,11 @@
   THIS FILE'S OWN DISCLAIMER STILL STANDS, and the distinction is worth keeping
   straight now that both things are true at once. Every deftest below still
   rebinds the Var, so this file still does not reach the load-time gate on its
-  own. What changed is that ten of its twelve deftests are now ALSO executed by
-  the lane above, in a JVM where the property is genuinely on the command line —
-  so the same assertions are made twice, once against a rebound flag and once
-  against a real one. The two remaining deftests are `^:requires-debug`: they
-  assert epoch's DEV parity, which the production lane by definition cannot.
+  own. What changed is that all but one of its deftests are now ALSO executed
+  by the lane above, in a JVM where the property is genuinely on the command
+  line — so the same assertions are made twice, once against a rebound flag and
+  once against a real one. The one remaining deftest is `^:requires-debug`: it
+  asserts epoch's DEV parity, which the production lane by definition cannot.
 
   Stated precisely, since the loose version of this sentence caused the original
   confusion: epoch reads the gate only as `(when interop/debug-enabled? …)`
@@ -85,7 +85,7 @@
   ## Why every negative assertion below is paired with a WITNESS (rf2-t7qh8)
 
   Almost everything this suite claims is an ABSENCE — an empty ring, a silent
-  listener, an uninvoked `:redact-fn`, a warning that never fired. An absence is
+  listener, a record that was never assembled. An absence is
   satisfied by two different worlds: the gate elided the recording (the claim),
   or the dispatch never happened at all (a defect). rf2-9c2jf was the second
   world — `dispatch-sync` running its handler ZERO times under the documented
@@ -240,10 +240,10 @@
 
 ;; ---- rf2-vq5o0 privacy-surface JVM false-path coverage ------------------
 
-(deftest projected-history-empty-under-disabled-gate
+(deftest whole-ring-projection-empty-under-disabled-gate
   (testing "Per rf2-mrsck / rf2-vq5o0: with the JVM debug gate off,
-            no records land in the ring, so projected-history reads
-            the empty vector. The projection surface composes with the
+            no records land in the ring, so the whole-ring projection
+            composition reads the empty vector. The projection surface composes with the
             production-elision gate at the upstream (record assembly)
             seam; the projection itself is a pure data transform that
             no consumer can reach a record through under the disabled
@@ -255,8 +255,9 @@
       (is (= 1 (:n (app-db-of :rf/default)))
           "WITNESS: the dispatch ran — nothing reached the ring for the
            projection to read")
-      (is (= [] (rf.epoch/projected-history :rf/default))
-          "empty projected-history under the disabled gate"))))
+      (is (= [] (mapv rf.epoch/projected-record
+                      (rf.epoch/epoch-history :rf/default)))
+          "empty whole-ring projection under the disabled gate"))))
 
 (deftest sensitive-rollup-not-computed-under-disabled-gate
   (testing "Per rf2-mrsck: the sensitive rollup is computed once per
@@ -274,114 +275,6 @@
            so the absent rollup below is elision, not an absent event")
       (is (empty? (rf.epoch/epoch-history :rf/default))
           "no record assembled — rollup never reached"))))
-
-;; ---- EP-0015 §15 / open-issue 6 :redact-fn surface JVM coverage ----------
-;;
-;; The `:redact-fn` is the PROJECTION-SIDE advanced override, never a
-;; storage-side mutation. It is NEVER invoked by `settle!` /
-;; frame-state replacement / back-fill (regardless of gate); it runs only
-;; inside `projected-record`, applied to the projected egress copy. The
-;; ring is causal replay material, delivered raw.
-
-(deftest redact-fn-never-invoked-at-storage-under-disabled-gate
-  (testing "Per EP-0015 §15 + open-issue 6: with the JVM debug gate off,
-            `settle!` elides record assembly entirely AND the :redact-fn
-            is a projection-side hook anyway — so an installed :redact-fn
-            is NEVER invoked along the dispatch/storage path. An app that
-            ships a `:redact-fn` and flips the gate to false in production
-            pays zero invocation cost."
-    (with-redefs [rf.interop/debug-enabled? false]
-      (let [invocations (atom 0)]
-        (rf/configure! {:epoch-history {:redact-fn (fn [r]
-                                    (swap! invocations inc)
-                                    r)}})
-        (rf/reg-event :prod-gate.redact/inc
-                         (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-        (rf/dispatch-sync [:prod-gate.redact/inc])
-        (rf/dispatch-sync [:prod-gate.redact/inc])
-        (rf/dispatch-sync [:prod-gate.redact/inc])
-        (is (= 3 (:n (app-db-of :rf/default)))
-            "WITNESS: all three dispatches ran — the zero invocation count
-             below is a hook that was never on the path, not a path never taken")
-        (is (zero? @invocations)
-            ":redact-fn was never called along the storage path — it is a
-             projection-side hook, and record assembly is elided anyway")
-        (is (empty? (rf.epoch/epoch-history :rf/default))
-            "no record assembled under the disabled gate")
-        (rf/configure! {:epoch-history {:redact-fn nil}})))))
-
-;; rf2-bo8lq — `^:requires-debug`, for the reason recorded at
-;; `epoch-still-records-with-default-gate` above: its second assertion needs the
-;; ring to hold a record for `projected-record` to fire the override, and under
-;; the real load-time gate the ring is never filled.
-(deftest ^:requires-debug redact-fn-not-invoked-at-storage-under-default-gate
-  (testing "Per EP-0015 §15 + open-issue 6: even under the DEFAULT-TRUE
-            gate, dispatching does NOT invoke the :redact-fn — it is no
-            longer a storage-side hook. The ring record is RAW; the
-            override fires only when `projected-record` is called."
-    (let [invocations (atom 0)]
-      (rf/make-frame {:id :prod-gate.dev/frame})
-      (rf/configure! {:epoch-history {:redact-fn (fn [r] (swap! invocations inc) r)}})
-      (rf/reg-event :prod-gate.redact/dev-inc
-                       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-      (rf/dispatch-sync [:prod-gate.redact/dev-inc] {:frame :prod-gate.dev/frame})
-      (is (zero? @invocations)
-          ":redact-fn NOT invoked by settle — it is projection-side only")
-      ;; Projecting the recorded record IS where the override fires.
-      (rf.epoch/projected-record (last (rf.epoch/epoch-history :prod-gate.dev/frame)))
-      (is (pos? @invocations)
-          ":redact-fn fires when projected-record is called (the egress
-           override), under the default gate")
-      (rf/configure! {:epoch-history {:redact-fn nil}}))))
-
-(deftest redact-fn-not-invoked-on-replace-app-db-under-disabled-gate
-  (testing "`replace-frame-state!` returns false under the disabled gate — the
-            gated arm that would record the synthetic epoch is elided. The
-            :redact-fn (projection-side) is never reached on this path
-            regardless; the early-return false is preserved."
-    (with-redefs [rf.interop/debug-enabled? false]
-      (let [invocations (atom 0)]
-        (rf/configure! {:epoch-history {:redact-fn (fn [r]
-                                    (swap! invocations inc)
-                                    r)}})
-        (is (false? (rf/replace-frame-state! :rf/default {:rf.db/app {:any "db"}}))
-            "replace-frame-state! refuses under the disabled gate")
-        (is (zero? @invocations)
-            ":redact-fn was never reached — no synthetic record recorded
-             (and the fn is projection-side anyway)")
-        (rf/configure! {:epoch-history {:redact-fn nil}})))))
-
-(deftest redact-fn-warning-not-emitted-on-storage-path
-  (testing "Per EP-0015 §15 + open-issue 6: a throwing :redact-fn cannot
-            emit `:rf.warning/epoch-redact-fn-exception` along the
-            dispatch/storage path — the warning is sourced inside
-            `apply-redact-fn`'s try/catch, which runs ONLY at projection
-            time, never at settle. Pinned so a future refactor that
-            re-attaches redaction to the storage seam would break visibly."
-    (let [warnings (atom [])]
-      (rf/make-frame {:id :prod-gate.throw/frame})
-      (rf/register-listener! :trace ::warn-watch
-                             (fn [ev]
-                               (when (= :warning (:op-type ev))
-                                 (swap! warnings conj ev))))
-      (rf/configure! {:epoch-history {:redact-fn (fn [_r] (throw (ex-info "boom" {})))}})
-      (rf/reg-event :prod-gate.redact/throw
-                       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-      (rf/dispatch-sync [:prod-gate.redact/throw] {:frame :prod-gate.throw/frame})
-      (rf/dispatch-sync [:prod-gate.redact/throw] {:frame :prod-gate.throw/frame})
-      (is (= 2 (:n (app-db-of :prod-gate.throw/frame)))
-          "WITNESS: both dispatches ran with a THROWING :redact-fn installed —
-           the absent warning below is a hook never reached at settle, not a
-           dispatch that never happened")
-      (let [redact-warns (filter (fn [ev]
-                                   (= :rf.warning/epoch-redact-fn-exception
-                                      (:operation ev)))
-                                 @warnings)]
-        (is (empty? redact-warns)
-            ":rf.warning/epoch-redact-fn-exception never fires on the
-             storage path — apply-redact-fn runs only at projection time"))
-      (rf/unregister-listener! :trace ::warn-watch)
-      (rf/configure! {:epoch-history {:redact-fn nil}}))))
 
 (deftest projected-record-pure-transform-survives-disabled-gate
   (testing "Per rf2-vq5o0: projected-record is a pure data transform

@@ -23,7 +23,7 @@
   Nothing held the stores still between those steps, so a writer that had
   already captured the PREVIOUS depth could commit its append after
   `configure!` had returned. The excess record was then queryable through
-  `epoch-history` / `projected-history` and — for a full runtime record —
+  `epoch-history` (and its off-box projection) and — for a full runtime record —
   a live `restore-epoch!` / `replay-epoch!` target: exactly the two failures
   the original bead named, re-entered through a door the boundary fix left
   open.
@@ -156,7 +156,7 @@
 
       (is (= [] (rf/epoch-history :test/main))
           "the parked append did not escape the transition")
-      (is (= [] (rf/projected-history :test/main))
+      (is (= [] (mapv rf/projected-record (rf/epoch-history :test/main)))
           "and it is not reachable through the off-box projection either")
       (is (nil? (rf.epoch.state/last-settled-epoch-id :test/main))
           "no back-fill anchor survives naming a record the ring does not hold")
