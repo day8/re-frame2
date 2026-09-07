@@ -500,6 +500,43 @@
 ;; diet` route on it.
 (def ^:private after-elapsed-event-id :rf.machine.timer/after-elapsed)
 
+(defn- dedup-adder
+  "Returns the `add!` closure every ensure-set walk in this namespace
+  shares: conj each entry of a `parse-requires`-shaped `diet` onto `acc`
+  unless its `:id` is already in `seen-ids`.
+
+  THE DEDUP CONTRACT, stated once so all three walks (flat/compound
+  scope, parallel region union, initial-descent birth set) cannot drift
+  apart: THE KEY IS `:id`, AND FIRST OCCURRENCE WINS. A later entry
+  carrying an `:id` already seen is dropped whole — not merged, not
+  replacing the entry already accumulated. That is what makes the
+  ensure-set declaration-order-insensitive, which the walks' own
+  docstrings promise: a fact reachable from two candidate transitions is
+  ensured once, and the set does not depend on which walk order reached
+  it first.
+
+  Mutation note. Both args are `volatile!`s the CALLER binds and reads
+  back (`@acc` at the walk's edge, once, to materialise the result);
+  this closure only ever writes them. They are volatiles rather than
+  atoms because the walk is single-threaded, local and never escapes —
+  and volatiles rather than a bare loop accumulator because `add!` is
+  called from several mutually-recursive helpers that take it as an
+  argument, so there is no single reduction to thread a value through.
+  Note that `acc` and `seen-ids` hold PERSISTENT collections (a vector
+  and a set), so `vswap!` here is threading an ordinary `conj` return;
+  the stricter case — a `volatile!` wrapping a TRANSIENT, where
+  discarding `conj!`/`assoc!`'s return loses writes past the array-map
+  promotion — is the one documented at length in
+  `re-frame.source-coords`. The local `diet` transients built by the
+  callers below are materialised with `persistent!` before they reach
+  `add!`."
+  [seen-ids acc]
+  (fn [diet]
+    (doseq [{:keys [id] :as e} diet]
+      (when-not (contains? @seen-ids id)
+        (vswap! seen-ids conj id)
+        (vswap! acc conj e)))))
+
 (defn- on-done-diet-for-event
   "Add (into `add!`) the `:on-done` guard/action diets of the completed node a
   raised done event targets. `event` is `[:rf.machine/done
@@ -598,11 +635,7 @@
   (let [event-id (when (vector? event) (first event))
         acc      (volatile! [])
         seen-ids (volatile! #{})
-        add!     (fn [diet]
-                   (doseq [{:keys [id] :as e} diet]
-                     (when-not (contains? @seen-ids id)
-                       (vswap! seen-ids conj id)
-                       (vswap! acc conj e))))
+        add!     (dedup-adder seen-ids acc)
         add-always! (fn [tgt] (add! (always-diet-for-state by-entry states tgt)))
         ;; Accumulate a lifecycle (`:entry`/`:exit`) slot's named-action diet
         ;; along a path into a transient, then add! it deduped.
@@ -776,11 +809,7 @@
           ;; separately — `root-on-match` / `root-after-match`), deduped by id.
           (let [acc      (volatile! [])
                 seen-ids (volatile! #{})
-                add!     (fn [diet]
-                           (doseq [{:keys [id] :as e} diet]
-                             (when-not (contains? @seen-ids id)
-                               (vswap! seen-ids conj id)
-                               (vswap! acc conj e))))]
+                add!     (dedup-adder seen-ids acc)]
             (doseq [[region region-state] state
                     :let [body  (get-in machine [:regions region])
                           scope (:states body)
@@ -834,11 +863,7 @@
       []
       (let [acc      (volatile! [])
             seen-ids (volatile! #{})
-            add!     (fn [diet]
-                       (doseq [{:keys [id] :as e} diet]
-                         (when-not (contains? @seen-ids id)
-                           (vswap! seen-ids conj id)
-                           (vswap! acc conj e))))
+            add!     (dedup-adder seen-ids acc)
             add-scope! (fn [scope initial-decl]
                          (when-let [ipath (initial-path-for-scope scope initial-decl)]
                            (let [diet (transient [])]
