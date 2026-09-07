@@ -500,12 +500,24 @@
   production and MUST be retained — `:sensitive?` / `:large?` drive
   redaction / egress projection (Spec 015 / EP-0015); `:tags` /
   `:interceptors` / the resource-mutation runtime keys drive runtime
-  behaviour; `:schema` / `:data-schema` are the SOURCE the `:sensitive?` /
-  `:large?` marks are PRECOMPUTED from at registration time (the marks are
-  stored as plain declarations, not derived from the schema VALUE at
-  egress — see `re-frame.classification` / `re-frame.elision` boot population), and
-  remain a dev introspection surface, so they are retained. `:rf/id` and
-  the handler fn ARE the registration.
+  behaviour; `:schema` drives PRODUCTION payload validation — the
+  `re-frame.spec/validate-at-boundary-interceptor` production arm and the
+  always-on `re-frame.cofx` recordable-value check that throws
+  `:rf.error/cofx-value-invalid` — and its per-slot `:sensitive?` /
+  `:large?` props survive ONLY to redact THAT validator's own failure trace
+  and thrown ex-data, NOT as a route into data classification (EP-0025
+  removed the schema→registry bridge, and the EP-0005 `:data-schema`→marks
+  bridge with it — see `re-frame.elision`). A resource `:data-schema`
+  drives NEITHER axis: it is a statically reflected shape fact with no
+  runtime validation consumer, surfaced as the process-node `:schema` by
+  `re-frame.resources.tooling`, and is retained as that reflection surface.
+  NOTHING is precomputed from either at registration time — durable app-db
+  classification rides the commit-plane classification effects into the
+  per-frame elision registry, and a registration's transient-payload
+  classification is the author's own `:sensitive` / `:large` / `:large?`
+  keys, DERIVED at read time off this registrar by
+  `re-frame.classification/registration-classification` (rf2-ehexnw).
+  `:rf/id` and the handler fn ARE the registration.
 
   Adding a key here is a Spec change (Spec 001 §Production elision
   contract — the elidable-vs-retained classification table)."
