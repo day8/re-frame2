@@ -34,6 +34,11 @@
      refuses the run (exit 1, named on stderr) instead of leaving it
      silently short a suite — and the same fixture is green the moment
      before that file arrives.
+   - FIXTURES: a namespace whose `use-fixtures` entry is not a function
+     — the cljs.test `{:before f :after g}` map, whether written at the
+     call site or reached through a var — refuses the run (exit 1, the
+     namespace named on stderr) instead of contributing zero tests to a
+     tally that reports itself green.
    - STDERR BUFFER: a green run that emits expected
      stderr warnings stays quiet (the warnings are buffered + dropped);
      a RED run REPLAYS the buffered stderr context so a failing run
@@ -366,6 +371,115 @@
           (is (str/includes? (str out err) "FIXTURE-THROW-MARKER")
               (str "the fixture exception message must surface; got"
                    "\n--- stdout ---\n" out "\n--- stderr ---\n" err)))))))
+
+;; ----------------------------------------------------------------------
+;; Fixture integrity (rf2-4yw1) — the wiring pin for
+;; `re-frame.test-quiet.runner/uncallable-fixtures`.
+;;
+;; The rule itself is pinned in-process against `clojure.test/join-fixtures`
+;; by `re-frame.test-quiet-fixture-integrity-test`.  What can only be seen
+;; across a process boundary is the end-to-end shape: a real `deftest` that
+;; would FAIL, absent from a tally that reports itself green, and the run
+;; then refused with the namespace named.  Both rows plant a failing
+;; assertion for exactly that reason — a passing one could not tell "the
+;; fixture swallowed it" from "it ran and passed".
+
+(def ^:private map-fixture-source
+  "The cljs.test map form, which `clojure.test` cannot call."
+  "(use-fixtures :each {:before (fn []) :after (fn [])})\n")
+
+(def ^:private bound-map-fixture-source
+  "The same map, reaching `use-fixtures` through a var.  Spelled exactly
+  like the legitimate fn form, which is why no text scan closes this."
+  (str "(def lifecycle {:before (fn []) :after (fn [])})\n"
+       "(use-fixtures :each lifecycle)\n"))
+
+(def ^:private min-tests-marker
+  "A fragment of the `RF2_MIN_TESTS` floor complaint, used to prove the
+  fixture rule is read FIRST."
+  "below the floor of")
+
+(defn- fixture-probe-source
+  "A one-`deftest` probe ns named `ns-name-str` whose single assertion FAILS,
+  under `fixture-source`."
+  [ns-name-str fixture-source]
+  (str "(ns " ns-name-str "\n"
+       "  (:require [clojure.test :refer [deftest is use-fixtures]]\n"
+       "            [re-frame.test-quiet]))\n"
+       fixture-source
+       "(deftest a-test-that-would-fail (is (= 1 2)))\n"))
+
+(defn- assert-uncallable-fixture-refused
+  "Run `source` as `probe/<file-stem>.clj` through the real `-main` and
+  assert BOTH halves: the failing assertion never ran, and the run was
+  refused with `ns-name-str` named."
+  [file-stem ns-name-str source]
+  (with-fixture-dir
+    (fn [dir]
+      (write-raw-fixture! dir file-stem source)
+      (let [{:keys [exit out err timed-out?]} (invoke-quiet-runner dir)]
+        (is (not timed-out?) "the run must terminate, not hang")
+
+        (testing "THE DEFECT: the deliberately failing assertion is absent
+                  from a tally that reports itself clean"
+          (is (str/includes? out "Ran 0 tests containing 0 assertions.")
+              (str "the map fixture must swallow the whole namespace; got"
+                   "\n--- stdout ---\n" out))
+          (is (not (str/includes? out "FAIL in"))
+              (str "and nothing may be reported failing; got\n" out)))
+
+        (testing "THE GUARD: the lane is refused and says which namespace,
+                  which fixture key, and what to write instead"
+          (is (= 1 exit)
+              (str "an uncallable fixture must red the lane; got exit " exit
+                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
+          (is (str/includes? err ns-name-str)
+              (str "the offending namespace must be named; got\n" err))
+          (is (str/includes? err ":clojure.test/each-fixtures")
+              (str "and the metadata key it registered under; got\n" err))
+          (is (str/includes? err "(use-fixtures :each (fn [t] (before) (t) (after)))")
+              (str "and the repair; got\n" err))
+          (is (not (str/includes? err min-tests-marker))
+              (str "the coverage floor must NOT be the message: a lane"
+                   " zeroed by a fixture has no discovery problem, and the"
+                   " floor's advice would send the operator to the wrong"
+                   " file; got\n" err)))))))
+
+(deftest map-literal-fixture-refuses-the-run
+  (assert-uncallable-fixture-refused
+    "map_fixture_test" "probe.map-fixture-test"
+    (fixture-probe-source "probe.map-fixture-test" map-fixture-source)))
+
+(deftest symbol-bound-map-fixture-refuses-the-run
+  (let [source (fixture-probe-source "probe.bound-fixture-test"
+                                     bound-map-fixture-source)]
+    (testing "the indirect case is invisible to a text scan, which is why the
+              rule reads the metadata `use-fixtures` wrote rather than the
+              source that wrote it"
+      (is (not (str/includes? source "use-fixtures :each {"))
+          "the probe must NOT spell the map at the call site"))
+    (assert-uncallable-fixture-refused
+      "bound_fixture_test" "probe.bound-fixture-test" source)))
+
+(deftest function-fixtures-keep-the-run-green
+  (testing "the control: an ordinary lane with :once and :each FN fixtures is
+            untouched, so the guard cannot red honest code"
+    (with-fixture-dir
+      (fn [dir]
+        (write-raw-fixture! dir "fn_fixture_test"
+          (str "(ns probe.fn-fixture-test\n"
+               "  (:require [clojure.test :refer [deftest is use-fixtures]]\n"
+               "            [re-frame.test-quiet]))\n"
+               "(use-fixtures :once (fn [t] (t)))\n"
+               "(use-fixtures :each (fn [t] (t)))\n"
+               "(deftest a-passing-test (is (= 1 1)))\n"))
+        (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
+          (is (zero? exit)
+              (str "got exit " exit "\n--- stdout ---\n" out
+                   "\n--- stderr ---\n" err))
+          (is (str/includes? out "Ran 1 tests containing 1 assertions.")
+              (str "and the fixture chain must still run the test; got\n"
+                   out)))))))
 
 ;; ----------------------------------------------------------------------
 ;; Nested-run banner correctness.
