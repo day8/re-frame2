@@ -4857,6 +4857,105 @@
              (-> wire :structuredContent :content-hash))
           "rf2-49o8: the same intended tuple hashes the same either way"))))
 
+;; ---------------------------------------------------------------------------
+;; rf2-49o8 ACCEPTANCE — the same repair, but reached through ACTUAL JSON
+;; normalisation rather than through a hand-built Clojure map.
+;;
+;; The tests above call `read-run-opts` directly, and the `invoke` helper
+;; calls `wire-pipeline/invoke-tool` directly — both hand the seam a map
+;; that has ALREADY been decoded. Neither route passes through
+;; `protocol/parse-json` + `normalize-frame`, which is where the wire's
+;; string keys are actually minted and where `:cell-overrides` values are
+;; deliberately left string-keyed. A repair that only ever meets a
+;; pre-decoded map is not evidence about the ingress the agent uses.
+;;
+;; `run-frames!` closes that: a literal JSON string in, the real server
+;; loop, the real decoder, the real handler. Driven through all three
+;; shared consumers of `read-run-opts` — `preview-variant`, `run-variant`
+;; and `snapshot-identity`.
+;; ---------------------------------------------------------------------------
+
+(defn- nested-override-frame
+  "One `tools/call` JSON frame for `tool-name`, carrying the rf2-49o8
+  nested override `{\"settings\":{\"title\":\"Edited\"}}` as REAL JSON."
+  [id tool-name extra-json]
+  (str "{\"jsonrpc\":\"2.0\",\"id\":" id ",\"method\":\"tools/call\","
+       "\"params\":{\"name\":\"" tool-name "\","
+       "\"arguments\":{\"variant-id\":\"story.nest/map-arg\","
+       "\"cell-overrides\":{\"settings\":{\"title\":\"Edited\"}}"
+       extra-json "}}}\n"))
+
+(deftest ingress-nested-override-reaches-preview-variant
+  (testing "JSON ingress: the nested override reaches preview-variant's effective args (rf2-49o8)"
+    (reg-nested-fixture!)
+    ;; `dedup false` — preview advertises the knob, and the default would
+    ;; wrap :structuredContent in a dedup table the assertion would have
+    ;; to unwrap.
+    (let [frames (run-frames! (nested-override-frame 71 "preview-variant" ",\"dedup\":false"))
+          result (-> frames first :result)
+          eff    (-> result :structuredContent :effective-args)]
+      (is (not (true? (:isError result)))
+          "the wire-shaped nested override is accepted, not refused")
+      (is (= "Edited" (get-in eff [:settings :title]))
+          "rf2-49o8: the JSON [\"settings\"][\"title\"] edit lands on the KEYWORD :title")
+      (is (= true (get-in eff [:settings :enabled?]))
+          "the sibling the caller never named is untouched")
+      (is (= {:settings {:title "Edited" :enabled? true}} eff)
+          "no mixed-key residue survives the round trip"))))
+
+(deftest ingress-nested-override-reaches-run-variant
+  (testing "JSON ingress: run-variant runs the INTENDED tuple, same as the native call (rf2-49o8)"
+    (reg-nested-fixture!)
+    (let [frames (run-frames! (nested-override-frame 72 "run-variant" ",\"dedup\":false"))
+          wire   (-> frames first :result)
+          native (invoke "run-variant"
+                         {:variant-id     "story.nest/map-arg"
+                          :cell-overrides {:settings {:title "Edited"}}})]
+      (is (not (true? (:isError wire)))
+          "the wire-shaped nested override is accepted, not refused")
+      (is (success? native) "the native keyword-shaped override runs")
+      ;; The two sides are pinned SEPARATELY rather than compared, because
+      ;; the JSON round trip renders keyword VALUES as strings (`:pass` ->
+      ;; "pass") — an equality test across the boundary would fail on the
+      ;; encoding, not on the scenario. `run-variant` projects no
+      ;; `:effective-args` slot, so the arg-level witness is
+      ;; `preview-variant`'s above and `snapshot-identity`'s below; what
+      ;; this test adds is that the third consumer ACCEPTS the wire-shaped
+      ;; nested override and settles the run rather than refusing it or
+      ;; running something else.
+      (is (= "pass" (-> wire :structuredContent :status))
+          "rf2-49o8: the wire run settles :pass (JSON renders the keyword as a string)")
+      (is (= :pass (-> native :structuredContent :status))
+          "and the native keyword-shaped override settles the same way")
+      (is (= #:rf.story{:lifecycle "ready"} (-> wire :structuredContent :app-db))
+          "over the state the run reached")
+      (is (= #:rf.story{:lifecycle :ready} (-> native :structuredContent :app-db))
+          "which is the state the native call reaches too — ONE scenario"))))
+
+(deftest ingress-nested-override-reaches-snapshot-identity
+  (testing "JSON ingress: snapshot-identity keys the intended tuple (rf2-49o8)"
+    (reg-nested-fixture!)
+    ;; snapshot-identity does NOT advertise :dedup, and the wire pipeline
+    ;; refuses an unadvertised property — so no dedup knob here.
+    (let [frames    (run-frames! (nested-override-frame 73 "snapshot-identity" ""))
+          wire      (-> frames first :result)
+          native    (invoke "snapshot-identity"
+                            {:variant-id     "story.nest/map-arg"
+                             :cell-overrides {:settings {:title "Edited"}}})
+          untouched (invoke "snapshot-identity" {:variant-id "story.nest/map-arg"})]
+      (is (not (true? (:isError wire)))
+          "the wire-shaped nested override is accepted, not refused")
+      (is (some? (-> wire :structuredContent :content-hash))
+          "an identity hash was actually computed")
+      ;; The CONTROL. Without it, two hashes agreeing proves only that the
+      ;; override was ignored on BOTH routes — which is exactly the bug.
+      (is (not= (-> untouched :structuredContent :content-hash)
+                (-> wire :structuredContent :content-hash))
+          "the JSON override actually PERTURBED the identity — it was not dropped")
+      (is (= (-> native :structuredContent :content-hash)
+             (-> wire :structuredContent :content-hash))
+          "rf2-49o8: JSON ingress and the native keyword call key ONE tuple"))))
+
 (deftest ingress-unknown-variant-id-over-wire-does-not-intern
   (testing "an unknown :variant-id sent over JSON is rejected WITHOUT interning (rf2-3luf3)"
     ;; This is the wire-level peer of the rf2-lqjbk direct-invoke test —
