@@ -20,10 +20,22 @@
   timer to configure.
 
   This test pins the keys that ARE configurable and asserts that
-  everything else is a silent no-op — `configure` returns `nil` and
-  does not throw. Per-frame settings (e.g. SSR error projection,
+  everything else APPLIES NOTHING — `configure` returns `nil` and does
+  not throw. Per-frame settings (e.g. SSR error projection,
   `:rf.trace/events-retained`) live on the frame's metadata, not on
   this surface.
+
+  Applying nothing is not the same as SAYING nothing (rf2-kuky.2). A
+  BARE unknown key (`:epoch-histroy`) or a FRAMEWORK-namespaced one
+  (`:rf.foo/bar`) now emits the dev-gated `:rf.warning/unknown-configure-key`
+  — Conventions §No silent swallow names that exact shape, because
+  `configure!`'s vocabulary is closed and its keys are bare, so an
+  unrecognised bare key reads as a typo of a real one. A USER-namespaced
+  key (`:myapp/thing`) still passes in silence: that carve-out is what
+  lets a wrapper hand `configure!` a composed config value without first
+  filtering it, which is the whole of API.md §Fixed-and-additive's
+  rationale. The warning is observational (`:recovery :ignored`) and
+  never a refusal — the production contract above is unchanged.
 
   ## Posture split (rf2-d2841)
 
@@ -220,14 +232,47 @@
             ":rf.warning/trace-buffer-unrecognised-opts no longer rides the
             :error op-type")))))
 
-(deftest configure-unknown-key-is-silent-no-op
-  (testing "rf2-mmlci — unknown keys silently no-op; configure returns nil"
-    ;; The vocabulary is closed-and-additive: keys not enumerated in
-    ;; API.md §Configure keys must not throw, must not partially apply,
-    ;; and must return nil so user code wrapping `configure` can safely
-    ;; pass through unknown keys without branching.
+(defn- unknown-configure-key-warnings
+  "Call `(rf/configure! config)` from INSIDE a dispatched handler and return
+  the `:rf.warning/unknown-configure-key` events the frame's trace ring
+  retained for that one call.
+
+  The dispatch wrapper is load-bearing, not ceremony: `trace/tooling`'s
+  ring router (`route-to-ring!`) files an event only when it carries BOTH a
+  `:dispatch-id` and a `:frame` tag, so a bare top-level `configure!` emits
+  a warning that no ring retains. This is the collection idiom of
+  `configure-nested-opts-rejected-by-subsystem` above.
+
+  Rings are cleared first so the returned count is this call's alone."
+  [config]
+  (rf.trace.tooling/clear-trace-rings!)
+  (rf/reg-event ::unknown-key-probe
+                (fn [{:keys [db]} _]
+                  (rf/configure! config)
+                  {:db db}))
+  (rf/dispatch-sync [::unknown-key-probe])
+  (filterv #(= :rf.warning/unknown-configure-key (:operation %))
+           (rf/trace-buffer :rf/default {:flat true})))
+
+(deftest configure-unknown-bare-key-warns-and-no-ops
+  ;; rf2-kuky.2 — this deftest was `configure-unknown-key-is-silent-no-op`
+  ;; (rf2-mmlci), which pinned the swallow as a FEATURE. spec/Conventions.md
+  ;; §No silent swallow names this exact shape — "a bare or framework-
+  ;; namespaced key the runtime does not recognise … reads as a typo of a
+  ;; real key and MUST signal" — and reserves silence for USER-namespaced
+  ;; extension keys. The API.md §Fixed-and-additive rationale ("a wrapper can
+  ;; pass a composed config value straight through") is the namespaced case
+  ;; and survives verbatim; the BARE-key silence was a tested violation.
+  ;; Renamed rather than deleted, and NOT loosened to accept both outcomes.
+  ;;
+  ;; What did NOT change: the call still returns nil, still applies nothing,
+  ;; still throws nothing. The warning is observational (`:recovery
+  ;; :ignored`) and dev-gated, so the production contract is untouched.
+  (testing "the call still returns nil and applies nothing — in BOTH postures"
+    ;; ALWAYS-ON (rf2-d2841 posture split): the no-op half of the contract is
+    ;; production state and is asserted outside the dev arm.
     (is (nil? (rf/configure! {:strict-subs true}))
-        ":strict-subs is NOT a v1 configure key (per API.md §Configure keys); call no-ops")
+        ":strict-subs is NOT a v1 configure key (per API.md §Configure keys); call returns nil")
     (is (nil? (rf/configure! {:ssr {:public-error-id :anything}}))
         ":ssr is per-frame metadata, not a configure key (per Conventions §Configuration surfaces)")
     (is (nil? (rf/configure! {:totally-made-up {:foo 1}}))
@@ -235,7 +280,65 @@
     ;; rf2-cmfln — :sub-cache is no longer a valid configure key (sync
     ;; dispose has no grace-period to configure). The call must no-op.
     (is (nil? (rf/configure! {:sub-cache {:grace-period-ms 71}}))
-        ":sub-cache is retired (rf2-cmfln); the call no-ops"))
+        ":sub-cache is retired (rf2-cmfln); the call returns nil")
+    (is (nil? (rf/configure! {:rf.nope/x 1}))
+        "a framework-namespaced unknown key returns nil")
+    (is (nil? (rf/configure! {:myapp/thing 1}))
+        "a user-namespaced extension key returns nil"))
+  ;; rf2-d2841 — dev-instrumentation arm. `emit!` is gated on
+  ;; `rf.interop/debug-enabled?`, and `trace-buffer` returns [] under the
+  ;; production gate, so an unguarded positive here would assert over an
+  ;; empty vector and certify nothing.
+  (when rf.interop/debug-enabled?
+    (testing "a BARE or FRAMEWORK-namespaced unknown key emits exactly one :rf.warning/unknown-configure-key"
+      (doseq [[label config expected-key]
+              [[":strict-subs — a bare key that is not in the closed vocabulary"
+                {:strict-subs true} :strict-subs]
+               [":totally-made-up — an arbitrary bare key"
+                {:totally-made-up {:foo 1}} :totally-made-up]
+               [":sub-cache — a RETIRED bare key (rf2-cmfln); a stale call site applies nothing"
+                {:sub-cache {:grace-period-ms 71}} :sub-cache]
+               [":rf.nope/x — FRAMEWORK-namespaced, so the runtime is entitled to recognise it"
+                {:rf.nope/x 1} :rf.nope/x]]]
+        (let [warnings (unknown-configure-key-warnings config)]
+          (is (= 1 (count warnings))
+              (str "exactly one :rf.warning/unknown-configure-key for " label))
+          (let [warning (first warnings)
+                tags    (:tags warning)]
+            (is (= :warning (:op-type warning))
+                (str "it rides the :warning op-type, not :error, for " label))
+            (is (= [expected-key] (:unknown-keys tags))
+                (str "the warning names the offending key for " label))
+            (is (= [:elision :epoch-history :trace-buffer] (:known-keys tags))
+                (str "the warning names the full known set for " label))
+            ;; `build-event` HOISTS `:recovery` out of `:tags` to the top
+            ;; level on the success path when the caller supplies one.
+            (is (= :ignored (:recovery warning))
+                (str "the warning is observational, never a refusal, for " label))
+            (is (re-find #"unrecognised top-level key" (str (:reason tags)))
+                (str "the reason string explains the swallow for " label)))))
+      ;; A single map carrying TWO bad keys is ONE warning naming both — the
+      ;; per-call shape `emit-unknown-dispatch-opts-warning!` established.
+      (let [warnings (unknown-configure-key-warnings {:strict-subs true
+                                                      :totally-made-up 1})]
+        (is (= 1 (count warnings))
+            "a map with two unknown keys emits ONE warning, not one per key")
+        (is (= #{:strict-subs :totally-made-up}
+               (set (:unknown-keys (:tags (first warnings)))))
+            "that one warning names every offending key")))
+    (testing "CONTROLS — a user-namespaced extension key and a known key emit nothing"
+      ;; This pair is what stops the warning becoming a lint. The
+      ;; user-namespaced carve-out is [Conventions §No silent swallow]'s own
+      ;; line and is what lets a wrapper hand `configure!` a composed config
+      ;; value without first filtering it.
+      (is (empty? (unknown-configure-key-warnings {:myapp/thing 1}))
+          ":myapp/thing is a USER-namespaced extension key — silent by contract")
+      (is (empty? (unknown-configure-key-warnings {:epoch-history {:depth 7}}))
+          ":epoch-history is a known key — no warning")
+      (is (empty? (unknown-configure-key-warnings {:epoch-history {:depth 7}
+                                                   :trace-buffer  {:events-retained 9}
+                                                   :elision       {:rf.size/threshold-bytes 2048}}))
+          "the full known vocabulary emits nothing")))
   (testing "an unknown key does not perturb the known-key state"
     ;; Set known keys to non-default values, then attempt unknown keys,
     ;; then assert known-key state is unchanged.
@@ -264,8 +367,10 @@
       (is (<= (count (rf/trace-buffer :rf/default)) 11)
           ":trace-buffer events-retained survived bracketing unknown-key calls")))
   (testing "rf2-dzxixe — a single map mixing known + unknown top-level
-            keys applies the known subsystems and silently ignores the
-            unknown ones (closed-and-additive)"
+            keys applies the known subsystems and IGNORES the unknown ones
+            (closed-and-additive; the unknown bare keys also warn in dev
+            builds per rf2-kuky.2, which changes nothing about what is
+            applied)"
     (rf/configure! {:trace-buffer {:events-retained 6}
                     :elision      {:rf.size/threshold-bytes 2048}
                     :no-such-key  {:foo 1}
@@ -335,14 +440,37 @@
 
 (defn- eval-with-assertions-elided
   "Compile `form` with `*assert*` FALSE in a throwaway namespace that carries
-  `re-frame.core`'s aliases, and return the resulting Var."
+  `re-frame.core`'s aliases AND its own interned Vars, and return the
+  resulting Var.
+
+  The interns matter as much as the aliases (rf2-kuky.2): `configure!`'s
+  body reads the PRIVATE `known-configure-keys` / `unknown-configure-keys`
+  helpers, which no alias can reach — without them the re-compile dies at
+  `Syntax error compiling` and the guard below is never exercised at all.
+  Referring `re-frame.core`'s interns is what \"recompile this fn's source\"
+  honestly means; `sym` itself is skipped so the freshly-evaluated
+  definition is the one returned.
+
+  A PRIVATE var cannot be reached through a `refer`red mapping either —
+  the compiler rejects it outright (`var: … is not public`) — so a bound,
+  non-macro private var is re-INTERNED into the probe by value instead of
+  referred. That is faithful: inside `re-frame.core` the reference is legal,
+  and the probe ns exists precisely to stand in for `re-frame.core`."
   [form sym]
   (remove-ns probe-ns-sym)
-  (let [probe (create-ns probe-ns-sym)]
+  (let [probe    (create-ns probe-ns-sym)
+        core-ns  (find-ns 're-frame.core)]
     (binding [*ns* probe]
       (refer-clojure)
-      (doseq [[a n] (ns-aliases (find-ns 're-frame.core))]
+      (doseq [[a n] (ns-aliases core-ns)]
         (.addAlias ^clojure.lang.Namespace probe a n))
+      (doseq [[s v] (ns-interns core-ns)
+              :when (not= s sym)]
+        (if (and (:private (meta v))
+                 (not (:macro (meta v)))
+                 (bound? v))
+          (intern probe (with-meta s nil) (deref v))
+          (.refer ^clojure.lang.Namespace probe s v)))
       (binding [*assert* false]
         (eval form)))
     (ns-resolve probe sym)))
@@ -391,4 +519,5 @@
       (is (= 4096 (:rf.size/threshold-bytes (rf.elision/current-config)))
           "and the known subsystem really was configured")
       (is (nil? (elided-configure! {:no-such-key 1}))
-          "an unknown top-level key remains a silent nil-returning no-op"))))
+          "an unknown top-level key remains an applies-nothing, nil-returning
+           no-op — rf2-kuky.2 added a dev-gated WARNING, never a refusal"))))

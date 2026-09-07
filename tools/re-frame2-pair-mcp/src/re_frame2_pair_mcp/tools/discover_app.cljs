@@ -242,10 +242,21 @@
                 (with-freshness conn build-id
                   (assoc health :ok? true
                                 :warning :no-source-coord-annotation
+                                ;; rf2-kuky.2 — this note used to advise
+                                ;; `(rf/configure! {:source-coords {:annotate-dom? true}})`.
+                                ;; `:source-coords` is not a configure! key and
+                                ;; `:annotate-dom?` exists nowhere in the runtime, so the
+                                ;; advice no-op'd silently. The annotation is not a knob:
+                                ;; adapters stamp it on every `reg-view` root in DEBUG
+                                ;; builds and Closure elides it from `:advanced`.
                                 :note (str "Neither data-rf2-source-coord nor "
                                            "data-rc-src is on any element. "
-                                           "DOM->source ops will degrade. Enable "
-                                           "(rf/configure! {:source-coords {:annotate-dom? true}}) "
+                                           "DOM->source ops will degrade. The attribute "
+                                           "is stamped automatically on every reg-view "
+                                           "root in a debug build and elided from "
+                                           ":advanced production builds — so check you "
+                                           "are inspecting a dev build and that the "
+                                           "views are registered with reg-view, "
                                            "or use re-com with :src (at)."))
                   opts
                   (fn [h] (wire/ok-text (with-auto-selection h auto-selected? build-id)))))
