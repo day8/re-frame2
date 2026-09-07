@@ -834,7 +834,7 @@ The `:op-type` vocabulary is **open** — implementations and tools may add new 
 | `:op-type` | Used for | Spec |
 |---|---|---|
 | `:rf.frame` | Frame-lifecycle family — `:rf.frame/created`, `:rf.frame/re-registered`, `:rf.frame/destroyed`, `:rf.frame/drain-interrupted`. Lifecycle events, not error-shaped. `:tags` carries `:frame <id>` (plus per-operation extras, e.g. `:dropped-count` on `:rf.frame/drain-interrupted`). Per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning) | 002 |
-| `:machine` | Machine-substrate family — state-machine activity (`:rf.machine/transition`, `:rf.machine.microstep/transition`, `:rf.machine/done`, `:rf.machine/event-received`, `:rf.machine/snapshot-updated`, `:rf.machine.spawn/spawned`, `:rf.machine/destroyed`, `:rf.machine/system-id-bound`, `:rf.machine/system-id-released`, every `:rf.machine.timer/*` operation, every `:rf.machine.spawn-all/*` operation, `:rf.machine.spawn/cancelled-on-join-resolution`). `:rf.machine/destroyed` carries `:reason` — one of `:rf.machine/finished` / `:rf.machine/join-reaped` / `:explicit` — the complete non-frame-exit vocabulary (parent-cascade teardowns stamp `:explicit`; the frame-exit cause `:parent-frame-destroyed` rides exclusively on the `:rf.machine.lifecycle/destroyed` family below; per the [009 §channel/reason matrix](009-Instrumentation.md#op-type-vocabulary)). Per [005 §Trace events](005-StateMachines.md#trace-events) | 005 |
+| `:machine` | Machine-substrate family — state-machine activity (`:rf.machine/transition`, `:rf.machine.microstep/transition`, `:rf.machine/done`, `:rf.machine/event-received`, `:rf.machine/snapshot-updated`, `:rf.machine.spawn/spawned`, `:rf.machine/destroyed`, `:rf.machine/system-id-bound`, `:rf.machine/system-id-released`, every `:rf.machine.timer/*` operation, every `:rf.machine.spawn-all/*` operation, `:rf.machine.spawn/cancelled-on-join-resolution`). `:rf.machine/destroyed` carries `:reason` — either `:rf.machine/finished` or `:explicit` — the complete non-frame-exit vocabulary (parent-cascade teardowns stamp `:explicit`; the frame-exit cause `:parent-frame-destroyed` rides exclusively on the `:rf.machine.lifecycle/destroyed` family below; per the [009 §channel/reason matrix](009-Instrumentation.md#op-type-vocabulary)). Per [005 §Trace events](005-StateMachines.md#trace-events) | 005 |
 | `:rf.machine.lifecycle/created` | Machine instance lifecycle — `created` half. Uniform create-emit shape used by lifecycle observers; `:tags {:frame <id> :machine-id <id>}` | 005 / 009 |
 | `:rf.machine.lifecycle/destroyed` | Machine instance lifecycle — `destroyed` half. `:tags {:frame <id> :actor-id <live-instance-id> :last-state <state> :reason :parent-frame-destroyed}`. `:reason` is always `:parent-frame-destroyed` — the frame-exit cascade is this channel's sole trigger, one emit per active machine snapshot; every non-frame-exit teardown signals on the fx-substrate `:rf.machine/destroyed` row above instead (per the [009 §channel/reason matrix](009-Instrumentation.md#op-type-vocabulary)). `:actor-id` is the reaped actor's live INSTANCE address (`:machine-id` is reserved for the registered TYPE, carried by the `created` half above) | 005 / 009 |
 | `:rf.registry` | Registrar-mutation family — `:rf.registry/handler-registered`, `:rf.registry/handler-cleared`, `:rf.registry/handler-replaced` (handler hot-reload paths). Spans every kind in the registry model (`:event`, `:sub`, `:fx`, `:cofx`, `:view`, `:machine`, `:flow`, …) | 001 / 009 |
@@ -2694,15 +2694,18 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
 ;; and . `make-machine-handler` walks the spec at construction time
 ;; and rewrites the slot into entry/exit actions emitting N parallel
 ;; :rf.machine/spawn fx (entry) and per-child :rf.machine/destroy fx (exit),
-;; plus an internal join-state hook that intercepts :on-child-done /
-;; :on-child-error events at the parent's handler boundary, updates the
-;; runtime-owned join state at [:rf.runtime/machines :spawned <parent-id> <invoke-id> :join],
+;; plus an internal join-state hook. A child completes by entering a :final?
+;; state; the runtime's finalize cascade mints the reserved
+;; :rf.machine.spawn/done carrier into the parent, which folds it into the
+;; runtime-owned join state at [:rf.runtime/machines :spawned <parent-id> <invoke-id>]
 ;; and dispatches the resolution event into the parent.
 ;;
 ;; Each child invoke-spec extends InvokeSpec with a required :id keyword
-;; that names the child for join-state addressing. The :id is the second-
-;; position payload arg the parent's :on-child-done / :on-child-error events
-;; carry from the child back to the parent.
+;; that names the child for join-state addressing, and DROPS :on-error — a
+;; join child's failure control flow is the block's :on-any-failed, so the
+;; key is rejected at registration rather than silently ignored. :on-done IS
+;; honoured: it folds the parent's :data at that child's finality, before the
+;; join fold.
 (def InvokeAllChildSpec
   [:map
    [:id          :keyword]                                                  ;; user-supplied id for join-state addressing — REQUIRED
@@ -2711,17 +2714,16 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
    [:data        {:optional true} [:or :map fn?]]
    [:id-prefix   {:optional true} :keyword]
    [:on-spawn    {:optional true} [:or :keyword fn?]]
+   [:on-done     {:optional true} fn?]                                      ;; (fn [{:keys [data result]}] new-data) — folds the PARENT's :data at this child's finality, before the join fold
    [:start       {:optional true} [:vector :any]]
    [:fixed-actor-id {:optional true} :keyword]                              ;; explicit actor-address input (per-child singleton)
-   [:system-id   {:optional true} :keyword]])
+   [:system-id   {:optional true} :keyword]])                               ;; NOTE: no :on-error — failure control flow under a join is :on-any-failed
 
 (def InvokeAllSpec
   [:map
    [:children         [:vector InvokeAllChildSpec]]                         ;; vector of ≥ 1 child spec
    [:join             {:optional true}
                       [:enum :all :any]]                                    ;; default :all — closed two-member enum (no {:n N} / {:fn pred} forms)
-   [:on-child-done    :keyword]                                             ;; child → parent event keyword (required)
-   [:on-child-error   :keyword]                                             ;; child → parent event keyword (required)
    [:on-all-complete  {:optional true} [:vector :any]]                      ;; required iff :join is :all (registration-time check)
    [:on-some-complete {:optional true} [:vector :any]]                      ;; required iff :join is :any
    [:on-any-failed    {:optional true} [:vector :any]]])                    ;; optional; if absent, child failures don't short-circuit
@@ -2957,8 +2959,8 @@ A frame owns two durable partitions held as one physical frame-state container (
   ;; Join bookkeeping for a :spawn-all invocation.
   [:map
    [:children  [:map-of :keyword :keyword]]                                   ;; child-id → spawned-id
-   [:done      [:set :keyword]]                                               ;; user-ids that signalled :on-child-done
-   [:failed    [:set :keyword]]                                               ;; user-ids that signalled :on-child-error
+   [:done      [:set :keyword]]                                               ;; user-ids whose child reached a plain :final? state
+   [:failed    [:set :keyword]]                                               ;; user-ids whose child reached an :error? :final? state
    [:cancelled [:set :keyword]]                                               ;; REQUIRED on every live child-bearing join. The exact-attempt-fenced explicit-teardown TOMBSTONE set: user-ids the runtime durably closed by CANCELLATION for THIS attempt. `spawn-all-init-fx` ALWAYS seeds it `#{}` at the same instant it mints `:rf/attempt` (so a live join can never be tombstone-less — not a valid live shape); `destroy.cljc`'s `prepare-join-child-teardown!` conj's a logical child id here inside the exact durable write when an authenticated IN-PROGRESS child is explicitly torn down, BEFORE exit callbacks / snapshot removal / the terminal destroyed trace. `join.cljc`'s fold gate consults it (`(contains? (:cancelled join-state) child-id)`) to SUPPRESS an already-queued/delayed exact-attempt completion as a duplicate terminal — so a late/rejoining carrier can never RESURRECT or mis-attribute a cancelled child (rf2-y7venl). A new join attempt re-seeds a fresh `#{}`, so no tombstone crosses re-entry. The childless REJECT sentinel (`InvokeAllRejectedState`, below) carries NO `:cancelled` and NO `:children`, so it never validates as an InvokeAllJoinState; the tombstone set is required rather than optional. This map stays intentionally OPEN (no `{:closed true}`) — the runtime may carry additional bookkeeping keys — but every key enumerated here is a REQUIRED runtime-owned slot the fold gate guards by targeted mutation.
    [:resolved? :boolean]                                                      ;; latch flips once the join condition resolves
    [:spec      :map]                                                          ;; back-reference for the join intercept
@@ -2971,7 +2973,7 @@ A frame owns two durable partitions held as one physical frame-state container (
   ;; preflight is authoritative for EVERY current fail-closed invoke-level
   ;; admission cause — today two DISJOINT ones: (1) an UNREGISTERED child TYPE
   ;; (no inline `:definition`; rf2-qb1j5z) — a never-running spec-less child
-  ;; would never dispatch `:on-child-done`, hanging an `:all` join forever; and
+  ;; would never reach a `:final?` state, hanging an `:all` join forever; and
   ;; (2) a spawn-time CHILD `[:schemas :data]` REJECTION (rf2-7u8gen) — a child
   ;; whose materialised `:data` fails its own data-schema, which would otherwise
   ;; publish a live join naming a child that has no snapshot and can never emit

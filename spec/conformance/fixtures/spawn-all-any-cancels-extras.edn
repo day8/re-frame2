@@ -2,7 +2,7 @@
 ;;
 ;; Per Spec 005 §Spawn-and-join via :spawn-all (rf2-6vmw). Verify the
 ;; entry-side fx emission for the `:join :any` shape — fires
-;; :on-some-complete after the first :on-child-done; remaining children
+;; :on-some-complete after the first child's success finality; remaining
 ;; are cancelled by the exit cascade.
 ;;
 ;; The join grammar is a CLOSED two-member enum (:all / :any — rf2-w8gxxz
@@ -38,8 +38,6 @@
                           {:id :d :machine-id :worker}
                           {:id :e :machine-id :worker}]
        :join             :any
-       :on-child-done    :done
-       :on-child-error   :failed
        :on-some-complete [:phase/one-done]}
       :on    {:phase/one-done :ready}}
      :ready  {}}}
@@ -78,8 +76,6 @@
                                                     {:id :d :machine-id :worker}
                                                     {:id :e :machine-id :worker}]
                                  :join             :any
-                                 :on-child-done    :done
-                                 :on-child-error   :failed
                                  :on-some-complete [:phase/one-done]}
                      :invoke-id [:working]}
       ;; The prepared per-child spawn args, in declaration order — byte-for-byte
@@ -153,8 +149,6 @@
                           {:id :d :machine-id :worker}
                           {:id :e :machine-id :worker}]
        :join             :any
-       :on-child-done    :done
-       :on-child-error   :failed
        :on-some-complete [:phase/one-done]}
       :on    {:phase/one-done :ready}}
      :ready  {}}}

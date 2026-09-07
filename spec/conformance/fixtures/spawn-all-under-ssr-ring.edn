@@ -89,8 +89,6 @@
                           {:id :related  :machine-id :http/get-one}
                           {:id :reviews  :machine-id :http/get-one}]
        :join             :all
-       :on-child-done    :loaded
-       :on-child-error   :failed
        :on-all-complete  [:pdp/joined]
        :on-any-failed    [:pdp/load-failed]}
       ;; The phase-level server deadline the retired pattern MANDATED — the
