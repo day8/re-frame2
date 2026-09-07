@@ -28,7 +28,7 @@
             [re-frame.flows.registry :as rf.flows.registry]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace])
+            [re-frame.trace.tooling])
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
 ;; ---- per-test reset -------------------------------------------------------
@@ -1646,7 +1646,7 @@
 (deftest flow-hot-reload-different-fn?-reflects-real-body-swap
   (testing "Per rf2-soyqfn per-frame shape dedup: a real `:derive` swap emits one `:rf.registry/handler-replaced` with `:different-fn? true`; an identity reload is suppressed (0 emits)."
     (let [captured (atom [])]
-      (re-frame.trace/register-listener!
+      (re-frame.trace.tooling/register-listener!
         ::handler-replaced-recorder
         (fn [ev]
           (when (= :rf.registry/handler-replaced (:operation ev))
@@ -1679,7 +1679,7 @@
             (is (empty? @captured)
                 "per-frame shape dedup (rf2-soyqfn) suppresses the re-emit for an identity reload — 0 :rf.registry/handler-replaced events")))
         (finally
-          (re-frame.trace/unregister-listener! ::handler-replaced-recorder))))))
+          (re-frame.trace.tooling/unregister-listener! ::handler-replaced-recorder))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 9c-ii. rf2-soyqfn: flow replacement evidence is scoped to the AUTHORITATIVE
@@ -1703,7 +1703,7 @@
     (let [captured (atom [])
           f1       (fn [n] (* 2 (or n 0)))
           f2       (fn [n] (* 3 (or n 0)))]
-      (re-frame.trace/register-listener!
+      (re-frame.trace.tooling/register-listener!
         ::repl-recorder
         (fn [ev]
           (when (= :rf.registry/handler-replaced (:operation ev))
@@ -1732,7 +1732,7 @@
         (is (every? #(true? (get-in % [:tags :different-fn?])) @captured)
             "both are real body swaps (:different-fn? true)")
         (finally
-          (re-frame.trace/unregister-listener! ::repl-recorder))))))
+          (re-frame.trace.tooling/unregister-listener! ::repl-recorder))))))
 
 (deftest flow-replacement-identical-reload-suppresses-independently-per-frame
   (testing "rf2-soyqfn: after both frames record their real replacement, an
@@ -1741,7 +1741,7 @@
     (let [captured (atom [])
           f1       (fn [n] (* 2 (or n 0)))
           f2       (fn [n] (* 3 (or n 0)))]
-      (re-frame.trace/register-listener!
+      (re-frame.trace.tooling/register-listener!
         ::repl-recorder
         (fn [ev]
           (when (= :rf.registry/handler-replaced (:operation ev))
@@ -1764,7 +1764,7 @@
         (is (empty? @captured)
             ":right's identical reload is suppressed INDEPENDENTLY of :left")
         (finally
-          (re-frame.trace/unregister-listener! ::repl-recorder))))))
+          (re-frame.trace.tooling/unregister-listener! ::repl-recorder))))))
 
 (deftest flow-replacement-reincarnation-does-not-inherit-predecessor-shape
   (testing "rf2-soyqfn: destroying a frame and recreating it under the SAME id
@@ -1775,7 +1775,7 @@
     (let [captured (atom [])
           f1       (fn [n] (* 2 (or n 0)))
           f2       (fn [n] (* 3 (or n 0)))]
-      (re-frame.trace/register-listener!
+      (re-frame.trace.tooling/register-listener!
         ::repl-recorder
         (fn [ev]
           (when (= :rf.registry/handler-replaced (:operation ev))
@@ -1800,7 +1800,7 @@
         (is (= :host (get-in (first @captured) [:tags :frame]))
             "and it is attributed to the reincarnated :host frame")
         (finally
-          (re-frame.trace/unregister-listener! ::repl-recorder))))))
+          (re-frame.trace.tooling/unregister-listener! ::repl-recorder))))))
 
 (deftest flow-hot-reload-invalidates-last-inputs
   (testing "re-registering a flow re-evaluates even when inputs are unchanged"
@@ -1950,7 +1950,7 @@
     ;; design produced).
     (let [db-at-changed (atom :unset)
           changed-count (atom 0)]
-      (re-frame.trace/register-listener!
+      (re-frame.trace.tooling/register-listener!
         ::db-changed-recorder
         (fn [ev]
           (when (= :rf.event/db-changed (:operation ev))
@@ -1973,4 +1973,4 @@
             "the db installed at :rf.event/db-changed already carried the flow output —
              flows ran before install (rf2-u0zz5)")
         (finally
-          (re-frame.trace/unregister-listener! ::db-changed-recorder))))))
+          (re-frame.trace.tooling/unregister-listener! ::db-changed-recorder))))))

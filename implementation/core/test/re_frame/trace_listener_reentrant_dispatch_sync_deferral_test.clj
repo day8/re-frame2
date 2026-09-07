@@ -46,6 +46,7 @@
             [re-frame.frame :as rf.frame]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
+            [re-frame.trace.tooling :as rf.trace.tooling]
             [re-frame.trace :as rf.trace]))
 
 (use-fixtures :each
@@ -90,7 +91,7 @@
             fired?    (atom false)]
         ;; The probe: pure observer. Records the ownership state for each
         ;; drain-owned run emit of the nested :rf/default drain.
-        (rf.trace/register-listener! ::probe
+        (rf.trace.tooling/register-listener! ::probe
           (fn [ev]
             (when (and (= :rf/default (rf.trace/frame-of ev))
                        (contains? #{:rf.event/run-start :rf.event/run-end}
@@ -100,7 +101,7 @@
         ;; The trigger: reacts to the clean, frameless trigger emit (so the
         ;; outer fan-out is in flight and *fanout-ctx* is bound) by
         ;; dispatch-syncing into :rf/default, which this thread drains inline.
-        (rf.trace/register-listener! ::trigger
+        (rf.trace.tooling/register-listener! ::trigger
           (fn [ev]
             (when (and (= :6t6qk/trigger (:operation ev))
                        (compare-and-set! fired? false true))
@@ -121,5 +122,5 @@
                    "dispatch-sync path bypassed post-drain deferral. Observed "
                    "[op lock-held?]: " (pr-str @observed)))
           (finally
-            (rf.trace/unregister-listener! ::probe)
-            (rf.trace/unregister-listener! ::trigger)))))))
+            (rf.trace.tooling/unregister-listener! ::probe)
+            (rf.trace.tooling/unregister-listener! ::trigger)))))))

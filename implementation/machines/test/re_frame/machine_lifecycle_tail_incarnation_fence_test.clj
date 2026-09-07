@@ -52,7 +52,6 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.trace :as rf.trace]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; Touch the artefact so the machines registration hooks are wired even when
@@ -393,7 +392,7 @@
         ;; whole spawn-write seam single-threaded and symmetric.
         (rf.late-bind/set-fn! :router/dispatch! (fn [_ev _opts] nil))
         (rf/make-frame {:id frame-a})
-        (rf.trace/register-listener!
+        (rf.trace.tooling/register-listener!
           ::spawn-write-fence
           (fn [ev] (swap! traces conj ev)))
         (let [token-a (rf.frame/frame-incarnation-token frame-a)]
@@ -418,7 +417,7 @@
           (is (empty? (filter #(= :rf.machine.lifecycle/spawned (:operation %)) @traces))
               "no :rf.machine.lifecycle/spawned tail attributed after the write loss"))
         (finally
-          (rf.trace/unregister-listener! ::spawn-write-fence)
+          (rf.trace.tooling/unregister-listener! ::spawn-write-fence)
           (rf.late-bind/set-fn! :router/dispatch! orig-dispatch!)
           (restore-plain-adapter!))))))
 
@@ -456,7 +455,7 @@
         ;; 8/8 reruns, red under CI load).
         (rf.late-bind/set-fn! :router/dispatch! (fn [_ev _opts] nil))
         (rf/make-frame {:id frame-a})
-        (rf.trace/register-listener!
+        (rf.trace.tooling/register-listener!
           ::spawn-write-live
           (fn [ev] (swap! traces conj ev)))
         (let [token-a (rf.frame/frame-incarnation-token frame-a)]
@@ -476,6 +475,6 @@
           (is (= 1 (count (filter #(= :rf.machine.lifecycle/spawned (:operation %)) @traces)))
               "the live-owner install emitted :rf.machine.lifecycle/spawned exactly once"))
         (finally
-          (rf.trace/unregister-listener! ::spawn-write-live)
+          (rf.trace.tooling/unregister-listener! ::spawn-write-live)
           (rf.late-bind/set-fn! :router/dispatch! orig-dispatch!)
           (restore-plain-adapter!))))))

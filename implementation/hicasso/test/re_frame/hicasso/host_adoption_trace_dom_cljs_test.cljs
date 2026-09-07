@@ -74,7 +74,7 @@
             [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
             [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace :as rf.trace]
+            [re-frame.trace.tooling :as rf.trace.tooling]
             ["react" :as react]
             ["react-dom/client" :as react-dom-client]
             ["react-dom/server" :as react-dom-server]))
@@ -128,10 +128,10 @@
   []
   (let [seen (atom [])
         lk   (keyword (gensym "rf.oaksj-adopt-"))]
-    (rf.trace/register-listener!
+    (rf.trace.tooling/register-listener!
       lk (fn [ev] (when (= :rf.ssr/host-adopted (:operation ev))
                     (swap! seen conj ev))))
-    {:seen seen :stop (fn [] (rf.trace/unregister-listener! lk))}))
+    {:seen seen :stop (fn [] (rf.trace.tooling/unregister-listener! lk))}))
 
 (defn- render-html [hiccup]
   (react-dom-server/renderToString

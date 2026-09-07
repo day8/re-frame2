@@ -130,6 +130,7 @@
             ;; is a no-op by design) keeps running the corpus half beside it.
             [re-frame.interop :as rf.interop]
             [re-frame.trace :as rf.trace]
+            [re-frame.trace.tooling :as rf.trace.tooling]
             [re-frame.ssr.hydrate :as rf.ssr.hydrate]
             ;; The shared definition of the implementation source corpus
             ;; (rf2-2cu7f). This scan and the egress-chokepoint scan used to
@@ -1626,8 +1627,8 @@
   [f]
   (let [seen (atom [])
         id   (gensym "hydration-mismatch-witness")]
-    (rf.trace/register-listener! id (fn [ev] (swap! seen conj ev)))
-    (try (f) (finally (rf.trace/unregister-listener! id)))
+    (rf.trace.tooling/register-listener! id (fn [ev] (swap! seen conj ev)))
+    (try (f) (finally (rf.trace.tooling/unregister-listener! id)))
     @seen))
 
 (def ^:private pre-fix-hydration-mismatch-schema

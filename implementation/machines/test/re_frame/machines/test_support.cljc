@@ -31,7 +31,7 @@
   (:require [re-frame.core :as rf]
             [re-frame.machines.paths :as rf.machines.paths]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace :as rf.trace]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; ---- reset-runtime fixture (re-export) ------------------------------------
 
@@ -112,9 +112,9 @@
   (let [a  (atom [])
         id ::trace-capture]
     (binding [*captured* a]
-      (rf.trace/register-listener! id (fn [ev] (swap! a conj ev)))
+      (rf.trace.tooling/register-listener! id (fn [ev] (swap! a conj ev)))
       (try (f)
-           (finally (rf.trace/unregister-listener! id))))))
+           (finally (rf.trace.tooling/unregister-listener! id))))))
 
 #?(:clj
    (defmacro with-trace-capture
@@ -135,6 +135,6 @@
        `(let [~binding-sym (atom [])
               id#          (keyword "re-frame.machines.test-support"
                                     (name '~id-sym))]
-          (rf.trace/register-listener! id# (fn [ev#] (swap! ~binding-sym conj ev#)))
+          (rf.trace.tooling/register-listener! id# (fn [ev#] (swap! ~binding-sym conj ev#)))
           (try ~@body
-               (finally (rf.trace/unregister-listener! id#)))))))
+               (finally (rf.trace.tooling/unregister-listener! id#)))))))

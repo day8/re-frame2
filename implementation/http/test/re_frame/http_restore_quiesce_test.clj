@@ -28,7 +28,7 @@
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace :as rf.trace])
+            [re-frame.trace.tooling :as rf.trace.tooling])
   (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
            [java.net InetSocketAddress]
            [java.util.concurrent CountDownLatch TimeUnit]))
@@ -117,7 +117,7 @@
           replies (atom [])
           traces  (atom [])]
       (try
-        (rf.trace/register-listener! ::u5kmf8 (fn [ev] (swap! traces conj ev)))
+        (rf.trace.tooling/register-listener! ::u5kmf8 (fn [ev] (swap! traces conj ev)))
         (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
         ;; an ordinary event handler (no spawned actor) issues a managed
@@ -160,5 +160,5 @@
             (is (= :rf/default (:frame tags))
                 "the trace names the restored frame")))
         (finally
-          (rf.trace/unregister-listener! ::u5kmf8)
+          (rf.trace.tooling/unregister-listener! ::u5kmf8)
           (stop-server! srv))))))

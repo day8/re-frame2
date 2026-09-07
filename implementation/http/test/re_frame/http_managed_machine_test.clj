@@ -33,7 +33,7 @@
             [re-frame.machines]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace :as rf.trace])
+            [re-frame.trace.tooling :as rf.trace.tooling])
   (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
            [java.net InetSocketAddress]
            [java.util.concurrent CountDownLatch TimeUnit]))
@@ -195,7 +195,7 @@
           {:keys [port]} srv
           traces (atom [])]
       (try
-        (rf.trace/register-listener! ::ijm7-3 (fn [ev] (swap! traces conj ev)))
+        (rf.trace.tooling/register-listener! ::ijm7-3 (fn [ev] (swap! traces conj ev)))
         (rf/reg-machine :app/cancel
           {:initial :idle
            :states
@@ -235,7 +235,7 @@
                 "trace identifies the destroyed wrapper actor")))
         (.countDown latch)
         (finally
-          (rf.trace/unregister-listener! ::ijm7-3)
+          (rf.trace.tooling/unregister-listener! ::ijm7-3)
           (stop-server! srv))))))
 
 ;; ---- (4) composes with :after — whichever fires first wins ----------------
@@ -247,7 +247,7 @@
           {:keys [port]} srv
           traces (atom [])]
       (try
-        (rf.trace/register-listener! ::ijm7-4 (fn [ev] (swap! traces conj ev)))
+        (rf.trace.tooling/register-listener! ::ijm7-4 (fn [ev] (swap! traces conj ev)))
         (rf/reg-machine :app/after-test
           {:initial :idle
            :states
@@ -294,7 +294,7 @@
               "wall-clock timeout cancelled the wrapper child + fired the rf2-wvkn trace"))
         (.countDown latch)
         (finally
-          (rf.trace/unregister-listener! ::ijm7-4)
+          (rf.trace.tooling/unregister-listener! ::ijm7-4)
           (stop-server! srv))))))
 
 ;; ---- (5) sibling fx-form continues to work alongside the machine wrapper -

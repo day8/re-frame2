@@ -54,7 +54,7 @@
             [re-frame.machines]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.trace :as rf.trace]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (use-fixtures :each
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
@@ -86,13 +86,13 @@
           run-start (atom nil)]
       (rf/reg-cofx :replay/gen {:recordable? true} (fn [] 100))
       (rf/reg-machine :replay/mint (mint-machine seen))
-      (rf.trace/register-listener!
+      (rf.trace.tooling/register-listener!
         ::cap (fn [ev] (when (= :rf.event/run-start (:operation ev))
                          (reset! run-start ev))))
       ;; LIVE dispatch — only :rf/time-ms in the external token. :replay/gen is
       ;; minted mid-drain by the raised :inner's guard ensure.
       (rf/dispatch-sync [:replay/mint [:go]] {:rf.cofx {:rf/time-ms 111}})
-      (rf.trace/unregister-listener! ::cap)
+      (rf.trace.tooling/unregister-listener! ::cap)
 
       ;; (1) The mint DID happen and the guard decided on the fresh value.
       (is (= 100 @seen)

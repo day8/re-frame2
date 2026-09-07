@@ -65,7 +65,7 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.source-coords :as rf.source-coords]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.trace :as rf.trace]
+            [re-frame.trace.tooling :as rf.trace.tooling]
             [re-frame.core :as rf]))
 
 ;; ---- fixtures -------------------------------------------------------------
@@ -73,7 +73,7 @@
 (defn reset-runtime [test-fn]
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
-  (rf.trace/clear-listeners!)
+  (rf.trace.tooling/clear-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)
   (test-fn))
 

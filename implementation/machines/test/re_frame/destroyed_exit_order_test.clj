@@ -39,7 +39,7 @@
             [re-frame.core :as rf]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.trace :as rf.trace]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (use-fixtures :each
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
@@ -54,12 +54,12 @@
   onto `log`; returns an unregister thunk."
   [log]
   (let [id ::order-listener]
-    (rf.trace/register-listener!
+    (rf.trace.tooling/register-listener!
       id
       (fn [ev]
         (when (= :rf.machine/destroyed (:operation ev))
           (swap! log conj :destroyed))))
-    #(rf.trace/unregister-listener! id)))
+    #(rf.trace.tooling/unregister-listener! id)))
 
 (defn- exit-then-destroyed?
   "True iff the first `:exit` marker precedes the first `:destroyed`

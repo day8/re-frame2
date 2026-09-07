@@ -55,7 +55,8 @@
             [re-frame.core                 :as rf]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support         :as rf.test-support]
-            [re-frame.trace                :as rf.trace]))
+            [re-frame.trace                :as rf.trace]
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
@@ -92,14 +93,14 @@
     (rf/reg-event :t6vs3/noop (fn [{:keys [db]} _] {:db db}))
     ;; EMITTER (registered first): on THIS event's run-start, author exactly one
     ;; nested trace. Emitted at flush time, so its `:id` exceeds run-end's.
-    (rf.trace/register-listener! ::emitter
+    (rf.trace.tooling/register-listener! ::emitter
       (fn [ev]
         (when (and (= :rf.event/run-start (:operation ev))
                    (= :t6vs3/noop (first (-> ev :tags :rf.event/v)))
                    (compare-and-set! emitted? false true))
           (rf.trace/emit! :info nested-op {}))))
     ;; OBSERVER: record every event's operation + id, in the order delivered.
-    (rf.trace/register-listener! ::observer
+    (rf.trace.tooling/register-listener! ::observer
       (fn [ev] (swap! seen conj [(:operation ev) (:id ev)])))
     (try
       (rf/dispatch-sync [:t6vs3/noop] {:frame :rf/default})
@@ -125,8 +126,8 @@
                    "already-captured run-end. Ops in delivery order: "
                    (pr-str ops)))))
       (finally
-        (rf.trace/unregister-listener! ::emitter)
-        (rf.trace/unregister-listener! ::observer)))))
+        (rf.trace.tooling/unregister-listener! ::emitter)
+        (rf.trace.tooling/unregister-listener! ::observer)))))
 
 (deftest ^:requires-debug deferred-batch-outranks-listener-authored-trace-when-integrated
   ;; INTEGRATE seam: a `::trigger` listener reacts to a clean, frameless emit (so
@@ -141,20 +142,20 @@
     (rf/reg-event :t6vs3/inner (fn [{:keys [db]} _] {:db db}))
     ;; TRIGGER (registered first): reentrant dispatch-sync from inside the outer
     ;; fan-out — opens the nested drain whose batch integrates on flush.
-    (rf.trace/register-listener! ::trigger
+    (rf.trace.tooling/register-listener! ::trigger
       (fn [ev]
         (when (and (= :t6vs3/trigger (:operation ev))
                    (compare-and-set! fired? false true))
           (rf/dispatch-sync [:t6vs3/inner] {:frame :rf/default}))))
     ;; EMITTER: on the INNER event's run-start, author one nested trace.
-    (rf.trace/register-listener! ::emitter
+    (rf.trace.tooling/register-listener! ::emitter
       (fn [ev]
         (when (and (= :rf.event/run-start (:operation ev))
                    (= :t6vs3/inner (first (-> ev :tags :rf.event/v)))
                    (compare-and-set! emitted? false true))
           (rf.trace/emit! :info nested-op {}))))
     ;; OBSERVER: record the delivery order of every event.
-    (rf.trace/register-listener! ::observer
+    (rf.trace.tooling/register-listener! ::observer
       (fn [ev] (swap! seen conj [(:operation ev) (:id ev)])))
     (try
       (rf.trace/emit! :info :t6vs3/trigger {})
@@ -180,6 +181,6 @@
                    "drain's already-captured run-end. Ops in delivery order: "
                    (pr-str ops)))))
       (finally
-        (rf.trace/unregister-listener! ::trigger)
-        (rf.trace/unregister-listener! ::emitter)
-        (rf.trace/unregister-listener! ::observer)))))
+        (rf.trace.tooling/unregister-listener! ::trigger)
+        (rf.trace.tooling/unregister-listener! ::emitter)
+        (rf.trace.tooling/unregister-listener! ::observer)))))

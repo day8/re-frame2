@@ -52,7 +52,7 @@
    [re-frame.core :as rf]
    [re-frame.flows :as rf.flows]
    [re-frame.test-support :as rf.test-support]
-   [re-frame.trace :as rf.trace]
+   [re-frame.trace.tooling :as rf.trace.tooling]
    #?(:clj  [re-frame.substrate.plain-atom :as substrate]
       :cljs [re-frame.adapter.reagent :as substrate])))
 
@@ -71,13 +71,13 @@
   "Run `(f captured)` with a whole-stream trace recorder installed."
   [f]
   (let [captured (atom [])]
-    (rf.trace/register-listener!
+    (rf.trace.tooling/register-listener!
       ::direct-clear-settle-recorder
       (fn [ev] (swap! captured conj ev)))
     (try
       (f captured)
       (finally
-        (rf.trace/unregister-listener! ::direct-clear-settle-recorder)))))
+        (rf.trace.tooling/unregister-listener! ::direct-clear-settle-recorder)))))
 
 (defn- event-ops
   "Every recorded `:rf.event` op-type operation, in capture order. Non-empty

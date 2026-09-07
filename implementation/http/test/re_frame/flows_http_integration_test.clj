@@ -68,7 +68,7 @@
             [re-frame.http.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace :as rf.trace]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; ---- per-test reset / trace recorder -------------------------------------
 
@@ -87,13 +87,13 @@
     (fn []
       (let [captured (atom [])]
         (binding [*captured* captured]
-          (rf.trace/register-listener!
+          (rf.trace.tooling/register-listener!
             ::flows-http-recorder
             (fn [ev] (swap! captured conj ev)))
           (try
             (test-fn)
             (finally
-              (rf.trace/unregister-listener! ::flows-http-recorder))))))))
+              (rf.trace.tooling/unregister-listener! ::flows-http-recorder))))))))
 
 (use-fixtures :each reset-runtime)
 

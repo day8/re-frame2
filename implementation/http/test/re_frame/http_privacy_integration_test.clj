@@ -23,7 +23,7 @@
             [re-frame.schemas]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace :as rf.trace])
+            [re-frame.trace.tooling :as rf.trace.tooling])
   (:import [com.sun.net.httpserver HttpServer HttpHandler HttpExchange]
            [java.net InetSocketAddress]))
 
@@ -96,7 +96,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (rf.trace/register-listener! :test/capture
+        (rf.trace.tooling/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
 
         (rf/reg-event :api/fetch
@@ -132,7 +132,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (rf.trace/register-listener! :test/capture
+        (rf.trace.tooling/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
 
         (rf/reg-event :api/fetch
@@ -170,7 +170,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (rf.trace/register-listener! :test/capture
+        (rf.trace.tooling/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
 
         (rf/reg-event :api/fetch
@@ -212,7 +212,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (rf.trace/register-listener! :test/capture
+        (rf.trace.tooling/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
 
         (rf/reg-event :api/fetch
@@ -247,7 +247,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (rf.trace/register-listener! :test/capture
+        (rf.trace.tooling/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
 
         (rf/reg-event :api/fetch
@@ -288,7 +288,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (rf.trace/register-listener! :test/capture
+        (rf.trace.tooling/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
 
         (rf/reg-event :auth/login
@@ -331,7 +331,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (rf.trace/register-listener! :test/capture
+        (rf.trace.tooling/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
 
         (rf/reg-event :api/fetch
@@ -370,7 +370,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (rf.trace/register-listener! :test/capture
+        (rf.trace.tooling/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
         ;; The :decode schema is the owner's declaration: [:token] is
         ;; sensitive, [:user-id] is not. No per-call :sensitive? flag.
@@ -409,7 +409,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (rf.trace/register-listener! :test/capture
+        (rf.trace.tooling/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
         (rf/reg-event :auth/refresh
           (fn [_ _]
@@ -443,7 +443,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (rf.trace/register-listener! :test/capture
+        (rf.trace.tooling/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
         (rf/reg-event :api/big
           (fn [_ _]
@@ -484,7 +484,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (rf.trace/register-listener! :test/capture
+        (rf.trace.tooling/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
         ;; No :decode ⇒ :auto ⇒ unschematized ⇒ off-box :omit.
         (rf/reg-event :api/opaque
@@ -520,7 +520,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (rf.trace/register-listener! :test/capture
+        (rf.trace.tooling/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
         (rf/reg-event :api/login
           (fn [_ _]
@@ -580,7 +580,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (rf.trace/register-listener! :test/capture
+        (rf.trace.tooling/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
         ;; NO per-call :sensitive? flag — the disposition-5 fix must fire anyway.
         (rf/reg-event :api/fetch
@@ -616,7 +616,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (rf.trace/register-listener! :test/capture
+        (rf.trace.tooling/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
         (rf/reg-event :api/fetch
           (fn [_ _]
@@ -651,7 +651,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (rf.trace/register-listener! :test/capture
+        (rf.trace.tooling/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
         ;; :json decode of a non-JSON body throws → :rf.http/decode-failure.
         (rf/reg-event :api/fetch
@@ -702,7 +702,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (rf.trace/register-listener! :test/capture
+        (rf.trace.tooling/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
         (rf/reg-event :api/login
           (fn [_ _]
@@ -759,7 +759,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (rf.trace/register-listener! :test/capture
+        (rf.trace.tooling/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
         (rf/reg-event :api/login
           (fn [_ _]
@@ -827,7 +827,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (rf.trace/register-listener! :test/capture
+        (rf.trace.tooling/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
         (rf/reg-event :api/meta-load
           (fn [{:keys [db]} [_ msg reply]]
@@ -872,7 +872,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (rf.trace/register-listener! :test/capture
+        (rf.trace.tooling/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
         (rf/reg-event :api/carrier-load
           (fn [{:keys [db]} [_ msg reply]]
@@ -905,7 +905,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (rf.trace/register-listener! :test/capture
+        (rf.trace.tooling/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
         (rf/reg-event :api/sensitive-load
           (fn [{:keys [db]} [_ msg reply]]

@@ -31,7 +31,7 @@
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace :as rf.trace])
+            [re-frame.trace.tooling :as rf.trace.tooling])
   (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
            [java.net InetSocketAddress]
            [java.util.concurrent CountDownLatch TimeUnit]))
@@ -130,7 +130,7 @@
     (let [aborts (atom [])
           traces (atom [])]
       (try
-        (rf.trace/register-listener! ::idem (fn [ev] (swap! traces conj ev)))
+        (rf.trace.tooling/register-listener! ::idem (fn [ev] (swap! traces conj ev)))
         (rf.http.registry/seed-in-flight-for-test!
           :req/gone nil
           {:abort-fn   (fn [reason] (swap! aborts conj reason))
@@ -147,7 +147,7 @@
         (is (empty? (filter #(= :rf.http/stale-suppressed (:operation %)) @traces))
             "no duplicate stale-suppressed trace for the already-cleared handle")
         (finally
-          (rf.trace/unregister-listener! ::idem)
+          (rf.trace.tooling/unregister-listener! ::idem)
           (rf.http.managed/clear-all-in-flight!))))))
 
 ;; ---- end-to-end: destroy-frame! aborts a genuinely in-flight request -------
@@ -165,7 +165,7 @@
           replies (atom [])
           traces  (atom [])]
       (try
-        (rf.trace/register-listener! ::j538f7 (fn [ev] (swap! traces conj ev)))
+        (rf.trace.tooling/register-listener! ::j538f7 (fn [ev] (swap! traces conj ev)))
         (rf/make-frame {:id :frame/req :doc "the frame that owns the in-flight request"})
         (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
@@ -219,5 +219,5 @@
             (is (= :frame/req (:frame tags))
                 "the trace names the destroyed frame")))
         (finally
-          (rf.trace/unregister-listener! ::j538f7)
+          (rf.trace.tooling/unregister-listener! ::j538f7)
           (stop-server! srv))))))

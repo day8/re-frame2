@@ -33,7 +33,7 @@
             [re-frame.subs.memo :as rf.subs.memo]
             [re-frame.subs.override-schema :as rf.subs.override-schema]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.trace :as rf.trace])
+            [re-frame.trace.tooling :as rf.trace.tooling])
   (:import [clojure.lang ExceptionInfo]))
 
 (defn- reset-runtime [test-fn]
@@ -41,7 +41,7 @@
   (reset! rf.frame/frames {})
   (rf.schemas/clear-schemas-by-frame!)
   (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)
-  (rf.trace/clear-listeners!)
+  (rf.trace.tooling/clear-listeners!)
   (rf.error-emit/clear-error-listeners!)
   (rf.event-emit/clear-event-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)

@@ -26,7 +26,7 @@
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
-            [re-frame.trace :as rf.trace]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; The provider's "current React-context frame" — a test-controlled
 ;; stand-in for what a real `frame-provider` render publishes. nil means
@@ -36,7 +36,7 @@
 (defn reset-runtime [test-fn]
   (reset! rf.frame/frames {})
   (rf.substrate.adapter/dispose-adapter!)
-  (rf.trace/clear-listeners!)
+  (rf.trace.tooling/clear-listeners!)
   (rf.substrate.adapter/install-adapter! rf.substrate.plain-atom/adapter)
   (reset! provider-frame nil)
   ;; Publish a React-context tier that reports the enclosing provider

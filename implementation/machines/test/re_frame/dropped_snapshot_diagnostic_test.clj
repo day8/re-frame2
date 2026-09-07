@@ -22,8 +22,7 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.trace :as rf.trace]
-            [re-frame.trace.tooling]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; This ns keeps a bespoke reset-runtime fixture (it ALSO clears listeners
 ;; and reloads the machines ns) rather than reusing the shared
@@ -31,7 +30,7 @@
 (defn- reset-runtime [test-fn]
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
-  (rf.trace/clear-listeners!)
+  (rf.trace.tooling/clear-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)
   ;; `init!` does not synthesise `:rf/default`, and machine fxs require a
   ;; carried frame stamp. Register `:rf/default` explicitly and pin it as the

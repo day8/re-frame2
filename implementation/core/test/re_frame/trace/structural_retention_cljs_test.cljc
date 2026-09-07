@@ -40,9 +40,9 @@
     (let [fid  :rf2-244/sync-frame
           did  :rf2-244/run-1
           live (atom [])]
-      (rf.trace/clear-listeners!)
+      (rf.trace.tooling/clear-listeners!)
       (rf.trace.tooling/clear-trace-rings!)
-      (rf.trace/register-listener! ::retention-live (fn [ev] (swap! live conj ev)))
+      (rf.trace.tooling/register-listener! ::retention-live (fn [ev] (swap! live conj ev)))
       (try
         ;; Control: an ordinary (non-structural) emit carrying a frame id + a
         ;; dispatch-id IS retained in that frame's ring.
@@ -69,9 +69,9 @@
           (is (empty? (filter #(= :rf2-244/structural (:operation %)) (flat fid)))
               "the structural operation never appears in the ring"))
         (finally
-          (rf.trace/unregister-listener! ::retention-live)
+          (rf.trace.tooling/unregister-listener! ::retention-live)
           (rf.trace.tooling/clear-trace-rings!)
-          (rf.trace/clear-listeners!))))))
+          (rf.trace.tooling/clear-listeners!))))))
 
 (deftest ^:requires-debug structural-emit-never-allocates-a-successor-ring
   (testing "a structural emit tagged with a never-emitted frame id creates no ring"
@@ -82,9 +82,9 @@
     (let [fid  :rf2-244/fresh-successor
           did  :rf2-244/a-inherited
           live (atom [])]
-      (rf.trace/clear-listeners!)
+      (rf.trace.tooling/clear-listeners!)
       (rf.trace.tooling/clear-trace-rings!)
-      (rf.trace/register-listener! ::fresh-live (fn [ev] (swap! live conj ev)))
+      (rf.trace.tooling/register-listener! ::fresh-live (fn [ev] (swap! live conj ev)))
       (try
         (is (empty? (flat fid))
             "no ring exists for the fresh successor id yet")
@@ -96,9 +96,9 @@
         (is (empty? (flat fid))
             "no ring is allocated for the successor id by A's structural fact")
         (finally
-          (rf.trace/unregister-listener! ::fresh-live)
+          (rf.trace.tooling/unregister-listener! ::fresh-live)
           (rf.trace.tooling/clear-trace-rings!)
-          (rf.trace/clear-listeners!))))))
+          (rf.trace.tooling/clear-listeners!))))))
 
 ;; ---- rf2-vf2qke — structural scope must not taint listener-triggered work ----
 ;;
@@ -132,13 +132,13 @@
           c-did :rf2-vf2qke/c-run
           live  (atom [])
           fired? (atom false)]
-      (rf.trace/clear-listeners!)
+      (rf.trace.tooling/clear-listeners!)
       (rf.trace.tooling/clear-trace-rings!)
       ;; A public tooling listener that, on seeing A's structural terminal fact,
       ;; performs legitimate nested work: a direct public emit! into UNRELATED
       ;; frame C carrying C's own dispatch-id. That nested emit is ordinary work,
       ;; not part of A's structural delivery, so it must land in C's ring.
-      (rf.trace/register-listener! ::vf2qke-dispatcher
+      (rf.trace.tooling/register-listener! ::vf2qke-dispatcher
         (fn [ev]
           (swap! live conj ev)
           (when (and (= :rf2-vf2qke/a-structural (:operation ev))
@@ -166,9 +166,9 @@
         (is (some #(= :rf2-vf2qke/c-nested (:operation %)) @live)
             "the nested emit also streamed live")
         (finally
-          (rf.trace/unregister-listener! ::vf2qke-dispatcher)
+          (rf.trace.tooling/unregister-listener! ::vf2qke-dispatcher)
           (rf.trace.tooling/clear-trace-rings!)
-          (rf.trace/clear-listeners!))))))
+          (rf.trace.tooling/clear-listeners!))))))
 
 (deftest ^:requires-debug explicitly-nested-structural-delivery-stays-retentionless
   (testing "a listener that itself re-requests structural delivery for its nested
@@ -180,9 +180,9 @@
           c-did :rf2-vf2qke/c2-run
           live  (atom [])
           fired? (atom false)]
-      (rf.trace/clear-listeners!)
+      (rf.trace.tooling/clear-listeners!)
       (rf.trace.tooling/clear-trace-rings!)
-      (rf.trace/register-listener! ::vf2qke-structural-dispatcher
+      (rf.trace.tooling/register-listener! ::vf2qke-structural-dispatcher
         (fn [ev]
           (swap! live conj ev)
           (when (and (= :rf2-vf2qke/a2-structural (:operation ev))
@@ -202,9 +202,9 @@
         (is (empty? (flat c-fid))
             "the explicitly-nested structural emit is NOT retained in C's ring")
         (finally
-          (rf.trace/unregister-listener! ::vf2qke-structural-dispatcher)
+          (rf.trace.tooling/unregister-listener! ::vf2qke-structural-dispatcher)
           (rf.trace.tooling/clear-trace-rings!)
-          (rf.trace/clear-listeners!))))))
+          (rf.trace.tooling/clear-listeners!))))))
 
 (deftest ^:requires-debug error-emit-under-structural-delivery-is-also-retentionless
   (testing "emit-error! honours the retentionless boundary too (terminal diagnostics)"
@@ -214,9 +214,9 @@
     (let [fid  :rf2-244/err-frame
           did  :rf2-244/err-run
           live (atom [])]
-      (rf.trace/clear-listeners!)
+      (rf.trace.tooling/clear-listeners!)
       (rf.trace.tooling/clear-trace-rings!)
-      (rf.trace/register-listener! ::err-live (fn [ev] (swap! live conj ev)))
+      (rf.trace.tooling/register-listener! ::err-live (fn [ev] (swap! live conj ev)))
       (try
         ;; Control: an ordinary error emit is retained.
         (rf.trace/emit-error! :rf2-244/ordinary-error
@@ -232,6 +232,6 @@
           (is (= ring-before (flat fid))
               "the structural error is NOT retained in the ring"))
         (finally
-          (rf.trace/unregister-listener! ::err-live)
+          (rf.trace.tooling/unregister-listener! ::err-live)
           (rf.trace.tooling/clear-trace-rings!)
-          (rf.trace/clear-listeners!))))))
+          (rf.trace.tooling/clear-listeners!))))))

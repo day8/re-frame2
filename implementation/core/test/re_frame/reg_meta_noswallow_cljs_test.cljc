@@ -45,7 +45,7 @@
             [re-frame.interceptor-registry :as rf.interceptor-registry]
             [re-frame.registrar :as rf.registrar]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace :as rf.trace]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; `clear-all!` gives each test a clean registrar, but in the shared
 ;; `:node-test` bundle (rf2-ezbzvm) it also drops sibling namespaces'
@@ -90,13 +90,13 @@
   [f]
   (let [acc (atom [])
         lid (keyword "reg-meta-test" (str (gensym "listen")))]
-    (rf.trace/register-listener! lid (fn [ev] (swap! acc conj ev)))
+    (rf.trace.tooling/register-listener! lid (fn [ev] (swap! acc conj ev)))
     (try
       (f)
       (->> @acc
            (filterv #(= :rf.warning/unknown-registration-key (:operation %))))
       (finally
-        (rf.trace/unregister-listener! lid)))))
+        (rf.trace.tooling/unregister-listener! lid)))))
 
 ;; The kinds under test, with a namespaced id per kind so nothing collides.
 (def ^:private kinds

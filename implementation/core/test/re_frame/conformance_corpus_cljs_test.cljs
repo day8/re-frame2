@@ -39,7 +39,7 @@
             [re-frame.subs :as rf.subs]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
-            [re-frame.trace :as rf.trace]
+            [re-frame.trace.tooling :as rf.trace.tooling]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.events]
             [re-frame.late-bind :as rf.late-bind]
@@ -77,7 +77,7 @@
 ;;
 ;;  * `baseline-trace-listeners` is captured at NS-LOAD. The SSR artefact
 ;;    registers its error-projection-listener at ns-load; other test
-;;    namespaces' `use-fixtures` blocks call `(rf.trace/clear-listeners!)`, so
+;;    namespaces' `use-fixtures` blocks call `(rf.trace.tooling/clear-listeners!)`, so
 ;;    by the time our deftest runs the registry may be empty. Capturing at
 ;;    ns-load is the only point at which the framework listeners are live.
 ;;

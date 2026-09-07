@@ -35,7 +35,7 @@
             [re-frame.flows]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace :as rf.trace]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; ---- per-test reset / schema-violation recorder --------------------------
 ;;
@@ -57,7 +57,7 @@
   (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)
   (let [captured (atom [])]
     (binding [*captured* captured]
-      (rf.trace/register-listener!
+      (rf.trace.tooling/register-listener!
         ::schema-violation-recorder
         (fn [ev]
           (when (= :rf.error/schema-validation-failure (:operation ev))
@@ -65,7 +65,7 @@
       (try
         (test-fn)
         (finally
-          (rf.trace/unregister-listener! ::schema-violation-recorder)
+          (rf.trace.tooling/unregister-listener! ::schema-violation-recorder)
           (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns))))))
 
 (use-fixtures :each

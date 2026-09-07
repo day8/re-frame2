@@ -32,7 +32,7 @@
             [re-frame.http.registry :as rf.http.registry]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace :as rf.trace]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
@@ -45,7 +45,7 @@
           traces      (atom [])
           listener-id ::body-thunk]
       (try
-        (rf.trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
+        (rf.trace.tooling/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
         (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
         (rf/reg-event :issue/throwing-thunk
@@ -77,7 +77,7 @@
         (is (empty? (rf.http.registry/in-flight-snapshot))
             "the in-flight registry is cleared — the failed-prep request is not pinned")
         (finally
-          (rf.trace/unregister-listener! listener-id))))))
+          (rf.trace.tooling/unregister-listener! listener-id))))))
 
 ;; ---- a body that fails to encode -------------------------------------------
 
@@ -87,7 +87,7 @@
           traces      (atom [])
           listener-id ::encode-fail]
       (try
-        (rf.trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
+        (rf.trace.tooling/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
         (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
         (rf/reg-event :issue/unencodable
@@ -115,7 +115,7 @@
             "NO generic :rf.error/fx-handler-exception escaped")
         (is (empty? (rf.http.registry/in-flight-snapshot)))
         (finally
-          (rf.trace/unregister-listener! listener-id))))))
+          (rf.trace.tooling/unregister-listener! listener-id))))))
 
 ;; ---- retry when configured -------------------------------------------------
 
@@ -125,7 +125,7 @@
           invocations (atom 0)
           listener-id ::retry-thunk]
       (try
-        (rf.trace/register-listener! listener-id (fn [_] nil))
+        (rf.trace.tooling/register-listener! listener-id (fn [_] nil))
         (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
         (rf/reg-event :issue/retry-thunk
@@ -166,4 +166,4 @@
         (is (empty? (rf.http.registry/in-flight-snapshot))
             "the registry is clean after the retry sequence exhausts")
         (finally
-          (rf.trace/unregister-listener! listener-id))))))
+          (rf.trace.tooling/unregister-listener! listener-id))))))

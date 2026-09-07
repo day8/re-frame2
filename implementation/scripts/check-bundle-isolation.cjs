@@ -340,14 +340,20 @@ const ARTEFACTS = [
   // counter example never `:require`s `re-frame.trace.tooling`
   // (test-support / Xray preload / Story / re-frame2-pair-mcp do, but counter
   // is the no-feature reference app). When this contract holds, the
-  // tooling sibling's body is absent from the bundle entirely — the
-  // `re-frame.trace/register-listener!` etc. wrappers are thin
-  // late-bind shells whose `:trace.tooling/*` lookups resolve to nil
-  // and no-op. The sentinel below is a distinctive string fragment
-  // from the tooling's `trace-buffer` filter-predicate body that does
-  // NOT appear anywhere else in the framework source. A non-zero hit
-  // means the tooling ns slipped into the bundle (most likely a
-  // `:require [re-frame.trace.tooling]` was added to a core/* ns).
+  // tooling sibling's body is absent from the bundle entirely. The property
+  // pinned here is VAR-level, not namespace-level: `re-frame.core` and
+  // `re-frame.trace` both `:require` `re-frame.trace.tooling` statically on
+  // both platforms, and since rf2-kuky.52 the facade's `:trace` arm plus
+  // `rf/trace-buffer` / `rf/clear-trace-buffer!` name
+  // `re-frame.trace.tooling/…` directly — the `re-frame.trace/…` re-exports
+  // they used to route through are gone, and `re-frame.trace` now publishes
+  // no listener/buffer surface of its own. The counter bundle stays clean
+  // because it never CALLS that surface, so Closure drops the bodies. The
+  // sentinel below is a distinctive string fragment from the tooling's
+  // `trace-buffer` filter-predicate body that does NOT appear anywhere else
+  // in the framework source. A non-zero hit means the tooling ns slipped
+  // into the bundle — most likely an ungated call site (one not behind
+  // `goog.DEBUG`) reached it.
   {
     name: 'trace-tooling',
     internalSentinels: [

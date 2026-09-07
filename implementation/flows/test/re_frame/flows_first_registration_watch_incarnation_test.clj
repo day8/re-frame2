@@ -34,7 +34,7 @@
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace :as rf.trace]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
@@ -108,7 +108,7 @@
         (reset! b-sensitive (rf.elision/sensitive-declarations id))))
     (try
       (rf/make-frame {:id id})
-      (rf.trace/register-listener!
+      (rf.trace.tooling/register-listener!
         ::first-registration-recorder
         (fn [ev]
           (when (= :flow (:op-type ev))
@@ -148,7 +148,7 @@
         (is (= @b-sensitive (rf.elision/sensitive-declarations id))
             "A's stale tail never rewrites B's output-mark declaration"))
       (finally
-        (rf.trace/unregister-listener! ::first-registration-recorder)
+        (rf.trace.tooling/unregister-listener! ::first-registration-recorder)
         (restore-plain-adapter!)))))
 
 ;; ---------------------------------------------------------------------------
@@ -170,7 +170,7 @@
       (fn [] (swap! watch-runs inc)))          ; observe only — A stays live
     (try
       (rf/make-frame {:id id})
-      (rf.trace/register-listener!
+      (rf.trace.tooling/register-listener!
         ::first-registration-live-recorder
         (fn [ev]
           (when (= :flow (:op-type ev))
@@ -188,5 +188,5 @@
           (is (= [:out] (:path tags))                 "A's own :output-path")
           (is (= id (:frame tags))                    "A's own frame")))
       (finally
-        (rf.trace/unregister-listener! ::first-registration-live-recorder)
+        (rf.trace.tooling/unregister-listener! ::first-registration-live-recorder)
         (restore-plain-adapter!)))))

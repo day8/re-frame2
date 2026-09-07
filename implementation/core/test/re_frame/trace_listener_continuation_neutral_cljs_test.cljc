@@ -51,7 +51,8 @@
             [re-frame.frame                :as rf.frame]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support         :as rf.test-support]
-            [re-frame.trace                :as rf.trace]))
+            [re-frame.trace                :as rf.trace]
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
@@ -101,7 +102,7 @@
       ;; Listener 1 (FIRST → fans out first): the DESTROYER — the already-entered
       ;; delivery. Destroys A, creates same-id B with a seed, then does UNRELATED
       ;; nested work into C. All of this is a listener body: it must run neutral.
-      (rf.trace/register-listener! ::destroyer
+      (rf.trace.tooling/register-listener! ::destroyer
         (fn [ev]
           (when (and (= :rf.test/fenced-emit (:operation ev))
                      (compare-and-set! armed? true false))
@@ -114,7 +115,7 @@
             ;; fix this too was strangled by A's now-false predicate.
             (rf/dispatch-sync [:trace.neutral/mark] {:frame c-id}))))
       ;; Listener 2 (SECOND → subsequent): must NOT fire once A is destroyed.
-      (rf.trace/register-listener! ::later-a
+      (rf.trace.tooling/register-listener! ::later-a
         (fn [ev]
           (when (= :rf.test/fenced-emit (:operation ev))
             (swap! later-hits inc))))
@@ -150,8 +151,8 @@
         (is (= {:seeded :ok :seed-count 1} (rf/app-db-value a-id))
             "B's db is unchanged by the re-ensure")
         (finally
-          (rf.trace/unregister-listener! ::destroyer)
-          (rf.trace/unregister-listener! ::later-a))))))
+          (rf.trace.tooling/unregister-listener! ::destroyer)
+          (rf.trace.tooling/unregister-listener! ::later-a))))))
 
 (deftest ^:requires-debug non-destroying-listener-does-not-over-suppress-subsequent-listener
   ;; Mutation guard for the loop's before/after check. When the first listener
@@ -167,13 +168,13 @@
     (rf/make-frame {:id c-id})
     (rf/make-frame {:id a-id})
     (let [a-token (rf.frame/frame-incarnation-token a-id)]
-      (rf.trace/register-listener! ::observer
+      (rf.trace.tooling/register-listener! ::observer
         (fn [ev]
           (when (= :rf.test/fenced-emit (:operation ev))
             (swap! first-hit inc)
             ;; nested unrelated work, A stays live
             (rf/dispatch-sync [:trace.neutral/mark] {:frame c-id}))))
-      (rf.trace/register-listener! ::subsequent
+      (rf.trace.tooling/register-listener! ::subsequent
         (fn [ev]
           (when (= :rf.test/fenced-emit (:operation ev))
             (swap! later-hit inc))))
@@ -188,5 +189,5 @@
         (is (= {:marked true} (rf/app-db-value c-id))
             "the first listener's nested unrelated dispatch ran normally")
         (finally
-          (rf.trace/unregister-listener! ::observer)
-          (rf.trace/unregister-listener! ::subsequent))))))
+          (rf.trace.tooling/unregister-listener! ::observer)
+          (rf.trace.tooling/unregister-listener! ::subsequent))))))

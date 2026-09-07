@@ -19,7 +19,7 @@
             [re-frame.schemas :as rf.schemas]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace :as rf.trace]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; The schema-validation and flow-run hooks are published by the optional
 ;; `re-frame.schemas` / `re-frame.flows` artefacts (on the core test
@@ -42,7 +42,7 @@
   (reset! rf.frame/frames {})
   (rf.schemas/clear-schemas-by-frame!)
   (rf.flows/reset-flows!)
-  (rf.trace/clear-listeners!)
+  (rf.trace.tooling/clear-listeners!)
   (rf.event-emit/clear-event-listeners!)
   ;; rf2-qj4g — COLD-START the slot: destroy, then seat. `init!` is idempotent
   ;; only for the adapter ALREADY SEATED (rf2-kuky.1) — handed a DIFFERENT one

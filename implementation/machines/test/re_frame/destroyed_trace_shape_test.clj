@@ -35,7 +35,7 @@
             [re-frame.core :as rf]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.trace :as rf.trace]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (use-fixtures :each
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
@@ -84,8 +84,8 @@
   []
   (let [a  (atom [])
         id ::shape-listener]
-    (rf.trace/register-listener! id (fn [ev] (swap! a conj ev)))
-    [a #(rf.trace/unregister-listener! id)]))
+    (rf.trace.tooling/register-listener! id (fn [ev] (swap! a conj ev)))
+    [a #(rf.trace.tooling/unregister-listener! id)]))
 
 (defn- assert-shape!
   [traces label]

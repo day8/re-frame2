@@ -37,7 +37,8 @@
             [re-frame.core                 :as rf]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support         :as rf.test-support]
-            [re-frame.trace                :as rf.trace]))
+            [re-frame.trace                :as rf.trace]
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
@@ -58,7 +59,7 @@
   (let [seen-at-run-start (atom :not-recorded)]
     (rf/reg-event :uoy6m/settle
       (fn [{:keys [db]} _] {:db (assoc db :uoy6m/settled? true)}))
-    (rf.trace/register-listener! ::probe
+    (rf.trace.tooling/register-listener! ::probe
       (fn [ev]
         (when (and (= :rf.event/run-start (:operation ev))
                    (= :uoy6m/settle (first (-> ev :tags :rf.event/v)))
@@ -81,4 +82,4 @@
                "inline while the drain was active, not at the post-drain "
                "boundary. Recorded: " (pr-str @seen-at-run-start)))
       (finally
-        (rf.trace/unregister-listener! ::probe)))))
+        (rf.trace.tooling/unregister-listener! ::probe)))))

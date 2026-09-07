@@ -29,7 +29,7 @@
             [re-frame.machines]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace :as rf.trace])
+            [re-frame.trace.tooling :as rf.trace.tooling])
   (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
            [java.net InetSocketAddress]
            [java.util.concurrent CountDownLatch TimeUnit]))
@@ -88,7 +88,7 @@
           dispatched (atom [])
           traces  (atom [])]
       (try
-        (rf.trace/register-listener! ::yrrpe2-1
+        (rf.trace.tooling/register-listener! ::yrrpe2-1
           (fn [ev]
             (swap! traces conj ev)
             (when (= :rf.event/dispatched (:operation ev))
@@ -148,7 +148,7 @@
             "actor index is empty after the suppressed abort")
         (.countDown latch))
         (finally
-          (rf.trace/unregister-listener! ::yrrpe2-1)
+          (rf.trace.tooling/unregister-listener! ::yrrpe2-1)
           (stop-server! srv))))))
 
 ;; ---- (2) meaningful (ordinary-event) target stays a live :cancelled --------
@@ -161,7 +161,7 @@
           replies (atom [])
           traces  (atom [])]
       (try
-        (rf.trace/register-listener! ::yrrpe2-2 (fn [ev] (swap! traces conj ev)))
+        (rf.trace.tooling/register-listener! ::yrrpe2-2 (fn [ev] (swap! traces conj ev)))
         (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
         (rf/reg-machine :worker/proc
@@ -198,7 +198,7 @@
             "a meaningful target emits NO stale-suppression trace")
         (.countDown latch)
         (finally
-          (rf.trace/unregister-listener! ::yrrpe2-2)
+          (rf.trace.tooling/unregister-listener! ::yrrpe2-2)
           (stop-server! srv))))))
 
 ;; ---- (3) rf2-4teurt — the abort-precedence RECLASSIFICATION path -----------
@@ -212,7 +212,7 @@
           dispatched (atom [])
           traces  (atom [])]
       (try
-        (rf.trace/register-listener! ::teurt-3
+        (rf.trace.tooling/register-listener! ::teurt-3
           (fn [ev]
             (swap! traces conj ev)
             (when (= :rf.event/dispatched (:operation ev))
@@ -274,5 +274,5 @@
           (is (= self-dispatches-before (count (filter #{:worker/proc#1} @dispatched)))
               "the abort-precedence reclassification MUST NOT deliver a live :cancelled reply to the destroyed actor's self-addressed target"))
         (finally
-          (rf.trace/unregister-listener! ::teurt-3)
+          (rf.trace.tooling/unregister-listener! ::teurt-3)
           (stop-server! srv))))))

@@ -328,7 +328,7 @@ generated `(reg-variant ...)` form:
 
 The recorder consumes Story's existing trace-bus listener primitive
 (per [`003-Render-Shell.md`](003-Render-Shell.md) §Trace bus + the
-`re-frame.trace/register-listener!` API per Spec 009 §Listener
+`re-frame.trace.tooling/register-listener!` API per Spec 009 §Listener
 contract). One process-wide callback installed at shell mount; per
 emit it short-circuits when no recording is in flight, so leaving it
 installed is free.

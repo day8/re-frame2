@@ -43,7 +43,8 @@
                :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support         :as rf.test-support]
-            [re-frame.trace                :as rf.trace]))
+            [re-frame.trace                :as rf.trace]
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
@@ -74,13 +75,13 @@
   (let [seen-observer (atom [])
         seen-emitter  (atom [])
         emitted?      (atom false)]
-    (rf.trace/register-listener! ::emitter
+    (rf.trace.tooling/register-listener! ::emitter
       (fn [ev]
         (swap! seen-emitter conj ev)
         (when (and (= outer (:operation ev))
                    (compare-and-set! emitted? false true))
           (rf.trace/emit! :info inner {}))))
-    (rf.trace/register-listener! ::observer
+    (rf.trace.tooling/register-listener! ::observer
       (fn [ev] (swap! seen-observer conj ev)))
     (try
       (rf.trace/emit! :info outer {})
@@ -89,8 +90,8 @@
       (is (= [outer inner] (ops-only @seen-emitter))
           "the emitter, too, sees outer before its own nested inner")
       (finally
-        (rf.trace/unregister-listener! ::emitter)
-        (rf.trace/unregister-listener! ::observer)))))
+        (rf.trace.tooling/unregister-listener! ::emitter)
+        (rf.trace.tooling/unregister-listener! ::observer)))))
 
 (deftest ^:requires-debug nested-emit-completes-synchronously
   ;; rf2-s522m: a nested emit must return only AFTER its event has reached every
@@ -110,7 +111,7 @@
         emitted?        (atom false)
         ;; :not-recorded until the emitter's outer-callback reaches the check.
         observer-caught-up? (atom :not-recorded)]
-    (rf.trace/register-listener! ::emitter
+    (rf.trace.tooling/register-listener! ::emitter
       (fn [ev]
         (swap! seen-emitter conj ev)
         (when (and (= outer (:operation ev))
@@ -120,7 +121,7 @@
           ;; returned: the observer MUST already have received inner.
           (reset! observer-caught-up?
                   (boolean (some #{inner} (ops-only @seen-observer)))))))
-    (rf.trace/register-listener! ::observer
+    (rf.trace.tooling/register-listener! ::observer
       (fn [ev] (swap! seen-observer conj ev)))
     (try
       (rf.trace/emit! :info outer {})
@@ -133,8 +134,8 @@
       (is (= [outer inner] (ops-only @seen-emitter))
           "the emitter, too, sees outer before its own nested inner")
       (finally
-        (rf.trace/unregister-listener! ::emitter)
-        (rf.trace/unregister-listener! ::observer)))))
+        (rf.trace.tooling/unregister-listener! ::emitter)
+        (rf.trace.tooling/unregister-listener! ::observer)))))
 
 (deftest ^:requires-debug stateful-tool-finishes-in-the-authored-state
   ;; The bead's stateful-tooling evidence: a tool folds the event stream into a
@@ -145,12 +146,12 @@
   ;; as gone.
   (let [tool-state (atom :unknown)
         emitted?   (atom false)]
-    (rf.trace/register-listener! ::reregistrar
+    (rf.trace.tooling/register-listener! ::reregistrar
       (fn [ev]
         (when (and (= outer (:operation ev))
                    (compare-and-set! emitted? false true))
           (rf.trace/emit! :info inner {}))))
-    (rf.trace/register-listener! ::stateful-tool
+    (rf.trace.tooling/register-listener! ::stateful-tool
       (fn [ev]
         (case (:operation ev)
           :trace.order/outer (reset! tool-state :cleared)
@@ -161,8 +162,8 @@
       (is (= :registered @tool-state)
           "the stateful tool folds outer(cleared)→inner(registered) and finishes live")
       (finally
-        (rf.trace/unregister-listener! ::reregistrar)
-        (rf.trace/unregister-listener! ::stateful-tool)))))
+        (rf.trace.tooling/unregister-listener! ::reregistrar)
+        (rf.trace.tooling/unregister-listener! ::stateful-tool)))))
 
 (deftest ^:requires-debug nested-exception-isolation-preserves-order
   ;; A listener that THROWS between the emitter and the observer must neither
@@ -171,16 +172,16 @@
   (let [seen-observer (atom [])
         threw?        (atom 0)
         emitted?      (atom false)]
-    (rf.trace/register-listener! ::emitter
+    (rf.trace.tooling/register-listener! ::emitter
       (fn [ev]
         (when (and (= outer (:operation ev))
                    (compare-and-set! emitted? false true))
           (rf.trace/emit! :info inner {}))))
-    (rf.trace/register-listener! ::thrower
+    (rf.trace.tooling/register-listener! ::thrower
       (fn [_ev]
         (swap! threw? inc)
         (throw (ex-info "listener boom" {}))))
-    (rf.trace/register-listener! ::observer
+    (rf.trace.tooling/register-listener! ::observer
       (fn [ev] (swap! seen-observer conj ev)))
     (try
       (rf.trace/emit! :info outer {})
@@ -188,6 +189,6 @@
           "a throwing intermediate listener does not reorder or drop the observer's stream")
       (is (pos? @threw?) "the throwing listener was actually invoked (isolation, not skip)")
       (finally
-        (rf.trace/unregister-listener! ::emitter)
-        (rf.trace/unregister-listener! ::thrower)
-        (rf.trace/unregister-listener! ::observer)))))
+        (rf.trace.tooling/unregister-listener! ::emitter)
+        (rf.trace.tooling/unregister-listener! ::thrower)
+        (rf.trace.tooling/unregister-listener! ::observer)))))

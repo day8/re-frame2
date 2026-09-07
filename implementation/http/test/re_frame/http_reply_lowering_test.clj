@@ -36,7 +36,7 @@
             [re-frame.reply :as rf.reply]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace :as rf.trace])
+            [re-frame.trace.tooling :as rf.trace.tooling])
   (:import [com.sun.net.httpserver HttpServer HttpHandler HttpExchange]
            [java.net InetSocketAddress]))
 
@@ -499,7 +499,7 @@
           traces  (atom [])
           lid     ::replied-trace]
       (try
-        (rf.trace/register-listener! lid (fn [ev] (swap! traces conj ev)))
+        (rf.trace.tooling/register-listener! lid (fn [ev] (swap! traces conj ev)))
         (rf/reg-event :t/load
           (fn [{:keys [db]} [_ msg reply]]
             (if reply
@@ -521,7 +521,7 @@
             ;; :request-id is correlation metadata, not a second stale key
             (is (= {:request-id :t/load} (:correlation tags)))))
         (finally
-          (rf.trace/unregister-listener! lid)
+          (rf.trace.tooling/unregister-listener! lid)
           (stop-server! srv))))))
 
 ;; ===========================================================================
@@ -639,7 +639,7 @@
           traces  (atom [])
           lid     ::supersede-stale]
       (try
-        (rf.trace/register-listener! lid (fn [ev] (swap! traces conj ev)))
+        (rf.trace.tooling/register-listener! lid (fn [ev] (swap! traces conj ev)))
         (rf/reg-event :search/replied
           (fn [{:keys [db]} [_ payload]]
             (swap! replies conj payload)
@@ -732,7 +732,7 @@
             "the delivered reply belongs to the SUPERSEDING issuance (2), not the superseded issuance 1")
         (finally
           (.countDown release)
-          (rf.trace/unregister-listener! lid)
+          (rf.trace.tooling/unregister-listener! lid)
           (stop-server! srv))))))
 
 ;; ===========================================================================
@@ -815,7 +815,7 @@
             (when (= :svc/replied (first ev))
               (reset! reply-dispatch-opts opts))
             (real-dispatch! ev opts)))
-        (rf.trace/register-listener! lid (fn [ev] (swap! traces conj ev)))
+        (rf.trace.tooling/register-listener! lid (fn [ev] (swap! traces conj ev)))
         (rf/reg-event :svc/call
           (fn [_ _]
             {:fx [[:rf.http/managed
@@ -858,7 +858,7 @@
                 "the retired :rf.world/inputs nested envelope is GONE (flat rename)")))
         (finally
           (rf.late-bind/set-fn! :router/dispatch! real-dispatch!)
-          (rf.trace/unregister-listener! lid)
+          (rf.trace.tooling/unregister-listener! lid)
           (stop-server! srv))))))
 
 (deftest http-reply-undeclared-handler-does-not-see-implicit-time

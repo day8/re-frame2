@@ -66,7 +66,7 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.schemas :as rf.schemas]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.trace :as rf.trace]
+            [re-frame.trace.tooling :as rf.trace.tooling]
             ;; rf2-v6z0: machines is a separate artefact whose late-bind
             ;; hooks publish when the ns is loaded — side-effect require
             ;; so the `:machines/teardown-on-frame-destroy!` and
@@ -82,7 +82,7 @@
   (rf.flows/reset-flows!)
   (rf.flows/reset-last-inputs!)
   (rf.schemas/clear-schemas-by-frame!)
-  (rf.trace/clear-listeners!)
+  (rf.trace.tooling/clear-listeners!)
   (rf.epoch/clear-history!)
   (rf.epoch/clear-epoch-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)

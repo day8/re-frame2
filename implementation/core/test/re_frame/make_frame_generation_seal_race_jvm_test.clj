@@ -59,7 +59,7 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.schemas :as rf.schemas]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.trace :as rf.trace])
+            [re-frame.trace.tooling :as rf.trace.tooling])
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
 ;; ---------------------------------------------------------------------------
@@ -78,7 +78,7 @@
     (reset! rf.frame/frames {})
     (rf.flows/reset-flows!)
     (rf.schemas/clear-schemas-by-frame!)
-    (rf.trace/clear-listeners!)
+    (rf.trace.tooling/clear-listeners!)
     (rf/init! rf.substrate.plain-atom/adapter)
     ;; Framework registrations live at namespace-load time; `clear-all!` wiped
     ;; them. Re-eval so the rest of the suite is not left short.

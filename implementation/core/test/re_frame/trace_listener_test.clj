@@ -39,7 +39,7 @@
             [re-frame.trace :as rf.trace]
             ;; rf2-qwm0a — load the tooling sibling so the late-bind
             ;; hooks behind the listener API resolve.
-            [re-frame.trace.tooling]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; ---- fixtures --------------------------------------------------------------
 
@@ -48,7 +48,7 @@
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
   (rf.schemas/clear-schemas-by-frame!)
-  (rf.trace/clear-listeners!)
+  (rf.trace.tooling/clear-listeners!)
   (re-frame.trace.tooling/clear-trace-rings!)
   (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.routing :reload)
@@ -288,7 +288,7 @@
 ;; ---- rf2-61iu: clear-listeners! direct contract pin ----------------------
 ;;
 ;; Per test-coverage-review-2026-05-12 P3-21: every fixture above calls
-;; `(rf.trace/clear-listeners!)`, but no deftest pins the contract directly.
+;; `(rf.trace.tooling/clear-listeners!)`, but no deftest pins the contract directly.
 ;; This test exercises the documented behaviour: clear drops every
 ;; registered listener; a subsequent emission lands on NONE of them;
 ;; re-registration after a clear restores delivery.
@@ -320,7 +320,7 @@
             "every registered listener received the same number of events")
 
         ;; Clear every cb.
-        (rf.trace/clear-listeners!)
+        (rf.trace.tooling/clear-listeners!)
 
         ;; A subsequent dispatch lands on NONE of the cleared listeners.
         (rf/dispatch-sync [:clear/seed])
@@ -347,7 +347,7 @@
 (deftest ^:requires-debug clear-trace-listeners-returns-nil
   (testing "clear-listeners! returns nil per Spec 009 §The listener API"
     (rf/register-listener! :trace ::ret-nil (fn [_ev]))
-    (is (nil? (rf.trace/clear-listeners!))
+    (is (nil? (rf.trace.tooling/clear-listeners!))
         "clear-listeners! is a side-effecting nil-returning fn")))
 
 ;; ---- unknown listener stream — canonical thrown-error shape (rf2-cl48e2) ---

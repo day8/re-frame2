@@ -37,7 +37,7 @@
             [re-frame.trace :as rf.trace]
             ;; load the tooling sibling so the late-bind hooks behind the
             ;; public listener API resolve (rf2-qwm0a).
-            [re-frame.trace.tooling]
+            [re-frame.trace.tooling :as rf.trace.tooling]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (defn reset-runtime [test-fn]
@@ -45,7 +45,7 @@
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
   (rf.schemas/clear-schemas-by-frame!)
-  (rf.trace/clear-listeners!)
+  (rf.trace.tooling/clear-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)
   ;; EP-0002 (rf2-jue6sp): `init!` no longer synthesises `:rf/default`,
   ;; and ambient subscribe / dispatch now require a carried frame stamp.

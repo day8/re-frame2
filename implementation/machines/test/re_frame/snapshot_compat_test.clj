@@ -20,7 +20,7 @@
             [re-frame.frame :as rf.frame]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.trace :as rf.trace]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (use-fixtures :each
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
@@ -34,12 +34,12 @@
 (defn- capture-error-traces []
   (let [captured (atom [])
         cb-id    (gensym "snapshot-compat-test")]
-    (rf.trace/register-listener! cb-id
+    (rf.trace.tooling/register-listener! cb-id
                               (fn [ev]
                                 (when (= :error (:op-type ev))
                                   (swap! captured conj ev))))
     {:captured captured
-     :stop!    #(rf.trace/unregister-listener! cb-id)}))
+     :stop!    #(rf.trace.tooling/unregister-listener! cb-id)}))
 
 ;; ---- (3) state-not-in-definition -----------------------------------------
 
@@ -259,12 +259,12 @@
   []
   (let [captured (atom [])
         cb-id    (gensym "snapshot-compat-nsh")]
-    (rf.trace/register-listener! cb-id
+    (rf.trace.tooling/register-listener! cb-id
                               (fn [ev]
                                 (when (= :rf.error/no-such-handler (:operation ev))
                                   (swap! captured conj ev))))
     {:captured captured
-     :stop!    #(rf.trace/unregister-listener! cb-id)}))
+     :stop!    #(rf.trace.tooling/unregister-listener! cb-id)}))
 
 (defn- bumping-child
   "A child TYPE at `version` whose live state is `state`, starting at

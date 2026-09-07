@@ -6,7 +6,7 @@
             [re-frame.http.transport]
             [re-frame.http.transport-jvm]
             [re-frame.late-bind :as rf.late-bind]
-            [re-frame.trace :as rf.trace])
+            [re-frame.trace.tooling :as rf.trace.tooling])
   (:import [java.net.http HttpClient HttpClient$Redirect HttpRequest]
            [java.time Duration]
            [java.util Optional]))
@@ -20,10 +20,10 @@
   (let [captured (atom [])
         cb-id    ::transport-security-cap]
     (try
-      (rf.trace/register-listener! cb-id (fn [ev] (swap! captured conj ev)))
+      (rf.trace.tooling/register-listener! cb-id (fn [ev] (swap! captured conj ev)))
       (body-fn captured)
       (finally
-        (rf.trace/unregister-listener! cb-id)))))
+        (rf.trace.tooling/unregister-listener! cb-id)))))
 
 ;; ---- header validation surfaces a trace ----------------------------------
 

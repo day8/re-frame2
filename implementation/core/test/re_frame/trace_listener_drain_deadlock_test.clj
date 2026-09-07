@@ -52,6 +52,7 @@
             [re-frame.epoch]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
+            [re-frame.trace.tooling :as rf.trace.tooling]
             [re-frame.trace :as rf.trace])
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
@@ -127,7 +128,7 @@
             (swap! t1-event-runs inc)
             {:db (assoc db :jl75r/t1-event true)}))
 
-        (rf.trace/register-listener! ::jl75r
+        (rf.trace.tooling/register-listener! ::jl75r
           (fn [ev]
             ;; React ONLY to T1's clean trigger emit (never to the drain's own
             ;; run-start/run-end/db-changed emits), and exactly once.
@@ -153,7 +154,7 @@
                           "jl75r-t1-listener")]
           (.start t1)
           (.join t1 join-timeout-ms)
-          (rf.trace/unregister-listener! ::jl75r)
+          (rf.trace.tooling/unregister-listener! ::jl75r)
 
           (is (not (.isAlive t1))
               (str "iter " iter ": T1 (fanout-monitor -> listener -> "

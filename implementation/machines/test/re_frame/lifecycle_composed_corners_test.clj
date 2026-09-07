@@ -30,7 +30,7 @@
             [re-frame.machines.timer :as rf.machines.timer]
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.trace :as rf.trace]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (use-fixtures :each
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
@@ -44,8 +44,8 @@
   "Attach a trace listener and return [observation-atom unreg-fn]."
   [id]
   (let [a (atom [])]
-    (rf.trace/register-listener! id (fn [ev] (swap! a conj ev)))
-    [a #(rf.trace/unregister-listener! id)]))
+    (rf.trace.tooling/register-listener! id (fn [ev] (swap! a conj ev)))
+    [a #(rf.trace.tooling/unregister-listener! id)]))
 
 ;; ---------------------------------------------------------------------------
 ;; 1. Stale :after firing AFTER frame destroy

@@ -64,7 +64,7 @@
             [re-frame.frame :as rf.frame]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace :as rf.trace]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
@@ -108,7 +108,7 @@
     ;; Listener 1 (registered FIRST → fans out FIRST): the DESTROYER. On A's own
     ;; :rf.registry/handler-replaced — the already-entered delivery — it destroys
     ;; A and publishes same-id B exactly once, then snapshots B's stores.
-    (rf.trace/register-listener!
+    (rf.trace.tooling/register-listener!
       ::destroyer
       (fn [ev]
         (when (and (= :rf.registry/handler-replaced (:operation ev))
@@ -123,7 +123,7 @@
     ;; Listener 2 (registered SECOND → fans out AFTER the destroyer): the
     ;; SUBSEQUENT observer. Absent the fence it receives A's stale replaced event
     ;; after B owns the bare id; the fence suppresses it.
-    (rf.trace/register-listener!
+    (rf.trace.tooling/register-listener!
       ::observer
       (fn [ev]
         (when (= :rf.registry/handler-replaced (:operation ev))
@@ -170,8 +170,8 @@
       (is (= b-flow-id (get-in (first @observer-repl) [:tags :id]))
           "the sole post-loss replacement observed is B's own")
       (finally
-        (rf.trace/unregister-listener! ::destroyer)
-        (rf.trace/unregister-listener! ::observer)))))
+        (rf.trace.tooling/unregister-listener! ::destroyer)
+        (rf.trace.tooling/unregister-listener! ::observer)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Green control / over-fence tooth — when A retains ownership through a
@@ -193,12 +193,12 @@
     (rf/reg-flow flow-id
       {:frame id :inputs [[:n]] :output-path [:out]}
       (fn [n] (or n 0)))
-    (rf.trace/register-listener!
+    (rf.trace.tooling/register-listener!
       ::live-touch
       (fn [ev]
         (when (= :rf.registry/handler-replaced (:operation ev))
           (swap! touched inc))))          ;; observe only — A stays live
-    (rf.trace/register-listener!
+    (rf.trace.tooling/register-listener!
       ::live-observer
       (fn [ev]
         (when (= :rf.registry/handler-replaced (:operation ev))
@@ -213,8 +213,8 @@
            is not over-fenced")
       (is (= flow-id (get-in (first @observed) [:tags :id])) "A's own flow id")
       (finally
-        (rf.trace/unregister-listener! ::live-touch)
-        (rf.trace/unregister-listener! ::live-observer)))))
+        (rf.trace.tooling/unregister-listener! ::live-touch)
+        (rf.trace.tooling/unregister-listener! ::live-observer)))))
 
 ;; ===========================================================================
 ;; CLEAR — `:rf.flow/cleared`
@@ -250,7 +250,7 @@
       (fn [n] (or n 0)))
     ;; Listener 1 (registered FIRST): the DESTROYER. On A's own :rf.flow/cleared
     ;; it destroys A and publishes same-id B exactly once, then snapshots B.
-    (rf.trace/register-listener!
+    (rf.trace.tooling/register-listener!
       ::destroyer
       (fn [ev]
         (when (and (= :rf.flow/cleared (:operation ev))
@@ -264,7 +264,7 @@
           (reset! b-flow-registry (get (rf.flows.registry/flows-snapshot) id ::none))
           (reset! b-commit (rf.frame/frame-commit-epoch id)))))
     ;; Listener 2 (registered SECOND): the SUBSEQUENT observer.
-    (rf.trace/register-listener!
+    (rf.trace.tooling/register-listener!
       ::observer
       (fn [ev]
         (when (= :rf.flow/cleared (:operation ev))
@@ -303,8 +303,8 @@
       (is (= b-flow-id (get-in (first @observer-clr) [:tags :flow-id]))
           "the sole post-loss clear observed is B's own")
       (finally
-        (rf.trace/unregister-listener! ::destroyer)
-        (rf.trace/unregister-listener! ::observer)))))
+        (rf.trace.tooling/unregister-listener! ::destroyer)
+        (rf.trace.tooling/unregister-listener! ::observer)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Green control / over-fence tooth — when A retains ownership through a
@@ -324,12 +324,12 @@
     (rf/reg-flow flow-id
       {:frame id :inputs [[:n]] :output-path [:out]}
       (fn [n] (or n 0)))
-    (rf.trace/register-listener!
+    (rf.trace.tooling/register-listener!
       ::live-touch
       (fn [ev]
         (when (= :rf.flow/cleared (:operation ev))
           (swap! touched inc))))          ;; observe only — A stays live
-    (rf.trace/register-listener!
+    (rf.trace.tooling/register-listener!
       ::live-observer
       (fn [ev]
         (when (= :rf.flow/cleared (:operation ev))
@@ -345,8 +345,8 @@
         (is (= [:out]  (:path tags))    "A's own :output-path")
         (is (= id      (:frame tags))   "A's own frame"))
       (finally
-        (rf.trace/unregister-listener! ::live-touch)
-        (rf.trace/unregister-listener! ::live-observer)))))
+        (rf.trace.tooling/unregister-listener! ::live-touch)
+        (rf.trace.tooling/unregister-listener! ::live-observer)))))
 
 ;; ===========================================================================
 ;; PER-FRAME REPLACEMENT EVIDENCE (rf2-soyqfn) — CROSS-HOST (CLJ + CLJS)
@@ -371,7 +371,7 @@
   (let [captured (atom [])
         f1       (fn [n] (* 2 (or n 0)))
         f2       (fn [n] (* 3 (or n 0)))]
-    (rf.trace/register-listener!
+    (rf.trace.tooling/register-listener!
       ::repl-recorder
       (fn [ev]
         (when (= :rf.registry/handler-replaced (:operation ev))
@@ -397,7 +397,7 @@
       (is (empty? @captured)
           "identical reloads suppress independently within each frame")
       (finally
-        (rf.trace/unregister-listener! ::repl-recorder)))))
+        (rf.trace.tooling/unregister-listener! ::repl-recorder)))))
 
 (deftest fx-reg-flow-replacement-evidence-is-per-frame-cross-host
   ;; RESERVED-EFFECT :rf.fx/reg-flow. The dispatching frame threads through as the
@@ -407,7 +407,7 @@
   (let [captured (atom [])
         f1       (fn [n] (* 2 (or n 0)))
         f2       (fn [n] (* 3 (or n 0)))]
-    (rf.trace/register-listener!
+    (rf.trace.tooling/register-listener!
       ::repl-recorder
       (fn [ev]
         (when (= :rf.registry/handler-replaced (:operation ev))
@@ -431,7 +431,7 @@
              (set (map #(get-in % [:tags :frame]) @captured)))
           "the reserved-effect evidence is attributable to its frame")
       (finally
-        (rf.trace/unregister-listener! ::repl-recorder)))))
+        (rf.trace.tooling/unregister-listener! ::repl-recorder)))))
 
 (deftest reg-flow-replacement-reincarnation-does-not-inherit-cross-host
   ;; Destroy + recreate a frame under the SAME id; the new incarnation's genuine
@@ -440,7 +440,7 @@
   (let [captured (atom [])
         f1       (fn [n] (* 2 (or n 0)))
         f2       (fn [n] (* 3 (or n 0)))]
-    (rf.trace/register-listener!
+    (rf.trace.tooling/register-listener!
       ::repl-recorder
       (fn [ev]
         (when (= :rf.registry/handler-replaced (:operation ev))
@@ -460,4 +460,4 @@
       (is (= :host (get-in (first @captured) [:tags :frame]))
           "attributed to the reincarnated :host frame")
       (finally
-        (rf.trace/unregister-listener! ::repl-recorder)))))
+        (rf.trace.tooling/unregister-listener! ::repl-recorder)))))

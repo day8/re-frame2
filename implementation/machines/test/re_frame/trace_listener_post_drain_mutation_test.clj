@@ -49,7 +49,7 @@
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.trace :as rf.trace]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (use-fixtures :each
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
@@ -112,7 +112,7 @@
   (let [listener-id ::arm
         fired       (atom false)]
     (when during
-      (rf.trace/register-listener!
+      (rf.trace.tooling/register-listener!
         listener-id
         (fn [ev]
           (when (and (= :rf.machine.spawn-all/started (:operation ev))
@@ -123,7 +123,7 @@
       (rf/dispatch-sync [parent-kw [:start]])
       (when after (after))
       (finally
-        (when during (rf.trace/unregister-listener! listener-id))))
+        (when during (rf.trace.tooling/unregister-listener! listener-id))))
     (when during
       (is (true? @fired)
           "(precondition) the listener ran — deferred delivery still DELIVERS"))
