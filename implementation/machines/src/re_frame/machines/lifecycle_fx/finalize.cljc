@@ -583,11 +583,23 @@
         ;; above, and `runtime-db` rides through untouched.
         ;;
         ;; Per EP-0011 §Machine Completion the delivered `:result` is driven
-        ;; from the canonical reply's `:value`, so the value the trace / ledger
+        ;; from the canonical reply's PAYLOAD, so the value the trace / ledger
         ;; see and the value the parent's callback receives are the SAME fact.
-        ;; `(:value reply)` is `=` to the pre-lowering `result` for a success
-        ;; leaf (behavioural parity).
-        completion-value (:value reply)]
+        ;; That payload lives in a DIFFERENT SLOT per status: `:value` on a
+        ;; success reply, and the raw failure payload on an `:error` reply,
+        ;; which `error-reply` builds from this same `result` and merely
+        ;; re-homes under `:error` (wrapping a bare payload with a family
+        ;; `:kind` so the closed reply-map schema holds). `(:value reply)` is
+        ;; `=` to the pre-lowering `result` for a success leaf, and `result`
+        ;; IS the pre-wrapping error payload for an error leaf — so both arms
+        ;; carry the same fact the reply does.
+        ;;
+        ;; Reading `:value` unconditionally silently delivered nil for EVERY
+        ;; error leaf, which under a `:spawn-all` parent dropped the decisive
+        ;; child's `:on-any-failed` payload on the floor: Spec 005
+        ;; §Spawn-and-join says the resolution carries "the decisive child's
+        ;; `:output-key` value — its error payload on `:on-any-failed`".
+        completion-value (if error-leaf? result (:value reply))]
     ;; rf2-3evq0x — terminal incarnation fence for the completion tail. If a
     ;; completion-output validator, a `:rf.machine/done` trace listener, or the
     ;; parent `:on-done` callback destroyed A / published same-id B, EVERY action
