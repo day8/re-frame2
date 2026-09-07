@@ -211,7 +211,7 @@ A registration-metadata key is **elidable** in production iff it has ZERO produc
 | Key(s) | Class | Why |
 |---|---|---|
 | `:doc` | **Elidable** (stored-then-stripped) | Pure documentation — surfaced in dev tooling / agent inspection only; never read at runtime, never shipped to off-box observability. |
-| `:rf.handler/source` (DEBUG-gated source-as-data) | **Elidable at capture** — never stored in production meta | The `pr-str` of the whole macro-captured `(reg-event …)` form, dev-only. Distinct from `:doc`'s stored-then-stripped path: the macro emits `(if debug-enabled? <src> nil)` and the registrar-side merge is gated, so the source bytes AND the keyword's reachability are DCE'd from the `:advanced` + `goog.DEBUG=false` bundle — the slot never enters production public meta at all (JVM always-on). Read via `(rf/handler-meta …)`; a machine guard/action derives the same key from the enclosing spec's internal `:source-code` slot (Spec 005). Never lands in app-db / frame-state — registry-meta only. The elision probe pins its production absence. |
+| `:rf.handler/source` (DEBUG-gated source-as-data) | **Elidable at capture** — never stored in production meta | The `pr-str` of the whole macro-captured `(reg-event …)` form, dev-only. Distinct from `:doc`'s stored-then-stripped path: the macro emits `(if debug-enabled? <src> nil)` and the registrar-side merge is gated, so the source bytes AND the keyword's reachability are DCE'd from the `:advanced` + `goog.DEBUG=false` bundle — the slot never enters production public meta at all (JVM always-on). Read via `(rf/handler-meta {:source :store …})`; a machine guard/action derives the same key from the enclosing spec's internal `:source-code` slot (Spec 005). Never lands in app-db / frame-state — registry-meta only. The elision probe pins its production absence. |
 | `:ns` / `:file` / `:line` / `:column` (auto-captured source coords) | **Elidable from public meta** (Policy A) — but RETAINED on the always-on error-coord registry (Policy B) | Public-meta coords serve dev jump-to-source; the error-emit channel keeps `:ns`/`:file`/`:line` for Sentry-style shippers. |
 | `:sensitive?` / `:large?` | **Retained** | Drive production redaction / egress projection (Spec 015 / [EP-0015](../docs/EP/EP-0015-frame-owned-egress-policy.md)). Production-critical. |
 | `:tags` | **Retained** | Runtime: machine `:tags` → `:fsm/tags` containment subs; resource `:tags` → invalidation. |
@@ -239,12 +239,20 @@ The registry is a public, queryable structure. Tools and agents read it without 
 | Function | Returns |
 |---|---|
 | `(rf/registrations {:source :store :kind kind})` | All registrations for a kind. Returns `id → metadata`. |
-| `(rf/registrations kind pred-fn)` | Filtered: only registrations where `(pred-fn metadata)` returns truthy. |
+| `(rf/registrations {:frame f :kind kind})` | Same, resolved through live frame `f`'s own sealed image generation instead of the process source store. |
 | `(rf/handler-meta {:source :store :kind kind :id id})` | A single registration's metadata. Returns `nil` if not registered. |
+| `(rf/handler-meta {:frame f :kind kind :id id})` | Same, resolved through live frame `f`'s generation. |
 | `(rf/frame-ids)` | All registered frame ids. |
 | `(rf/frame-meta frame-id)` | Metadata for a specific frame. |
 
-The valid `kind` values are defined in §Registry model above.
+Each read takes exactly ONE query map naming exactly ONE source — `:source :store` (the process source store, never routed through a bound image generation) or `:frame f` — and a map naming both, neither, or a `:source` other than `:store` throws `:rf.error/registrar-query-needs-source`. There is no positional arity and no `:pred` key: filtering is `filter` over the returned map.
+
+```clojure
+(into {} (filter (fn [[_id m]] (:rf/machine? m)))
+          (rf/registrations {:source :store :kind :event}))
+```
+
+The valid `kind` values are defined in §Registry model above. Two of them are **not queryable**: `:flow` and `:frame` are reserved-but-EMPTY registrar slots, and querying either throws `:rf.error/registrar-kind-not-queryable` naming the owning read (`flows/flows-snapshot` / `flows/flow-meta-at`; `rf/frame-ids` / `rf/frame-meta`) rather than returning a `{}` that reads as an authoritative empty catalogue. Any other non-registry kind throws `:rf.error/unknown-registry-kind`.
 
 A handler's metadata is returned as authored, with the framework-injected source coords and effective interceptor chain:
 
