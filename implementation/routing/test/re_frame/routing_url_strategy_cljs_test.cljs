@@ -378,6 +378,106 @@
       (is (= "/completed" ((:decode strat)))
           "decode strips the base — app-relative /completed"))))
 
+;; ==========================================================================
+;; 6b. rf2-exnw — INGRESS: a based HASH app keeps an app route whose own first
+;;     segment happens to EQUAL the mount point.
+;;
+;; `:encode` puts the base OUTSIDE the fragment (rf2-irygd6), so a `/demos`-
+;; deployed hash app's route `/demos/item` renders `/demos#/demos/item`. The
+;; base therefore lives in the PATHNAME, and `hash-decode` reads only
+;; `location.hash` — its result is ALREADY app-relative. Stripping the base off
+;; it a second time ate the route's own leading segment (`/demos/item` →
+;; `/item`), which either renders a same-named shorter route or lands on
+;; not-found. The path-form (history) leg is the control: THERE the base really
+;; is inside what `:decode` reads, so it must still be stripped.
+;; ==========================================================================
+
+(defn- register-colliding-routes!
+  "Routes whose app-relative names share their first segment with the `/demos`
+  deployment mount point — the collision rf2-exnw is about."
+  []
+  (rf/reg-route :s/demos      {} "/demos")
+  (rf/reg-route :s/demos-item {} "/demos/item")
+  (rf/reg-route :rf.route/not-found {} "/_404"))
+
+(deftest hash-base-preserves-colliding-app-route-prefix-exnw-cljs
+  (testing "rf2-exnw: a /demos-based HASH app whose app routes are /demos and
+            /demos/item round-trips both VERBATIM — `:encode` still puts the
+            base outside the fragment, and inbound `:decode` returns the app
+            path unmangled because the fragment never carried the base"
+    (rf/make-frame {:id :rf/default :url-bound?   true
+                    :url-strategy (rf.routing.strategy/with-base-path
+                                    rf.routing.strategy/hash-url-strategy "/demos")})
+    (register-colliding-routes!)
+    (let [strat (rf.routing.strategy/url-strategy-for-frame-id :rf/default)]
+      ;; (a) egress is unchanged — base OUTSIDE the fragment (rf2-irygd6).
+      (is (= "/demos#/demos/item" ((:encode strat) "/demos/item"))
+          "the base sits outside the fragment; the app route rides inside it")
+      (is (= "/demos#/demos" ((:encode strat) "/demos"))
+          "an app route EQUAL to the mount point encodes the same way")
+      ;; (b) inbound decode returns the app path verbatim.
+      (doseq [[href app-path]
+              [["/demos#/demos/item"        "/demos/item"]
+               ["/demos#/demos"             "/demos"]
+               ["/demos#/demos/item?q=milk" "/demos/item?q=milk"]]]
+        (.pushState js/globalThis.window.history nil "" href)
+        (is (= app-path ((:decode strat)))
+            (str "decode of " href " is the app-relative " app-path))
+        ;; (c) the round-trip law: encode(decode) reproduces the address bar.
+        (is (= href ((:encode strat) ((:decode strat))))
+            (str "encode∘decode round-trips " href))
+        (is (not (double-hash? ((:encode strat) ((:decode strat)))))
+            "the round-tripped href is not double-hashed")))))
+
+(deftest hash-base-install-listener!-preserves-colliding-prefix-exnw-cljs
+  (testing "rf2-exnw: the wrapped `:install-listener!` hands `on-change` the
+            app-relative path for a based HASH app — a browser-driven change to
+            /demos#/demos/item delivers /demos/item, not /item"
+    (let [wrapped  (rf.routing.strategy/with-base-path
+                     rf.routing.strategy/hash-url-strategy "/demos")
+          received (atom [])
+          teardown ((:install-listener! wrapped) (fn [p] (swap! received conj p)))]
+      (.pushState js/globalThis.window.history nil "" "/demos#/demos/item")
+      (.dispatchEvent js/globalThis.window #js {:type "hashchange"})
+      (.pushState js/globalThis.window.history nil "" "/demos#/demos")
+      (.dispatchEvent js/globalThis.window #js {:type "hashchange"})
+      (is (= ["/demos/item" "/demos"] @received)
+          "on-change received each app route with its leading segment intact")
+      (teardown))))
+
+(deftest hash-base-initial-sync-lands-on-colliding-route-exnw-cljs
+  (testing "rf2-exnw: a deep link / reload at /demos#/demos/item syncs the
+            owner's route slice to :s/demos-item — the initial sync decodes
+            through the same wrapped `:decode`"
+    (register-colliding-routes!)
+    (.pushState js/globalThis.window.history nil "" "/demos#/demos/item")
+    (rf/make-frame {:id :rf/default :url-bound?   true
+                    :url-strategy (rf.routing.strategy/with-base-path
+                                    rf.routing.strategy/hash-url-strategy "/demos")})
+    (is (= :s/demos-item (route-slice-id :rf/default))
+        "the initial sync landed on the /demos/item route, not /item → not-found")))
+
+(deftest history-base-still-strips-colliding-app-route-prefix-exnw-cljs
+  (testing "rf2-exnw CONTROL: for the PATH-form (history) strategy the base IS
+            part of what `:decode` reads, so it must STILL be stripped —
+            /demos/demos/item decodes to /demos/item (query + fragment ride
+            along untouched)"
+    (rf/make-frame {:id :rf/default :url-bound?   true
+                    :url-strategy (rf.routing.strategy/with-base-path
+                                    rf.routing.strategy/history-url-strategy "/demos")})
+    (register-colliding-routes!)
+    (let [strat (rf.routing.strategy/url-strategy-for-frame-id :rf/default)]
+      (is (= "/demos/demos/item" ((:encode strat) "/demos/item"))
+          "the path-form href carries the base AND the app route")
+      (doseq [[href app-path]
+              [["/demos/demos/item"              "/demos/item"]
+               ["/demos/demos"                   "/demos"]
+               ["/demos/demos/item?q=milk#frag"  "/demos/item?q=milk#frag"]
+               ["/demos"                         "/"]]]
+        (.pushState js/globalThis.window.history nil "" href)
+        (is (= app-path ((:decode strat)))
+            (str "decode of " href " strips the base to " app-path))))))
+
 (deftest hash-no-base-push-is-single-hash-irygd6-cljs
   (testing "rf2-irygd6: the HASH strategy WITHOUT a base still pushes a single
             #/active (no double-hash) — the raw :push! leg drives exactly the

@@ -276,13 +276,47 @@
         (str "/" remainder)))
     url))
 
+(defn fragment-form-strategy?
+  "PURE: does `strategy` put the app route INSIDE the URL FRAGMENT — the shape
+  `hash-url-strategy` produces (`/active` → `#/active`)?
+
+  This is `with-base-path`'s INGRESS discriminator (rf2-exnw). A base path is a
+  component of the PATHNAME, and `:encode` composes it OUTSIDE the address-bar
+  form (`/demos#/active`, the only shape a static host can route — rf2-irygd6).
+  So a fragment-form strategy's `:decode` reads `location.hash`, which NEVER
+  carried the base, and its result is ALREADY app-relative; a path-form
+  strategy's `:decode` reads the pathname, so its result still carries the base
+  and must be stripped. Stripping a fragment-form decode a second time ate the
+  app route's own leading segment whenever that segment happened to equal the
+  mount point (`/demos#/demos/item` → `/item`).
+
+  Derived from the strategy's OWN `:encode` — the single outbound authority —
+  so a custom fragment-form strategy classifies correctly too, with no sixth
+  key added to the five-leg contract. `:encode` is pure and host-agnostic
+  (required on BOTH hosts), so the single `\"/\"` probe here is safe; it runs
+  once per `with-base-path` call, never per decode. A non-callable `:encode`
+  reads as path-form (the prior behaviour) rather than throwing: the canonical
+  `:rf.error/invalid-url-strategy` belongs to the registration-time preflight,
+  which must stay the one place a malformed strategy is reported."
+  [strategy]
+  (let [encode (:encode strategy)]
+    (boolean (when (fn? encode)
+               (let [href (encode "/")]
+                 (and (string? href)
+                      (clojure.string/starts-with? href "#")))))))
+
 (defn with-base-path
   "Wrap `strategy` (`history-url-strategy` / `hash-url-strategy` / a custom
   strategy map) so every egress/ingress consult point accounts for a
   deployment BASE PATH. Per Spec 012 §URL strategies:
 
     - `:decode`            strips `base` off the wrapped strategy's decoded
-                           path-form URL.
+                           path-form URL — but only for a PATH-FORM strategy,
+                           whose decode reads the pathname the base prefixes. A
+                           FRAGMENT-form strategy's decode reads only the
+                           fragment, which never carried the base, so its
+                           result passes through app-relative and untouched
+                           (rf2-exnw; `fragment-form-strategy?`).
     - `:encode`            re-adds `base` to the wrapped strategy's encoded
                            href — the single outbound base-composition point.
                            `route-link` renders this href and the
@@ -294,8 +328,8 @@
                            rides the encoded href the nav fxs hand these RAW
                            legs. Re-adding it here would double it into the
                            fragment on a hash app (`#/demos#/active`).
-    - `:install-listener!` strips `base` off each browser-driven change
-                           before calling `on-change`, so the dispatched
+    - `:install-listener!` applies the SAME ingress rule to each browser-driven
+                           change before calling `on-change`, so the dispatched
                            `:rf.route/handle-url-change` URL is always
                            app-relative.
 
@@ -324,25 +358,31 @@
   (let [b (normalize-base-path base)]
     (if (clojure.string/blank? b)
       strategy
-      (merge strategy
-             {:encode (fn [path] (str b ((:encode strategy) path)))
-              :decode (fn [] (strip-base-path b ((:decode strategy))))}
-             ;; :push! / :replace! are deliberately not wrapped:
-             ;; `:encode` is the single outbound encoding authority — the nav
-             ;; fxs encode once and hand these RAW legs the final base-prefixed
-             ;; href — so the inner strategy's :push!/:replace! pass through via
-             ;; `merge` unchanged. Re-adding the base here would double it into
-             ;; the fragment on a hash app (`#/demos#/active`). Only the ingress
-             ;; listener is wrapped: it STRIPS the base so `on-change` stays
-             ;; app-relative.
-             #?(:cljs
-                (cond-> {}
-                  (:install-listener! strategy)
-                  (assoc :install-listener!
-                         (fn [on-change]
-                           ((:install-listener! strategy)
-                            (fn [decoded] (on-change (strip-base-path b decoded)))))))
-                :clj {})))))
+      ;; THE ONE INGRESS RULE, resolved once at wrap time and shared by BOTH
+      ;; inbound legs (`:decode` and the listener) so they can never drift
+      ;; apart. A fragment-form strategy's inbound value is already
+      ;; app-relative — see `fragment-form-strategy?` (rf2-exnw).
+      (let [strip-ingress (if (fragment-form-strategy? strategy)
+                            identity
+                            (fn [decoded] (strip-base-path b decoded)))]
+        (merge strategy
+               {:encode (fn [path] (str b ((:encode strategy) path)))
+                :decode (fn [] (strip-ingress ((:decode strategy))))}
+               ;; :push! / :replace! are deliberately not wrapped:
+               ;; `:encode` is the single outbound encoding authority — the nav
+               ;; fxs encode once and hand these RAW legs the final base-prefixed
+               ;; href — so the inner strategy's :push!/:replace! pass through via
+               ;; `merge` unchanged. Re-adding the base here would double it into
+               ;; the fragment on a hash app (`#/demos#/active`). Only the ingress
+               ;; listener is wrapped, under the rule above.
+               #?(:cljs
+                  (cond-> {}
+                    (:install-listener! strategy)
+                    (assoc :install-listener!
+                           (fn [on-change]
+                             ((:install-listener! strategy)
+                              (fn [decoded] (on-change (strip-ingress decoded)))))))
+                  :clj {}))))))
 
 ;; ---- frame-config resolution ---------------------------------------------
 ;; A frame declares its URL strategy in its `make-frame` config map under
