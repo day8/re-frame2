@@ -440,23 +440,6 @@ They serve Xray, unit tests, and SSR serialization — contexts with no reactive
 ;; => entry map, or nil when no entry exists
 ```
 
-### `resources`
-
-- **Kind**: function (post-v1 lib)
-- **Signature**:
-  ```clojure
-  (resources)            → {:resource-ids [...] :entries {}}
-  (resources {:frame …}) → {:resource-ids [...] :entries {<key-id> <entry>}}
-  ```
-- **Description**: Resource introspection for a frame target — the static registry (every registered id) plus, with `:frame`, the live per-frame resource-instance entries.
-  - The `:entries` map is keyed on the CEDN-1 byte `key-id` string — the same key the runtime storage and SSR wire use. Unlike an `=`-keyed scoped-key vector, it cannot collapse CEDN-distinct sequential-params entries.
-  - Each entry carries its kind-preserving scoped-resource-key `[scope resource-id params]` under `:resource/key` for destructure / scope-and-resource filtering.
-
-```clojure
-(rf/resources)                      ;; => {:resource-ids [...] :entries {}}  (static registry only)
-(rf/resources {:frame :rf/default}) ;; => {:resource-ids [...] :entries {<key-id> <entry>}}
-```
-
 ### `resource-ids`
 
 - **Kind**: function (post-v1 lib; `re-frame.resources` façade only — not on `re-frame.core`)
@@ -464,7 +447,7 @@ They serve Xray, unit tests, and SSR serialization — contexts with no reactive
   ```clojure
   (re-frame.resources/resource-ids) → [resource-id …]
   ```
-- **Description**: A vector of every registered resource id — the registry-side half of `resources` (which returns the same vector under `:resource-ids`).
+- **Description**: A vector of every registered resource id — the same set `(rf/registrations {:source :store :kind :resource})` enumerates.
 
 ```clojure
 (re-frame.resources/resource-ids)
@@ -503,23 +486,6 @@ They serve Xray, unit tests, and SSR serialization — contexts with no reactive
 ;; => {:status … :result … :error …}, or nil
 ```
 
-### `mutations`
-
-- **Kind**: function (post-v1 lib)
-- **Signature**:
-  ```clojure
-  (mutations)            → {:mutation-ids [...] :instances {}}
-  (mutations {:frame …}) → {:mutation-ids [...] :instances {<instance-key-id> <row>}}
-  ```
-- **Description**: Mutation introspection for a frame target — the registered mutation ids plus, with `:frame`, the live per-frame mutation-instance table.
-  - The `:instances` map is keyed on the CEDN-1 byte `key-id` of each instance id (the same identity discipline as `resources` `:entries`).
-  - Each row carries its kind-preserving `:instance/id` and `:mutation/id` (Xray groups instances under the registered mutation id).
-
-```clojure
-(rf/mutations {:frame :rf/default})
-;; => {:mutation-ids [...] :instances {<instance-key-id> <row>}}
-```
-
 ### `mutation-ids`
 
 - **Kind**: function (post-v1 lib; `re-frame.resources` façade only — not on `re-frame.core`)
@@ -527,7 +493,7 @@ They serve Xray, unit tests, and SSR serialization — contexts with no reactive
   ```clojure
   (re-frame.resources/mutation-ids) → [mutation-id …]
   ```
-- **Description**: A vector of every registered mutation id — the registry-side half of `mutations` (which returns the same vector under `:mutation-ids`).
+- **Description**: A vector of every registered mutation id — the same set `(rf/registrations {:source :store :kind :mutation})` enumerates.
 
 ```clojure
 (re-frame.resources/mutation-ids)

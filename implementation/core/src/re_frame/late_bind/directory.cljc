@@ -561,10 +561,6 @@
     :producer-ns 're-frame.resources
     :design-bead "rf2-p10npe"
     :description "Return a resource instance's runtime state for an explicit-frame target {:resource :scope :params :frame}. Per Spec 016 §Introspection."}
-   {:key         :resources/resources
-    :producer-ns 're-frame.resources
-    :design-bead "rf2-p10npe"
-    :description "Return resource introspection for a frame target — registered resources + the live per-frame resource-instance table. Per Spec 016 §Introspection."}
    ;; ---- mutations (EP-0003 §Mutations, first public-beta gate) -------------
    ;; The causal-write counterpart of the resource registration surface.
    {:key         :resources/reg-mutation
@@ -583,10 +579,6 @@
     :producer-ns 're-frame.resources
     :design-bead "rf2-dwme29"
     :description "Return a mutation INSTANCE's durable runtime row for an explicit-frame target {:instance :frame}, or nil. Per EP-0003 §Mutations."}
-   {:key         :resources/mutations
-    :producer-ns 're-frame.resources
-    :design-bead "rf2-dwme29"
-    :description "Return mutation introspection for a frame target — registered mutation ids + the live per-frame mutation-instance table (keyed by instance id). Per EP-0003 §Mutations."}
    ;; ---- named resource-scope resolvers (EP-0016 D3 slice 2) ----------------
    ;; The third resources kind: pure named db-derived scope resolvers.
    {:key         :resources/reg-resource-scope

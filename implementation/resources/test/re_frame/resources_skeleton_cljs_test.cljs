@@ -296,8 +296,7 @@
 (deftest public-api-hooks-published
   (testing "every public-API late-bind hook resolves"
     (doseq [k [:resources/reg-resource :resources/clear-resource
-               :resources/resource-meta :resources/resource-state
-               :resources/resources]]
+               :resources/resource-meta :resources/resource-state]]
       (is (some? (rf.late-bind/get-fn k)) (str k " should be published")))))
 
 (deftest resource-subs-registered
