@@ -18,7 +18,8 @@
             [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.ring :as rf.ssr.ring]
             [re-frame.ssr.ring.lifecycle :as rf.ssr.ring.lifecycle]
-            [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support])
+            [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]
+            [re-frame.ssr.suspense :as rf.ssr.suspense])
   (:import [java.io InputStream]))
 
 (defn- reset+reg-test-handlers
@@ -63,6 +64,30 @@
   [^InputStream is]
   (with-open [is is]
     (slurp is)))
+
+(defn- final-payload
+  "Read the final `__rf_payload` chunk out of a drained streaming body and
+  parse it back to data.
+
+  `shell/payload-script-tag` escapes the EDN through
+  `html/escape-edn-script-body`, whose only transformation is `<` → `\\u003c`
+  INSIDE string literals — a six-character escape the EDN reader itself
+  decodes — so the round-trip is exact and needs no un-escaping pass here.
+  The reader also handles the `#:rf{…}` namespace-map shorthand `pr-str`
+  emits for the payload's uniformly-namespaced keys."
+  [body]
+  (some-> (re-find #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>" body)
+          second
+          clojure.edn/read-string))
+
+(defn- payload-failed-boundaries
+  "The failed-boundary id set the final payload's serialisable runtime-db
+  slice carries, or nil when the slice omits it (the ordinary
+  nothing-failed page must carry NO key — see
+  `re-frame.ssr.streaming/with-failed-boundaries`)."
+  [payload]
+  (get-in (:rf/runtime-db payload)
+          [:rf.runtime/ssr :streaming :failed-boundaries]))
 
 (deftest stream-handler-emits-shell-then-resolved-then-payload
   (testing "chunk order: shell prefix → shell-html → resolved templates → final __rf_payload → close"
@@ -240,7 +265,109 @@
       (is (str/includes? body "<footer>End</footer>") "rest of shell rendered")
       (is (str/includes? body "data-rf2-suspense-failed=\"1\"") "failed marker stamped")
       (is (str/includes? body "Still loading") "fallback materialised in failed chunk")
-      (is (str/includes? body "__rf_payload") "final payload still emitted"))))
+      (is (str/includes? body "__rf_payload") "final payload still emitted")
+      ;; rf2-8v89 — the wire template said the boundary failed; the DURABLE
+      ;; record must say so too. Pre-fix the drain loop read `:failed?` to
+      ;; pick the template and then dropped it, so the final payload's
+      ;; runtime slice carried no `:failed-boundaries` at all.
+      (let [payload (final-payload body)]
+        (is (some? payload) "final payload parses back to data")
+        (is (= #{:test/throwy} (payload-failed-boundaries payload))
+            "the EXACT failed id set rides the final payload's runtime slice")))))
+
+(deftest stream-handler-failed-set-round-trips-through-hydration
+  (testing "rf2-8v89: hydrating the final payload makes `frame-failed-boundaries`
+            report the wire outcome. This is the whole point of carrying the set
+            — a client render tree asks the frame, not the DOM."
+    (rf/reg-view ^{:rf/id :test/throwing-section} throwing-section []
+      (throw (ex-info "rendering broke" {})))
+    (rf/reg-view ^{:rf/id :test/fragile-root} fragile-root []
+      [:main
+       [:rf/suspense-boundary
+        {:id :test/throwy :fallback [:p "Still loading…"]}
+        [(rf/view :test/throwing-section)]]])
+    (let [handler  (rf.ssr.ring/stream-handler
+                     {:initial-events [[:rf.test.server/init]]
+                      :root-view [(rf/view :test/fragile-root)]
+                      :payload :rf.ssr.payload/whole-app-db})
+          response (handler {:uri "/" :request-method :get})
+          body     (drain-stream (:body response))
+          payload  (final-payload body)
+          client   :test/hydrated-client]
+      (is (= #{:test/throwy} (payload-failed-boundaries payload)))
+      (rf/make-frame {:id client :platform :client})
+      (rf/dispatch-sync [:rf/hydrate payload] {:frame client})
+      (is (= #{:test/throwy} (rf.ssr.suspense/frame-failed-boundaries client))
+          "the hydrated frame's runtime-db reflects the server's answer"))))
+
+(deftest stream-handler-carries-nested-failures-and-spares-a-successful-sibling
+  (testing "rf2-8v89: the accumulator must follow the GROWABLE FIFO — a
+            boundary discovered DURING another continuation's render is
+            drained from the tail, and its failure has to reach the payload
+            too. A sibling that resolved must NOT appear."
+    (rf/reg-view ^{:rf/id :test/inner-throwing} inner-throwing []
+      (throw (ex-info "inner broke" {})))
+    (rf/reg-view ^{:rf/id :test/outer-with-inner} outer-with-inner []
+      [:section
+       [:p "outer rendered fine"]
+       ;; Registered DURING the outer continuation's render — it reaches the
+       ;; queue only after the outer entry has been drained.
+       [:rf/suspense-boundary
+        {:id :test/inner-bad :fallback [:p "inner loading"]}
+        [(rf/view :test/inner-throwing)]]])
+    (rf/reg-view ^{:rf/id :test/good-section} good-section []
+      [:div.good "GOOD BODY"])
+    (rf/reg-view ^{:rf/id :test/mixed-root} mixed-root []
+      [:main
+       [:rf/suspense-boundary
+        {:id :test/outer-ok :fallback [:p "outer loading"]}
+        [(rf/view :test/outer-with-inner)]]
+       [:rf/suspense-boundary
+        {:id :test/sibling-good :fallback [:p "sibling loading"]}
+        [(rf/view :test/good-section)]]
+       [:rf/suspense-boundary
+        {:id :test/sibling-bad :fallback [:p "sibling-bad loading"]}
+        [(rf/view :test/inner-throwing)]]])
+    (let [handler  (rf.ssr.ring/stream-handler
+                     {:initial-events [[:rf.test.server/init]]
+                      :root-view [(rf/view :test/mixed-root)]
+                      :payload :rf.ssr.payload/whole-app-db})
+          response (handler {:uri "/" :request-method :get})
+          body     (drain-stream (:body response))
+          payload  (final-payload body)
+          failed   (payload-failed-boundaries payload)]
+      (is (= 200 (:status response)) "a mixed stream still completes")
+      (is (str/includes? body "GOOD BODY") "the successful sibling resolved its body")
+      (is (= #{:test/inner-bad :test/sibling-bad} failed)
+          "exactly the two failed ids — the NESTED one included")
+      (is (not (contains? failed :test/sibling-good))
+          "a boundary that resolved is never in the set")
+      (is (not (contains? failed :test/outer-ok))
+          "an outer boundary that rendered fine is not failed by its child")
+      (testing "visible fallback behaviour is unchanged"
+        (is (str/includes? body "data-rf2-suspense-failed=\"1\"")
+            "failed chunks still carry the wire marker")
+        (is (str/includes? body "inner loading")
+            "the failed nested boundary's declared fallback is in the DOM")))))
+
+(deftest stream-handler-successful-stream-omits-the-failure-slot
+  (testing "rf2-8v89 VACUITY: nothing failed ⇒ NO `:failed-boundaries` key, and
+            (with no other durable subsystem fact) no `:rf/runtime-db` at all.
+            An empty set must not materialise the slice — the ordinary page
+            carries nothing extra on the wire."
+    (let [handler  (rf.ssr.ring/stream-handler
+                     {:initial-events [[:rf.test.server/init]]
+                      :root-view [(rf/view :test/root)]
+                      :payload :rf.ssr.payload/whole-app-db})
+          response (handler {:uri "/" :request-method :get})
+          body     (drain-stream (:body response))
+          payload  (final-payload body)]
+      (is (some? payload) "final payload still emitted")
+      (is (str/includes? body "First!") "the continuation resolved normally")
+      (is (nil? (payload-failed-boundaries payload))
+          "no failure ⇒ no failed-boundaries key")
+      (is (not (str/includes? body "data-rf2-suspense-failed"))
+          "and no failed marker on the wire either"))))
 
 (deftest stream-handler-nested-boundary-drains-inner-FIFO
   (testing "rf2-sgvn6 / rf2-b1v8v: an OUTER :rf/suspense-boundary whose

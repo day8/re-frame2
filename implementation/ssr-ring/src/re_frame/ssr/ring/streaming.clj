@@ -269,7 +269,20 @@
   ;; Phase tracker — a 2-tuple `[phase boundary-id]`. `boundary-id` is nil
   ;; outside a continuation drain. Updated as the writer advances so the
   ;; catch arm can name the in-flight phase.
-  (let [writer-position (volatile! [:shell-prefix nil])]
+  (let [writer-position (volatile! [:shell-prefix nil])
+        ;; rf2-8v89 — the ids of every continuation whose render THREW,
+        ;; accumulated as the growable FIFO drains (nested continuations
+        ;; included, since they are drained from the same queue). The drain
+        ;; loop has always read `:failed?` to pick the wire template and then
+        ;; dropped it, so the final payload's runtime slice said nothing about
+        ;; the failure and `frame-failed-boundaries` reported `#{}` after
+        ;; hydration — a durable-state/tooling truthfulness gap, not a broken
+        ;; fallback (`streaming/client.cljs` records observed failed chunks
+        ;; into its own process-level render-time registry, so what the user
+        ;; SEES was and stays correct). A volatile rather than a loop
+        ;; accumulator: the value is read after the drain, by the
+        ;; final-payload build several forms below.
+        failed-boundaries (volatile! #{})]
    (try
     (let [{:keys [emit-hash? version schema-digest payload root-view client-frame-id]} opts
           ;; Body and head hashes were computed before the drain. The body may
@@ -329,6 +342,12 @@
                 render-template (if failed?
                                   rf.ssr.streaming/failed-template
                                   rf.ssr.streaming/resolved-template)]
+            ;; rf2-8v89 — record the failure for the final payload's runtime
+            ;; slice. Same `failed?` the template choice above reads; recorded
+            ;; here so a nested continuation, drained from the tail of this
+            ;; same queue, is caught on exactly the same footing.
+            (when failed?
+              (vswap! failed-boundaries conj boundary-id))
             ;; A continuation write names
             ;; the boundary :id so ops correlate the failure to a specific
             ;; deferred subtree (not just "some continuation broke").
@@ -405,6 +424,13 @@
                    :payload         payload
                    ;; Head state is drain-invariant.
                    :head-hash       head-hash
+                   ;; rf2-8v89 — the boundary ids whose continuation threw,
+                   ;; accumulated across the whole drain above. An EMPTY set
+                   ;; contributes no key (`streaming/with-failed-boundaries`
+                   ;; guards on `seq`), so the ordinary nothing-failed page
+                   ;; keeps its `:rf/runtime-db`-free payload and the privacy
+                   ;; projection is untouched.
+                   :failed-boundaries @failed-boundaries
                    ;; rf2-lm2yzy — stable WIRE :rf/frame-id (nil ⇒ omit).
                    :client-frame-id client-frame-id})))]
         ;; Shared id-pinned, script-body-escaped payload element.
