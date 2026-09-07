@@ -373,7 +373,10 @@ Four shapes, case-insensitive, all anchored at **column 0**:
 | the generated-with marker | a line that IS `… Generated with [Claude Code](…)` — decoration in front, its own link at the end |
 | the bare session URL | an `https://claude.ai/code/session_…` line, the URL and nothing else |
 
-That is the whole set.
+That is the whole set. This is **not** a commit-message linter: it does not
+grade subject length, mood or trailer hygiene, and a `Co-Authored-By:` naming a
+human colleague is ordinary git and stays permitted. Only AI attribution, which
+is the only thing the convention forbids.
 
 **A trailer is a line that *is* the attribution; prose merely names one.** That
 distinction is rules 3 and 4's whole shape, and it cost a PR to learn
@@ -403,10 +406,7 @@ sentence attributes nothing to anyone. Rules 1 and 2 needed nothing from this
 and are unchanged: both key on a trailer **token** at column 0, which is already
 precisely git's own definition of a trailer, and widening what is already exact
 would only open a hole. Layer 10q pins both directions — prose permitted, a real
-trailer beside that same prose still refused. This is **not** a commit-message linter: it does not
-grade subject length, mood or trailer hygiene, and a `Co-Authored-By:` naming a
-human colleague is ordinary git and stays permitted. Only AI attribution, which
-is the only thing the convention forbids.
+trailer beside that same prose still refused.
 
 **The co-author rule matches the address family, not the name.** All 31
 trailers in this repository's log carry `@anthropic.com` and the documented
