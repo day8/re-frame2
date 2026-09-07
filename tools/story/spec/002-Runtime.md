@@ -46,7 +46,7 @@ So `allocate!` ALWAYS composes the variant frame's `:images` vector
 ([EP-0026 §Layered Resolution](../../../spec/002-Frames.md)):
 
 ```
-[<story-images…> <variant-images…> runtime-image]
+[<story-images…> <variant-images…> network-fixture-image? runtime-image]
 ```
 
 - **story images** — the parent story's `:images` slot (see
@@ -57,6 +57,16 @@ So `allocate!` ALWAYS composes the variant frame's `:images` vector
   its own image — **behaviour variant -> image**: two variants reusing the SAME
   global event/sub id under DIFFERENT images resolve it to their own image's
   descriptor, with NO global-registrar clobber between runs).
+- **network-fixture image** — PRESENT ONLY when the frame owns an authored
+  `:network` fixture. The library-owned `:rf.story/network-fixture`
+  (`re-frame.story.network/fixture-image`) carries exactly ONE inline
+  `:reg-fx`: the frame-scoped managed-request stub the plan's `:fx-overrides`
+  redirect names. Without it a variant with an explicit app image resolves the
+  redirect to nothing and the request falls through to the real
+  `:rf.http/managed` transport. Layered after every app image (so nothing
+  authored shadows it) and before the runtime image, which the two do not
+  contest. See [017-Testing-Story.md §Reaching the fixture through a selected
+  app image](017-Testing-Story.md#reaching-the-fixture-through-a-selected-app-image).
 - **runtime image** — the canonical Story **runtime image**
   (`re-frame.story.runtime-image/runtime-image`), composed LAST. It selects
   Story's own runtime registrations (`:select-ns {:include

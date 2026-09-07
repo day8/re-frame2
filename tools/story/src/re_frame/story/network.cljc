@@ -45,8 +45,31 @@
   A frame with no fixture (or a request from no frame at all) resolves to
   `nil`, so `stub-handler` falls through to its own canned
   `\"no stub matched\"` transport failure — spec/017 §Network stubs, preserved
-  rather than reimplemented."
-  (:require [re-frame.frame :as rf.frame]
+  rather than reimplemented.
+
+  ## Why the install alone is not enough (the rf2-shx4 audit of PR #9398)
+
+  `install-managed-request-stubs!` registers into the process SOURCE STORE. A
+  variant frame created with NO `:images` projects the whole store (EP-0026's
+  DEFAULT image), so it sees that registration — which is why the
+  default-image acceptance tests passed. A variant that DECLARES an app image
+  (or inherits one from its parent story) resolves through a SELECTED, sealed
+  generation instead, and the stub is unreachable there: an image selects by
+  `:rf.provenance/ns`, and a descriptor registered by a runtime `reg-fx` call
+  carries no source provenance at all, so NO namespace glob can select it. The
+  frame still receives the `:fx-overrides` redirect, but its generation cannot
+  resolve the target — and the request falls through to the REAL
+  `:rf.http/managed` transport.
+
+  `fixture-image` closes that without widening the app image: it is a
+  library-owned image carrying EXACTLY ONE inline `:reg-fx` — the very handler
+  the install just registered, over the very same `FrameScopedRoutes` object.
+  `frames/compose-variant-images` layers it after the app images (so nothing
+  authored can shadow it) whenever the frame being allocated owns a fixture.
+  One implementation, one route map, two projections."
+  (:require [re-frame.core     :as rf]
+            [re-frame.frame    :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
             ;; The raw HTTP stub pair lives in `re-frame.http.test-support`
             ;; (its home namespace, not the `re-frame.core` façade). CLJS
             ;; requires it directly; on the JVM it is resolved LAZILY at call
@@ -54,6 +77,22 @@
             ;; does not drag the http artefact's JVM-only transitive deps onto
             ;; the macro classpath. Same boundary `rf.story.artifact` uses.
             #?(:cljs [re-frame.http.test-support :as rf.http.test-support])))
+
+(def stub-fx-id
+  "The fx id `rf.story.plan/lower-network` points `:rf.http/managed` at, and
+  the one `re-frame.http.test-support/install-managed-request-stubs!`
+  registers. Named here so `fixture-image` can read the installed handler back
+  out of the source store; the id itself is unchanged (the recorded
+  `:fx-decisions` redirect, `spec/017` and `plan_network_test` all still pin
+  it)."
+  :rf.http/managed-test-stub)
+
+(def fixture-image-id
+  "The stable `:rf.image/id` of the library-owned fixture image — reported in
+  the generation's `:rf.gen/shadows` and by tooling. Library-owned under the
+  reserved `:rf.story/*` namespace (spec/Conventions.md), and deliberately NOT
+  an authored behaviour image (it never appears on a run result's `:images`)."
+  :rf.story/network-fixture)
 
 (defonce
   ^{:doc "frame-id → the frame's authored `{[method url] {:reply …}}` route
@@ -142,3 +181,31 @@
       (swap! frame-routes assoc frame-id routes)
       (when was-empty? (install!))
       frame-id)))
+
+(defn fixture-image
+  "The library-owned image that makes the installed stub fx reachable through a
+  frame's SELECTED generation — `nil` when no Story fixture is installed.
+
+  Read the ns docstring §Why the install alone is not enough for the why. The
+  what is one line of image: a single inline `:reg-fx` republishing the handler
+  `install-managed-request-stubs!` just put in the source store, so the SAME
+  closure over the SAME `FrameScopedRoutes` object answers on both projections.
+  Nothing else rides along — the app image keeps its isolation, and only the
+  one fx id the plan's redirect actually names becomes resolvable.
+
+  Taking the handler from the store (rather than rebuilding one) is what keeps
+  this a projection instead of a second network simulator: there is no canned
+  reply implementation here to drift from `re-frame.http.test-support`'s.
+  Read at composition time, which the runtime orders AFTER
+  `install-for-frame!`, so the top of the helper's install stack is Story's own.
+
+  PURE — `rf/image` builds inert data; this registers nothing."
+  []
+  (when-let [handler (:handler-fn (rf.registrar/store-lookup :fx stub-fx-id))]
+    (rf/image
+      {:id            fixture-image-id
+       :registrations {:reg-fx [[stub-fx-id
+                                 {:doc (str "Story :network fixture — the frame-scoped "
+                                            "managed-request stub, projected into a "
+                                            "selected image generation (rf2-shx4).")}
+                                 handler]]}})))
