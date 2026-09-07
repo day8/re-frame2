@@ -29,8 +29,8 @@
        :configuring → :loading-deps → :hydrating → :ready, and all
        four loaded slices land in app-db.
      - boot-dependency-resolution — the per-child :data fns thread
-       the spawn-spec identity correctly so each child writes its
-       payload to the matching staging key (no cross-talk).
+       the spawn-spec identity correctly so each child's payload is
+       folded into the matching :data slot (no cross-talk).
      - boot-failure-path          — a failure during the parallel
        phase routes the boot to :failed and records the error in
        :data."
@@ -166,14 +166,17 @@
         (assert (= :ready state)
                 (str "expected boot machine state :ready, got " state))
 
-        ;; Staging slots all populated.
-        (let [staging (get-in db [:rf.db/app :boot/staging])]
-          (assert (= test-config (:config staging)))
-          (assert (= test-routes (:routes staging)))
-          (assert (= test-flags  (:flags staging)))
-          (assert (= test-user   (:user staging))))
+        ;; Every payload folded into the boot machine's own :data. There is
+        ;; no `[:boot/staging …]` slot in app-db any more: a child completes
+        ;; by reaching a `:final?` state and the parent's `:on-done` fold is
+        ;; the only writer (rf2-kuky.14).
+        (let [boot-data (get-in db [:rf.db/runtime :rf.runtime/machines :snapshots :app/boot :data])]
+          (assert (= test-config (:config boot-data)))
+          (assert (= test-routes (:routes boot-data)))
+          (assert (= test-flags  (:flags boot-data)))
+          (assert (= test-user   (:user boot-data))))
 
-        ;; Top-level slices hydrated from staging.
+        ;; Top-level slices hydrated from the machine's :data.
         (assert (= test-config (rf/compute-sub [:app/config] db)))
         (assert (= test-flags  (rf/compute-sub [:app/flags]  db)))
         (assert (= test-user   (rf/compute-sub [:app/user]   db)))
@@ -187,24 +190,22 @@
                          {:initial-events [[:boot/initialise]]
                           :fx-overrides {:rf.http/managed
                                          :boot.test/canned-boot-success}})]
-      (let [db      (rf/frame-state-value f)
-            staging (get-in db [:rf.db/app :boot/staging])]
-        ;; Each staging-key holds the payload that came back from the
-        ;; matching URL. Cross-talk (e.g. :flags staging holding the
+      (let [db        (rf/frame-state-value f)
+            boot-data (get-in db [:rf.db/runtime :rf.runtime/machines :snapshots :app/boot :data])]
+        ;; Each `:on-done` fold holds the payload that came back from the
+        ;; matching URL. Cross-talk (e.g. the :flags slot holding the
         ;; routes payload) would mean the :spawn-all :data fns are
         ;; not threading identity correctly.
-        (assert (contains? (:config staging) :api-base))
-        (assert (sequential? (:routes staging)))
-        (assert (contains? (:flags staging) :dark-mode?))
-        (assert (contains? (:user staging) :username))
-        ;; The boot machine's :data mirrors the staged values once
-        ;; :enter-hydrating runs (so the snapshot is self-describing
-        ;; for SSR / tools).
-        (let [boot-data (get-in db [:rf.db/runtime :rf.runtime/machines :snapshots :app/boot :data])]
-          (assert (= test-config (:config boot-data)))
-          (assert (= test-routes (:routes boot-data)))
-          (assert (= test-flags  (:flags boot-data)))
-          (assert (= test-user   (:user boot-data))))))))
+        (assert (contains? (:config boot-data) :api-base))
+        (assert (sequential? (:routes boot-data)))
+        (assert (contains? (:flags boot-data) :dark-mode?))
+        (assert (contains? (:user boot-data) :username))
+        ;; And each slot holds exactly the payload for its own URL, so the
+        ;; snapshot is self-describing for SSR / tools.
+        (assert (= test-config (:config boot-data)))
+        (assert (= test-routes (:routes boot-data)))
+        (assert (= test-flags  (:flags boot-data)))
+        (assert (= test-user   (:user boot-data)))))))
 
 (deftest boot-failure-path
   (testing "a failure during the parallel phase routes the boot to :failed and records the error"
