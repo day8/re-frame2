@@ -1580,7 +1580,37 @@ fi
 # spin up node/npm, per the rf2-r6x1t DESIGN (JS suites run only when their
 # owning scripts / build config change — exactly the cljs_node_test surface).
 # ---------------------------------------------------------------------------
-if [ "$run_node" = true ]; then
+if [ "$run_node" = true ] && [ ! -d "$spine_root/implementation/node_modules" ]; then
+  # LOUD SKIP, not a failure (rf2-7ymm).  A freshly created worker worktree has
+  # no `implementation/node_modules` — only the primary checkout has one — so
+  # every lane below dies at the first shadow-cljs invocation with `could not
+  # resolve shadow-cljs: Cannot find module shadow-cljs/cli/runner.js`, and the
+  # whole spine exits non-zero for a reason that says NOTHING about the diff.
+  # A gate that exits 1 environmentally trains its readers to discount its exit
+  # code, which is the failure mode this spine's honest-gap discipline exists to
+  # prevent, so the tier reports itself as NOT CHECKED and the run continues.
+  #
+  # AND DO NOT "FIX" THIS BY LINKING THE PRIMARY CHECKOUT'S TREE IN.  A link
+  # into a shared dependency tree is WRITABLE THROUGH: any lane that runs an
+  # installer rewrites the SHARED target rather than a local copy, and that has
+  # already emptied the primary checkout's real `node_modules` once, breaking
+  # every local build until `npm ci --prefix implementation` restored it.
+  # Install a real tree from the lockfile if these lanes are genuinely wanted
+  # here (`npm ci --prefix implementation`), or let CI grade them — the `cljs`
+  # job runs every one of them on every PR, and TESTING.md's Windows-local
+  # policy already makes CI authoritative.
+  printf '\n    NOT CHECKED: the npm/CLJS tier — implementation/node_modules is\n'
+  printf '      absent in this checkout (the usual cause: this is a linked git\n'
+  printf '      worktree, and only the primary checkout carries the install).\n'
+  printf '      This is NOT a pass.  Left with NO local gate: the JS harness\n'
+  printf '      self-tests, the CLJS node integration suite, the per-namespace\n'
+  printf '      isolation gate, and the hicasso invariants / lint-export /\n'
+  printf '      modules-compile lanes.  CI grades all of them (test.yml `cljs`).\n'
+  printf '      To run them here: npm ci --prefix implementation.  Do NOT link\n'
+  printf '      another checkout'"'"'s node_modules — an installer writes THROUGH\n'
+  printf '      the link and empties the tree it points at (rf2-7ymm).\n'
+  note_skipped "npm/CLJS/isolation + hicasso invariant lanes — implementation/node_modules absent in this checkout (linked worktree), so no local lane ran the JS harness self-tests, CLJS node integration, per-ns isolation or the hicasso gates this run (rf2-7ymm)"
+elif [ "$run_node" = true ]; then
   run "implementation JS harness self-tests" "cd implementation && npm run test:scripts" \
     bash -lc "cd '$spine_root/implementation' && npm run test:scripts"
 
