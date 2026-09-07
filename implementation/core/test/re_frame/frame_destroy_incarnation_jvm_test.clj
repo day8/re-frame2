@@ -1682,12 +1682,24 @@
           (when original-epoch (apply original-epoch args))))
       (rf.late-bind/set-fn!
         :observability/route-error-record
-        ;; rf2-kuky.67 gave the hook a trailing frame-authority arg; forward
-        ;; whatever the producer passes rather than pinning an arity here.
-        (fn [record & more]
-          (when (= :rf.error/frame-teardown-failed (:error record))
-            (swap! frame-routes inc))
-          (when original-route (apply original-route record more))))
+        ;; rf2-kuky.67 gave the hook a trailing FRAME-AUTHORITY arg, and this
+        ;; counter has to read it. The hook is now invoked for a dissociated
+        ;; incarnation too — carrying `frame-authority?` FALSE, so the report
+        ;; can reach the PROCESS DEFAULT instead of reaching nobody — where
+        ;; before it was suppressed at the producer. Counting bare INVOCATIONS
+        ;; was a proxy for "resolved through a frame's policy" that was exact
+        ;; while the producer gated the call and is not exact any more.
+        ;;
+        ;; The claim below is unchanged and is the narrower one this deftest
+        ;; has always named: A's report never resolves through B's FRAME-OWNED
+        ;; error route. So count only a call that CLAIMS frame authority.
+        (fn [record & [authority-arg]]
+          ;; The hook's own default is TRUE, so an absent arg means authority.
+          (let [frame-authority? (if (nil? authority-arg) true authority-arg)]
+            (when (and frame-authority?
+                       (= :rf.error/frame-teardown-failed (:error record)))
+              (swap! frame-routes inc))
+            (when original-route (original-route record frame-authority?)))))
       (let [destroy-a (future
                         (rf/dispatch-sync [:destroy/teardown-overlap-a]
                                           {:frame id}))]
