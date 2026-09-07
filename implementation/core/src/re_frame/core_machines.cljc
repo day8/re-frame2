@@ -53,7 +53,7 @@
   `re-frame.core/handler-meta` dispatches the two machine kinds here; all
   other kinds fall through to `rf.registrar/handler-meta`. The Xray lens +
   re-frame-pair source-jump call sites are unchanged — they still call
-  `(rf/handler-meta :machine-guard [machine-id guard-id])`.
+  `(rf/handler-meta {:source :store :kind :machine-guard :id [machine-id guard-id]})`.
 
   Returns nil when:
     - `kind` is not a machine kind, or `id` is not a 2-vector;

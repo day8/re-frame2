@@ -194,7 +194,7 @@ doesn't. Open [Xray](../xray/index.md) and you'll see those dispatches on the wi
 
 > **Activation work as data.** `:on-match` is a vector of event vectors, not a
 > function — you can read it, test it, and draw a data-dependency graph without
-> running it: `(rf/handler-meta :route :app/article)`. The same events run on the
+> running it: `(rf/handler-meta {:source :store :kind :route :id :app/article})`. The same events run on the
 > server during [SSR](../ssr/concepts.md). For cached server state — a real page
 > load, awaited and reported — declare `:resources` instead:
 > [The model → Declaring the data a page needs](concepts.md#declaring-resources-instead).

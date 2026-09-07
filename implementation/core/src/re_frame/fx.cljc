@@ -105,7 +105,7 @@
   Optional metadata keys:
 
       :doc        one-sentence what-and-why; surfaces via
-                  `(rf/handler-meta :fx id)`.
+                  `(rf/handler-meta {:source :store :kind :fx :id id})`.
       :schema     Malli schema for `args` (per Spec 010 §:schema on fx
                   registrations; rf2-ieu0i).
       :platforms  set of `#{:client :server}`; default
@@ -131,7 +131,7 @@
   Framework-shipped fx (`:dispatch`, `:dispatch-later`, `:rf.http/managed`,
   `:rf.nav/push-url`, ...) are documented in `spec/API.md §Effect-map
   shape` and their per-feature Spec; introspect via
-  `(rf/handler-meta :fx <id>)`.
+  `(rf/handler-meta {:source :store :kind :fx :id <id>})`.
 
   See also: `reg-cofx` (the input-side counterpart), `clear-fx`,
   `reg-event` (the consumer)."

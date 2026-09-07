@@ -156,7 +156,7 @@
     (rf/reg-event :rf2-3un2g/prod-meta-strip
                      {:doc "stripped" :tags #{:probe}}
                      (fn [{:keys [db]} _] {:db db}))
-    (let [meta (rf/handler-meta :event :rf2-3un2g/prod-meta-strip)]
+    (let [meta (rf/handler-meta {:source :store :kind :event :id :rf2-3un2g/prod-meta-strip})]
       (is (some? meta))
       (is (not (contains? meta :doc))
           "user-supplied :doc is stripped in prod (pure documentation, rf2-9wwkcm)")

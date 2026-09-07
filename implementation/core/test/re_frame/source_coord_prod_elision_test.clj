@@ -6,7 +6,7 @@
     A. **Public registry-meta strip in prod**. Under the JVM debug gate
        off posture (`rf.interop/debug-enabled?` rebound to `false` —
        semantically equivalent to CLJS `:advanced` + `goog.DEBUG=false`),
-       `(rf/handler-meta kind id)` MUST NOT carry `:ns` / `:file` /
+       `(rf/handler-meta {:source :store :kind kind :id id})` MUST NOT carry `:ns` / `:file` /
        `:line` / `:column` coord-keys. Xray Open-in-editor and
        re-frame-pair are dev-only tools; they don't reach the registry
        at all in production bundles.
@@ -69,7 +69,7 @@
       (rf/reg-event :rf2-3un2g/prod-elide-event
                        {:doc "stripped"}
                        (fn [{:keys [db]} _] {:db db}))
-      (let [meta (rf/handler-meta :event :rf2-3un2g/prod-elide-event)]
+      (let [meta (rf/handler-meta {:source :store :kind :event :id :rf2-3un2g/prod-elide-event})]
         (is (some? meta))
         ;; rf2-9wwkcm: `:doc` is now ALSO stripped from public registry-meta
         ;; in prod (it is pure-documentation — zero production runtime /
@@ -91,7 +91,7 @@
     (rf/reg-event :rf2-3un2g/dev-keep-event
                      {:doc "kept"}
                      (fn [{:keys [db]} _] {:db db}))
-    (let [meta (rf/handler-meta :event :rf2-3un2g/dev-keep-event)
+    (let [meta (rf/handler-meta {:source :store :kind :event :id :rf2-3un2g/dev-keep-event})
           parallel (rf.source-coords/error-coords-for :event :rf2-3un2g/dev-keep-event)]
       ;; ALWAYS-ON PARTNER (rf2-d2841). Policy A strips the PUBLIC surface in
       ;; production; the parallel observability registry keeps the coords in

@@ -306,7 +306,7 @@
   (testing "the failing Story variant's mechanism lands :data at :error and renders :error"
     ;; Sanity: requiring nine-states.stories registered the variant's
     ;; setup event.
-    (is (some? (rf/handler-meta :event :nine-states.story/load-failing))
+    (is (some? (rf/handler-meta {:source :store :kind :event :id :nine-states.story/load-failing}))
         ":nine-states.story/load-failing registered (stories.cljs required)")
     (with-new-frame [f (rf.frame/make-anon-frame-record!
                          {:initial-events [[:nine-states.app/initialise]]

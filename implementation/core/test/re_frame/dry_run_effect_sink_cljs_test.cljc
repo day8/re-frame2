@@ -8,7 +8,7 @@
 
   These are the adversarial regressions for the two live escape paths the
   bead confirmed (frame-image / inline fx absent from the process-global
-  `(rf/registrations :fx)`, and the reject-tier reserved fx core strips
+  `(rf/registrations {:source :store :kind :fx})`, and the reject-tier reserved fx core strips
   `:fx-overrides` for and runs the real body). Every test here FAILS on
   current `main` (no sink → the real fx body executes) and passes with the
   sink. `.cljc` ending `-cljs-test` rides `npm run test:cljs` AND
@@ -38,7 +38,7 @@
 
 (deftest dry-run-does-not-execute-image-only-inline-fx
   (testing "an image whose sealed generation carries an inline event AND an
-            inline fx absent from (rf/registrations :fx): under *effect-sink*
+            inline fx absent from (rf/registrations {:source :store :kind :fx}): under *effect-sink*
             the fx body's counter stays at zero and exactly one row records"
     (rf/make-frame {:id :inline/main :doc "inline-image fx frame"})
     (let [fired (atom [])
@@ -52,7 +52,7 @@
                     :reg-fx    [[:img/side-effect {}
                                  (fn [_ctx args] (swap! fired conj args))]]}})]
       (rf.live-frame/make-frame {:id :inline/main :images [img]} [])
-      (is (not (contains? (set (keys (rf/registrations :fx))) :img/side-effect))
+      (is (not (contains? (set (keys (rf/registrations {:source :store :kind :fx}))) :img/side-effect))
           "premise: the inline fx is image-only — absent from the process-global
            :fx registrar (so an enumeration-based dry-run would MISS it)")
       ;; DRY RUN — bind the sink.
@@ -185,7 +185,7 @@
                       :reg-fx    [[:same/fx {} (fn [_ _] (reset! fired-b true))]]}})]
       (rf.live-frame/make-frame {:id :f/a :images [img-a]} [])
       (rf.live-frame/make-frame {:id :f/b :images [img-b]} [])
-      (is (not (contains? (set (keys (rf/registrations :fx))) :same/fx))
+      (is (not (contains? (set (keys (rf/registrations {:source :store :kind :fx}))) :same/fx))
           "premise: :same/fx is image-only on BOTH frames — absent from the
            process-global union")
       (let [sink (atom [])]
@@ -235,11 +235,11 @@
 
 ;; ===========================================================================
 ;; AC4 (structural, mechanism half) — interception happens ONCE at the effect
-;; executor, NOT by inferring coverage from (rf/registrations :fx). This pins
+;; executor, NOT by inferring coverage from (rf/registrations {:source :store :kind :fx}). This pins
 ;; that an fx id that exists ONLY on the frame image (never in the global
 ;; registrar) is STILL intercepted — the very inference the old Pair
 ;; enumeration could not make. (The skills-side pin that dispatch-dry-run no
-;; longer calls (rf/registrations :fx) lives in tests/runtime.)
+;; longer calls (rf/registrations {:source :store :kind :fx}) lives in tests/runtime.)
 ;; ===========================================================================
 
 (deftest sink-intercepts-without-registrar-enumeration
@@ -254,7 +254,7 @@
                  {:reg-event [[:go {} (fn [_ _] {:fx [[:only/on-image {:k :v}]]})]]
                   :reg-fx    [[:only/on-image {} (fn [_ _] (reset! ran true))]]}})]
       (rf.live-frame/make-frame {:id :ni/main :images [img]} [])
-      (let [global-fx-ids (set (keys (rf/registrations :fx)))
+      (let [global-fx-ids (set (keys (rf/registrations {:source :store :kind :fx})))
             sink          (atom [])]
         (is (not (contains? global-fx-ids :only/on-image)))
         (binding [rf.fx/*effect-sink* sink]

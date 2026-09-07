@@ -65,7 +65,7 @@
 ;; ---- shared assertions ----------------------------------------------------
 
 (defn- assert-source [kind id macro-name]
-  (let [m   (rf/handler-meta kind id)
+  (let [m   (rf/handler-meta {:source :store :kind kind :id id})
         src (:rf.handler/source m)]
     ;; Always-on witness (rf2-d2841): the macro path registered, in EITHER
     ;; posture. The prod arm of the expansion is what would break here.
@@ -94,7 +94,7 @@
     ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
     (when rf.interop/debug-enabled?
       (let [src (:rf.handler/source
-                 (rf/handler-meta :event :rf2-xhfxcs/event-sample))]
+                 (rf/handler-meta {:source :store :kind :event :id :rf2-xhfxcs/event-sample}))]
         ;; Whole-form capture: the handler-fn body (the fx-shape return) must
         ;; appear, not just the surface.
         (is (str/includes? src "(fn [{:keys [db]} _ev] {:db db})")
@@ -129,12 +129,12 @@
                      {:doc "metadata-shape middle slot"}
                      (fn [{:keys [db]} _] {:db db}))
     ;; Always-on witness (rf2-d2841): the metadata-map middle slot registered.
-    (is (some? (rf/handler-meta :event :rf2-xgfuy/event-with-meta))
+    (is (some? (rf/handler-meta {:source :store :kind :event :id :rf2-xgfuy/event-with-meta}))
         "the metadata-map middle slot registers in BOTH postures")
     ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
     (when rf.interop/debug-enabled?
       (let [src (:rf.handler/source
-                 (rf/handler-meta :event :rf2-xgfuy/event-with-meta))]
+                 (rf/handler-meta {:source :store :kind :event :id :rf2-xgfuy/event-with-meta}))]
         (is (string? src))
         (is (str/includes? src ":doc"))
         (is (str/includes? src "metadata-shape middle slot"))))))
@@ -157,12 +157,12 @@
     ;; round-trip this deftest is about.
     (is (= [:app/unwrap :rf/event-handler]
            (mapv (fn [e] (if (keyword? e) e (:id e)))
-                 (:interceptors (rf/handler-meta :event :rf2-xgfuy/event-with-icpts))))
+                 (:interceptors (rf/handler-meta {:source :store :kind :event :id :rf2-xgfuy/event-with-icpts}))))
         "the metadata :interceptors ref sits before the framework wrapper")
     ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
     (when rf.interop/debug-enabled?
       (let [src (:rf.handler/source
-                 (rf/handler-meta :event :rf2-xgfuy/event-with-icpts))]
+                 (rf/handler-meta {:source :store :kind :event :id :rf2-xgfuy/event-with-icpts}))]
         (is (string? src))
         (is (str/includes? src "unwrap"))))))
 
@@ -175,7 +175,7 @@
     ((requiring-resolve 're-frame.events/reg-event)
        :rf2-xgfuy/programmatic
        (fn [{:keys [db]} _] {:db db}))
-    (let [m (rf/handler-meta :event :rf2-xgfuy/programmatic)]
+    (let [m (rf/handler-meta {:source :store :kind :event :id :rf2-xgfuy/programmatic})]
       (is (some? m))
       ;; rf2-d2841 — dev-instrumentation arm. A NEGATIVE about a key the gate
       ;; elides WHOLESALE: outside the arm this passes because
@@ -191,7 +191,7 @@
   (testing "rf2-xgfuy: reg-sub is scoped to coord capture only — form-source
   capture is explicit to `reg-event` (Spec 009 §`:rf.handler/source`)"
     (rf/reg-sub :rf2-xgfuy/sub-sample (fn [db _] db))
-    (let [m (rf/handler-meta :sub :rf2-xgfuy/sub-sample)]
+    (let [m (rf/handler-meta {:source :store :kind :sub :id :rf2-xgfuy/sub-sample})]
       (is (some? m))
       ;; rf2-d2841 — dev-instrumentation arm. Same wholesale-elision shape as
       ;; `fn-form-call-skips-form-source` above.
@@ -210,5 +210,5 @@
                      {:rf.handler/source "(rf/reg-event :elsewhere ...)"
                       :doc "hand-stamped source from a code-gen pass"}
                      (fn [{:keys [db]} _] {:db db}))
-    (let [m (rf/handler-meta :event :rf2-xgfuy/explicit-source)]
+    (let [m (rf/handler-meta {:source :store :kind :event :id :rf2-xgfuy/explicit-source})]
       (is (= "(rf/reg-event :elsewhere ...)" (:rf.handler/source m))))))

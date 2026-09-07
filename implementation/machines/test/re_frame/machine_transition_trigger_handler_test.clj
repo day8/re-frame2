@@ -93,7 +93,7 @@
       {:initial :a
        :states  {:a {:on {:go {:target :b}}}
                  :b {}}})
-    (let [reg-meta (rf/handler-meta :event :rf2-lf84g/coord)
+    (let [reg-meta (rf/handler-meta {:source :store :kind :event :id :rf2-lf84g/coord})
           evs      (record-traces
                      (fn [] (rf/dispatch-sync [:rf2-lf84g/coord [:go]])))
           [tr]     (transitions-of evs)

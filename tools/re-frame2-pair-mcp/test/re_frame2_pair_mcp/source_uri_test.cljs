@@ -164,7 +164,7 @@
 ;; ---------------------------------------------------------------------------
 ;; decorate — flat-key carrier (handler-meta / frame-meta shape).
 ;;
-;; `(rf/handler-meta kind id)` and `(rf/frame-meta id)` return registration-
+;; `(rf/handler-meta {:source :store :kind kind :id id})` and `(rf/frame-meta id)` return registration-
 ;; metadata maps with flat `:ns` / `:line` / `:column` / `:file` keys (per
 ;; Spec-Schemas `:rf/source-coord-meta`). The decorator must recognise this
 ;; carrier shape and splice :rf.mcp/source-uri onto the map itself — distinct

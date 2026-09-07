@@ -62,7 +62,7 @@ Start with the smallest test there is. An [event handler](../../core/glossary.md
 
 ```clojure
 (deftest edit-field-updates-the-draft
-  (let [handler (:handler-fn (rf/handler-meta :event :auth.login-form/edit-field))
+  (let [handler (:handler-fn (rf/handler-meta {:source :store :kind :event :id :auth.login-form/edit-field}))
         result  (handler {:db {:auth {:login-form {:draft {:email "" :password ""}}}}}
                          [:auth.login-form/edit-field :email "ada@example.com"])]
     (is (= "ada@example.com" (get-in result [:db :auth :login-form :draft :email])))))
@@ -92,7 +92,7 @@ A handler that declares coeffects tests *exactly* the same way — same `reg-eve
 
 ```clojure
 (deftest initialise-seeds-the-session-and-kicks-restore
-  (let [handler (:handler-fn (rf/handler-meta :event :auth/initialise))
+  (let [handler (:handler-fn (rf/handler-meta {:source :store :kind :event :id :auth/initialise}))
         result  (handler {:db                 {}
                           :auth.session/token "jwt-fixture"}  ;; the literal coeffects map
                          [:auth/initialise])]
@@ -106,7 +106,7 @@ Look hard at that second assertion. The handler *did not* dispatch anything — 
 The declaration doubles as the **fixture checklist**. Writing a test for a handler you don't know by heart? Ask the registry what it must be fed:
 
 ```clojure
-(:rf.cofx/requires (rf/handler-meta :event :auth/initialise))
+(:rf.cofx/requires (rf/handler-meta {:source :store :kind :event :id :auth/initialise}))
 ;; => [:auth.session/token]
 ```
 

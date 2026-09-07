@@ -53,8 +53,7 @@
   The machine registration sits behind the
   `re-frame.story.config/enabled?` gate (per `001-Authoring.md` §Registration macros). Production
   CLJS builds with the flag false never register the machine; the
-  Story runtime entry points read `(rf/handler-meta :event
-  :rf.story.lifecycle/machine)` and find nothing, returning early."
+  Story runtime entry points read `(rf/handler-meta {:source :store :kind :event :id :rf.story.lifecycle/machine})` and find nothing, returning early."
   (:require [re-frame.story.config    :as rf.story.config]
             [re-frame.story.assertions :as rf.story.assertions]
             #?(:clj  [re-frame.machines :as rf.machines]

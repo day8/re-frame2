@@ -21,7 +21,7 @@
   `<ns>` and `<sym>` together form the registered handler-id keyword;
   `<line>`/`<col>` are the source coords captured at `reg-view` macro-
   expansion time. We split on `:` to recover them, then look up
-  `(rf/handler-meta :view <id>)` for the `:file` slot (the DOM attribute
+  `(rf/handler-meta {:source :store :kind :view :id <id>})` for the `:file` slot (the DOM attribute
   carries line/col only — see `docs/xray/05-click-to-source.md`).
 
   ## Inspector mode
@@ -127,7 +127,7 @@
      reachable for tooling."
      [parsed]
      (when-let [view-id (coord->handler-keyword parsed)]
-       (let [meta (rf/handler-meta :view view-id)
+       (let [meta (rf/handler-meta {:source :store :kind :view :id view-id})
              err  (rf.source-coords/error-coords-for :view view-id)
              file (or (:file meta) (:file err))]
          {:file   file

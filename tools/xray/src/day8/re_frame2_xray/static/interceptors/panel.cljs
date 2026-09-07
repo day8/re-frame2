@@ -31,14 +31,14 @@
 
   ## Data source
 
-  Walks `(rf/registrations :event)` and harvests the
+  Walks `(rf/registrations {:source :store :kind :event})` and harvests the
   `:interceptors` chain from each entry; collapses by `:id` so an
   interceptor that appears on many chains shows up once with the count
   of chains it appears on. A REFERENCE entry contributes its referenced
   id (a `[id arg]` ref contributes the head keyword); an inline value
   with no `:id` (rare — `reg-interceptor` requires one) falls under
   `::unnamed`. Reference rows are enriched by resolving the authored ref
-  through `(rf/handler-meta :interceptor id)` — the `:interceptor`
+  through `(rf/handler-meta {:source :store :kind :interceptor :id id})` — the `:interceptor`
   registrar kind reg-interceptor populates (EP-0022) — so the catalogue
   shows the ref AND its resolved before/after hooks + doc.
 
@@ -55,7 +55,6 @@
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.interceptor-registry :as rf.interceptor-registry]
-            [day8.re-frame2-xray.host-registry :as host-registry]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.static.shared.catalogue :as catalogue]
             [day8.re-frame2-xray.static.shared.search-box :as search-box]
@@ -73,15 +72,15 @@
   fail-soft: a browse catalogue must never throw on an unregistered or
   hot-reloaded ref.
 
-  Read via `host-registry/handler-meta` (the generation-bypassing process-global
-  form), NOT a bare `(rf/handler-meta :interceptor id)`: this runs inside the
+  Read via `rf/handler-meta` with `{:source :store …}` (the SOURCE-STORE read, which never
+  consults a bound image generation), NOT `{:frame …}`: this runs inside the
   interceptors `registry` sub COMPUTATION, and Xray seats in its OWN
   image-loaded `:rf/xray` frame, so the sub build binds the registrar to Xray's
   image generation — a bare read would resolve through Xray's OWN image and the
   ref enrichment would lose the host app's interceptor descriptors. See
-  `day8.re-frame2-xray.host-registry`."
+  spec/API.md §Public registrar query API."
   [icpt-id]
-  (host-registry/handler-meta :interceptor icpt-id))
+  (rf/handler-meta {:source :store :kind :interceptor :id icpt-id}))
 
 (defn- classify-entry
   "Classify one `:interceptors` chain entry (EP-0022, Spec 002 §Interceptor
@@ -194,8 +193,7 @@
   (search-box/filter-rows row-haystack rows query))
 
 (defn project-data
-  "Project the interceptor rows for the browse from the `(rf/registrations
-  :event)` map — collapses each event's `:interceptors` chain into a flat,
+  "Project the interceptor rows for the browse from the `(rf/registrations {:source :store :kind :event})` map — collapses each event's `:interceptors` chain into a flat,
   per-id catalogue and filters by `query`."
   [registrations-map query]
   (let [rows     (collect-interceptors registrations-map)
@@ -345,15 +343,15 @@
   "The event-chain registry off the HOST app's `:event` registrar — each entry
   carries its interceptor chain. The test seam overrides this map directly.
 
-  Read via `host-registry/registrations` (the generation-bypassing process-global
-  form), NOT a bare `(rf/registrations :event)`: this runs inside the
+  Read via `rf/registrations` with `{:source :store …}` (the SOURCE-STORE read, which never
+  consults a bound image generation), NOT `{:frame …}`: this runs inside the
   `:rf.xray.static.interceptors/registry` sub COMPUTATION, and Xray seats in its
   OWN image-loaded `:rf/xray` frame, so the sub build binds the registrar to
   Xray's image generation — a bare read would resolve through Xray's OWN image
   and the interceptor browse would lose the host app's event chains. See
-  `day8.re-frame2-xray.host-registry`."
+  spec/API.md §Public registrar query API."
   []
-  (try (host-registry/registrations :event)
+  (try (rf/registrations {:source :store :kind :event})
        (catch :default _ {})))
 
 ;; ---- registrations -------------------------------------------------------

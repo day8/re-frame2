@@ -505,7 +505,7 @@ reference:
 | `(rf/replace-frame-state! frame-id {:rf.db/app value})` | Tool-Pair | Used for "try anyway" recovery. |
 | `(rf/app-db-value frame-id)` | Spec 002 | The app-db panel's live read (returns the app-db VALUE). |
 | `(rf/compute-sub query-v db)` | Spec 008 | The sub-graph panel's value display. |
-| `(rf/registrations kind)` / `(rf/handler-meta kind id)` | Spec 001 | Registry-browser metadata. |
+| `(rf/registrations {:source :store :kind kind})` / `(rf/handler-meta {:source :store :kind kind :id id})` | Spec 001 | Registry-browser metadata. |
 | `(rf/frame-ids)` / `(rf/frame-meta id)` | Spec 002 | The frame picker. |
 | `(rf.machines/machines)` | Spec 005 | The machine inspector dropdown — 0-ary; returns the seq of machine-ids registered **globally** (every event handler whose registration metadata carries `:rf/machine? true`). It takes no frame argument — only live machine snapshots and system-id lookup are frame-scoped. |
 | `(rf/app-schemas frame-id)` | Spec 010 | The schema-violation timeline rows. |

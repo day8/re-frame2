@@ -21,7 +21,7 @@
   ## Read-only — Xray MUST NOT become an owner by observing
 
   Spec 016 §Active owners and causes: opening this panel pins NOTHING.
-  Every section is a pure read of `(rf/registrations …)` + the runtime-db
+  Every section is a pure read of `(rf/registrations {:source :store :kind …})` + the runtime-db
   cache/ledger slices + the trace buffer. The panel dispatches no
   `:rf.resource/ensure`, attaches no owner, refetches nothing, and
   extends no GC. (A future explicit 'pin this resource' debug action
@@ -39,7 +39,7 @@
 
   Xray does NOT `:require` `re-frame.resources.*` — resources is a
   post-v1 OPTIONAL artefact and not a hard Xray dep. The panel reads
-  decoupled: the static registry via `(rf/registrations :resource)`, the
+  decoupled: the static registry via `(rf/registrations {:source :store :kind :resource})`, the
   live cache/ledger from the runtime-db partition slice the spine already
   publishes (`:rf.xray/target-frame-runtime-db`), and the trace family
   from `:rf.xray/trace-buffer`. Identical posture to the Routing tab
@@ -53,7 +53,6 @@
   algebra lives in `resources_helpers.cljc` (JVM-portable)."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [day8.re-frame2-xray.host-registry :as host-registry]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.resources-helpers :as h]
             [day8.re-frame2-xray.panels.local-render :as local-render]
@@ -186,7 +185,7 @@
 
 ;; ---- §1b NAMED SCOPE RESOLVERS (EP-0016 D3) -----------------------------
 ;;
-;; The static `(rf/registrations :resource-scope)` registry: each named
+;; The static `(rf/registrations {:source :store :kind :resource-scope})` registry: each named
 ;; resolver's id + its DECLARED inputs (the `[:db path]` sources that decide a
 ;; resource identity, paths summarized) + the whole-db-sugar cost flag. Per
 ;; Spec 016 §Named resource-scope resolvers. The LIVE per-resolution input
@@ -1091,17 +1090,17 @@
 ;; not duplicated across production and test surfaces (rf2-e8330v).
 
 ;; Host-registry reads (`:resource` / `:resource-scope` / `:route`) go through
-;; `host-registry/*` (the generation-bypassing default-realm form), NOT bare
-;; `(rf/registrations …)`: these run inside the Resources subs' COMPUTATION, and
+;; `{:source :store …}` (the SOURCE-STORE read, which never consults a
+;; bound image generation), NOT `{:frame …}`: these run inside the Resources subs' COMPUTATION, and
 ;; Xray seats in its OWN image-loaded `:rf/xray` frame, so the sub build binds
 ;; the registrar to Xray's image generation — a bare read would resolve through
 ;; Xray's OWN image (no host `:resource*` ids) and lose the host registry. See
-;; `day8.re-frame2-xray.host-registry`.
+;; spec/API.md §Public registrar query API.
 (defn- registered-resources-value []
-  (host-registry/registrations :resource))
+  (rf/registrations {:source :store :kind :resource}))
 
 (defn- registered-scope-resolvers-value []
-  (host-registry/registrations :resource-scope))
+  (rf/registrations {:source :store :kind :resource-scope}))
 
 (defn- resource-entries-value [target-runtime-db]
   (when (map? target-runtime-db)
@@ -1161,7 +1160,7 @@
 
   Registers (all under the `:rf.xray/*` isolation prefix):
 
-    - `:rf.xray/registered-resources` — `(rf/registrations :resource)`
+    - `:rf.xray/registered-resources` — `(rf/registrations {:source :store :kind :resource})`
       (process-global, frame-agnostic; the static registry). Test
       override via `:registered-resources-override`.
     - `:rf.xray/resource-entries` — the live cache entries map from the
@@ -1256,7 +1255,7 @@
     (fn [[registrations entries ledger trace-buffer sub-reads routing-slice
           scope-resolvers observed-frame] _]
       (let [now-ms        (.now js/Date)
-            routes-map    (host-registry/registrations :route)
+            routes-map    (rf/registrations {:source :store :kind :route})
             registry-rows (h/project-registry registrations routes-map)
             ;; rf2-9zix0u — thread the on-box egress-fn so a frame-`:sensitive`
             ;; resource payload redacts to `[redacted]` on the on-box render

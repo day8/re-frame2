@@ -49,7 +49,7 @@
     (rf/reg-event :test.bpmszk.cljs/super
       {:doc "Superset form." :interceptors [:test/noop]}
       (fn [{:keys [db]} _] {:db db}))
-    (let [meta (rf/handler-meta :event :test.bpmszk.cljs/super)
+    (let [meta (rf/handler-meta {:source :store :kind :event :id :test.bpmszk.cljs/super})
           ids  (mapv chain-id (:interceptors meta))]
       (is (= "Superset form." (:doc meta)))
       (is (not (contains? meta :event/kind))
@@ -81,7 +81,7 @@
     (rf/reg-event :test.bpmszk.cljs/via-map
       {:interceptors [:test/noop]}
       (fn [{:keys [db]} _] {:db db}))
-    (let [map-ids (mapv chain-id (:interceptors (rf/handler-meta :event :test.bpmszk.cljs/via-map)))]
+    (let [map-ids (mapv chain-id (:interceptors (rf/handler-meta {:source :store :kind :event :id :test.bpmszk.cljs/via-map})))]
       (is (= [:test/noop :rf/event-handler] map-ids)
           "the metadata map registers the effective chain (authored ref + wrapper, in order)"))))
 

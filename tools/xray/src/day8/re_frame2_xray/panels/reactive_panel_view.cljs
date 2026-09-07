@@ -361,7 +361,7 @@
   cause — the `(mounted)` label already conveys the first render.
   Hovering toggles the pink DOM highlight (rf2-8l03l)."
   [{:keys [id slug label action triggered-by elapsed-ms x y w h]}]
-  (let [meta      (when id (rf/handler-meta :view id))
+  (let [meta      (when id (rf/handler-meta {:source :store :kind :view :id id}))
         disp-name (view-display-name id meta)
         coord     (when (string? (:file meta))
                     {:file (:file meta) :line (:line meta) :ns (:ns meta)})
@@ -511,7 +511,7 @@
        (into [:div {:data-testid "rf-xray-reactive-unmounted-list"
                     :style list-card-style}]
              (for [{:keys [view-id]} rows
-                   :let [meta (when view-id (rf/handler-meta :view view-id))
+                   :let [meta (when view-id (rf/handler-meta {:source :store :kind :view :id view-id}))
                          nm   (view-display-name view-id meta)]]
                ^{:key (str view-id)}
                [list-row {:testid (str "rf-xray-reactive-unmounted-row-"

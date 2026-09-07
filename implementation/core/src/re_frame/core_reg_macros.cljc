@@ -477,8 +477,7 @@
      The DEV arm co-locates `{:fn .. :source-coords .. :source-code ..}`
      onto each `:guards` / `:actions` / `:on-spawn-actions` entry of the
      spec, which `reg-machine*` stores under `:rf/machine` in the machine's
-     `:event` registration. Tooling reads `(rf/handler-meta :machine-guard
-     [machine-id guard-id])`, which DERIVES the fn-source on demand from
+     `:event` registration. Tooling reads `(rf/handler-meta {:source :store :kind :machine-guard :id [machine-id guard-id]})`, which DERIVES the fn-source on demand from
      that `:event` spec (rf2-ftrcv, supersedes rf2-npvsx — no registrar
      side-table). The PROD arm collapses each entry to `{:fn <fn>}` (no
      source), so the derivation returns nil under elision.
@@ -556,8 +555,7 @@
      `reg-machine` sees only the `door-machine` symbol at its call site.
      The co-located source travels WITH the value, so when the machine is
      registered the stamped spec (with its `:source-code` entries) is stored
-     under `:rf/machine` in the `:event` registration, and `(rf/handler-meta
-     :machine-guard [machine-id guard-id])` derives the fn-source from it on
+     under `:rf/machine` in the `:event` registration, and `(rf/handler-meta {:source :store :kind :machine-guard :id [machine-id guard-id]})` derives the fn-source from it on
      demand (rf2-ftrcv — no registrar side-table written).
 
      `ns-sym` / `file` are `*ns*` / `*file*` at expansion time. An

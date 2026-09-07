@@ -106,7 +106,7 @@
             exposes the dependency and the runtime delivers it FLAT (EP-0017
             declared-only delivery — nothing implicit, including `:rf/time-ms`)"
     (doseq [event-id time-consuming-resource-events]
-      (let [meta     (rf/handler-meta :event event-id)
+      (let [meta     (rf/handler-meta {:source :store :kind :event :id event-id})
             requires (:rf.cofx/requires meta)]
         (is (some? meta) (str event-id " is registered"))
         (is (contains? (set requires) :rf/time-ms)
@@ -117,7 +117,7 @@
   (testing "rf2-601ife / rf2-abyycr: a load-causing event declares BOTH the
             recordable generation-allocation cofx AND the causal `:rf/time-ms`"
     (doseq [event-id [:rf.resource/ensure :rf.resource/refetch :rf.mutation/execute]]
-      (let [requires (set (:rf.cofx/requires (rf/handler-meta :event event-id)))]
+      (let [requires (set (:rf.cofx/requires (rf/handler-meta {:source :store :kind :event :id event-id})))]
         (is (contains? requires :rf.resource/generation-allocation)
             (str event-id " declares the generation-allocation cofx"))
         (is (contains? requires :rf/time-ms)

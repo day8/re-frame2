@@ -155,8 +155,8 @@
   helper honest about what it restores: whatever `defview` actually wrote
   is what each test reads, so a change to the alias shape reaches these
   rows instead of being papered over by a hand-built stand-in."
-  {card-id  (rf/handler-meta :view card-id)
-   panel-id (rf/handler-meta :view panel-id)})
+  {card-id  (rf/handler-meta {:source :store :kind :view :id card-id})
+   panel-id (rf/handler-meta {:source :store :kind :view :id panel-id})})
 
 ;; ---------------------------------------------------------------------------
 ;; THE RECIPE UNDER TEST — the consumer's five lines

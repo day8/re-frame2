@@ -33,7 +33,6 @@
   classifies the status (`:no-focus / :focused / :epoch-evicted`) and
   resolves the matching record."
   (:require [re-frame.core :as rf]
-            [day8.re-frame2-xray.host-registry :as host-registry]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
             [day8.re-frame2-xray.panels.epoch.view :as view]
@@ -43,19 +42,20 @@
 ;; `:rf.xray/epoch-pipeline` sub COMPUTATION (threaded into
 ;; `proj/project-numbered`), and Xray seats in its OWN image-loaded `:rf/xray`
 ;; frame, so the sub build binds the registrar to Xray's image generation. They
-;; therefore read the HOST app's registrar via `host-registry/handler-meta` (the
-;; generation-bypassing default-realm form), NOT a bare `(rf/handler-meta …)`: a
+;; therefore read the HOST app's registrar via `rf/handler-meta` with `{:source :store …}`
+;; (the SOURCE-STORE read, which never consults a bound image generation),
+;; NOT `{:frame …}`: a
 ;; bare read would resolve the focused event / its interceptors / its cofx
 ;; declarations through Xray's OWN image (which carries none of the host's), and
 ;; the INTERCEPTORS + RECORDABLE COEFFECTS steps would silently vanish. See
-;; `day8.re-frame2-xray.host-registry`.
+;; spec/API.md §Public registrar query API.
 
 ;; ---- authored-interceptor resolver (rf2-se9a9t / EP-0022 §11) -------------
 ;;
 ;; The pure projection cannot read the registry; it threads this resolver in
 ;; so the INTERCEPTORS step surfaces an event's AUTHORED interceptor chain
 ;; (the clean, non-throwing case the exception-only step never showed).
-;; Reads `(rf/handler-meta :event event-id)` for the authored `:interceptors`
+;; Reads `(rf/handler-meta {:source :store :kind :event :id event-id})` for the authored `:interceptors`
 ;; refs and supplies a `resolve-meta-fn` reading `(rf/handler-meta
 ;; :interceptor id)` for each ref's registered descriptor. Fail-soft: any
 ;; lookup that throws (unregistered event, runtime that can't answer)
@@ -69,12 +69,12 @@
   authored interceptors yields no step."
   [event-id]
   (when (some? event-id)
-    (let [meta    (host-registry/handler-meta :event event-id)
+    (let [meta    (rf/handler-meta {:source :store :kind :event :id event-id})
           entries (:interceptors meta)]
       (when (seq entries)
         {:entries         entries
          :resolve-meta-fn (fn [icpt-id]
-                            (host-registry/handler-meta :interceptor icpt-id))}))))
+                            (rf/handler-meta {:source :store :kind :interceptor :id icpt-id}))}))))
 
 ;; ---- declared-recordable resolver (rf2-n9v5ga / EP-0017 §9) ---------------
 ;;
@@ -113,7 +113,7 @@
   [cofx-id]
   (or (= cofx-id :rf/time-ms)
       (boolean
-        (:recordable? (host-registry/handler-meta :cofx cofx-id)))))
+        (:recordable? (rf/handler-meta {:source :store :kind :cofx :id cofx-id})))))
 
 (defn resolve-event-recordables
   "Return the focused event's DECLARED RECORDABLE leaf id SET (EP-0017 §9,
@@ -126,7 +126,7 @@
   not falsely presented as a recordable input."
   [event-id]
   (when (some? event-id)
-    (let [meta     (host-registry/handler-meta :event event-id)
+    (let [meta     (rf/handler-meta {:source :store :kind :event :id event-id})
           requires (:rf.cofx/requires meta)]
       (when (seq requires)
         (let [recordables (into #{}

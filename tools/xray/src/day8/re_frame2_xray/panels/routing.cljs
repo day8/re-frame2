@@ -79,7 +79,6 @@
   `routing_helpers.cljc` so the algebra runs under the JVM unit-test
   target."
   (:require [re-frame.core :as rf]
-            [day8.re-frame2-xray.host-registry :as host-registry]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.routing-helpers :as h]
             [day8.re-frame2-xray.theme.tokens
@@ -474,17 +473,17 @@
   "The flat `{<route-id> <meta>}` map sourced from the HOST app's
   default-realm `:route` registrar.
 
-  Read via `host-registry/registrations` (the generation-bypassing realm-
-  targeted form), NOT a bare `(rf/registrations :route)`: this fn runs inside
+  Read via `rf/registrations` with `{:source :store …}` (the SOURCE-STORE read, which never
+  consults a bound image generation), NOT `{:frame …}`: this fn runs inside
   the `:rf.xray/registered-routes` sub COMPUTATION, and Xray seats in its OWN
   image-loaded `:rf/xray` frame, so the sub build binds the registrar to Xray's
   image generation — a bare read would resolve through Xray's OWN image (which
   carries no `:route` ids) and return `{}`, collapsing the Routing panel to its
   silent empty-table state. The host's routes live in the process-global
-  default-realm registrar; `host-registry/registrations` reads it directly. See
-  `day8.re-frame2-xray.host-registry`."
+  default-realm registrar; `rf/registrations` reads it directly. See
+  spec/API.md §Public registrar query API."
   []
-  (host-registry/registrations :route))
+  (rf/registrations {:source :store :kind :route}))
 
 (defn- current-route-slice-value
   "The live route slice off the target frame's runtime-db
@@ -501,7 +500,7 @@
   registrations. Registers:
 
     - `:rf.xray/registered-routes` — flat `{<route-id> <meta>}` map
-      sourced from `(rf/registrations :route)`. The Static Routes
+      sourced from `(rf/registrations {:source :store :kind :route})`. The Static Routes
       panel also reads this sub — process-global, frame-agnostic.
     - `:rf.xray/current-route-slice` — composite over the spine's
       target-frame RUNTIME-DB reading the routing slice at

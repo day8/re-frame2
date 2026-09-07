@@ -11,7 +11,7 @@
 ;;;; `rf/replace-app-db!` into an app-only partial map,
 ;;;; `{:rf.db/app v}`), so the reset mutates app-db AND appends the
 ;;;; synthetic epoch that `restore-epoch` depends on. Reaching into
-;;;; `(rf/handler-meta :frame frame-id)` for an `:app-db` key instead
+;;;; `(rf/handler-meta {:source :store :kind :frame :id frame-id})` for an `:app-db` key instead
 ;;;; could return `{:ok? true}` without mutating state or recording the
 ;;;; epoch — this test forbids that shape.
 ;;;;
@@ -91,8 +91,7 @@
  "(rf/replace-frame-state! frame-id {:rf.db/app v}) appears in the body")))
 
 (deftest does-not-reach-through-handler-meta
- (testing "app-db-reset! does NOT use the buggy `(rf/handler-meta :frame
- frame-id) :app-db` path that returned {:ok? true} without
+ (testing "app-db-reset! does NOT use the buggy `(rf/handler-meta {:source :store :kind :frame :id frame-id}) :app-db` path that returned {:ok? true} without
  mutating state or recording an epoch — that was 's
  offending pattern"
  (is (not (form-contains?
@@ -101,7 +100,7 @@
  (= 'rf/handler-meta (first node))
  (some #{:frame} node)))
  app-db-reset-form))
- "no `(rf/handler-meta :frame ...)` lookup")
+ "no `(rf/handler-meta {:source :store :kind :frame :id ...})` lookup")
  (is (not (form-contains?
  (fn [node]
  (and (seq? node)

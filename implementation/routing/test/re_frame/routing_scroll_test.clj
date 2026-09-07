@@ -57,8 +57,8 @@
     (rf/reg-route :route/article
                   {:params [:map [:id :string]]
                    :scroll :restore} "/articles/:id")
-    (let [home-meta    (rf/handler-meta :route :route/home)
-          article-meta (rf/handler-meta :route :route/article)]
+    (let [home-meta    (rf/handler-meta {:source :store :kind :route :id :route/home})
+          article-meta (rf/handler-meta {:source :store :kind :route :id :route/article})]
       (is (= :top (:scroll home-meta))
           ":scroll metadata is preserved as-declared")
       (is (= :restore (:scroll article-meta))
@@ -500,7 +500,7 @@
     (let [tags (capture-fx-traces
                  #(rf.routing.scroll/scroll-fx-handler nil {:strategy :top}))]
       ;; SEMANTIC, posture-independent (rf2-o5dbf): the skip's always-on cause.
-      (is (= #{:client} (:platforms (rf/handler-meta :fx :rf.nav/scroll)))
+      (is (= #{:client} (:platforms (rf/handler-meta {:source :store :kind :fx :id :rf.nav/scroll})))
           ":rf.nav/scroll is declared :client-only — that is what makes the JVM skip")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
@@ -516,7 +516,7 @@
                  #(rf.routing.scroll/capture-scroll-handler {:frame :rf/default}
                                                  {:url "/articles/intro"}))]
       ;; SEMANTIC, posture-independent (rf2-o5dbf): the skip's always-on cause.
-      (is (= #{:client} (:platforms (rf/handler-meta :fx :rf.nav/capture-scroll)))
+      (is (= #{:client} (:platforms (rf/handler-meta {:source :store :kind :fx :id :rf.nav/capture-scroll})))
           ":rf.nav/capture-scroll is declared :client-only")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
@@ -534,7 +534,7 @@
     (let [tags (capture-fx-traces
                  #(rf.routing.nav-fx/push-url-handler {:frame :rf/default} "/articles"))]
       ;; SEMANTIC, posture-independent (rf2-o5dbf): the skip's always-on cause.
-      (is (= #{:client} (:platforms (rf/handler-meta :fx :rf.nav/push-url)))
+      (is (= #{:client} (:platforms (rf/handler-meta {:source :store :kind :fx :id :rf.nav/push-url})))
           ":rf.nav/push-url is declared :client-only")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
@@ -549,7 +549,7 @@
     (let [tags (capture-fx-traces
                  #(rf.routing.nav-fx/replace-url-handler {:frame :rf/default} "/articles"))]
       ;; SEMANTIC, posture-independent (rf2-o5dbf): the skip's always-on cause.
-      (is (= #{:client} (:platforms (rf/handler-meta :fx :rf.nav/replace-url)))
+      (is (= #{:client} (:platforms (rf/handler-meta {:source :store :kind :fx :id :rf.nav/replace-url})))
           ":rf.nav/replace-url is declared :client-only")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?

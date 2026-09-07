@@ -90,7 +90,7 @@ body or run it. re-frame2's [loader](glossary.md#loader) is `:resources` (a list
 declarations) or `:on-match` (a vector of [event](../core/glossary.md#event)
 vectors). Being *data* means you can read it, test it, and draw a route's
 data-dependency graph **without executing it** —
-`(rf/handler-meta :route :app/cart)` hands you the list.
+`(rf/handler-meta {:source :store :kind :route :id :app/cart})` hands you the list.
 
 And `:resources` closes the click-away race: on route entry each resource is owned by
 *this* navigation's nav-token; when a newer navigation supersedes it, a late reply is

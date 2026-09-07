@@ -1030,7 +1030,7 @@
       (rf/reg-event db-id
         {:doc "Superset form." :interceptors [:test/noop]}
         (fn [{:keys [db]} _] {:db db}))
-      (let [meta (rf/handler-meta :event db-id)]
+      (let [meta (rf/handler-meta {:source :store :kind :event :id db-id})]
         (is (= "Superset form." (:doc meta)))
         (is (= [:test/noop :rf/event-handler] (mapv chain-id (:interceptors meta))))))
     (testing (str name " — reg-event metadata-map :interceptors threads the chain (fx-shaped handler)")
@@ -1038,13 +1038,13 @@
         {:interceptors [:test/noop]}
         (fn [_ _] {:db {}}))
       (is (= [:test/noop :rf/event-handler]
-             (mapv chain-id (:interceptors (rf/handler-meta :event fx-id))))))
+             (mapv chain-id (:interceptors (rf/handler-meta {:source :store :kind :event :id fx-id}))))))
     (testing (str name " — reg-event metadata-map :interceptors threads the chain (full-context interceptor)")
       (rf/reg-event ctx-id
         {:interceptors [:test/noop :test/ctx-probe]}
         (fn [_ _] {}))
       (is (= [:test/noop :test/ctx-probe :rf/event-handler]
-             (mapv chain-id (:interceptors (rf/handler-meta :event ctx-id))))))))
+             (mapv chain-id (:interceptors (rf/handler-meta {:source :store :kind :event :id ctx-id}))))))))
 
 (defn assert-reg-event-positional-vector-rejected
   "Supplying interceptors via the retired positional vector middle slot raises

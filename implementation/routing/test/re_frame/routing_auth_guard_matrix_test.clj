@@ -99,7 +99,7 @@
   (if-let [{:keys [id]} (nav-target (get-in ctx [:coeffects :event])
                                     (get-in ctx [:coeffects :rf.db/runtime
                                                  :rf.runtime/routing :current]))]
-    (let [needs-auth? (contains? (:tags (rf/handler-meta :route id)) :requires-auth)
+    (let [needs-auth? (contains? (:tags (rf/handler-meta {:source :store :kind :route :id id})) :requires-auth)
           signed-in?  (some? (get-in ctx [:coeffects :db :auth :user]))]
       (if (and needs-auth? (not signed-in?))
         (-> ctx
@@ -280,6 +280,6 @@
           "in-place nav holds the route-id fixed at the protected route")
       (is (= "x" (get-in cur [:query :tab]))
           "and applies only the query change")
-      (is (contains? (:tags (rf/handler-meta :route (:route-id cur))) :requires-auth)
+      (is (contains? (:tags (rf/handler-meta {:source :store :kind :route :id (:route-id cur)})) :requires-auth)
           "resolving the in-place request to the current route-id surfaces the
            :requires-auth tag the guard reads to fail closed"))))
