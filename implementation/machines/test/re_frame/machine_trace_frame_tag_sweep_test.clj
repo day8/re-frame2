@@ -282,31 +282,25 @@
 ;; ---- join.cljc :rf.machine.spawn-all/all-completed -----------------------
 
 (defn- mk-child-spec
-  "Return a child spec that dispatches `done-event-kw` /
-  `error-event-kw` back to `parent-id` carrying its own :id (seeded
-  from :start [:set-id <id>])."
-  [parent-id done-event-kw error-event-kw]
+  "Return a child spec that COMPLETES by reaching a `:final?` state, carrying
+  its own :id (seeded from :start [:set-id <id>]) out through `:output-key`.
+  It names no parent and dispatches nothing."
+  []
   {:initial :running
    :data    {:id nil}
-   :actions {:dispatch-done
-             (fn [{data :data}]
-               {:fx [[:dispatch [parent-id [done-event-kw (:id data)]]]]})
-             :dispatch-error
-             (fn [{data :data}]
-               {:fx [[:dispatch [parent-id [error-event-kw (:id data)]]]]})
-             :record-id
+   :actions {:record-id
              (fn [{data :data ev :event}]
                {:data (assoc data :id (second ev))})}
    :states  {:running {:on {:set-id {:action :record-id}
-                            :go     {:target :done   :action :dispatch-done}
-                            :fail   {:target :failed :action :dispatch-error}}}
-             :done    {}
-             :failed  {}}})
+                            :go     {:target :done}
+                            :fail   {:target :failed}}}
+             :done    {:final? true :output-key :id}
+             :failed  {:final? true :error? true :output-key :id}}})
 
 (deftest invoke-all-all-completed-tag-carries-frame
   (testing ":rf.machine.spawn-all/all-completed carries `:frame` tag
    (rf2-ko8jb — frame-id plumbed into emit-resolution-traces!)"
-    (let [child  (mk-child-spec :ko8jb/parent-all :asset/loaded :asset/failed)
+    (let [child  (mk-child-spec)
           parent {:initial :idle
                   :states  {:idle      {:on {:start :hydrating}}
                             :hydrating
@@ -341,7 +335,7 @@
 (deftest invoke-all-bad-child-id-tag-carries-frame
   (testing ":rf.error/machine-spawn-all-bad-child-id carries `:frame` tag
    (rf2-ko8jb — `(:rf/frame machine)` resolved at interceptor entry)"
-    (let [child  (mk-child-spec :ko8jb/parent-bc :asset/loaded :asset/failed)
+    (let [child  (mk-child-spec)
           parent {:initial :idle
                   :states  {:idle      {:on {:start :hydrating}}
                             :hydrating
@@ -358,10 +352,16 @@
             (record-traces!
               (fn []
                 (rf/dispatch-sync [:ko8jb/parent-bc [:start]])
-                ;; Inject a forged child-id the join-state never knew about
-                ;; — triggers :rf.error/machine-spawn-all-bad-child-id.
-                (rf/dispatch-sync [:ko8jb/parent-bc
-                                   [:asset/loaded :forged/never-spawned]])))
+                ;; Inject a forged child-id the join-state never knew about,
+                ;; on the reserved completion carrier the runtime mints —
+                ;; triggers :rf.error/machine-spawn-all-bad-child-id.
+                (rf/dispatch-sync
+                  [:ko8jb/parent-bc
+                   [:rf.machine.spawn/done [:hydrating]
+                    {:child-id :forged/never-spawned
+                     :attempt  0
+                     :result   nil
+                     :error?   false}]])))
             ev (first-of-op traces :rf.error/machine-spawn-all-bad-child-id)]
         (is (some? ev) ":rf.error/machine-spawn-all-bad-child-id fired")
         (is (= :rf/default (frame-tag ev))
