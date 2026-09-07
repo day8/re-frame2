@@ -71,12 +71,6 @@
     ;; particular, terminal destroy fan-out runs after exact-owner cleanup, so
     ;; its diagnostic must not enter a fresh same-id incarnation's buffer.
     :rf.epoch.cb/listener-exception
-    ;; Projection-time redact-fn exception warning. Emitted by
-    ;; `assembly/apply-redact-fn` at PROJECTION time (`projected-record`),
-    ;; which runs outside any cascade; if left un-skipped, the
-    ;; `:frame`-tagged emit could accrete into a cascade's harvested
-    ;; record for this frame.
-    :rf.warning/epoch-redact-fn-exception
     ;; Restore quiesce hook isolation likewise fires after the synthetic
     ;; replacement record has settled and must not seed the next cascade.
     :rf.warning/restore-quiesce-hook-exception})

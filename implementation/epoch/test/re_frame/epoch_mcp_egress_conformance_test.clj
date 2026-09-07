@@ -1,11 +1,10 @@
 (ns re-frame.epoch-mcp-egress-conformance-test
-  "MCP-style egress conformance for `projected-record` and
-  `projected-history`. Any process-boundary forwarder must project raw epoch
+  "MCP-style egress conformance for `projected-record` and the whole-ring
+  composition over it. Any process-boundary forwarder must project raw epoch
   records before egress.
 
   This file pins the contract from the **forwarder perspective**: the
-  per-leaf redaction matrix lives in `epoch_privacy_test.clj`; the
-  redact-fn composition matrix lives in `epoch_redact_fn_projection_test.clj`.
+  per-leaf redaction matrix lives in `epoch_privacy_test.clj`.
   Here we exercise the full off-box-forwarder pattern an MCP server runs:
 
     1. Build a realistic mixed ring (sensitive + large + bookkeeping-only
@@ -31,8 +30,9 @@
        landed, an `ensure` of a SESSION-scoped owner, which is the only way an
        identity-bearing scope reaches the fx CARRIERS rather than a family row.
     2. Run the ring through `projected-record` (per-record forwarder shape,
-       e.g. `register-epoch-listener!` ship!) AND `projected-history` (bulk-egress
-       shape, e.g. `watch-epochs` initial snapshot).
+       e.g. `register-epoch-listener!` ship!) AND the whole-ring composition
+       `(mapv projected-record (epoch-history fid))` (bulk-egress shape,
+       e.g. `watch-epochs` initial snapshot).
     3. Assert the off-box egress contract:
          - No raw sensitive bytes anywhere in the projected output (the
            security claim the MCP wire boundary depends on).
@@ -41,18 +41,15 @@
          - Bookkeeping slots (`:epoch-id`, `:frame`, `:committed-at`,
            `:event-id`, `:outcome`, `:halt-reason`, `:schema-digest`,
            `:rf.epoch/sensitive?`) are preserved byte-for-byte.
-         - The two functions agree (projected-history is fn-equivalent to
-           `(mapv projected-record (epoch-history fid))`).
-         - The functions are pure + idempotent — calling them twice over
+         - `projected-record` is pure + idempotent — calling it twice over
            the same input is structurally identical, so a forwarder that
            accidentally double-projects (e.g. middleware composition)
            does not corrupt the wire shape.
          - Ordering is deterministic (oldest-first), matching the raw
            ring; an MCP `watch-epochs` initial snapshot relies on this
            to set the resume-cursor's `:after-id`.
-         - No side effects: `projected-record` and `projected-history`
-           never mutate the underlying ring, the schemas registry, or
-           the elision registry.
+         - No side effects: `projected-record` never mutates the
+           underlying ring, the schemas registry, or the elision registry.
 
   Why this file lives in implementation/epoch/test rather than under an
   MCP-server test tree: MCP-server test runners are shadow-cljs + Node
@@ -140,7 +137,7 @@
 ;;
 ;; Each names its own slot, both trip the two carriers' `:bytes` agreement, and
 ;; both trip the cross-cutting "no leaf of the payload's size anywhere" scans on
-;; the per-record AND the bulk `projected-history` surface — which is the part
+;; the per-record AND the bulk whole-ring surface — which is the part
 ;; that was silently uncovered.
 (def ^:private large-sub-id   :sub/whole-output-large)
 ;; An UNMARKED sibling sub whose value rides the same two egress slots. It is
@@ -220,7 +217,7 @@
   cascades against this suite's `:trace-events-keep 5` means every record
   retains its `:trace-events`, so the tag slot is present on all of them.
   Returns the resulting `(epoch-history frame-id)` for direct comparison
-  with `(projected-history frame-id)`."
+  with its whole-ring projection."
   [frame-id]
   (rf/reg-event :seed   (fn [{:keys [db]} _] {:db {:n 0}}))
   (rf/reg-event :login  (fn [{:keys [db]} _] {:db (assoc-in db [:auth :password] secret-password)}))
@@ -1173,19 +1170,30 @@
           "no projected slot leaks the secret"))))
 
 ;; ============================================================================
-;;  Bulk-egress conformance — projected-history (full ring snapshot)
+;;  Bulk-egress conformance — the whole-ring composition (full ring snapshot)
 ;; ============================================================================
+;;
+;; rf2-kuky.7 retired the `projected-history` convenience door. The supported
+;; whole-ring spelling is ordinary composition, which is what a forwarder now
+;; writes and what these deftests pin.
 
-(deftest watch-epochs-projected-history-leaks-no-raw-bytes
-  (testing "MCP `watch-epochs` initial snapshot pattern: the server
-            calls `projected-history` once to emit the full ring. The
+(defn- project-ring
+  "The supported whole-ring egress spelling: map `projected-record` over the
+  raw ring. This is exactly what an MCP `watch-epochs` initial snapshot does."
+  ([frame-id] (mapv rf.epoch/projected-record (rf.epoch/epoch-history frame-id)))
+  ([frame-id opts]
+   (mapv #(rf.epoch/projected-record % opts) (rf.epoch/epoch-history frame-id))))
+
+(deftest watch-epochs-whole-ring-projection-leaks-no-raw-bytes
+  (testing "MCP `watch-epochs` initial snapshot pattern: the server maps
+            `projected-record` over the ring once to emit the full ring. The
             bulk output MUST NOT leak the raw secret OR the raw large
             payload anywhere in its structure — the same per-record
             guarantee, lifted to the bulk surface."
     (rf/make-frame {:id :test/mcp})
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
-    (let [snapshot (rf.epoch/projected-history :test/mcp)]
+    (let [snapshot (project-ring :test/mcp)]
       (is (pos? (count snapshot))
           "sanity: the snapshot is non-empty")
       (is (not-any? contains-secret? snapshot)
@@ -1193,24 +1201,7 @@
       (is (zero? (count-leaf-strings-at-least payload-size snapshot))
           "the bulk snapshot does not leak any raw large-payload bytes"))))
 
-(deftest watch-epochs-projected-history-equals-mapv-projected-record
-  (testing "MCP `watch-epochs` initial snapshot pattern: the docstring
-            promises `projected-history` is equivalent to
-            `(mapv projected-record (epoch-history fid))`. Pin that
-            equivalence so the MCP server can use either entry without
-            shape drift; the bulk-egress path MUST NOT diverge from
-            the per-record path."
-    (rf/make-frame {:id :test/mcp})
-    (install-mcp-style-schemas! :test/mcp)
-    (drive-mixed-ring! :test/mcp)
-    (let [raw            (rf/epoch-history :test/mcp)
-          bulk-projection (rf.epoch/projected-history :test/mcp)
-          per-record      (mapv rf.epoch/projected-record raw)]
-      (is (= per-record bulk-projection)
-          "projected-history is the bulk-shape equivalent of
-           (mapv projected-record (epoch-history fid))"))))
-
-(deftest watch-epochs-projected-history-preserves-oldest-first-order
+(deftest watch-epochs-whole-ring-projection-preserves-oldest-first-order
   (testing "MCP `watch-epochs` initial snapshot pattern: the snapshot
             MUST preserve the raw ring's oldest-first ordering so the
             server's resume-cursor (`:after-id` keyed off the last
@@ -1220,12 +1211,12 @@
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
     (let [raw      (rf/epoch-history :test/mcp)
-          snapshot (rf.epoch/projected-history :test/mcp)]
+          snapshot (project-ring :test/mcp)]
       (is (= (mapv :epoch-id raw)
              (mapv :epoch-id snapshot))
           "ordering matches the raw ring epoch-id-by-epoch-id"))))
 
-(deftest watch-epochs-projected-history-empty-on-fresh-frame
+(deftest watch-epochs-whole-ring-projection-empty-on-fresh-frame
   (testing "MCP `watch-epochs` initial snapshot pattern: an MCP server
             attached to a frame with no recorded epochs (a freshly-
             booted app, a just-cleared session) MUST receive the empty
@@ -1233,14 +1224,14 @@
             shape-stable across the empty case."
     (rf/make-frame {:id :test/mcp})
     (install-mcp-style-schemas! :test/mcp)
-    (is (= [] (rf.epoch/projected-history :test/mcp))
+    (is (= [] (project-ring :test/mcp))
         "empty-ring snapshot is the empty vector")
-    (is (= [] (rf.epoch/projected-history :rf/no-such-frame))
+    (is (= [] (project-ring :rf/no-such-frame))
         "missing-frame snapshot is also the empty vector — uniform shape")))
 
-(deftest watch-epochs-projected-history-is-pure-no-side-effects
-  (testing "MCP `watch-epochs` initial snapshot pattern: projected-history
-            MUST be pure — repeat calls (the initial snapshot, a
+(deftest watch-epochs-whole-ring-projection-is-pure-no-side-effects
+  (testing "MCP `watch-epochs` initial snapshot pattern: the whole-ring
+            projection MUST be pure — repeat calls (the initial snapshot, a
             resync-after-reconnect, a debug print) MUST NOT mutate the
             ring or any registry."
     (rf/make-frame {:id :test/mcp})
@@ -1248,7 +1239,7 @@
     (drive-mixed-ring! :test/mcp)
     (let [ring-before    (rf/epoch-history :test/mcp)
           schemas-before (rf.schemas/snapshot-schemas-by-frame)
-          _              (dotimes [_ 25] (rf.epoch/projected-history :test/mcp))
+          _              (dotimes [_ 25] (project-ring :test/mcp))
           ring-after     (rf/epoch-history :test/mcp)
           schemas-after  (rf.schemas/snapshot-schemas-by-frame)]
       (is (= ring-before ring-after)
@@ -1264,13 +1255,13 @@
 ;; disabled `projected-record` wholesale. That conflated the app-db
 ;; sensitive axis with EVERY other independent projection axis and shipped
 ;; the raw fx-args payload, the raw runtime-db partition, and an
-;; un-`:redact-fn`'d record off-box. The fix routes `:include-sensitive`
+;; un-projected record off-box. The fix routes `:include-sensitive`
 ;; THROUGH the projection as `{:rf.size/include-sensitive? true}`, lifting ONLY the
 ;; app-db sensitive axis. These framework-side tests pin the per-axis
 ;; contract the tool-side form-shape tests depend on: with
 ;; `{:rf.size/include-sensitive? true}` the app-db sensitive leaf is REVEALED while
 ;; `:effects[*].args` / the `:rf.db/runtime` partition / large slots / the
-;; `:redact-fn` override all stay at their fail-closed defaults.
+;; axes all stay at their fail-closed defaults.
 ;; ============================================================================
 
 (defn- install-fx-and-runtime-schemas!
@@ -1383,37 +1374,11 @@
             "the explicit `:rf.size/include-large? true` opt lifts the large slot —
              proving the axis is independently governed")))))
 
-(deftest include-sensitive-still-applies-redact-fn-override
-  (testing "rf2-m9duxl — the app-installed `:redact-fn` advanced override
-            STILL runs over the projected record under
-            `{:rf.size/include-sensitive? true}`. The override is the post-projection
-            stage of the two-stage projection; a raw bypass would skip it
-            entirely. We install a `:redact-fn` that stamps a sentinel slot
-            and assert it lands even with the sensitive opt-in on."
-    (rf/make-frame {:id :test/mcp})
-    (install-fx-and-runtime-schemas! :test/mcp)
-    (rf/configure! {:epoch-history {:redact-fn (fn [record]
-                                 (assoc record :rf.test/redact-fn-ran true))}})
-    (rf/reg-event :seed-sensitive
-                     (fn [{:keys [db]} _] {:db {:auth {:password secret-password}}}))
-    (rf/dispatch-sync [:seed-sensitive] {:frame :test/mcp})
-    (let [raw  (last (rf/epoch-history :test/mcp))
-          proj (rf.epoch/projected-record raw {:rf.size/include-sensitive? true})]
-      (is (= secret-password (get-in proj [:db-after :auth :password]))
-          "`:rf.size/include-sensitive? true` reveals the app-db sensitive leaf")
-      (is (true? (:rf.test/redact-fn-ran proj))
-          "the app `:redact-fn` override STILL runs under include-sensitive —
-           the projection's post-stage is never skipped (no raw bypass)")
-      ;; Negative control: the RAW ring record is untouched by the redact-fn
-      ;; (projection-side only) — restore fidelity preserved.
-      (is (not (contains? raw :rf.test/redact-fn-ran))
-          "the raw ring record is untouched — redact-fn is projection-side"))))
-
 ;; ============================================================================
 ;;  Cross-function sentinel uniformity
 ;; ============================================================================
 
-(deftest projected-record-and-history-share-redaction-vocabulary
+(deftest per-record-and-whole-ring-share-redaction-vocabulary
   (testing "Both functions substitute the SAME sentinel vocabulary
             (`:rf/redacted` for sensitive, `:rf.size/large-elided` marker
             map for large). An MCP client that branches on the marker
@@ -1424,7 +1389,7 @@
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
     (let [raw        (rf/epoch-history :test/mcp)
-          bulk       (rf.epoch/projected-history :test/mcp)
+          bulk       (project-ring :test/mcp)
           per-record (mapv rf.epoch/projected-record raw)]
       ;; The :login cascade is the second one driven; pull both shapes'
       ;; corresponding record and compare leaf-by-leaf.

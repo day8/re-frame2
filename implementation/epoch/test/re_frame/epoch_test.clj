@@ -628,7 +628,7 @@
 ;; and a fix closing one without the other looks green on a single-axis
 ;; test — so both are pinned below.
 ;;
-;;   QUERYABLE  — `epoch-history` and `projected-history` both read the
+;;   QUERYABLE  — `epoch-history` and its off-box projection both read the
 ;;                un-pruned vector, so records the operator believed were
 ;;                dropped stayed visible (and their `:db-before` /
 ;;                `:db-after` / `:trace-events` payloads stayed retained,
@@ -697,7 +697,7 @@
       ;; QUERYABLE half — both public read surfaces read the same ring.
       (is (= [] (rf/epoch-history :test/main))
           "epoch-history is empty immediately, per Tool-Pair §Time-travel")
-      (is (= [] (rf/projected-history :test/main))
+      (is (= [] (mapv rf/projected-record (rf/epoch-history :test/main)))
           "the off-box projection reads the same pruned ring")
 
       ;; RESTORABLE half — the more serious one: a retired id must not
@@ -2643,7 +2643,7 @@
       (reset! @#'rf.epoch.state/histories {frame-id history})
       ;; new-keep = 3 → the index bound would be lo = (- 8 3) = 5, skipping
       ;; idx 2 even though it still carries :trace-events.
-      (reset! @#'rf.epoch.state/config {:depth 50 :trace-events-keep 3 :redact-fn nil})
+      (reset! @#'rf.epoch.state/config {:depth 50 :trace-events-keep 3})
       ;; Anchor at the ring-newest epoch (:e7) so the scan runs the full
       ;; newest-first walk — the anchor bound (rf2-arzb9o) is a no-op here.
       (is (= :e2 (@#'rf.epoch.state/value-changed-epoch-for frame-id render-key :e7))
@@ -2667,7 +2667,7 @@
                       (plain-record frame-id :e4)]     ;; idx 4
           ]
       (reset! @#'rf.epoch.state/histories {frame-id history})
-      (reset! @#'rf.epoch.state/config {:depth 50 :trace-events-keep 5 :redact-fn nil})
+      (reset! @#'rf.epoch.state/config {:depth 50 :trace-events-keep 5})
       ;; Anchor at the ring-newest epoch (:e4) — full newest-first scan.
       (is (nil? (@#'rf.epoch.state/value-changed-epoch-for frame-id render-key :e4))
           "the elided record carries no evidence the attribution scan can match"))))
@@ -3658,11 +3658,6 @@
                            ;; input to a later incarnation's cascade.
                            :rf.epoch.cb/silenced-on-frame-destroy
                            :rf.epoch.cb/listener-exception
-                           ;; rf2-wp70d: redact-fn exception warning emits
-                           ;; AFTER `harvest-buffer!` has emptied this
-                           ;; frame's cascade buffer, so it must be skipped
-                           ;; lest it accrete into the next cascade's record.
-                           :rf.warning/epoch-redact-fn-exception
                            :rf.warning/restore-quiesce-hook-exception}
           skip-ops       @#'rf.epoch.capture/skip-ops]
       ;; Anti-vacuity guard: an empty scanned set would make the SUPERSET
@@ -5053,7 +5048,7 @@
     ;; exercise the accessor's fallback). Only a raw `reset!` of the
     ;; private `config` can build that shape — the shared fixture's
     ;; reset-to-default always carries the slot.
-    (reset! @#'rf.epoch.state/config {:depth 50 :redact-fn nil})
+    (reset! @#'rf.epoch.state/config {:depth 50})
     (is (= 50 (rf.epoch.state/trace-events-keep))
         "trace-events-keep accessor falls back to the shipped 50 default")
     (is (= 50 (:trace-events-keep (:epoch-history (rf/current-config)) 50))

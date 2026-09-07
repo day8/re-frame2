@@ -243,32 +243,18 @@
   opt the `:effects` `:args` / `:trigger-event` args back in). All default
   `false`.
 
-  ## `:redact-fn` is an advanced PROJECTION-side hook (EP-0015 §15, issue 6)
+  ## The whole ring is ordinary composition
 
-  After the frame/profile projection lands, any app-installed
-  `(rf/configure! {:epoch-history {:redact-fn …}})` runs over the ALREADY-PROJECTED
-  egress copy as the rare advanced escape for material the frame/profile
-  projection cannot prove. It is projection-side ONLY — the on-box ring stays
-  raw (post-EP-0010 causal replay material), so the hook can never affect
-  `restore-epoch!` fidelity; storage-side epoch mutation was removed."
+  There is no whole-ring convenience door. A tool that egresses the entire
+  epoch ring (an MCP `watch-epochs` initial snapshot, a recorder dumping the
+  full session) maps this fn over the raw ring:
+
+      (mapv #(projected-record % opts) (epoch-history frame-id))
+
+  Post-hoc scrubbing beyond the frame/profile projection is composition too —
+  `(-> r (projected-record opts) scrub)` at the forwarder / sink. The on-box
+  ring stays raw (post-EP-0010 causal replay material), so nothing a caller
+  composes here can affect `restore-epoch!` fidelity."
   {:hook :epoch/projected-record :artefact epoch-artefact :on-absent :nil}
   ([record] :delegate)
   ([record opts] :delegate))
-
-(defwrapper projected-history
-  "Convenience: return the projected vector of records for a frame (EP-0015 §15).
-  Equivalent to `(mapv #(projected-record % opts) (epoch-history frame-id))`.
-  Tools that egress the whole ring (an MCP `watch-epochs` initial
-  snapshot, a recorder dumping the full session) call this once
-  rather than walking the raw ring and re-wrapping each record. Empty
-  vector when the frame has no recorded epochs, when recording is
-  disabled, or when the `day8/re-frame2-epoch` artefact is not on the
-  classpath. Late-bound via `:epoch/projected-history`.
-
-  The 2-arity threads the egress `opts` map (see `projected-record`) to every
-  record — the named `:rf.egress/profile` boundary (default
-  `:rf.egress/off-box-observability`) plus the advanced `:include-*` overrides;
-  the 1-arity is the safe, fully-redacted off-box-observability path."
-  {:hook :epoch/projected-history :artefact epoch-artefact :on-absent :empty-vec}
-  ([frame-id] :delegate)
-  ([frame-id opts] :delegate))

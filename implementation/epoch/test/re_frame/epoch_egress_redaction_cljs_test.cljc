@@ -34,7 +34,8 @@
        `re-frame.epoch/projected-record` almost exclusively, so the
        `late-bind` seam the browser crosses was untested on this host;
     3. the forwarder / bulk-egress shapes the consumers run
-       (`register-listener! :epoch` + `projected-history`), including the
+       (`register-listener! :epoch` + the whole-ring composition
+       `(mapv projected-record (epoch-history …))`), including the
        whole-structure \"no secret bytes anywhere\" scan and double-projection
        idempotence;
     4. axis orthogonality — `:rf.size/include-sensitive?` must not lift the fx-args,
@@ -48,11 +49,7 @@
        reply lands there the same way a server's does;
     7. classification RETENTION — a path classified once keeps redacting on
        later, unrelated cascades, and the `:rf.epoch/sensitive?` rollup badge
-       survives projection;
-    8. the `:redact-fn` egress override, including the fail-closed fallback
-       when it throws (`catch #?(:clj Throwable :cljs :default)` is one of the
-       few reader conditionals in this tier — CLJS `:default` catches
-       non-`Error` throws too, so the arm is genuinely host-shaped).
+       survives projection.
 
   NOT mirrored, and why (the full list, with reasons, is in the PR body): the
   resource / mutation trace family's egress projector is OWNED by the
@@ -422,8 +419,9 @@
           "the facade path redacts the sensitive leaf")
       (is (not (contains-secret? via-fac))
           "no secret bytes anywhere in the facade-projected record")
-      (is (not (contains-secret? (rf/projected-history frame-id)))
-          "`projected-history` through the facade is likewise clean")
+      (is (not (contains-secret? (mapv rf/projected-record
+                                       (rf/epoch-history frame-id))))
+          "the whole-ring composition through the facade is likewise clean")
       (is (contains-secret? (rf/epoch-history frame-id))
           "NEGATIVE CONTROL — the RAW ring the facade reads from DOES carry
            the secret, so the two clean assertions above are proving
@@ -483,13 +481,11 @@
       (is (zero? (count-leaves-at-least payload-size @shipped))
           "and no shipped record carries the large payload as raw bytes"))))
 
-(deftest projected-history-is-mapv-projected-record-and-ordered
-  (testing "`projected-history` is the bulk-egress shape a `watch-epochs`
-            initial snapshot ships. It must be fn-equivalent to
-            `(mapv projected-record (epoch-history …))` and preserve
-            oldest-first order — the resume cursor's `:after-id` depends on
-            the ordering, and any divergence between the two entry points is
-            a second, unproved redaction path."
+(deftest whole-ring-composition-is-projected-and-ordered
+  (testing "`(mapv projected-record (epoch-history …))` is the bulk-egress
+            shape a `watch-epochs` initial snapshot ships. Every record must
+            be projected and oldest-first order preserved — the resume
+            cursor's `:after-id` depends on the ordering."
     (fresh-frame!)
     (reg-login!)
     (rf/reg-event :egress/seed (fn [_ _] {:db {:n 0}}))
@@ -498,15 +494,15 @@
     (rf/dispatch-sync [:egress/login secret]  {:frame frame-id})
     (rf/dispatch-sync [:egress/inc]           {:frame frame-id})
     (let [raw  (rf/epoch-history frame-id)
-          bulk (rf.epoch/projected-history frame-id)]
+          bulk (mapv rf.epoch/projected-record raw)]
       (is (= 3 (count bulk)) "one projected record per raw record")
-      (is (= (mapv rf.epoch/projected-record raw) bulk)
-          "bulk egress is fn-equivalent to per-record egress")
       (is (= (mapv :epoch-id raw) (mapv :epoch-id bulk))
           "oldest-first order is preserved")
       (is (not (contains-secret? bulk))
           "the bulk shape leaks no secret bytes")
-      (is (= [] (rf.epoch/projected-history :epoch-egress-redaction/no-such-frame))
+      (is (= [] (mapv rf.epoch/projected-record
+                      (rf.epoch/epoch-history
+                        :epoch-egress-redaction/no-such-frame)))
           "an unknown frame yields the empty vector, not a throw"))))
 
 (deftest double-projection-is-idempotent-for-both-substitutions
@@ -542,7 +538,7 @@
     (let [before (rf/epoch-history frame-id)]
       (dotimes [_ 10]
         (mapv rf.epoch/projected-record before)
-        (rf.epoch/projected-history frame-id))
+        (mapv rf.epoch/projected-record (rf.epoch/epoch-history frame-id)))
       (is (= before (rf/epoch-history frame-id))
           "the ring is structurally unchanged after 20 projection calls")
       (is (contains-secret? (rf/epoch-history frame-id))
@@ -640,27 +636,6 @@
         (is (pos? (count-leaves-at-least payload-size proj))
             "and the raw payload bytes ARE present, so the elision
              assertions above are not vacuous")))))
-
-(deftest include-sensitive-still-applies-the-redact-fn-override
-  (testing "the app-installed `:redact-fn` is the SECOND stage of the
-            projection. A raw-record bypass on `:rf.size/include-sensitive?` (the
-            original rf2-m9duxl bug) skipped it entirely, so an app relying
-            on the override to scrub material the classification registry
-            cannot prove would have leaked. The override must still run."
-    (fresh-frame!)
-    (reg-login!)
-    (rf/configure! {:epoch-history
-                    {:redact-fn (fn [r] (assoc r :rf.test/redact-fn-ran true))}})
-    (rf/dispatch-sync [:egress/login secret] {:frame frame-id})
-    (let [raw  (last-record)
-          proj (rf.epoch/projected-record raw {:rf.size/include-sensitive? true})]
-      (is (= secret (get-in proj [:db-after :auth :password]))
-          "the sensitive opt-in is in force")
-      (is (true? (:rf.test/redact-fn-ran proj))
-          "the override still ran — the post-projection stage is never skipped")
-      (is (not (contains? raw :rf.test/redact-fn-ran))
-          "NEGATIVE CONTROL — the RAW ring record is untouched, so the
-           override is projection-side only"))))
 
 ;; ============================================================================
 ;;  5. `:trigger-event` event-args fail-closed (rf2-nm611o)
@@ -814,7 +789,7 @@
     (rf/dispatch-sync [:egress/login secret] {:frame frame-id})
     (dotimes [_ 4] (rf/dispatch-sync [:egress/inc] {:frame frame-id}))
     (let [raw  (rf/epoch-history frame-id)
-          bulk (rf.epoch/projected-history frame-id)]
+          bulk (mapv rf.epoch/projected-record raw)]
       (is (= 5 (count bulk)) "fixture: five records in the ring")
       (is (contains-secret? raw)
           "fixture control: the raw ring carries the secret in every
@@ -874,7 +849,7 @@
             payload-dense slot: records older than the window drop
             `:trace-events` entirely, while the structured `:sub-runs` /
             `:renders` / `:effects` projections survive. This caps what a
-            bulk `projected-history` egress can carry at all."
+            bulk whole-ring egress can carry at all."
     (fresh-frame!)
     (rf/reg-event :egress/seed (fn [_ _] {:db {:n 0}}))
     (rf/reg-event :egress/inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
@@ -882,7 +857,8 @@
         "fixture override — the shipped runtime default is 50")
     (rf/dispatch-sync [:egress/seed] {:frame frame-id})
     (dotimes [_ 6] (rf/dispatch-sync [:egress/inc] {:frame frame-id}))
-    (let [bulk (rf.epoch/projected-history frame-id)
+    (let [bulk (mapv rf.epoch/projected-record
+                     (rf.epoch/epoch-history frame-id))
           n    (count bulk)]
       (is (= 7 n) "fixture: seven records")
       (is (every? #(contains? % :sub-runs) bulk)
@@ -892,55 +868,3 @@
       (is (every? #(not (contains? % :trace-events)) (subvec bulk 0 (- n 5)))
           "older records dropped `:trace-events` — the retention bound holds
            through the egress projection too"))))
-
-;; ============================================================================
-;;  8. The `:redact-fn` egress override
-;; ============================================================================
-
-(deftest redact-fn-runs-at-egress-not-at-storage
-  (testing "the `:redact-fn` advanced override is PROJECTION-side only.
-            Storage mutation would corrupt causal replay material, so the
-            ring and the listener fan-out stay raw and the override runs
-            inside `projected-record`."
-    (fresh-frame!)
-    (reg-login!)
-    (rf/configure! {:epoch-history
-                    {:redact-fn (fn [r] (assoc r :db-after :rf/redacted))}})
-    (let [seen (atom [])]
-      (rf/register-listener! :epoch ::tap (fn [r] (swap! seen conj r)))
-      (rf/dispatch-sync [:egress/login secret] {:frame frame-id})
-      (rf/unregister-listener! :epoch ::tap))
-    (is (= secret (get-in (last-record) [:db-after :auth :password]))
-        "the RING record is untouched by the override — restore fidelity")
-    (is (= :rf/redacted (:db-after (rf.epoch/projected-record (last-record))))
-        "the override IS applied at the egress boundary")))
-
-(deftest throwing-redact-fn-falls-back-to-the-projected-record
-  (testing "failure isolation, and a genuinely host-shaped arm: the catch is
-            `#?(:clj Throwable :cljs :default)`, and CLJS `:default` catches
-            non-`Error` throws (a thrown map, string, keyword) that no JVM
-            `Throwable` clause has an analogue for. A throwing override must
-            fall back to the frame/profile-PROJECTED record — never to the
-            raw one, which would turn a buggy app-supplied fn into a leak."
-    (fresh-frame!)
-    (reg-login!)
-    (rf/configure! {:epoch-history
-                    {:redact-fn (fn [_] (throw (ex-info "redact-fn blew up" {})))}})
-    (rf/dispatch-sync [:egress/login secret] {:frame frame-id})
-    (let [proj (rf.epoch/projected-record (last-record))]
-      (is (some? proj) "egress still produces a record")
-      (is (= :rf/redacted (get-in proj [:db-after :auth :password]))
-          "the fallback is the PROJECTED record — the sensitive leaf is
-           still redacted")
-      (is (not (contains-secret? proj))
-          "and no secret bytes escape through the failure path"))
-    ;; A non-Error throw — reachable only under CLJS's `:default` catch.
-    (rf/configure! {:epoch-history {:redact-fn (fn [_] (throw #?(:clj (Exception. "raw")
-                                                                 :cljs "a bare string")))}})
-    (let [proj (rf.epoch/projected-record (last-record))]
-      (is (= :rf/redacted (get-in proj [:db-after :auth :password]))
-          "a non-`Error` throw is caught too and still falls back closed")
-      (is (not (contains-secret? proj))))
-    (is (fn? (:redact-fn (:epoch-history (rf/current-config))))
-        "and the throwing override stays registered — failure isolation is
-         per-call, not a silent de-registration")))

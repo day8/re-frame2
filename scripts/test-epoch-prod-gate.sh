@@ -139,7 +139,7 @@ test_root="$artefact/test"
 # the VACUOUS-PASS class rf2-o5dbf kept finding in routing, and for this artefact
 # it lives among the greens, not among the reds.
 known_red=(
-  # ── CLASS A · SUBJECT ELIDED (17.  The 2026-08-15 triage below counted 15
+  # ── CLASS A · SUBJECT ELIDED (15.  The 2026-08-15 triage below counted 15
   #    and the number was not kept up as entries landed; it is recounted here
   #    rather than restated.  `excluded` on the run's own summary line is the
   #    authority either way — it counts the array.)  These suites obtain
@@ -165,8 +165,6 @@ known_red=(
   re-frame.epoch-mcp-egress-conformance-test             #  89 /  141
   re-frame.epoch-override-capture-test                   #   6 /   13
   re-frame.epoch-privacy-test                            #  83 /  134
-  re-frame.epoch-redact-fn-projection-test               #  23 /   45
-  re-frame.epoch-redact-fn-test                          #  42 /   66
   re-frame.epoch-run-cause-test                          #  20 /   27
   re-frame.epoch-test                                    # 428 /  752
   re-frame.join-strict-mint-epoch-replay-test            #  17 /   29

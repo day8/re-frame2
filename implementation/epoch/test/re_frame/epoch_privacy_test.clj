@@ -6,7 +6,7 @@
        frame-declared sensitive path holds a non-nil leaf in
        :db-before / :db-after; false otherwise.
 
-    2. re-frame.epoch/projected-record + projected-history — the
+    2. re-frame.epoch/projected-record — the
        single normative projection emission site for off-box egress.
        Routes :db-before / :db-after / :trigger-event / :trace-events
        through elide-wire-value with off-box defaults
@@ -321,7 +321,7 @@
             computed value rides the structured `:sub-runs` row as
             `:value` / `:prev-value`. The raw on-box record keeps the
             exact value (Xray diff / restore-epoch! need it), but the
-            off-box `projected-record` / `projected-history` egress
+            off-box `projected-record` egress
             boundary MUST substitute a `:rf.size/large-elided` marker for
             those value slots under the `:rf.size/include-large? false` default —
             otherwise a bulky derived value escapes the projection
@@ -382,13 +382,14 @@
       (is (not (contains? proj-row :large?))
           "the now-spent :large? row flag is stripped from the projection")
 
-      ;; projected-history routes through the same projection.
-      (let [hist-row (->> (rf.epoch/projected-history :test/main)
+      ;; The whole-ring composition routes through the same projection.
+      (let [hist-row (->> (rf.epoch/epoch-history :test/main)
+                          (mapv rf.epoch/projected-record)
                           (mapcat :sub-runs)
                           (filter #(= :big (:sub-id %)))
                           first)]
         (is (rf.elision/marker? (:value hist-row))
-            "projected-history also elides the large :sub-runs value"))
+            "the whole-ring composition also elides the large :sub-runs value"))
 
       ;; rf2-irwsq — THE TRACE-TAG TWIN. The same value also rides the
       ;; `:rf.sub/run` trace tag at `[:trace-events <i> :tags :rf.sub/value]`.
@@ -417,8 +418,9 @@
                (get-in (:rf.sub/value proj-tags)  [:rf.size/large-elided :bytes]))
             "row marker and tag marker agree on :bytes — one rule built both")
         (is (rf.elision/marker? (:rf.sub/value
-                               (tags-of (last (rf.epoch/projected-history :test/main)))))
-            "projected-history elides the trace-tag twin too")
+                               (tags-of (rf.epoch/projected-record
+                                          (last (rf.epoch/epoch-history :test/main))))))
+            "the whole-ring composition elides the trace-tag twin too")
         (let [lifted (tags-of (rf.epoch/projected-record raw {:rf.size/include-large? true}))]
           (is (= 50000 (count (:rf.sub/value lifted)))
               "NEGATIVE CONTROL — :rf.size/include-large? true returns the raw value to
@@ -781,7 +783,7 @@
 
 ;; ---- 2b. EP-0015 named egress profile (rf2-1afn7q) ------------------------
 ;;
-;; `projected-record` / `projected-history` let an MCP / AI / tool epoch
+;; `projected-record` lets an MCP / AI / tool epoch
 ;; consumer SELECT the `:rf.egress/off-box-tool` boundary via the named
 ;; `:rf.egress/profile` opt, while `:rf.egress/off-box-observability` stays
 ;; the hosted-monitoring DEFAULT. The tool profile keeps the same
@@ -879,8 +881,8 @@
       (is (= :rf.error/unknown-egress-profile (:rf.error/id (ex-data ex)))
           "the error carries the closed-enum rejection id"))))
 
-(deftest projected-history-threads-tool-profile
-  (testing "rf2-1afn7q: projected-history threads the named
+(deftest whole-ring-composition-threads-tool-profile
+  (testing "rf2-1afn7q: the whole-ring composition threads the named
             :rf.egress/off-box-tool profile to every record — the
             structural :digest rides each elided large slot off the
             whole-ring egress path too."
@@ -891,17 +893,22 @@
                        {:db (assoc-in db [:blob :payload] payload)}))
     (rf/dispatch-sync [:store (big-string 50000)] {:frame :test/main})
 
-    (let [tool-hist (rf.epoch/projected-history
-                      :test/main {:rf.egress/profile :rf.egress/off-box-tool})
+    (let [tool-hist (mapv #(rf.epoch/projected-record
+                             % {:rf.egress/profile :rf.egress/off-box-tool})
+                          (rf.epoch/epoch-history :test/main))
           last-body (large-marker-body (last tool-hist))]
       (is (some? last-body) "the whole-ring tool egress elides the large slot")
       (is (contains? last-body :digest)
-          "projected-history threads the tool profile's structural digest"))))
+          "the composition threads the tool profile's structural digest"))))
 
-;; ---- 3. projected-history --------------------------------------------------
+;; ---- 3. whole-ring projection by composition -------------------------------
+;;
+;; rf2-kuky.7 retired the `projected-history` convenience door: the supported
+;; whole-ring spelling is `(mapv #(projected-record % opts) (epoch-history
+;; frame-id))`. These pin that the composition carries the projection.
 
-(deftest projected-history-walks-the-ring
-  (testing "projected-history returns one projected record per ring
+(deftest whole-ring-composition-walks-the-ring
+  (testing "the composition returns one projected record per ring
             entry, in oldest-first order"
     (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
@@ -914,7 +921,7 @@
     (rf/dispatch-sync [:login "secret-2"]  {:frame :test/main})
 
     (let [history (rf/epoch-history :test/main)
-          ph      (rf.epoch/projected-history :test/main)]
+          ph      (mapv rf.epoch/projected-record history)]
       (is (= (count history) (count ph)))
       (is (= (mapv :epoch-id history) (mapv :epoch-id ph))
           "ordering matches the raw ring")
@@ -925,11 +932,12 @@
           "every projected record's password slot is nil or :rf/redacted —
            never the raw secret"))))
 
-(deftest projected-history-empty-when-no-records
-  (testing "projected-history on a frame with no recorded epochs
+(deftest whole-ring-composition-empty-when-no-records
+  (testing "the composition over a frame with no recorded epochs
             returns the empty vector (matches the epoch-history empty
             shape)"
-    (is (= [] (rf.epoch/projected-history :rf/no-such-frame)))))
+    (is (= [] (mapv rf.epoch/projected-record
+                    (rf.epoch/epoch-history :rf/no-such-frame))))))
 
 ;; ---- 4. listener delivery defaults to RAW ---------------------------------
 
@@ -1042,14 +1050,15 @@
 (deftest projected-record-handles-empty-history-under-disabled-gate
   (testing "Per rf2-0la4f and the Security.md §Production gates: when
             the JVM debug gate reads false, no records land in the
-            ring (per epoch_jvm_prod_gate_test). projected-history of
-            an empty ring is the empty vector — projected-record never
-            gets called against a record."
+            ring (per epoch_jvm_prod_gate_test). The whole-ring
+            composition over an empty ring is the empty vector —
+            projected-record never gets called against a record."
     (with-redefs [rf.interop/debug-enabled? false]
       (rf/reg-event :prod.priv/inc
                        (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
       (rf/dispatch-sync [:prod.priv/inc])
-      (is (= [] (rf.epoch/projected-history :rf/default))
+      (is (= [] (mapv rf.epoch/projected-record
+                      (rf.epoch/epoch-history :rf/default)))
           "no records to project under disabled gate"))))
 
 (deftest projected-record-pure-fn-survives-disabled-gate

@@ -252,10 +252,11 @@
       an internal redaction interceptor for the classified overlapping paths;
       this user-installed interceptor extends (does not replace) the stashed
       `:rf/redacted-event` with its own paths.
-    - With epoch `:redact-fn` — independent. The redact-fn runs at the
-      assembled epoch-record boundary; this interceptor runs per
-      handler invocation on the trace surface inside the cascade. The
-      record carries the already-scrubbed trace events into the fn.
+    - With epoch off-box projection (`rf/projected-record`) — independent.
+      That projection runs at the egress boundary over the assembled
+      record; this interceptor runs per handler invocation on the trace
+      surface inside the cascade, so the record carries already-scrubbed
+      trace events into it.
 
   Internal usage (not a public `rf/` surface; reference-only per
   EP-0022 — register the built value, reference it by id):

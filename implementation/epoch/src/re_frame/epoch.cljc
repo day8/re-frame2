@@ -58,7 +58,7 @@
 ;; second public spelling, and the manifest says so in one of two ways:
 ;;
 ;;   * The vars the facade re-exports under the SAME name — `epoch-history`,
-;;     `epoch-silence-current?`, `projected-record`, `projected-history`,
+;;     `epoch-silence-current?`, `projected-record`,
 ;;     `replace-frame-state!`, `replay-epoch!`, `restore-epoch!` — carry
 ;;     `^:no-doc` and are NOT rowed here (spec/API.md §Not-rowed internal
 ;;     carve-outs). The `re-frame.core` row carries the classification alone,
@@ -88,7 +88,7 @@
                         not merely to future appends: lowering it prunes
                         each frame's existing history to its newest N
                         records before this call returns, so the excess is
-                        gone from `epoch-history` / `projected-history` and
+                        gone from `epoch-history` and
                         is no longer a valid `restore-epoch!` /
                         `replay-epoch!` target. Depth 0 therefore empties
                         every ring outright, and re-enabling a positive
@@ -105,33 +105,12 @@
                         `:depth`: set `{:depth 100}` and `:trace-events-keep`
                         stays 50 unless you also set it. Pass a smaller value
                         (e.g. 5) to bound dev-session heap more aggressively.
-    :redact-fn          fn? or nil. An advanced projection-side override.
-                        When non-nil the
-                        framework invokes the fn ONCE per record at the
-                        OFF-BOX EGRESS boundary — inside `projected-record`,
-                        AFTER the frame/profile `project-egress` projection —
-                        NOT at storage time. The ring buffer and every
-                        `register-epoch-listener!` listener receive the RAW
-                        record. Epoch records are causal replay material, and
-                        mutating them at rest would corrupt the
-                        replay contract. The fn is the rare advanced escape
-                        for an app that records material the declaration-driven
-                        projection cannot prove (a sensitive slot no frame /
-                        schema declaration covers); ordinary redaction needs
-                        only the frame's `:sensitive` / `:large` classification
-                        plus the per-slot schema properties machine /
-                        resource data carry, which `projected-record` already
-                        applies. A throwing
-                        fn emits `:rf.warning/epoch-redact-fn-exception` and
-                        falls back to the projected (frame/profile-redacted)
-                        record. Passing `nil` clears any previously-installed
-                        fn. CAVEAT: the fn runs only on the projected egress
-                        copy; it cannot affect `restore-epoch!` fidelity (the
-                        ring stays raw).
 
-  Invalid `:depth` / `:trace-events-keep` (not a non-negative integer) and
-  malformed `:redact-fn` (not `fn?` / `nil`) are silently dropped at the
-  boundary.
+  There is no post-projection scrub hook. An app that needs one composes it
+  at the forwarder / sink: `(-> r (projected-record opts) scrub)`.
+
+  Invalid `:depth` / `:trace-events-keep` (not a non-negative integer) are
+  silently dropped at the boundary.
 
   IMPLEMENTATION SEAM — hook target for `:epoch/configure!`. The public
   door is `(rf/configure! {:epoch-history {…}})`, whose keys are the ones
@@ -278,8 +257,8 @@
   trigger for a halt whose event never ran and therefore has no
   `:event/run-start`; normal settles derive it from `events`.
 
-  Raw storage is required for replay. Projection, including the configured
-  `:redact-fn`, happens only at off-box egress. `committed-at` is the causal
+  Raw storage is required for replay. Projection happens only at off-box
+  egress. `committed-at` is the causal
   token's `:rf/time-ms`, not an assembly-time clock read."
   [frame-id frame-state-before frame-state-after events committed-at outcome
    halt-reason trigger-event exact-owner-token]
@@ -758,9 +737,6 @@
     - unschematized HTTP bodies and resource-owned identities are redacted by
       their dedicated projectors.
 
-  The configured `:redact-fn` runs once, after these built-in projections,
-  and never mutates the raw record.
-
   The default profile is `:rf.egress/off-box-observability`. MCP and AI tools
   use `:rf.egress/off-box-tool`, which also includes structural marker
   digests. Advanced trusted-local overrides are `:rf.size/include-sensitive?`,
@@ -777,14 +753,6 @@
   The 1-arity uses safe defaults. Nil input returns nil."
   ([record] (rf.epoch.tool-pair/projected-record record))
   ([record opts] (rf.epoch.tool-pair/projected-record record opts)))
-
-(defn ^:no-doc projected-history
-  "Convenience: return the projected vector of records for a frame.
-  Equivalent to `(mapv #(projected-record % opts) (epoch-history frame-id))`.
-  The 2-arity threads egress `opts` to every record; the 1-arity uses the
-  safe off-box defaults."
-  ([frame-id] (rf.epoch.tool-pair/projected-history frame-id))
-  ([frame-id opts] (rf.epoch.tool-pair/projected-history frame-id opts)))
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
@@ -857,5 +825,4 @@
    :epoch/clear-epoch-listeners!     clear-epoch-listeners!
 
    ;; ---- off-box egress projection ---------------------------------
-   :epoch/projected-record    projected-record
-   :epoch/projected-history   projected-history})
+   :epoch/projected-record    projected-record})
