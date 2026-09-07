@@ -91,7 +91,7 @@
         ;; names re-frame.core, re-frame.machines, … vars under the one `rf`
         ;; alias. doc-guide-check resolves only against re-frame.core, so
         ;; scanning the API reference here would false-positive on every
-        ;; non-core surface it names (e.g. `rf/machine-meta`). doc-api-check
+        ;; non-core surface it names (e.g. `rf/machine-by-system-id`). doc-api-check
         ;; already covers this subtree for BOTH var-resolution and
         ;; keyword-drift, so the exclusion loses no coverage.
         guide-files  (->> (rf.api-manifest.projection/require-markdown-files "docs/core/" dir)

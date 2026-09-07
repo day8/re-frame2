@@ -22,9 +22,10 @@
 
 (def ^:private manifest-vars
   ;; A small synthetic stand-in spanning several namespaces, exercising the
-  ;; bare-name latitude: `configure!` lives on re-frame.story, `machine-meta`
-  ;; on re-frame.machines, the rest on re-frame.core — all resolve by name.
-  #{"reg-event" "reg-sub" "dispatch" "configure!" "reg-story" "machine-meta"})
+  ;; bare-name latitude: `configure!` lives on re-frame.story,
+  ;; `machine-by-system-id` on re-frame.machines, the rest on re-frame.core —
+  ;; all resolve by name.
+  #{"reg-event" "reg-sub" "dispatch" "configure!" "reg-story" "machine-by-system-id"})
 
 (def ^:private scoped-allow
   {"reg-sub-raw" #{"migration/from-re-frame-v1/README.md"}})
@@ -41,7 +42,7 @@
                     :file "docs/core/api/01-core.md"}
                    {:var "configure!" :line 7 :raw "story/configure!"
                     :file "docs/story/api/registration.md"}
-                   {:var "machine-meta" :line 259 :raw "rf/machine-meta"
+                   {:var "machine-by-system-id" :line 259 :raw "rf/machine-by-system-id"
                     :file "docs/core/api/10-testing.md"}
                    {:var "reg-event" :line 88 :raw "rf/reg-event"
                     :file "spec/Privacy.md"}])))))

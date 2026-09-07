@@ -454,7 +454,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 **What "named in `:guards` / `:actions` by default" buys:**
 
 - A reviewer scanning the transition table sees `:guard :under-retry-limit` and immediately knows what gates the transition.
-- An AI proposing a change to "the retry-limit guard" can resolve the id against the machine's `:guards` map (visible in `(machine-meta :auth.login/flow)`).
+- An AI proposing a change to "the retry-limit guard" can resolve the id against the machine's `:guards` map (visible on the `:rf/machine` projection of its registration).
 - A diagram exporter can label the transition arrow with the guard's name.
 - A Level-1 test can stub the spec's `:actions :begin-submit` for deterministic HTTP behaviour by re-defining one entry in the spec — no need to re-register a global handler.
 - A conformance fixture can assert "the `:failed` event in `:submitting` runs the `:record-failure` action."
@@ -609,7 +609,7 @@ For projections, compose against `:rf/machine` by declaring it under `:inputs`:
 - Level-1 headless test passes via `machine-transition` (no event dispatch needed).
 - If the machine has terminal states, they're marked `:meta {:terminal? true}`.
 - Trace events on `:rf.machine/transition` are visible in 10x / re-frame-pair.
-- `(rf.machines/machines)` includes the new id; `(rf.machines/machine-meta <id>)` returns its registration metadata (which includes the spec's `:guards` / `:actions` maps).
+- `(rf.machines/machines)` includes the new id; `(:rf/machine (rf/handler-meta {:source :store :kind :event :id <id>}))` returns its registered spec (which includes the `:guards` / `:actions` maps).
 
 ### CP-6. Scaffold a feature
 

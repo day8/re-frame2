@@ -39,8 +39,8 @@
 
   - No machine selected (rare — the panel always defaults to the
     first row when one exists).
-  - Machine has no definition (registrar returns nil from
-    `machine-meta`) — render a hint pointing at `reg-machine`.
+  - Machine has no definition (the `:rf/machine` projection of the
+    registration is nil) — render a hint pointing at `reg-machine`.
   - Definition with no `:states` map (degenerate) — falls through
     to `mv-svg/render`'s built-in 'no states' message (rendered
     inside the canvas host).

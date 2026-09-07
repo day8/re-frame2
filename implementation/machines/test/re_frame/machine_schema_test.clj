@@ -69,7 +69,7 @@
                       :states  {:idle {}}}]
       (rf/reg-machine :rf.machine-schema/accepted spec)
       (let [meta (:rf/machine (rf/handler-meta {:source :store :kind :event :id :rf.machine-schema/accepted}))]
-        (is (some? meta) "machine-meta returns the registered spec")
+        (is (some? meta) "the :rf/machine projection returns the registered spec")
         (is (= DataSchema (get-in meta [:schemas :data]))
             "the [:schemas :data] schema round-trips through the `:rf/machine` projection")))))
 
@@ -129,7 +129,7 @@
   (testing "a SPAWNED actor (no per-instance handler) whose transition action
             returns schema-violating :data must roll back the macrostep and
             emit :where :machine-data — the schema resolves off the snapshot's
-            :rf/machine-type, not via machine-meta (rf2-2t9xn3)"
+            :rf/machine-type, not via the registry projection (rf2-2t9xn3)"
     (let [ChildSchema [:map [:n pos-int?]]
           ;; The child boots with valid :data {:n 1}; a :tick transition runs
           ;; the :break action returning {:data {:n 0}} (violates pos-int?) via
@@ -179,7 +179,7 @@
             "tag declares :rollback? true (commit must be rolled back)")
         ;; The whole point: the macrostep ROLLS BACK — the violating :data
         ;; does not commit. The schema resolves off the snapshot's
-        ;; :rf/machine-type (not via machine-meta, which returns nil for a
+        ;; :rf/machine-type (not via the registry projection, which returns nil for a
         ;; spawned actor), so the validation runs and the rollback fires.
         (is (= snap-before
                (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))

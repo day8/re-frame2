@@ -29,10 +29,10 @@
   The candidate validator (`validate-machine-data!`) walks the CANDIDATE
   runtime-db's `[:rf.runtime/machines :snapshots]` map (the value the
   router computed but has NOT installed), looks up each machine's spec
-  via `re-frame.machines/machine-meta`, and validates `(:data
+  via the `:rf/machine` registrar projection, and validates `(:data
   snapshot)` against `(get-in spec [:schemas :data])` through the schemas
   artefact's registered validator-fn. Snapshots whose machine declares no
-  `[:schemas :data]`, or for which `machine-meta` returns nil (spawned actor
+  `[:schemas :data]`, or for which that projection returns nil (spawned actor
   whose host spec is gone), pass silently.
 
   Schema-library-agnostic. The `[:schemas
@@ -396,7 +396,7 @@
   per-snapshot trace already emitted.
 
   Schema resolution goes through `resolve-data-schema`, which resolves a
-  SINGLETON via `machine-meta` AND falls back to the snapshot's
+  SINGLETON via `spec-from-registry` AND falls back to the snapshot's
   `:rf/machine-type` (`:machines/spec-from-snapshot`) for a SPAWNED actor.
   A spawned actor has no per-instance registration, so the snapshot fallback
   is what validates its `:data` at the macrostep boundary — without it a
@@ -517,7 +517,7 @@
   This is a PRE-WRITE rejection (nothing committed → nothing to roll back):
   the failure emits `:where :machine-data :phase :update-snapshot
   :rollback? false`. Resolves the schema for both a singleton
-  (`machine-meta`) and a spawned actor (`spec-from-snapshot`) so the
+  (`spec-from-registry`) and a spawned actor (`spec-from-snapshot`) so the
   escape hatch is covered uniformly across actor kinds.
 
   The application schema validator is fenced to the exact frame incarnation

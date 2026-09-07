@@ -102,7 +102,7 @@
 
 (defn lift-source-coord
   "Pull the source-coord map off a registered machine's spec (the
-  return value of `(rf.machines/machine-meta machine-id)`). Per Spec 005 +
+  return value of the `:rf/machine` registrar projection). Per Spec 005 +
   Spec 009 the registrar lifts the `defmacro`/`reg-machine` call site
   into the spec's metadata; the canonical slot is `:source-coord` (the
   same shape `editor-uri/editor-uri` consumes).
@@ -200,7 +200,7 @@
 
   Inputs:
     `machine-id`  — the registered machine keyword.
-    `definition`  — `(rf.machines/machine-meta machine-id)` map (nil if missing).
+    `definition`  — the `:rf/machine` registrar projection map (nil if missing).
     `snapshots`   — `{machine-id snapshot}` for the target-frame.
 
   Output:

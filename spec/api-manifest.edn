@@ -8,7 +8,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. The :action and :justification columns are the facade-audit axes (spec/Conventions.md §Facade policy fields 4 and 3) — also curated, and present on :facade? true rows ONLY, which is why most rows carry neither. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 498,
+ :var-count 497,
  :tier-vocab
  [:front-porch
   :advanced
@@ -224,7 +224,6 @@
   {:namespace "re-frame.machines", :var "machine-algebra-view", :tier :tooling, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "machine-by-system-id", :tier :advanced, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "machine-instance-algebra-view", :tier :tooling, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.machines", :var "machine-meta", :tier :tooling, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "machine-selector-targets", :tier :tooling, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "machine-selector?", :tier :tooling, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "machine-transition", :tier :advanced, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}

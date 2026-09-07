@@ -255,7 +255,7 @@
 (deftest boot-data-schema-attached
   (testing "the :app/boot machine carries BootData on its [:schemas :data] slot"
     (let [meta (:rf/machine (rf/handler-meta {:source :store :kind :event :id :app/boot}))]
-      (is (some? meta) "machine-meta resolves the registered :app/boot machine")
+      (is (some? meta) "the :rf/machine projection resolves the registered :app/boot machine")
       (is (= boot-schema/BootData (get-in meta [:schemas :data]))
           "the [:schemas :data] schema round-trips as boot.schema/BootData")))
   (testing "BootData validates the :data slot only (rejects a malformed :config)"

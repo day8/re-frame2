@@ -69,7 +69,7 @@
                                             :output-key :result}}}]
       (rf/reg-machine :rf.machine-output/accepted spec)
       (let [meta (:rf/machine (rf/handler-meta {:source :store :kind :event :id :rf.machine-output/accepted}))]
-        (is (some? meta) "machine-meta returns the registered spec")
+        (is (some? meta) "the :rf/machine projection returns the registered spec")
         (is (= OutputSchema (get-in meta [:schemas :output]))
             "the [:schemas :output] schema round-trips through the `:rf/machine` projection")))))
 

@@ -142,7 +142,7 @@ An `:on` **key** is one of **three event-descriptor tiers**, resolved most-speci
 {:on {:start {:guard :has-input? :target :working}}}
 ```
 
-Per the inspectability bias (Spec 005 §Inspectability bias): named entries surface in `:rf.machine/*` trace events as the registered keyword. The bias is **not** about source visibility — an inline fn's `:source-code` text is co-located on its enclosing node in dev, so visualisers and Xray render an inline body fine. The named keyword is the default because the id is a **name** — reusable, addressable, clearer for humans/tools/AIs: it resolves against `:guards`/`:actions` (via `(machine-meta <id>)`), labels a diagram arrow, and can be stubbed by id in tests, where an anonymous closure has no public name. Reach for inline only when the body is a single non-branching expression that gains no meaning from a name.
+Per the inspectability bias (Spec 005 §Inspectability bias): named entries surface in `:rf.machine/*` trace events as the registered keyword. The bias is **not** about source visibility — an inline fn's `:source-code` text is co-located on its enclosing node in dev, so visualisers and Xray render an inline body fine. The named keyword is the default because the id is a **name** — reusable, addressable, clearer for humans/tools/AIs: it resolves against `:guards`/`:actions` (via the registration's `:rf/machine` projection), labels a diagram arrow, and can be stubbed by id in tests, where an anonymous closure has no public name. Reach for inline only when the body is a single non-branching expression that gains no meaning from a name.
 
 ### Guard / action contract
 
@@ -181,13 +181,13 @@ A machine that drives a discrete event-driven flow — application boot, a webso
 
 To validate the flow's **outer** event vector, pass the optional metadata MIDDLE slot — `(rf/reg-machine :app/boot {:schema BootEvent} boot-machine)`; to validate its **`:data`**, declare `[:schemas :data]` inside the spec map (see [`machine-schemas.md`](machine-schemas.md)), which **requires** the `reg-machine` home. `patterns/boot.md` and `patterns/websocket.md` carry the worked flows.
 
-> **Advanced — `re-frame.machines/make-machine-handler`.** The lower-level factory behind `reg-machine`, owned by `re-frame.machines` and **not** on the `rf/` façade: a **schema-less escape hatch** for programmatic composition, never a normal authoring path. Registering it by hand skips the `:rf/machine?` / `:rf/machine` metadata **and** the per-element source coords, so the machine is invisible to `(machine-meta id)`, visualisers and Xray — and a `[:schemas :data]`-bearing spec **throws `:rf.error/machine-schema-requires-reg-machine`** at construction rather than silently validating nothing. See `references/cross-cutting/api-cheatsheet.md` §Machines.
+> **Advanced — `re-frame.machines/make-machine-handler`.** The lower-level factory behind `reg-machine`, owned by `re-frame.machines` and **not** on the `rf/` façade: a **schema-less escape hatch** for programmatic composition, never a normal authoring path. Registering it by hand skips the `:rf/machine?` / `:rf/machine` metadata **and** the per-element source coords, so the machine is invisible to the `:rf/machine` registrar projection, visualisers and Xray — and a `[:schemas :data]`-bearing spec **throws `:rf.error/machine-schema-requires-reg-machine`** at construction rather than silently validating nothing. See `references/cross-cutting/api-cheatsheet.md` §Machines.
 
 ## Querying registered machines
 
 - `(rf/handler-meta {:source :store :kind :event :id :my/feature})` — registration metadata, including `:rf/machine? true`, `:rf/machine` (the spec map), `:ns` / `:line` / `:file`.
 - `(re-frame.machines/machines)` — every registered machine-id.
-- `(re-frame.machines/machine-meta :my/feature)` — the spec map back.
+- `(:rf/machine (rf/handler-meta {:source :store :kind :event :id :my/feature}))` — the spec map back. (No `machine-meta` accessor: the generic registrar query plus the documented inner-key projection.)
 
 ## Common gotchas
 

@@ -1612,7 +1612,10 @@
   ;; → `implementation` (rf2-oekz6s; was internal-public).
   ;; =========================================================================
   ["re-frame.machines" "machines"]              {:tier :tooling :owner "005" :status "v1"}
-  ["re-frame.machines" "machine-meta"]          {:tier :tooling :owner "005" :status "v1"}
+  ;; rf2-kuky.31: `machine-meta` is RETIRED. It was a one-line delegate to
+  ;; `lifecycle-fx.resolver/spec-from-registry`; a single machine's spec is now
+  ;; read through the generic registrar query plus the documented `:rf/machine`
+  ;; inner-key projection, so no per-kind alias row is carried here.
   ["re-frame.machines" "machine-by-system-id"]  {:tier :advanced :owner "005" :status "v1"}
   ["re-frame.machines" "machine-transition"]    {:tier :advanced :owner "005" :status "v1"}
   ["re-frame.machines" "make-machine-handler"]  {:tier :advanced :owner "005" :status "v1"}

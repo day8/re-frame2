@@ -28,7 +28,7 @@
     - the registered-machine spec map STRAIGHT OFF the `:event` registrar
       slot's `:rf/machine?` / `:rf/machine` stamp (Spec 005 §Querying
       machines) — the SAME registrar read `re-frame.machines/machines` +
-      `…/machine-meta` perform. It reads the registrar directly (NOT through
+      `resolver/spec-from-registry` performs. It reads the registrar directly (NOT through
       the `re-frame.machines` facade) so the JVM alias on that facade can
       require THIS sibling without a load cycle (`machines` → `machines.tooling`
       → `machines` would not load) — mirroring how `flows.tooling` reads
@@ -107,7 +107,7 @@
   "The registered machine SPEC for `machine-id` (the value at `:rf/machine`),
   or nil when no machine is registered under that id. Delegates to the leaf
   `rf.machines.lifecycle-fx.resolver/spec-from-registry` — the same registrar read
-  `re-frame.machines/machine-meta` performs (this sibling requires `resolver`
+  `resolver/spec-from-registry` performs (this sibling requires `resolver`
   directly, NOT the `re-frame.machines` facade, which requires THIS sibling for
   its JVM alias — the dependency must point one way)."
   [machine-id]
@@ -246,7 +246,7 @@
   [Spec-Schemas §`:rf/derivation-node`]).
 
   Pure data over the machine registry — read through the public
-  `re-frame.machines/machines` + `…/machine-meta` query API (Spec 005
+  `re-frame.machines/machines` + the `:rf/machine` registrar projection query API (Spec 005
   §Querying machines), never touching the registrar write-path or the machine
   registration signatures. The algebra-view companion to `machines`: where
   `machines` returns the bare machine-id vector, this lowers every registered

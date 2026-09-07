@@ -530,7 +530,7 @@ The **declaration-only** categories (`:events` / `:tags` / `:meta`) are accepted
 > **SA-4 record — declaration-only sub-key wiring is post-v1, untracked.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md), "carry no wired behaviour **yet**" is a `:post-v1 tracked` **candidate** with no bead filed, so it remains a **post-v1, untracked note** — the declaration grammar (accept + fail-loud on unknown keys) is landed v1; only the *validator wiring* behind each accepted-but-inert sub-key is deferred. The wiring is not blocking: each sub-key already declares loudly, and `:data` / `:output` prove the validator-adapter path, so wiring a third sub-key is additive, not a redesign. Per-key reconsideration triggers (file one tracking bead per key **when its trigger fires**):
 > - **`[:schemas :events]` wires when** a consumer needs **send-time payload validation** for a machine's *internal* event vocabulary — the `[:machine-id [:inner-event <payload>]]` inner form — that `reg-event`'s outer-event `:schema` (the `:where :event` boundary) cannot reach. Concretely: a real machine whose inner events carry structured payloads reports a bad-payload bug that only a `:where :machine-event` check would have caught.
 > - **`[:schemas :tags]` wires when** a consumer wants the machine's **closed tag vocabulary** enforced — a `:tags <set>` slot (or a `[:rf.machine/has-tag? <machine-id> <tag>]` subscription, per [§Querying tags](#querying-tags--the-rfmachinehas-tag-sub)) referencing a tag outside the declared set caught at registration rather than silently mis-typed.
-> - **`[:schemas :meta]` wires when** a consumer wants **state/machine metadata shape** validated at the boundary where `:meta` is read (snapshot `:meta?` slot / `machine-meta`).
+> - **`[:schemas :meta]` wires when** a consumer wants **state/machine metadata shape** validated at the boundary where `:meta` is read (snapshot `:meta?` slot / the `:rf/machine` registrar projection).
 > - **Or mark permanently declarative** if, at v1.1 review, the accept-only grammar is judged sufficient (the schema value documents intent for AI / tooling without a runtime check) — in which case the "yet" is struck and the three sub-keys become a settled declarative-only stance. This ruling is itself the un-defer condition.
 
 **Schema-library-agnostic — validation is optional.** A `<schema>` value is **opaque**: machine core never interprets it and requires **neither Malli nor JavaScript Standard Schema**. `[:schemas :data]` validation runs entirely through an OPTIONAL late-bound validator adapter — the registered `:schemas/validate-with-registered-fn` hook. A Malli adapter (the framework default) interprets Malli values; a project with no schema adapter still uses the `:schemas` grammar, paying zero validation cost (the hot path short-circuits when no validator is registered). The declaration grammar and the optional validator adapter are fully decoupled.
@@ -976,7 +976,7 @@ The fold only applies when the outer event has length ≥ 3 AND the second eleme
 
 The event-`:schema` arity is the one blessed spelling for a machine that needs BOTH `[:schemas :data]` validation and an event-vector schema; a hand-composed `(reg-event id {:schema … :rf/machine? true :rf/machine spec} (make-machine-handler spec))` does not wire `[:schemas :data]` validation. The event-`:schema` arity replaces that composition.
 
-**The single registration home + auto-stamp + fail-loud guard.** Both `reg-machine` / `reg-machine*` (every arity) route through ONE registration home that stamps the `:rf/machine?` / `:rf/machine` registration metadata — the `:where :machine-data` post-commit walker resolves a machine's `[:schemas :data]` schema THROUGH `(machine-meta id)`, so without the stamp the schema validates nothing.
+**The single registration home + auto-stamp + fail-loud guard.** Both `reg-machine` / `reg-machine*` (every arity) route through ONE registration home that stamps the `:rf/machine?` / `:rf/machine` registration metadata — the `:where :machine-data` post-commit walker resolves a machine's `[:schemas :data]` schema THROUGH the `:rf/machine` registrar projection, so without the stamp the schema validates nothing.
 
 > **Durable `:data` classification is machine-owned.** There is no schema→marks redaction bridge from a machine's `:sensitive?` / `:large?` `:data` slots into snapshot egress. Durable machine `:data` egress classification is declared projection-relative on the `reg-machine` spec (`:sensitive` / `:large`), lowered per actor instance at spawn / first-boot (per [§Privacy](#privacy--redacting-machine-data-at-trace-egress)). The home runs the validation-stamp plus the projection-relative-classification shape check (`:rf.error/invalid-machine-classification`).
 
@@ -989,7 +989,7 @@ Both forms return `machine-id` per the family-wide [`reg-*` return-value convent
 **Registration-metadata stamp.** Both forms record two keys on the registry slot's metadata map (per [001 §Metadata-map shape](001-Registration.md)):
 
 - `:rf/machine? true` — the discriminator. `(rf.machines/machines)` filters `(registrations :event)` by this flag (per [§Querying machines](#querying-machines)). User-written event handlers do not set this key.
-- `:rf/machine <spec>` — the spec map passed to `reg-machine`. `(rf.machines/machine-meta id)` reads this back; tools that walk the transition table (visualisers, conformance harnesses, CP-5-time scaffolders) consume the spec via this key. When the macro path stamps source, each `:guards` / `:actions` entry carries its co-located `:source-coords` / `:source-code`, and each `:states`-tree map node (state-node / transition map) carries its own reference-site `:source-coords` directly inside this spec map.
+- `:rf/machine <spec>` — the spec map passed to `reg-machine`. `(:rf/machine (rf/handler-meta {:source :store :kind :event :id id}))` reads this back; tools that walk the transition table (visualisers, conformance harnesses, CP-5-time scaffolders) consume the spec via this key. When the macro path stamps source, each `:guards` / `:actions` entry carries its co-located `:source-coords` / `:source-code`, and each `:states`-tree map node (state-node / transition map) carries its own reference-site `:source-coords` directly inside this spec map.
 
 Source-coord stamping on the call site (`:ns` / `:line` / `:column` / `:file`) follows the standard rules from [001 §Source-coord stamping](001-Registration.md): the macro stamps; programmatic registration via `reg-machine*` does not. See [§Source-coord stamping](#source-coord-stamping) for the per-element index.
 
@@ -1023,7 +1023,7 @@ The `reg-machine` / `defmachine` macros are re-exported on the `re-frame.core` f
 
 ### Source-coord stamping
 
-When the `reg-machine` macro receives a literal-map spec form, it walks the form at expansion time and CO-LOCATES per-element source onto each guard / action entry, plus a reference-site `:source-coords` onto each map node (state-node / transition map) inside the `:states` tree. Tools (re-frame-pair, re-frame-10x, IDE jump-to-source) read one place per element — `(get-in (rf.machines/machine-meta machine-id) [:guards <id> :source-coords])` for a named guard's coord, `(get-in (rf.machines/machine-meta machine-id) [:states <id> :source-coords])` for a state-node's coord, `(get-in (rf.machines/machine-meta machine-id) [:states <id> :on <event> :source-coords])` for a transition's coord.
+When the `reg-machine` macro receives a literal-map spec form, it walks the form at expansion time and CO-LOCATES per-element source onto each guard / action entry, plus a reference-site `:source-coords` onto each map node (state-node / transition map) inside the `:states` tree. Tools (re-frame-pair, re-frame-10x, IDE jump-to-source) read one place per element, off the `:rf/machine` projection of the registration — `(get-in meta [:rf/machine :guards <id> :source-coords])` for a named guard's coord, `(get-in meta [:rf/machine :states <id> :source-coords])` for a state-node's coord, and `(get-in meta [:rf/machine :states <id> :on <event> :source-coords])` for a transition's coord, where `meta` is `(rf/handler-meta {:source :store :kind :event :id machine-id})`.
 
 > **Co-located source payloads.** Each guard / action carries its per-element payloads — the `:fn`, the coord, and the `pr-str` source — co-located on each `:guards` / `:actions` entry, so a consumer assembles one element from one place. There are no `:rf.machine/source-coords` / `:rf.machine/handler-source` side-indexes. For STATES: each `:states`-tree map node carries its own `:source-coords` directly (there is no flat `:rf.machine/state-coords` side-index paralleling the `:states` tree), so a tool that has navigated to a state-node already has its coord in hand.
 
@@ -1082,19 +1082,24 @@ Tools resolving a slot walk UP from its spec-path to the nearest enclosing map c
 
 ```clojure
 ;; Per-element definition coord + source — ONE lookup per element:
-(get-in (rf.machines/machine-meta :auth/login) [:guards :form-valid? :source-coords])
+(get-in (rf/handler-meta {:source :store :kind :event :id :auth/login})
+        [:rf/machine :guards :form-valid? :source-coords])
 ;; => {:ns ... :line ... :column ... :file ...}
-(get-in (rf.machines/machine-meta :auth/login) [:actions :commit :source-code])
+(get-in (rf/handler-meta {:source :store :kind :event :id :auth/login})
+        [:rf/machine :actions :commit :source-code])
 ;; => "(fn [{data :data}] {:fx ...})"
 
 ;; Reference-site coords — read directly off the map node:
-(get-in (rf.machines/machine-meta :auth/login) [:states :form :source-coords])
+(get-in (rf/handler-meta {:source :store :kind :event :id :auth/login})
+        [:rf/machine :states :form :source-coords])
 ;; => {:ns ... :line ... :column ... :file ...}
-(get-in (rf.machines/machine-meta :auth/login) [:states :form :on :submit :source-coords])
+(get-in (rf/handler-meta {:source :store :kind :event :id :auth/login})
+        [:rf/machine :states :form :on :submit :source-coords])
 ;; => {:ns ... :line ... :column ... :file ...}
 
 ;; Inline-fn source — read off the enclosing node's :source-code map by slot:
-(get-in (rf.machines/machine-meta :auth/login) [:states :form :on :submit :source-code :action])
+(get-in (rf/handler-meta {:source :store :kind :event :id :auth/login})
+        [:rf/machine :states :form :on :submit :source-code :action])
 ;; => "(fn [{data :data}] {:fx ...})"   (nil for a keyword-reference :action)
 ```
 
@@ -1133,7 +1138,8 @@ Here the `reg-machine` macro sees only the symbol `door-machine` at its call sit
    :states  {…}})
 
 (rf/reg-machine :door/main door-machine)
-;; (get-in (rf.machines/machine-meta :door/main) [:actions :clear-hold :source-coords]) is now populated,
+;; (get-in (rf/handler-meta {:source :store :kind :event :id :door/main})
+;;         [:rf/machine :actions :clear-hold :source-coords]) is now populated,
 ;; and (rf/handler-meta {:source :store :kind :machine-action :id [:door/main :clear-hold]}) carries the fn source.
 ```
 
@@ -1165,7 +1171,7 @@ This is a normative rule on top of the [data-DSL-vs-fn](#design-rule--data-dsls-
 Why the bias (note — *not* "you can't see an inline fn's code": since [§Inline-fn / keyword slots](#inline-fn--keyword-slots-the-exemption-case) an inline fn's `:source-code` text is co-located on its enclosing node, so visualisers and Xray CAN render the body. The bias is about a *name*, *reuse*, and *addressability* — not source visibility):
 
 - **Visualisers label arrows with ids.** A diagram exporter can label an arrow `:under-quota?` and have it carry meaning at a glance. An inline fn has the source available but no name — the diagram shows the whole body (or an anonymous `[fn]` glyph) where a name would have summarised the intent.
-- **AIs and tooling reference ids, not closures.** When an AI reasons about a machine — generating tests, proposing changes, explaining behaviour — a keyword reference is a stable name it can resolve against the machine's `:guards` / `:actions` map (visible via `(machine-meta <id>)`). An inline fn is a closure with no public name to address, even though its source is now visible.
+- **AIs and tooling reference ids, not closures.** When an AI reasons about a machine — generating tests, proposing changes, explaining behaviour — a keyword reference is a stable name it can resolve against the machine's `:guards` / `:actions` map (visible on the registration's `:rf/machine` projection). An inline fn is a closure with no public name to address, even though its source is now visible.
 - **Humans read ids, not fn bodies.** A reviewer scanning a transition table sees `:guard :under-quota?` and knows what gates the transition; with `:guard (fn [{data :data ev :event}] ...)` they have to read the body to find out.
 - **Tests read ids.** Level-1 (`machine-transition`) and Level-2 tests can stub or assert against named guards/actions by id — re-define the spec's `:guards` / `:actions` entry with a deterministic stand-in. Inline fns can only be replaced by re-writing the entire transition table.
 - **Conformance fixtures read ids.** A fixture's expected `:fx` vector can name `[:dispatch [:audit/login-ok]]` against the action `:record-success` declared in the machine's `:actions` map; inline-fn equivalents are not addressable.
@@ -2250,7 +2256,7 @@ Print/read survives: `:tags` is `#{<keyword>}` — a set of keywords; both halve
 ### What tags are *not*
 
 - **Not an autonomous transition-driver.** A tag flipping on does not, by itself, *fire* a transition — there is no "on this tag appearing" trigger. A transition still needs an event or an eventless `:always` step to fire; if you need a state change to follow a `:data` condition autonomously, the canonical mechanism is an `:always` transition guarded on `:data`. **Guards CAN read the tag set, though** — for a parallel region's guard the machine-wide `:tags` union is in the context map as the cross-region `stateIn` substitute (see [§Cross-region coordination — tags as `stateIn`](#cross-region-coordination--tags-as-statein)), so a guard *can* predicate on a sibling region's render-state. The distinction: tags are a guard **input** (a sibling region advertises one, this region's guard reads it on the next event/`:always`), not a guard **trigger**.
-- **Not a `:meta` synonym.** Per-state `:meta` (the long-standing tooling-visible slot, e.g. `{:terminal? true}`) lives alongside `:tags` and is independently queryable via `(machine-meta id)`. Tags are about **runtime active-configuration projection**; `:meta` is about **static state-node metadata**.
+- **Not a `:meta` synonym.** Per-state `:meta` (the long-standing tooling-visible slot, e.g. `{:terminal? true}`) lives alongside `:tags` and is independently queryable via the `:rf/machine` registrar projection. Tags are about **runtime active-configuration projection**; `:meta` is about **static state-node metadata**.
 - **Not user-writable on the snapshot.** Actions can't return `:tags` in their `{:data :fx}` effect map; the slot is runtime-owned.
 - **Not a substitute for `:rf/machine`.** Views that need the whole snapshot still subscribe to `:rf/machine`; `:rf.machine/has-tag?` is for the predicate-shaped query. Both are first-class.
 
@@ -3043,7 +3049,7 @@ Before / after:
 
 From outside, a `:spawn`-using machine is indistinguishable from one that wrote the entry/exit by hand — and the runtime never requires the user to record the spawned id under any particular `:data` slot. The pure-factory invariant on `make-machine-handler` is preserved — no global state, no new registry kind, no new lifecycle hook (the `[:rf.runtime/machines :spawned ...]` slot lives in the frame's **runtime-db** partition per [Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys); not a separate registry).
 
-> **Spec-as-data caveat for `:spawn` / `:spawn-all`.** The [Principles §Data is code](Principles.md#data-is-code) invariant ("what you write IS what runs") holds at the **user-visible** boundary: `machine-meta` returns the user-written spec form (the registrar stores the user-supplied map verbatim — see [§Querying machines](#querying-machines)), and the conformance harness, the migration agent, and tools that read registered specs all see the same shape the author wrote. Where the invariant is **fudged** is the **runtime spec value** threaded through `apply-transition-once`: `make-machine-handler` walks the user spec at construction time and rewrites every `:spawn` slot into the `:entry` / `:exit` action pair shown above. A debugger that prints the *runtime* spec record sees the desugared form, not the literal `:spawn` map. The two surfaces are split: the spec-as-data invariant covers what users wrote and what tools read back via `machine-meta`; the runtime-internal form is an implementation detail of the reducer. Authors writing tools that consume the runtime spec (rather than the registered metadata) should consume `machine-meta` for the user-facing shape; the runtime form is not part of the public contract and may evolve.
+> **Spec-as-data caveat for `:spawn` / `:spawn-all`.** The [Principles §Data is code](Principles.md#data-is-code) invariant ("what you write IS what runs") holds at the **user-visible** boundary: the `:rf/machine` projection returns the user-written spec form (the registrar stores the user-supplied map verbatim — see [§Querying machines](#querying-machines)), and the conformance harness, the migration agent, and tools that read registered specs all see the same shape the author wrote. Where the invariant is **fudged** is the **runtime spec value** threaded through `apply-transition-once`: `make-machine-handler` walks the user spec at construction time and rewrites every `:spawn` slot into the `:entry` / `:exit` action pair shown above. A debugger that prints the *runtime* spec record sees the desugared form, not the literal `:spawn` map. The two surfaces are split: the spec-as-data invariant covers what users wrote and what tools read back off `:rf/machine`; the runtime-internal form is an implementation detail of the reducer. Authors writing tools that consume the runtime spec (rather than the registered metadata) should consume the `:rf/machine` projection for the user-facing shape; the runtime form is not part of the public contract and may evolve.
 
 ### Composition with explicit `:entry` / `:exit`
 
@@ -3984,11 +3990,12 @@ These are **owned by `re-frame.machines`, not re-exported onto the `re-frame.cor
 ;;   (keys (get-in (:rf.db/runtime (rf/frame-state-value frame-id))
 ;;                 [:rf.runtime/machines :snapshots]))
 
-(rf.machines/machine-meta :drawer/editor)
-;; → registration-metadata map (transition table, doc, schemas, ...)
-;; Implementation: (handler-meta :event :drawer/editor), with the
-;; standard metadata-map shape; machine-specific keys (e.g.
-;; :rf/transition-table) are present iff :rf/machine? is true.
+(:rf/machine (rf/handler-meta {:source :store :kind :event :id :drawer/editor}))
+;; → the registered machine SPEC (transition table, doc, schemas, ...)
+;; There is no `machine-meta` accessor (retired, rf2-kuky.31): a machine is an
+;; :event registration carrying :rf/machine? true, and its spec rides at the
+;; reserved :rf/machine inner key. The projection is nil unless that
+;; registration is a machine.
 
 (rf.machines/machine-by-system-id :primary-request)
 ;; → :request/protocol#42 (the gensym'd id), or nil if no spawn
@@ -4004,7 +4011,7 @@ Why a lens, not a registry kind:
 
 - **Architectural commitment preserved.** Machines remain *event handlers*. There is no `:machine` registry kind, no parallel substrate, no per-machine auto-registration. `(rf.machines/machines)` is a `filter` call, not a separate index.
 - **`:rf/machine? true` metadata is the discriminator.** `make-machine-handler` carries this metadata onto the registration; `reg-event` records it as part of the standard metadata map (per [001 §Metadata-map shape](001-Registration.md)). User-written event handlers do not set this key.
-- **One-line implementation.** `(rf.machines/machines)` is `(registrations :event #(:rf/machine? %))`-shaped; `(rf.machines/machine-meta id)` is `(handler-meta :event id)`. Both reuse the public registrar query API ([API.md §Public registrar query API](API.md#public-registrar-query-api)).
+- **One-line implementation, and one of the two is not a function at all.** `(rf.machines/machines)` is `(registrations {:source :store :kind :event})` filtered on `:rf/machine?`. Reading ONE machine's spec has **no accessor**: it is the generic query plus the documented `:rf/machine` inner-key projection — `(:rf/machine (rf/handler-meta {:source :store :kind :event :id id}))` — because a per-kind `<kind>-meta` alias is a second encoding of a grammar every tool already speaks (rf2-kuky.31). Both reuse the public registrar query API ([API.md §Public registrar query API](API.md#public-registrar-query-api)).
 - **Discovery is a first-class operation.** Visualisers can iterate every live machine without knowing where else to look; conformance harnesses can enumerate the suite under test; AI agents can answer "show me the machines in this app."
 
 User-facing call sites:
@@ -4016,7 +4023,7 @@ User-facing call sites:
 ;;   NOT live instances like :request/protocol#42.
 
 (for [id (rf.machines/machines)]
-  [id (-> (rf.machines/machine-meta id) :doc)])
+  [id (:doc (:rf/machine (rf/handler-meta {:source :store :kind :event :id id})))])
 ;; → ([:auth.login/flow "Login flow: idle → submitting → ..."]
 ;;    [:checkout/flow "Checkout wizard."]
 ;;    ...)
@@ -4634,7 +4641,7 @@ The v1 ship-list and the post-v1 follow-up are itemised below.
 - The `[:rf.machine/spawn ...]` and `[:rf.machine/destroy ...]` fx for dynamic actor lifecycle (canonical surface; the v1 public fns `spawn-machine` / `destroy-machine` are dropped per [MIGRATION.md §M-26](../migration/from-re-frame-v1/README.md#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces)).
 - The `:raise` reserved fx-id inside `:fx` (machine-internal); the `:rf.machine/spawn` and `:rf.machine/destroy` fx-ids registered globally for actor lifecycle.
 - `[:rf.runtime/machines :snapshots <id>]` as the reserved runtime-db storage scheme; `:rf/machine?` registration-metadata flag.
-- `(rf.machines/machines)` and `(rf.machines/machine-meta id)` — discovery lens over the event registry per [§Querying machines](#querying-machines).
+- `(rf.machines/machines)` and the per-id `:rf/machine` registrar projection — discovery lens over the event registry per [§Querying machines](#querying-machines).
 - The framework-registered `:rf/machine` parametric sub — the canonical `[:rf/machine <id>]` read surface.
 - Four-level drain semantics per [§Drain semantics](#drain-semantics) — including the gotchas listed in [§Drain semantics gotchas](#drain-semantics-gotchas).
 - The v1 transition-table grammar subset per [§Capability matrix](#capability-matrix) and [§Transition table grammar](#transition-table-grammar).

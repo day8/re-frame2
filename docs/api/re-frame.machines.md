@@ -12,7 +12,7 @@ Read a machine's snapshot with the ordinary `subscribe`, naming its framework su
 Surfaces split two ways:
 
 - **`re-frame.core` facade exports** (reach as `rf/…`): the `reg-machine` / `defmachine` registration macros.
-- **Owned by `re-frame.machines`** (reach as `rf.machines/<name>`, not `rf/<name>` — `rf.machines` is the canonical alias for a framework subsystem namespace, per [Conventions §Require-alias dialect](../../spec/Conventions.md#require-alias-dialect--a-framework-subsystem-namespace-is-aliased-rf); the bare `machines` is reserved for an app's own namespaces): the plain-fn registration / engine / query helpers (`reg-machine*`, `make-machine-handler`, `machine-transition`, `machines`, `machine-meta`, `machine-by-system-id`) and the implementation-tier runtime helpers. This namespace is the `day8/re-frame2-machines` optional artefact.
+- **Owned by `re-frame.machines`** (reach as `rf.machines/<name>`, not `rf/<name>` — `rf.machines` is the canonical alias for a framework subsystem namespace, per [Conventions §Require-alias dialect](../../spec/Conventions.md#require-alias-dialect--a-framework-subsystem-namespace-is-aliased-rf); the bare `machines` is reserved for an app's own namespaces): the plain-fn registration / engine / query helpers (`reg-machine*`, `make-machine-handler`, `machine-transition`, `machines`, `machine-by-system-id`) and the implementation-tier runtime helpers. This namespace is the `day8/re-frame2-machines` optional artefact.
 
 The canonical action-side cross-machine messaging surface is the reserved `[:rf.machine/dispatch-to-system [system-id event]]` fx tuple.
 
@@ -183,22 +183,20 @@ The snapshot lives at `[:rf.runtime/machines :snapshots :session]` in the frame'
   (rf.machines/machines)                              ;; → [:session :auth.login/flow …]
   (contains? (set (rf.machines/machines)) :session)
   ```
-
-### `re-frame.machines/machine-meta`
-
-- **Kind**: function (owned by `re-frame.machines` — not a `re-frame.core` facade export)
-- **Signature**:
-  ```clojure
-  (re-frame.machines/machine-meta machine-id) → registration-metadata map
-  ```
-- **Description**: Returns the registered machine's spec map, or `nil` when `machine-id` does not name a registered machine. The spec map holds the transition table, doc, schemas, and per-element source-coords. It is read from the `:rf/machine` slot of the `:event` registration metadata.
-- **Example**:
+- **Reading ONE machine's spec**: there is no `machine-meta` accessor (retired,
+  rf2-kuky.31). A machine is an `:event` registration carrying `:rf/machine? true`,
+  and its registered spec — transition table, `:doc`, `:schemas`, per-element
+  source-coords — reads back through the generic registrar query plus the
+  documented `:rf/machine` inner-key projection:
   ```clojure
   ;; The registered spec back out — table, doc, schemas, source-coords.
-  (rf.machines/machine-meta :session)
+  (:rf/machine (rf/handler-meta {:source :store :kind :event :id :session}))
   ;; …or read just the declared :data schema:
-  (get-in (rf.machines/machine-meta :session) [:schemas :data])
+  (get-in (rf/handler-meta {:source :store :kind :event :id :session})
+          [:rf/machine :schemas :data])
   ```
+  The projection is `nil` unless that `:event` registration is a machine. See
+  [API.md §Public registrar query API](../../spec/API.md#public-registrar-query-api).
 
 ### `re-frame.machines/machine-by-system-id`
 
@@ -510,7 +508,7 @@ The registration-time and `:data`-schema-boundary validators. The three `:data` 
   ```
 - **Description**: Walks every snapshot under `[:rf.runtime/machines :snapshots]` in `runtime-db` and validates its `:data` against the resolved machine's `[:schemas :data]` schema.
     - Returns `true` iff every snapshot conformed, or carried no schema / no validator. Returns `false` on the first failure, with the per-snapshot trace already emitted. The router then rolls back the whole transition — the same mechanism as the `:where :app-db` rollback.
-    - Schema resolution covers a SINGLETON (via `machine-meta`) AND a SPAWNED actor (via the snapshot's `:rf/machine-type`).
+    - Schema resolution covers a SINGLETON (via the `:rf/machine` registrar projection) AND a SPAWNED actor (via the snapshot's `:rf/machine-type`).
     - This is the post-commit boundary the router AND-conjoins with `validate-app-schema!`.
 
 ### `re-frame.machines/validate-spawn-data!`

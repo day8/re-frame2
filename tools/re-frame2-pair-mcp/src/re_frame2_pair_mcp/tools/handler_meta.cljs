@@ -73,11 +73,11 @@
   artefact's per-frame side-table, surfaced via `rf/app-schemas` /
   `rf/app-schema-meta-at`. The twelve registrar kinds map directly to
   `rf/handler-meta`; `machine` routes through the runtime preload's
-  `re-frame2-pair.runtime/machine-describe` door, which wraps
-  `rf.machines/machine-meta` (Spec 005 §Querying machines —
+  `re-frame2-pair.runtime/machine-describe` door, which reads the
+  `:rf/machine` registrar projection (Spec 005 §Querying machines —
   machines are registered as `:event` handlers carrying
-  `:rf/machine? true` with their spec in the `:rf/machine` slot, and
-  `machine-meta` unwraps that slot).
+  `:rf/machine? true` with their spec in the `:rf/machine` slot, and the
+  door unwraps that slot).
 
   Returns `{:ok? false :reason :not-registered :kind k :id id}` when
   no slot is found (so the agent gets a structured signal — same
@@ -105,7 +105,7 @@
   a relocation on the framework side is one edit THERE and invisible
   here. The rule was learned the expensive way (rf2-kuky.29) — the two
   `:machine` forms were once hand-built strings naming a `machines` and
-  a `machine-meta` var on the FACADE, which the facade does not define
+  a `machine-meta` var on the FACADE, which the facade did not define
   and never did: the machine query surface lives on `re-frame.machines`,
   per spec/API.md's front-porch boundary, and both reads therefore
   returned an eval error against every running app. Nothing in this
@@ -174,7 +174,7 @@
   a registrar kind; their metadata lives in the schemas artefact's
   per-frame side-table. `machine` is intentionally absent here too —
   it routes through the preload's `machine-describe` / `machines-list`
-  (which wrap `rf.machines/machine-meta` / `rf.machines/machines`, the
+  (which read the `:rf/machine` projection / `rf.machines/machines`, the
   derived views over `:event`-kind metadata carrying the `:rf/machine?`
   flag) — but is in `supported-kinds` below.
 
@@ -286,7 +286,7 @@
 
 (defn- machine-form
   "Build the eval form for a `:machine` drill — `machine-describe` on the
-  runtime preload, which reads `rf.machines/machine-meta` and runs the
+  runtime preload, which reads the `:rf/machine` projection and runs the
   same `strip-fns` walk `registrar-describe` does, so a spec's fn-valued
   `:guards` / `:actions` (Spec 005) arrive as the readable `:rf/fn`
   sentinel instead of tripping the wire codec's `:unserializable` path.
