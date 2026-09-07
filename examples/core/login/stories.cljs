@@ -93,10 +93,17 @@
 ;; real form path: type the draft (email via `:auth.login/edit-field`,
 ;; password via the classified `:auth.login/edit-password`), then dispatch
 ;; `:auth.login/submit-form`. Same real fx (right there in Xray's Side
-;; Effects panel), and the canned stub answers it — no app-side override
-;; needed. The reply `:value` happens to be nil (we sent none), but that's
-;; fine: the welcome banner keys off the `:auth/authenticated` tag, not the
-;; payload, so the flow still settles happily at `:authed`.
+;; Effects panel), and a stub answers it.
+;;
+;; WHICH stub is the variant's business, not this driver's — and it matters
+;; (rf2-hz8u). The reply comes home to `:auth.login/succeeded`, whose schema
+;; requires `[:value :token]`, so the framework's GENERIC canned success
+;; (`{:stubbed true}`) is refused at the schema boundary and the flow never
+;; leaves `:submitting`. The `:success` variant therefore carries its own
+;; `:network` route fixture with a token-bearing reply; the failure variants
+;; drive their own replies by hand and stub the fx out entirely. This driver
+;; just walks the real form path and lets each variant say what the server
+;; said.
 ;; ---------------------------------------------------------------------------
 
 (rf/reg-event :login.story/submit
@@ -327,6 +334,34 @@
                  auth-submit cascade — submit → `:rf.http/managed` →
                  canned reply → `:success` — runs through real events;
                  inspect it in Xray. The canonical screenshot."
+     ;; THE FIXTURE, AND WHY THE GENERIC PRESET STUB IS NOT ENOUGH (rf2-hz8u).
+     ;; Every variant here runs in its OWN `:preset :story` frame, which
+     ;; redirects `:rf.http/managed` to the framework's generic canned-success
+     ;; stub. That stub answers `{:status :ok :value {:stubbed true}}` when the
+     ;; request carries no `:value` of its own — and this request carries none,
+     ;; because it is the REAL one the live app sends. But the live app's reply
+     ;; handler is `:auth.login/succeeded`, whose registration declares
+     ;; `:schema [… [:map [:value [:map [:token :string]]]]]`: the token is the
+     ;; whole point of a login reply. So the generic stub's payload is REFUSED
+     ;; at the schema boundary, the handler never runs, the machine is never
+     ;; nudged with `:success`, and the canonical screenshot is a form stuck in
+     ;; `:submitting` rather than the Welcome banner it advertises.
+     ;;
+     ;; A live-app frame does not have this problem: `login.model/frame-config`
+     ;; points `:rf.http/managed` at `:auth.login.demo/managed-stub`, which
+     ;; conjures a token-bearing reply. Story allocates its variant frames
+     ;; itself, so that config does not reach them — the variant supplies its
+     ;; own fixture, and `:network` is the dedicated Story affordance for
+     ;; exactly this fx (an explicit `:fx-overrides` on `:rf.http/managed`
+     ;; would be a hard conflict with it — `:rf.error/story-network-fx-conflict`).
+     ;;
+     ;; The route is the one `submit-form` really posts, and the reply is the
+     ;; shape the demo backend really returns, so the cascade below stays the
+     ;; REAL one end to end — nothing here fakes a state, it only supplies the
+     ;; server's half of the conversation.
+     :network    {[:post "/api/login"]
+                  {:reply {:ok {:user  {:name "Ada Lovelace"}
+                                :token "demo-token-123"}}}}
      :setup      [[:login.story/submit good-creds]]
      :tags       #{:dev :docs :login/canonical}
      :substrates #{:reagent}})
