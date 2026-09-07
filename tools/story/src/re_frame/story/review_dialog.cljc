@@ -268,24 +268,36 @@
 ;; ---------------------------------------------------------------------------
 ;; CLJS-only: copy-to-clipboard shim
 ;;
-;; Wraps `navigator.clipboard.writeText`. Single helper both save-as
-;; flows consume — pre-extract each flow carried its own try/catch
-;; copy. Returns nil; failures are swallowed silently (no clipboard
-;; on JSDOM / older browsers / non-secure contexts is the expected
-;; case).
+;; Wraps `navigator.clipboard.writeText`. Single helper every save-as /
+;; copy flow consumes — pre-extract each flow carried its own try/catch
+;; copy.
+;;
+;; Returns a `js/Promise` of a BOOLEAN OUTCOME (rf2-jgn8): `true` only
+;; once the write has actually FULFILLED, `false` when there is no
+;; clipboard API (JSDOM / older browsers / a non-secure dev host), when
+;; the call throws, or when the write PROMISE REJECTS (the ordinary
+;; permission denial). It never rejects, so a fire-and-forget
+;; `:on-copy` caller cannot leak an unhandled rejection, and a caller
+;; that wants to report completion — `re-frame.story.ui.share` — can
+;; await the real outcome instead of assuming one. Every caller still
+;; has the snippet on screen for manual copy.
 ;; ---------------------------------------------------------------------------
 
 #?(:cljs
    (defn copy-to-clipboard!
-     "Copy `text` to the system clipboard via the navigator API.
-     No-op on hosts without `navigator.clipboard`. Swallows failures
-     silently — the modal still surfaces the snippet for manual copy."
+     "Copy `text` to the system clipboard via the navigator API. Returns a
+     `js/Promise` resolving `true` iff the write FULFILLED, else `false`
+     (no `navigator.clipboard`, a throw, or a rejected `writeText` — the
+     ordinary permission denial). Never rejects; the modal still surfaces
+     the snippet for manual copy on a `false`."
      [text]
      (try
-       (when (and (exists? js/navigator) (.-clipboard js/navigator))
-         (.writeText (.-clipboard js/navigator) text))
-       (catch :default _ nil))
-     nil))
+       (if-let [clipboard (and (exists? js/navigator) (.-clipboard js/navigator))]
+         (-> (.writeText clipboard text)
+             (.then (fn [_] true))
+             (.catch (fn [_] false)))
+         (js/Promise.resolve false))
+       (catch :default _ (js/Promise.resolve false)))))
 
 ;; ---------------------------------------------------------------------------
 ;; CLJS-only: presentational modal renderer

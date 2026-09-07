@@ -7,7 +7,7 @@
   `re-frame.story-review-dialog-test` arm; this file adds the CLJS-
   only hiccup-renderer assertions that the recorder + save-variant
   flows both depend on."
-  (:require [cljs.test :refer-macros [deftest is testing]]
+  (:require [cljs.test :refer [async] :refer-macros [deftest is testing]]
             [clojure.string :as str]
             [re-frame.story.predicates :as rf.story.predicates]
             [re-frame.story.review-dialog :as rf.story.review-dialog]))
@@ -186,8 +186,17 @@
       (is (str/includes? flat ":story.x/example")))))
 
 (deftest copy-to-clipboard!-safe-on-node
-  (testing "the shared copy helper is callable + no-ops without a clipboard API"
-    (is (nil? (rf.story.review-dialog/copy-to-clipboard! "anything")))))
+  (testing "rf2-jgn8 — the shared copy helper is callable without a clipboard
+            API and resolves an HONEST false outcome (it used to return nil,
+            which every caller read as success)"
+    (async done
+      (let [p (rf.story.review-dialog/copy-to-clipboard! "anything")]
+        (is (instance? js/Promise p) "the shim exposes a completion result")
+        (-> p
+            (.then (fn [ok?]
+                     (is (false? ok?)
+                         "no navigator.clipboard on node → not copied")))
+            (.finally done))))))
 
 ;; ---- indent-after (snippet-format helper, rf2-zs0w4) ---------------------
 

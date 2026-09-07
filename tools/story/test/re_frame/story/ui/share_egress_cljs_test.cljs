@@ -448,3 +448,94 @@
                       "no false copied ✓ for the failed screenshot egress"))))
             (.finally
               (fn [] (restore! prev) (done))))))))
+
+;; ---- rf2-jgn8 — TEXT copy reports completion, never assumes it -----------
+;;
+;; `copy-text!` backs Copy URL / Copy EDN / Copy static-build command. It used
+;; to call the shared clipboard shim and `mark-copied!` on the very next line,
+;; so an absent `navigator.clipboard` (an insecure dev host, JSDOM), a denied
+;; permission, or a merely PENDING write all displayed "copied ✓". These pin
+;; the same honesty the screenshot path above already had.
+
+(defn- fake-navigator-with-write-text
+  "A `js/navigator.clipboard` whose `writeText` records the text and returns
+  `outcome-fn` applied to it (a resolved or rejected Promise)."
+  [recorder outcome-fn]
+  #js {:clipboard
+       #js {:writeText (fn [text]
+                         (reset! recorder text)
+                         (outcome-fn text))}})
+
+(deftest copy-text-marks-copied-only-after-the-write-fulfils
+  (testing "rf2-jgn8 — a fulfilled writeText flashes :copied and no error"
+    (async done
+      (let [written (atom nil)
+            prev    (install-globals!
+                      {"navigator" (fake-navigator-with-write-text
+                                     written (fn [_] (js/Promise.resolve js/undefined)))})]
+        (-> (rf.story.ui.share/copy-text! :share-url "https://example.test/?variant=x")
+            (.then (fn [ok?]
+                     (is (true? ok?) "the write resolved → success")
+                     (is (= "https://example.test/?variant=x" @written)
+                         "the text actually reached the clipboard API")
+                     (let [snap (rf.story.ui.share/dialog-state-snapshot)]
+                       (is (= :share-url (:copied snap)))
+                       (is (nil? (:error snap)) "no error on the success path"))))
+            (.finally (fn [] (restore! prev) (done))))))))
+
+(deftest copy-text-no-clipboard-api-reports-error-not-false-copied
+  (testing "rf2-jgn8 (adversarial) — no navigator.clipboard at all (an insecure
+            dev host / JSDOM): copy-text! must record an HONEST :error and must
+            NOT flash :copied. This FAILS against the old fire-and-forget body."
+    (async done
+      (let [prev (install-globals! {"navigator" #js {}})]
+        (-> (rf.story.ui.share/copy-text! :copy-edn "(reg-variant …)")
+            (.then (fn [ok?]
+                     (is (false? ok?) "no clipboard API → failure outcome")
+                     (let [snap (rf.story.ui.share/dialog-state-snapshot)]
+                       (is (not= :copy-edn (:copied snap))
+                           "MUST NOT report success on a no-op (the false-success bug)")
+                       (is (= :copy-edn (:cmd (:error snap)))
+                           "records an honest error for THIS command")
+                       (is (string? (:reason (:error snap)))
+                           "the error carries a human reason"))))
+            (.finally (fn [] (restore! prev) (done))))))))
+
+(deftest copy-text-rejected-write-reports-error-not-false-copied
+  (testing "rf2-jgn8 (adversarial) — the ordinary PERMISSION DENIAL: the API is
+            present but writeText REJECTS. The old body never observed the
+            rejected Promise, so it showed copied and leaked an unhandled
+            rejection."
+    (async done
+      (let [prev (install-globals!
+                   {"navigator" (fake-navigator-with-write-text
+                                  (atom nil)
+                                  (fn [_] (js/Promise.reject (js/Error. "NotAllowedError"))))})]
+        (-> (rf.story.ui.share/copy-text! :static-build "npm run story:build")
+            (.then (fn [ok?]
+                     (is (false? ok?) "a rejected write → failure outcome")
+                     (let [snap (rf.story.ui.share/dialog-state-snapshot)]
+                       (is (not= :static-build (:copied snap))
+                           "MUST NOT report success when the write was refused")
+                       (is (= :static-build (:cmd (:error snap)))))))
+            (.finally (fn [] (restore! prev) (done))))))))
+
+(deftest copy-text-does-not-mark-copied-while-the-write-is-pending
+  (testing "rf2-jgn8 — a write that has NOT settled yet must leave the row
+            un-copied; success appears only on fulfilment."
+    (async done
+      (let [resolve-fn (atom nil)
+            prev       (install-globals!
+                         {"navigator" (fake-navigator-with-write-text
+                                        (atom nil)
+                                        (fn [_] (js/Promise. (fn [res _] (reset! resolve-fn res)))))})
+            p          (rf.story.ui.share/copy-text! :share-url "https://example.test/")]
+        (is (not= :share-url (:copied (rf.story.ui.share/dialog-state-snapshot)))
+            "no success flash while the clipboard write is still pending")
+        (@resolve-fn js/undefined)
+        (-> p
+            (.then (fn [ok?]
+                     (is (true? ok?))
+                     (is (= :share-url (:copied (rf.story.ui.share/dialog-state-snapshot)))
+                         "success appears once the write fulfils")))
+            (.finally (fn [] (restore! prev) (done))))))))
