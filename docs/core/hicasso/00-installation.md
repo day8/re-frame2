@@ -241,7 +241,13 @@ build calls:
 
 (defn ^:dev/after-load rerender! []
   (when-some [root @!root]
-    (h/render! root [counter])))
+    ;; The WHOLE tree `mount!` was handed, boundary head included — the frame
+    ;; is spelled in the tree, so a reload that drops the head renders a root
+    ;; with no frame under it. Re-rendering the head is free: it ENSUREs, finds
+    ;; the frame live and reuses it.
+    (h/render! root [h/frame-root {:id             :rf/default
+                                   :initial-events [[:counter/initialise]]}
+                     [counter]])))
 
 (defn ^:export init []
   (rf/init! substrate/adapter)
@@ -302,10 +308,12 @@ substrate spells, so a boot written here reads like a Reagent or UIx one. The
 `[counter]` and `[counter {}]` are equivalent. The body receives an empty props
 map in either case.
 
-Keep the returned handle for later renders and teardown:
+Keep the returned handle for later renders and teardown. `h/render!` takes the
+whole tree, boundary head and all — the frame lives in the tree now, so a
+re-render that drops the head renders a root with no frame under it:
 
 ```clojure
-(h/render! root [counter])
+(h/render! root [h/frame-root {:id :rf/default} [counter]])
 (h/unmount! root)
 ```
 

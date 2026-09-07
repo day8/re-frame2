@@ -756,14 +756,17 @@ Related: [Installation](00-installation.md).
 <a id="hydrate"></a>
 ### `hydrate!`
 
-Two functions complete hydration:
+Two functions complete hydration, and neither creates the frame:
 
-- `re-frame.ssr/hydrate!` installs the server payload into the client frame;
+- `re-frame.ssr/hydrate!` installs the server payload into a client frame that
+  must already exist (`rf/make-frame` made it);
 - `h/hydrate!` adopts existing server DOM for one Hicasso root, under an
   `[h/frame-provider {:frame …}]` that SCOPEs the frame the payload landed in.
 
-State hydration must run before DOM adoption — and `frame-provider` fails loud
-when it has not, rather than scoping a subtree to a frame that is not there.
+State hydration must run before DOM adoption. `frame-provider` catches the boot
+that never made the frame at all — it refuses an ABSENT frame rather than scoping
+a subtree to nothing. It does not detect a frame that is live but never
+hydrated: liveness is the whole of the check.
 
 Related: [SSR and hydration](18-ssr-and-hydration.md).
 

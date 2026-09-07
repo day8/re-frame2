@@ -28,10 +28,12 @@ Everything below assumes a mounted root, so start here.
 (defonce !root (atom nil))
 
 (defn ^:dev/after-load reload!
-  "Re-render the mounted root after a hot reload."
+  "Re-render the mounted root after a hot reload — the WHOLE tree `mount!` was
+   handed, boundary head included."
   []
   (when-some [root @!root]
-    (h/render! root [views/app {}])))
+    (h/render! root
+      [h/frame-root {:id :app/main} [views/app {}]])))
 
 (defn ^:export -main []
   (rf/init! uix-adapter/adapter)
@@ -553,13 +555,15 @@ the DOM:
 
 ```clojure
 (ns my.app
-  (:require [re-frame.ssr :as ssr]
+  (:require [re-frame.core :as rf]
+            [re-frame.ssr :as ssr]
             [re-frame.hicasso :as h]
             [my.app.views :as views]))
 
 (defn ^:export -main []
-  (ssr/hydrate! {:frame :app/main})                    ;; 1. state
-  (h/hydrate! (js/document.getElementById "app")       ;; 2. DOM
+  (rf/make-frame {:id :app/main})                      ;; 1. frame
+  (ssr/hydrate! {:frame :app/main})                    ;; 2. state
+  (h/hydrate! (js/document.getElementById "app")       ;; 3. DOM
               {:identifier-prefix "main"}
               [h/frame-provider {:frame :app/main}
                [views/page {}]])
@@ -567,11 +571,12 @@ the DOM:
 ```
 
 **State comes first, and it is a different door.** `h/hydrate!` adopts DOM and
-nothing else, and its tree SCOPEs rather than ENSUREs: an adopting root takes its
-state from the server payload, and an `h/frame-root` here would seed replacement
-state over exactly what the server rendered from. `h/frame-provider` refuses a
-frame that is not live, so getting the two lines the wrong way round is caught
-rather than silent.
+nothing else, and its tree SCOPEs rather than ENSUREs — because `frame-root`'s
+ENSURE is commit-owned, so its first render emits no descendant subtree, where an
+adopting root must render the server's element shape on its first pass.
+`h/frame-provider` refuses a frame that is not live, so a boot that never called
+`rf/make-frame` is caught rather than silent; a frame that is live but never
+hydrated passes, because liveness is the whole of the check.
 
 **Hand both sides the same `:identifier-prefix`.** React numbers `useId` per root
 and prefixes it with this option, so a hydrating root given a different prefix —

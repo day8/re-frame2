@@ -103,8 +103,9 @@ ignoring it.
 detour.** `rf.ssr/hydrate!` dispatches the server's payload INTO a frame; it
 does not make one. So an adopting boot makes the frame with its config, installs
 the payload, and then SCOPEs it with `[h/frame-provider {:frame …}]` — state
-first, DOM second. An `h/frame-root` there would ensure at commit, after the
-payload, and seed replacement state over exactly what the server rendered from.
+first, DOM second. An `h/frame-root` there would be the wrong shape: its ENSURE
+is commit-owned, so its first render emits no descendant subtree, where an
+adopting root must render the server's element shape on its first pass.
 
 Hot reload re-renders that one retained root (`h/render!`) rather than building
 a second one — calling `h/mount!` again would `createRoot` twice and discard

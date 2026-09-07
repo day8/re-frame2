@@ -571,11 +571,18 @@
   three-key config used to be.
 
   **ENSURE, not create.** Absent, the frame is created and
-  `:initial-events` run once; live, it is REUSED exactly as it stands —
-  no re-seed, no config refresh — so a second root under the same `:id`
-  JOINs rather than resets. Unmounting destroys NOTHING: a frame outlives
-  the boundary that ensured it, and `rf/destroy-frame!` is the verb for
-  ending one.
+  `:initial-events` run once; live, it is REUSED — so a second root under
+  the same `:id` JOINs rather than resets. What survives is the DURABLE
+  state: app-db, runtime-db, sub-cache and queue, and `:initial-events`
+  are re-recorded but NEVER replayed (spec/002 §`frame-root`
+  reuse-without-reseed; EP-0027). What the re-acquire DOES refresh is the
+  record config, because the ENSURE is a second `rf/make-frame` under the
+  same id and that is `make-frame`'s ruled idempotent-replacement path —
+  the Clojure re-def model, where re-declaring an id refreshes its config
+  while its state survives. So a joining boundary that passes DIFFERENT
+  opts installs them; pass the creator's opts to join without changing
+  anything. Unmounting destroys NOTHING: a frame outlives the boundary
+  that ensured it, and `rf/destroy-frame!` is the verb for ending one.
 
   **The ENSURE is commit-owned.** The first render emits no subtree at
   all, and the frame is made in a `useLayoutEffect` — so a render React
@@ -603,11 +610,13 @@
       (h/hydrate! node {:identifier-prefix \"main\"}
         [h/frame-provider {:frame :app/main} [views/page {}]])
 
-  Three places want it. **After SSR**, where `rf.ssr/hydrate!` has
-  already installed the server's app-db and an ENSURE would seed
-  replacement state over it. **A second root on the page** sharing a
-  frame the first ensured. **A subtree on another frame** — a tenant
-  switcher, a preview pane — nested under the root's own boundary.
+  Three places want it. **After SSR**, where the frame was made before
+  the payload was installed and an adopting root must render the server's
+  element shape on its FIRST pass — which is the reason SCOPE is the verb
+  there, and it is a shape argument rather than a state one: see
+  `h/hydrate!`. **A second root on the page** sharing a frame the first
+  ensured. **A subtree on another frame** — a tenant switcher, a preview
+  pane — nested under the root's own boundary.
 
   `:frame` is required and takes the one frame-target grammar `dispatch`
   and `subscribe` teach: a frame-id keyword, or the live frame value
@@ -708,23 +717,35 @@
   refusals, and its roster). Returns the handle `render!` and `unmount!`
   take, unchanged.
 
-  **The tree SCOPEs rather than ENSUREs, and that is the SSR seam made
-  visible.** An adopting root's frame already exists: `rf.ssr/hydrate!`
-  made it from the server's payload one line earlier, so
-  `[h/frame-provider {:frame …} …]` is the verb, and an
-  `[h/frame-root {:id …} …]` there would be the mistake this split exists
-  to name — a boundary that seeds replacement state over the state just
-  adopted. `frame-provider` fails loud when the frame is absent, so
-  hydrating before installing the payload is caught rather than silently
-  scoping nothing.
+  **The tree SCOPEs rather than ENSUREs, and the reason is SHAPE, not
+  state.** `frame-root`'s ENSURE is commit-owned, so its FIRST render
+  emits no descendant subtree at all and the children arrive on a second
+  pass. An adopting root has to render the server's element shape on its
+  first pass — that is what `hydrateRoot` is matching against, `useId`
+  positions included — so an `[h/frame-root {:id …} …]` here hands React
+  an empty tree where the server's markup is, which is the mistake this
+  split exists to name. `[h/frame-provider {:frame …} …]` renders its
+  children immediately, so the shapes agree.
+
+  **The frame is NOT made by either hydration step.** `rf.ssr/hydrate!`
+  DISPATCHES `:rf/hydrate` at a frame that must already exist, so a boot
+  makes the frame first (`rf/make-frame`), installs the payload second,
+  adopts the DOM third. `frame-provider` refuses an ABSENT frame
+  (`:rf.error/frame-provider-frame-absent`), which catches a boot that
+  never made one — a dispatch into an absent frame is itself a silent
+  no-op, so this is the step that reports it. It does NOT detect a frame
+  that is live but never hydrated: liveness is the whole of the check,
+  and an unhydrated frame passes it.
 
   **State comes first, and it is a different door.** This adopts DOM;
   `re-frame.ssr/hydrate!` installs the server's app-db through
   `:rf/hydrate` and must run BEFORE this, so the first client render
-  sees the state the server rendered from:
+  sees the state the server rendered from. Three calls, three jobs, and
+  the frame step is its own — neither hydration door creates it:
 
-      (ssr/hydrate! {:frame :app/main})                      ;; 1. state
-      (h/hydrate! node {}                                    ;; 2. DOM
+      (rf/make-frame {:id :app/main})                        ;; 1. frame
+      (ssr/hydrate! {:frame :app/main})                      ;; 2. state
+      (h/hydrate! node {}                                    ;; 3. DOM
         [h/frame-provider {:frame :app/main} [views/page {}]])
 
   **Hand `:identifier-prefix` the same string the server render used.**
@@ -768,7 +789,16 @@
   answer its handle — **the hot-reload door**:
 
       (defn ^:dev/after-load reload! []
-        (h/render! @!root [app {}]))
+        (h/render! @!root
+          [h/frame-root {:id :app/main} [app {}]]))
+
+  **Re-render the WHOLE tree the root was mounted with, boundary head
+  included.** The frame is spelled in the tree, so a reload that drops
+  the head renders a root with no frame under it and every bare
+  `dispatch` / `subscribe` beneath it loses the frame it resolved
+  against. Hand `render!` what `mount!` was handed; only the view code
+  inside it has changed. Re-rendering the head is free — `frame-root`
+  ENSUREs, so it finds the frame live and reuses it.
 
   React reconciles the new tree against the one on the page, so the
   reloaded view code meets its own DOM. Calling `mount!` again would

@@ -308,9 +308,11 @@
         ;; one, and the frame it dispatches into needs `:fx-overrides` already
         ;; installed. So the frame is made, the payload replaces its app-db,
         ;; and the tree SCOPEs the result. An ENSURE in the tree here would
-        ;; run at COMMIT — after the payload, and seeding replacement state
-        ;; over the state the server rendered from, which is exactly the
-        ;; mistake the frame-root / frame-provider split exists to name.
+        ;; be the wrong SHAPE: its first render emits no descendant subtree,
+        ;; where an adopting root has to render the server's element shape on
+        ;; its first pass — which is exactly the mistake the frame-root /
+        ;; frame-provider split exists to name. (It would not overwrite the
+        ;; payload; re-ensuring a live frame preserves app-db.)
         (do (rf/make-frame (merge {:id  frame-id
                                    :doc "Login (Hicasso) demo frame."}
                                   model/frame-config))

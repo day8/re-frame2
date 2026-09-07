@@ -136,11 +136,11 @@
     {"id": 25, "kind": "behavioural", "tier": "M", "name": "m-root-mount-ensures-frame",
      "prompt": "Migrate the boot for this app to Hicasso:\n(ns app.core (:require [reagent.dom :as rdom] [re-frame.core :as rf] [re-frame.adapter.reagent :as ra]))\n(defn init! []\n  (rf/init! ra/adapter)\n  (rf/dispatch-sync [:app/init])\n  (rdom/render [app] (js/document.getElementById \"root\")))",
      "expectations": [
-       "Collapses the boot into ONE mount: (h/mount! el {:frame ::frame :initial-events [[:app/init]]} [app {}]) — the dispatch-sync seed becomes :initial-events, because mounting ENSURES the frame and seeds it before the first paint.",
-       "States h/mount! takes a CONFIG MAP — (container config hiccup) — carrying :frame, optional :initial-events, and optional :identifier-prefix.",
+       "Collapses the boot into ONE mount with the frame spelled IN THE TREE: (h/mount! el {} [h/frame-root {:id ::frame :initial-events [[:app/init]]} [app {}]]) — the dispatch-sync seed becomes :initial-events on the frame-root head, because that head ENSURES the frame and the seed is on the page when the door returns.",
+       "States h/mount! takes a CONFIG MAP — (container config hiccup) — carrying ROOT options only, :identifier-prefix being the whole roster. Handing it :frame or :initial-events is :rf.error/hicasso-frame-config-misplaced and any other key is :rf.error/hicasso-unknown-root-option; it does not silently ignore them.",
        "KEEPS (rf/init! ra/adapter): frame construction raises :rf.error/no-adapter-installed until a reactive adapter is installed, nothing installs one for you (there is no default-adapter registry), and a Reagent adapter under a Hicasso tree keeps working exactly as it did. Does not delete it as Reagent scaffolding.",
-       "Adds the defonce root atom and a ^:dev/after-load hook calling (h/render! @!root [app {}]), and explains that calling h/mount! again would createRoot a second time and replace the tree, discarding every node and scrap of component state.",
-       "An explicit (rf/make-frame {:id ::frame :initial-events [[:app/init]]}) BEFORE the mount is also acceptable — the mount then joins the live frame without re-seeding — but it must not be presented as REQUIRED, and the mount must not be shown as positional."
+       "Adds the defonce root atom and a ^:dev/after-load hook that re-renders the WHOLE tree, boundary head included — (h/render! @!root [h/frame-root {:id ::frame} [app {}]]) — and explains that calling h/mount! again would createRoot a second time and replace the tree, discarding every node and scrap of component state. A reload that drops the head renders a root with no frame under it.",
+       "An explicit (rf/make-frame {:id ::frame :initial-events [[:app/init]]}) BEFORE the mount is also acceptable — the tree then SCOPEs it with [h/frame-provider {:frame ::frame} …] rather than ensuring it — but it must not be presented as REQUIRED, and the mount must not be shown as positional."
      ]},
 
     {"id": 26, "kind": "behavioural", "tier": "M", "name": "m-keystroke-handler-becomes-key-map",
