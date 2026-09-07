@@ -528,12 +528,14 @@
   ;;
   ;; EP-0037 R3: `link-model` is the one link calculation a view artefact's
   ;; route-link runs on BOTH hosts, so the `:prefetch` value is validated
-  ;; here too — through the `prefetch-payload` call below, which validates
-  ;; before it reads, so the seam cannot compute a warm-up without having
-  ;; rejected a bad mode. `prefetch-payload` is PURE and runs on both hosts:
-  ;; the JVM/SSR shell drops the event props it lands at, along with every
-  ;; other `on-*`, so the server emits what the client emits minus handlers
-  ;; and rejects exactly what the client rejects (rf2-kuky.37).
+  ;; here too, and validated FIRST (see the call below the comment block).
+  ;; rf2-kuky.37: the seam now also CARRIES the warm-up. `prefetch-payload`
+  ;; is PURE and runs on both hosts — the JVM/SSR shell drops the event props
+  ;; the vector lands at, along with every other `on-*`, so the server emits
+  ;; what the client emits minus handlers and rejects exactly what the client
+  ;; rejects. That symmetry is the whole point: the arm that used to skip
+  ;; `prefetch-payload` server-side is what left the SSR shell accepting a
+  ;; mode the hydrated client refused.
   ;;
   ;; DELIBERATE DUPLICATION — the `route-url` + `encode` pair below is also
   ;; derived by `href-attrs` (top of this file, the `rf/route-link` internal),
@@ -549,17 +551,20 @@
   ;; afternoon unifying them — but if a shared home appears for another reason,
   ;; collapse both onto it. (The same wall rf2-wzqtu hit for the readiness
   ;; projectors.)
+  ;; FIRST, before the route lookup. `prefetch-payload` below validates too
+  ;; (it calls `validate-prefetch!` before it reads the value), so this call
+  ;; is redundant for the VERDICT and load-bearing for the ORDER: a props
+  ;; mistake the author made must outrank a route the registry does not have,
+  ;; or `{:to :route/typo :prefetch true}` reports `:rf.error/no-such-route`
+  ;; and says nothing about the two bad keys. Leaning on the `prefetch-payload`
+  ;; call alone put `route-url` first and did exactly that.
+  (validate-prefetch! target)
   (let [{:keys [to params query fragment]} (rf.routing.address/extract-address target)
         path-url (rf.routing.registry/route-url {:to to :params (or params {}) :query (or query {}) :fragment fragment})
         encode   (:encode (rf.routing.strategy/url-strategy-for-frame-id render-frame))]
     {:href          (encode path-url)
      :payload       (url-requested-payload path-url)
      :native?       (native-anchor? target)
-     ;; `prefetch-payload` validates `:prefetch` itself (it calls
-     ;; `validate-prefetch!` before it reads the value), so this seam rejects
-     ;; an unsupported mode on BOTH hosts through the same one call that
-     ;; computes the warm-up — no separate validation step to fall out of
-     ;; step with it.
      :prefetch      (prefetch-payload target)
      :prefetch-keys prefetch-intent-keys}))
 
