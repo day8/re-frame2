@@ -231,25 +231,24 @@
 ;; ---- join-survivor cancellation ----------------------------------------
 
 (defn- mk-child
-  [parent-id done-event-kw error-event-kw]
+  "A join child. Completion IS finality — it carries no parent vocabulary and
+  reaches a `:final?` state whose `:output-key` names the result."
+  []
   {:initial :running
    :data    {:id nil}
-   :actions {:dispatch-done
-             (fn [{data :data}]
-               {:fx [[:dispatch [parent-id [done-event-kw (:id data)]]]]})
-             :record-id
+   :actions {:record-id
              (fn [{data :data ev :event}]
                {:data (assoc data :id (second ev))})}
    :states
    {:running {:on {:set-id {:action :record-id}
-                   :go     {:target :done :action :dispatch-done}}}
-    :done   {}}})
+                   :go     {:target :done}}}
+    :done   {:final? true :output-key :id}}})
 
 (deftest join-survivor-cancel-trace-carries-cancelled-reply
   (testing "rf2-sfunt8 — :rf.machine.spawn/cancelled-on-join-resolution carries
             the reply-envelope :status :cancelled facts (:rf.reply/cancel-reason
             :on-join-resolution)"
-    (let [child  (mk-child :sup/sfunt8 :asset/loaded :asset/failed)
+    (let [child  (mk-child)
           parent {:initial :idle
                   :states
                   {:idle      {:on {:start :hydrating}}
@@ -261,8 +260,6 @@
                      ;; sibling cancellation on the join decision is
                      ;; unconditional → surviving sibling is torn down on
                      ;; resolution.
-                     :on-child-done    :asset/loaded
-                     :on-child-error   :asset/failed
                      :on-some-complete [:hydrate/some]}
                     :on    {:hydrate/some :ready}}
                    :ready     {}}}]

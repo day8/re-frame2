@@ -5,21 +5,29 @@
   #5839's exact-attempt check runs AFTER the runtime has selected which
   active `:spawn-all` join owns an inbound completion. That selection was by
   child-id ownership (first owning match in declaration order). When two active
-  parallel regions legitimately reuse BOTH the completion event keyword AND the
-  logical child id, a later region's exact-current carrier is mis-routed to the
-  first region's join, rejected there as `:attempt-superseded`, and its own join
-  hangs.
+  parallel regions legitimately reuse the logical child id, a later region's
+  exact-current completion is mis-routed to the first region's join, rejected
+  there as `:attempt-superseded`, and its own join hangs.
 
   The fix routes the completion to the region whose LIVE join-state IS the exact
-  attempt the carrier's `:rf/join-attempt` names (parent/invoke identity + attempt
+  attempt the completion's coordinate names (parent/invoke identity + attempt
   token + spawned instance), BEFORE the fold gate; child-id ownership is only a
-  fallback for unstamped / unknown carriers (which the fold gate then suppresses
-  fail-closed).
+  fallback for unstamped / unknown completions (which the fold gate then
+  suppresses fail-closed).
+
+  Under the child-completion protocol the completion is no longer a child-authored
+  event: the child reaches a `:final?` leaf and the runtime's finalize cascade
+  mints the carrier, reading the coordinate straight off the child's own
+  `:rf/join-child` record. That REMOVES one half of the original ambiguity — there
+  is no shared completion keyword any more, because there is no child-authored
+  keyword at all — and leaves the half this test exists for: two live joins under
+  ONE parent, both owning a child logically named `:worker`. Selection still has to
+  be by coordinate rather than by that name.
 
   Two regions `:r1` / `:r2` each declare a `:spawn-all` with the SAME logical
-  child id `:worker` and the SAME `:on-child-done` / `:on-child-error`. The test
-  completes `:r2` first and asserts ONLY `:r2` resolves; `:r1` and its worker are
-  untouched; and no stale/bad-child evidence fires for the legitimate carrier."
+  child id `:worker`. The test completes `:r2`'s worker first and asserts ONLY
+  `:r2` folds; `:r1` and its worker are untouched; and no stale/bad-child evidence
+  fires for the legitimate completion."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines :as rf.machines]
@@ -33,20 +41,21 @@
   rf.machines.test-support/trace-capture-fixture)
 
 (defn- mk-worker
-  "A worker child that dispatches `done-kw` / `err-kw` back to `parent-id`
-  carrying its own `:worker` logical id — through its OWN handler boundary, so
-  the runtime records the exact-attempt coordinate on the recordable `:rf.cofx` fact
-  `:rf.machine/join-attempt` for its region's attempt."
-  [parent-id done-kw err-kw]
+  "A worker child that completes the ONE way every machine completes: `:go`
+  reaches the top-level `:final?` leaf `:done`, `:fail` the `:error? true` leaf
+  `:failed`. It names no parent and no completion event. The runtime's finalize
+  cascade mints the completion carrier from the child's own `:rf/join-child`
+  record, so the carrier is exact-current for THIS region's attempt by
+  construction — which is the property this file selects on."
+  []
   {:initial :running
    :data    {:id nil}
-   :actions {:record-id     (fn [{d :data e :event}] {:data (assoc d :id (second e))})
-             :dispatch-done (fn [{d :data}] {:fx [[:dispatch [parent-id [done-kw (:id d)]]]]})
-             :dispatch-err  (fn [{d :data}] {:fx [[:dispatch [parent-id [err-kw (:id d)]]]]})}
+   :actions {:record-id (fn [{d :data e :event}] {:data (assoc d :id (second e))})}
    :states  {:running {:on {:set-id {:action :record-id}
-                            :go     {:target :done   :action :dispatch-done}
-                            :fail   {:target :failed :action :dispatch-err}}}
-             :done   {} :failed {}}})
+                            :go     {:target :done}
+                            :fail   {:target :failed}}}
+             :done   {:final? true :output-key :id}
+             :failed {:final? true :error? true :output-key :id}}})
 
 ;; A never-completing helper child so the two-child `:all` join stays OPEN after
 ;; the `:worker` folds (a single-child join would RESOLVE + tear the region
@@ -56,11 +65,11 @@
 
 (defn- region-spawn-all
   "A two-child (`:worker` + never-completing `:helper`) `:spawn-all` region
-  sharing `:child/done` / `:child/failed` across regions but resolving to a
-  region-distinct `on-complete` event. The shared `:worker` logical id + shared
-  `:child/done` keyword across regions is exactly the ambiguity the fix routes by
-  exact-attempt coordinate; completing `:worker` alone is NON-DECISIVE (the `:all` join
-  still awaits `:helper`), so the join-state persists to be asserted on."
+  resolving to a region-distinct `on-complete` event. The `:worker` logical id
+  is shared across the two regions, which is exactly the ambiguity the fix
+  routes past by exact-attempt coordinate; completing `:worker` alone is
+  NON-DECISIVE (the `:all` join still awaits `:helper`), so the join-state
+  persists to be asserted on."
   [worker-type on-complete ready-state]
   {:initial :idle
    :states  {:idle   {:on {:start :racing}}
@@ -68,8 +77,6 @@
                                                     :start [:set-id :worker]}
                                                    {:id :helper :machine-id :rf2-wsrtlw/helper}]
                                   :join           :all
-                                  :on-child-done  :child/done
-                                  :on-child-error :child/failed
                                   :on-all-complete on-complete}
                       :on {(first on-complete) ready-state}}
              ready-state {}}})
@@ -77,8 +84,8 @@
 (def ^:private parent-kw :rf2-wsrtlw/parent)
 
 (defn- reg-and-start! []
-  (rf/reg-machine :rf2-wsrtlw/wc-r1 (mk-worker parent-kw :child/done :child/failed))
-  (rf/reg-machine :rf2-wsrtlw/wc-r2 (mk-worker parent-kw :child/done :child/failed))
+  (rf/reg-machine :rf2-wsrtlw/wc-r1 (mk-worker))
+  (rf/reg-machine :rf2-wsrtlw/wc-r2 (mk-worker))
   (rf/reg-machine :rf2-wsrtlw/helper idle-helper)
   (rf/reg-machine parent-kw
     {:type    :parallel
@@ -97,7 +104,7 @@
         (spawned-joins)))
 
 (deftest later-region-folds-only-itself-by-exact-attempt
-  (testing "two active parallel regions reuse child id :worker + event :child/done;
+  (testing "two active parallel regions reuse the logical child id :worker;
             completing :r2's worker folds ONLY into :r2 — :r1 and its worker are
             untouched, and no attempt-superseded / bad-child evidence fires for
             the legitimate carrier. Mutation tooth: selecting by child-id only

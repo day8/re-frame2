@@ -287,11 +287,11 @@
 ;;
 ;; Single `:spawn` finality lowers through `success-reply` /
 ;; `error-reply` / `stale-spawn-reply`; the `:spawn-all` join-child
-;; completion (a child dispatching `[parent [:on-child-done child-id …]]` /
-;; `:on-child-error` into the parent's join) folds into join state and
-;; carries the SAME uniform reply vocabulary the single-`:spawn` path
+;; completion (a child reaching a `:final?` leaf, whose completion carrier the
+;; runtime mints and folds into the parent's join) carries the SAME uniform
+;; reply vocabulary the single-`:spawn` path
 ;; carries — a canonical reply map, `:rf.reply/work-id`, and `:rf.reply/*` facts.
-;; The PUBLIC join protocol (the parent dispatch, the resolution events,
+;; The PUBLIC join protocol (the resolution events and
 ;; the join-resolution sibling-cancellation cascade) is independent of these helpers; this is
 ;; INTERNAL trace-stream lowering only, so a join child's done / failed /
 ;; late completion classifies the same way HTTP / resources /
@@ -307,9 +307,10 @@
 (defn join-child-reply
   "Build the canonical reply map for a `:spawn-all` join-child completion
   that folded into the join (EP-0011 §Machine Completion; Managed-Effects
-  §Status taxonomy). `kind` is `:done` (a `:on-child-done` arrival —
-  `:status :ok` / `:rf.reply/work-status :completed`) or `:failed` (a
-  `:on-child-error` arrival — `:status :error` / `:rf.reply/work-status :failed`).
+  §Status taxonomy). `kind` is `:done` (the child reached a plain `:final?`
+  leaf — `:status :ok` / `:rf.reply/work-status :completed`) or `:failed` (it
+  reached an `:error? true` one — `:status :error` /
+  `:rf.reply/work-status :failed`).
 
   The work-id is `[:rf.work/machine spawned-id parent-invoke-id
   generation]` — the child's SPAWNED instance address (the `<type>#<n>`

@@ -112,8 +112,6 @@
                              [{:id :a :machine-id :ne/ia-child}
                               {:id :b :machine-id :ne/ia-child}]
                              :join              :all
-                             :on-child-done     :ia/asset-done
-                             :on-child-error    :ia/asset-failed
                              :on-all-complete   [:go-done]
                              :on-any-failed     [:ia/cancel]}
                             :on {:go-done    :done

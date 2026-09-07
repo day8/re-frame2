@@ -37,10 +37,13 @@
   `make-machine-handler`) lives in
   `lifecycle-fx.registration/resolve-actor-handler-meta`, the late-bound
   `:machines/resolve-actor-handler-meta` hook body."
-  (:require [re-frame.machines.grammar :as rf.machines.grammar]
+  (:require [re-frame.interop :as rf.interop]
+            [re-frame.machines.error-emit :as rf.machines.error-emit]
+            [re-frame.machines.grammar :as rf.machines.grammar]
             [re-frame.machines.parallel :as rf.machines.parallel]
             [re-frame.machines.paths :as rf.machines.paths]
-            [re-frame.registrar :as rf.registrar]))
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -185,8 +188,8 @@
   non-empty vector, the path doesn't resolve, or the node declares no
   `:spawn`.
 
-  Shared owner for the spawn-spec-at-invoke-id lookup used by the
-  finalize `:on-done` cascade (`finalize/finalize-machine`) and the
+  Shared owner for the spawn-spec-at-invoke-id lookup used by the parent
+  boundary's `:on-done` routing (`lifecycle-fx.registration`) and the
   spawn-error `:on-error` routing (`spawn-error/parent-declares-on-error?`)."
   [parent-spec invoke-id]
   (when (and parent-spec (vector? invoke-id) (seq invoke-id))
@@ -196,3 +199,66 @@
                           [(get-in parent-spec [:regions head]) (vec tail)]
                           [parent-spec invoke-id])]
       (:spawn (rf.machines.grammar/node-at (:states tree) path)))))
+
+(defn apply-on-done
+  "Run ONE `:on-done` completion fold against a parent's `:data`, returning the
+  new `:data` map.
+
+  This is the SINGLE application site for the `:on-done` contract, shared by
+  both spawn forms — a `:spawn` parent's `:on-done` (applied at the parent's
+  handler boundary when the reserved completion carrier arrives) and a
+  `:spawn-all` child spec's per-child `:on-done` (applied by the join fold at
+  that child's finality). Per Spec 005 §Final states the callback receives one
+  context-map arg and returns the new `:data` map:
+
+      (fn [{:keys [data result]}] new-data)
+
+  `on-done` may be nil (the common case — no fold declared), in which case
+  `data` rides through untouched.
+
+  A throwing fold is CONTAINED: the parent's `:data` is left exactly as it was
+  and the completion still lands, because a presentation callback must not be
+  able to hang a parent phase or a join. The throw is reported on the two
+  standard axes — a STRUCTURAL always-on `:rf.error/machine-action-exception`
+  record whose `:failing-id` is the reserved `:rf.machine.spawn/on-done` slot
+  id, plus a dev-only prose trace behind an explicit call-site
+  `rf.interop/debug-enabled?` gate so Closure constant-folds the prose away
+  under `:advanced` + `goog.DEBUG=false`. `err-ctx` supplies the reporting
+  coordinates (`:actor-id` — the PARENT actor whose `:data` was being folded —
+  plus optional `:state`, `:frame`, `:child-id`)."
+  [on-done data result {:keys [actor-id state frame child-id]}]
+  (if on-done
+    (let [new-data (try
+                     (on-done {:data data :result result})
+                     (catch #?(:clj Throwable :cljs :default) e
+                       ;; Axis 1 — STRUCTURAL-ONLY always-on record (no prose;
+                       ;; see error-emit). `:state` is the state the parent
+                       ;; rests on as its `:on-done` fired.
+                       (rf.machines.error-emit/emit-machine-action-exception!
+                         {:actor-id   actor-id
+                          :failing-id :rf.machine.spawn/on-done
+                          :state      state
+                          :frame      frame
+                          :recovery   :no-recovery
+                          :exception  e})
+                       ;; Axis 2 — dev-only trace, call-site gated so the
+                       ;; PROSE `:reason` / `:exception-message` are elided
+                       ;; from a production build rather than merely unused.
+                       (when rf.interop/debug-enabled?
+                         (rf.trace/emit-error! :rf.error/machine-action-exception
+                           (cond-> {:actor-id   actor-id
+                                    :machine-id actor-id
+                                    :action-id  :rf.machine.spawn/on-done
+                                    :failing-id :rf.machine.spawn/on-done
+                                    :state      state
+                                    :frame      frame
+                                    :exception  e
+                                    :exception-message
+                                    #?(:clj  (.getMessage ^Throwable e)
+                                       :cljs (.-message e))
+                                    :reason     ":on-done callback threw."
+                                    :recovery   :no-recovery}
+                             (some? child-id) (assoc :child-id child-id))))
+                       nil))]
+      (if (some? new-data) new-data data))
+    data))

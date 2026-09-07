@@ -9,17 +9,29 @@
   decision, and registration-time validation (including that a removed
   mode is now REJECTED as an unknown join spec).
 
-  Children dispatch their completion via [<parent-id> [:on-child-done
-  <child-id> & extra]] (or :on-child-error). The runtime intercepts
-  these at the parent's make-machine-handler boundary and updates
-  the join-state at [:rf.runtime/machines :spawned <parent> <invoke-id>] in app-db.
-  When the join condition resolves, the runtime fires the parent
-  join event (:on-all-complete / :on-some-complete / :on-any-failed)
-  and (by default) cancels surviving siblings via :rf.machine/destroy.
+  Completion is FINALITY. A child completes by entering a `:final?` state —
+  `:output-key` names the `:data` slot holding its result, `:error? true`
+  marks the terminal a failure. The child dispatches nothing and carries no
+  parent vocabulary, so one child machine composes unchanged under `:spawn`
+  and under `:spawn-all`. At that finality `lifecycle-fx.finalize` tears the
+  child down (:reason :rf.machine/finished) and mints the reserved carrier
+  [<parent-id> [:rf.machine.spawn/done <invoke-id> <completion>]] into the
+  parent. The parent's make-machine-handler boundary routes that carrier to
+  the join fold, which updates the join-state at
+  [:rf.runtime/machines :spawned <parent> <invoke-id>] in app-db. Routing is a
+  direct LOOKUP on the carrier's own <invoke-id> — no state-tree walk and no
+  event-keyword matching. When the join condition resolves, the runtime fires
+  the parent join event (:on-all-complete / :on-some-complete /
+  :on-any-failed) carrying [<decisive-child-id> <result>] and destroys the
+  surviving SIBLINGS via :rf.machine/destroy; the children that completed are
+  already gone, having closed themselves at their own finality.
 
   All tests run on the JVM through the plain-atom substrate."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            ;; Loading `re-frame.machines` installs the artefact's late-bind
+            ;; hooks and reserved fx handlers, which `rf/reg-machine` requires.
+            [re-frame.machines]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace.tooling :as rf.trace.tooling]))
@@ -34,39 +46,38 @@
 
 ;; ---- common child machine -------------------------------------------------
 ;;
-;; Trivial child that, on receiving :go, transitions to :done (which
-;; dispatches :on-child-done back to the parent). On :fail, transitions
-;; to :failed (which dispatches :on-child-error back). The parent-id
-;; the child dispatches into is supplied via :data — we pre-populate
-;; it via :start [:set-id <id>] from the parent's :spawn-all entry.
+;; Trivial child that, on receiving :go, transitions to the TOP-LEVEL
+;; :final? state :done; on :fail, to the :error? :final? state :failed.
+;; Reaching either IS the completion — the runtime reads :output-key for the
+;; result, tears the child down, and mints the completion carrier into the
+;; parent. The child names no parent and no completion event: the same spec
+;; would compose unchanged under a single :spawn parent. Its own logical id
+;; is pre-populated via :start [:set-id <id>] from the parent's :spawn-all
+;; entry, purely so the reported result is recognisable in assertions.
 
 (defn- mk-child
-  "Return a child spec that dispatches `done-event-kw` /
-  `error-event-kw` back to `parent-id` carrying its own :id from :data."
-  [parent-id done-event-kw error-event-kw]
+  "Return a child spec that completes by reaching a `:final?` state,
+  reporting its own :id (from :data) as the result. `:go` reaches the plain
+  final `:done` (a success); `:fail` reaches the `:error? true` final
+  `:failed` (a failure, which a join routes through `:on-any-failed`)."
+  []
   {:initial :running
    :data    {:id nil}
-   :actions {:dispatch-done
-             (fn [{data :data}]
-               {:fx [[:dispatch [parent-id [done-event-kw (:id data)]]]]})
-             :dispatch-error
-             (fn [{data :data}]
-               {:fx [[:dispatch [parent-id [error-event-kw (:id data)]]]]})
-             :record-id
+   :actions {:record-id
              (fn [{data :data ev :event}]
                {:data (assoc data :id (second ev))})}
    :states
    {:running {:on {:set-id {:action :record-id}
-                   :go     {:target :done   :action :dispatch-done}
-                   :fail   {:target :failed :action :dispatch-error}}}
-    :done   {}
-    :failed {}}})
+                   :go     {:target :done}
+                   :fail   {:target :failed}}}
+    :done   {:final? true :output-key :id}
+    :failed {:final? true :error? true :output-key :id}}})
 
 ;; ---- :join :all — all children complete fires :on-all-complete ----------
 
 (deftest join-all-fires-on-all-complete
   (testing "all N children completing fires :on-all-complete"
-    (let [child  (mk-child :sup/all :asset/loaded :asset/failed)
+    (let [child  (mk-child)
           parent {:initial :idle
                   :states
                   {:idle      {:on {:start :hydrating}}
@@ -76,8 +87,6 @@
                                         {:id :b :machine-id :child/b :start [:set-id :b]}
                                         {:id :c :machine-id :child/c :start [:set-id :c]}]
                      :join             :all
-                     :on-child-done    :asset/loaded
-                     :on-child-error   :asset/failed
                      :on-all-complete  [:hydrate/done]
                      :on-any-failed    [:hydrate/failed]}
                     :on    {:hydrate/done   :ready
@@ -111,7 +120,7 @@
 
 (deftest join-all-with-one-failure-fires-on-any-failed-and-cancels
   (testing "one child failing fires :on-any-failed and cancels surviving siblings"
-    (let [child  (mk-child :sup/fail-test :asset/loaded :asset/failed)
+    (let [child  (mk-child)
           parent {:initial :idle
                   :states
                   {:idle      {:on {:start :hydrating}}
@@ -121,8 +130,6 @@
                                         {:id :b :machine-id :child/fb :start [:set-id :b]}
                                         {:id :c :machine-id :child/fc :start [:set-id :c]}]
                      :join             :all
-                     :on-child-done    :asset/loaded
-                     :on-child-error   :asset/failed
                      :on-all-complete  [:hydrate/done]
                      :on-any-failed    [:hydrate/failed]}
                     :on    {:hydrate/done   :ready
@@ -152,7 +159,7 @@
 
 (deftest join-any-fires-on-first-child
   (testing ":join :any fires :on-some-complete after the first :go"
-    (let [child  (mk-child :sup/any-test :done :failed)
+    (let [child  (mk-child)
           parent {:initial :idle
                   :states
                   {:idle   {:on {:start :racing}}
@@ -162,8 +169,6 @@
                                         {:id :b :machine-id :child/ab :start [:set-id :b]}
                                         {:id :c :machine-id :child/ac :start [:set-id :c]}]
                      :join             :any
-                     :on-child-done    :done
-                     :on-child-error   :failed
                      :on-some-complete [:race/won]}
                     :on    {:race/won :winner}}
                    :winner {}}}]
@@ -200,7 +205,7 @@
   (testing "C5: an :all join with no :on-any-failed warns once when a failure
             makes all-done unreachable (and the parent stays hung)"
     (let [[warns unregister!] (record-warnings! ::unsat-n)
-          child  (mk-child :sup/unsat-n :done :failed)
+          child  (mk-child)
           parent {:initial :idle
                   :states
                   {:idle    {:on {:start :working}}
@@ -211,8 +216,6 @@
                                         {:id :b :machine-id :child/un-b :start [:set-id :b]}
                                         {:id :c :machine-id :child/un-c :start [:set-id :c]}]
                      :join             :all
-                     :on-child-done    :done
-                     :on-child-error   :failed
                      :on-all-complete  [:phase/done]}
                     :on    {:phase/done :ready}}
                    :ready {}}}]
@@ -243,7 +246,7 @@
   (testing "C5 control: a join WITH :on-any-failed resolves on the first
             failure, so the unsatisfiable warning never fires"
     (let [[warns unregister!] (record-warnings! ::unsat-guarded)
-          child  (mk-child :sup/guarded-n :done :failed)
+          child  (mk-child)
           parent {:initial :idle
                   :states
                   {:idle    {:on {:start :working}}
@@ -253,8 +256,6 @@
                                         {:id :b :machine-id :child/gn-b :start [:set-id :b]}
                                         {:id :c :machine-id :child/gn-c :start [:set-id :c]}]
                      :join             :all
-                     :on-child-done    :done
-                     :on-child-error   :failed
                      :on-all-complete  [:phase/done]
                      :on-any-failed    [:phase/failed]}
                     :on    {:phase/done   :ready
@@ -285,8 +286,6 @@
                           {:initial :s
                            :states
                            {:s {:spawn-all {:children        [{:machine-id :foo}]
-                                             :on-child-done   :done
-                                             :on-child-error  :failed
                                              :on-all-complete [:done]}}}}))))
   (testing ":spawn-all with duplicate child ids — rejected"
     (is (thrown-with-msg?
@@ -297,8 +296,6 @@
                            :states
                            {:s {:spawn-all {:children        [{:id :x :machine-id :foo}
                                                                 {:id :x :machine-id :bar}]
-                                             :on-child-done   :done
-                                             :on-child-error  :failed
                                              :on-all-complete [:done]}}}}))))
   (testing ":spawn + :spawn-all on same state — rejected"
     (is (thrown-with-msg?
@@ -309,8 +306,6 @@
                            :states
                            {:s {:spawn     {:machine-id :foo}
                                 :spawn-all {:children        [{:id :x :machine-id :bar}]
-                                             :on-child-done   :done
-                                             :on-child-error  :failed
                                              :on-all-complete [:done]}}}}))))
   (testing ":spawn-all with :join :all but no :on-all-complete — rejected"
     (is (thrown-with-msg?
@@ -319,9 +314,7 @@
           (rf/reg-machine :bad/no-on-all
                           {:initial :s
                            :states
-                           {:s {:spawn-all {:children        [{:id :x :machine-id :foo}]
-                                             :on-child-done   :done
-                                             :on-child-error  :failed}}}}))))
+                           {:s {:spawn-all {:children        [{:id :x :machine-id :foo}]}}}}))))
   (testing ":spawn-all with :join :any but no :on-some-complete — rejected"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
@@ -330,9 +323,7 @@
                           {:initial :s
                            :states
                            {:s {:spawn-all {:children       [{:id :x :machine-id :foo}]
-                                             :join           :any
-                                             :on-child-done  :done
-                                             :on-child-error :failed}}}}))))
+                                             :join           :any}}}}))))
   ;; rf2-w8gxxz — the join grammar is a CLOSED two-member enum (:all + :any).
   ;; The removed modes ({:n N}, {:fn pred}) and the removed
   ;; :cancel-on-decision? key are now REJECTED as an unknown join spec /
@@ -346,8 +337,6 @@
                            :states
                            {:s {:spawn-all {:children         [{:id :x :machine-id :foo}]
                                              :join             {:n 2}
-                                             :on-child-done    :done
-                                             :on-child-error   :failed
                                              :on-some-complete [:some]}}}}))))
   (testing "rf2-w8gxxz: :spawn-all with the removed :join {:fn pred} mode — rejected"
     (is (thrown-with-msg?
@@ -358,8 +347,6 @@
                            :states
                            {:s {:spawn-all {:children         [{:id :x :machine-id :foo}]
                                              :join             {:fn (fn [_] true)}
-                                             :on-child-done    :done
-                                             :on-child-error   :failed
                                              :on-some-complete [:some]}}}}))))
   (testing "rf2-w8gxxz: :spawn-all with the removed :cancel-on-decision? key — rejected"
     (is (thrown-with-msg?
@@ -371,8 +358,6 @@
                            {:s {:spawn-all {:children            [{:id :x :machine-id :foo}]
                                              :join                :any
                                              :cancel-on-decision? false
-                                             :on-child-done       :done
-                                             :on-child-error      :failed
                                              :on-some-complete    [:some]}}}}))))
   ;; A :spawn-all child must declare EXACTLY ONE of :machine-id /
   ;; :definition (XOR): a child carrying BOTH is rejected, as is a child
@@ -388,8 +373,6 @@
                                                                 :machine-id :foo
                                                                 :definition {:initial :i
                                                                              :states  {:i {}}}}]
-                                             :on-child-done   :done
-                                             :on-child-error  :failed
                                              :on-all-complete [:done]}}}}))))
   (testing ":spawn-all child with EXACTLY ONE of :machine-id / :definition — accepted"
     (is (some?
@@ -399,8 +382,6 @@
                            {:s {:spawn-all {:children        [{:id         :x
                                                                 :definition {:initial :i
                                                                              :states  {:i {}}}}]
-                                             :on-child-done   :done
-                                             :on-child-error  :failed
                                              :on-all-complete [:done]}}}}))
         "an inline-definition :spawn-all child (no :machine-id) registers cleanly")))
 
@@ -468,34 +449,26 @@
 ;; ---- decisive-child payload forwarding -----------------------------------
 
 (defn- mk-child-with-payload
-  "Like mk-child but the terminal-state dispatch carries an extra payload
-  argument so we can assert it forwards through the join resolution."
-  [parent-id done-event-kw error-event-kw payload]
+  "Like mk-child but the child's terminal `:output-key` names a richer
+  `payload` slot rather than its bare id, so we can assert the child's
+  RESULT — the single value the runtime reads at its finality — forwards
+  through the join resolution."
+  [payload]
   {:initial :running
-   :data    {:id nil}
-   :actions {:dispatch-done
-             (fn [{data :data}]
-               {:fx [[:dispatch [parent-id [done-event-kw (:id data) payload]]]]})
-             :dispatch-error
-             (fn [{data :data}]
-               {:fx [[:dispatch [parent-id [error-event-kw (:id data) payload]]]]})
-             :record-id
+   :data    {:id nil :payload payload}
+   :actions {:record-id
              (fn [{data :data ev :event}]
-               {:data (assoc data :id (second ev))})
-             :record-join-event
-             (fn [{data :data ev :event}]
-               {:data (assoc data :join-event ev)})}
+               {:data (assoc data :id (second ev))})}
    :states
    {:running {:on {:set-id {:action :record-id}
-                   :go     {:target :done   :action :dispatch-done}
-                   :fail   {:target :failed :action :dispatch-error}}}
-    :done   {}
-    :failed {}}})
+                   :go     {:target :done}
+                   :fail   {:target :failed}}}
+    :done   {:final? true :output-key :payload}
+    :failed {:final? true :error? true :output-key :payload}}})
 
 (deftest decisive-child-payload-forwards-into-join-event
-  (testing "the decisive child's & extra is appended onto the resolution event"
-    (let [child  (mk-child-with-payload :sup/pay :asset/loaded :asset/failed
-                                        {:bytes 4242 :status :ok})
+  (testing "the decisive child's :output-key result rides the resolution event"
+    (let [child  (mk-child-with-payload {:bytes 4242 :status :ok})
           parent {:initial :idle
                   :actions {:record-payload
                             (fn [{data :data ev :event}]
@@ -506,8 +479,6 @@
                    {:spawn-all
                     {:children        [{:id :a :machine-id :child/pa :start [:set-id :a]}]
                      :join            :all
-                     :on-child-done   :asset/loaded
-                     :on-child-error  :asset/failed
                      :on-all-complete [:hydrate/done]}
                     :on    {:hydrate/done {:target :ready :action :record-payload}}}
                    :ready {}}}]
@@ -518,17 +489,18 @@
         (rf/dispatch-sync [(:a ids) [:go]]))
       (let [snap (snapshot :sup/pay)]
         (is (= :ready (:state snap)) "parent reached :ready")
-        ;; The decisive-child payload (:a + {:bytes 4242 :status :ok})
-        ;; appears as trailing args on the dispatched join event:
+        ;; The resolution event carries the decisive child-id and the ONE
+        ;; result value the runtime read from that child's :output-key at
+        ;; its finality:
         ;;   [:hydrate/done :a {:bytes 4242 :status :ok}]
         (is (= [:hydrate/done :a {:bytes 4242 :status :ok}]
                (:join-event (:data snap)))
-            "resolution event carries decisive child-id and forwarded payload")))))
+            "resolution event carries decisive child-id and its :output-key result")))))
 
 ;; ---- sibling cancellation on the join decision + late-completion ---------
 ;;
-;; intercept-spawn-all-event has a post-resolution branch (the
-;; `(:resolved? join-state)` cond arm) that fires when a child-done event
+;; intercept-spawn-done-event has a post-resolution branch (the
+;; `(:resolved? join-state)` cond arm) that fires when a completion carrier
 ;; arrives AFTER the join already resolved. It emits the
 ;; :rf.machine.spawn-all/late-completion trace (stale reply; record frozen).
 ;;
@@ -544,7 +516,7 @@
             cancelled at resolution and the join-state record stays frozen at
             the decisive child :a"
     (let [traces (atom [])
-          child  (mk-child :sup/cancel :asset/loaded :asset/failed)
+          child  (mk-child)
           parent {:initial :idle
                   :states
                   {:idle      {:on {:start :hydrating}}
@@ -553,8 +525,6 @@
                     {:children            [{:id :a :machine-id :child/ca :start [:set-id :a]}
                                            {:id :b :machine-id :child/cb :start [:set-id :b]}]
                      :join                :any
-                     :on-child-done       :asset/loaded
-                     :on-child-error      :asset/failed
                      :on-some-complete    [:race/won]}}}}]
       (rf/reg-machine :child/ca child)
       (rf/reg-machine :child/cb child)
@@ -588,10 +558,10 @@
             NOT fold into the record (no :folded? tag), and fires no further
             parent event"
     (let [traces (atom [])
-          child  (mk-child :sup/latek :asset/loaded :asset/failed)
+          child  (mk-child)
           ;; Parent stays in :hydrating across resolution by NOT declaring an
           ;; :on for the resolution event, so the join slot survives and a
-          ;; re-dispatch of a known child-id flows through the :resolved?
+          ;; re-minted carrier for a known child flows through the :resolved?
           ;; branch.
           parent {:initial :idle
                   :states
@@ -601,8 +571,6 @@
                     {:children            [{:id :a :machine-id :child/lka :start [:set-id :a]}
                                            {:id :b :machine-id :child/lkb :start [:set-id :b]}]
                      :join                :any
-                     :on-child-done       :asset/loaded
-                     :on-child-error      :asset/failed
                      :on-some-complete    [:race/won]}}}}]
       (rf/reg-machine :child/lka child)
       (rf/reg-machine :child/lkb child)
@@ -617,19 +585,21 @@
           (let [j (get-in (frame-db) [:rf.runtime/machines :spawned :sup/latek [:hydrating]])]
             (is (true? (:resolved? j)) ":any resolved on first :go")
             (is (= #{:a} (:done j))))
-          ;; Re-dispatch :a's EXACT-CURRENT completion AFTER resolution (a
-          ;; genuine current survivor draining post-latch). It flows through
-          ;; the :resolved? late-completion branch — which the fix now gates on
-          ;; the exact-attempt fence, so the carrier is stamped for the current attempt
-          ;; (rf2-ixjd48).
+          ;; Re-mint :a's EXACT-CURRENT completion carrier AFTER resolution (a
+          ;; genuine current straggler draining post-latch). It flows through
+          ;; the :resolved? late-completion branch — reached ONLY by a carrier
+          ;; that passes the exact-attempt fence, so the coordinate is copied
+          ;; from the live join state (rf2-ixjd48).
           (let [j (get-in (frame-db) [:rf.runtime/machines :spawned :sup/latek [:hydrating]])]
             (rf/dispatch-sync
-              [:sup/latek [:asset/loaded :a]]
-              {:rf.cofx {:rf.machine/join-attempt {:parent-id  :sup/latek
-                                                :invoke-id  [:hydrating]
-                                                :child-id   :a
-                                                :spawned-id (:a ids)
-                                                :attempt    (:rf/attempt j)}}}))
+              [:sup/latek [:rf.machine.spawn/done [:hydrating]
+                           {:result     :a
+                            :error?     false
+                            :parent-id  :sup/latek
+                            :invoke-id  [:hydrating]
+                            :child-id   :a
+                            :spawned-id (:a ids)
+                            :attempt    (:rf/attempt j)}]]))
           (let [j (get-in (frame-db) [:rf.runtime/machines :spawned :sup/latek [:hydrating]])]
             (is (= #{:a} (:done j))
                 "rf2-w8gxxz: the record stays frozen — no fold on late completion")
@@ -649,23 +619,24 @@
 
 ;; ---- forged child-id rejection -------------------------------------------
 ;;
-;; intercept-spawn-all-event must verify the inbound `child-id` is one
+;; intercept-spawn-done-event must verify the carrier's `child-id` is one
 ;; of the parent's spawned children before mutating the join state.
-;; Otherwise a hand-crafted dispatch (typo, copy-paste from a sibling
-;; :spawn-all, cascaded event from another parent) silently folds an
-;; unknown id into `:done` / `:failed` and can collapse the join early
-;; (silent state-machine corruption). The runtime gates this with
+;; Otherwise a hand-crafted dispatch of the reserved carrier (typo,
+;; copy-paste from a sibling :spawn-all, cascaded event from another parent)
+;; silently folds an unknown id into `:done` / `:failed` and can collapse the
+;; join early (silent state-machine corruption). The runtime gates this with
 ;; `:rf.error/machine-spawn-all-bad-child-id` and a no-op fx — the
 ;; join state is NOT mutated and the join does not resolve on the
-;; forged event.
+;; forged carrier. The ownership gate runs AHEAD of the exact-attempt fence,
+;; so a stranger child-id is reported as such rather than as a stale attempt.
 ;;
 ;; Pragmatic security stance: trust the explicit invoker but gate
 ;; accidents. See ai/findings/machines-security-audit-2026-05-15.md F1.
 
 (defn- mk-inert-child
-  "A child that records its parent-id but never auto-dispatches back —
-  letting us hand-craft forged `[parent [:on-child-done <bogus>]]`
-  events into the parent without race with real child completion."
+  "A child with no route to a `:final?` state, so it NEVER completes —
+  letting us hand-craft a forged completion carrier into the parent with no
+  race against a real child completion."
   []
   {:initial :running
    :data    {:id nil}
@@ -674,6 +645,21 @@
                {:data (assoc data :id (second ev))})}
    :states
    {:running {:on {:set-id {:action :record-id}}}}})
+
+(defn- forged-completion
+  "A hand-crafted completion carrier aimed at `parent-id`'s `:spawn-all` at
+  `invoke-id`, naming `child-id`; `kind` is `:done` / `:failed`.
+
+  It bears NO exact-attempt coordinate: the runtime mints the real carrier
+  from the child's private `:rf/join-child` membership record, which a
+  hand-authored dispatch cannot obtain. That is exactly the accident these
+  tests model — and every child-id forged below is a STRANGER to the join,
+  which the ownership gate rejects before the attempt fence is reached."
+  [parent-id invoke-id child-id kind]
+  [parent-id [:rf.machine.spawn/done invoke-id
+              {:child-id child-id
+               :result   nil
+               :error?   (= kind :failed)}]])
 
 (defn- collect-traces
   "Run `body-fn` with a trace listener attached; return the collected
@@ -695,7 +681,7 @@
                    (:operation %)))))
 
 (deftest forged-child-id-with-no-live-children-is-rejected
-  (testing "an :on-child-done dispatch carrying a child-id NOT in the
+  (testing "a completion carrier naming a child-id NOT in the
   parent's spawned set emits :rf.error/machine-spawn-all-bad-child-id
   and is a no-op (join state untouched, no resolution)"
     (let [parent {:initial :idle
@@ -706,8 +692,6 @@
                     {:children        [{:id :a :machine-id :child/forge-a :start [:set-id :a]}
                                        {:id :b :machine-id :child/forge-b :start [:set-id :b]}]
                      :join            :all
-                     :on-child-done   :asset/loaded
-                     :on-child-error  :asset/failed
                      :on-all-complete [:hydrate/done]
                      :on-any-failed   [:hydrate/failed]}
                     :on    {:hydrate/done   :ready
@@ -724,7 +708,8 @@
             traces (collect-traces
                     (fn []
                       (rf/dispatch-sync
-                        [:sup/forge-none [:asset/loaded :totally-fake-id]])))
+                        (forged-completion :sup/forge-none [:hydrating]
+                                           :totally-fake-id :done))))
             post-jstate (get-in (frame-db) [:rf.runtime/machines :spawned :sup/forge-none [:hydrating]])
             errs (bad-child-id-error-traces traces)]
         (is (= 1 (count errs))
@@ -737,16 +722,16 @@
           (is (= #{:a :b} (:children tags))
               ":children carries the legitimate seed set")
           (is (= :done (:kind tags))
-              ":kind carries the resolution-side the forged event aimed at")
+              ":kind carries the resolution-side the forged carrier aimed at")
           (is (= :event-dropped (:recovery err))
               ":recovery is hoisted to top-level on error envelopes"))
         (is (= pre-jstate post-jstate)
             "join state unchanged: forged id NOT added to :done or :failed")
         (is (= :hydrating (:state (snapshot :sup/forge-none)))
-            "parent did NOT resolve on the forged event")))))
+            "parent did NOT resolve on the forged carrier")))))
 
 (deftest repeated-forged-completions-each-emit-error-and-do-not-resolve
-  (testing "repeated forged :on-child-done dispatches each emit error
+  (testing "repeated forged completion carriers each emit error
   traces; the join still does not resolve"
     (let [parent {:initial :idle
                   :states
@@ -755,8 +740,6 @@
                    {:spawn-all
                     {:children        [{:id :a :machine-id :child/forge-r :start [:set-id :a]}]
                      :join            :all
-                     :on-child-done   :asset/loaded
-                     :on-child-error  :asset/failed
                      :on-all-complete [:hydrate/done]
                      :on-any-failed   [:hydrate/failed]}
                     :on    {:hydrate/done   :ready
@@ -768,13 +751,13 @@
       (rf/dispatch-sync [:sup/forge-repeated [:start]])
       (let [traces (collect-traces
                     (fn []
-                      (rf/dispatch-sync [:sup/forge-repeated [:asset/loaded :fake-1]])
-                      (rf/dispatch-sync [:sup/forge-repeated [:asset/loaded :fake-2]])
-                      (rf/dispatch-sync [:sup/forge-repeated [:asset/failed :fake-3]])))
+                      (rf/dispatch-sync (forged-completion :sup/forge-repeated [:hydrating] :fake-1 :done))
+                      (rf/dispatch-sync (forged-completion :sup/forge-repeated [:hydrating] :fake-2 :done))
+                      (rf/dispatch-sync (forged-completion :sup/forge-repeated [:hydrating] :fake-3 :failed))))
             errs (bad-child-id-error-traces traces)
             jstate (get-in (frame-db) [:rf.runtime/machines :spawned :sup/forge-repeated [:hydrating]])]
         (is (= 3 (count errs))
-            "one error trace per forged dispatch")
+            "one error trace per forged carrier")
         (is (= [:fake-1 :fake-2 :fake-3]
                (mapv (comp :child-id :tags) errs))
             "each error trace carries its specific forged child-id")
@@ -796,8 +779,6 @@
                      {:spawn-all
                       {:children        [{:id :p1-a :machine-id :child/p1a :start [:set-id :p1-a]}]
                        :join            :all
-                       :on-child-done   :asset/loaded
-                       :on-child-error  :asset/failed
                        :on-all-complete [:done]}}}}
           parent-2 {:initial :idle
                     :states
@@ -806,8 +787,6 @@
                      {:spawn-all
                       {:children        [{:id :p2-x :machine-id :child/p2x :start [:set-id :p2-x]}]
                        :join            :all
-                       :on-child-done   :asset/loaded
-                       :on-child-error  :asset/failed
                        :on-all-complete [:done]}}}}]
       (rf/reg-machine :child/p1a (mk-inert-child))
       (rf/reg-machine :child/p2x (mk-inert-child))
@@ -815,11 +794,12 @@
       (rf/reg-machine :sup/p2 parent-2)
       (rf/dispatch-sync [:sup/p1 [:start]])
       (rf/dispatch-sync [:sup/p2 [:start]])
-      ;; Dispatch p2's child-id (:p2-x) into p1's join — it is foreign
-      ;; to p1's seeded :children {:p1-a ...} and must be rejected.
+      ;; Aim a carrier naming p2's child-id (:p2-x) at p1's join — it is
+      ;; foreign to p1's seeded :children {:p1-a ...} and must be rejected.
       (let [traces (collect-traces
                     (fn []
-                      (rf/dispatch-sync [:sup/p1 [:asset/loaded :p2-x]])))
+                      (rf/dispatch-sync
+                        (forged-completion :sup/p1 [:working] :p2-x :done))))
             errs (bad-child-id-error-traces traces)
             p1-j (get-in (frame-db) [:rf.runtime/machines :spawned :sup/p1 [:working]])]
         (is (= 1 (count errs))
@@ -834,7 +814,7 @@
 (deftest legitimate-child-id-flow-not-regressed-by-the-gate
   (testing "the legitimate child-id path still resolves and the gate
   does not emit a bad-child-id error for real children"
-    (let [child  (mk-child :sup/gate-ok :asset/loaded :asset/failed)
+    (let [child  (mk-child)
           parent {:initial :idle
                   :states
                   {:idle      {:on {:start :hydrating}}
@@ -843,8 +823,6 @@
                     {:children        [{:id :a :machine-id :child/gate-a :start [:set-id :a]}
                                        {:id :b :machine-id :child/gate-b :start [:set-id :b]}]
                      :join            :all
-                     :on-child-done   :asset/loaded
-                     :on-child-error  :asset/failed
                      :on-all-complete [:hydrate/done]}
                     :on    {:hydrate/done :ready}}
                    :ready {}}}]
@@ -865,19 +843,27 @@
         (is (= :ready (:state (snapshot :sup/gate-ok)))
             "legitimate :spawn-all resolution still fires :on-all-complete")))))
 
-;; ---- parallel regions reusing the SAME :on-child-done id -----------------
+;; ---- parallel regions running structurally identical joins ---------------
 ;;
-;; Two active parallel regions may legitimately reuse a generic
-;; `:on-child-done` event id (`:done`, `:asset/loaded`). `find-active-spawn-all`
-;; collects ALL active matches and routes each child completion by which
-;; join-state OWNS the arriving child-id, so a completion from one region is
-;; never misrouted to a sibling region's join (which would fail its child-id
-;; ownership check as forged and leave the correct region hung).
+;; Two active parallel regions may run structurally identical `:spawn-all`
+;; blocks — and now that a child carries NO parent vocabulary at all, the two
+;; regions' children are literally the SAME machine spec, so nothing about the
+;; completion's SHAPE distinguishes the regions. Routing does not have to
+;; distinguish them: each completion carrier names its own `<invoke-id>` (the
+;; absolute prefix-path `[:region-2 :hydrating]`), so the fold is a direct
+;; LOOKUP of that region's join state — not a state-tree walk for an active
+;; `:spawn-all` matching an event keyword. A completion from one region can
+;; therefore never be misrouted to a sibling region's join (which would fail
+;; that join's child-id ownership check as forged and leave the correct
+;; region hung).
+;;
+;; This is the same property rf2-w84jv pinned when routing WAS a walk; only
+;; the mechanism that guarantees it has changed.
 
-(deftest parallel-regions-sharing-on-child-done-route-by-child-ownership
-  (testing "two parallel regions reusing :on-child-done :done route each child completion to the region whose join OWNS it; no bad-child-id, neither region hangs (rf2-w84jv)"
-    (rf/reg-machine :rf2-w84jv/r1-child (mk-child :rf2-w84jv/par-parent :done :err))
-    (rf/reg-machine :rf2-w84jv/r2-child (mk-child :rf2-w84jv/par-parent :done :err))
+(deftest parallel-regions-route-completions-by-carried-invoke-id
+  (testing "two parallel regions running identical child specs each fold their own child's completion, routed by the carrier's invoke-id; no bad-child-id, neither region hangs (rf2-w84jv)"
+    (rf/reg-machine :rf2-w84jv/r1-child (mk-child))
+    (rf/reg-machine :rf2-w84jv/r2-child (mk-child))
     (rf/reg-machine :rf2-w84jv/par-parent
       {:type    :parallel
        :regions {:region-1
@@ -886,8 +872,6 @@
                             {:spawn-all
                              {:children        [{:id :r1a :machine-id :rf2-w84jv/r1-child :start [:set-id :r1a]}]
                               :join            :all
-                              :on-child-done   :done
-                              :on-child-error  :err
                               :on-all-complete [:r1/done]}
                              :on {:r1/done :ready}}
                             :ready {}}}
@@ -897,8 +881,6 @@
                             {:spawn-all
                              {:children        [{:id :r2x :machine-id :rf2-w84jv/r2-child :start [:set-id :r2x]}]
                               :join            :all
-                              :on-child-done   :done
-                              :on-child-error  :err
                               :on-all-complete [:r2/done]}
                              :on {:r2/done :ready}}
                             :ready {}}}}})
@@ -907,14 +889,15 @@
           r2-children (:children (get-in (frame-db) [:rf.runtime/machines :spawned :rf2-w84jv/par-parent [:region-2 :hydrating]]))]
       (is (= #{:r1a} (set (keys r1-children))) "region-1 seeded its own join")
       (is (= #{:r2x} (set (keys r2-children))) "region-2 seeded its own join")
-      ;; Complete the SECOND region's child first. With the first-match `some`
-      ;; this routed to region-1 (whose :children lacks :r2x), flagging forged
-      ;; and hanging region-2. Now it routes to region-2 by ownership.
+      ;; Complete the SECOND region's child first — the ordering that broke
+      ;; under the old first-match `some` walk, which routed it to region-1
+      ;; (whose :children lacks :r2x), flagging forged and hanging region-2.
+      ;; Its carrier now names [:region-2 :hydrating] outright.
       (let [traces (collect-traces
                      (fn [] (rf/dispatch-sync [(:r2x r2-children) [:go]])))
             errs   (bad-child-id-error-traces traces)]
         (is (= [] (vec errs))
-            "no bad-child-id: region-2's child routed to region-2's join by ownership")
+            "no bad-child-id: region-2's carrier named region-2's join")
         (is (= :ready (get-in (snapshot :rf2-w84jv/par-parent) [:state :region-2]))
             "region-2 resolved its :spawn-all (its child completion was NOT mis-routed to region-1)")
         (is (= :hydrating (get-in (snapshot :rf2-w84jv/par-parent) [:state :region-1]))
@@ -931,9 +914,7 @@
 (deftest any-failed-trace-carries-reason-payload
   (testing ":rf.machine.spawn-all/any-failed trace carries :reason from decisive failure"
     (let [traces (atom [])
-          child  (mk-child-with-payload :sup/fail-payload
-                                        :asset/loaded :asset/failed
-                                        {:reason :boom :http-status 503})
+          child  (mk-child-with-payload {:reason :boom :http-status 503})
           parent {:initial :idle
                   :states
                   {:idle      {:on {:start :hydrating}}
@@ -942,8 +923,6 @@
                     {:children       [{:id :a :machine-id :child/fpa :start [:set-id :a]}
                                       {:id :b :machine-id :child/fpb :start [:set-id :b]}]
                      :join            :all
-                     :on-child-done   :asset/loaded
-                     :on-child-error  :asset/failed
                      :on-all-complete [:hydrate/done]
                      :on-any-failed   [:hydrate/failed]}
                     :on    {:hydrate/done   :ready
@@ -963,8 +942,11 @@
                                           (:operation %)))
                               first)]
           (is (some? any-failed) ":rf.machine.spawn-all/any-failed trace fired")
-          (is (= [{:reason :boom :http-status 503}]
+          ;; Spec 005 §Spawn-and-join: the resolution payload is "the decisive
+          ;; child's :output-key value — its error payload on :on-any-failed".
+          ;; One value, taken from the child's finality.
+          (is (= {:reason :boom :http-status 503}
                  (:reason (:tags any-failed)))
-              ":reason key on trace carries decisive child's forwarded payload"))
+              ":reason key on trace carries the decisive child's :output-key result"))
         (finally
           (rf/unregister-listener! :trace ::any-failed-trace))))))

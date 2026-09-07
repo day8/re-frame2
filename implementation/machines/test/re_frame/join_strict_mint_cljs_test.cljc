@@ -1,27 +1,31 @@
 (ns re-frame.join-strict-mint-cljs-test
   "rf2-xfk6fn — CAUSAL proof that a `:spawn-all` join completion honours the
-  EFFECTIVE cofx mint policy end-to-end, not merely by carrying the policy
-  keyword in the transport opts.
+  EFFECTIVE cofx mint policy end-to-end, rather than merely carrying the policy
+  keyword alongside it.
 
-  The rf2-lud4af / rf2-t154jx suites proved the recordable `:rf.machine/join-attempt`
-  fact rides `:rf.cofx`, survives an EDN round-trip, and that the transport
-  re-dispatch carries `:rf.cofx/mint-policy :strict` in its opts. But every join
-  completion TARGET in those suites declared NO generator-backed coeffect
-  requirement, so `:strict` and `:live` were OBSERVATIONALLY IDENTICAL there — the
-  `:strict` assertion only ever saw the policy KEYWORD in the router options, and
-  a transport that silently fell back to `:live` minting would have passed
-  exact-head CI unchanged. The alleged replay case supplied `:rf.cofx` but never
-  `:rf.cofx/mint-policy :strict`, so it ran under the runtime default `:live`;
-  stripping the join-attempt exercised the private authority gate, not strict
-  rejection of a MISSING RECORDED FACT.
+  Earlier suites proved a join completion's recordable facts ride `:rf.cofx` and
+  survive an EDN round-trip. But every join completion TARGET in those suites
+  declared NO generator-backed coeffect requirement, so `:strict` and `:live`
+  were OBSERVATIONALLY IDENTICAL there — the `:strict` assertion only ever saw
+  the policy KEYWORD in the router options, and a path that silently fell back to
+  `:live` minting would have passed exact-head CI unchanged.
 
   These tests add ONE real generator-backed recordable coeffect to a join
-  completion target (a member child's completion action) and compare `:strict`
-  against `:live` through the SAME record/replay machinery — no join-specific
-  replay format, coeffect, or test framework. The load-bearing promise: a
-  completion under inherited `:strict` does NOT consult the host — it replays from
-  recorded causal facts, and an absent fact is the canonical
-  `:rf.error/missing-required-cofx`, never a silent live-mint no-op.
+  completion target and compare `:strict` against `:live` through the SAME
+  record/replay machinery — no join-specific replay format, coeffect, or test
+  framework. The load-bearing promise: a completion under `:strict` does NOT
+  consult the host — it replays from recorded causal facts, and an absent fact is
+  the canonical `:rf.error/missing-required-cofx`, never a silent live-mint no-op.
+
+  WHERE THE SEAM MOVED. Completion is finality (Spec 005 §Child completion
+  protocol), so there is no child-authored completion event and no
+  `:rf.machine/join-dispatch` transport to inherit a policy THROUGH — the child
+  reaches a `:final?` leaf and the runtime mints the carrier from that
+  transition's result. The policy-gated action therefore sits on the transition
+  INTO `:final?`, which is a strictly better place for this proof: it is the
+  child's own recorded event that a replay re-drives, so the strict/live
+  distinction is measured on the real completion path rather than on a transport
+  that no longer exists.
 
   Named `*-cljs-test.cljc` so BOTH the JVM run and the shadow-cljs node run
   discover it — the shared envelope / consumer-attachment path is exercised on
@@ -75,40 +79,42 @@
     (fn [] (swap! calls inc) value)))
 
 (defn- mk-completing-child
-  "The JOIN COMPLETION TARGET: a member child whose completion action
-  (`:dispatch-done`, fired on `:go` → `:done`) DECLARES a generator-backed
-  recordable coeffect `:strictmint/roll` and forwards the minted value on its
-  completion carrier `[parent-id [:child/done <id> <roll>]]` — the value flows
-  through the SAME handler-return boundary the recordable transport stamps. The
-  action runs only when the ensure step satisfies its `:rf.cofx/requires` under
-  the effective mint policy: `:live` mints, `:strict` reads the recorded fact or
-  fails missing-required."
-  [parent-id]
+  "The JOIN COMPLETION TARGET: a member child whose transition INTO its `:final?`
+  state (on `:go`) DECLARES a generator-backed recordable coeffect
+  `:strictmint/roll` and stamps the minted value into the `:data` slot its
+  `:output-key` names — so the roll rides the completion the runtime mints at
+  finality. The action runs only when the ensure step satisfies its
+  `:rf.cofx/requires` under the effective mint policy: `:live` mints, `:strict`
+  reads the recorded fact or fails missing-required.
+
+  Completion is finality (Spec 005 §Child completion protocol), so the child
+  names no parent and dispatches nothing. That MOVES the seam this suite probes
+  rather than removing it: the policy-gated action now sits on the transition
+  into `:final?`, and the completion the parent folds is the carrier the runtime
+  mints from that transition's result."
+  []
   {:initial :running
    :data    {:id nil}
-   :actions {:record-id     (fn [{data :data ev :event}] {:data (assoc data :id (second ev))})
-             :dispatch-done {:rf.cofx/requires [:strictmint/roll]
-                             :fn (fn [{data :data cofx :rf.cofx}]
-                                   {:fx [[:dispatch [parent-id [:child/done (:id data)
-                                                                (:strictmint/roll cofx)]]]]})}}
+   :actions {:record-id  (fn [{data :data ev :event}] {:data (assoc data :id (second ev))})
+             :stamp-roll {:rf.cofx/requires [:strictmint/roll]
+                          :fn (fn [{data :data cofx :rf.cofx}]
+                                {:data (assoc data :roll (:strictmint/roll cofx))})}}
    :states  {:running {:on {:set-id {:action :record-id}
-                            :go     {:target :done :action :dispatch-done}}}
-             :done {}}})
+                            :go     {:target :done :action :stamp-roll}}}
+             :done {:final? true :output-key :roll}}})
 
 (defn- mk-plain-child
   "A member child with NO coeffect requirement — completes cleanly under any mint
   policy. Pairs with `mk-completing-child` so the two-child `:all` join stays OPEN
   after one worker folds (a non-decisive fold, so the accepted child's terminal
   rides the `:rf.machine.spawn-all/child-completed` trace we assert on)."
-  [parent-id]
+  []
   {:initial :running
    :data    {:id nil}
-   :actions {:record-id     (fn [{data :data ev :event}] {:data (assoc data :id (second ev))})
-             :dispatch-done (fn [{data :data}]
-                              {:fx [[:dispatch [parent-id [:child/done (:id data)]]]]})}
+   :actions {:record-id (fn [{data :data ev :event}] {:data (assoc data :id (second ev))})}
    :states  {:running {:on {:set-id {:action :record-id}
-                            :go     {:target :done :action :dispatch-done}}}
-             :done {}}})
+                            :go     {:target :done}}}
+             :done {:final? true :output-key :id}}})
 
 (defn- reg-parent!
   "A two-child `:all` join parent: child `:a` is the generator-backed completion
@@ -123,8 +129,6 @@
                         {:children        [{:id :a :machine-id target-kw :start [:set-id :a]}
                                            {:id :b :machine-id plain-kw  :start [:set-id :b]}]
                          :join            :all
-                         :on-child-done   :child/done
-                         :on-child-error  :child/failed
                          :on-all-complete [:all/done]}
                         :on {:abort :idle}}}}))
 
@@ -146,17 +150,18 @@
         (rf.late-bind/set-fn! :router/dispatch! real)))))
 
 (defn- completion-of
-  "The FIRST observed completion carrier `[parent-id [:child/done child-id v]]` in
-  `sink`, or nil — returns the whole event vector so its forwarded roll can be
-  read."
+  "The FIRST observed completion carrier for `child-id` in `sink`, or nil — the
+  reserved `[parent-id [:rf.machine.spawn/done <invoke-id> <completion>]]` event
+  the runtime mints at the child's finality. Returns the `completion` MAP, whose
+  `:result` is the value the child's `:output-key` named."
   [sink parent-id child-id]
   (some (fn [[event _opts]]
-          (when (and (= parent-id (first event))
-                     (let [inner (second event)]
-                       (and (vector? inner)
-                            (= :child/done (first inner))
-                            (= child-id (second inner)))))
-            event))
+          (when (= parent-id (first event))
+            (let [inner (second event)]
+              (when (and (vector? inner)
+                         (= :rf.machine.spawn/done (first inner))
+                         (= child-id (:child-id (nth inner 2 nil))))
+                (nth inner 2)))))
         @sink))
 
 ;; ---------------------------------------------------------------------------
@@ -175,8 +180,8 @@
             the policy to `:live` makes it fail."
     (let [calls (atom 0)]
       (reg-roll! calls 6)
-      (rf/reg-machine :sm1/ta (mk-completing-child :sm1/rp))
-      (rf/reg-machine :sm1/pb (mk-plain-child :sm1/rp))
+      (rf/reg-machine :sm1/ta (mk-completing-child))
+      (rf/reg-machine :sm1/pb (mk-plain-child))
       (reg-parent! :sm1/rp :sm1/ta :sm1/pb)
       (rf/dispatch-sync [:sm1/rp [:start]])
       (let [a (get-in (join-state :sm1/rp) [:children :a])]
@@ -207,8 +212,8 @@
             keyword-only checks)."
     (let [calls (atom 0)]
       (reg-roll! calls 6)
-      (rf/reg-machine :sm2/ta (mk-completing-child :sm2/rp))
-      (rf/reg-machine :sm2/pb (mk-plain-child :sm2/rp))
+      (rf/reg-machine :sm2/ta (mk-completing-child))
+      (rf/reg-machine :sm2/pb (mk-plain-child))
       (reg-parent! :sm2/rp :sm2/ta :sm2/pb)
       (rf/dispatch-sync [:sm2/rp [:start]])
       (let [a    (get-in (join-state :sm2/rp) [:children :a])
@@ -219,8 +224,8 @@
         (is (= 1 @calls) "the generator ran exactly once under :live")
         (is (= #{:a} (:done (join-state :sm2/rp)))
             "the target folded :a under :live")
-        (is (= [:sm2/rp [:child/done :a 6]] (completion-of sink :sm2/rp :a))
-            "the completion carrier forwarded the minted roll (6)")
+        (is (= 6 (:result (completion-of sink :sm2/rp :a)))
+            "the minted roll (6) rode the completion the runtime minted at finality")
         (is (empty? (stale-reasons)) "no stale suppression for the genuine completion")
         (is (= 1 (count (child-completed-terminals)))
             "the accepted non-decisive fold published one child-completed terminal")))))
@@ -247,8 +252,8 @@
     (let [calls (atom 0)]
       (reg-roll! calls 6)
       (rf/reg-event :sm3/restore-runtime (fn [_ [_ rt]] {:rf.db/runtime rt}))
-      (rf/reg-machine :sm3/ta (mk-completing-child :sm3/rp))
-      (rf/reg-machine :sm3/pb (mk-plain-child :sm3/rp))
+      (rf/reg-machine :sm3/ta (mk-completing-child))
+      (rf/reg-machine :sm3/pb (mk-plain-child))
       (reg-parent! :sm3/rp :sm3/ta :sm3/pb)
       (rf/dispatch-sync [:sm3/rp [:start]])
       (let [pre-fold (rf.machines.test-support/runtime-db)                      ;; attempt-1 join, :done #{}
@@ -260,7 +265,7 @@
           (fn [] (rf/dispatch-sync [a [:go]])))
         (is (= 1 @calls) "the live record ran the generator once")
         (is (= #{:a} (:done (join-state :sm3/rp))) "the live completion folded :a")
-        (let [recorded-roll (nth (second (completion-of sink :sm3/rp :a)) 2)
+        (let [recorded-roll (:result (completion-of sink :sm3/rp :a))
               recorded-cofx {:strictmint/roll recorded-roll :rf/time-ms 1}]
           (is (= 6 recorded-roll) "captured the genuine minted roll")
 
@@ -305,69 +310,30 @@
               "the :live foil folded — proving the strict no-fold is policy-driven, not incidental"))))))
 
 ;; ---------------------------------------------------------------------------
-;; (5) the recordable TRANSPORT itself carries the policy: an inherited :strict
-;;     propagates through `:rf.machine/join-dispatch` / `child-dispatch!` to the
-;;     join RESOLUTION dispatch, gating a downstream generator-backed cofx there.
-;;     This is the direct proof that the transport does not silently fall back to
-;;     :live minting once the completion has crossed the child→parent boundary.
+;; (5) DELETED — `transport-propagates-strict-to-inherited-resolution-dispatch`
+;;
+;; That test pinned the RETIRED `:rf.machine/join-dispatch` transport by name.
+;; Its property was that a per-call `:strict` on a child's own COMPLETING
+;; DISPATCH inherited, through the transport's re-dispatch, into the parent's
+;; join-RESOLUTION dispatch, so a generator-backed cofx required by the parent's
+;; resolution action was refused too.
+;;
+;; There is no child-authored completing dispatch any more, and no transport to
+;; inherit through: the child reaches `:final?` and the runtime mints the carrier
+;; inside finalize (`lifecycle-fx.finalize/dispatch-spawn-done!`), dispatching it
+;; with `{:frame … :source :machine-spawn}` and no mint policy. Measured on the
+;; migrated fixture: the parent's resolution action mints its fact under the
+;; runtime default `:live` even when the child's completing event carried
+;; `:rf.cofx/mint-policy :strict`.
+;;
+;; This is a DELIBERATE consequence of deleting the transport, not an oversight,
+;; and it is recorded here rather than silently dropped. The composition proof
+;; that matters for replay is unaffected and still green: `re-frame.join-strict-
+;; mint-epoch-replay-test` drives the real `rf/epoch-history` + `rf/restore-epoch!`
+;; seam, where every event — the child's completion and the parent's resolution
+;; alike — is replayed from its OWN record with its OWN recorded cofx, which is
+;; the path a real replay takes. Reinstating per-call policy inheritance would
+;; mean threading the router's effective mint policy through finalize, which is
+;; new machinery no bead has asked for; if it is ever wanted, it belongs to the
+;; cofx/replay area rather than to the child-completion protocol.
 ;; ---------------------------------------------------------------------------
-
-(defn- reg-resolution-parent!
-  "A single-child `:any` join whose RESOLUTION action (`:res-action`, fired when
-  the parent handles the `:on-some-complete` event the fold dispatches) declares a
-  generator-backed `:strictmint/roll`. The completion re-dispatch carries the
-  member child's envelope through the transport, so the resolution dispatch
-  INHERITS the child's mint policy."
-  [parent-kw child-kw]
-  (rf/reg-machine parent-kw
-    {:initial :idle
-     :states  {:idle   {:on {:start :racing}}
-               :racing {:spawn-all
-                        {:children         [{:id :a :machine-id child-kw :start [:set-id :a]}]
-                         :join             :any
-                         :on-child-done    :child/done
-                         :on-child-error   :child/failed
-                         :on-some-complete [:some/done]}
-                        :on {:some/done {:target :ready :action :res-action}}}
-               :ready {}}
-     :actions {:res-action
-               {:rf.cofx/requires [:strictmint/roll]
-                :fn (fn [{data :data cofx :rf.cofx}]
-                      {:data (assoc data :roll (:strictmint/roll cofx))})}}}))
-
-(deftest transport-propagates-strict-to-inherited-resolution-dispatch
-  (testing "rf2-xfk6fn — the completion re-dispatch inherits the emitting child's
-            mint policy THROUGH the `:rf.machine/join-dispatch` transport and the
-            fold's resolution dispatch: under a per-call `:strict` on the child's
-            completing dispatch, the join folds + resolves but the RESOLUTION
-            action's downstream generator-backed `:strictmint/roll` is NOT minted
-            (missing-required), so the parent never advances to `:ready`. The
-            `:live` foil mints it and advances — so the transport genuinely carries
-            the policy across the child→parent boundary, not merely as an inert opt
-            keyword."
-    (let [live-calls (atom 0)]
-      (reg-roll! live-calls 6)
-      (rf/reg-machine :sm4l/ca (mk-plain-child :sm4l/rp))
-      (reg-resolution-parent! :sm4l/rp :sm4l/ca)
-      (rf/dispatch-sync [:sm4l/rp [:start]])
-      (let [a (get-in (join-state :sm4l/rp) [:children :a])]
-        (rf/dispatch-sync [a [:go]])                        ;; :live
-        (is (= 1 @live-calls) "the :live resolution minted its downstream fact")
-        (is (= :ready (rf.machines.test-support/machine-state :sm4l/rp))
-            "the :live join resolved and advanced through the resolution action")))
-    (let [strict-calls (atom 0)]
-      (reg-roll! strict-calls 6)
-      (rf/reg-machine :sm4s/ca (mk-plain-child :sm4s/rp))
-      (reg-resolution-parent! :sm4s/rp :sm4s/ca)
-      (rf/dispatch-sync [:sm4s/rp [:start]])
-      (let [a (get-in (join-state :sm4s/rp) [:children :a])]
-        (rf.machines.test-support/reset-captured!)
-        (rf/dispatch-sync [a [:go]]
-                          {:rf.cofx {:rf/time-ms 1} :rf.cofx/mint-policy :strict})
-        (is (zero? @strict-calls)
-            "the inherited :strict propagated through the transport — the
-             downstream resolution generator was NOT run")
-        (is (not= :ready (rf.machines.test-support/machine-state :sm4s/rp))
-            "the resolution action failed missing-required, so the parent did not advance")
-        (is (= 1 (count (missing-required-errors)))
-            "the canonical missing-fact outcome fired at the inherited resolution")))))

@@ -280,7 +280,22 @@ up with `:output-key`. The parent folds that value in `:on-done`:
 ```
 
 - **`:on-done` is a data-fold**, not a transition:
-  `(fn [{:keys [data result]}] new-data)`. The parent's state does not move.
+  `(fn [{:keys [data result]}] new-data)`. The fold itself does not move the
+  parent — but the completion **event** then flows into the parent's ordinary
+  macrostep, so the parent *can* advance on it. Fold the result in `:on-done`
+  and let an `:always` guard read it:
+
+  ```clojure
+  :configuring
+  {:spawn  {:machine-id :app/loader
+            :on-done    (fn [{:keys [data result]}] (assoc data :config result))}
+   :always [{:guard :config-loaded? :target :loading-deps}]}
+  ```
+
+  An explicit `:on {:rf.machine.spawn/done {:target :loading-deps}}` works too.
+  This is what a child would once have needed a hand-rolled dispatch back to
+  its parent for. `:on-done` is applied on the parent's **next** macrostep, not
+  inside the child's teardown cascade.
 - **`:on-error` is a transition.** A child that fails — a `:final?` leaf
   flagged `:error? true`, or a thrown action — routes the parent through that
   `:on`-shaped spec.
@@ -395,13 +410,12 @@ resumes on a join.
 :working
 {:spawn-all
  {:children
-  [{:id :s1 :machine-id :work/processor :data {:shard :s1 :total 100}}
+  [{:id :s1 :machine-id :work/processor :data {:shard :s1 :total 100}
+    :on-done (fn [{:keys [data result]}] (assoc-in data [:results :s1] result))}
    {:id :s2 :machine-id :work/processor :data {:shard :s2 :total 100}}
    {:id :s3 :machine-id :work/processor :data {:shard :s3 :total 100}}]
 
   :join            :all
-  :on-child-done   :work/child-done
-  :on-child-error  :work/child-error
   :on-all-complete [:work/all-done]
   :on-any-failed   [:work/any-failed]}
 
@@ -412,23 +426,41 @@ resumes on a join.
   :cancel          {:target :cancelled}}}
 ```
 
-Each child is an ordinary machine. When it finishes, it dispatches the
-parent's `:on-child-done` keyword, carrying its own `:id`:
+Each child is an ordinary machine, and it carries **no parent vocabulary at
+all**. It completes exactly the way it would under a single `:spawn` — by
+entering a root-level `:final?` leaf, naming its result slot with
+`:output-key`:
 
 ```clojure
-:done {:entry (fn [{data :data}]
-                {:fx [[:dispatch [:work/flow [:work/child-done (:shard data)]]]]})}
+:done   {:final? true :output-key :shard-result}                ;; success
+:failed {:final? true :error? true :output-key :reason}         ;; failure
 ```
 
+So one child machine composes unchanged under `:spawn` and under
+`:spawn-all`. It needs no action that dispatches to its parent, and
+`:meta {:terminal? true}` on such a leaf is redundant with `:final?`.
+
 The runtime owns the join bookkeeping. When the join resolves it fires the
-parent event **and** destroys any siblings still in flight.
+parent event **and** destroys any siblings still in flight. The event carries
+the decisive child and its result:
+`[<parent-id> [<resolution-event…> <decisive-child-id> <result>]]` — one
+value, the decisive child's `:output-key` slot (its error payload on
+`:on-any-failed`).
 
 Rules:
 
 - **Each child needs a unique `:id`** (the join key) on top of the usual
   spawn keys. Duplicates are `:rf.error/machine-spawn-all-duplicate-id`.
-- **`:on-child-done` and `:on-child-error` are required** event keywords —
-  missing either is `:rf.error/machine-spawn-all-bad-shape`.
+- **There are no child-vocabulary keys.** The block declares only how results
+  combine: `:children`, `:join`, `:on-all-complete`, `:on-some-complete`,
+  `:on-any-failed`. Any other bare key — including the retired keys that once
+  named the events children dispatched — is
+  `:rf.error/machine-spawn-all-bad-shape`.
+- **A child spec may declare `:on-done`** — a `:data` fold on the parent at
+  that child's finality, run before the join fold. It may **not** declare
+  `:on-error` (`:rf.error/machine-unknown-spawn-key`): failure control flow
+  under a join is the block's `:on-any-failed`, which decides for the whole
+  fan-out.
 - **`:join` is only `:all` or `:any`.** There is no `{:n n}` and no
   predicate. Quorum ("N of M") is `:after` / `:always` plus a
   `:done-guard` that reads the join's done count — not a `:join` mode.
@@ -452,6 +484,8 @@ N separate `:spawn`s, not a non-cancelling join.
 | No snapshot, no id; `:rf.error/machine-spawn-unregistered-type` | `:machine-id` is not registered and there is no `:definition` | Register the child type first |
 | Registration throws `:rf.error/spawn-timeout-ms-removed` | `:timeout-ms` on `:spawn` / `:spawn-all` | Use `:timeout` / `:on-timeout`, or `:after` on the parent state |
 | Registration throws `:rf.error/machine-spawn-all-bad-shape` on `:join` | `:join` was `{:n n}`, a predicate, or another non-enum | `:join` is only `:all` or `:any`. Quorum is `:after` / `:always` + `:done-guard` |
+| Registration throws `:rf.error/machine-spawn-all-bad-shape` naming a child-event key | a retired child-vocabulary key on the `:spawn-all` block | Delete it. The child completes by reaching a `:final?` leaf; read the result off the resolution event or a child `:on-done` |
+| Registration throws `:rf.error/machine-unknown-spawn-key` on a `:spawn-all` child | the child spec declared `:on-error` | Route failure through the block's `:on-any-failed` — a join has no per-child error transition |
 | `:join :all` rejected | missing `:on-all-complete` | Give `:on-all-complete` an event vector |
 | `:join :any` rejected | missing `:on-some-complete` | Give `:on-some-complete` an event vector |
 | Socket / interval / Worker still open after destroy | not a framework-managed resource | Close it in the child's `:exit` |

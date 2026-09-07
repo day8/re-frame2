@@ -158,8 +158,6 @@
   (testing ":spawn-all's block-key check carries its own copy of the walk and is
             equally total"
     (let [block {:children        [{:id :c1 :machine-id :m}]
-                 :on-child-done   :cd
-                 :on-child-error  :ce
                  :on-all-complete [:done]}]
       (is (= :rf.error/machine-spawn-all-bad-shape
              (reg-outcome {:initial :a

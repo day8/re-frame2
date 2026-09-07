@@ -462,7 +462,6 @@
    :valid-choice     {:initial :g :states {:g {:type :choice :choice [{:target :a} {:target :b}]} :a {} :b {}}}
    :valid-spawn      {:initial :a :states {:a {:spawn {:machine-id :child} :on {:go :b}} :b {}}}
    :valid-spawn-all  {:initial :a :states {:a {:spawn-all {:children [{:id :c1 :machine-id :m}]
-                                                           :on-child-done :cd :on-child-error :ce
                                                            :on-all-complete [:done]}
                                                :on {:go :b}} :b {}}}
    :valid-namespaced {:initial :a :states {:a {:my.app/note "x"}}}

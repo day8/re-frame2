@@ -30,19 +30,41 @@
   (get-in (rf.frame/frame-runtime-db-value :rf/default)
           [:rf.runtime/machines :spawned parent-id [:racing]]))
 
-(defn- join-attempt []
-  (get-in (rf.frame/frame-runtime-db-value :rf/default)
-          [:rf.runtime/machines :snapshots fixed-child :data :rf/join-child]))
+(defn- join-attempt
+  "The live `:rf/join-child` membership record on `actor` — the exact-attempt
+  coordinate the runtime stamped at spawn. Read it while the child is ALIVE:
+  completion is finality, so a completed child has already torn itself down."
+  ([] (join-attempt fixed-child))
+  ([actor]
+   (get-in (rf.frame/frame-runtime-db-value :rf/default)
+           [:rf.runtime/machines :snapshots actor :data :rf/join-child])))
+
+(defn- forged-completion!
+  "Hand-dispatch the reserved completion carrier
+  `[<parent> [:rf.machine.spawn/done <invoke-id> <completion>]]` that the
+  machines runtime mints at a child's finality, carrying `auth` (a
+  `:rf/join-child` record captured while the child was live) as its
+  exact-attempt coordinate. This is how the fixture drives a straggler the
+  runtime itself would never re-mint — the arrivals whose Xray classification
+  these tests are about."
+  [parent auth]
+  (rf/dispatch-sync
+    [parent [:rf.machine.spawn/done (:invoke-id auth)
+             (assoc (select-keys auth [:parent-id :invoke-id :child-id
+                                       :spawned-id :attempt :work-generation])
+                    :result (:child-id auth)
+                    :error? false)]]))
+
+;; The children below complete the ONE way every machine completes: they reach a
+;; top-level `:final?` leaf and the runtime mints the completion carrier from
+;; their own membership record. They name no parent and no completion event.
 
 (defn- register-machines! []
   (rf/reg-machine
     child-type
     {:initial :running
-     :actions {:complete (fn [_]
-                           {:fx [[:dispatch
-                                  [parent-id [:child/done :only]]]]})}
-     :states {:running {:on {:go {:target :done :action :complete}}}
-              :done {}}})
+     :states {:running {:on {:go {:target :done}}}
+              :done {:final? true}}})
   (rf/reg-machine
     parent-id
     {:initial :idle
@@ -52,8 +74,6 @@
                {:children [{:id :only :machine-id child-type
                             :fixed-actor-id fixed-child}]
                 :join :all
-                :on-child-done :child/done
-                :on-child-error :child/error
                 :on-all-complete [:join/done]}
                ;; Keep the resolved join record live; `:abort` is the explicit
                ;; re-entry boundary that tears A down before B is seeded.
@@ -64,13 +84,10 @@
         child  {:initial :running
                 :data    {:id nil}
                 :actions {:remember (fn [{data :data event :event}]
-                                      {:data (assoc data :id (second event))})
-                          :complete (fn [{data :data}]
-                                      {:fx [[:dispatch
-                                             [parent [:child/done (:id data)]]]]})}
+                                      {:data (assoc data :id (second event))})}
                 :states {:running {:on {:set-id {:action :remember}
-                                        :go {:target :done :action :complete}}}
-                         :done {}}}]
+                                        :go {:target :done}}}
+                         :done {:final? true :output-key :id}}}]
     (rf/reg-machine :xray-work-id/exit-a-type child)
     (rf/reg-machine :xray-work-id/exit-b-type child)
     (rf/reg-machine
@@ -86,27 +103,29 @@
                               :fixed-actor-id :xray-work-id/exit-b
                               :start [:set-id :b]}]
                   :join :all
-                  :on-child-done :child/done
-                  :on-child-error :child/error
                   :on-all-complete [:join/done]}
                  :on {:abort :idle}}}})))
 
-(defn- register-cancel-race-machines! []
+(defn- register-cancel-race-machines!
+  "A single-child `:all` join whose child never completes on its own, plus a
+  parent event that imperatively destroys it. The race this fixture models — a
+  completion carrier landing after its attempt closed — used to be built by
+  having the child queue its own completion and then destroy itself in one fx
+  batch. Completion is finality now, so a child cannot both complete and be
+  cancelled; the carrier is instead captured while the child is live and
+  delivered after the destroy, which is the same arrival from Xray's side."
+  []
   (let [parent :xray-work-id/cancel-race-parent
         actor  :xray-work-id/cancel-race-child#7]
     (rf/reg-machine
       :xray-work-id/cancel-race-child-type
       {:initial :running
-       :actions {:queue-then-destroy
-                 (fn [_]
-                   {:fx [[:dispatch [parent [:child/done :only]]]
-                         [:rf.machine/destroy actor]]})}
-       :states {:running {:on {:go {:target :done
-                                    :action :queue-then-destroy}}}
-                :done {}}})
+       :states {:running {:on {:go {:target :done}}}
+                :done {:final? true}}})
     (rf/reg-machine
       parent
       {:initial :idle
+       :actions {:destroy-child (fn [_] {:fx [[:rf.machine/destroy actor]]})}
        :states {:idle {:on {:start :racing}}
                 :racing
                 {:spawn-all
@@ -114,9 +133,8 @@
                               :machine-id :xray-work-id/cancel-race-child-type
                               :fixed-actor-id actor}]
                   :join :all
-                  :on-child-done :child/done
-                  :on-child-error :child/error
-                  :on-all-complete [:join/done]}}}})
+                  :on-all-complete [:join/done]}
+                 :on {:destroy-child {:action :destroy-child}}}}})
     (rf/dispatch-sync [parent [:start]])))
 
 (deftest emitted-fixed-id-attempts-remain-distinct-in-xray
@@ -138,11 +156,9 @@
         (let [attempt-b (:rf/attempt (join-state))]
           (is (not= attempt-a attempt-b))
 
-          ;; The unchanged PUBLIC completion event is delivered with the
-          ;; framework's carried recordable join-attempt coordinate for attempt A.
-          (rf/dispatch-sync
-            [parent-id [:child/done :only]]
-            {:rf.cofx {:rf.machine/join-attempt auth-a}})
+          ;; Attempt A's carrier — captured off its live membership record
+          ;; above — drains now, against attempt B's join.
+          (forged-completion! parent-id auth-a)
           ;; Attempt B completes normally through the current fixed child.
           (rf/dispatch-sync [fixed-child [:go]])
 
@@ -197,9 +213,7 @@
           (rf/dispatch-sync [fixed-child [:go]])
           (is (true? (:resolved? (join-state))) "attempt B resolved")
           ;; NOW A's exact carrier drains, POST-resolution, with attempt-A auth.
-          (rf/dispatch-sync
-            [parent-id [:child/done :only]]
-            {:rf.cofx {:rf.machine/join-attempt auth-a}})
+          (forged-completion! parent-id auth-a)
           ;; (1) the producer emits a stale-completion, NOT a late-completion.
           (let [ops (map :operation @traces)]
             (is (some #{:rf.machine.spawn-all/stale-completion} ops)
@@ -305,8 +319,12 @@
                                 :xray-work-id/cancel-race-parent [:racing]])
             work-id    [:rf.work/machine
                         :xray-work-id/cancel-race-child#7
-                        [:racing] (:rf/attempt join-state)]]
-        (rf/dispatch-sync [:xray-work-id/cancel-race-child#7 [:go]])
+                        [:racing] (:rf/attempt join-state)]
+            ;; Capture the exact-current coordinate while the child is LIVE.
+            auth       (join-attempt :xray-work-id/cancel-race-child#7)]
+        ;; Cancel the child, THEN let its held carrier land.
+        (rf/dispatch-sync [:xray-work-id/cancel-race-parent [:destroy-child]])
+        (forged-completion! :xray-work-id/cancel-race-parent auth)
         (let [arc (get (reply-envelope/races-by-work-id @traces) work-id)]
           (is (= #{:completed :stale-suppressed} (:phases arc)))
           (is (= :cancelled (:terminal-status arc))

@@ -8,9 +8,8 @@
       observation. Frame-exit reaping is its SOLE trigger; the only
       `:reason` it carries is `:parent-frame-destroyed`.
     - `:rf.machine/destroyed` — the fx-substrate observation. Carries
-      every non-frame-exit reason: `:rf.machine/finished`,
-      `:rf.machine/join-reaped`, and `:explicit` (parent-cascade
-      teardowns stamp `:explicit`).
+      every non-frame-exit reason: `:rf.machine/finished` and
+      `:explicit` (parent-cascade teardowns stamp `:explicit`).
 
   A reason belongs to EXACTLY ONE channel — the (channel, reason) pair is
   the contract, not two independent sets. This test pins that matrix as
@@ -37,9 +36,9 @@
        fail closed instead of being silently skipped.
 
     C. Executable fixtures — the runtime is DRIVEN and the emitted
-       (channel, reason) tuple is asserted for `:explicit`,
-       `:rf.machine/finished`, `:rf.machine/join-reaped` (fx channel) and
-       `:parent-frame-destroyed` (lifecycle channel). Mutating either
+       (channel, reason) tuple is asserted for `:explicit` and
+       `:rf.machine/finished` (fx channel) and `:parent-frame-destroyed`
+       (lifecycle channel). Mutating either
        argument of any emit reds the matching fixture.
 
   Authoritative surfaces: the 009 matrix table is the CANONICAL enum;
@@ -80,7 +79,7 @@
   equality below is the standing drift guard). Adding a reason means updating
   the 009 matrix, the Spec-Schemas rows, 005 D6, AND this literal — the
   co-edit is the point."
-  #{:rf.machine/finished :rf.machine/join-reaped :explicit})
+  #{:rf.machine/finished :explicit})
 
 (def ^:private forwarding-reason-sym
   "The one sanctioned DYNAMIC `:reason` at an fx emit choke point: the bound
@@ -246,7 +245,7 @@
   (let [rows (parse-009-matrix)]
     (testing "sanity: the 009 matrix table parses"
       (is (.exists spec-009-file) (str "missing " spec-009-file))
-      (is (>= (count rows) 4) (str "matrix rows parsed: " (pr-str rows))))
+      (is (>= (count rows) 3) (str "matrix rows parsed: " (pr-str rows))))
     (testing "each reason appears exactly once (one channel per reason)"
       (let [dups (->> rows (map :reason) frequencies
                       (filter (fn [[_ n]] (> n 1))) (map first))]
@@ -756,22 +755,24 @@
               (str "finalize must be the exact tuple [" fx-channel " :rf.machine/finished]; saw "
                    (pr-str [(:operation t) (-> t :tags :reason)]))))))))
 
-(deftest executable-join-reap-emits-fx-join-reaped
-  (testing "a LIVE (non-:final?) completed :spawn-all child reaped at join
-            resolution emits EXACTLY (:rf.machine/destroyed, :rf.machine/join-reaped)"
-    (let [mk-child (fn [parent-id done-kw error-kw]
+(deftest executable-join-child-completion-emits-fx-finished
+  (testing "a completed :spawn-all child emits EXACTLY
+            (:rf.machine/destroyed, :rf.machine/finished) — at its OWN finality,
+            not at join resolution. Completion is finality, so a folded child
+            closes its own attempt; there is no separate reap and no
+            cancellation-suppressing reason (the retired
+            :rf.machine/join-reaped)."
+    (let [mk-child (fn []
                      {:initial :running
                       :data    {:id nil}
-                      :actions {:record-id     (fn [{d :data ev :event}] {:data (assoc d :id (second ev))})
-                                :dispatch-done (fn [{d :data}] {:fx [[:dispatch [parent-id [done-kw (:id d)]]]]})
-                                :dispatch-err  (fn [{d :data}] {:fx [[:dispatch [parent-id [error-kw (:id d)]]]]})}
+                      :actions {:record-id (fn [{d :data ev :event}] {:data (assoc d :id (second ev))})}
                       :states  {:running {:on {:set-id {:action :record-id}
-                                               :go     {:target :done   :action :dispatch-done}
-                                               :fail   {:target :failed :action :dispatch-err}}}
-                                :done   {}
-                                :failed {}}})]
-      (rf/reg-machine :drj/a (mk-child :drj/sup :asset/loaded :asset/failed))
-      (rf/reg-machine :drj/b (mk-child :drj/sup :asset/loaded :asset/failed))
+                                               :go     {:target :done}
+                                               :fail   {:target :failed}}}
+                                :done   {:final? true :output-key :id}
+                                :failed {:final? true :error? true :output-key :id}}})]
+      (rf/reg-machine :drj/a (mk-child))
+      (rf/reg-machine :drj/b (mk-child))
       (rf/reg-machine :drj/sup
                       {:initial :idle
                        :states  {:idle   {:on {:start :racing}}
@@ -779,21 +780,31 @@
                                           {:children [{:id :a :machine-id :drj/a :start [:set-id :a]}
                                                       {:id :b :machine-id :drj/b :start [:set-id :b]}]
                                            :join             :any
-                                           :on-child-done    :asset/loaded
-                                           :on-child-error   :asset/failed
                                            :on-some-complete [:race/won]}}}})
       (rf.machines.test-support/with-trace-capture captured
         (rf/dispatch-sync [:drj/sup [:start]])
-        (let [a-id (get-in (rf.machines.test-support/runtime-db)
-                           [:rf.runtime/machines :spawned :drj/sup [:racing] :children :a])]
-          (rf/dispatch-sync [a-id [:go]])              ; :a completes → :any resolves → :a reaped
-          (let [reaped (filter #(and (= fx-channel (:operation %))
-                                     (= a-id (:actor-id (:tags %))))
-                               @captured)]
-            (is (seq reaped) "the reaped completed child fired an fx destroy")
-            (doseq [t reaped]
-              (is (= [fx-channel :rf.machine/join-reaped] [(:operation t) (-> t :tags :reason)])
-                  (str "join reap must be the exact tuple [" fx-channel " :rf.machine/join-reaped]; saw "
+        (let [ids  (get-in (rf.machines.test-support/runtime-db)
+                           [:rf.runtime/machines :spawned :drj/sup [:racing] :children])
+              a-id (:a ids)
+              b-id (:b ids)]
+          (rf/dispatch-sync [a-id [:go]])   ; :a completes (finality) -> :any resolves -> :b cancelled
+          (let [a-destroys (filter #(and (= fx-channel (:operation %))
+                                         (= a-id (:actor-id (:tags %))))
+                                   @captured)
+                b-destroys (filter #(and (= fx-channel (:operation %))
+                                         (= b-id (:actor-id (:tags %))))
+                                   @captured)]
+            (is (seq a-destroys) "the completed child fired an fx destroy")
+            (doseq [t a-destroys]
+              (is (= [fx-channel :rf.machine/finished] [(:operation t) (-> t :tags :reason)])
+                  (str "a completed join child must be the exact tuple [" fx-channel
+                       " :rf.machine/finished]; saw "
+                       (pr-str [(:operation t) (-> t :tags :reason)]))))
+            (is (seq b-destroys) "the SURVIVOR fired an fx destroy at resolution")
+            (doseq [t b-destroys]
+              (is (= [fx-channel :explicit] [(:operation t) (-> t :tags :reason)])
+                  (str "a cancelled survivor must be the exact tuple [" fx-channel
+                       " :explicit]; saw "
                        (pr-str [(:operation t) (-> t :tags :reason)]))))))))))
 
 (deftest executable-frame-destroy-emits-lifecycle-parent-frame-destroyed

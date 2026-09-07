@@ -254,7 +254,6 @@
    :choice     {:initial :g :states {:g {:type :choice :choice [{:target :a} {:target :b}]} :a {} :b {}}}
    :spawn      {:initial :a :states {:a {:spawn {:machine-id :child} :on {:go :b}} :b {}}}
    :spawn-all  {:initial :a :states {:a {:spawn-all {:children [{:id :c1 :machine-id :m}]
-                                                     :on-child-done :cd :on-child-error :ce
                                                      :on-all-complete [:done]}
                                          :on {:go :b}} :b {}}}
    :namespaced {:initial :a :states {:a {:my.app/note "x"}}}})

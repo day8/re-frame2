@@ -293,8 +293,6 @@
                                 {:children
                                  [{:id :a :machine-id :stub}]
                                  :join             :all
-                                 :on-child-done    :done
-                                 :on-child-error   :failed
                                  :on-all-complete  [:done!]
                                  :timeout-ms       5000}}}}]
       (is (thrown-with-msg? js/Error
@@ -343,8 +341,6 @@
    {:idle    {:on {:start :forking}}
     :forking {:spawn-all {:children        children
                           :join            :all
-                          :on-child-done   :gc/done
-                          :on-child-error  :gc/failed
                           :on-all-complete [:all/done]}
               :on {:all/done :ready}}
     :ready   {}}})
@@ -461,8 +457,7 @@
      :rf/invoke-id invoke-id
      :join-state   {:children  (into {} (map (juxt :child-id :spawned-id)) children)
                     :done      #{} :failed #{} :resolved? false
-                    :spec      {:join :all :on-child-done :sa/done
-                                :on-child-error :sa/failed :on-all-complete [:all/done]}
+                    :spec      {:join :all :on-all-complete [:all/done]}
                     :invoke-id invoke-id}
      :child-args   (mapv child-arg children)}))
 

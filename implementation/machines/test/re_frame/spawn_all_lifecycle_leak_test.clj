@@ -10,14 +10,20 @@
       so the registered siblings suppress themselves: the whole malformed
       invoke spawns NOTHING (the atomic-reject analogue of a single `:spawn`).
 
-  (b) COMPLETED-children leak at join resolution. `build-resolution-fx`
-      destroyed only SURVIVORS; completed children (whose `:on-child-done` /
-      `:on-child-error` terminal states are NOT necessarily `:final?`, so they
-      stay LIVE) relied on the parent's resolution transition EXITING the
-      `:spawn-all` state to be torn down by the exit cascade. An INTERNAL/self
-      resolution handler (or a parent with no `:on` for the resolution event)
-      leaked all N completed children. The fix destroys every child at
-      resolution, regardless of whether the transition exits the state.
+  (b) COMPLETED-children leak at join resolution. A 'completed' child used to
+      stay a LIVE actor — it signalled completion by dispatching from a PLAIN
+      terminal state — and relied on the parent's resolution transition EXITING
+      the `:spawn-all` state to be torn down by the exit cascade. An
+      INTERNAL/self resolution handler (or a parent with no `:on` for the
+      resolution event) leaked all N completed children.
+
+      That precondition is GONE: completion is finality, so a child that folds
+      into a join destroyed itself at its own completion with `:reason
+      :rf.machine/finished` (Spec 005 §Final states, D4). The leak class is now
+      structurally unreachable rather than fixed, and only SURVIVORS remain for
+      the join to cancel at resolution. The (b) test below pins the OUTCOME —
+      no child snapshot survives an internal/self resolution — because that is
+      the invariant a future change could still break.
 
   JVM plain-atom, mirroring `spawn_all_test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -37,23 +43,19 @@
 (def ^:private snapshot rf.machines.test-support/snapshot)
 
 (defn- mk-child
-  "A child that on :go / :fail transitions to a PLAIN (non-:final?) terminal
-  state and dispatches its completion back to `parent-id` — so a 'completed'
-  child stays a LIVE actor (the (b) leak's precondition)."
-  [parent-id done-kw error-kw]
+  "A child that on :go / :fail reaches a `:final?` terminal — completion IS
+  finality, so the child carries no parent vocabulary and destroys itself the
+  moment it completes."
+  []
   {:initial :running
    :data    {:id nil}
-   :actions {:dispatch-done  (fn [{data :data}]
-                               {:fx [[:dispatch [parent-id [done-kw (:id data)]]]]})
-             :dispatch-error (fn [{data :data}]
-                               {:fx [[:dispatch [parent-id [error-kw (:id data)]]]]})
-             :record-id      (fn [{data :data ev :event}]
-                               {:data (assoc data :id (second ev))})}
+   :actions {:record-id (fn [{data :data ev :event}]
+                          {:data (assoc data :id (second ev))})}
    :states  {:running {:on {:set-id {:action :record-id}
-                            :go     {:target :done   :action :dispatch-done}
-                            :fail   {:target :failed :action :dispatch-error}}}
-             :done   {}
-             :failed {}}})
+                            :go     {:target :done}
+                            :fail   {:target :failed}}}
+             :done   {:final? true :output-key :id}
+             :failed {:final? true :error? true :output-key :id}}})
 
 (defn- collect-traces
   "Run `body-fn` with a trace listener; return the collected envelopes."
@@ -73,7 +75,7 @@
             spawns NOTHING — the registered sibling is suppressed atomically,
             leaving no orphan actor to leak"
     ;; Only :qb/registered is registered; :qb/never-registered is NOT.
-    (rf/reg-machine :qb/registered (mk-child :qb/parent-a :done :err))
+    (rf/reg-machine :qb/registered (mk-child))
     (rf/reg-machine :qb/parent-a
       {:initial :idle
        :states
@@ -83,8 +85,6 @@
          {:children        [{:id :reg   :machine-id :qb/registered       :start [:set-id :reg]}
                             {:id :unreg :machine-id :qb/never-registered :start [:set-id :unreg]}]
           :join            :all
-          :on-child-done   :done
-          :on-child-error  :err
           :on-all-complete [:hydrate/done]}
          :on {:hydrate/done :ready}}
         :ready {}}})
@@ -113,24 +113,22 @@
 (deftest internal-self-join-resolution-destroys-completed-children
   (testing "rf2-qb1j5z(b): when the join resolves but the resolution transition
             does NOT exit the :spawn-all state (no :on for the resolution
-            event), the COMPLETED children are torn down at resolution, not
-            leaked"
-    (let [child  (mk-child :qb/parent-b :done :err)
+            event), NO child snapshot survives — the decisive child destroyed
+            itself at its own finality, the survivor was cancelled at
+            resolution, and neither leaks"
+    (let [child  (mk-child)
           parent {:initial :idle
                   :states
                   {:idle {:on {:start :racing}}
                    ;; :racing declares NO :on for :race/won → the parent STAYS
                    ;; in :racing when the :any join resolves (the internal/self
                    ;; resolution shape — the resolution transition does not exit
-                   ;; the :spawn-all state, so the exit-cascade teardown of
-                   ;; completed children never runs).
+                   ;; the :spawn-all state, so the exit cascade never runs).
                    :racing
                    {:spawn-all
                     {:children         [{:id :a :machine-id :qb/child-ba :start [:set-id :a]}
                                        {:id :b :machine-id :qb/child-bb :start [:set-id :b]}]
                      :join             :any
-                     :on-child-done    :done
-                     :on-child-error   :err
                      :on-some-complete [:race/won]}}}}]
       (rf/reg-machine :qb/child-ba child)
       (rf/reg-machine :qb/child-bb child)
@@ -151,4 +149,4 @@
         (is (nil? (snapshot b-id))
             "survivor :b was destroyed at resolution (unconditional sibling cancellation)")
         (is (nil? (snapshot a-id))
-            "COMPLETED child :a was ALSO destroyed at resolution — no leak (the fix)")))))
+            "decisive child :a is gone too — it destroyed ITSELF at its :final? state (:reason :rf.machine/finished), before the parent ever folded the completion. No exit cascade was needed, so no leak.")))))

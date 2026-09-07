@@ -54,8 +54,6 @@
                           {:id :flag :machine-id :load-feature-flags}
                           {:id :user :machine-id :load-user-profile}]
        :join             :all
-       :on-child-done    :asset/loaded
-       :on-child-error   :asset/failed
        :on-all-complete  [:hydrate/done]
        :on-any-failed    [:hydrate/failed]}
       :on    {:hydrate/done   :ready
@@ -94,8 +92,6 @@
                                                     {:id :flag :machine-id :load-feature-flags}
                                                     {:id :user :machine-id :load-user-profile}]
                                  :join             :all
-                                 :on-child-done    :asset/loaded
-                                 :on-child-error   :asset/failed
                                  :on-all-complete  [:hydrate/done]
                                  :on-any-failed    [:hydrate/failed]}
                      :invoke-id [:hydrating]}

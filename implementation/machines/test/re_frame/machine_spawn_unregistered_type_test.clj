@@ -29,7 +29,8 @@
    4. **`:spawn-all` join-no-hang + ATOMIC reject (the correctness
       call-out).** An unregistered child TYPE in a `:spawn-all` set REJECTS
       the WHOLE invoke — it does not DEADLOCK the `:all` join (a never-running
-      spec-less child would never dispatch `:on-child-done`, blocking
+      spec-less child would never reach a `:final?` state, so no completion
+      would ever be minted for it, blocking
       `(= n-done n-total)` forever) AND it does not orphan the registered
       siblings (rf2-qb1j5z). `spawn-all-init-fx` seeds a reject SENTINEL
       (`{:rf/spawn-all-rejected? true}`, no `:children`): the join interceptor
@@ -211,8 +212,6 @@
                                {:children        [{:id :ok      :machine-id :gc/ok}
                                                   {:id :missing :machine-id :gc/missing}]
                                 :join            :all
-                                :on-child-done   :gc/done
-                                :on-child-error  :gc/failed
                                 :on-all-complete [:all/done]}
                                :on {:all/done :ready :back :idle}}
                      :ready   {}}}]
@@ -266,8 +265,6 @@
    {:idle    {:on {:start :forking}}
     :forking {:spawn-all {:children        children
                           :join            :all
-                          :on-child-done   :gc/done
-                          :on-child-error  :gc/failed
                           :on-all-complete [:all/done]}
               :on {:all/done :ready}}
     :ready   {}}})
@@ -355,7 +352,7 @@
           "no valid sibling was left live or orphaned by the rejected invoke"))))
 
 (deftest spawn-all-registered-sibling-completion-is-noop-not-hang
-  (testing "after the join is rejected, a hand-driven :on-child-done finds the
+  (testing "after the join is rejected, a hand-driven completion finds the
             childless reject sentinel and falls through to the documented
             no-op — proving the join cannot be driven into a hang post-reject"
     (let [ok-child {:initial :running
@@ -369,8 +366,6 @@
                                {:children        [{:id :ok      :machine-id :gc/ok2}
                                                   {:id :missing :machine-id :gc/missing2}]
                                 :join            :all
-                                :on-child-done   :gc/done
-                                :on-child-error  :gc/failed
                                 :on-all-complete [:all/done]}
                                :on {:all/done :ready}}
                      :ready   {}}}]
