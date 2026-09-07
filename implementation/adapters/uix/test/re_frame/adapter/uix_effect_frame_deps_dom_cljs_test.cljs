@@ -158,11 +158,13 @@
   gets them fresh from the reset fixture.
 
   The ambient `:rf/default` dynamic scope the fixture installs is cleared for
-  the duration: `use-frame` resolves the dynamic-var tier BEFORE the provider
-  tier, so leaving it bound masks the provider outright and both renders
-  resolve the same frame — the suite would then pass while proving nothing
-  (the rf2-4mi2zj masking note, and the same `binding` the shared React
-  suite's provider rows take)."
+  the duration. Since rf2-kuky.62 that is belt-and-braces rather than
+  load-bearing — `use-frame` reads React context ONLY, so a bound
+  `*current-frame*` cannot mask the provider — but it is kept, and this row
+  is a reason the rule matters: while `use-frame` resolved the dynamic-var
+  tier FIRST, leaving the fixture's binding in place made both renders
+  resolve the SAME frame and the suite passed while proving nothing. Same
+  `binding` the shared React suite's provider rows take."
   [act-fn component]
   (reset! effect-log [])
   (rf/reg-event ::finished
