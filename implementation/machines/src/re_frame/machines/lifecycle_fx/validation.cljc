@@ -219,9 +219,11 @@
   BARE key outside this set is rejected at registration with
   `:rf.error/machine-spawn-all-bad-shape` (no silent swallow). NAMESPACED
   keys pass (the open extension carve-out). Sibling cancellation on a join
-  decision is unconditional, so `:cancel-on-decision?` is not accepted."
+  decision is unconditional, so `:cancel-on-decision?` is not accepted. There
+  are no child-vocabulary keys: a child completes by reaching a `:final?`
+  state, so a `:spawn-all` declares only how RESULTS COMBINE (Spec 005
+  §Child completion protocol)."
   #{:children :join
-    :on-child-done :on-child-error
     :on-all-complete :on-some-complete :on-any-failed})
 
 (defn- validate-spawn-all!
@@ -231,7 +233,7 @@
 
   Error categories:
     - `:rf.error/machine-spawn-all-bad-shape` — a child spawn-spec is
-      missing `:id`; or `:spawn-all` is not a vector; or the join-event
+      missing `:id`; or `:spawn-all` is not a map; or the join-event
       slots are missing per the required-iff rules; or no `:machine-id`
       / `:definition`; or the `:join` value is outside the closed
       `:all` / `:any` enum; or an unknown bare key on the block (e.g. the
@@ -307,16 +309,6 @@
                        :rf.error/machine-spawn-all-duplicate-id
                        "two children share an :id keyword inside the same :spawn-all block"
                        {:state state-key :duplicate-ids dup}))))))
-      (when-not (keyword? (:on-child-done spawn-all-spec))
-        (throw (validation-error
-                 :rf.error/machine-spawn-all-bad-shape
-                 ":on-child-done is required (event keyword)"
-                 {:state state-key})))
-      (when-not (keyword? (:on-child-error spawn-all-spec))
-        (throw (validation-error
-                 :rf.error/machine-spawn-all-bad-shape
-                 ":on-child-error is required (event keyword)"
-                 {:state state-key})))
       ;; The join grammar is a closed two-member enum: `:all` (default)
       ;; and `:any`.
       ;; Quorum cases use the data-only `:after` + `:done-guard` idiom
@@ -1476,9 +1468,8 @@
   #{:timeout-ms})
 
 (def ^:private known-spawn-spec-keys
-  "The closed BARE key vocabulary a `:spawn` / `:spawn-all`-child spawn-spec may
-  declare, projected from the Spec-Schemas `InvokeSpec` + `InvokeAllChildSpec`
-  grammars (plus the `:spawn-all`-child-only `:id` join-address key). Any BARE
+  "The closed BARE key vocabulary a single `:spawn` spec may declare, projected
+  from the Spec-Schemas `InvokeSpec` grammar. Any BARE
   key outside this set is rejected at registration with
   `:rf.error/machine-unknown-spawn-key`; NAMESPACED keys pass (the runtime stamps
   `:rf/parent-id` / `:rf/invoke-id` on declarative spawns — namespaced, so they
@@ -1491,8 +1482,24 @@
   note) — accepted (they are absent in production)."
   #{:machine-id :definition :data :id-prefix :on-spawn :on-done :on-error
     :start :fixed-actor-id :system-id :timeout :on-timeout
-    :id                              ;; :spawn-all child-only — the join-address key
     :source-coords :source-code})    ;; DEBUG-only macro-stamped coord slots
+
+(def ^:private known-spawn-all-child-spec-keys
+  "The closed BARE key vocabulary a `:spawn-all` CHILD spec may declare,
+  projected from the Spec-Schemas `InvokeAllChildSpec` grammar.
+
+  It is the single-`:spawn` vocabulary plus the join-address key `:id`, MINUS
+  `:on-error`. A join child has no per-child error transition: failure control
+  flow under a join is the block's own `:on-any-failed`, which decides for the
+  whole fan-out. Admitting `:on-error` here would accept a key nothing
+  honours — the silent under-specification this whole check exists to
+  prevent — so it falls through to the ordinary
+  `:rf.error/machine-unknown-spawn-key`, which names the valid set. `:on-done`
+  IS honoured on a child spec: it folds the parent's `:data` at that child's
+  finality, before the join fold."
+  (-> known-spawn-spec-keys
+      (disj :on-error)
+      (conj :id)))
 
 (defn- unknown-bare-keys
   "The BARE (non-namespaced) keys of `m` that are NOT in `known` — the
@@ -1540,16 +1547,20 @@
 (defn- validate-spawn-spec-keys!
   "Reject any unknown BARE key on a `:spawn` spec or a `:spawn-all` child spec at
   registration with `:rf.error/machine-unknown-spawn-key`. Namespaced keys pass
-  (the runtime-stamped `:rf/parent-id` / `:rf/invoke-id` + user extensions). Per
+  (the runtime-stamped `:rf/parent-id` / `:rf/invoke-id` + user extensions).
+
+  The two vocabularies are NOT the same set: a `:spawn-all` child adds the
+  join-address `:id` and drops `:on-error` (a join child's failure control flow
+  is the block's `:on-any-failed`). Per
   Conventions §Spawn-spec keys + §No silent swallow."
   [state-key state-node]
-  (let [check! (fn [spec where]
+  (let [check! (fn [spec where valid-keys]
                  (when (map? spec)
                    ;; The retired `:timeout-ms` slot has its OWN dedicated
                    ;; rejection (`:rf.error/spawn-timeout-ms-removed`, naming the
                    ;; replacement); exclude it from the generic unknown-key scan
                    ;; so that SPECIFIC diagnostic wins.
-                   (let [known     (into known-spawn-spec-keys retired-spawn-spec-keys)
+                   (let [known     (into valid-keys retired-spawn-spec-keys)
                          offending (unknown-bare-keys spec known)]
                      (when (seq offending)
                        (throw (validation-error
@@ -1563,15 +1574,15 @@
                                      "the spawn silently under-specified. Use a "
                                      "NAMESPACED key for a user extension. Valid "
                                      "keys: "
-                                     (pr-str (vec (sort known-spawn-spec-keys)))
+                                     (pr-str (vec (sort valid-keys)))
                                      ".")
                                 {:state          state-key
                                  :where          where
                                  :offending-keys offending
-                                 :valid-keys     known-spawn-spec-keys}))))))]
-    (check! (:spawn state-node) :spawn)
+                                 :valid-keys     valid-keys}))))))]
+    (check! (:spawn state-node) :spawn known-spawn-spec-keys)
     (doseq [child (get-in state-node [:spawn-all :children])]
-      (check! child :spawn-all-child))))
+      (check! child :spawn-all-child known-spawn-all-child-spec-keys))))
 
 (defn- validate-tags!
   "Reject a NON-SET `:tags` slot on a state node at registration with

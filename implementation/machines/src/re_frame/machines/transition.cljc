@@ -118,6 +118,49 @@
   exempts it). See `pick-spawn-error-transition` below."
   :rf.machine.spawn/error)
 
+(def spawn-done-event-id
+  "The reserved inner event-id the RUNTIME dispatches into a PARENT machine
+  when one of its children COMPLETES — the single completion carrier for both
+  spawn forms (Spec 005 §Child completion protocol).
+
+  A child completes by entering a `:final?` state; `:output-key` selects the
+  result and `:error? true` marks the terminal a failure. The child carries no
+  parent vocabulary at all — it never dispatches, and the same child machine
+  composes unchanged under a `:spawn` parent and under a `:spawn-all` parent.
+  `lifecycle-fx.finalize` mints this event at the child's finality:
+
+      [<parent-id> [:rf.machine.spawn/done <invoke-id> <completion>]]
+
+  `<invoke-id>` is the absolute prefix-path of the parent's `:spawn` /
+  `:spawn-all`-bearing state (so the resolver routes to the right invoke
+  spec); `<completion>` is the runtime-built completion map — `:result`,
+  `:error?`, `:completed-at`, plus, for a `:spawn-all` join child, the
+  membership coordinates (`:child-id` / `:spawned-id` / `:attempt` /
+  `:work-generation`) the runtime stamped at spawn.
+
+  At the parent's handler boundary the event routes three ways
+  (`lifecycle-fx.registration`):
+
+    - `:spawn` child — the parent's `:spawn :on-done` fold runs against the
+      parent's `:data`, and the event then flows into the parent's ORDINARY
+      macrostep, so the parent may advance on it through `:always` (a guard
+      over the folded `:data`) or an explicit `:on` clause. This is what lets
+      a parent sequence phases on a child's completion without the child
+      knowing the parent exists.
+    - `:spawn-all` join child — the per-child `:on-done` fold runs, then the
+      runtime folds the completion into the join
+      (`lifecycle-fx.join/intercept-spawn-done-event`); the parent's own
+      macrostep is driven by the join's resolution event instead.
+    - an ERROR leaf under a `:spawn` parent declaring `:on-error` routes to
+      `spawn-error-event-id` instead — the error TRANSITION keeps its own
+      carrier, which an uncaught child action exception also produces.
+
+  Lives under the framework-reserved `:rf.machine.spawn/*` family, so
+  `unhandled-event-no-op?` exempts it: a parent with nothing to say about a
+  child's completion declines it silently, exactly as it declines the spawn
+  kick-off."
+  :rf.machine.spawn/done)
+
 (defn- chase-ref
   "Follow a keyword reference chain through the machine's named-bindings
   map until it hits a fn (or fails). Tolerates one level of indirection

@@ -30,19 +30,16 @@
   `:children` sub-map has every spawned child id. The handler iterates
   `:children` and tears each one down, then clears the slot.
 
-  A fourth, INTERNAL map shape — the VERIFIED reap
-  `{:rf/reap true :rf/parent-id <p> :rf/invoke-id <i> :rf/child-id <c>}` —
-  is what a `:spawn-all` join emits to tear down an ALREADY-TERMINAL
-  (completed / failed) child at resolution WITHOUT a contradictory
-  cancellation reply (rf2-tj3l6a). The same post-terminal reason is selected
-  automatically for ANY teardown of a current join child already folded into
-  `:done ∪ :failed`. Both paths authenticate private membership against live
-  durable join state; callers can never select the reason or victim through
-  the public reserved-fx grammar (rf2-3lyqzu). See `destroy-join-reap!` and
-  `prepare-join-child-teardown!`.
+  A `:spawn-all` join needs no teardown shape for a COMPLETED child: under
+  the child-completion protocol completion IS finality, so a child that
+  folded into `:done` / `:failed` destroyed itself at that moment with
+  `:reason :rf.machine/finished` and published its own closed terminal on the
+  way out. Only SURVIVORS are torn down at resolution, and their teardown is
+  a genuine `:explicit` cancellation. That is what retired the verified-reap
+  shape and its cancellation-suppressing `:rf.machine/join-reaped` reason.
 
   The map grammar is a CLOSED discriminated union (rf2-3phait). PRESENCE of
-  a discriminator key (`:rf/reap` / `:rf/spawn-all`) SELECTS that shape —
+  the discriminator key (`:rf/spawn-all`) SELECTS that shape —
   never its truthiness — and the selected shape then requires the
   discriminator's value to be exactly `true` plus the exact coordinate
   key-set and types (`:rf/parent-id` keyword, `:rf/invoke-id` path vector,
@@ -391,15 +388,12 @@
        :join-state join-state
        :parent-id  parent-id
        :invoke-id  invoke-id
-       :child-id   child-id
-       :terminal?  (or (contains? (:done join-state) child-id)
-                       (contains? (:failed join-state) child-id))})))
+       :child-id   child-id})))
 
 (defn- prepare-join-child-teardown!
   "Classify one teardown from authenticated runtime state before teardown.
 
-  An already-folded current child is post-terminal cleanup (`join-reaped`) for
-  every entry point. An authenticated in-progress explicit teardown remains a
+  An authenticated in-progress explicit teardown is a
   cancellation and atomically closes the attempt by adding its logical child
   id to the live join state's private `:cancelled` set BEFORE exit callbacks,
   snapshot removal, or the terminal destroyed trace. Consequently an already
@@ -415,14 +409,9 @@
     (let [runtime-db     (rf.frame/frame-runtime-db-value frame-id)
           current        (authenticated-join-child runtime-db actor-id)
           classification (if current
-                           (assoc current
-                                  :reason (if (:terminal? current)
-                                            :rf.machine/join-reaped
-                                            requested-reason))
+                           (assoc current :reason requested-reason)
                            {:reason requested-reason})
-          cancel-current? (and current
-                               (= :explicit (:reason classification))
-                               (not (:terminal? current)))]
+          cancel-current? (and current (= :explicit requested-reason))]
       (if-not cancel-current?
         classification
         (let [prepared (volatile! nil)
@@ -432,9 +421,7 @@
                          ;; join attempt that is committed.
                          (if-let [latest (authenticated-join-child
                                           latest-db actor-id)]
-                           (let [reason (if (:terminal? latest)
-                                          :rf.machine/join-reaped
-                                          requested-reason)]
+                           (let [reason requested-reason]
                              (vreset! prepared (assoc latest :reason reason))
                              (if (= :explicit reason)
                                (update-in
@@ -539,13 +526,11 @@
     nil))
 
 (defn- destroy-resolved!
-  "Shared tail of the keyword / tracked-`:spawn` / verified-reap shapes:
-  run the liveness-gated
-  ordered teardown for an ALREADY-RESOLVED `actor-id` and emit its
-  `:rf.machine/destroyed` trace with `reason`. The keyword / tracked-`:spawn`
-  / verified-reap shapes differ ONLY in how they resolve `actor-id` +
-  `reason` (+ the trace's `:parent-id` / `:invoke-id`); this is their
-  common teardown-and-emit tail.
+  "Shared tail of the keyword / tracked-`:spawn` shapes: run the
+  liveness-gated ordered teardown for an ALREADY-RESOLVED `actor-id` and emit
+  its `:rf.machine/destroyed` trace with `reason`. The two shapes differ ONLY
+  in how they resolve `actor-id` + `reason` (+ the trace's `:parent-id` /
+  `:invoke-id`); this is their common teardown-and-emit tail.
 
   Aligned with XState convention, destroying an **already-destroyed** actor
   is a **silent idempotent no-op**: subsequent destroy attempts emit NO
@@ -592,10 +577,7 @@
         {:actor-id actor-id :parent-id parent-id :invoke-id invoke-id}
         ;; D6 — `:reason` discriminates "an action / fx tore the actor down"
         ;; (`:explicit`, a cancellation) from `:rf.machine/finished` (the
-        ;; auto-destroy on `:final?`) and, for the VERIFIED reap shape,
-        ;; `:rf.machine/join-reaped` (post-completion cleanup of an
-        ;; already-terminal `:spawn-all` join child — NOT a cancellation, so
-        ;; no second-terminal cancelled reply, rf2-tj3l6a). Always stamp
+        ;; auto-destroy on `:final?`). Always stamp
         ;; `:system-id` (nil when not bound) per the destroyed-trace-shape
         ;; contract for the `destroy-single!` site. `released-sid` is the
         ;; binding the teardown projection released — resolved from the reverse
@@ -614,92 +596,6 @@
         fence))))
   nil)
 
-(defn- destroy-join-reap!
-  "The VERIFIED reap form `{:rf/reap true :rf/parent-id p :rf/invoke-id i
-  :rf/child-id c}` — the only CALLER-VISIBLE way to request
-  `:rf.machine/join-reaped` (a cancellation-suppressing destroy reason;
-  rf2-tj3l6a, rf2-3lyqzu). Ordinary keyword / tracked teardown cannot select
-  a reason. Separately, `prepare-join-child-teardown!` may DERIVE the same
-  reason internally after authenticating a current child's private membership
-  against live join state and proving it already folded into `:done ∪ :failed`.
-
-  A `:spawn-all` join reaps its ALREADY-TERMINAL (completed / failed)
-  children at resolution. Their teardown must NOT re-classify as an
-  `:explicit` cancellation: a completed / failed child already closed its
-  attempt as a join-child completion (`join-child-reply`'s `:completed` /
-  `:failed` terminal for the same canonical `[:rf.work/machine spawned-id
-  invoke-id generation]`), so a `:cancelled` teardown reply would be a
-  SECOND, contradictory terminal for that work-id. `:rf.machine/join-reaped`
-  suppresses that second reply; the teardown itself is IDENTICAL to the
-  keyword / imperative destroy (snapshot, timers, resource owners,
-  spawn-order removal).
-
-  Because the reason changes terminal semantics, the runtime AUTHENTICATES
-  the reap against DURABLE join state before honouring it — the fix for the
-  forgeable pre-auth `{:rf/actor-id … :rf/reason …}` shape (rf2-3lyqzu). The
-  named `:spawn-all` join at `[:spawned p i]` MUST exist, OWN `child-id`,
-  have folded `child-id` into `:done ∪ :failed`, AND have its `:resolved?`
-  latch flipped (rf2-nvxehu): reaping is a POST-RESOLUTION act, so a
-  completed child of a still-waiting `:all` join can never be reaped early
-  through the public reserved-fx boundary. Because the fold side binds every
-  `:done` / `:failed` entry to the exact current child attempt (the
-  exact-attempt fence in `join.cljc`), membership in `:done ∪ :failed` IS
-  proof the terminal belongs to this attempt. The actor-id is then RESOLVED
-  from the live join state (`(get-in join-state [:children child-id])`),
-  never carried by the caller — so the reap can neither point
-  post-completion teardown at an arbitrary victim NOR suppress the
-  cancellation of an in-progress (not-yet-completed) actor. An unverifiable
-  reap FAILS LOUD (`:rf.error/machine-destroy-bad-arg`, `:cause
-  :unverified-reap` for a claim the join state cannot substantiate, `:cause
-  :unresolved-join` for a substantiated terminal ahead of the `:resolved?`
-  latch) and performs no teardown.
-
-  Verification against join state is INDEPENDENT of the liveness guard in
-  `destroy-resolved!`: the composed final-child case (a child that reached a
-  top-level `:final?` state auto-destroys synchronously with
-  `:rf.machine/finished`, THEN its queued completion event resolves the
-  parent's join) verifies OK — the join still records it as a completed
-  child — yet is a silent liveness no-op, so no second destroyed trace fires
-  for the already-dead actor."
-  [frame-id args old-db fence]
-  (let [parent-id  (:rf/parent-id args)
-        invoke-id  (:rf/invoke-id args)
-        child-id   (:rf/child-id args)
-        join-state (when old-db (get-in old-db (rf.machines.paths/spawned-path parent-id invoke-id)))
-        children   (when (map? join-state) (:children join-state))
-        actor-id   (get children child-id)
-        completed? (and (some? actor-id)
-                        (or (contains? (:done   join-state) child-id)
-                            (contains? (:failed join-state) child-id)))]
-    (cond
-      ;; The join state cannot substantiate the claim at all — no live join,
-      ;; foreign child-id, or an in-progress (never-completed) child.
-      (not completed?)
-      (rf.machines.lifecycle-fx.traces/emit-destroy-bad-arg! frame-id :unverified-reap args)
-
-      ;; Substantiated terminal, but the join attempt has NOT resolved
-      ;; (rf2-nvxehu): a non-decisive completed child of a still-waiting
-      ;; `:all` join may not be reaped early — the cancellation-suppressing
-      ;; reap is authorized only after this exact attempt's `:resolved?`
-      ;; latch flipped. (The internal resolution-cascade reaps always run
-      ;; against the post-resolution join state — the `:rf.db/runtime` write
-      ;; commits before the `:fx` drain — so genuine reaps see `true` here.)
-      (not (true? (:resolved? join-state)))
-      (rf.machines.lifecycle-fx.traces/emit-destroy-bad-arg! frame-id :unresolved-join args)
-
-      :else
-      ;; Tear down ONLY the child actor — pass NIL parent/invoke so
-      ;; `teardown-actor` does NOT prune the `[:spawned parent invoke]` slot,
-      ;; which for a `:spawn-all` holds the WHOLE join-state map (every
-      ;; child + the frozen `:done` / `:failed` record). That slot is cleared
-      ;; later by the exit-cascade `destroy-spawn-all-children!` if the parent
-      ;; exits the `:spawn-all` state; the reap must leave the join record
-      ;; intact (matching the pre-auth reap, which likewise carried no
-      ;; teardown slot keys). `parent-id` / `invoke-id` / `child-id` were used
-      ;; ABOVE only to READ + verify the join state.
-      (destroy-resolved! frame-id actor-id :rf.machine/join-reaped
-                         nil nil old-db fence))))
-
 ;; ---- the closed map-form grammar (rf2-3phait) ------------------------------
 ;;
 ;; Each map shape is admitted by its EXACT key-set — presence of a
@@ -708,10 +604,6 @@
 ;; plus exact coordinate types. Anything else fails loud with
 ;; `:rf.error/machine-destroy-bad-arg` and performs zero mutation. No
 ;; permissive coercion, no truthy aliases, no compatibility fallback.
-
-(def ^:private reap-form-keys
-  "The VERIFIED reap shape's exact key-set."
-  #{:rf/reap :rf/parent-id :rf/invoke-id :rf/child-id})
 
 (def ^:private spawn-all-form-keys
   "The declarative-`:spawn-all` exit-cascade shape's exact key-set."
@@ -827,9 +719,6 @@
   (see the ns docstring, rf2-3phait) and dispatches:
 
     - keyword `actor-id` — the imperative form (`:explicit` cancellation);
-    - `{:rf/reap true :rf/parent-id p :rf/invoke-id i :rf/child-id c}` —
-      the VERIFIED reap, authenticated against live join state by
-      `destroy-join-reap!`;
     - `{:rf/spawn-all true :rf/parent-id p :rf/invoke-id i}` — the
       `:spawn-all` children-iteration teardown;
     - `{:rf/parent-id p :rf/invoke-id i}` — the tracked single-`:spawn`
@@ -865,14 +754,6 @@
       (map? args)
       (let [shape (set (keys args))]
         (cond
-          (contains? args :rf/reap)
-          (if (and (= shape reap-form-keys)
-                   (true? (:rf/reap args))
-                   (join-coordinates-ok? args)
-                   (keyword? (:rf/child-id args)))
-            (destroy-join-reap! frame-id args old-db fence)
-            (rf.machines.lifecycle-fx.traces/emit-destroy-bad-arg! frame-id :unknown-shape args))
-
           (contains? args :rf/spawn-all)
           (if (and (= shape spawn-all-form-keys)
                    (true? (:rf/spawn-all args))

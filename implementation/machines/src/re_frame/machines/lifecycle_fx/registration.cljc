@@ -263,7 +263,7 @@
 ;;   4. `commit-or-finalize`   — emit transition / snapshot-updated traces,
 ;;      build the new runtime-db, route to `finalize-machine` if `finished?`.
 ;;
-;; The intercept-spawn-all-event short-circuit is the visible top-level
+;; The child-completion short-circuit is the visible top-level
 ;; branch in `make-machine-handler` itself — it must short-circuit before
 ;; boot / step / commit run.
 
@@ -639,6 +639,40 @@
           ctx
           (assoc ctx :machine (assoc machine :rf/cofx augmented)))))))
 
+(defn- apply-spawn-on-done
+  "Apply a `:spawn` parent's `:on-done` fold to the ctx snapshot's `:data`,
+  for the reserved completion carrier a child's finality minted.
+
+  Per Spec 005 §Final states the callback is
+  `(fn [{:keys [data result]}] new-data)`, and it is applied here — at the
+  PARENT's handler boundary, ahead of the engine step — rather than inside the
+  child's finalize cascade. That placement is the whole difference the
+  completion carrier buys: the parent's `:always` guards and `:on` clauses run
+  in the SAME macrostep against the already-folded `:data`, so a parent can
+  SEQUENCE on a child's completion (`:configuring` → `:loading-deps`) without
+  the child dispatching anything. The fold used to be a direct write into the
+  parent's snapshot from the child's cascade, which mutated `:data` the parent
+  could never react to.
+
+  The `:spawn` map is resolved from the parent's OWN spec at `invoke-id`
+  (`resolver/spawn-spec-at`), so it resolves whether or not the parent still
+  rests on the spawning state. A parent that declares no `:on-done`, or whose
+  invoke path no longer resolves, rides through untouched — the carrier then
+  simply reaches the engine as an ordinary reserved event the parent may or
+  may not have a transition for."
+  [ctx invoke-id completion]
+  (let [on-done (:on-done (rf.machines.lifecycle-fx.resolver/spawn-spec-at (:machine ctx) invoke-id))]
+    (if on-done
+      (let [snapshot (:snapshot ctx)]
+        (assoc ctx :snapshot
+               (assoc snapshot :data
+                      (rf.machines.lifecycle-fx.resolver/apply-on-done
+                        on-done (:data snapshot) (:result completion)
+                        {:actor-id (:machine-id ctx)
+                         :state    (:state snapshot)
+                         :frame    (:frame-id ctx)}))))
+      ctx)))
+
 (defn- commit-or-finalize
   "Step 4 of 4. Emit `:rf.machine/transition` (and optional
   `:rf.machine/snapshot-updated`) traces, build the new runtime-db, and
@@ -773,24 +807,16 @@
                       :before     snapshot
                       :after      next-snapshot
                       :frame      frame-id}))
-      ;; Exact-attempt stamping (rf2-nvxehu / rf2-t154jx): when THIS actor is a
-      ;; `:spawn-all` join child (its `:data` carries the framework-reserved
-      ;; `:rf/join-child` membership record the spawn stamped), rewrite each
-      ;; outbound completion carrier in the returned `:fx` into the
-      ;; `:rf.machine/join-dispatch` transport, which carries the exact-attempt
-      ;; coordinate on the recordable `:rf.cofx` `:rf.machine/join-attempt` fact
-      ;; (NOT event metadata — rf2-nsbwft) — action fx, bootstrap-entry fx, and
-      ;; the finalize path all flow through this single return seam.
-      ;; A non-join-child actor (record nil — the common case) rides through
-      ;; untouched. The framework-produced path always stamps the coordinate; the
-      ;; parent's fold gate then folds only on exact-current equality.
-      (rf.machines.lifecycle-fx.join/stamp-join-completion-fx
-        (if finished?
-          (rf.machines.lifecycle-fx.finalize/finalize-machine machine machine-id frame-id
-                                     new-runtime-db next-snapshot inner-event merged-fx)
-          {:rf.db/runtime new-runtime-db
-           :fx            merged-fx})
-        (get-in snapshot [:data :rf/join-child])))))
+      ;; A completing actor routes through `finalize-machine`, which tears it
+      ;; down and mints its completion carrier into the parent. Nothing is
+      ;; rewritten on the way out: a child's `:fx` carries no parent
+      ;; vocabulary to stamp, because completion is finality rather than an
+      ;; event the child authored (Spec 005 §Child completion protocol).
+      (if finished?
+        (rf.machines.lifecycle-fx.finalize/finalize-machine machine machine-id frame-id
+                                   new-runtime-db next-snapshot inner-event merged-fx)
+        {:rf.db/runtime new-runtime-db
+         :fx            merged-fx}))))
 
 (defn- reject-internal-event-external-dispatch
   "The public/private `:internal-events` boundary, checked at
@@ -935,9 +961,36 @@
       ;; and returns its snapshot write under `:rf.db/runtime`.
       (let [runtime-db  (or rt {})
             ctx         (prepare-machine-ctx db runtime-db frame cofx mint-policy event machine base-initial)
-            intercepted (rf.machines.lifecycle-fx.join/intercept-spawn-all-event
-                          (:machine ctx) runtime-db (:path ctx) (:snapshot ctx)
-                          (:machine-id ctx) (:inner-event ctx))]
+            ;; THE CHILD-COMPLETION BOUNDARY (Spec 005 §Child completion
+            ;; protocol). A child completes by reaching a `:final?` state;
+            ;; `lifecycle-fx.finalize` mints ONE reserved carrier for it and
+            ;; dispatches that carrier here, to the parent. Two routes:
+            ;;
+            ;;   - a `:spawn-all` JOIN child's completion folds into the join
+            ;;     and short-circuits — the parent's macrostep is driven by the
+            ;;     join's own resolution event, not by each child's arrival;
+            ;;   - a `:spawn` child's completion applies the parent's
+            ;;     `:spawn :on-done` fold to the snapshot BELOW and then rides
+            ;;     the ORDINARY macrostep, so the parent can advance on it
+            ;;     (`:always` over the folded `:data`, or an explicit `:on`).
+            ;;
+            ;; `intercept-spawn-done-event` returns nil for the second case,
+            ;; and for any other event.
+            completion  (when (= rf.machines.transition/spawn-done-event-id
+                                 (first (:inner-event ctx)))
+                          (nth (:inner-event ctx) 2 nil))
+            intercepted (when completion
+                          (rf.machines.lifecycle-fx.join/intercept-spawn-done-event
+                            (:machine ctx) runtime-db (:machine-id ctx)
+                            (second (:inner-event ctx)) completion))
+            ;; The `:spawn` fold lands on the ctx snapshot BEFORE the engine
+            ;; runs, so the parent's `:always` guards and `:on` clauses see the
+            ;; folded `:data` in the SAME macrostep, and a parent that declares
+            ;; no transition at all still commits the fold (the engine's
+            ;; unhandled-event branch returns the snapshot it was given).
+            ctx         (if (and completion (not intercepted))
+                          (apply-spawn-on-done ctx (second (:inner-event ctx)) completion)
+                          ctx)]
         (if intercepted
           intercepted
           ;; Enforce the public/private `:internal-events` boundary.
