@@ -58,8 +58,6 @@
                            {:id :b :machine-id child-b-type
                             :fixed-actor-id fixed-b :start [:set-id :b]}]
                 :join join
-                :on-child-done :child/done
-                :on-child-error :child/error
                 :on-all-complete [:join/all]
                 :on-some-complete [:join/some]}
                ;; Deliberately leave resolution events unhandled so the frozen
@@ -79,8 +77,6 @@
                            {:id :b :machine-id child-b-type
                             :fixed-actor-id fixed-b :start [:set-id :b]}]
                 :join :all
-                :on-child-done :child/done
-                :on-child-error :child/error
                 :on-all-complete [:join/all]}
                :on {:abort :idle}}}})
   (rf/dispatch-sync [parent-id [:start]]))
@@ -104,8 +100,6 @@
                            {:id :b :machine-id child-b-type
                             :fixed-actor-id fixed-b :start [:set-id :b]}]
                 :join join
-                :on-child-done :child/done
-                :on-child-error :child/error
                 :on-all-complete [:join/all]
                 :on-some-complete [:join/some]}
                ;; A separate parent event runs only after the test observes the
@@ -448,8 +442,6 @@
                  {:children [{:id :only :machine-id :jwi/final-child-type
                               :fixed-actor-id :jwi/fixed-final}]
                   :join :all
-                  :on-child-done :child/done
-                  :on-child-error :child/error
                   :on-all-complete [:join/done]}}}})
     (rf/dispatch-sync [:jwi/final-parent [:start]])
     (let [attempt  (:rf/attempt (join-state :jwi/final-parent))

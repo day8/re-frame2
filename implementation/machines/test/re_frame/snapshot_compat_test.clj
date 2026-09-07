@@ -408,8 +408,6 @@
            :states  {:hydrating {:spawn-all
                                  {:children        [{:id :a :machine-id :compat/ja-child}]
                                   :join            :all
-                                  :on-child-done   :ja/done
-                                  :on-child-error  :ja/failed
                                   :on-all-complete [:go-done]
                                   :on-any-failed   [:ja/cancel]}
                                  :on {:go-done   :done

@@ -222,8 +222,6 @@
                                         {:id :d :machine-id :rf2-ndfjo/cd :start [:set-id :d]}
                                         {:id :e :machine-id :rf2-ndfjo/ce :start [:set-id :e]}]
                      :join             :any
-                     :on-child-done    :done
-                     :on-child-error   :failed
                      :on-some-complete [:phase/one-done]}
                     ;; The parent transitions OUT of :working on resolution —
                     ;; this is what fires the exit cascade's spawn-all destroy

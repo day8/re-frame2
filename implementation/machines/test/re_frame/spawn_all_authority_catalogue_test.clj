@@ -129,9 +129,7 @@
                :racing {:spawn-all
                         (merge
                           {:children       [{:id :a :machine-id child-a-kw :start [:set-id :a]}
-                                            {:id :b :machine-id child-b-kw :start [:set-id :b]}]
-                           :on-child-done  :child/done
-                           :on-child-error :child/failed}
+                                            {:id :b :machine-id child-b-kw :start [:set-id :b]}]}
                           spawn-all-extra)}}})
   (rf/dispatch-sync [parent-kw [:start]])
   (join-state parent-kw [:racing]))
@@ -153,8 +151,6 @@
                         {:children        [{:id :a :machine-id child-a-kw :start [:set-id :a]}
                                            {:id :b :machine-id child-b-kw :start [:set-id :b]}]
                          :join            :all
-                         :on-child-done   :child/done
-                         :on-child-error  :child/failed
                          :on-all-complete [:all/done]}
                         ;; runs after the join is seeded; internal transition
                         ;; (action only, no target) so the join slot survives.
@@ -411,8 +407,6 @@
                                {:children        [{:id :ok      :machine-id :sac/rok}
                                                   {:id :missing :machine-id :sac/missing}]
                                 :join            :all
-                                :on-child-done   :c/done
-                                :on-child-error  :c/failed
                                 :on-all-complete [:all/done]}}
                      :ready   {}}}]
       (rf/reg-machine :sac/rok ok-child)

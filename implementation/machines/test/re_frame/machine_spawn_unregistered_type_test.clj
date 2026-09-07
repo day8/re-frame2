@@ -211,8 +211,6 @@
                                {:children        [{:id :ok      :machine-id :gc/ok}
                                                   {:id :missing :machine-id :gc/missing}]
                                 :join            :all
-                                :on-child-done   :gc/done
-                                :on-child-error  :gc/failed
                                 :on-all-complete [:all/done]}
                                :on {:all/done :ready :back :idle}}
                      :ready   {}}}]
@@ -266,8 +264,6 @@
    {:idle    {:on {:start :forking}}
     :forking {:spawn-all {:children        children
                           :join            :all
-                          :on-child-done   :gc/done
-                          :on-child-error  :gc/failed
                           :on-all-complete [:all/done]}
               :on {:all/done :ready}}
     :ready   {}}})
@@ -369,8 +365,6 @@
                                {:children        [{:id :ok      :machine-id :gc/ok2}
                                                   {:id :missing :machine-id :gc/missing2}]
                                 :join            :all
-                                :on-child-done   :gc/done
-                                :on-child-error  :gc/failed
                                 :on-all-complete [:all/done]}
                                :on {:all/done :ready}}
                      :ready   {}}}]

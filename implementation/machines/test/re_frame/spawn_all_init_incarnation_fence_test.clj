@@ -94,8 +94,6 @@
                     :failed    #{}
                     :resolved? false
                     :spec      {:join            :all
-                                :on-child-done   :sa/done
-                                :on-child-error  :sa/failed
                                 :on-all-complete [:all/done]}
                     :invoke-id invoke-id}
      :child-args   (mapv child-arg children)}))

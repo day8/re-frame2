@@ -111,8 +111,6 @@
                                       {:id :second :machine-id :ord2/leaf}
                                       {:id :third  :machine-id :ord2/leaf}]
                      :join           :all
-                     :on-child-done  :child/done
-                     :on-child-error :child/error
                      :on-all-complete [:done]}}}})
     (rf/dispatch-sync [:ord2/parent [:fan-out]])
     ;; The join-state records each child id under its declared :id key; the

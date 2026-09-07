@@ -68,8 +68,6 @@
                                                     :start [:set-id :worker]}
                                                    {:id :helper :machine-id :rf2-wsrtlw/helper}]
                                   :join           :all
-                                  :on-child-done  :child/done
-                                  :on-child-error :child/failed
                                   :on-all-complete on-complete}
                       :on {(first on-complete) ready-state}}
              ready-state {}}})

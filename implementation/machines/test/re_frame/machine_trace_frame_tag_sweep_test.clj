@@ -316,8 +316,6 @@
                                                  {:id :b :machine-id :ko8jb/ca-b
                                                   :start [:set-id :b]}]
                               :join            :all
-                              :on-child-done   :asset/loaded
-                              :on-child-error  :asset/failed
                               :on-all-complete [:hydrate/done]}
                              :on    {:hydrate/done :ready}}
                             :ready     {}}}]
@@ -351,8 +349,6 @@
                              {:children        [{:id :a :machine-id :ko8jb/cbc
                                                   :start [:set-id :a]}]
                               :join            :all
-                              :on-child-done   :asset/loaded
-                              :on-child-error  :asset/failed
                               :on-all-complete [:hydrate/done]}
                              :on    {:hydrate/done :ready}}
                             :ready     {}}}]
