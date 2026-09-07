@@ -319,14 +319,16 @@ names four *different* validators across the registration surface. The word is
 shared — every one of them is a Malli-shaped value-validator — but
 each validates a different fact at a different layer, so the generic `:schema`
 name is *qualified* wherever a visible sibling would make it ambiguous (e.g. a
-machine's data validator is `:data-schema`, since beside the machine's other
-keys a bare `:schema` could not say *which* fact it bounds). The four are recorded here as
+machine's data validator is `[:schemas :data]`, since beside the machine's other
+keys a bare `:schema` could not say *which* fact it bounds — there the
+qualification rides the *nesting* under the `:schemas` block rather than a
+qualified key name). The four are recorded here as
 one vocabulary rule, not four accidents:
 
 | Validator | Spelled | Validates | Layer / owner |
 |---|---|---|---|
 | `reg-event` `:schema` | `:schema` (the `reg-event` metadata-map key) | the **event args** — the payload positions of the event vector | app-owned, per-handler ([§Reserved registration metadata](#reserved-registration-metadata-framework-owned), [API.md §`reg-event`](API.md)) |
-| machine `:data-schema` | `:data-schema` (the `reg-machine` key) | a machine's **`:data`** context map | app-owned, per-machine. Qualified — not bare `:schema` — because a visible sibling (the transition table, the spawn spec) makes a generic `:schema` ambiguous about *which* fact it bounds. The rename is [EP-0005](../docs/EP/EP-0005-machine-data-schema.md); it is this rule's worked precedent |
+| machine `[:schemas :data]` | `[:schemas :data]` (the `:data` sub-key of the `reg-machine` `:schemas` block) | a machine's **`:data`** context map | app-owned, per-machine. Qualified — not bare `:schema` — because a visible sibling (the transition table, the spawn spec) makes a generic `:schema` ambiguous about *which* fact it bounds; here the qualification rides the **nesting** under `:schemas` rather than a qualified key name. [EP-0005](../docs/EP/EP-0005-machine-data-schema.md) first qualified it as a root `:data-schema` key; [EP-0029](../docs/EP/EP-0029-xstate-v6-machine-parity.md) A3 retired that root slot in favour of the `:schemas` block (clean pre-alpha break, no shorthand). It remains this rule's worked precedent |
 | `reg-app-schema` | the registrar name itself (no sibling key needs disambiguating, so the registrar carries the word) | **app-db paths** — a value at a `[:k …]` path in the app-db partition | app-owned, per-frame side-table ([010-Schemas §Per-frame schemas](010-Schemas.md#per-frame-schemas)). Validates app-db **only** (per [010 §App schemas validate the app-db partition only](010-Schemas.md#app-schemas-validate-the-app-db-partition-only)) |
 | runtime-db schema | registered at boot as a runtime-db validator (NOT via `reg-app-schema`) | the **runtime-db partition** (`:rf.runtime/*` subsystem state, machine `:snapshots`, …) | **framework-owned** — registered by the runtime, refined per-machine from registered `:data` shapes; user code MUST NOT register against it ([§Reserved runtime-db keys](#reserved-runtime-db-keys)) |
 

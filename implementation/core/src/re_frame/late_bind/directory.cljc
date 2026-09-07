@@ -470,7 +470,7 @@
    {:key         :machines/validate-machine-data!
     :producer-ns 're-frame.machines
     :design-bead "rf2-jbbp7"
-    :description "Post-commit walker for the `:where :machine-data` boundary (Spec 005 §Schema validation, Spec 010 §Per-step recovery row 7). Iterates `[:rf.runtime/machines :snapshots]` in the runtime-db partition, validates each snapshot's `:data` against the registered machine's `:data-schema`. Router AND-conjoins with `:schemas/validate-app-schema!` to gate the `:rf.db/runtime` commit; a failure rolls the cascade back exactly like a `:where :app-db` violation."}
+    :description "Post-commit walker for the `:where :machine-data` boundary (Spec 005 §Schema validation, Spec 010 §Per-step recovery row 7). Iterates `[:rf.runtime/machines :snapshots]` in the runtime-db partition, validates each snapshot's `:data` against the registered machine's `[:schemas :data]` schema. Router AND-conjoins with `:schemas/validate-app-schema!` to gate the `:rf.db/runtime` commit; a failure rolls the cascade back exactly like a `:where :app-db` violation."}
    {:key         :machines/owning-actor-id
     :producer-ns 're-frame.machines
     :design-bead "rf2-ma0wvq"

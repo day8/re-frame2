@@ -351,7 +351,7 @@ The default validator ships Malli's `validate` / `explain` pair (plus an EDN can
 
 The pure-data per-slot flag extractors and predicates. They walk a Malli **vector-form** EDN schema and report which slots carry `:sensitive? true` or `:large? true` per-slot props.
 
-Two kinds of consumers read them: the schema-validation-failure-trace redactor, and the owner-local schema-prop consumers — a machine's `:data-schema`, a resource's data/params schema, the HTTP body-privacy projector, and story-mcp's tool-egress projector.
+Two kinds of consumers read them: the schema-validation-failure-trace redactor, and the owner-local schema-prop consumers — a machine's `[:schemas :data]` schema, a resource's data/params schema, the HTTP body-privacy projector, and story-mcp's tool-egress projector.
 
 They describe **shape**, not durable `app-db` egress policy. Durable `app-db` classification is event-owned: a `reg-event` returns `:sensitive` / `:large` alongside `:db`. A compiled / opaque `m/schema` value is treated as an opaque leaf, so register the vector form when per-slot flags need to be visible.
 

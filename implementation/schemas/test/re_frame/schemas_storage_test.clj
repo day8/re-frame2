@@ -658,7 +658,7 @@
 ;; legitimate caller exists, so this is a hard reject at the existing
 ;; pre-mutation gate. The runtime-db partition is framework-owned (the
 ;; framework validates it; machine `:snapshots` are refined per-machine from
-;; each machine's `:data-schema`) and is NOT a user schema-registration
+;; each machine's `[:schemas :data]` schema) and is NOT a user schema-registration
 ;; surface, so the honest remedy is to drop the runtime path.
 ;;
 ;; rf2-sklyam: the prior `:reason` told users to "Use reg-runtime-schema to
