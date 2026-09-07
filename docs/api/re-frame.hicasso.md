@@ -191,11 +191,14 @@ as it likes, and no call here reaches a root the caller did not name.
 - **Description**: Adopts a container's existing server-rendered DOM rather than
   replacing it. Same root-options config as `mount!`. It returns *before* adoption
   finishes, and it must be handed the same `:identifier-prefix` the server render
-  used. **Its tree SCOPEs rather than ENSUREs**: state comes first and through a
-  different door — `re-frame.ssr/hydrate!` installs the server's app-db and must
-  run before this — so the frame already exists and
-  `[h/frame-provider {:frame …} …]` is the verb. An ENSURE there would seed
-  replacement state over the state the server rendered from.
+  used. **Its tree SCOPEs rather than ENSUREs, and the reason is SHAPE**:
+  `frame-root`'s ENSURE is commit-owned, so its first render emits no descendant
+  subtree, where an adopting root must render the server's element shape on its
+  first pass. `[h/frame-provider {:frame …} …]` renders its children immediately,
+  so the shapes agree. Neither hydration door creates the frame:
+  `re-frame.ssr/hydrate!` dispatches `:rf/hydrate` at a frame that must already
+  exist, so a boot makes the frame first, installs the payload second and adopts
+  the DOM third.
 
 ### `render!`
 

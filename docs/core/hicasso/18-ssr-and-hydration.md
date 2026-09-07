@@ -154,10 +154,14 @@ The three calls have different jobs:
 - `rf/make-frame` creates the frame. Neither hydration step does it for you:
   `ssr/hydrate!` seeds a frame that already exists, and the tree
   `h/hydrate!` adopts SCOPEs that frame with `h/frame-provider` rather than
-  ensuring it. **`h/frame-root` is the wrong verb here** — its ENSURE runs at
-  commit, after the payload, and would seed replacement state over the state the
-  server rendered from. That is the whole reason the two verbs are two
-  components.
+  ensuring it. **`h/frame-root` is the wrong verb here, and the reason is
+  SHAPE** — its ENSURE is commit-owned, so its first render emits no descendant
+  subtree and the children arrive on a second pass. An adopting root must render
+  the server's element shape on its FIRST pass, `useId` positions included, so a
+  `frame-root` would hand React an empty tree where the server's markup is.
+  (It would not *overwrite* the payload: re-ensuring a live frame preserves
+  app-db and never replays `:initial-events`. The mismatch is the failure.)
+  That is the whole reason the two verbs are two components.
 - `ssr/hydrate!` applies the state payload through `:rf/hydrate`. It validates
   the wire frame id against the requested frame. A mismatch raises
   `:rf.error/hydration-frame-id-mismatch`; omitting `:frame` raises

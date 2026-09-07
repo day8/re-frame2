@@ -296,7 +296,8 @@ an author-written one. Pass children positionally.
                    [app {}]])))
 
 (defn ^:dev/after-load reload! []
-  (h/render! @!root [app {}]))
+  (h/render! @!root
+    [h/frame-root {:id ::frame} [app {}]]))
 ```
 
 Four things matter, and the first two are the ones a migration gets wrong:
@@ -326,8 +327,12 @@ Four things matter, and the first two are the ones a migration gets wrong:
   installs it nor displaces what the app has. *"Stays" is about a migration in
   progress. If the app ends with no Reagent view at all, the choice reopens and
   the author gets told — MIG-24 §When no Reagent view remains.*
-- **`h/render!` is the hot-reload door.** It re-renders the root React already
-  has, so the reloaded view code meets its own DOM. Calling `h/mount!` again
+- **`h/render!` is the hot-reload door, and it takes the WHOLE tree — boundary
+  head included.** It re-renders the root React already has, so the reloaded
+  view code meets its own DOM. The frame lives in the tree now, so a reload that
+  drops the head renders a root with no frame under it and every bare `h/sub` /
+  `h/dispatch` beneath loses what it resolved against; re-rendering the head is
+  free, because it ENSUREs and finds the frame live. Calling `h/mount!` again
   would `createRoot` a second time and replace the tree, discarding every node
   and scrap of component state.
 - **`h/unmount!` is `mount!`'s inverse** and is idempotent. It leaves sibling

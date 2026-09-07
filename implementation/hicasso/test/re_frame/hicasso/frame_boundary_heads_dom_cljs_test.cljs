@@ -203,23 +203,44 @@
           (rf.hicasso.impl.collector/reset-runtime!))))))
 
 ;; ---------------------------------------------------------------------------
-;; W3 — a SECOND boundary under the same :id JOINs: no re-seed, no refresh
+;; W3 — a SECOND boundary under the same :id JOINs: DURABLE STATE survives,
+;;      `:initial-events` are not replayed, and the record CONFIG refreshes
 ;; ---------------------------------------------------------------------------
+;;
+;; The two halves of this row point in opposite directions, and that is the
+;; contract rather than a wrinkle. `frame-root`'s ENSURE is a second
+;; `rf/make-frame` under the same id, which is spec/002 §`frame-root`'s
+;; reuse-without-reseed on the state side (app-db, sub-cache, queue survive;
+;; `:initial-events` are re-recorded, never replayed) and `make-frame`'s ruled
+;; IDEMPOTENT REPLACEMENT on the config side — the Clojure re-def model, where
+;; re-declaring an id refreshes its config while its state survives.
+;;
+;; The second `testing` block below is the one that had no witness: the facade
+;; docstring once promised "no config refresh", which the shared lifecycle does
+;; not do and this file could not see, because a state-only reading is green
+;; either way. `:fx-overrides` is the instrument, because a live effect handler
+;; is config that ANNOUNCES which incarnation is installed.
 
 (deftest a-second-frame-root-under-one-id-joins-without-re-seeding
   (if-not (rf.hicasso.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (let [_ (bare!)
+          _ (reset! !fx-seen nil)
           a (rf.hicasso/mount! (rf.hicasso.impl.mount/fresh-container!) {}
               [rf.hicasso/frame-root
-               {:id ensured :initial-events [[::seed "creator"]]}
+               {:id             ensured
+                :initial-events [[::seed "creator"]]
+                :fx-overrides   {::stamp-fx (fn [_ _] (reset! !fx-seen :creator))}}
                [panel {:tag "a"}]])
           ;; The joining boundary names its own `:initial-events`, and they must
           ;; be IGNORED. A head that replayed would leave "joiner" on both
           ;; screens, and this row is the only thing on the page to notice.
+          ;; Its `:fx-overrides` is the opposite case: config, which DOES take.
           b (rf.hicasso/mount! (rf.hicasso.impl.mount/fresh-container!) {}
               [rf.hicasso/frame-root
-               {:id ensured :initial-events [[::seed "joiner"]]}
+               {:id             ensured
+                :initial-events [[::seed "joiner"]]
+                :fx-overrides   {::stamp-fx (fn [_ _] (reset! !fx-seen :joiner))}}
                [panel {:tag "b"}]])]
       (try
         (testing "the joining boundary did not re-seed — the creator's state
@@ -231,6 +252,19 @@
           (rf.hicasso.impl.mount/dispatch! ensured [::relabel "shared"])
           (is (= ["shared" "shared"] [(text-at a ".label") (text-at b ".label")])
               "the two roots did not join one frame"))
+
+        (testing "but the record CONFIG did refresh — the joiner's
+                  `:fx-overrides` is the live one. This is `make-frame`'s
+                  idempotent replacement, not a defect: JOIN with the creator's
+                  opts to change nothing"
+          (reset! !fx-seen nil)
+          (rf.hicasso.impl.mount/dispatch! ensured [::stamp-via-fx])
+          (is (= :joiner @!fx-seen)
+              (str "the joining head's `:fx-overrides` did not install: the "
+                   "effect ran " (pr-str @!fx-seen) ". A `:creator` reading "
+                   "here would mean the shared ENSURE had stopped refreshing "
+                   "config, which is a CONTRACT CHANGE across every substrate "
+                   "riding `frame-root-fc` — not a Hicasso-local fix")))
         (finally
           (rf.hicasso/unmount! a) (rf.hicasso/unmount! b)
           (detach! a) (detach! b)

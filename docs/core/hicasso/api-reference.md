@@ -145,7 +145,7 @@ Two heads, one verb each — the pair every re-frame2 view substrate spells
 
 | Head | Verb | Contract |
 | --- | --- | --- |
-| `[h/frame-root {:id :f …} child …]` | **ENSURE** | Creates the frame if absent and REUSES the live one as it stands — no re-seed, no config refresh. Takes the **whole** `rf/make-frame` option map: `:initial-events`, `:images`, `:url-bound?`, `:fx-overrides`, `:preset`, every record-config key. `:id` is required and must be a keyword. Unmounting destroys nothing |
+| `[h/frame-root {:id :f …} child …]` | **ENSURE** | Creates the frame if absent and REUSES it if present: durable state (app-db, sub-cache, queue) survives and `:initial-events` are re-recorded but never replayed. A re-acquire is `rf/make-frame`'s idempotent replacement, so the record CONFIG does refresh — pass the creator's opts to join without changing anything. Takes the **whole** `rf/make-frame` option map: `:initial-events`, `:images`, `:url-bound?`, `:fx-overrides`, `:preset`, every record-config key. `:id` is required and must be a keyword. Unmounting destroys nothing |
 | `[h/frame-provider {:frame :f} child …]` | **SCOPE** | Provides an ALREADY-LIVE frame to the subtree, and creates, refreshes and destroys nothing. `:frame` takes a frame-id keyword or the live frame value `rf/make-frame` returns. An absent frame is `:rf.error/frame-provider-frame-absent` rather than a subtree scoped to nothing |
 
 Each refuses the other's key by name: `:frame` on a `frame-root` is
@@ -164,19 +164,29 @@ seeded markup on the page.
 
 ### Which verb an adopting root takes
 
-**A hydrating root SCOPEs.** Its frame already exists: `re-frame.ssr/hydrate!`
-installed the server's app-db one line earlier, and an ENSURE there would seed
-replacement state over the state the server rendered from. So state arrives
-first, through a different door, and the DOM is adopted second:
+**A hydrating root SCOPEs, and the reason is SHAPE rather than state.**
+`frame-root`'s ENSURE is commit-owned, so its first render emits no descendant
+subtree and the children arrive on a second pass. An adopting root has to render
+the server's element shape on its FIRST pass — that is what `hydrateRoot`
+matches against, `useId` positions included — so a `frame-root` here would hand
+React an empty tree where the server's markup is. `frame-provider` renders its
+children immediately, so the shapes agree.
+
+**Neither hydration door creates the frame.** `ssr/hydrate!` DISPATCHES
+`:rf/hydrate` at a frame that must already exist, so the frame is made first,
+the payload installed second, the DOM adopted third:
 
 ```clojure
-(ssr/hydrate! {:frame :app/main})                     ;; 1. state
-(h/hydrate! node {}                                   ;; 2. DOM
+(rf/make-frame {:id :app/main})                       ;; 1. frame
+(ssr/hydrate! {:frame :app/main})                     ;; 2. state
+(h/hydrate! node {}                                   ;; 3. DOM
   [h/frame-provider {:frame :app/main} [views/page {}]])
 ```
 
-Getting that order wrong is caught rather than silent: `frame-provider` fails
-loud on a frame that is not live.
+A boot that never made the frame is caught rather than silent: the `:rf/hydrate`
+dispatch into an absent frame is a no-op, and `frame-provider` then fails loud
+on it. What that does NOT catch is a frame that is live but never hydrated —
+liveness is the whole of the check, and an unhydrated frame passes it.
 
 **A hydrating root needs the same `:identifier-prefix` its server render used.**
 React numbers `useId` per root and prefixes it with this option, so a hydrating
