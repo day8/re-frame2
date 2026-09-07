@@ -25,6 +25,7 @@
   (:require [re-frame.registrar :as rf.registrar]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
+            [re-frame.live-frame :as rf.live-frame]
             [re-frame.derivation.node :as rf.derivation.node]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -117,6 +118,49 @@
       {}
       subs-meta)))
 
+;; ---- live cache readers --------------------------------------------------
+
+(defn- inspected-frame-sub-registrations
+  "The `:sub` registrations AS THE INSPECTED FRAME RESOLVES THEM (rf2-zimh).
+
+  Both live cache readers below take a frame-id, read THAT frame's cached
+  reactions, and then need each entry's registration metadata to say what kind
+  of input producer it has and where it was declared. `rf.registrar/registrations`
+  is generation-routed: with `rf.registrar/*generation*` bound it projects the
+  ids the frame's OWN image carries, and with nothing bound it projects the
+  global registrar atom. Both readers used to ask it with whatever generation
+  happened to be ambient — usually none, sometimes the INSPECTOR's own frame —
+  so the values came from frame A while the metadata came from the global pool
+  or from frame B.
+
+  Nothing about that is visible in the answer, which is what makes it worth a
+  named seam: an image-local sub with declared `:inputs` is reported
+  `:input-kind :db` (the default when the global pool has never heard of it),
+  and `sub-cache-algebra-view` additionally attaches a conflicting same-id
+  global's `:doc`, `:schema`, source coordinates and `:derive` handler to the
+  inspected frame's live node — a plausible answer naming the wrong derivation.
+  The VALUES stay right throughout, because `subscribe` establishes the target
+  generation on its own path, so correct values cannot vouch for the metadata
+  beside them.
+
+  `rf.live-frame/call-with-frame-resolution` is the existing frame-resolution
+  seam (the one `subscribe` uses): it binds the target's sealed generation when
+  the id names an image-loaded frame, and binds NOTHING otherwise, so a frame
+  with no generation, a missing frame and the JVM all behave exactly as before.
+  `registrations` returns an eager map, so the projection is complete before the
+  binding unwinds. Because the target is passed explicitly, the answer is the
+  same whether the caller is inside another frame's generation binding or none
+  at all — which is what Xray's contributor path and the Pair preload need, since
+  neither can arrange to be inside the frame it is inspecting.
+
+  Internal registrar semantics are untouched, and no new query grammar is added
+  (rf2-kuky.30's ruling stands): this only supplies the target generation the
+  frame-directed readers always meant."
+  [frame-id]
+  (rf.live-frame/call-with-frame-resolution
+    frame-id
+    (fn [] (rf.registrar/registrations :sub))))
+
 (defn sub-cache-snapshot
   "Public read-only snapshot of a frame's sub-cache, projected to a
   Tool-Pair-friendly shape:
@@ -159,7 +203,7 @@
   #?(:cljs
      (when rf.interop/debug-enabled?
        (when-let [cache (:sub-cache (rf.frame/frame frame-id))]
-         (let [subs-meta (rf.registrar/registrations :sub)]
+         (let [subs-meta (inspected-frame-sub-registrations frame-id)]
            (reduce-kv
              (fn [acc query-v entry]
                (let [sub-id     (when (vector? query-v) (first query-v))
@@ -414,7 +458,7 @@
   #?(:cljs
      (when rf.interop/debug-enabled?
        (when-let [cache (:sub-cache (rf.frame/frame frame-id))]
-         (let [subs-meta (rf.registrar/registrations :sub)]
+         (let [subs-meta (inspected-frame-sub-registrations frame-id)]
            (reduce-kv
              (fn [acc query-v entry]
                (let [sub-id     (when (vector? query-v) (first query-v))
