@@ -185,15 +185,18 @@
 ;; ---- 4b. rf2-s32bf — the public opts form is EXACT + FAIL-CLOSED -----------
 
 (deftest clear-http-interceptor-opts-form-fail-closed-rf2-s32bf
-  (testing "rf2-s32bf — the public 2-arity opts map must be EXACTLY
-            {:frame target}; malformed opts, a non-map second arg, and the old
-            two-scalar frame-first shape fail closed with
-            :rf.error/http-bad-interceptor and leave the ambient interceptor
-            untouched; the exact {:frame target} form still clears."
+  (testing "rf2-s32bf — the opts map must be EXACTLY {:frame target}; malformed
+            opts, a non-map second arg, and the old two-scalar frame-first
+            shape fail closed with :rf.error/registrar-clear-bad-request —
+            `clear`'s own validator, which runs BEFORE any frame is resolved
+            (rf2-kuky.80) — and leave the ambient interceptor untouched; the
+            exact {:frame target} form still clears. The grammar is identical
+            on both runtimes; the JVM twin additionally pins the
+            artefact-level door's own :rf.error/http-bad-interceptor."
     (letfn [(threw-bad? [thunk]
               (let [ex (try (thunk) nil (catch :default e e))]
                 (and (some? ex)
-                     (= :rf.error/http-bad-interceptor
+                     (= :rf.error/registrar-clear-bad-request
                         (:rf.error/id (ex-data ex))))))]
       ;; ambient scope is :rf/default (fixture) — seed a slot there.
       (rf/reg-http-interceptor :s32bf/ambient {:before (fn [c] c)})
