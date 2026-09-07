@@ -20,16 +20,18 @@ The `reg-app-schema` / `reg-app-schemas` **registration macros** stay on the `re
 (schemas/app-schemas)                              ;; -> {path schema ...}
 (schemas/app-schemas-digest)                       ;; -> stable digest string
 
-(schemas/set-schema-validator!  validate-fn-or-nil) ;; swap in non-Malli validator (fn or nil ONLY)
-(schemas/set-schema-explainer!  explain-fn)
+(schemas/set-schema-fns! {:validate validate-fn-or-nil   ;; swap in non-Malli validator
+                          :explain  explain-fn})
+(schemas/schema-fns)                                  ;; read what is installed
+schemas/default-schema-fns                            ;; the framework's own bundle
 (schemas/set-schema-fns!  {:validate validate-fn  ;; install the validator/explainer/printer bundle atomically
                            :explain  explain-fn
                            :print    print-fn})
 ```
 
-> **Bundle maps must NOT go to `set-schema-validator!`.** It accepts a validator **fn or `nil`** only — no map-shape inspection. Because maps are invokable in Clojure, passing `{:validate ... :explain ...}` installs the *map itself* as the validator (called as `(the-map schema value)`, looking up `schema` as a key — almost always `nil`/falsey), so validation silently mis-validates. The bundle map belongs to `set-schema-fns!`.
+> **An omitted key is not an explicit `nil`.** `set-schema-fns!` writes only the keys the map carries, so `{:validate f}` swaps the validator and leaves the explainer and printer alone — that is how you swap one fn. Passing an explicit `nil` IS a write, and disables that fn.
 
-Verified against `implementation/core/src/re_frame/core.cljc`: the `reg-app-schema` macro (and `reg-app-schemas` plural form) are `def`-aliased onto `re-frame.schemas` and stay on the `re-frame.core` façade; the `app-schema-at` / `app-schemas` / `app-schemas-digest` query aliases and the `set-schema-validator!` / `set-schema-fns!` validator seam are reached on `re-frame.schemas` directly (not on the `re-frame.core` façade).
+Verified against `implementation/core/src/re_frame/core.cljc`: the `reg-app-schema` macro (and `reg-app-schemas` plural form) are `def`-aliased onto `re-frame.schemas` and stay on the `re-frame.core` façade; the `app-schema-at` / `app-schemas` / `app-schemas-digest` query aliases and the `set-schema-fns!` / `schema-fns` / `default-schema-fns` validator seam is reached on `re-frame.schemas` directly (not on the `re-frame.core` façade).
 
 Registrations are **frame-scoped** — the schema attaches to a path inside one frame's `app-db`. Default frame is `(current-frame-id)`; pass `{:frame :other}` in `opts` to target another.
 
@@ -121,18 +123,18 @@ The `reg-app-schema` validates `app-db` shape at the `[:flight]` path; the `:sch
 
 ## Swapping the validator
 
-`set-schema-validator!` is the **substitute-Malli seam**. Apps that want to drop the ~24KB gzipped Malli surface in production swap in a hand-written validator at boot. `set-schema-validator!` swaps only the validator; `set-schema-fns!` installs the validator/explainer/printer bundle atomically (the honest bundle setter — its name says it sets all three):
+`set-schema-fns!` is the **substitute-Malli seam**. Apps that want to drop the ~24KB gzipped Malli surface in production swap in a hand-written validator at boot. It installs any subset of the validator/explainer/printer bundle, so one key swaps one fn and all three install a whole port:
 
 ```clojure
 ;; Validator only — explainer/printer untouched.
-(schemas/set-schema-validator! (fn [schema value] (my-validator schema value)))
+(schemas/set-schema-fns! {:validate (fn [schema value] (my-validator schema value))})
 
 ;; All three at once, atomically.
 (schemas/set-schema-fns!
   {:validate (fn [schema value] (my-validator schema value))
    :explain  (fn [schema value] (my-explainer schema value))})
 
-(schemas/set-schema-validator! nil)    ;; disable validation entirely
+(schemas/set-schema-fns! {:validate nil})  ;; disable validation entirely
 ```
 
 ## Common gotchas
@@ -150,4 +152,4 @@ Validation-order spec, per-step recovery, digest algorithm, the schemas artefact
 
 ---
 
-*Derived from `implementation/core/src/re_frame/core.cljc` (macro + validator seam) and `implementation/core/src/re_frame/spec.cljc` (boundary interceptor) @ main. Citations are symbol-level; re-verify symbol homes after `validate-at-boundary-interceptor` or `set-schema-validator!` changes.*
+*Derived from `implementation/core/src/re_frame/core.cljc` (macro + validator seam) and `implementation/core/src/re_frame/spec.cljc` (boundary interceptor) @ main. Citations are symbol-level; re-verify symbol homes after `validate-at-boundary-interceptor` or `set-schema-fns!` changes.*

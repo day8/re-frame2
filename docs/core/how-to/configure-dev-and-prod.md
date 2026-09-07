@@ -124,7 +124,7 @@ The three keys, in detail:
 
 ### The `set-…!` bucket: swappable implementations
 
-You touch the `set-…!` bucket only to replace an implementation — a non-Malli validator via `rf/set-schema-validator!`, an explainer via `rf/set-schema-explainer!`, a [substrate](../glossary.md#substrate) via `rf/install-adapter!` — and on the happy path the boot wiring sets all of these for you, so most apps never call them directly.
+You touch the `set-…!` bucket only to replace an implementation — a non-Malli validator or explainer via `schemas/set-schema-fns!` (on `re-frame.schemas`, not the `rf/` front porch), a [substrate](../glossary.md#substrate) via `rf/install-adapter!` — and on the happy path the boot wiring sets all of these for you, so most apps never call them directly.
 
 ### The per-frame bucket: frame-lifetime overrides
 
