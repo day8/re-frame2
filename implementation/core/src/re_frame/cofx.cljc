@@ -57,10 +57,8 @@
   "Resolve the active platform for a cofx supplier run from a frame-id.
   Resolves the frame record, then defers to the shared per-frame platform
   resolution `rf.fx/platform-for-frame-record`: the frame's `:config
-  :platform` override (set by the `:ssr-server` preset, or any
-  user-supplied frame config) takes precedence over the host-wide platform
-  marker (`rf.interop/active-platform`, toggled via
-  `re-frame.core/init-platform`)."
+  :platform` override takes precedence over the host default
+  (`rf.interop/active-platform`, a per-host constant)."
   [frame-id]
   (rf.fx/platform-for-frame-record (when frame-id (rf.frame/frame frame-id))))
 

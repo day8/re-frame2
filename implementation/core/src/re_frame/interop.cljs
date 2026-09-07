@@ -196,28 +196,21 @@
 ;;
 ;; Per Spec 011 §Effect handling on the server, the runtime tracks the
 ;; active platform (`:server` or `:client`) so `reg-fx`/`reg-cofx`
-;; `:platforms` metadata can gate execution. CLJS hosts default to
-;; `:client`; the public setter `re-frame.core/init-platform` swaps it
-;; at boot for the CLJS-on-Node SSR case (a CLJS bundle whose `:target`
-;; isn't `:browser` and that wants `:server` fx semantics).
+;; `:platforms` metadata can gate execution. The platform is the HOST
+;; DEFAULT and nothing else — `:client` on CLJS, INCLUDING CLJS-on-Node —
+;; with no process-wide setter: a CLJS-on-Node SSR runtime that wants
+;; `:server` fx semantics tags the FRAME, which is what every in-repo SSR
+;; host already does.
 ;;
-;; Per-frame `:config :platform` (set by the `:ssr-server` preset, or any
-;; user-supplied frame config) still wins over this host-wide marker.
-
-(defonce ^:private platform-state (atom :client))
+;; Per-frame `:config :platform` is the ONLY override, and it wins.
 
 (defn active-platform
-  "Return the active platform marker (`:client` on CLJS by default).
-  Override at boot with `(re-frame.core/init-platform :server)` per
-  Spec 011 §Effect handling on the server."
+  "Return the host default platform marker — `:client` on CLJS,
+  including CLJS-on-Node. A constant: override per frame with
+  `{:platform :server}` in the frame config, per Spec 011 §Effect
+  handling on the server."
   []
-  @platform-state)
-
-(defn set-platform!
-  "Internal setter. Public callers should use
-  `(re-frame.core/init-platform p)` which validates the argument."
-  [p]
-  (reset! platform-state p))
+  :client)
 
 ;; ---- compile-time constants -----------------------------------------------
 

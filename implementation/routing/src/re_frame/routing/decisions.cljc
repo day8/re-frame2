@@ -206,7 +206,7 @@
 
 (defn server-frame?
   "True iff `frame-id` is an SSR / server frame — its `:config :platform`
-  is `:server` (set by the `:ssr-server` preset). Reads ONLY the FRAME's
+  is `:server`, tagged on the frame config. Reads ONLY the FRAME's
   platform, never the host-wide default (which is `:server` on the JVM, so
   a JVM client-mode unit test must not be mistaken for SSR). Gates the
   default `403` entry-denial floor (Spec 011 §Route entry denial — the

@@ -775,7 +775,7 @@
 ;;
 ;; Presets expand at registration time into a fixed bundle of metadata
 ;; keys. Per Spec 002 §Frame presets the closed v1 set is :default,
-;; :test, :story, :ssr-server. User-supplied keys win on conflict; the
+;; :test and :story. User-supplied keys win on conflict; the
 ;; original :preset value is preserved verbatim for inspection.
 
 (deftest preset-expansion-default
@@ -821,13 +821,18 @@
       (is (nil? (:rf.cofx/mint-policy cfg))
           ":story carries no mint-policy entry — it rides the :live router default"))))
 
-(deftest preset-expansion-ssr-server
-  (testing ":ssr-server expansion: :platform :server"
-    (rf/make-frame {:id :p/ssr :preset :ssr-server})
+(deftest platform-is-a-plain-frame-config-key-not-a-preset
+  (testing "platform is tagged directly on the frame — there is no preset for
+            it (rf2-kuky.77). The host default covers the untagged case."
+    (rf/make-frame {:id :p/ssr :platform :server})
     (let [cfg (:config (rf.frame/frame :p/ssr))]
-      (is (= :ssr-server (:preset cfg)))
       (is (= :server (:platform cfg))
-          ":ssr-server stamps :platform :server (singular keyword — one platform per frame)"))))
+          "the frame carries :platform :server (singular keyword — one platform per frame)")
+      (is (nil? (:preset cfg))
+          "no preset was involved"))
+    (rf/make-frame {:id :p/untagged})
+    (is (nil? (:platform (:config (rf.frame/frame :p/untagged))))
+        "an untagged frame carries no :platform key — it rides the host default")))
 
 (deftest preset-user-keys-win-on-conflict
   (testing "user-supplied keys override individual expansion entries"

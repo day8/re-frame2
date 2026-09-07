@@ -279,25 +279,3 @@
 
       (is (= explicit @observed)
           "the declared cofx delivered the set-request! value"))))
-
-;; ---- :ssr-server preset frames --------------------------------------------
-;;
-;; The :ssr-server preset (frame.cljc §preset-expansion) sets
-;; :platform :server — confirm the cofx works under the preset shape
-;; the same way it does with an explicit :platform :server.
-
-(deftest cofx-works-under-ssr-server-preset
-  (testing "the cofx surfaces the request under a :preset :ssr-server frame"
-    (let [server-frame (rf.frame/make-anon-frame-record! {:preset :ssr-server})
-          request      {:uri "/preset" :request-method :get}
-          observed     (atom :unset)]
-      (rf.ssr/set-request! server-frame request)
-      (rf/reg-event :req-test/read-preset
-        {:rf.cofx/requires [:rf.server/request]}
-        (fn [{:keys [rf.server/request]} _]
-          (reset! observed request)
-          {}))
-      (rf/dispatch-sync [:req-test/read-preset] {:frame server-frame})
-
-      (is (= request @observed)
-          "the cofx flows the request through under the :ssr-server preset"))))

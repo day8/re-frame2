@@ -909,42 +909,40 @@
             delivers nothing; the event still runs (Spec 011 §634-642).
 
             Cross-runtime: the host platform default differs (JVM :server,
-            CLJS :client), so the test PINS the active platform to :server for
-            the body via `rf/init-platform`, restoring the host default after
-            — so the `#{:client}` supplier is deterministically OFF-platform
-            and skipped on BOTH runtimes (rf2-49eush)."
-    (let [host-default (rf.interop/active-platform)]
-      (rf/init-platform :server)
-      (try
-        (let [traces       (collect-traces! ::plat)
-              cofx-fired?  (atom false)
-              event-fired? (atom false)
-              seen         (atom ::unset)]
-          (rf/reg-cofx :cofx-test/browser-locale
-            {:platforms #{:client}}
-            (fn [] (reset! cofx-fired? true) "en-US"))
-          (rf/reg-event :cofx-test/read-browser-locale
-            {:rf.cofx/requires [:cofx-test/browser-locale]}
-            (fn [{:keys [cofx-test/browser-locale] :as cofx} _]
-              (reset! event-fired? true)
-              (reset! seen (contains? cofx :cofx-test/browser-locale))
-              {}))
-          (rf/dispatch-sync [:cofx-test/read-browser-locale])
-          (rf/unregister-listener! :trace ::plat)
-          (is (false? @cofx-fired?) "the client-only supplier did NOT run on :server")
-          (is (true? @event-fired?) "the event still ran — only the supplier was skipped")
-          (is (false? @seen) "the skipped fact was NOT delivered flat")
-          ;; The three assertions above are the always-on half and were
-          ;; already posture-independent: the supplier's own side effect did
-          ;; not fire, the event ran anyway, and the fact was not delivered.
-          ;; `:rf.cofx/skipped-on-platform` is a dev-trace op with no promoted
-          ;; counterpart (it is not an error category), so it is guarded.
-          (when rf.interop/debug-enabled?
-            (let [skips (filter #(= :rf.cofx/skipped-on-platform (:operation %)) @traces)]
-              (is (= 1 (count skips)) "exactly one skipped-on-platform trace")
-              (is (= :cofx-test/browser-locale (get-in (first skips) [:tags :rf.cofx/id]))))))
-        (finally
-          (rf/init-platform host-default))))))
+            CLJS :client), so the test PINS the platform on its own FRAME
+            (`{:platform :server}`) and dispatches into it — so the
+            `#{:client}` supplier is deterministically OFF-platform and
+            skipped on BOTH runtimes (rf2-49eush, rf2-kuky.77). Nothing is
+            process-wide, so nothing needs restoring after."
+    (rf/make-frame {:id :cofx-test/server-frame :platform :server})
+    (let [traces       (collect-traces! ::plat)
+          cofx-fired?  (atom false)
+          event-fired? (atom false)
+          seen         (atom ::unset)]
+      (rf/reg-cofx :cofx-test/browser-locale
+        {:platforms #{:client}}
+        (fn [] (reset! cofx-fired? true) "en-US"))
+      (rf/reg-event :cofx-test/read-browser-locale
+        {:rf.cofx/requires [:cofx-test/browser-locale]}
+        (fn [{:keys [cofx-test/browser-locale] :as cofx} _]
+          (reset! event-fired? true)
+          (reset! seen (contains? cofx :cofx-test/browser-locale))
+          {}))
+      (rf/dispatch-sync [:cofx-test/read-browser-locale]
+                        {:frame :cofx-test/server-frame})
+      (rf/unregister-listener! :trace ::plat)
+      (is (false? @cofx-fired?) "the client-only supplier did NOT run on :server")
+      (is (true? @event-fired?) "the event still ran — only the supplier was skipped")
+      (is (false? @seen) "the skipped fact was NOT delivered flat")
+      ;; The three assertions above are the always-on half and were
+      ;; already posture-independent: the supplier's own side effect did
+      ;; not fire, the event ran anyway, and the fact was not delivered.
+      ;; `:rf.cofx/skipped-on-platform` is a dev-trace op with no promoted
+      ;; counterpart (it is not an error category), so it is guarded.
+      (when rf.interop/debug-enabled?
+        (let [skips (filter #(= :rf.cofx/skipped-on-platform (:operation %)) @traces)]
+          (is (= 1 (count skips)) "exactly one skipped-on-platform trace")
+          (is (= :cofx-test/browser-locale (get-in (first skips) [:tags :rf.cofx/id])))))))
 
 ;; ===========================================================================
 ;; 10. handler-meta surfaces :rf.cofx/requires as authored (reflection)

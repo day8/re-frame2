@@ -2303,9 +2303,9 @@
   "#4 Machines under SSR (allowed-subset)."
   [{:keys [name]}]
   (testing (str name " — #4 machines under SSR (allowed-subset)")
-    (rf/make-frame {:id :req :preset :ssr-server})
+    (rf/make-frame {:id :req :platform :server})
     (let [m (rf/frame-meta :req)]
-      (is (= :server (:platform m)) ":ssr-server preset sets :platform :server"))
+      (is (= :server (:platform m)) "the frame tag lands as :platform :server"))
     (rf/reg-machine :ssr/timed
       {:initial :idle :data {}
        :states {:idle    {:on {:fetch {:target :loading}}}
@@ -2316,10 +2316,10 @@
       (stop-traces ::xspec-4-after)
       (let [skipped   (filter #(= :rf.machine.timer/skipped-on-server (:operation %)) @traces)
             scheduled (filter #(= :rf.machine.timer/scheduled (:operation %)) @traces)]
-        (is (seq skipped) ":after on :ssr-server emits :rf.machine.timer/skipped-on-server")
+        (is (seq skipped) ":after on a :platform :server frame emits :rf.machine.timer/skipped-on-server")
         (is (some #(= :server (get-in % [:tags :platform])) skipped) "the skipped-on-server trace records :platform :server")
         (is (some #(= 500 (get-in % [:tags :delay])) skipped) "the trace carries the declared :after delay")
-        (is (empty? scheduled) "no :rf.machine.timer/scheduled trace fires on :ssr-server")))))
+        (is (empty? scheduled) "no :rf.machine.timer/scheduled trace fires on a :platform :server frame")))))
 
 (defn assert-xspec-route-not-found-ssr
   "#7 Route-not-found under SSR."
@@ -2442,7 +2442,7 @@
   "#16 Error projection on the server."
   [{:keys [name]}]
   (testing (str name " — #16 error projection on the server")
-    (rf/make-frame {:id :req :preset :ssr-server})
+    (rf/make-frame {:id :req :platform :server})
     (rf/reg-event :handler-throws (fn [_ _] (throw (ex-info "boom" {}))))
     (let [traces (collect-traces ::xspec-16)]
       (rf/dispatch-sync [:handler-throws] {:frame :req})

@@ -814,7 +814,7 @@
 
 (defn server-frame?
   "True iff `frame-id` is an SSR / server frame (its `:config :platform` is
-  `:server`, set by the `:ssr-server` preset). Reads ONLY the FRAME's platform
+  `:server`). Reads ONLY the FRAME's platform
   — NOT the host-wide `active-platform` default (which is `:server` on the JVM,
   so a JVM client-mode unit test must still arm timers). The single home both
   the read path and the mutation-success path consult before arming a
