@@ -162,15 +162,6 @@ The URL ↔ route mapping is a prism. `match-url` reads a URL into route data. `
 
   The `:rf.route/transitioned` / `:rf.route/handle-url-change` handlers use it to tell two cases apart: a plain route miss (`{:url url}`) and a malformed URL that failed closed (`{:url url :reason :malformed-url}`). Both cases end at `:rf.route/not-found`. The structured `:reason` lets per-route error UIs and SSR projections branch on the cause.
 
-### `current-url`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (current-url) → app-relative URL string
-  ```
-- **Description**: Read the current browser URL as an app-relative string (`pathname + search + hash`). Returns `"/"` when no `window.location` is available (JVM / SSR / Node). This is the history strategy's `:decode`. A hash app's listener decodes through its own strategy and never calls this directly. It is public so apps that wire their own history listener can recover the same projection the framework's listener uses.
-
 ## Introspection and slice access
 
 This is the read-side surface over the route registry and the live route slice. The static accessors answer "which routes are registered, and what is route X's spec?". The live readers expose the per-frame slice. The `*-algebra-view` helpers lower routes into the shared derivation/process-algebra node shape, so a tool can show subscriptions, flows, resources, route facts, and machine selectors as one family.
@@ -224,15 +215,6 @@ This is the read-side surface over the route registry and the live route slice. 
   (route-slice-algebra-view frame-id) → route-fact-node or nil
   ```
 - **Description**: The LIVE counterpart to `route-algebra-view`. It reads the route fact materialized in a frame's runtime-db at `[:rf.runtime/routing :current]` — the concrete matched route, with its params, query, transition state, and nav-token. Returns a single `:route-fact` node. Returns `nil` when the frame is missing or destroyed, or when no navigation has committed yet (so no route has been materialized). The node carries the same fixed classifications as the static node, plus `:route-id`, `:params`, `:query`, `:transition`, `:nav-token`, and `:owner` `[:route <route-id> <nav-token>]`. Runs on both CLJS and the JVM (a single runtime-db container deref).
-
-### `route-sub-fn`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (route-sub-fn db query-v) → route slice
-  ```
-- **Description**: The layer-1 sub fn behind `:rf/route`. It reads the route slice from `[:rf.runtime/routing :current]`. Exposed publicly so external callers (smoke tests, tooling) can read the slice without re-deriving the path.
 
 ### Reading the route and the pending-nav slot
 
@@ -446,7 +428,7 @@ The `:route/link` registered view renders an `<a href=...>` from a route id. It 
 
 ### `route-link`
 
-- **Kind**: component (CLJS-only; the registered `:route/link` view)
+- **Kind**: component (the registered `:route/link` view). There is no `re-frame.routing/route-link` **var** — the authoring name is `rf/route-link` on the `re-frame.core` facade, which reaches the view through routing's `:routing/route-link` late-bind hook.
 - **Signature**:
   ```clojure
   [route-link {:to :route-id :params {...} :query {...} :fragment "..."
@@ -456,10 +438,10 @@ The `:route/link` registered view renders an `<a href=...>` from a route id. It 
 - **Description**: The registered `:route/link` view.
 
   - `:to` is the only required key. `:params`, `:query`, and `:fragment` are forwarded to `route-url` for href synthesis. `:prefetch` is the one behaviour key (below). Every other props key passes through to the `<a>` element — including `:aria-current` and `:class`, which is how an "active link" is styled: `route-link` computes **no** active state, so compare `:to` against `:rf.route/id` (or `:rf.route/chain`) in your own view. See [Routing → Highlighting the active link](../routing/concepts.md#highlighting-the-active-link).
-  - A plain primary-button click (no modifier keys, `defaultPrevented` false) is intercepted. The view calls `preventDefault`, then dispatches `[:rf.route/url-requested {:url ... :to ...}]` targeted at the frame that rendered the link.
+  - A plain primary-button click (no modifier keys, `defaultPrevented` false) is intercepted. The view calls `preventDefault`, then dispatches `[:rf.route/url-requested {:url ...}]` targeted at the frame that rendered the link. One key: a raw URL is the whole address, and the handler re-derives the route from it.
   - Modifier-key / middle-button clicks, and anchors carrying native-handling attributes (`:target` other than `_self`, or `:download`), defer to the browser.
   - A caller-supplied `:on-click` runs first. If it calls `preventDefault`, the framework's interception is skipped.
-  - `:prefetch :intent` warms the destination on hover, focus, or touch by dispatching [`:rf.route/prefetch`](#events) with the link's own address (`:fragment` excluded — a fragment is never a resource input). `:intent` is the only accepted value, and **omitting** `:prefetch` is the only way to opt out — a key present with any other value (including `true`, `false`, `nil`, or a mode borrowed from another router) throws `:rf.error/route-link-bad-prefetch` at the render site rather than quietly rendering a passive link. Caller-supplied `:on-mouse-enter` / `:on-focus` / `:on-touch-start` handlers still run — the framework composes rather than replaces. The intent *handlers* are CLJS-only (SSR renders the anchor with none), but the value is validated on both hosts, so the server shell never accepts a mode the hydrated client rejects.
+  - `:prefetch :intent` warms the destination on hover, focus, or touch by dispatching [`:rf.route/prefetch`](#events) with the link's own address (`:fragment` excluded — a fragment is never a resource input). `:intent` is the only accepted value, and **omitting** `:prefetch` is the only way to opt out — a key present with any other value (including `true`, `false`, `nil`, or a mode borrowed from another router) throws `:rf.error/route-link-bad-prefetch` at the render site rather than quietly rendering a passive link. Caller-supplied `:on-mouse-enter` / `:on-focus` / `:on-touch-start` handlers still run — the framework composes rather than replaces. The intent *handlers* are CLJS-only (SSR renders the anchor with none), but the value is validated on both hosts, so the server shell never accepts a mode the hydrated client rejects. `re-frame.hicasso/route-link` honours the same key from the same calculation, reached through the `:routing/link-model` seam; because Hicasso's grammar carries one intent per position it *refuses* a caller value at a claimed position rather than composing — see [Hicasso → Routing and navigation](../core/hicasso/07-routing-and-navigation.md).
   - The rendered href is encoded through the rendering frame's `:url-strategy` — on both hosts, so the server shell and the hydrated client agree.
   - On the JVM the `:route/link` registration renders via [`route-link-render-ssr`](#route-link-render-ssr).
 - **Example**:
@@ -467,15 +449,6 @@ The `:route/link` registered view renders an `<a href=...>` from a route id. It 
   [rf/route-link {:to :user/show :params {:id 42} :class "nav-item"}
    "Profile"]
   ```
-
-### `route-link-render`
-
-- **Kind**: function (CLJS-only)
-- **Signature**:
-  ```clojure
-  (route-link-render props & children) → hiccup
-  ```
-- **Description**: The CLJS render fn behind `route-link`, exposed without the registry wrap so tests can call it directly. Same props contract and click rules as [`route-link`](#route-link). It must run inside a frame scope, and raises `:rf.error/no-frame-context` when rendered outside one. The render-time frame is captured so the click dispatch still targets it after the render scope has unwound.
 
 ## Server-side rendering
 

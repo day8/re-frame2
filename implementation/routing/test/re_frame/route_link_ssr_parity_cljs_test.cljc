@@ -143,7 +143,7 @@
       (let [model (rf.routing.link/link-model active-props frame)]
         (is (= active (:href model))
             (str frame ": link-model :href is the strategy-encoded form on this host"))
-        (is (= [:rf.route/url-requested {:url "/active" :to :parity/active}]
+        (is (= [:rf.route/url-requested {:url "/active"}]
                (:payload model))
             (str frame ": the navigation payload stays PATH-FORM — only the href is encoded"))
         (is (false? (:native? model)) "a plain link is not a native anchor"))
@@ -152,6 +152,32 @@
       (is (= punct (:href (rf.routing.link/link-model punct-props frame)))
           (str frame ": punctuation stays literal through link-model's href too"
                " — the second door reads the same canonical bytes (rf2-j3tud)")))))
+
+(deftest link-model-prefetch-agrees-across-hosts
+  (testing "rf2-kuky.37: the prefetch pair is PURE and identical on both
+           hosts. The JVM/SSR shell installs no handlers — it drops the event
+           props with every other on-* — but it must EMIT and REFUSE exactly
+           what the client does, or the server shell would accept a mode the
+           hydrated client rejects (the asymmetry EP-0037 R3 closed for the
+           value check, reached here through the warm-up)"
+    (register-routes!)
+    (doseq [{:keys [frame] :as row} parity-cases]
+      (seat-frame! row)
+      (let [warm    (rf.routing.link/link-model (assoc article-props :prefetch :intent) frame)
+            passive (rf.routing.link/link-model article-props frame)]
+        (is (= [:rf.route/prefetch {:to :parity/article :params {:slug "x"}
+                                    :query {:tab "comments"}}]
+               (:prefetch warm))
+            (str frame ": the warm-up vector is PATH-FORM address data — no"
+                 " strategy encoding, so it cannot differ between hosts"))
+        (is (nil? (:prefetch passive))
+            (str frame ": an absent :prefetch key is passive on this host too"))
+        (is (= rf.routing.link/prefetch-intent-keys (:prefetch-keys warm))
+            (str frame ": the claimed positions travel identically"))
+        (is (thrown? #?(:cljs js/Error :clj clojure.lang.ExceptionInfo)
+                     (rf.routing.link/link-model (assoc article-props :prefetch :render) frame))
+            (str frame ": a bad mode is refused on this host — the SSR shell"
+                 " never accepts what the client rejects"))))))
 
 (deftest no-frame-and-default-frame-keep-the-path-form-href
   (testing "a frame that declares no strategy renders path-form on both hosts"

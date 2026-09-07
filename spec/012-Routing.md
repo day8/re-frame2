@@ -643,23 +643,38 @@ validation, reached by every link calculation routing runs and on **both hosts**
 `rf/route-link`'s CLJS render, its SSR shell, and the `:routing/link-model` seam a
 view substrate consumes for its own spelling — so all three reject the same values
 the same way, the SSR shell included, which must not accept a mode the hydrated
-client rejects. The installed intent handlers **compose with**, rather than replace, a caller-supplied
-`:on-mouse-enter` / `:on-focus` / `:on-touch-start`, and dispatch to the same
-render-time-captured frame the click handler targets — so a prefetch warms the
-frame that rendered the link, never a sibling. A caller who wants prefetch on a
-non-link intent (a search result becoming the keyboard selection) dispatches
-`:rf.route/prefetch` directly; the link opt is sugar over that event.
+client rejects. Wherever the warm-up is installed as a handler FUNCTION — `rf/route-link`
+on both hosts — it **composes with**, rather than replaces, a caller-supplied
+`:on-mouse-enter` / `:on-focus` / `:on-touch-start`. Every surface dispatches to the same
+render-time-captured frame the click handler targets, so a prefetch warms the
+frame that rendered the link, never a sibling. (A surface whose grammar admits only
+one intent per position cannot compose; see **One value per claimed position** below.)
 
-**Validation is shared; wiring the triggers is the substrate's own call.** Rejecting a
-bad value and installing the hover / focus / touch-start handlers are separate
-obligations: the first is routing's and reaches every surface through the check
-above, the second belongs to whichever surface renders the anchor. `rf/route-link`
-wires the triggers. `re-frame.hicasso/route-link` does **not** in v0 — it owns
-`:prefetch` as a routing control key and keeps it off the emitted `<a>`, but installs
-no prefetch handler — so `:prefetch :intent` on a Hicasso link is validated and then
-inert, warming nothing. That is a deliberate v0 decline rather than an oversight, and
-this spec does not promise otherwise; on that substrate an author spells the warm-up
-directly, dispatching `:rf.route/prefetch` from an `:on-mouse-enter`.
+**Validation and the warm-up are both shared; only the wiring is the substrate's.**
+There is ONE prefetch calculation in the framework — the address extraction and the
+`[:rf.route/prefetch {…}]` vector it mints — and every link surface reaches it, so no
+surface writes a second prefetch policy. `rf/route-link` reaches it by direct call.
+`re-frame.hicasso/route-link` reaches it through the `:routing/link-model` seam, which
+carries the minted vector (`:prefetch`, nil for a passive link) alongside the
+positions it belongs at (`:prefetch-keys`) — the seam names the positions so a
+consuming substrate never restates them, and a position routing adds reaches every
+surface at once. What remains substrate-specific is only how the vector is attached:
+`rf/route-link` installs composing handler functions, Hicasso puts the intent vector
+at each position and lets its own lowering walk it. **Both surfaces honour
+`:prefetch :intent`; neither accepts it and warms nothing.**
+
+**One value per claimed position.** Where a surface's grammar carries a single intent
+per position, `:prefetch :intent` CLAIMS the three positions and a caller value at
+one of them is refused at render rather than silently dropped or half-applied — a
+link warming at two positions out of three is the same undetectable failure the value
+check above exists to refuse. `rf/route-link`, whose handlers compose, has no such
+conflict and needs no such refusal; `re-frame.hicasso/route-link` raises
+[`:rf.error/hicasso-route-link-claimed-intent-position`](009-Instrumentation.md#error-event-catalogue).
+On any surface the escape is the same: omit the sugar and dispatch
+`:rf.route/prefetch` by hand from the positions you are not using. The sugar
+abbreviates that form; it never replaces it. A caller who wants prefetch on a
+non-link intent (a search result becoming the keyboard selection) writes the event
+directly for the same reason.
 
 **Why the runtime doesn't auto-intercept.** A global `click` listener that calls `match-url` on every link is a host concern (DOM-bound, browser-only, conflicts with non-routed `<a>` tags inside iframes / shadow DOM / third-party widgets). The host adapter has the context to install or skip it; the runtime stays portable.
 
@@ -667,17 +682,14 @@ Users who want plain anchors to be interceptable register their own delegating h
 
 ### Reading the route is a sub
 
-The `:rf/route` sub projects the published slice keys via `select-keys` over the route slice at `[:rf.runtime/routing :current]`. The internal `:pending-navigation` slot lives alongside `:current` under `[:rf.runtime/routing]` in `runtime-db` (it has its own `:rf/pending-navigation` sub) but does not surface through the `:rf/route` sub — consumers that `deref` the route sub see only the slice. The nav-token / pending-nav **counters** are **not** `runtime-db` siblings at all — like the scroll-position cache they live in host-side transient caches (per [§Navigation tokens — stale-result suppression](#navigation-tokens--stale-result-suppression) and [§Scroll restoration](#scroll-restoration)) — so no internal counter tick ever touches `runtime-db` or risks a route-sub re-render.
+The `:rf/route` sub reads the route slice at `[:rf.runtime/routing :current]` **directly** — no projection. The isolation is structural rather than a filter: the internal `:pending-navigation` slot is a SIBLING of `:current` under `[:rf.runtime/routing]` in `runtime-db` (it has its own `:rf/pending-navigation` sub), so it was never inside the value the route sub reads, and a `select-keys` over the slice would have nothing to exclude. The nav-token / pending-nav **counters** are **not** `runtime-db` siblings at all — like the scroll-position cache they live in host-side transient caches (per [§Navigation tokens — stale-result suppression](#navigation-tokens--stale-result-suppression) and [§Scroll restoration](#scroll-restoration)) — so no internal counter tick ever touches `runtime-db` or risks a route-sub re-render.
 
 These are **framework subscriptions** — their layer-1 reader runs against the frame's **runtime-db** projection (where the route slice lives), not the app-db projection (per [002 §Subscriptions read the partition they belong to](002-Frames.md#subscriptions-read-the-partition-they-belong-to) and [006 §Frame-state container and partition projections](006-ReactiveSubstrate.md#frame-state-container-and-partition-projections)). The `rt` arg below is the runtime-db projection. A runtime-only route commit propagates to these subs (and to nothing in app-sub-land); app authors consume them through the public sub-ids, never by reaching into runtime-db.
 
 ```clojure
-(def route-slice-keys
-  [:route-id :params :query :fragment :transition :error :nav-token])
-
 (rf/reg-sub :rf/route
   {:doc "The current route slice: {:route-id :params :query :fragment :transition :error :nav-token}."}
-  (fn route-slice [rt _] (select-keys (get-in rt [:rf.runtime/routing :current]) route-slice-keys)))   ;; rt = runtime-db projection
+  (fn route-slice [rt _] (get-in rt [:rf.runtime/routing :current])))   ;; rt = runtime-db projection
 
 (rf/reg-sub :rf.route/id   ;; sub-id stays :rf.route/id; reads the slice's :route-id key
   {:inputs [[:rf.runtime/routing :current]]}

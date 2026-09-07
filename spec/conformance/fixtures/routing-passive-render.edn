@@ -32,7 +32,7 @@
  :fixture/registry
  {:event {:rf/init           {:doc "Seed the current route slice."}
           :rf.route/navigate {:doc "Available for a click handler to CAUSE navigation — deliberately NOT dispatched here, because rendering must never invoke it."}}
-  :sub   {:rf/route {:doc "Current route slice — read passively by a routed view; the framework route-sub-fn projects it."}}
+  :sub   {:rf/route {:doc "Current route slice — read passively by a routed view; the framework :rf/route sub reads it at [:rf.runtime/routing :current]."}}
   :route {:route/home     {:path "/"}
           :route/articles {:path "/articles"}
           :route/article  {:path   "/articles/:slug"
