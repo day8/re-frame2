@@ -6,7 +6,7 @@
 (:require [re-frame.epoch :as epoch])
 ```
 
-Most of this surface is re-exported on the `re-frame.core` facade, so `rf/restore-epoch!` and `epoch/restore-epoch!` name the same function. Examples below use the `rf/` form for re-exported names and the `epoch/` form for the epoch-only helpers (`clear-history!`, `register-epoch-listener!`, `unregister-epoch-listener!`, `clear-epoch-listeners!`, `configure!`). Reading the live epoch configuration back is the facade's job alone — `(:epoch-history (rf/current-config))`; there is no `epoch/current-config`. The epoch **listener** is NOT a per-channel facade re-export. Its app-facing route is the `:epoch` stream of the one listener verb: `(rf/register-listener! :epoch id f)` / `(rf/unregister-listener! :epoch id)`. The `epoch/register-epoch-listener!` native form below is the same underlying registry. See [Observability](../core/observability.md) for how epochs fit the broader trace model.
+**There is one public grammar for the epoch ring: the `rf/` facade spellings.** Every var in `re-frame.epoch` is an implementation seam — a late-bind hook target the facade reaches through — so `rf/restore-epoch!` and `epoch/restore-epoch!` name the same function and the `rf/` form is the one to write. Examples below use it throughout. Three seams have no same-named facade twin and are named here in the `epoch/` form because that is their only spelling: `clear-history!` and `clear-epoch-listeners!` (fixture-grade teardown, no facade door and none wanted) and `configure!` (whose door is `(rf/configure! {:epoch-history …})`). Reading the live configuration back is the facade's job alone — `(:epoch-history (rf/current-config))`; there is no `epoch/current-config`. Listeners attach on the `:epoch` stream of the one listener verb: `(rf/register-listener! :epoch id f)` / `(rf/unregister-listener! :epoch id)`. See [Observability](../core/observability.md) for how epochs fit the broader trace model.
 
 ## Epoch history
 
@@ -27,14 +27,9 @@ Per-frame epoch snapshots, recorded on each handled event's run-to-completion in
 (last (rf/epoch-history :app/main))
 ```
 
-### `clear-history!`
+### Resetting the ring between tests
 
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (clear-history!) → nil
-  ```
-- **Description**: Drops every recorded epoch for every frame, plus any in-flight per-frame capture buffer. Test fixtures use it so each fixture's drain starts from a fresh capture state. Without it, a leftover mid-flight buffer would be picked up by the next fixture's first run.
+`(epoch/clear-history!)` drops every recorded epoch for every frame, plus any in-flight per-frame capture buffer, so each fixture's drain starts from a fresh capture state — without it, a leftover mid-flight buffer is picked up by the next fixture's first run. It is **test-support only**: an implementation seam with no facade door and none wanted, fired by `re-frame.test-support`'s reset-hook table (`:epoch/clear-history!`). Applications have no reason to call it.
 
 ```clojure
 ;; Reset epoch state between test fixtures.
@@ -130,57 +125,37 @@ Per-frame epoch snapshots, recorded on each handled event's run-to-completion in
 
 ## Epoch listeners
 
-### `register-epoch-listener!`
+Assembled-epoch records are delivered through the `:epoch` stream of the one
+listener verb — `(rf/register-listener! :epoch id callback-fn)` /
+`(rf/unregister-listener! :epoch id)`, documented on
+[re-frame.core.md](re-frame.core.md#register-listener). Apps and tools alike
+attach there. `re-frame.epoch`'s own `register-epoch-listener!` /
+`unregister-epoch-listener!` / `clear-epoch-listeners!` are the implementation
+seam the stream delegates to (hook targets for `:epoch/register-epoch-listener!`
+and siblings), not a second public spelling; the last of the three is
+fixture-grade teardown. There is no `rf/register-epoch-listener!` facade
+re-export — it was retired in API-shrink #4.
 
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (register-epoch-listener! id callback-fn) → id
-  ```
-- **Description**: Registers a process-global assembled-epoch listener. Returns the `id`. The app-facing route is `(rf/register-listener! :epoch id callback-fn)`, the `:epoch` stream of the one stream-parameterized listener verb. `epoch/register-epoch-listener!` is the direct epoch-namespace form of the same registry. There is no `rf/register-epoch-listener!` facade re-export; it was retired in API-shrink #4.
-  - `callback-fn` is invoked with the fully-assembled raw `:rf/epoch-record`. The callback is a record **publication** notification, not a once-per-event clock. An ordinary handled event publishes one initial record when it settles; the SAME record re-publishes — carrying the same `:epoch-id` — when a post-settle render / sub-run / unmount back-fills into that already-settled epoch (a corrected record). Non-ordinary records publish too: `:rf.epoch/db-replaced` for each `replace-frame-state!` write and a `:halted-depth` record when a drain hits the depth ceiling (both ring-retained when depth permits), plus the terminal `:halted-destroy` — an already-started event interrupted by frame destruction, delivered to listeners only and never retained (the destroyed frame's history is already gone). A dequeued event rejected before it runs (no handler) publishes nothing.
-  - The listener is **process-global**, but `:epoch-id` is unique only within one frame's history. Reconcile on the pair `[(:frame record) (:epoch-id record)]`: cache each record under that key and REPLACE it on re-publication, so a same-identity backfill corrects the snapshot rather than double-counting. `:outcome` is record STATE (`:ok` / `:halted-depth` / `:halted-destroy`) read off the record — not part of its identity and not an event counter. Listeners receive every record regardless of `:outcome`.
-  - `id` may be any comparable value; registering the same `id` twice replaces.
-  - Listener exceptions are caught and isolated, emitting `:rf.epoch.cb/listener-exception`. One broken listener cannot block others.
-  - When a frame that a callback has observed is destroyed, the framework emits a one-shot `:rf.epoch.cb/silenced-on-frame-destroy` trace for that callback.
+What the callback receives is a property of the RECORD rather than of the verb,
+so it is stated here:
+
+- `callback-fn` is invoked with the fully-assembled **raw** `:rf/epoch-record`. The callback is a record **publication** notification, not a once-per-event clock. An ordinary handled event publishes one initial record when it settles; the SAME record re-publishes — carrying the same `:epoch-id` — when a post-settle render / sub-run / unmount back-fills into that already-settled epoch (a corrected record). Non-ordinary records publish too: `:rf.epoch/db-replaced` for each `replace-frame-state!` write and a `:halted-depth` record when a drain hits the depth ceiling (both ring-retained when depth permits), plus the terminal `:halted-destroy` — an already-started event interrupted by frame destruction, delivered to listeners only and never retained (the destroyed frame's history is already gone). A dequeued event rejected before it runs (no handler) publishes nothing.
+- The listener is **process-global**, but `:epoch-id` is unique only within one frame's history. Reconcile on the pair `[(:frame record) (:epoch-id record)]`: cache each record under that key and REPLACE it on re-publication, so a same-identity backfill corrects the snapshot rather than double-counting. `:outcome` is record STATE (`:ok` / `:halted-depth` / `:halted-destroy`) read off the record — not part of its identity and not an event counter. Listeners receive every record regardless of `:outcome`.
+- `id` may be any comparable value; registering the same `id` twice replaces.
+- Listener exceptions are caught and isolated, emitting `:rf.epoch.cb/listener-exception`. One broken listener cannot block others.
+- When a frame that a callback has observed is destroyed, the framework emits a one-shot `:rf.epoch.cb/silenced-on-frame-destroy` trace for that callback. Decide whether a received signal still names a current fact with `(rf/epoch-silence-current? tags)`.
 
 ```clojure
 ;; Reconcile a per-[frame epoch-id] cache as records publish. Re-publication
 ;; (a backfilled same-identity record) REPLACES its entry, so it corrects the
-;; snapshot rather than double-counting (app-facing route).
+;; snapshot rather than double-counting.
 (def epochs (atom {}))
+
 (rf/register-listener! :epoch :my-app/epoch-watch
   (fn [record]
     (swap! epochs assoc [(:frame record) (:epoch-id record)] record)))
 
-;; Equivalent direct epoch-namespace form.
-(epoch/register-epoch-listener! :my-app/epoch-watch
-  (fn [record]
-    (js/console.log (:frame record) (:epoch-id record))))
-```
-
-### `unregister-epoch-listener!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (unregister-epoch-listener! id) → nil
-  ```
-- **Description**: The inverse of `register-epoch-listener!`: removes the listener registered under `id`. App-facing route: `(rf/unregister-listener! :epoch id)`.
-- **Example**: `(epoch/unregister-epoch-listener! :my-app/epoch-watch)`
-
-### `clear-epoch-listeners!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (clear-epoch-listeners!) → nil
-  ```
-- **Description**: Drops every registered epoch listener. Used by test fixtures to reset the process-global listener registry between runs.
-
-```clojure
-;; Reset the listener registry between test fixtures.
-(epoch/clear-epoch-listeners!)
+(rf/unregister-listener! :epoch :my-app/epoch-watch)
 ```
 
 ## Off-box egress projection
@@ -226,22 +201,18 @@ Tools that forward epoch records across a process boundary must route through th
 
 ## Configuration
 
-### `configure!`
+Buffer-depth and redactor knobs for the epoch ring are set through the facade, under the `:epoch-history` key:
 
-- **Kind**: function (the `:epoch-history` configuration surface)
-- **Signature**:
-  ```clojure
-  (configure! {:depth N :trace-events-keep N :redact-fn fn}) → nil
-  ;; consumer-facing, routed through the core facade:
-  (rf/configure! {:epoch-history {:depth N :trace-events-keep N :redact-fn fn}})
-  ```
-- **Description**: Buffer-depth and redactor knobs for the epoch ring.
-  - `:depth` — non-negative integer; per-frame ring-buffer depth (default 50). `0` disables recording.
-  - `:trace-events-keep` — non-negative integer. Caps how many of the most-recent records per frame retain their raw `:trace-events` vector; older records keep only the cheap structured `:sub-runs` / `:renders` / `:effects` projections. Defaults to 50 (matching the default `:depth`) so trace and epoch evict atomically. Pass a smaller value to bound dev-session heap.
-  - `:redact-fn` — `fn?` or `nil`; the advanced projection-side override. It is invoked once per record at the off-box egress boundary inside `projected-record`, never at storage time. The ring buffer and every listener receive the raw record, since epoch records are causal replay material. A throwing fn emits `:rf.warning/epoch-redact-fn-exception` and falls back to the projected record. `nil` clears any previously-installed fn.
-  - Invalid `:depth` / `:trace-events-keep` (not a non-negative integer) and a malformed `:redact-fn` (not `fn?` / `nil`) are silently dropped at the boundary.
+```clojure
+(rf/configure! {:epoch-history {:depth N :trace-events-keep N :redact-fn fn}})
+```
 
-  Apps usually set this through `rf/configure!` with the `:epoch-history` key; see [re-frame.core.md](re-frame.core.md).
+`re-frame.epoch/configure!` is the implementation seam behind it (hook target for `:epoch/configure!`); it takes the inner map directly and is not a second public spelling. The keys:
+
+- `:depth` — non-negative integer; per-frame ring-buffer depth (default 50). `0` disables recording.
+- `:trace-events-keep` — non-negative integer. Caps how many of the most-recent records per frame retain their raw `:trace-events` vector; older records keep only the cheap structured `:sub-runs` / `:renders` / `:effects` projections. Defaults to 50 (matching the default `:depth`) so trace and epoch evict atomically. Pass a smaller value to bound dev-session heap.
+- `:redact-fn` — `fn?` or `nil`; the advanced projection-side override. It is invoked once per record at the off-box egress boundary inside `projected-record`, never at storage time. The ring buffer and every listener receive the raw record, since epoch records are causal replay material. A throwing fn emits `:rf.warning/epoch-redact-fn-exception` and falls back to the projected record. `nil` clears any previously-installed fn.
+- Invalid `:depth` / `:trace-events-keep` (not a non-negative integer) and a malformed `:redact-fn` (not `fn?` / `nil`) are silently dropped at the boundary.
 
 ```clojure
 ;; Shrink the ring and bound retained raw traces for a memory-conscious host.

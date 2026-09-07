@@ -1088,7 +1088,7 @@ There is deliberately **no** facade `clear-listeners!` verb. Dropping every list
 
 ### `epoch-history`
 
-- **Kind**: function (dev-only; also `re-frame.epoch/epoch-history`)
+- **Kind**: function (dev-only)
 - **Signature**:
   ```clojure
   (epoch-history frame-id) → vector of epoch records
@@ -1102,7 +1102,7 @@ There is deliberately **no** facade `clear-listeners!` verb. Dropping every list
 
 ### `restore-epoch!`
 
-- **Kind**: function (dev-only; also `re-frame.epoch/restore-epoch!`)
+- **Kind**: function (dev-only)
 - **Signature**:
   ```clojure
   (restore-epoch! frame-id epoch-id) → boolean
@@ -1117,7 +1117,7 @@ There is deliberately **no** facade `clear-listeners!` verb. Dropping every list
 
 ### `replay-epoch!`
 
-- **Kind**: function (dev-only; also `re-frame.epoch/replay-epoch!`)
+- **Kind**: function (dev-only)
 - **Signature**:
   ```clojure
   (replay-epoch! frame-id epoch-id)      → envelope map (false when elided / artefact absent)
@@ -1133,7 +1133,7 @@ There is deliberately **no** facade `clear-listeners!` verb. Dropping every list
 
 ### `replace-frame-state!`
 
-- **Kind**: function (dev-only; also `re-frame.epoch/replace-frame-state!`)
+- **Kind**: function (dev-only)
 - **Signature**:
   ```clojure
   (replace-frame-state! frame-id frame-state) → boolean
@@ -1173,7 +1173,7 @@ Epoch-settled listeners are the `:epoch` stream of the stream-parameterized list
 
 ### `projected-record`
 
-- **Kind**: function (dev-only; also `re-frame.epoch/projected-record`)
+- **Kind**: function (dev-only)
 - **Signature**:
   ```clojure
   (projected-record record)
@@ -1183,7 +1183,7 @@ Epoch-settled listeners are the `:epoch` stream of the stream-parameterized list
 
 ### `projected-history`
 
-- **Kind**: function (dev-only; also `re-frame.epoch/projected-history`)
+- **Kind**: function (dev-only)
 - **Signature**:
   ```clojure
   (projected-history frame-id)

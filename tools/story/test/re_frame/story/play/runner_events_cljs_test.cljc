@@ -986,7 +986,7 @@
               plateaus), so ring eviction can only ever drop beats, never
               misattribute a surviving one"
        (try
-         (rf.epoch/configure! {:depth 3})
+         (rf/configure! {:epoch-history {:depth 3}})
          (rf/reg-event :re-eviction/set
            (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
          (rf.story/reg-variant :story.runner/eviction
@@ -1023,7 +1023,7 @@
          (finally
            ;; `:depth` is a process-global epoch-history knob — restore
            ;; the framework default so it doesn't leak into sibling tests.
-           (rf.epoch/configure! {:depth 50}))))))
+           (rf/configure! {:epoch-history {:depth 50}}))))))
 
 #?(:clj
    (deftest bare-vector-with-unknown-event-still-dispatches

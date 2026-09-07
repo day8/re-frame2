@@ -767,7 +767,7 @@ namespace's bytes are still in the bundle.
 ### Epoch pump (rf2-yp92j)
 
 The foundation phase's third step registers an
-[`:epoch`-stream](../../../spec/009-Instrumentation.md#register-epoch-listener--assembled-epoch-listener)
+[`:epoch`-stream](../../../spec/009-Instrumentation.md#the-epoch-stream--assembled-epoch-listener)
 `(rf/register-listener! :epoch …)` callback under the
 key `:rf.xray/epoch-collector`. Where the trace
 collector buffers raw events for panel-side projections (per
@@ -899,7 +899,7 @@ Xray's cache is a pure mirror.
 
 **Exception isolation.** An exception thrown inside the callback
 body MUST be caught by the framework's epoch-cb fan-out (per
-[Spec 009 §`register-epoch-listener!` invocation rules](../../../spec/009-Instrumentation.md#register-epoch-listener--assembled-epoch-listener))
+[Spec 009 §The `:epoch` stream — invocation rules](../../../spec/009-Instrumentation.md#the-epoch-stream--assembled-epoch-listener))
 and MUST NOT propagate to the framework or to other registered
 epoch listeners. Xray's collector body is small (it notes a frame-id
 and schedules a task); the realistic failure mode is the dispatched event

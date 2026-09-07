@@ -50,6 +50,30 @@
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.trace :as rf.trace]))
 
+;; ---- ONE GRAMMAR FOR THE EPOCH RING (rf2-kuky.55, ruled A) -----------------
+;;
+;; Every var below is an IMPLEMENTATION SEAM — a late-bind hook target the
+;; `re-frame.core` facade reaches through `re-frame.core-epoch`'s defwrappers
+;; (see the publication block at the foot of this file). None of them is a
+;; second public spelling, and the manifest says so in one of two ways:
+;;
+;;   * The vars the facade re-exports under the SAME name — `epoch-history`,
+;;     `epoch-silence-current?`, `projected-record`, `projected-history`,
+;;     `replace-frame-state!`, `replay-epoch!`, `restore-epoch!` — carry
+;;     `^:no-doc` and are NOT rowed here (spec/API.md §Not-rowed internal
+;;     carve-outs). The `re-frame.core` row carries the classification alone,
+;;     so one public name has exactly one row.
+;;   * The vars with no same-named facade twin — `configure!`,
+;;     `clear-history!`, `register-epoch-listener!`,
+;;     `unregister-epoch-listener!`, `clear-epoch-listeners!` — keep a row,
+;;     tiered `:implementation`, because that row is the only record of them.
+;;     They follow `settle!` rather than `^:no-doc`: the generator drops a
+;;     `^:no-doc` var from the manifest entirely, and this repo tiers a seam
+;;     honestly rather than quieting it.
+;;
+;; Framework tests reach these homes directly, as they do
+;; `re-frame.trace.tooling`'s; that is legitimate and needs no churn.
+
 ;; ---- configuration --------------------------------------------------------
 ;;
 ;; Defaults, state, and boundary validation live in `re-frame.epoch.state`.
@@ -107,7 +131,11 @@
 
   Invalid `:depth` / `:trace-events-keep` (not a non-negative integer) and
   malformed `:redact-fn` (not `fn?` / `nil`) are silently dropped at the
-  boundary."
+  boundary.
+
+  IMPLEMENTATION SEAM — hook target for `:epoch/configure!`. The public
+  door is `(rf/configure! {:epoch-history {…}})`, whose keys are the ones
+  above; read them back with `(:epoch-history (rf/current-config))`."
   [opts]
   (rf.epoch.state/merge-config! opts))
 
@@ -118,7 +146,7 @@
 ;; to the back; the front evicts when the buffer exceeds the configured
 ;; depth. The atom + ring-buffer mutators live in `re-frame.epoch.state`.
 
-(defn epoch-history
+(defn ^:no-doc epoch-history
   "Return the vector of `:rf/epoch-record` values for the frame, oldest-
   first. Empty vector when the frame has no recorded epochs (or when
   depth is 0, which disables recording — including records retained
@@ -130,7 +158,11 @@
   "Drop every recorded epoch for every frame. Test fixtures use this.
 
   Also drop in-flight capture buffers so a later event cannot harvest traces
-  left by an interrupted test or run."
+  left by an interrupted test or run.
+
+  IMPLEMENTATION SEAM — hook target for `:epoch/clear-history!`, fired by
+  `re-frame.test-support`'s reset-hook table. There is no facade door and
+  none is wanted: this is fixture-grade teardown, not an app gesture."
   []
   (rf.epoch.state/reset-histories!)
   (rf.epoch.state/reset-capture-buffers!)
@@ -155,16 +187,24 @@
   Listener exceptions are caught and isolated; one broken listener
   cannot break the runtime or block other listeners.
 
-  Returns the id."
+  Returns the id.
+
+  IMPLEMENTATION SEAM — hook target for `:epoch/register-epoch-listener!`.
+  The public door is the `:epoch` stream of the one listener verb,
+  `(rf/register-listener! :epoch id f)`; apps and tools alike attach
+  there (Tool-Pair §Facade vs home-namespace verb)."
   [id f]
   (rf.epoch.state/put-listener! id f))
 
 (defn unregister-epoch-listener!
-  "Remove the listener registered under id."
+  "Remove the listener registered under id.
+
+  IMPLEMENTATION SEAM — hook target for `:epoch/unregister-epoch-listener!`.
+  The public door is `(rf/unregister-listener! :epoch id)`."
   [id]
   (rf.epoch.state/drop-listener! id))
 
-(defn epoch-silence-current?
+(defn ^:no-doc epoch-silence-current?
   "THE supported receiver decision for a `:rf.epoch.cb/silenced-on-frame-destroy`
   signal. Pass the signal's `:tags` map straight back:
 
@@ -206,6 +246,12 @@
   (rf.epoch.state/silence-current? (:frame tags) (:cb-id tags) (:observed-gen tags)))
 
 (defn clear-epoch-listeners!
+  "Drop every registered epoch-settled callback. Test fixtures use this.
+
+  IMPLEMENTATION SEAM — hook target for `:epoch/clear-epoch-listeners!`.
+  There is no facade door and none is wanted: an app unregisters the ids
+  it registered, via `(rf/unregister-listener! :epoch id)`; a blanket
+  clear is fixture-grade teardown."
   []
   (rf.epoch.state/reset-listeners!))
 
@@ -383,7 +429,7 @@
 
 ;; ---- restore --------------------------------------------------------------
 ;;
-(defn restore-epoch!
+(defn ^:no-doc restore-epoch!
   "Rewind the frame to the named epoch's canonical `:frame-state-after`
   — the WHOLE frame-state, reinstalling app-db AND runtime-db as two
   separate partitions in one atomic write (reviving
@@ -433,7 +479,7 @@
 
 ;; ---- replay (Tool-Pair §Replay) --------------------------------------------
 ;;
-(defn replay-epoch!
+(defn ^:no-doc replay-epoch!
   "Re-drive the named retained epoch's recorded event through `frame-id`'s
   own handlers, in ONE call, as a faithful-or-fail-loud strict replay
   (Tool-Pair §Replay). The record is resolved in-process and its replay
@@ -638,7 +684,7 @@
                       (merge frame-state-before new-frame-state))
                     #(rf.frame/replace-frame-state! frame-id incarnation-token new-frame-state)))
 
-(defn replace-frame-state!
+(defn ^:no-doc replace-frame-state!
   "Atomically install `new-frame-state` — a PARTIAL frame-state map (any
   subset of `{:rf.db/app … :rf.db/runtime …}`) — into `frame-id`'s
   frame-state, bypassing the dispatch loop: a present key replaces that
@@ -692,7 +738,7 @@
 
 ;; ---- projected egress -----------------------------------------------------
 
-(defn projected-record
+(defn ^:no-doc projected-record
   "Project an `:rf/epoch-record` for off-box egress.
 
   This is the required boundary for forwarding records across a process,
@@ -732,7 +778,7 @@
   ([record] (rf.epoch.tool-pair/projected-record record))
   ([record opts] (rf.epoch.tool-pair/projected-record record opts)))
 
-(defn projected-history
+(defn ^:no-doc projected-history
   "Convenience: return the projected vector of records for a frame.
   Equivalent to `(mapv #(projected-record % opts) (epoch-history frame-id))`.
   The 2-arity threads egress `opts` to every record; the 1-arity uses the
