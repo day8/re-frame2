@@ -307,10 +307,16 @@
 (deftest build-manifest-does-not-require-the-axes-off-the-facade
   (testing "dropping both axes from a NON-facade row leaves generation green —
             the obligation is on facade exports only"
+    ;; The exemplar must be a LIVE non-facade classification: a key that has
+    ;; been dropped from the sidecar trips the precondition below rather than
+    ;; the assertion under test. `settle!` is the sidecar's own named precedent
+    ;; for the shape — an epoch seam that keeps an :implementation row rather
+    ;; than going `^:no-doc` — so it survives the demotions that retire its
+    ;; same-named-facade-twin siblings (rf2-kuky.82).
     (let [sidecar (rf.api-manifest.gen/read-sidecar)
-          k       ["re-frame.epoch" "restore-epoch!"]]
+          k       ["re-frame.epoch" "settle!"]]
       (assert (get-in sidecar [:classification k])
-              "precondition: the sidecar classifies re-frame.epoch/restore-epoch!")
+              "precondition: the sidecar classifies re-frame.epoch/settle!")
       (assert (nil? (get-in sidecar [:classification k :justification]))
               "precondition: a non-facade row carries no :justification today")
       (is (map? (rf.api-manifest.gen/build-manifest
