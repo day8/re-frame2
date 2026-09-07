@@ -113,12 +113,22 @@ The full-shell embed exposes exactly two host-visible props:
 | `:frame` | no | `:rf/xray` (Xray-internal default) | The frame the shell's frame-provider wraps. Hosts that need the embedded shell to read a non-default Xray-internal frame pass this through `mount-shell!`'s `opts`; in practice the default is what every shipped host uses. The shell's frame-picker UI is the canonical way to choose which *host* frame Xray observes — that selection lives in `:rf.xray/target-frame` inside `:rf/xray`'s db. |
 | `:height` | no | host-CSS owned | Xray does not read a height prop. The host's stylesheet sizes the mount-point container (typically via `--rf-xray-inline-width` for inline-host width and the host's flex / grid rules for height). Listed here because hosts often think of "height" as part of the embed contract; the contract is "the host owns it". |
 
-Both props are honoured by the **frame-provider convention** (the
-`mount-<panel>!` surface from [`007-UX-IA.md`](./007-UX-IA.md)
-§Mountable panel contract: every mount fn opens with
-`[rf/frame-provider {:frame ...} ...]` and renders into the
-host-supplied mount-point — Xray never sizes its own container). No
-other host-facing props exist.
+`mount-shell!` resolves `:frame` against the Xray-internal default and
+threads it to `shell-view` as its `:frame-id` opt; `shell-view` opens
+its own `[rf/frame-provider {:frame frame-id} ...]` around the 4-layer
+chrome, so the full-shell mount adds no outer provider of its own. The
+requested own frame is seated on the way through — the host is not asked
+to pre-create it. Two embeds given distinct `:frame`s therefore hold
+independent shell state (selected tab, mode, focused epoch, modals)
+rather than sharing one app-db.
+
+This is a different mechanism from the per-panel `mount-<panel>!`
+surface in [`007-UX-IA.md`](./007-UX-IA.md) §Mountable panel contract,
+where the mount fn itself opens the `[rf/frame-provider {:frame ...}
+...]` wrapper around a panel view that has none. Both render into the
+host-supplied mount-point — Xray never sizes its own container, which is
+the whole of what `:height` means here. No other host-facing props
+exist.
 
 ## What the host owns
 
@@ -380,20 +390,27 @@ chosen one; where a choice is already in the slot, first open preserves
 it and re-seeds `:epoch-history` from that frame.
 
 The collision is new, and that is why the ordering had not needed
-stating: until `set-target-frame!` seated `:rf/xray` itself (below), no
-target could be selected *before* first open, so discovery never met one.
+stating: until the host-config entry points seated `:rf/xray` themselves
+(below), no target could be selected *before* first open, so discovery
+never met one.
 Unordered, the loss was silent both ways — a cold ring resolves to `nil`,
 which `:rf.xray/set-target-frame` writes as a full RESET (clearing
 `:target-frame`, `[:focus :frame]` and `:epoch-history`), and a warm ring
 substitutes whichever frame happens to head the pre-open trace.
 
-`set-target-frame!` **seats `:rf/xray` before it dispatches** (rf2-88f1).
-The own-frame singleton is normally seated the moment the host runtime is
-ready, from the preload's readiness loop (rf2-avi7) — but that loop polls
-on a 50ms tick, and a host whose boot calls `rf/init!` and re-orients the
-target on the same turn reaches the facade inside that window. Without the
-seat the gesture dispatched into a frame that did not exist yet and the
-host got `:rf.error/frame-destroyed` instead of the target it asked for.
+**Both host-config entry points — `set-target-frame!` (rf2-88f1) and
+`init! {:target-frame …}` (rf2-bitb) — seat `:rf/xray` before they
+dispatch.** The own-frame singleton is normally seated the moment the host
+runtime is ready, from the preload's readiness loop (rf2-avi7) — but that
+loop polls on a 50ms tick, and a host whose boot calls `rf/init!` and
+re-orients the target on the same turn reaches the facade inside that
+window. `init!` is the stronger case: it is the MANUAL install, the
+documented alternative to the preload, so on that route the readiness loop
+is not running at all and there is no eventual seat to fall back on.
+Without the seat the gesture dispatched into a frame that did not exist yet
+and the host got `:rf.error/frame-destroyed` instead of the target it asked
+for — and because the rejection happens at dispatch, calling `open!`
+immediately afterwards cannot rescue the choice.
 The seat is idempotent and is itself a no-op until a substrate adapter is
 installed, so it costs a live host nothing. It is the SEAT only — the
 first-mount seed/hydrate fan-out stays at first open, where it can still
