@@ -297,7 +297,7 @@ arrives through events; Hicasso does not add a separate `:db` seed option.
 
 This is the same `frame-root` / `frame-provider` pair every re-frame2 view
 substrate spells, so a boot written here reads like a Reagent or UIx one. The
-[Frames spec](../../spec/002-Frames.md) is the contract all of them realise.
+[Frames spec](../../../spec/002-Frames.md) is the contract all of them realise.
 
 `[counter]` and `[counter {}]` are equivalent. The body receives an empty props
 map in either case.

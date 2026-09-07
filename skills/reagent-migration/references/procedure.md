@@ -137,9 +137,11 @@ Two things to do *before* you call a view converted:
   that is the point of them.
 - **Root (MIG-15):** once per root, and in this order — `rf/init!` (nothing
   installs an adapter for you, and the app's existing one keeps working under
-  Hicasso, so it stays), then `h/mount!` carrying
-  `{:frame … :initial-events …}`, which ensures and seeds the frame itself. Add
-  the `defonce` root atom and the `^:dev/after-load` `h/render!` reload hook.
+  Hicasso, so it stays), then `h/mount!` with root options only, wrapping the
+  root view in `[h/frame-root {:id … :initial-events …}]`, which ensures and
+  seeds the frame — a rename of the Reagent tree's own `rf/frame-root`. Add the
+  `defonce` root atom and the `^:dev/after-load` `h/render!` reload hook, and
+  keep the boundary in the tree `render!` re-renders.
 
 ## Step 5 — Compile and test (the skill runs the gates); the programmer renders
 

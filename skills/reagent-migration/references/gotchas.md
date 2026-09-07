@@ -204,19 +204,24 @@ the ref never fires, so the callback function is the only spelling — and
 only `:key`, so it stays in the props map as ordinary data with nothing to
 report it.
 
-## `h/mount!` ensures its frame and takes `:initial-events`
+## `h/frame-root` ensures the frame; `h/mount!` carries root options only
 
-`(h/mount! container config hiccup)` takes a config map, and mounting **ensures**
-the named frame: `{:frame ::frame :initial-events [[:boot]]}` creates the frame
-if it is absent and seeds it before the first paint, or joins an already-live
-frame without replaying the seed. So the Reagent pair `(rdom/render [app] el)` +
-`(rf/dispatch-sync [:boot])` maps onto a single `h/mount!` — with `rf/init!`
-before it, because frame construction raises
+`(h/mount! container config hiccup)` takes a config map of **root options** —
+`:identifier-prefix` and nothing else — and refuses `:frame` or
+`:initial-events` by name. The frame is the tree's:
+`[h/frame-root {:id ::frame :initial-events [[:boot]]} [app {}]]` creates the
+frame if it is absent and seeds it before the first paint, or reuses an
+already-live one without replaying the seed. So the Reagent pair
+`(rdom/render [app] el)` + `(rf/dispatch-sync [:boot])` maps onto one mount with
+one boundary — with `rf/init!` before it, because frame construction raises
 `:rf.error/no-adapter-installed` until a reactive adapter is installed.
 
-An explicit `rf/make-frame` before the mount is still legal, and is what several
-roots sharing one frame — or a frame needing `:images` / `:fx-overrides` — want.
-The mount then finds it live and joins without re-seeding.
+`h/frame-root` takes the WHOLE `rf/make-frame` option map, so a frame needing
+`:images` or `:fx-overrides` needs no separate `rf/make-frame` call. Several
+roots sharing one frame scope the later ones with
+`[h/frame-provider {:frame …}]`, which creates nothing and fails loud on a frame
+that is not live. It is the same `frame-root` / `frame-provider` pair the
+Reagent tree already spells, so that wrapper is a rename.
 
 The app's existing `rf/init!` stays — do not delete it as Reagent scaffolding.
 re-frame2 installs no adapter for you and has no default-adapter registry, so

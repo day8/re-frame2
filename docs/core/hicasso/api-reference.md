@@ -141,7 +141,7 @@ head that takes them, and anything else raises
 ### The frame is written in the tree
 
 Two heads, one verb each — the pair every re-frame2 view substrate spells
-([Frames spec](../../spec/002-Frames.md)).
+([Frames spec](../../../spec/002-Frames.md)).
 
 | Head | Verb | Contract |
 | --- | --- | --- |
