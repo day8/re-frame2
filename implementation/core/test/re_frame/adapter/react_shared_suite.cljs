@@ -3589,16 +3589,15 @@
   (testing (str name " — use-sub 1-arg resolves via frame-provider (rf2-518sp / rf2-z7hfp)")
     (with-browser-act
      (fn [act-fn]
-      ;; rf2-4mi2zj: CLEAR the fixture's ambient `:rf/default` dynamic scope.
-      ;; The 1-arg `use-sub` resolves dynamic-var FIRST (tier 1), then
-      ;; the React-context tier (tier 2). With the fixture's ambient
-      ;; `*current-frame*` :rf/default left bound, tier 1 ALWAYS wins and the
-      ;; provider tier is never the decider — the sub would read :rf/default's
-      ;; app-db (no :k → nil), MASKING the very provider-resolution this test
-      ;; means to prove. (The prior raw-`use-context` spine resolved provider-
-      ;; first, so this passed by accident; under the carried-invariant chain
-      ;; the dynamic var legitimately shadows the provider.) Clearing it makes
-      ;; the React-context tier the genuine decider. Per the bead's masking note.
+      ;; CLEAR the fixture's ambient `:rf/default` dynamic scope. Under
+      ;; rf2-kuky.62 a hook reads React context ONLY, so the ambient binding
+      ;; can no longer mask the provider and this clearing is belt-and-braces
+      ;; — but it is kept, because it costs nothing and because a row that
+      ;; leaves a second frame in scope cannot say afterwards WHICH tier
+      ;; answered. (Between rf2-4mi2zj and rf2-kuky.62 it WAS load-bearing:
+      ;; the hook resolved dynamic-var first, so a bound `*current-frame*`
+      ;; shadowed the provider and the sub read :rf/default's app-db —
+      ;; no :k, hence nil — masking the very resolution this row proves.)
       (binding [rf.frame/*current-frame* nil]
         (reset! probe-frame-provider-observed [])
         (rf/make-frame {:id frame-provider-frame :doc "use-sub frame-provider probe frame"})
@@ -3678,17 +3677,26 @@
     4. THE NEGATIVE CONTROLS — the fallback is narrow by construction and
        these say so: no provider still refuses with
        `:rf.error/no-frame-context`; the DYNAMIC tier still outranks both
-       slots; a CORRUPTED primary is still reported as
+       slots FOR THE READER; a CORRUPTED primary is still reported as
        `:rf.error/frame-context-corrupted` and is NOT masked by a populated
-       secondary; and a refusing extent still raises
-       `:rf.error/ambient-frame-refused`, because `resolve-current-frame`
-       withdraws the reader entirely rather than gating inside it.
+       secondary; and a refusing extent still withdraws the reader entirely
+       rather than gating inside it, so `resolve-current-frame` answers nil
+       there. Parts 4b and 4d assert on `function-component-current-frame` /
+       `resolve-current-frame` DIRECTLY, which is why they are unaffected by
+       rf2-kuky.62 — that ruling moved the HOOKS off the ambient chain and
+       left the chain itself alone. 4d pins both halves of that split in one
+       render: the imperative reader refuses, the hook beside it resolves.
 
     5. THE ABORTED-RENDER CHECK — the one hazard a private-slot read carries
        that is cheap to falsify. After a server render that THROWS beneath a
        provider, the secondary slot must be back at its default and a
        provider-less render in the same runtime must still refuse. A stale
-       `_currentValue2` would leak one request's frame into the next.
+       `_currentValue2` would leak one request's frame into the next. The
+       abort is staged by NESTING a `frame-provider` on a never-created
+       frame inside the live one: it fails loud with
+       `:rf.error/frame-provider-frame-absent` during render, after the
+       outer provider has pushed its value onto the secondary slot and
+       before the inner one pushes anything.
 
   Node-safe: no DOM, no `act()`, no root — `renderToString` only.
 
@@ -3815,23 +3823,35 @@
               (rf.trace.tooling/unregister-listener! lk)
               (set! (.-_currentValue  ^js ctx) original)
               (set! (.-_currentValue2 ^js ctx) original2)))))
-      (testing "4d. NEGATIVE CONTROL — a refusing extent still refuses on the server"
+      (testing "4d. NEGATIVE CONTROL — a refusing extent still withdraws the READER"
         ;; `resolve-current-frame` WITHDRAWS the adapter reader for the extent
         ;; of a refusal (rf2-2rtt6.122) rather than gating inside it, so the
         ;; secondary-slot fallback cannot route around a substrate that has
-        ;; declared its own read discipline. That is why the repair needed no
-        ;; refusal-awareness of its own — and this part is the proof.
+        ;; declared its own read discipline. That is why the rf2-5rqn repair
+        ;; needed no refusal-awareness of its own — and this part is the proof.
+        ;;
+        ;; THE HOOK IS NO LONGER PART OF THAT (rf2-kuky.62). The refusal is a
+        ;; DYNAMIC-EXTENT notion, and `call-with-ambient-frame-refused`'s own
+        ;; contract says an extent is "exactly the substrate's own synchronous
+        ;; render call" — a child fiber renders after the parent's body has
+        ;; returned and the binding has unwound. A hook reaching it at all is
+        ;; an artefact of wrapping the WHOLE `renderToString` here, which is
+        ;; the same scheduling-mode dependence rf2-kuky.61 ruled off the hook
+        ;; family. So the two halves are pinned side by side: the hook
+        ;; resolves from context, the imperative reader beside it refuses.
         (reset! ssr-slot-observed nil)
-        (let [thrown (try (rf.frame/call-with-ambient-frame-refused nil
-                            (fn []
-                              (.renderToString react-dom-server
-                                (frame-provider-mount-element
-                                  ssr-ambient-frame (probe-frame-provider-element)))))
-                          nil
-                          (catch :default e e))]
-          (is (= :rf.error/ambient-frame-refused (:rf.error/id (ex-data thrown)))
-              "inside a refusing extent the ambient form raises REFUSED, not
-               the absence category and not a silent success"))
+        (reset! probe-frame-provider-observed [])
+        (let [html (rf.frame/call-with-ambient-frame-refused nil
+                     (fn []
+                       (.renderToString react-dom-server
+                         (frame-provider-mount-element
+                           ssr-ambient-frame (probe-frame-provider-element)))))]
+          (is (str/includes? html "k=:wrapped")
+              "the ambient HOOK resolved from React context inside the refusing
+               extent — it does not consult the ambient chain, so the extent's
+               dynamic refusal is not its to observe (rf2-kuky.62)")
+          (is (some #{:wrapped} @probe-frame-provider-observed)
+              "and the value came from the hook, not from an empty render"))
         (rf.frame/call-with-ambient-frame-refused nil
           (fn []
             (.renderToString react-dom-server
@@ -3846,7 +3866,7 @@
                ABOVE it")
           (is (nil? resolved)
               "and resolve-current-frame answers nil, having never called the
-               reader at all")))
+               reader at all — the IMPERATIVE tier's refusal is intact")))
       (testing "5. the ABORTED-RENDER check — an aborted render leaks no frame into the next"
         ;; THE ONE HAZARD A PRIVATE-SLOT READ CARRIES, and the reason rf2-5rqn's
         ;; ruling made this part a gate rather than a nicety. React pushes the
@@ -3879,17 +3899,28 @@
         ;; guard here would be exactly that.
         ;;
         ;; The throw is staged here rather than borrowed from 4d, so the render
-        ;; immediately preceding these assertions is the aborted one.
-        (let [thrown (try (rf.frame/call-with-ambient-frame-refused nil
-                            (fn []
-                              (.renderToString react-dom-server
-                                (frame-provider-mount-element
-                                  ssr-ambient-frame (probe-frame-provider-element)))))
+        ;; immediately preceding these assertions is the aborted one. HOW IT IS
+        ;; STAGED (rf2-kuky.62): a second `frame-provider` naming a
+        ;; NEVER-CREATED frame, nested inside the live one. The SCOPE shape
+        ;; fails loud with `:rf.error/frame-provider-frame-absent` while
+        ;; validating, which is BEFORE it builds its own provider element — so
+        ;; the outer provider has pushed `ssr-ambient-frame` onto the secondary
+        ;; slot, the inner has pushed nothing, and the render aborts with
+        ;; exactly one snapshot outstanding. (It used to be staged with a
+        ;; refusing extent around the whole render; a hook no longer observes
+        ;; one — see 4d.)
+        (let [thrown (try (.renderToString react-dom-server
+                            (frame-provider-mount-element
+                              ssr-ambient-frame
+                              (frame-provider-mount-element
+                                (mint-kw substrate-kw "ssr-aborted-render-absent-frame")
+                                (probe-frame-provider-element))))
                           nil
                           (catch :default e e))]
-          (is (some? thrown)
-              "the staged render did abort beneath the provider — without a
-               throw here the rest of this part would prove nothing"))
+          (is (= :rf.error/frame-provider-frame-absent (:rf.error/id (ex-data thrown)))
+              "the staged render did abort beneath the provider, on the absent
+               nested frame — without a throw here the rest of this part would
+               prove nothing"))
         (is (= ssr-ambient-frame
                (.-_currentValue2 ^js rf.adapter.context/frame-context))
             "MEASURED RESIDUAL, not a requirement: React 19.2 leaves the
@@ -3926,9 +3957,9 @@
     1. SHAPE — the returned map carries exactly the capture-frame key set
        (`:frame :dispatch :dispatch-sync :subscribe`; fn-valued ops),
        byte-matching `(rf/capture-frame frame-id)`'s key set.
-    2. RESOLUTION — `:frame` is the surrounding provider's frame (the raw
-       context read is discarded; the carried-invariant chain decides —
-       same chain as the ambient `use-sub`).
+    2. RESOLUTION — `:frame` is the surrounding provider's frame, read from
+       React context and nothing else (rf2-kuky.62) — the same one rule the
+       ambient `use-sub` follows.
     3. LOCK — an op pulled off the held map dispatches into the captured
        frame from outside the render (the hold survives).
     4. STABILITY — a re-render under the same provider frame returns the
@@ -4132,30 +4163,54 @@
             (try (.unmount root) (catch :default _ nil)))))))))
 
 ;; ===========================================================================
-;; rf2-4mi2zj — use-sub 1-arg FULL frame-resolution chain.
+;; ONE HOOK FRAME-RESOLUTION RULE — React context, and nothing else.
+;; (rf2-kuky.61 ruling, option A; implemented by rf2-kuky.62. Supersedes the
+;; rf2-4mi2zj direction these rows used to carry.)
 ;;
-;; The shared spine's 1-arg `use-sub` used to short-circuit through
-;; `(use-subscribe-2 (use-current-frame) query-v)` — the spine's internal
-;; names, which rf2-kuky.57 left alone: it took the NARROW raw
-;; `use-context` read (React-context tier ONLY) and fed it straight into
-;; the EXPLICIT path. Two correctness breaks followed (Spec 006 §734
-;; / §1058; EP-0002):
+;; THE RULE. A React hook — `use-sub`'s 1-arity and `use-frame`, on UIx and
+;; on Hicasso's native tier alike — resolves its frame from the React
+;; context the boundary above installed (a `frame-provider` SCOPE or a
+;; `frame-root` ENSURE) and from nothing else. No provider above raises
+;; `:rf.error/no-frame-context`, in both context-reading environments (the
+;; client's `_currentValue`, Fizz's `_currentValue2`). A `with-frame` /
+;; `bind-fn` dynamic scope around a synchronous render does NOT reach a
+;; hook; the explicit override for a test or a harness is a
+;; `frame-provider` wrapper.
 ;;
-;;   1. A surrounding `frame-provider` beat a `with-frame` dynamic scope —
-;;      INVERTING the tier order (dynamic-var MUST win over React-context).
-;;   2. With no provider, `use-context` returns the no-provider sentinel
-;;      (`:rf.frame/no-provider`), NOT nil. The explicit path subscribed
-;;      against that sentinel as a literal frame — surfacing a bad/
-;;      destroyed-frame outcome instead of the specified
-;;      `:rf.error/no-frame-context`.
+;; THE REASON, once. The design requirement is that the same component tree
+;; resolves the same frame under either scheduling mode — a scheduled
+;; concurrent render and a synchronous `act()` / `flushSync` / server render
+;; must not disagree — so a hook must not depend on which imperative scope
+;; happens to surround a flush, including work that scope did not schedule.
+;; A hook is the HOLD face of `capture-frame`, not the scoped one: a body's
+;; extent has unwound by the time React renders the component it returned,
+;; so the var tier can only answer for a DIFFERENT render than the one
+;; asking. And a hook reading a JS-thread global mid-render is hidden
+;; context in the one place React identity matters (Principles §Low hidden
+;; context). See Spec 006 §Frame-provider via React context and the
+;; Cross-substrate affordance summary's *Frame resolution (1-arg form)* row.
 ;;
-;; The existing `assert-use-sub-frame-provider-resolution` proves
-;; provider resolution under the fixture's ambient `:rf/default` dynamic
-;; scope — which MASKS the tier order (the dynamic var is always bound, so
-;; the React-context tier is never the decider). These three assertions
-;; clear the ambient scope (`binding [rf.frame/*current-frame* nil]`) so the
-;; chain's real tier order is exercised, and add the two cases the prior
-;; coverage never had: dynamic-var precedence, and no-scope failure.
+;; WHAT DID NOT CHANGE. The IMPERATIVE tier keeps dynamic-var → React-
+;; context → error: `rf/dispatch`, `rf/subscribe`, 0-arity
+;; `(rf/capture-frame)`, `rf/current-frame-id`, handlers, `reg-view`
+;; injection and the Reagent class-component chain all still funnel through
+;; `rf.frame/resolve-current-frame` / `require-current-frame!`, and the
+;; `assert-use-sub-ambient-under-ssr` parts that assert on that READER
+;; directly are unchanged. The second of rf2-4mi2zj's two original breaks
+;; also still holds: with no provider `use-context` returns the no-provider
+;; SENTINEL (`:rf.frame/no-provider`), not nil, and the hook must never let
+;; that sentinel reach the explicit path as a literal frame id — the shared
+;; `context-value->current-frame` classifier is what maps it to nil.
+;;
+;; WHY THESE ROWS CLEAR THE AMBIENT SCOPE ANYWAY. The reset fixture binds
+;; `*current-frame*` to `:rf/default` unless a test opts out with
+;; `:ambient-frame nil`. Under this rule that binding can no longer shadow a
+;; provider for a HOOK, so `binding [rf.frame/*current-frame* nil]` here is
+;; belt-and-braces rather than load-bearing — except in
+;; `assert-use-sub-provider-precedence-over-dynamic-var`, where a DIFFERENT
+;; frame is deliberately bound live around the render, and in
+;; `assert-hook-no-provider-with-dynamic-scope-raises-no-frame-context`,
+;; where the binding IS the adversary.
 ;; ===========================================================================
 
 (defn assert-use-sub-provider-tier-resolution-ambient-cleared
@@ -4208,61 +4263,108 @@
             (finally
               (try (.unmount root) (catch :default _ nil))))))))))
 
-(defn assert-use-sub-dynamic-var-precedence-over-provider
-  "rf2-4mi2zj — the ADVERSARIAL precedence case. With BOTH a dynamic-var
-  scope (`rf.frame/*current-frame*` bound to the dynamic frame) AND a
-  surrounding `frame-provider` naming a DIFFERENT frame, the 1-arg
-  `use-sub` MUST resolve to the DYNAMIC frame (tier 1 wins over tier
-  2). The buggy spine — raw `use-context` fed into the explicit path —
-  read the PROVIDER's frame, inverting the spec tier order; this is the
-  case the fix is for.
+(defn assert-use-sub-provider-precedence-over-dynamic-var
+  "rf2-kuky.62 — THE ADVERSARIAL CASE, and the row that makes the ruling
+  un-silent. With BOTH a live `with-frame` dynamic scope naming frame A
+  AND a surrounding `frame-provider` naming frame B, every React hook
+  resolves to **B**: the provider wins, because the hook consults React
+  context and nothing else.
 
-  Both frames register the same query so the only signal that
-  distinguishes them is which frame's app-db the subscription read. The
-  dynamic frame is seeded `:from-dynamic`; the provider frame
-  `:from-provider`. The mount render runs synchronously inside the dynamic
-  binding (React 18 `act()` flushes the component body on the calling
-  stack), so the bound dynamic var is in scope for the render's
-  `require-current-frame!` resolution.
+  THE DIRECTION HERE IS THE OPPOSITE OF THE ONE THIS ROW USED TO ASSERT.
+  It was `assert-use-sub-dynamic-var-precedence-over-provider` (rf2-4mi2zj),
+  which pinned tier 1 beating tier 2 for the hook. rf2-kuky.61 ruled that
+  precedence off the hook family — see the section header above for the
+  rule and its reason — and this row is its witness.
+
+  WHY THE BINDING IS LIVE RATHER THAN CLEARED. React 18 `act()` runs the
+  component body on the CALLING stack, so a `binding` wrapped around the
+  act/render call is genuinely in scope while the body runs. That is what
+  makes this a contest rather than a vacuous pass: under the old rule the
+  probe read A, and it is exactly the synchronous-flush shape (act,
+  `flushSync`, a server render) where the two rules disagree. Both frames
+  register the same query, so the ONLY signal separating them is which
+  frame's app-db the read came from — A is seeded `:from-dynamic`, B
+  `:from-provider`.
+
+  Two parts, one per hook family surface:
+
+    1. `use-sub`'s 1-arity reads B's value, never A's.
+    2. `use-frame`'s `:frame` is B — and the ops map it returned is
+       exercised AFTER the dynamic binding has unwound, so the dispatch it
+       carries moves B's app-db and leaves A's untouched. (That is the
+       bundle's own hold discipline, not a captured callback; 002 §The
+       invariant covers the captured case.)
 
   cfg keys:
+    :substrate-kw                   keyword fragment for minted ids
     :frame-provider-mount-element   thunk (fn [frame-kw child-el])
     :probe-frame-provider-element   thunk → 1-arg ProbeFrameProvider
     :probe-frame-provider-observed  atom the probe pushes observed values into
-    :dynamic-precedence-provider-frame  provider (loser) frame-id
-    :dynamic-precedence-dynamic-frame   dynamic-var (winner) frame-id
+    :probe-use-frame-element        thunk → the ProbeUseFrame element
+    :use-frame-observed             atom the use-frame probe pushes into
+    :dynamic-precedence-provider-frame  provider (the WINNER, B) frame-id
+    :dynamic-precedence-dynamic-frame   dynamic-var (the LOSER, A) frame-id
     :frame-provider-query           query-v keyword the probe subscribes to"
-  [{:keys [name frame-provider-mount-element probe-frame-provider-element
-           probe-frame-provider-observed dynamic-precedence-provider-frame
-           dynamic-precedence-dynamic-frame frame-provider-query]}]
-  (testing (str name " — use-sub 1-arg: dynamic-var beats provider (rf2-4mi2zj)")
+  [{:keys [name substrate-kw frame-provider-mount-element probe-frame-provider-element
+           probe-frame-provider-observed probe-use-frame-element use-frame-observed
+           dynamic-precedence-provider-frame dynamic-precedence-dynamic-frame
+           frame-provider-query]}]
+  (testing (str name " — hooks: the PROVIDER beats a live with-frame (rf2-kuky.62)")
     (with-browser-act
      (fn [act-fn]
       (reset! probe-frame-provider-observed [])
-      (rf/make-frame {:id dynamic-precedence-provider-frame :doc "rf2-4mi2zj provider (precedence loser)"})
-      (rf/make-frame {:id dynamic-precedence-dynamic-frame :doc "rf2-4mi2zj dynamic-var (precedence winner)"})
+      (rf/make-frame {:id dynamic-precedence-provider-frame :doc "rf2-kuky.62 provider (the winner)"})
+      (rf/make-frame {:id dynamic-precedence-dynamic-frame :doc "rf2-kuky.62 dynamic-var (the loser)"})
       (rf/reg-event ::precedence-seed (fn [{:keys [db]} [_ v]] {:db {:k v}}))
       (rf/dispatch-sync [::precedence-seed :from-provider] {:frame dynamic-precedence-provider-frame})
       (rf/dispatch-sync [::precedence-seed :from-dynamic]  {:frame dynamic-precedence-dynamic-frame})
       (rf/reg-sub frame-provider-query (fn [db _] (:k db)))
-      (let [mount-node (make-mount-node!)
-            root       (react-dom-client/createRoot mount-node)]
-        (try
-          ;; Bind the DYNAMIC frame around the synchronous mount render. The
-          ;; probe sits under a provider naming the OTHER frame; the chain
-          ;; must pick the dynamic var (tier 1).
-          (binding [rf.frame/*current-frame* dynamic-precedence-dynamic-frame]
-            (act-fn
-              (fn []
-                (.render root
-                  (frame-provider-mount-element
-                    dynamic-precedence-provider-frame (probe-frame-provider-element))))))
-          (is (some #{:from-dynamic} @probe-frame-provider-observed)
-              "1-arg use-sub resolved to the DYNAMIC frame (tier 1 wins over the provider)")
-          (is (not (some #{:from-provider} @probe-frame-provider-observed))
-              "the surrounding provider's frame did NOT win — tier order is dynamic-var → React-context")
-          (finally
-            (try (.unmount root) (catch :default _ nil)))))))))
+      (testing "1. use-sub 1-arity reads the PROVIDER's frame"
+        (let [mount-node (make-mount-node!)
+              root       (react-dom-client/createRoot mount-node)]
+          (try
+            ;; Bind the DYNAMIC frame around the synchronous mount render.
+            ;; The probe sits under a provider naming the OTHER frame; the
+            ;; hook must pick the provider's.
+            (binding [rf.frame/*current-frame* dynamic-precedence-dynamic-frame]
+              (act-fn
+                (fn []
+                  (.render root
+                    (frame-provider-mount-element
+                      dynamic-precedence-provider-frame (probe-frame-provider-element))))))
+            (is (some #{:from-provider} @probe-frame-provider-observed)
+                "1-arg use-sub resolved to the PROVIDER's frame — React context is
+                 the only tier a hook reads")
+            (is (not (some #{:from-dynamic} @probe-frame-provider-observed))
+                "the live with-frame dynamic scope did NOT reach the hook, even
+                 though act() ran the body on its calling stack")
+            (finally
+              (try (.unmount root) (catch :default _ nil))))))
+      (testing "2. use-frame's bundle is the PROVIDER's, and stays so after the scope unwinds"
+        (reset! use-frame-observed [])
+        (let [mount-node (make-mount-node!)
+              root       (react-dom-client/createRoot mount-node)
+              bumped     (mint-kw substrate-kw "provider-precedence-bump")]
+          (rf/reg-event bumped (fn [{:keys [db]} _] {:db (assoc db :bumped true)}))
+          (try
+            (binding [rf.frame/*current-frame* dynamic-precedence-dynamic-frame]
+              (act-fn
+                (fn []
+                  (.render root
+                    (frame-provider-mount-element
+                      dynamic-precedence-provider-frame (probe-use-frame-element))))))
+            (let [ops (peek @use-frame-observed)]
+              (is (= dynamic-precedence-provider-frame (:frame ops))
+                  "use-frame captured the PROVIDER's frame, not the live dynamic one")
+              ;; OUTSIDE the binding now — the scope has unwound, so this
+              ;; exercises the bundle's own hold rather than any ambient read.
+              (act-fn (fn [] ((:dispatch-sync ops) [bumped])))
+              (is (true? (:bumped (rf/app-db-value dynamic-precedence-provider-frame)))
+                  "the dispatch obtained FROM use-frame moved the provider frame")
+              (is (nil? (:bumped (rf/app-db-value dynamic-precedence-dynamic-frame)))
+                  "and left the frame the with-frame named completely untouched"))
+            (finally
+              (try (.unmount root) (catch :default _ nil))))))))))
 
 (defn assert-use-sub-no-provider-no-dynamic-raises-no-frame-context
   "rf2-4mi2zj — the second ADVERSARIAL case. A 1-arg `use-sub` with
@@ -4322,6 +4424,117 @@
               (finally
                 (rf.trace.tooling/unregister-listener! lk)
                 (try (.unmount root) (catch :default _ nil)))))))))))
+
+(defn assert-hook-no-provider-with-dynamic-scope-raises-no-frame-context
+  "rf2-kuky.62 — THE NEW CASE. With NO `frame-provider` above it but a LIVE
+  `with-frame` dynamic scope around the render, a React hook raises
+  `:rf.error/no-frame-context`. Before this ruling the UIx hooks answered
+  the dynamically-bound frame, which is the whole of what changed for a
+  caller.
+
+  It is the mirror of `assert-use-sub-provider-precedence-over-dynamic-var`:
+  that row proves the provider WINS a contest, this one proves the dynamic
+  var cannot win UNOPPOSED either. Without it the rule would be satisfiable
+  by a chain that merely reordered the two tiers, and the reason for the
+  ruling — a hook must not depend on which imperative scope surrounds a
+  flush — would still be violated.
+
+  BOTH CONTEXT-READING ENVIRONMENTS, because they read different slots.
+  The client renderer pushes and pops React's PRIMARY `_currentValue`; the
+  Fizz server renderer (`react-dom/server`) uses the SECONDARY
+  `_currentValue2` (rf2-5rqn). A hook resolving from the `useContext`
+  RETURN is renderer-agnostic and covers both, but only a run under each
+  says so.
+
+  Three parts:
+
+    1. CLIENT — `use-sub`'s 1-arity, mounted with no provider inside a live
+       `binding`. A `:rf.error/no-frame-context` trace fires and nothing is
+       observed; in particular the dynamically-bound frame's value is not.
+    2. CLIENT — the same for `use-frame`: the hook throws rather than
+       handing back an ops bundle locked to the dynamic frame.
+    3. SERVER — `renderToString` with no provider inside the same live
+       binding throws `:rf.error/no-frame-context`.
+
+  The render throws out of the hook; React funnels that through `act()`, so
+  each part tolerates the throw and asserts on the captured trace / the
+  ex-data, which is the load-bearing signal.
+
+  cfg keys:
+    :substrate-kw                   keyword fragment for the listener key + ids
+    :probe-frame-provider-element   thunk → 1-arg ProbeFrameProvider
+    :probe-frame-provider-observed  atom the probe pushes observed values into
+    :probe-use-frame-element        thunk → the ProbeUseFrame element
+    :use-frame-observed             atom the use-frame probe pushes into
+    :frame-provider-query           query-v keyword the probe subscribes to"
+  [{:keys [name substrate-kw probe-frame-provider-element probe-frame-provider-observed
+           probe-use-frame-element use-frame-observed frame-provider-query]}]
+  (testing (str name " — a hook with no provider refuses even under a live with-frame (rf2-kuky.62)")
+    (with-browser-act
+     (fn [act-fn]
+      (let [dyn-frame (mint-kw substrate-kw "no-provider-dynamic-frame")
+            lk        (keyword "re-frame.adapter.react-shared-suite"
+                               (str "kuky62-no-provider-" (clojure.core/name substrate-kw)))
+            traces    (atom [])
+            no-frame? (fn [] (some #(= :rf.error/no-frame-context (:operation %)) @traces))]
+        (rf.trace.tooling/register-listener! lk (fn [ev] (swap! traces conj ev)))
+        ;; The frame the dynamic scope names is REAL and SEEDED, so the only
+        ;; reason the read can fail is that the hook refused to consult the
+        ;; dynamic tier — not a missing frame and not a missing sub.
+        (rf/make-frame {:id dyn-frame :doc "rf2-kuky.62 dynamically-bound frame (must never be resolved-to)"})
+        (rf/reg-event ::kuky62-dyn-seed (fn [_ _] {:db {:k :from-dynamic}}))
+        (rf/dispatch-sync [::kuky62-dyn-seed] {:frame dyn-frame})
+        (rf/reg-sub frame-provider-query (fn [db _] (:k db)))
+        (try
+          (testing "1. CLIENT — use-sub 1-arity refuses"
+            (reset! traces [])
+            (reset! probe-frame-provider-observed [])
+            (let [mount-node (make-mount-node!)
+                  root       (react-dom-client/createRoot mount-node)]
+              (try
+                (binding [rf.frame/*current-frame* dyn-frame]
+                  (try (act-fn (fn [] (.render root (probe-frame-provider-element))))
+                       (catch :default _ nil)))
+                (is (no-frame?)
+                    "a :rf.error/no-frame-context trace fired — the hook did NOT
+                     answer the dynamically-bound frame")
+                (is (not (some #{:from-dynamic} @probe-frame-provider-observed))
+                    "and the dynamic frame's value was never read (this is the
+                     value the pre-rf2-kuky.62 chain returned here)")
+                (finally
+                  (try (.unmount root) (catch :default _ nil))))))
+          (testing "2. CLIENT — use-frame refuses"
+            (reset! traces [])
+            (reset! use-frame-observed [])
+            (let [mount-node (make-mount-node!)
+                  root       (react-dom-client/createRoot mount-node)]
+              (try
+                (binding [rf.frame/*current-frame* dyn-frame]
+                  (try (act-fn (fn [] (.render root (probe-use-frame-element))))
+                       (catch :default _ nil)))
+                (is (no-frame?)
+                    "use-frame raised :rf.error/no-frame-context rather than
+                     capturing the dynamically-bound frame")
+                (is (empty? @use-frame-observed)
+                    "and handed back no ops bundle at all")
+                (finally
+                  (try (.unmount root) (catch :default _ nil))))))
+          (testing "3. SERVER — the same refusal through react-dom/server"
+            ;; The server renderer reads the SECONDARY context slot, so this
+            ;; is a genuinely different read path, not a repeat of part 1.
+            (reset! probe-frame-provider-observed [])
+            (let [thrown (binding [rf.frame/*current-frame* dyn-frame]
+                           (try (.renderToString react-dom-server
+                                  (probe-frame-provider-element))
+                                nil
+                                (catch :default e e)))]
+              (is (= :rf.error/no-frame-context (:rf.error/id (ex-data thrown)))
+                  "with no boundary above it the ambient hook fails closed on the
+                   server too, live dynamic scope notwithstanding")
+              (is (empty? @probe-frame-provider-observed)
+                  "and nothing rendered")))
+          (finally
+            (rf.trace.tooling/unregister-listener! lk))))))))
 
 (defn assert-use-sub-cleanup-decrements-refcount
   "rf2-7g959: use-sub pairs subscribe with rf.subs/unsubscribe on
@@ -7091,11 +7304,16 @@
                          (pr-str @nil-frame-observed)))
                 ;; THE LEAK ASSERTION, and it sweeps EVERY live frame rather
                 ;; than the provider's alone. Which frame the pre-fix code
-                ;; leaked INTO is not fixed: `{:frame nil}` falls through to the
-                ;; ambient 1-arity, whose chain is dynamic-var FIRST and React
-                ;; context second — so under a `with-frame` scope it acquires
-                ;; there, and under a bare provider it acquires the provider's
-                ;; frame. Either way the reference is unbalanced, because the
+                ;; leaked INTO is not fixed: `{:frame nil}` fell through to the
+                ;; ambient 1-arity, which at the time resolved dynamic-var
+                ;; first and React context second — so under a `with-frame`
+                ;; scope it acquired there, and under a bare provider it
+                ;; acquired the provider's frame. (rf2-kuky.62 has since made
+                ;; the ambient hook context-only, so today only the provider
+                ;; arm is reachable; the sweep below is kept unnarrowed anyway,
+                ;; because it costs nothing and a narrowed one would have to be
+                ;; re-derived every time the chain moves.) Either way the
+                ;; reference is unbalanced, because the
                 ;; hook stored nil in its stable key and every release resolved
                 ;; nil, found no frame and no-opped. `nf-query` is unique to
                 ;; this assertion, so ANY cache holding a slot for it is a

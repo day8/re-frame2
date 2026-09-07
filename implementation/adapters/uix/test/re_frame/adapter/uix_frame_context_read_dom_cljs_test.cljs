@@ -14,9 +14,9 @@
   adapter's `use-current-frame`, the narrow raw `useContext` read, which was
   retired as a public Var: it handed back the no-provider sentinel
   (`:rf.frame/no-provider`) as if it were an answer. `use-frame` is the
-  hook-shaped `which frame am I in`, resolving through the full
-  dynamic-var → React-context chain, and it is what the two boundary cases
-  below now assert. The third case this file used to carry — no boundary above
+  hook-shaped `which frame am I in`, resolving from the React context the
+  boundary above installed and nothing else (rf2-kuky.62), and it is what the
+  two boundary cases below now assert. The third case this file used to carry — no boundary above
   — moved with the sentinel: absence is a LOUD `:rf.error/no-frame-context`,
   already pinned by
   `assert-use-sub-no-provider-no-dynamic-raises-no-frame-context` in the shared
@@ -80,10 +80,10 @@
       (let [act-fn (get-act)]
         (if (nil? act-fn)
           (is true "act() not reachable from this runner; skipping")
-          ;; `use-frame` resolves the dynamic-var tier BEFORE React context, so
-          ;; clearing the fixture's ambient `:rf/default` dynamic scope is what
-          ;; makes these cases turn on the React-context boundary above the
-          ;; probe rather than on the ambient binding.
+          ;; `use-frame` reads React context ONLY (rf2-kuky.62), so the
+          ;; fixture's ambient `:rf/default` dynamic scope can no longer mask
+          ;; the boundary above the probe. Clearing it anyway keeps the rows
+          ;; honest about what they measure and costs nothing.
           (binding [rf.frame/*current-frame* nil]
             (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
 

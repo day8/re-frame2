@@ -3537,47 +3537,58 @@
         (fn use-subscribe
           ;; ---- 1-arg ambient form — full frame-resolution chain (rf2-4mi2zj) ----
           ;;
-          ;; The ambient `(use-subscribe [:q …])` form MUST resolve the
-          ;; frame through the SAME carried-invariant chain `rf.subs/subscribe`'s
-          ;; own 1-arity uses (Spec 006 §Frame resolution (1-arg form), :734,
-          ;; :1058; EP-0002): dynamic-var tier (`rf.frame/*current-frame*`, set by
-          ;; `with-frame` / `bind-fn`) FIRST, the React-context tier
-          ;; (the surrounding `frame-provider`) SECOND, and **nil → a loud
-          ;; `:rf.error/no-frame-context`** with NO `:rf/default` floor.
+          ;; ---- ONE TIER: the ambient hook reads React context ONLY ---------
+          ;; (rf2-kuky.61 ruling, implemented by rf2-kuky.62.)
           ;;
-          ;; The earlier shortcut `(use-subscribe-2 (use-current-frame) …)`
-          ;; bypassed that chain in two correctness-breaking ways:
+          ;; The ambient `(use-sub [:q …])` form resolves its frame from the
+          ;; shared frame React-context — the closest enclosing
+          ;; `frame-provider` (SCOPE) or `frame-root` (ENSURE) — and from
+          ;; NOTHING ELSE. `use-current-frame` (the `use-context` hook) is
+          ;; called unconditionally at the top of the body for two jobs at
+          ;; once: it keeps the component subscribed to context-value changes
+          ;; so a boundary swap re-renders it, AND its return value IS the
+          ;; resolution. That value is classified once through the shared
+          ;; `rf.adapter.context/context-value->current-frame` — the
+          ;; no-provider sentinel (`:rf.frame/no-provider`) to nil, a frame
+          ;; keyword to that frame, anything else to the distinct
+          ;; `:rf.error/frame-context-corrupted` diagnostic and nil — and nil
+          ;; is turned into the always-on `:rf.error/no-frame-context` by
+          ;; `require-frame-stamp!`, with NO `:rf/default` floor. The raw
+          ;; sentinel therefore never reaches the explicit path as a literal
+          ;; frame id, which is the second of the two breaks the pre-rf2-4mi2zj
+          ;; shortcut `(use-subscribe-2 (use-current-frame) …)` had.
           ;;
-          ;;   1. `use-current-frame` is the NARROW raw `use-context` read
-          ;;      (React-context tier ONLY — it never consults the dynamic
-          ;;      var). Passing its result straight into the 2-arg EXPLICIT
-          ;;      path let a surrounding frame boundary (`frame-provider` or
-          ;;      `frame-root`) beat a `with-frame` / `bind-fn` dynamic scope
-          ;;      — inverting the spec's tier precedence (dynamic-var MUST
-          ;;      win).
-          ;;   2. Beneath neither frame boundary, `use-context` returns the
-          ;;      no-provider sentinel (`:rf.frame/no-provider`), NOT nil. The
-          ;;      explicit 2-arg path then subscribed against that sentinel as
-          ;;      a literal frame id — surfacing a bad-/destroyed-frame path
-          ;;      instead of the specified `:rf.error/no-frame-context`.
+          ;; THE SINGLE-SOURCING ARGUMENT IS GIVEN UP, DELIBERATELY. What
+          ;; stood here said this hook must resolve through the SAME
+          ;; carried-invariant chain `rf.subs/subscribe`'s own 1-arity uses —
+          ;; dynamic-var tier FIRST, React-context tier second — so "the hook
+          ;; and the imperative read can never diverge". They now diverge on
+          ;; purpose, because the two run at different instants and only one
+          ;; of them is inside the scope that bound the var:
           ;;
-          ;; Fix: still CALL `use-current-frame` (the `use-context` hook) so
-          ;; the component stays subscribed to context-value changes and
-          ;; re-renders when the surrounding frame boundary (`frame-provider`
-          ;; or `frame-root`) swaps frames —
-          ;; a hook-safe, unconditional top-of-body call — but DISCARD its raw
-          ;; value for resolution. Resolve the real frame via
-          ;; `rf.frame/require-current-frame!`, which delegates to
-          ;; `resolve-current-frame` → the live `:adapter/current-frame`
-          ;; late-bind hook (`function-component-current-frame`: dynamic-var →
-          ;; the renderer's active context slot — `_currentValue`, falling back
-          ;; to `_currentValue2` under `react-dom/server` (rf2-5rqn) — with
-          ;; sentinel→nil and corrupted-value detection)
-          ;; and emits + throws `:rf.error/no-frame-context` on nil. This
-          ;; single-sources resolution with `rf.subs/subscribe`'s 1-arity — the
-          ;; hook and the imperative read can never diverge — and then hands
-          ;; the now-EXPLICIT resolved frame to the explicit path. That
-          ;; explicit path is unchanged (it bypasses the chain by design).
+          ;;   * A hook is the HOLD face of `capture-frame`, not the scoped
+          ;;     one. A body's dynamic extent has unwound by the time React
+          ;;     renders the component that body returned, so the var tier can
+          ;;     only answer for a DIFFERENT render than the one asking.
+          ;;   * Whether it answers at all depends on the SCHEDULING MODE, not
+          ;;     on the component tree: `act()`, `flushSync` and a synchronous
+          ;;     server render put the body on the calling stack (so a live
+          ;;     `with-frame` shadows the provider), while an ordinary
+          ;;     scheduled update does not. That made the same tree resolve
+          ;;     two different frames depending on how the flush was driven —
+          ;;     including for work the surrounding scope never scheduled.
+          ;;   * A hook that reads a JS-thread global during a React render is
+          ;;     hidden context in the one place React identity matters
+          ;;     (`spec/Principles.md` §Low hidden context).
+          ;;
+          ;; So dynamic scope stays the IMPERATIVE tier's — `rf/dispatch`,
+          ;; `rf/subscribe`, 0-arity `(rf/capture-frame)`,
+          ;; `rf/current-frame-id`, handlers, `reg-view` injection and the
+          ;; Reagent class-component chain keep dynamic-var → context → error,
+          ;; and `rf.frame/require-current-frame!` is untouched. The explicit
+          ;; override for a test or a harness is a `frame-provider` wrapper,
+          ;; which survives a scheduling change. The explicit 2-arg path below
+          ;; is unchanged (it bypasses ambient resolution by design).
           ;;
           ;; ---- the explicit form is `[query-v opts]` (rf2-kuky.57) ----------
           ;;
@@ -3634,16 +3645,16 @@
           ;; identity guard key the exact slot. It is a plain call, not a hook,
           ;; so the hook count is unchanged on every path.
           ([query-v]
-           ;; Hook subscription to provider-value changes (re-render). The
-           ;; returned sentinel/keyword is intentionally NOT used as the
-           ;; frame — resolution runs through the chain below.
-           (use-current-frame)
-           (use-subscribe-2
-             (rf.frame/require-current-frame!
-               :subscribe
-               {:where    're-frame.substrate.spine/use-subscribe
-                :event-id (first query-v)})
-             query-v))
+           ;; The `use-context` hook, called unconditionally: it subscribes the
+           ;; caller to provider-value changes AND supplies the frame.
+           (let [ctx-value (use-current-frame)]
+             (use-subscribe-2
+               (rf.frame/require-frame-stamp!
+                 (rf.adapter.context/context-value->current-frame ctx-value)
+                 :subscribe
+                 {:where    're-frame.substrate.spine/use-sub
+                  :event-id (first query-v)})
+               query-v)))
           ([query-v opts]
            (use-subscribe-2
              (rf.frame/require-frame-stamp!

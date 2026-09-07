@@ -98,7 +98,8 @@ Three things hold for that head, and they are the point of using the registry ra
 
   Returns the current sub value and re-renders the calling component when the value changes.
 
-  - The 1-arg form resolves the frame through the standard chain: `with-frame` dynamic scope first, then the surrounding `frame-provider` (SCOPE) / `frame-root` (ENSURE) via React context. It raises `:rf.error/no-frame-context` when neither is in scope (there is no `:rf/default` floor).
+  - The 1-arg form resolves the frame from **React context only**: the surrounding `frame-provider` (SCOPE) / `frame-root` (ENSURE), and nothing else. It raises `:rf.error/no-frame-context` when there is no boundary above it (there is no `:rf/default` floor).
+  - A `with-frame` / `bind-fn` dynamic scope around a synchronous render does **not** reach a hook — not under `act()`, not under `flushSync`, not under a server render. That is the one rule the whole React hook family follows, `re-frame.hicasso.native`'s hooks included, and the reason is that a hook runs when React renders, by which time the block's extent has unwound: the same component tree must resolve the same frame however the flush was driven. To pin a hook to a frame explicitly, wrap it in a `frame-provider` — or pass `{:frame …}` on this read.
   - The opts form pins ONE read to an explicit frame, bypassing the chain — the same `{:frame target}` opts map `subscribe` takes, where `target` is a frame-id keyword or a live frame value. `:frame` is **required** there: the opts form is the explicit read and the 1-arity is the ambient one. Where a whole subtree shares a frame, scope it with `frame-provider {:frame target}` and read with the 1-arity instead.
 - **Example**:
   ```clojure
@@ -118,7 +119,7 @@ Three things hold for that head, and they are the point of using the registry ra
 
   `capture-frame` is *the* hold primitive; `reg-view` injection (Reagent) and `use-frame` (UIx) are its two ergonomic spellings — one primitive, three faces.
 
-  - Frame resolution matches `use-sub`: `with-frame` dynamic scope first, then the surrounding `frame-provider` / `frame-root` via React context. It raises `:rf.error/no-frame-context` when neither is in scope.
+  - Frame resolution matches `use-sub`: the surrounding `frame-provider` / `frame-root` via React context, and nothing else — a `with-frame` dynamic scope around a synchronous render does not reach it. It raises `:rf.error/no-frame-context` when there is no boundary above it. For an explicit frame there is no hook tax: call `(rf/capture-frame frame-id)` directly.
   - The returned map is reference-stable across re-renders for the same resolved frame *incarnation* (safe in effect deps and child props). A provider swap re-renders the caller and yields a map locked to the new frame — and so does destroying the resolved frame and creating another under the same id, because a frame keyword is an address and the ops bundle is pinned to the incarnation it was captured against.
   - No options map, no variants — for an explicit frame, call `(rf/capture-frame frame-id)` directly.
 - **Example**:
@@ -130,8 +131,11 @@ Three things hold for that head, and they are the point of using the registry ra
   ```
 
 > **Asking which frame you are in.** There is no raw `useContext` reader on this
-> adapter. `(:frame (use-frame))` is the hook-shaped answer and resolves through
-> the full chain; `(rf/current-frame-id)` is the imperative one. The narrow
+> adapter. `(:frame (use-frame))` is the hook-shaped answer — the React context
+> the boundary above installed; `(rf/current-frame-id)` is the imperative one,
+> and it *does* consult the dynamic-var tier first, so the two can differ inside
+> a `with-frame` around a render. That is deliberate: see the hook rule above.
+> The narrow
 > context read this namespace used to publish handed back the no-provider
 > sentinel `:rf.frame/no-provider` as if it were an answer, and was retired
 > under rf2-kuky.57.

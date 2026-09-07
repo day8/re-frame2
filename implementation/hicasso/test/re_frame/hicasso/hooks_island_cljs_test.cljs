@@ -9,13 +9,14 @@
   re-renders, StrictMode's double mount, teardown, the crossing through
   `h/defhost` — and that is `hooks_island_dom_cljs_test`'s subject.
 
-  Four claims do NOT need a fiber, and they are the ones here, because
+  Five claims do NOT need a fiber, and they are the ones here, because
   the server renderer runs a component body for real:
 
   | row | what it establishes |
   |---|---|
   | [[a-read-under-a-live-frame-answers-without-committing-anything]] | the COLD tier. A body runs, the value is right, and the runtime retained nothing — because nothing committed. Both arms. |
   | [[both-hooks-refuse-outside-every-frame-and-each-names-itself]] | the refusal, and that the two hooks are distinguishable in it. |
+  | [[a-live-with-frame-around-the-render-does-not-reach-either-hook]] | rf2-kuky.62's ONE rule, adversarially: React context only, even when a `with-frame` is live on the very stack the body runs on. |
   | [[use-frame-answers-the-runtimes-own-row-rather-than-capturing-its-own]] | the hook is not a second `capture-frame`. This is the row the incarnation rule rests on, and it is an IDENTITY test because an equality test passes for the wrong implementation. |
   | [[the-namespace-is-the-two-hooks]] | the membership pin: `use-sub` and `use-frame` are present, and the exact census is armed for the wave-2 bead. |
 
@@ -214,6 +215,54 @@
     (let [data (refusal #(render-frameless! (react/createElement uix-arm #js {:sym "AAPL"})))]
       (is (= :rf.error/no-frame-context (:rf.error/id data)))
       (is (= 're-frame.hicasso.native/use-sub (:where data))))))
+
+;; ---------------------------------------------------------------------------
+;; 2b. The one hook frame-resolution rule, stated adversarially
+;; ---------------------------------------------------------------------------
+
+(deftest a-live-with-frame-around-the-render-does-not-reach-either-hook
+  (testing "rf2-kuky.62 — the ONE rule the React hook family follows: a hook
+            resolves from the React context the boundary above it installed,
+            and from NOTHING else. `renderToStaticMarkup` runs the component
+            body on THIS stack, so a `with-frame` wrapped around it is
+            genuinely live while the body runs — which is the only condition
+            under which a dynamic-var tier could ever answer, and therefore
+            the only shape in which this claim can be tested at all. Hicasso's
+            native tier already followed the rule; these rows are what stop it
+            drifting back, and what make the UIx family's move onto it a
+            SHARED statement rather than one adapter's private choice."
+    (seat!)
+    (rf/make-frame {:id ::somewhere-else})
+    (rf/with-frame ::somewhere-else (rf/dispatch-sync [::seed {"AAPL" :wrong-frame}]))
+
+    (testing "`n/use-sub` under a boundary reads the BOUNDARY's frame while a
+              with-frame naming a different one is live around the render"
+      (is (= "<span>191</span>"
+             (rf/with-frame ::somewhere-else
+               (render-under-frame! (react/createElement reader #js {:sym "AAPL"}))))))
+
+    (testing "`n/use-frame` locks its bundle to the BOUNDARY's frame in the
+              same condition — the ops map is the one the surrounding context
+              names, so a dispatch made through it after the scope unwinds
+              still targets that frame and not the scope's"
+      (is (= (str frame-id)
+             (rf/with-frame ::somewhere-else
+               (render-under-frame! (react/createElement framed nil)))))
+      (is (= frame-id (:frame @!observed-ops))))
+
+    (testing "and with NO boundary above it a live with-frame does not rescue
+              either hook: absence is still the loud refusal. This is the case
+              that separates `context ONLY` from `context FIRST` — a chain that
+              merely reordered the two tiers would answer here"
+      (let [data (refusal #(rf/with-frame frame-id
+                             (render-frameless!
+                               (react/createElement reader #js {:sym "AAPL"}))))]
+        (is (= :rf.error/no-frame-context (:rf.error/id data)))
+        (is (= 're-frame.hicasso.native/use-sub (:where data))))
+      (let [data (refusal #(rf/with-frame frame-id
+                             (render-frameless! (react/createElement framed nil))))]
+        (is (= :rf.error/no-frame-context (:rf.error/id data)))
+        (is (= 're-frame.hicasso.native/use-frame (:where data)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3. `use-frame` is the runtime's row, not a second capture

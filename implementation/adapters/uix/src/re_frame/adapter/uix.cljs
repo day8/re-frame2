@@ -145,9 +145,10 @@
   subscription (`rf/subscribe`, Reagent's reaction), the NOUN returns its
   value (`h/sub` in a Hicasso body, `use-sub` in a function component).
 
-  Reads the surrounding `frame-provider` (SCOPE) / `frame-root` (ENSURE) by
-  default, through the same resolution chain `rf/subscribe`'s own 1-arity uses
-  — dynamic-var tier first, React context second, and no scope at all raises
+  Reads the surrounding `frame-provider` (SCOPE) / `frame-root` (ENSURE) from
+  React context, and nothing else. A `with-frame` / `bind-fn` dynamic scope
+  around a synchronous render does NOT reach a hook — the explicit override
+  is a `frame-provider` wrapper — and no boundary above raises
   `:rf.error/no-frame-context` with no `:rf/default` floor.
 
       ($ frame-provider {:frame :tenant-b}
@@ -174,9 +175,10 @@
               {:keys [dispatch]} (use-frame)]
           ($ :button {:on-click #(dispatch [:counter/inc])} \"+\")))
 
-  Resolution matches the ambient `use-sub`: dynamic-var tier first,
-  then the surrounding `frame-provider` / `frame-root` via React context;
-  no scope raises `:rf.error/no-frame-context`. The returned map is
+  Resolution matches the ambient `use-sub`: the surrounding
+  `frame-provider` / `frame-root` via React context ONLY — a `with-frame`
+  dynamic scope around a synchronous render does not reach a hook — and
+  no boundary above raises `:rf.error/no-frame-context`. The returned map is
   reference-stable across re-renders for the same resolved frame
   INCARNATION (safe in effect deps / child props); a provider swap
   re-renders the caller and yields a map locked to the new frame, and so

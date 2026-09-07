@@ -25,6 +25,7 @@
   | [[a-re-render-that-changed-no-read-performs-no-re-subscribe]] | `subscribe` identity is stable, so React never re-subscribes — both arms | any per-render `subscribe` closure — the screen stays correct throughout |
   | [[strict-modes-double-mount-acquires-once-and-unmount-releases-exactly]] | acquire is commit-owned and teardown is its exact inverse | acquiring during render, or a cleanup that releases a successor's cells |
   | [[two-frames-are-two-cells-and-an-island-cannot-see-across]] | frames are isolated contexts on the far side of the crossing — both arms | resolving the frame anywhere but the island's own context |
+  | [[a-live-with-frame-around-the-mount-does-not-reach-the-island]] | rf2-kuky.62's ONE rule on the SHIPPED path: `mount!` commits inside `flushSync`, so a `with-frame` really is live while the body runs | a dynamic-var tier — which wins only under a synchronous flush, so the same tree would resolve two different frames depending on how it was driven |
   | [[two-reads-in-one-island-are-two-cells]] | `n` calls are `n` subscriptions, React's own arithmetic | a hook that folded a component's reads into one cell and lost one of them |
   | [[use-frame-is-stable-across-renders-and-retargets-across-a-reincarnation]] | the hic-013 incarnation rule, both halves | memoising on the frame KEYWORD, which is `=` across a reincarnation |
   | [[a-transition-around-a-write-stays-tear-free-and-is-still-blocking]] | React's external-store ceiling, measured rather than advertised | a docstring that claimed transition-awareness |
@@ -104,6 +105,7 @@
     :hooks/strict-mode
     :hooks/frame-isolation
     :hooks/frame-isolation-uix
+    :hooks/context-only-resolution
     :hooks/two-cells
     :hooks/incarnation
     :hooks/transition})
@@ -664,6 +666,73 @@
       (do (skip! ":node-test has no React DOM") (done))
       (-> (isolation-row! uix-host :hooks/frame-isolation-uix)
           (.catch (report-failure! "W5 frame isolation, UIx arm"))
+          (.then (fn [_] (release-minted!) (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; W5c. The one hook frame-resolution rule, on the SHIPPED synchronous path
+;; ---------------------------------------------------------------------------
+
+(defn- dynamic-scope-row!
+  "rf2-kuky.62 — a hook resolves from the React context the boundary above
+  it installed and from nothing else, asserted where a dynamic-var tier
+  could actually have won.
+
+  WHY THIS ROW IS IN THE DOM LANE AT ALL, given the node lane already
+  states the rule (`hooks_island_cljs_test`, the `with-frame` row): this is
+  the SHIPPED path. `mount/root!` commits inside `flushSync`
+  (`impl/mount.cljs`), so an island body runs on the caller's own stack in
+  production, not only under a server renderer or an `act()`. A rule that
+  held for `renderToStaticMarkup` and not here would be a rule about the
+  test harness.
+
+  The seeding is the discriminator: `alpha` and `beta` answer the same
+  query with different values, `beta` is the frame the boundary names, and
+  `alpha` is the one a live `with-frame` names around the mount. One cell,
+  keyed to beta, is the reading — a dynamic-var tier would key it to alpha,
+  and both trees would look perfectly plausible on screen."
+  [view mechanism]
+  (let [ka (price-key alpha "AAPL")
+        kb (price-key beta  "AAPL")]
+    (seat! alpha {"AAPL" "alpha-price"})
+    (seat! beta  {"AAPL" "beta-price"})
+    (-> (rf/with-frame alpha
+          ;; The binding is live across `mount-live!`'s SYNCHRONOUS half —
+          ;; the container, the root and the flushSync commit — which is
+          ;; exactly the window in which the island body runs.
+          (mount-live! beta [view {:sym "AAPL"}] kb 1))
+        (.then
+          (fn [b]
+            (testing "the island read the BOUNDARY's frame, not the frame the
+                      live with-frame named on the stack that mounted it"
+              (is (= "beta-price" (text-at b ".price")))
+              (is (= #{kb} (rf.hicasso.roots-frames-support/cell-keys))
+                  "and it built exactly one cell, keyed to the boundary's frame —
+                   a dynamic-var tier would have keyed it to alpha")
+              (is (empty? (readers-of ka))
+                  "alpha has no reader at all: nothing in this tree ever
+                   resolved to it"))
+
+            (testing "`use-frame`'s bundle is locked to the same frame, and
+                      stays so once the scope has unwound — the ops map is a
+                      HOLD, so a dispatch through it later is still beta's"
+              (is (= beta (:frame @!last-ops)))
+              ((:dispatch-sync @!last-ops) [::set-price "AAPL" "beta-moved"])
+              (rf.hicasso.impl.mount/settle!)
+              (is (= "beta-moved" (text-at b ".price")))
+              (is (= "alpha-price" (get-in (rf/app-db-value alpha) [:prices "AAPL"]))
+                  "and alpha — the frame the with-frame named — was never
+                   written to"))
+
+            (exercised! mechanism)
+            (is (= rf.hicasso.roots-frames-support/released (teardown! b)))
+            nil)))))
+
+(deftest a-live-with-frame-around-the-mount-does-not-reach-the-island
+  (async done
+    (if-not (rf.hicasso.impl.mount/browser?)
+      (do (skip! ":node-test has no React DOM") (done))
+      (-> (dynamic-scope-row! host :hooks/context-only-resolution)
+          (.catch (report-failure! "W5c hook frame resolution is context-only"))
           (.then (fn [_] (release-minted!) (done)))))))
 
 ;; ---------------------------------------------------------------------------
