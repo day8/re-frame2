@@ -215,7 +215,20 @@
                                (into #{}
                                      (mapcat (fn [^js entry]
                                                (seq (.-set entry))))
-                                     entries))]
+                                     entries))
+                      ;; Did the fold merge entries that read DIFFERENT
+                      ;; cells, or only different ORDERS of the same ones?
+                      ;; Carried as METADATA rather than as a field: it is
+                      ;; the explanation's business (rf2-h9lt) and not the
+                      ;; mounted roster's, and this row IS the envelope's
+                      ;; `:boundaries` element, so a field here would widen
+                      ;; a published schema to say something no consumer of
+                      ;; that read asked for.
+                      one-raw-readset?
+                      (= 1 (count (into #{}
+                                        (map (fn [^js entry] (set (seq (.-set entry)))))
+                                        entries)))]
+                  ^{::one-raw-readset? one-raw-readset?}
                   {:boundary    {:parent nil :key projected-boundary-key}
                    :views       (view-rows (into #{} (mapcat rf.hicasso.impl.collector/entry-views) entries))
                    :instances   (reduce + 0 (map (fn [^js entry]
@@ -472,6 +485,18 @@
   reads at the boundary's own maximum epoch — are the ones whose values
   moved most recently, and `:snapshot` is the sum React itself compares.
 
+  **`:snapshot` is `evidence/unknown` where the privacy fold merged
+  DISTINCT raw read sets** (rf2-h9lt). `make-snapshot` sums ONE entry's
+  keys; this row can hold several, because an egress policy that elides a
+  query whole projects `[:row \"secret-a\"]` and `[:row \"secret-b\"]` onto
+  one identity. Summing across that group produces a number no boundary
+  ever compares — `(+ eA eB)` where React held `eA` at one and `eB` at
+  the other — and reporting it as *the* snapshot is a fabricated answer
+  given to someone debugging. The fold itself is correct and stays; only
+  the claim about it is withdrawn. A group of two READ ORDERS of one raw
+  set is not this case: every entry in it holds the same cells, so the
+  sum is that boundary's real snapshot and is reported exactly.
+
   Leads: the commit seam records no cascade id, so no retained run can be
   JOINED to this boundary's re-run; `:candidates` are the runs that
   recomputed a read of this boundary, matched on `[frame-id sub-id]`
@@ -505,7 +530,9 @@
      :instances    (:instances boundary-row)
      :window       {:frames (vec (sort-by pr-str frame-ids))
                     :retained-runs retained-runs}
-     :snapshot     (if (seq epochs) (reduce + epochs) rf.hicasso.evidence/unknown)
+     :snapshot     (if (and (seq epochs) (::one-raw-readset? (meta boundary-row) true))
+                     (reduce + epochs)
+                     rf.hicasso.evidence/unknown)
      :peak-epoch   (or peak-epoch rf.hicasso.evidence/unknown)
      ;; The READ IDENTITY, not the bare sub-id: `[:row 1]` and `[:row 2]`
      ;; are one sub-id and two different reads, and a Why view that

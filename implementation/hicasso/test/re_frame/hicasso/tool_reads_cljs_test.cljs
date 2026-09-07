@@ -717,3 +717,80 @@
     (testing "and the guard is not one-way — the same read answers again with it on"
       (is (some? (rf.hicasso.tool/read-mounted-boundaries))))
     (release)))
+
+;; ---------------------------------------------------------------------------
+;; The privacy fold and what it is allowed to CLAIM — rf2-h9lt
+;; ---------------------------------------------------------------------------
+
+(deftest a-fold-across-distinct-raw-readsets-does-not-claim-an-exact-snapshot
+  ;; `make-snapshot` (impl/collector) sums ONE entry's keys — that is the
+  ;; number React holds and compares. `entry-rows` groups by the PROJECTED
+  ;; identity, so where an egress policy elides a query whole, two
+  ;; boundaries reading DIFFERENT cells become one row and their epochs are
+  ;; unioned. Summing that union produces `(+ eA eB)`, which no boundary
+  ;; ever compared, and the contract called it the exact React snapshot —
+  ;; a fabricated answer handed to someone debugging, and handed precisely
+  ;; to the applications that correctly protect a sensitive query.
+  ;;
+  ;; The whole-query fold is reached here through the door the suite
+  ;; already proves fails closed: with the frame destroyed no policy is
+  ;; reachable, so every query redacts whole and `[:tr/row 0]` and
+  ;; `[:tr/row 1]` export one identity. The epochs are stamped BEFORE the
+  ;; destruction and live in the collector's own cell table, which is what
+  ;; keeps this row from passing for the trivial reason.
+  ;;
+  ;; The fold stays. Only the claim about it is withdrawn.
+  (seeded!)
+  (mount-in! frame-id (fn [_] (rf.hicasso/sub [:tr/row 0]) nil))
+  (mount-in! frame-id (fn [_] (rf.hicasso/sub [:tr/row 1]) nil))
+  (rf/with-frame frame-id (rf/dispatch-sync [:tr/bump]))
+  (rf/destroy-frame! frame-id)
+  (let [rows (:boundaries (rf.hicasso.tool/read-mounted-boundaries))
+        why  (first (:explanations (rf.hicasso.tool/explain-render)))]
+
+    (testing "the premise: the policy really did fold two DISTINCT raw
+              readsets onto one exported identity"
+      (is (= 2 (:entries (rf.hicasso.test.runtime/residue)))
+          "two live entries, reading two different cells")
+      (is (= 1 (count rows))
+          "and one exported row, because both queries redact alike")
+      (is (= 2 (:read-orders (first rows)))
+          "which the row already says it did")
+      (is (= 2 (count (:reads (first rows))))
+          "the row's reads are the UNION of the two boundaries' cells —
+           without this the sum below would not have been a sum at all")
+      (is (= 2 (count (filter (comp number? :epoch) (:reads (first rows)))))
+          "and BOTH carry a real epoch, so the withdrawal below is about the
+           aggregation and not about a row that had no number to give"))
+
+    (testing "so the explanation must not report their sum as the number
+              React compares"
+      (is (= rf.hicasso.evidence/unknown (:snapshot why))
+          "an aggregate is not a snapshot; `unknown` is the honest word
+           for a number no boundary holds"))
+
+    (testing "and the fold itself is untouched — no secret escapes and the
+              projected identity still holds"
+      (is (not (str/includes? (pr-str why) the-secret)))
+      (is (= 1 (count (:explanations (rf.hicasso.tool/explain-render))))))))
+
+(deftest two-read-orders-of-one-raw-readset-keep-their-exact-snapshot
+  ;; The other side of the same line, and the reason the repair is keyed on
+  ;; the RAW read sets rather than on `:read-orders`: a group of two ORDERS
+  ;; of one set is every-entry-identical in cells, so the sum IS that
+  ;; boundary's snapshot and must still be reported exactly. Keying the
+  ;; withdrawal on `(> :read-orders 1)` would have thrown this away.
+  (seeded!)
+  (let [a (mount! (fn [_] (rf.hicasso/sub [:tr/left]) (rf.hicasso/sub [:tr/right]) nil))
+        b (mount! (fn [_] (rf.hicasso/sub [:tr/right]) (rf.hicasso/sub [:tr/left]) nil))]
+    (rf/with-frame frame-id (rf/dispatch-sync [:tr/bump]))
+    (let [row (first (:boundaries (rf.hicasso.tool/read-mounted-boundaries)))
+          why (first (:explanations (rf.hicasso.tool/explain-render)))
+          eps (keep :epoch (:reads row))]
+      (is (= 2 (:read-orders row))
+          "the premise: this really is a folded group")
+      (is (number? (:snapshot why))
+          "and it keeps a number, because every entry in it read the same cells")
+      (is (= (reduce + 0 eps) (:snapshot why))
+          "the same sum React compares, stated rather than merely non-nil"))
+    (a) (b)))
