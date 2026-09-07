@@ -368,7 +368,7 @@
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
           (with-redefs [rf.substrate.adapter/render          render-fn
-                        rf.substrate.adapter/current-adapter (fn [] :rf.adapter/uix)]
+                        rf.substrate.adapter/current-adapter (fn [] {:kind :rf.adapter/uix})]
             (with-warn-counter*
               (fn [warns]
                 (let [result     (mount/open!)
@@ -392,7 +392,7 @@
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
           (with-redefs [rf.substrate.adapter/render          render-fn
-                        rf.substrate.adapter/current-adapter (fn [] :rf.adapter/ui)]
+                        rf.substrate.adapter/current-adapter (fn [] {:kind :rf.adapter/ui})]
             (with-warn-counter*
               (fn [_warns]
                 (let [result (mount/open-overlay!)]
@@ -408,7 +408,7 @@
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
           (with-redefs [rf.substrate.adapter/render          render-fn
-                        rf.substrate.adapter/current-adapter (fn [] :rf.adapter/helix)]
+                        rf.substrate.adapter/current-adapter (fn [] {:kind :rf.adapter/helix})]
             (with-warn-counter*
               (fn [_warns]
                 (let [result (mount/popout!)]
@@ -436,7 +436,7 @@
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
           (with-redefs [rf.substrate.adapter/render          render-fn
-                        rf.substrate.adapter/current-adapter (fn [] :rf.adapter/hicasso)]
+                        rf.substrate.adapter/current-adapter (fn [] {:kind :rf.adapter/hicasso})]
             (with-warn-counter*
               (fn [warns]
                 (let [result     (mount/open!)
@@ -461,7 +461,7 @@
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
           (with-redefs [rf.substrate.adapter/render          render-fn
-                        rf.substrate.adapter/current-adapter (fn [] :rf.adapter/reagent-slim)]
+                        rf.substrate.adapter/current-adapter (fn [] {:kind :rf.adapter/reagent-slim})]
             (let [result (mount/open!)]
               (is (map? result) "open! returns the mount-state map")
               (is (true? (mount/mounted?)))

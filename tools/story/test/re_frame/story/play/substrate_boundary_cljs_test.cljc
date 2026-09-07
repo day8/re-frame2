@@ -103,7 +103,7 @@
             :flush-render!, so the producer stays at the headless floor
             rather than claiming a :dom boundary it cannot honour"
     (rf/init! rf.substrate.plain-atom/adapter)
-    (is (nil? (:flush-render! (rf/current-adapter-spec)))
+    (is (nil? (:flush-render! (rf/current-adapter)))
         "precondition: plain-atom ships no :flush-render!")
     (is (nil? (rf.story.play.substrate-boundary/adapter-flush-render)))
     (is (= :headless

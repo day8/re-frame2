@@ -20,7 +20,7 @@
 (defn adapter-installed?
   "True iff a re-frame reactive-substrate adapter is installed in THIS
   process — the mandatory state substrate a variant frame allocates
-  against. Reads the public `rf/current-adapter-spec` introspection
+  against. Reads the public `rf/current-adapter` introspection
   surface (Spec 006 §Adapter introspection), which returns `nil` both
   before any `rf/init!` and after the installed adapter was disposed.
 
@@ -28,7 +28,7 @@
   control can drive the refusal below without process-wide adapter
   surgery."
   []
-  (some? (rf/current-adapter-spec)))
+  (some? (rf/current-adapter)))
 
 (defn no-adapter-error
   "The ONE pre-flight refusal both lifecycle tools return when this

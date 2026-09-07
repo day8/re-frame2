@@ -4,7 +4,7 @@
   `substrate-adapter/route-hook!` wraps each adapter's late-bind hook impl
   in a closure that fires ONLY when that adapter is the (rf/init!)-installed
   one. The original guard was raw object identity —
-  `(identical? adapter-spec (current-adapter-spec))` — which is WRONG against
+  `(identical? adapter-spec (current-adapter))` — which is WRONG against
   a COPIED or wrapped canonical adapter map: a value-equal map installed via
   `assoc`/`merge`/copy has a different identity, so every routed hook silently
   fell through to the chain/fallback (inert), even though the user installed a
@@ -105,7 +105,7 @@
       ;; (rf.substrate.plain-atom/adapter) is a DIFFERENT object from the installed copy.
       ;; Pre-fix, the routed closure's `(identical? ...)` guard saw this
       ;; mismatch and fell through — the exact defect.
-      (is (false? (identical? rf.substrate.plain-atom/adapter (rf.substrate.adapter/current-adapter-spec)))
+      (is (false? (identical? rf.substrate.plain-atom/adapter (rf.substrate.adapter/current-adapter)))
           "the installed copy is NOT identical to the routed canonical map")
       (is (= :live-impl (routed))
           "the routed hook dispatched to its LIVE impl for the copied canonical map")

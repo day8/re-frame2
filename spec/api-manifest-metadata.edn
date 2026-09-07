@@ -1193,21 +1193,12 @@
   ["re-frame.core" "init-platform"]        {:tier :advanced :owner "002" :status "v1"
                                            :action :keep
                                            :justification "API.md Tier taxonomy names init-platform as a canonical advanced example -- the lower-level lifecycle beneath front-porch init!. It is called in the same boot file as init!, so a separate require would split one sitting across two namespaces. Defined on re-frame.core; no owning-namespace peer."}
-  ["re-frame.core" "install-adapter!"]     {:tier :advanced :owner "006" :status "v1"
-                                           :action :keep
-                                           :justification "API.md Tier taxonomy's other named advanced lifecycle exemplar: a substrate adapter is installed at boot, beside init!. The naming question this row once recorded as open is now answered in the law itself: Conventions §Lifecycle-verb law rosters install-* -- wire a runtime capability, or seat the registrations that support it -- and that row names install-adapter! directly, fixing its generation contract (a second install without an intervening teardown raises :rf.error/adapter-already-installed) and destroy-adapter! as the public teardown twin. The name stands as spelled (rf2-uimu)."}
   ["re-frame.core" "destroy-adapter!"]     {:tier :advanced :owner "006" :status "v1"
                                            :action :keep
                                            :justification "The destroy-* lifecycle inverse of install-adapter! -- identity, a creation moment and owned resources, exactly the Lifecycle-verb law's discriminator. It must sit on the door that carries the call it undoes."}
-  ["re-frame.core" "adapter-disposed?"]    {:tier :advanced :owner "006" :status "v1"
-                                           :action :keep
-                                           :justification "An adapter-state read used in the same teardown sitting as destroy-adapter!; defined on re-frame.core with no owning public namespace."}
   ["re-frame.core" "current-adapter"]      {:tier :advanced :owner "006" :status "v1"
                                            :action :keep
-                                           :justification "An adapter-state read used in the same boot sitting as install-adapter!; defined on re-frame.core with no owning public namespace."}
-  ["re-frame.core" "current-adapter-spec"] {:tier :advanced :owner "006" :status "v1"
-                                           :action :keep
-                                           :justification "The capability half of current-adapter, read in the same sitting and from the same door; defined on re-frame.core with no owning public namespace."}
+                                           :justification "The ONE adapter read, folded onto the spec map by rf2-kuky.4 (2026-09-06, rider A-i): the former keyword-returning spelling was literally the :kind of this same map with a synthesised fallback, so two names read one value and were free to diverge in return type. Read in the same boot sitting as init!, and defined on re-frame.core with no owning public namespace. Live callers are what keep it on the facade: Story reads the optional :flush-render! contract fn off it (tools/story substrate_boundary), story-mcp presence-checks it (tools/story-mcp lifecycle), and Xray branches on its :kind for the unsupported-substrate diagnostic (tools/xray mount). The deleted siblings install-adapter! and adapter-disposed? had no non-test consumers and survive on re-frame.substrate.adapter."}
   ["re-frame.core" "configure!"]           {:tier :front-porch :owner "Conventions" :status "v1"
                                            :action :keep
                                            :justification "Front-porch: the single process-level config door, and the config-mutation verb the lifecycle-verb law fixes across all three facades (Conventions, configure! vs current-config). An app calls it once at boot."}

@@ -71,8 +71,8 @@
   (testing "the shared fixture's (rf/init! ssr/adapter) really seated the SSR
             adapter in THIS runtime — `init!` is first-wins, so a suite that
             assumes it can be measuring plain-atom and calling it SSR"
-    (is (= :rf.adapter/ssr (rf.substrate.adapter/current-adapter)))
-    (is (identical? rf.ssr/adapter (rf.substrate.adapter/current-adapter-spec))
+    (is (= :rf.adapter/ssr (:kind (rf.substrate.adapter/current-adapter))))
+    (is (identical? rf.ssr/adapter (rf.substrate.adapter/current-adapter))
         "and it is this artefact's adapter map, not another :rf.adapter/ssr")))
 
 ;; ---------------------------------------------------------------------------

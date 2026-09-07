@@ -1472,7 +1472,7 @@
   ;; reset-runtime has already installed the Reagent adapter; calling
   ;; install-adapter! again should throw.
   (let [thrown? (try
-                  (rf/install-adapter! rf.adapter.reagent/adapter)
+                  (rf.substrate.adapter/install-adapter! rf.adapter.reagent/adapter)
                   false
                   (catch :default e
                     ;; rf2-vvixub — branch on the canonical :rf.error/id
@@ -1483,6 +1483,6 @@
         "second install-adapter! raises :rf.error/adapter-already-installed"))
   ;; Sanity-check the destroy-then-install path remains valid.
   (rf/destroy-adapter!)
-  (rf/install-adapter! rf.adapter.reagent/adapter)
+  (rf.substrate.adapter/install-adapter! rf.adapter.reagent/adapter)
   (is (some? (rf.substrate.adapter/current-adapter))
       "after destroy, install succeeds again — clean swap path"))

@@ -2105,7 +2105,7 @@ One v2-pre-rename outlier name gets renamed; the rest of the tear-down surface w
 
 | v1 → v2 (pre-rename) | v2 (post-rename) | Verb-axis rationale |
 |---|---|---|
-| `rf/dispose-adapter!` | `rf/destroy-adapter!` | Adapter teardown is a lifecycle boundary, symmetric with `install-adapter!` and `destroy-frame!` → `destroy-` cluster. |
+| `rf/dispose-adapter!` | `rf/destroy-adapter!` | Adapter teardown is a lifecycle boundary, symmetric with `rf/init!` (which seats the adapter) and `destroy-frame!` → `destroy-` cluster. |
 
 **Detect.** v2-pre-rename codebases trip this; v1 codebases did not have an adapter concept and do not have a v1 surface that maps here.
 

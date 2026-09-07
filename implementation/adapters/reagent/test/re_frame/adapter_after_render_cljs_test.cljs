@@ -130,15 +130,15 @@
 (deftest copied-adapter-map-routes-to-live-after-render-hook
   (testing "a copied stock-Reagent adapter map still drives the live
             :adapter/after-render hook (rf2-dkl5z1)"
-    (let [original (rf.substrate.adapter/current-adapter-spec)
+    (let [original (rf.substrate.adapter/current-adapter)
           copied   (assoc rf.adapter.reagent/adapter :rf.test/instrumentation-wrapper true)
           fired    (atom 0)]
       (rf.substrate.adapter/dispose-adapter!)
       (rf.substrate.adapter/install-adapter! copied)
       (try
-        (is (false? (identical? rf.adapter.reagent/adapter (rf.substrate.adapter/current-adapter-spec)))
+        (is (false? (identical? rf.adapter.reagent/adapter (rf.substrate.adapter/current-adapter)))
             "precondition: the installed copy is NOT identical to the routed canonical map")
-        (is (= :rf.adapter/reagent (rf.substrate.adapter/current-adapter))
+        (is (= :rf.adapter/reagent (:kind (rf.substrate.adapter/current-adapter)))
             "precondition: the copy preserves the canonical :kind token")
         (rf.interop/after-render (fn [] (swap! fired inc)))
         (is (zero? @fired) "after-render still DEFERS under the copied map")

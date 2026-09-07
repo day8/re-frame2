@@ -466,13 +466,13 @@
   `:kind`, e.g. one `assoc`'d with an instrumentation wrapper) is still
   accepted, matching the routed hooks' acceptance of the same copy."
   [render-tree]
-  (when-not (rf.substrate.adapter/same-adapter? adapter (rf.substrate.adapter/current-adapter-spec))
+  (when-not (rf.substrate.adapter/same-adapter? adapter (rf.substrate.adapter/current-adapter))
     (rf.error/throw-error!
       :rf.error/test-react-not-installed
       'rf/test-react-mount!
       (str "test-react/mount! requires the Test-React adapter"
            " to be the (rf/init!)-installed adapter; got "
-           (rf.substrate.adapter/current-adapter)
+           (:kind (rf.substrate.adapter/current-adapter))
            ". Call (rf/init! test-react/adapter) before mount!.")
       {:recovery :install-the-test-react-adapter}))
   (mount-tree! render-tree))
