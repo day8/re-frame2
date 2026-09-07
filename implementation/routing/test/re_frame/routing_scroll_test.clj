@@ -151,7 +151,7 @@
 ;; ---- rf2-kuky.38 ruling: the URL-driven default scroll is a PURE FUNCTION
 ;; ---- of the resolved cause ------------------------------------------------
 ;;
-;; `:rf.route/transitioned` is gone (pre-alpha, no shim). The one URL-driven
+;; The retired forward-nav event id is gone (pre-alpha, no shim). The one URL-driven
 ;; door `:rf.route/handle-url-change` now derives its default scroll strategy
 ;; from the cause `url-change-cause` resolves for THIS dispatch: `:top` for
 ;; `:link` — the forward link click that used to be a second event id — and
@@ -184,7 +184,7 @@
       (is (= 1 (count @calls))
           "the link cause emits exactly one :rf.nav/scroll fx")
       (is (= :top (-> @calls first :strategy))
-          "cause :link ⇒ default scroll :top (the retired :rf.route/transitioned default)")))
+          "cause :link ⇒ default scroll :top (the retired forward-nav door's default)")))
 
   (testing "{:rf.route/cause :popstate} defaults the scroll strategy to :restore"
     (let [calls (atom [])]
