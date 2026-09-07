@@ -319,7 +319,7 @@ Every adapter exposes:
 (dispose-adapter!)                                      ;; → nil
 ```
 
-Called by the core when the runtime shuts down (process exit, test-frame teardown, or explicit `(rf/shutdown-runtime!)`). The adapter must:
+Called by the core when the runtime shuts down (process exit, test-frame teardown, or explicit `(rf/destroy-adapter!)`). The adapter must:
 
 1. Attempt cancellation of all in-flight reactive subscriptions.
 2. Attempt release of every host-specific resource (DOM event listeners, websocket subscribers, timers), even when a sibling cleanup fails.

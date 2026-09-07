@@ -181,8 +181,9 @@
   "Return the discriminator keyword identifying the installed adapter, or
   nil if none. Per Spec 006 §Adapter introspection: one of
   `:rf.adapter/reagent`, `:rf.adapter/reagent-slim`,
-  `:rf.adapter/uix`, `:rf.adapter/plain-atom`, `:rf.adapter/ssr`, or
-  `:custom` for user-supplied adapters that didn't pick a canonical kind.
+  `:rf.adapter/uix`, `:rf.adapter/hicasso`, `:rf.adapter/plain-atom`,
+  `:rf.adapter/ssr`, or `:custom` for user-supplied adapters that didn't
+  pick a canonical kind.
 
   This answers \"what substrate am I on?\" — predicate / branch code.
   For \"give me the adapter spec map\" (fn handles, hot-swap, identity

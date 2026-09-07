@@ -678,7 +678,19 @@ const DEV_ONLY_SENTINELS = [
   // consult is what this row now pins, and it is sufficient — the validator
   // is the shared primitive, not a per-substrate copy.
   { source: 're-frame.subs.override-schema/validate-sub-override! (:sub-override schema-failure reason)',
-    sentinel: ' :sub-override value failed schema ' }
+    sentinel: ' :sub-override value failed schema ' },
+  // re-frame.core/configure! — the :rf.warning/unknown-configure-key reason
+  // string (rf2-kuky.2). `configure!` itself SHIPS (it applies production
+  // knobs and the elision probe calls it, so the fn is rooted in the bundle),
+  // which is exactly why this row is worth having: the unknown-bare-key
+  // diagnostic sits inside `configure!`'s own
+  // `(when rf.interop/debug-enabled? ...)` arm, so the surviving fn must
+  // carry NONE of the walk, the keyword's interned slot, or this sentence.
+  // The sentinel is one whole source literal — the reason is assembled with
+  // `str` from several, so a substring spanning two of them would not be a
+  // reliable pin.
+  { source: 're-frame.core/configure! (rf.warning/unknown-configure-key reason)',
+    sentinel: 'rf/configure! was given unrecognised top-level ' }
   // Note (rf2-7yqn39): the :rf.warning/plain-fn-under-non-default-frame-
   // once warning + its emit helper were RETIRED (EP-0002; superseded by
   // the always-on :rf.error/no-frame-context). There is no longer any

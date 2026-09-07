@@ -108,9 +108,11 @@ One term in the table below: a [**frame**](../glossary.md#frame) is one isolated
    :elision       {:rf.size/threshold-bytes 16384}});; "too big for the wire"
 ```
 
-A missing top-level key leaves that subsystem untouched, so you can pass just the one knob you want — `(rf/configure! {:trace-buffer {:events-retained 200}})` — or compose all three in one value. An unknown top-level key is a silent no-op, which is what lets a wrapper hand `configure!` a composed config without first filtering it.
+A missing top-level key leaves that subsystem untouched, so you can pass just the one knob you want — `(rf/configure! {:trace-buffer {:events-retained 200}})` — or compose all three in one value. An unknown top-level key applies nothing, which is what lets a wrapper hand `configure!` a composed config without first filtering it.
 
-One thing fails loud, though: the *argument* must be a map. `(rf/configure! [:trace-buffer …])` — a vector, say, because you mistyped — doesn't quietly do nothing; it throws. The silent no-op is reserved for *unknown keys inside* a well-formed map; a malformed argument is a programming error and surfaces as one.
+Applying nothing is not the same as saying nothing, though. The three keys above are the whole closed vocabulary and they are *bare*, so a bare key the runtime doesn't recognise is almost always a typo of a real one — `{:epoch-histroy {:depth 100}}` silently tuning nothing is exactly the bug worth catching. In dev builds an unknown **bare** (or `rf`-namespaced) key emits `:rf.warning/unknown-configure-key`, naming what you typed and what the runtime reads. Your call still returns `nil` and still applies nothing — the warning is a signal, not a refusal — and it is compiled out of production entirely. A key under **your own namespace** (`:myapp/thing`) stays silent, so a wrapper composing its own config keys alongside re-frame2's is unaffected.
+
+One thing fails loud, though: the *argument* must be a map. `(rf/configure! [:trace-buffer …])` — a vector, say, because you mistyped — doesn't quietly do nothing; it throws. The applies-nothing behaviour is reserved for *unknown keys inside* a well-formed map; a malformed argument is a programming error and surfaces as one.
 
 The three keys, in detail:
 
