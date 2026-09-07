@@ -2406,8 +2406,29 @@ PROSE_COMPLIANCE_TAIL='Generated with [Claude Code] was declined per CLAUDE.md.'
 # stopped reading the tail at all fails here rather than passing silently.
 MARKER_BARE_URL='Generated with Claude Code https://claude.com/claude-code'
 
+# THE LINKED-POLICY CASE — the direction `MARKER_BARE_URL` was still missing a
+# partner for (the merged-PR audit of #9401, whose closing sentence is the whole
+# of what this adds: "The linked-policy case is absent from those new tests.").
+#
+# `MARKER_BARE_URL` is a line that ENDS ON THE TOOL'S OWN LINK and IS the
+# attribution. These two end on the same link and are prose ABOUT it: a worker
+# citing the policy by URL rather than by filename, which is the natural thing
+# to write once the rule itself lives behind a link. Nothing in either line is a
+# marker, so a guard that ever starts refusing them has widened rule 4 or
+# reached for the tail alone — and the false-positive class rf2-uo5f exists for
+# would be back, in the one wording a brief invites most.
+#
+# THE BEHAVIOUR IS ALREADY CORRECT; ALL THIS DOES IS PIN IT. Both were measured
+# at exit 0 against the landed detector before they were written down here. That
+# is why they belong beside the refusal controls rather than in a loop of their
+# own: the value is in the PAIRING, so a future widening cannot re-admit the
+# class without a red.
+PROSE_POLICY_LINK='Trailers declined per https://claude.com/claude-code'
+PROSE_POLICY_LINK_CITED='No such trailer was added; the rule is at https://claude.com/claude-code'
+
 for t in "$PROSE_COMPLIANCE" "$PROSE_MARKER_NAMED" "$PROSE_URL_NAMED" \
-         "$PROSE_COMPLIANCE_TAIL"; do
+         "$PROSE_COMPLIANCE_TAIL" "$PROSE_POLICY_LINK" \
+         "$PROSE_POLICY_LINK_CITED"; do
   key=$(printf '%s' "$t" | cut -c1-40)
   out=$(printf 'Fixes the thing.\n\n%s\n' "$t" | run_attr_body)
   case "$out" in
@@ -2423,16 +2444,20 @@ for t in "$PROSE_COMPLIANCE" "$PROSE_MARKER_NAMED" "$PROSE_URL_NAMED" \
   esac
 done
 
-# The paired half, and the one that proves the guard was not disarmed: BOTH
-# compliance sentences, now beside a trailer the body really does carry.
+# The paired half, and the one that proves the guard was not disarmed: ALL the
+# compliance sentences — the two that end on a filename and the two that end on
+# the tool's own LINK — now beside a trailer the body really does carry.
 # `MARKER_BARE_URL` is in the offending list because it is the shape that
 # shares a head with `PROSE_COMPLIANCE_TAIL` — a repair that widened the tail
-# hatch far enough to let the prose through would let this through with it.
+# hatch far enough to let the prose through would let this through with it. The
+# linked-policy pair sharpens that: they end on the same link the marker does,
+# so a body carrying both must still be refused for the marker alone.
 for t in "$TRAILER_GENWITH" "$TRAILER_SESSION_URL" "$TRAILER_COAUTHOR" \
          "$TRAILER_SESSION" "$MARKER_BARE_URL"; do
   key=$(printf '%s' "$t" | cut -c1-32)
-  out=$(printf 'Fixes the thing.\n\n%s\n%s\n\n%s\n' \
-    "$PROSE_COMPLIANCE" "$PROSE_COMPLIANCE_TAIL" "$t" | run_attr_body)
+  out=$(printf 'Fixes the thing.\n\n%s\n%s\n%s\n%s\n\n%s\n' \
+    "$PROSE_COMPLIANCE" "$PROSE_COMPLIANCE_TAIL" "$PROSE_POLICY_LINK" \
+    "$PROSE_POLICY_LINK_CITED" "$t" | run_attr_body)
   case "$out" in
     EXIT=0) fail "(10q) DISARMED: a body CARRYING a real trailer was allowed: $key..." ;;
     *)
@@ -2465,6 +2490,19 @@ case "$out" in
      cat "$AERR" >&2 ;;
 esac
 
+# The linked-policy pair at the detector: a commit message that cites the rule
+# by URL rather than by filename, so its line ENDS ON THE TOOL'S OWN LINK — the
+# same tail `MARKER_BARE_URL` below carries, and the opposite verdict. Neither
+# line is a marker, so this passing is a statement about the whole line rather
+# than about its last word.
+out=$(printf 'docs(gates): record the attribution rule\n\n%s\n%s\n' \
+  "$PROSE_POLICY_LINK" "$PROSE_POLICY_LINK_CITED" | run_attr_lib 2>"$AERR") || true
+case "$out" in
+  *EXIT=0*) pass "(10q) a commit message ENDING on the tool's own link is permitted" ;;
+  *) fail "(10q) FALSE POSITIVE: prose citing the policy by URL was refused ($out)"
+     cat "$AERR" >&2 ;;
+esac
+
 out=$(printf 'docs(gates): record the attribution rule\n\n%s\n\n%s\n' \
   "$PROSE_COMPLIANCE" "$TRAILER_GENWITH" | run_attr_lib 2>"$AERR") || true
 case "$out" in
@@ -2475,9 +2513,13 @@ esac
 # And the tail control at the detector too: the marker with no markdown
 # brackets, whose last word IS the tool's link. Same head as the permitted
 # sentence above, opposite tail — so this pair, not either half alone, is what
-# pins rule 3's second anchor to a LINK rather than to a word.
-out=$(printf 'docs(gates): record the attribution rule\n\n%s\n\n%s\n' \
-  "$PROSE_COMPLIANCE_TAIL" "$MARKER_BARE_URL" | run_attr_lib 2>"$AERR") || true
+# pins rule 3's second anchor to a LINK rather than to a word. The linked-policy
+# sentences ride in the same message, which is the shape a real commit
+# documenting this rule has: they end on the marker's own link and must not be
+# quoted back, and only the marker may be.
+out=$(printf 'docs(gates): record the attribution rule\n\n%s\n%s\n%s\n\n%s\n' \
+  "$PROSE_COMPLIANCE_TAIL" "$PROSE_POLICY_LINK" "$PROSE_POLICY_LINK_CITED" \
+  "$MARKER_BARE_URL" | run_attr_lib 2>"$AERR") || true
 case "$out" in
   *EXIT=1*)
     if grep -Fq "$MARKER_BARE_URL" "$AERR"; then
