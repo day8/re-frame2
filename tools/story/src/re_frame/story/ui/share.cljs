@@ -291,25 +291,59 @@
                       :cell-overrides overrides
                       :dropped        dropped})))
 
-(defn egress-edn-snippet
-  "Build the copyable `(reg-variant …)` EDN form for the focused cell —
-  the variant id, its parent via `:extends`, and the effective args the
-  cell currently shows (the post-control state a recipient pastes to land
-  on the same view). Pure data → string; mirrors the save-as / recorder
-  snippet idiom (source is never written directly — the dev pastes).
+(def ^:const shared-id-prefix
+  "Per-flow prefix for the Copy-EDN snippet's derived variant id — the
+  save-variant flow's `\"saved\"` and the recorder's `\"recorded\"`
+  sibling."
+  "shared")
 
-  `shell` is the shell-state map. Returns nil when no variant is focused.
-  A fn-valued effective arg prints as an unreadable tagged literal; the
+(def ^:const shared-id-fallback
+  "Placeholder id the Copy-EDN snippet emits when the focused variant id
+  is not a qualified keyword and no id can be derived from it. A visible
+  placeholder the dev renames — never the source id, which would
+  reintroduce the self-`:extends` cycle."
+  :story.shared/example)
+
+(defn egress-edn-snippet
+  "Build the copyable `(reg-variant …)` EDN form for the focused cell — a
+  NEW variant id, the focused variant as its `:extends` parent, and the
+  effective args the cell currently shows (the post-control state a
+  recipient pastes to land on the same view). Pure data → string; mirrors
+  the save-as / recorder snippet idiom (source is never written directly
+  — the dev pastes).
+
+  THE REGISTRATION ID IS DERIVED, NOT THE SOURCE'S (rf2-fjax). This form
+  previously registered at the focused variant's OWN id while naming that
+  same id as its `:extends` parent. Pasting it did not recreate the
+  edited cell: `registrar/reg-variant` stores the new body at the SAME
+  id, REPLACING the original, and `plan/variant-plan` then seeds its
+  visited set with that id and throws `:rf.error/story-extends-cycle` on
+  the `:extends` — so the one act the dialog advertises (paste to
+  reproduce this cell) destroyed the source variant instead. The id now
+  comes from the save-as derivation
+  (`review-dialog/default-variant-id-with-prefix`, `\"shared\"` prefix),
+  so the pasted form is a sibling that extends a source which stays
+  registered and renderable.
+
+  `shell` is the shell-state map. `now-ms` seeds the derived id's suffix;
+  the 1-arity reads the wall clock, and the 2-arity exists so callers and
+  tests can pin it. Returns nil when no variant is focused. A fn-valued
+  effective arg prints as an unreadable tagged literal; the
   reproducibility badge already flags that case, so the snippet is emitted
   honestly (it is what the dev would paste) rather than silently dropped."
-  [shell]
-  (when-let [vid (:selected-variant shell)]
-    (let [eff (rf.story.args/resolve-args
-                vid
-                {:active-modes   (:active-modes shell)
-                 :cell-overrides (get-in shell [:cell-overrides vid])})]
-      (rf.story.predicates/reg-variant-form "story" vid [[:extends (pr-str vid)]
-                                          [:args (pr-str eff)]]))))
+  ([shell] (egress-edn-snippet shell (.now js/Date)))
+  ([shell now-ms]
+   (when-let [vid (:selected-variant shell)]
+     (let [eff    (rf.story.args/resolve-args
+                    vid
+                    {:active-modes   (:active-modes shell)
+                     :cell-overrides (get-in shell [:cell-overrides vid])})
+           new-id (or (rf.story.review-dialog/default-variant-id-with-prefix
+                        vid now-ms shared-id-prefix)
+                      shared-id-fallback)]
+       (rf.story.predicates/reg-variant-form "story" new-id
+                                             [[:extends (pr-str vid)]
+                                              [:args (pr-str eff)]])))))
 
 ;; ---- styling -------------------------------------------------------------
 
@@ -742,7 +776,7 @@
              [command-block
               {:test    "copy-edn"
                :name    "Copy EDN"
-               :desc    "A (reg-variant …) snippet of this cell's effective state — paste into your stories ns."
+               :desc    "A (reg-variant …) snippet of this cell's effective state — paste into your stories ns. It registers a NEW variant extending this one, so the source stays as it is."
                :badge   (reproducibility-badge report)
                :copied? (= copied :copy-edn)
                :action       (fn [_] (copy-text! :copy-edn (or edn "")))

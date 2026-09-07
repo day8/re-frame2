@@ -8,9 +8,12 @@
   Runs on CLJS under shadow's `:node-test` target (ns suffix
   `-cljs-test`). `share.cljs` is CLJS-only (Reagent / DOM)."
   (:require [clojure.string :as str]
+            [cljs.reader :as reader]
             [cljs.test :refer [deftest is testing use-fixtures async]]
             [goog.object :as gobj]
             [re-frame.story :as rf.story]
+            [re-frame.story.plan :as rf.story.plan]
+            [re-frame.story.registrar :as rf.story.registrar]
             [re-frame.story.share :as rf.story.share]
             [re-frame.story.ui.share :as rf.story.ui.share]
             [re-frame.story.ui.state :as rf.story.ui.state]))
@@ -86,17 +89,75 @@
       (fn [s] (-> s
                   (assoc :selected-variant :story.egress/counter)
                   (assoc-in [:cell-overrides :story.egress/counter] {:n 7}))))
-    (let [snip (rf.story.ui.share/egress-edn-snippet (rf.story.ui.state/get-state))]
+    (let [snip (rf.story.ui.share/egress-edn-snippet (rf.story.ui.state/get-state) 1700000000000)]
       ;; NOT `rf.story/` — this string pins EMITTED OUTPUT, not this file's
       ;; alias. The snippet is built by `rf.story.predicates/reg-variant-form`,
       ;; whose alias prefix is a plain `"story"` argument (share.cljs), so the
       ;; copyable form a user pastes still reads `(story/reg-variant …)`.
       ;; Renaming the require alias above does not move it.
       (is (str/starts-with? snip "(story/reg-variant "))
-      (is (str/includes? snip ":story.egress/counter"))
-      (is (str/includes? snip ":extends"))
+      (is (str/includes? snip ":extends :story.egress/counter")
+          "the focused variant is the PARENT")
       (is (str/includes? snip ":n 7") "the cell-override beats the variant default")
       (is (str/ends-with? snip "})")))))
+
+;; ---- rf2-fjax — the copied form must not extend itself -------------------
+
+(deftest edn-snippet-registers-a-distinct-id
+  (testing "the snippet's registration id is DERIVED from the focused
+            variant, never the focused variant itself — a form registering
+            at its own :extends parent is an :rf.error/story-extends-cycle"
+    (rf.story/reg-variant :story.egress/counter {:tags #{:dev} :setup [] :args {:n 1}})
+    (rf.story.ui.state/swap-state!
+      (fn [s] (assoc s :selected-variant :story.egress/counter)))
+    (let [snip (rf.story.ui.share/egress-edn-snippet (rf.story.ui.state/get-state) 1700000000000)
+          form (reader/read-string snip)
+          [_ new-id body] form]
+      (is (qualified-keyword? new-id))
+      (is (not= :story.egress/counter new-id)
+          "the registration id differs from the parent")
+      (is (= :story.egress/counter (:extends body))
+          "and the focused variant is what it extends")
+      (is (= "story.egress" (namespace new-id))
+          "the derived id stays in the source variant's namespace")
+      (is (str/starts-with? (name new-id) "shared-")
+          "derived through the save-as id flow, with this flow's prefix"))))
+
+(deftest edn-snippet-round-trips-through-registration
+  (testing "ACCEPTANCE: read the advertised form, register it through the
+            normal API, and compile it — it renders the original source
+            with the edited args, without a cycle, and the ORIGINAL
+            registration stays usable"
+    (rf.story/reg-variant :story.egress/counter
+                          {:tags #{:dev} :setup [] :args {:n 1 :label "base"}})
+    (rf.story.ui.state/swap-state!
+      (fn [s] (-> s
+                  (assoc :selected-variant :story.egress/counter)
+                  (assoc-in [:cell-overrides :story.egress/counter] {:n 7}))))
+    (let [snip           (rf.story.ui.share/egress-edn-snippet
+                           (rf.story.ui.state/get-state) 1700000000000)
+          [_ new-id body] (reader/read-string snip)]
+      ;; The paste, performed for real. `reg-variant` is a MACRO whose
+      ;; expansion is exactly this call, so registering the READ id + body
+      ;; through `reg-variant*` is what compiling the pasted source does —
+      ;; the only form of the paste reachable from a test, since the
+      ;; snippet's id is derived at runtime.
+      (rf.story.registrar/reg-variant* new-id body)
+
+      ;; 1 · the copied variant compiles — no :rf.error/story-extends-cycle.
+      (let [plan (rf.story.plan/variant-plan new-id)]
+        (is (some? plan) "the pasted form compiles")
+        (is (= 7 (get-in plan [:world :effective-args :n]))
+            "it lands on the edited args the cell was showing")
+        (is (= "base" (get-in plan [:world :effective-args :label]))
+            "and inherits the parent's un-overridden args through :extends"))
+
+      ;; 2 · the SOURCE registration is untouched and still renderable — the
+      ;; failure mode was that pasting REPLACED it with a self-cycling body.
+      (let [src (rf.story.plan/variant-plan :story.egress/counter)]
+        (is (some? src) "the source variant still compiles")
+        (is (= 1 (get-in src [:world :effective-args :n]))
+            "the source still carries its own args, unreplaced")))))
 
 (deftest edn-snippet-nil-without-variant
   (testing "no variant focused → no EDN snippet"
