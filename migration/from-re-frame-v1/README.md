@@ -127,7 +127,7 @@ Hit every alias the project uses (`rf/`, `re-frame/`, `re-frame.core/`, bare `cl
 | `re-frame.registrar/get-handler` | Use the public `(rf/handler-meta {:source :store :kind kind :id id})` from `re-frame.core` — it returns the registration *metadata map*, not the raw handler fn (no raw handler fn is exposed publicly in v2). For call sites that introspected the registration this is the right surface; a call site that actually *invoked* the returned handler fn needs a rethink (flag for review). |
 | Any other private-namespace symbol | Look for a public equivalent in `re-frame.core`. If none, flag for human review with the specific call site and what it is trying to do. |
 
-**Why:** these private namespaces are explicitly off-contract in re-frame2. They will change shape and may not exist with the same interface. The public `clear-subscription-cache!` → `clear-sub-cache!` rename is part of the same family of changes — the v1 no-arg form assumed a single global sub-cache; v2 has one per frame, so the function takes a frame-id. The shorter v2 name matches its sibling registrar-clear fns (`clear-fx`, `clear-cofx`, `clear-sub`).
+**Why:** these private namespaces are explicitly off-contract in re-frame2. They will change shape and may not exist with the same interface. The public `clear-subscription-cache!` → `clear-sub-cache!` rename is part of the same family of changes — the v1 no-arg form assumed a single global sub-cache; v2 has one per frame, so the function takes a frame-id. Keep it distinct from the registrar inverse: `clear-sub-cache!` evicts runtime cache state and survives under its own name, where unregistering a handler is the kind-keyed `(rf/clear :sub id)` (see [M-77](#m-77-per-kind-clear-event--clear-sub--clear-fx-become-the-kind-keyed-rfclear-kind-id)).
 
 ---
 
@@ -2942,6 +2942,32 @@ The `re-frame.http` namespace and its seven per-verb synthesis fns — `get` / `
 **What to look for.** `rg -n 'rf\.http/(get|post|put|delete|patch|head|options)'` and `rg -n '\[\s*re-frame\.http\s+:as'` — the alias is the only spelling (the namespace `:refer-clojure :exclude`d `get`, so it was never `:refer`ed).
 
 **Why:** the data is the API. One fx-id and one args map is Spec 014's thesis, and a verb family is a second way to say the same thing — it hid nothing, saved one map literal, and cost a namespace, a `clojure.core/get` shadow, and a two-require trap. An app that finds the literal repetitive writes **one builder fn** returning the args map, which carries the policy a per-verb fn cannot (a base URL, default headers, a default `:decode`, body encoding) and composes with the resource / mutation `:request` producers, which consume args **maps** and would reject a pre-built fx vector. The args map is normatively defined at [014 §The args map](../../spec/014-HTTPRequests.md#the-args-map); the HTTP guide's §Your own request builder walks the pattern with a worked example.
+
+---
+
+### M-77. Per-kind `clear-event` / `clear-sub` / `clear-fx` become the kind-keyed `(rf/clear kind id)`
+
+**Type A** (mechanical). re-frame v1 shipped `re-frame.core/clear-event`, `clear-sub` and `clear-fx` as public registrar inverses, so a v1 codebase that unregistered handlers carries those call sites. None of the three resolves in v2 — the registrar is ONE map of `(kind, id) → metadata`, and its inverse is the single kind-keyed `clear` in the same grammar the read side already speaks (per [API §Clearing registrations](../../spec/API.md#clearing-registrations)). A stale call fails at **compile** with an unresolved-symbol error, so the sweep is loud and exhaustive.
+
+```clojure
+;; v1
+(rf/clear-event :counter/inc)
+(rf/clear-sub   :cart/total)
+(rf/clear-fx    :http/fetch)
+
+;; v2
+(rf/clear :event :counter/inc)      ;; => :counter/inc
+(rf/clear :sub   :cart/total)       ;; => :cart/total
+(rf/clear :fx    :http/fetch)       ;; => :http/fetch
+```
+
+**The rewrite in full.** Move the kind out of the fn name and into a leading keyword argument: `(rf/clear-<kind> id)` → `(rf/clear :<kind> id)`. The return value changes from `nil` to the cleared `id`; no v1 call site depended on the `nil`, so the change is safe to apply unconditionally. The same one verb also covers six kinds that never had a public v1 inverse at all (`:cofx`, `:interceptor`, `:view`, `:head`, `:error-projector`, and the machines kind), and the frame-scoped kinds `:flow` and `:http-interceptor` additionally accept an exact, fail-closed trailing `{:frame target}` map (see [M-39](#m-39-reg-http-interceptor--rfclear-http-interceptor-id--additive-http-middleware-on-rfhttpmanaged)). There is no clear-all arity — bulk clearing is a fixture concern (`re-frame.test-support`).
+
+**Do not sweep up `clear-sub-cache!`.** It looks like a fourth member of this family and is not: `clear-sub-cache!` evicts **runtime cache state**, where `clear` removes a **registration**. It survives into v2 under its own name — the only change is the v1 no-arg form gaining a required frame-id, which is [M-1](#m-1-private-namespace-access--re-framedb-re-framerouter-re-framesubs-re-frameevents-re-frameregistrar--public-clear-subscription-cache-rename)'s `clear-subscription-cache!` → `clear-sub-cache!` rename, a different rule. The same holds for the other cache / buffer `clear-*!` verbs (e.g. `clear-trace-buffer!`): trailing-bang names are the runtime-state axis and are untouched by this rule.
+
+**What to look for.** `rg -n 'clear-(event|sub|fx)\b'` catches every alias form (`rf/`, `re-frame/`, `re-frame.core/`, and a bare symbol from a `:refer` clause). Note the word boundary: without it the pattern also matches `clear-sub-cache!`, which this rule must leave alone.
+
+**Why:** one verb in the registrar's own `(kind, id)` grammar, instead of a per-kind name that had to be minted for each new registrar kind and was missing for six of them. The kind set is closed and an unknown kind fails closed with a message naming it, so a typo is caught at the call rather than silently clearing nothing.
 
 ---
 

@@ -56,6 +56,7 @@ The M-rule numbering in [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/
 |---|---|---|
 | 1 | **M-0** | Already done in Phase 2. The whole migration runs against the new classpath. |
 | 2 | **M-1** | Every other rule assumes `re-frame.core` is the only allowed re-frame namespace. Private-namespace requires would cause spurious compile errors elsewhere. |
+| 2a | **M-77** | If the codebase calls `clear-event` / `clear-sub` / `clear-fx`. Rewrite each to the kind-keyed `(rf/clear :<kind> id)`. Compile-level (symbol unresolved). Runs beside M-1, which owns the near-miss `clear-subscription-cache!` → `clear-sub-cache!` rename — that one is runtime cache state and must **not** be swept into `rf/clear`. |
 | 3 | **M-38** | Substrate-adapter ns rename (`re-frame.substrate.<name>` → `re-frame.adapter.<name>`). Codebases that explicitly required the substrate (rare; usually only set up code) hit this. |
 | 4 | **M-40** | `(rf/init!)` + an app frame are boot action 0 — a v1 app has neither, so they must land before the first dispatch and the first render, ahead of every later rule that boots the app. Type B (the author confirms the adapter). Full boot-sequence invariant in [`auto-cross-cutting.md` §Init / adapter](auto-cross-cutting.md#init--adapter-m-40) + §Boot-sequence invariant. |
 
@@ -138,7 +139,7 @@ The M-rule numbering in [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/
 | 35 | **M-31** | Triggered by `:rf.http/managed` fx. Add `day8/re-frame2-http`. |
 | 36 | **M-32** | Triggered by `render-to-string` (SSR). Add `day8/re-frame2-ssr`. |
 | 37 | **M-33** | Triggered by `epoch-history` / `restore-epoch!`. Add `day8/re-frame2-epoch`. |
-| 38 | **M-39** | If the codebase uses `reg-http-interceptor` / `clear-http-interceptor`. Pairs with M-31. |
+| 38 | **M-39** | If the codebase uses `reg-http-interceptor` / `(rf/clear :http-interceptor id)`. Pairs with M-31. |
 | 38a | **M-63** | If the codebase uses `reg-http-interceptor`. Reshape signature to single interceptor-map `(reg-http-interceptor id {:before … :after …})`. Pairs with M-39. |
 | 38b | **M-65** | If the codebase uses the HTTP stubbing macros (`with-managed-request-stubs` / `install-managed-request-stubs!` family). Add `[re-frame.http.test-support]` to the test ns require closure. Pairs with M-31. |
 | 38c | **M-76** | If the codebase requires `[re-frame.http :as rf.http]` (the removed per-verb call-site helpers). Drop the require and rewrite each `(rf.http/<verb> url args)` to the literal `[:rf.http/managed args']` fx vector, folding `{:method :<verb> :url url}` into `:request`. Pairs with M-31 — keep the `re-frame.http.managed` require, which is what registers the fx. |
