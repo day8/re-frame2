@@ -552,12 +552,27 @@
   (when (exists? js/window)
     (some-> js/window .-location .-href)))
 
-(defn- copy-text!
-  "Copy `text` to the clipboard via the shared review-dialog shim, then
-  flash the `cmd` confirmation."
+(defn copy-text!
+  "Copy `text` to the clipboard via the shared review-dialog shim and flash
+  the `cmd` confirmation ONLY once the write has actually fulfilled.
+
+  rf2-jgn8: the previous body called the shim and marked copied on the very
+  next line, so a missing `navigator.clipboard` (an insecure dev host, JSDOM),
+  a denied permission, or a still-pending write all displayed a false
+  'copied ✓'. The shim now resolves a boolean outcome, so the text commands
+  get the SAME honesty the screenshot path already had — `mark-error!` with a
+  human reason on a no-op or a rejection, and the dialog keeps the snippet /
+  URL field on screen as the manual-copy fallback.
+
+  Returns the `js/Promise` of the outcome (never rejects) so tests can await
+  it; the `:on-click` callers are fire-and-forget."
   [cmd text]
-  (rf.story.review-dialog/copy-to-clipboard! text)
-  (mark-copied! cmd))
+  (-> (rf.story.review-dialog/copy-to-clipboard! text)
+      (.then (fn [ok?]
+               (if ok?
+                 (mark-copied! cmd)
+                 (mark-error! cmd "clipboard write did not complete — copy it by hand"))
+               (boolean ok?)))))
 
 ;; ---- screenshot ----------------------------------------------------------
 
