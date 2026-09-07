@@ -63,6 +63,22 @@
 (def ^:private read-result-text tu/extract-edn)
 (def ^:private err? tu/error?)
 
+(defn- quoted-datum
+  "The datum a `(quote <datum>)` form evaluates to, or `::not-quoted` for
+  anything else — an unquoted list is a call and an unquoted symbol is a
+  name lookup, so neither yields the datum it was printed from. Reading
+  the emitted `db` argument through this is the difference between
+  pinning printed SYNTAX and pinning what evaluation yields (rf2-olqo)."
+  [form]
+  (if (and (seq? form) (= 'quote (first form)) (= 2 (count form)))
+    (second form)
+    ::not-quoted))
+
+(defn- db-arg
+  "The `db` argument of the captured `app-db-reset!` call, as a read form."
+  [captured]
+  (second (cljs.reader/read-string @captured)))
+
 ;; ---------------------------------------------------------------------------
 ;; Gate — default OFF.
 ;; ---------------------------------------------------------------------------
@@ -138,7 +154,8 @@
                      (is (= :rf/default (:frame edn)) "runtime envelope passes through"))
                    (let [parsed (cljs.reader/read-string @captured)]
                      (is (= 're-frame2-pair.runtime/app-db-reset! (first parsed)))
-                     (is (= {:counter 0} (second parsed)) "db rides as DATA, not source"))
+                     (is (= {:counter 0} (quoted-datum (second parsed)))
+                         "db rides as DATA, not source"))
                    (done)))))))
 
 (deftest does-not-execute-host-form-in-db-arg
@@ -155,14 +172,78 @@
                   (replace-app-db/replace-app-db-tool (fresh-conn)
                                                       #js {:db "(println :pwn)"})))))
           (.then (fn [_]
-                   (let [parsed (cljs.reader/read-string @captured)]
+                   (let [parsed (cljs.reader/read-string @captured)
+                         datum  (quoted-datum (second parsed))]
                      (is (= 're-frame2-pair.runtime/app-db-reset! (first parsed)))
-                     ;; The injected list rides as a quoted-data literal
-                     ;; (pr-str of a list), NOT spliced as a callable form
-                     ;; at the top of the eval. The second arg is the
-                     ;; list data itself.
-                     (is (seq? (second parsed)))
-                     (is (= 'println (first (second parsed)))))
+                     ;; The injected list rides QUOTED, so it evaluates to
+                     ;; the list it was printed from rather than being
+                     ;; called. Reading the arg back as syntax (`(seq?
+                     ;; (second parsed))`) could not tell those two apart —
+                     ;; both print `(println :pwn)` — which is why this
+                     ;; reads it through `quoted-datum` (rf2-olqo).
+                     (is (seq? datum))
+                     (is (= '(println :pwn) datum)))
+                   (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-olqo — the `db` value is EXTERNAL EDN, so printing it is not
+;; quoting it. These three arms are the ones the `pr-str` path failed:
+;; each carries a value that PRINTS the same as it did before and
+;; EVALUATES to something else.
+;; ---------------------------------------------------------------------------
+
+(deftest db-keeps-nested-lists-as-lists
+  ;; The defect in one line: unquoted, `(inc 41)` inside the injected
+  ;; app-db evaluates to 42 and the frame is reset to a db the caller
+  ;; never asked for.
+  (async done
+    (let [captured (atom nil)]
+      (-> (with-writes-on!
+            (fn []
+              (with-captured-eval! captured {:ok? true :frame :rf/default}
+                (fn []
+                  (replace-app-db/replace-app-db-tool (fresh-conn)
+                                                      #js {:db "{:expr (inc 41)}"})))))
+          (.then (fn [_]
+                   (is (= {:expr '(inc 41)} (quoted-datum (db-arg captured)))
+                       "the nested list survives as a list — it evaluates to itself")
+                   (done)))))))
+
+(deftest db-keeps-symbols-as-symbols
+  (async done
+    (let [captured (atom nil)]
+      (-> (with-writes-on!
+            (fn []
+              (with-captured-eval! captured {:ok? true :frame :rf/default}
+                (fn []
+                  (replace-app-db/replace-app-db-tool (fresh-conn)
+                                                      #js {:db "{:who js/window}"})))))
+          (.then (fn [_]
+                   (is (= {:who 'js/window} (quoted-datum (db-arg captured)))
+                       "a symbol-valued app-db entry stays a symbol rather than resolving")
+                   (done)))))))
+
+(deftest db-does-not-splice-an-emitter-shaped-payload
+  ;; A caller-supplied vector wearing the emitter's own `::raw` tag is
+  ;; PAYLOAD. On the `pr-str` path `emit-arg` recognised it as IR and
+  ;; spliced its string in as raw source, replacing the app-db value
+  ;; outright with a live host form.
+  (async done
+    (let [captured (atom nil)
+          raw-tag  (str :re-frame2-pair-mcp.tools.eval-form/raw)]
+      (-> (with-writes-on!
+            (fn []
+              (with-captured-eval! captured {:ok? true :frame :rf/default}
+                (fn []
+                  (replace-app-db/replace-app-db-tool
+                    (fresh-conn)
+                    #js {:db (str "[" raw-tag " \"(inc 41)\"]")})))))
+          (.then (fn [_]
+                   (is (= [:re-frame2-pair-mcp.tools.eval-form/raw "(inc 41)"]
+                          (quoted-datum (db-arg captured)))
+                       "the tagged vector rides through as the vector it is")
+                   (is (not (str/includes? @captured "app-db-reset! (inc 41)"))
+                       "and its string is never spliced into the runtime call's arg position")
                    (done)))))))
 
 (deftest passes-frame-as-second-arg
@@ -176,8 +257,10 @@
                                                       #js {:db "{:count 0}" :frame ":stories"})))))
           (.then (fn [_]
                    (let [parsed (cljs.reader/read-string @captured)]
-                     ;; (rt/app-db-reset! {:count 0} :stories) — value 1st, frame 2nd.
-                     (is (= {:count 0} (second parsed)))
+                     ;; (rt/app-db-reset! (quote {:count 0}) :stories) —
+                     ;; value 1st, frame 2nd. The frame is composed here,
+                     ;; not supplied, so it stays on the plain print path.
+                     (is (= {:count 0} (quoted-datum (second parsed))))
                      (is (= :stories (nth parsed 2))))
                    (done)))))))
 

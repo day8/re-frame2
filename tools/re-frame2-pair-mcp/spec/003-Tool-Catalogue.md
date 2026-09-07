@@ -310,6 +310,19 @@ first. Cache lifetime is the MCP server process (= one MCP
 session per the [persistent-socket principle](Principles.md#single-persistent-nrepl-socket));
 no cross-process leak, no manual invalidation.
 
+**A cache-hit is only ever claimed for a payload that was DELIVERED**
+(rf2-gov3). The cache check runs before the wire cap, so a response can
+be hashed and then replaced by `:rf.mcp/overflow` — withheld, never
+sent. Reporting a hit against that hash would tell the agent to re-use
+bytes it never received, and would erase the actionable size-limit
+diagnosis on every repeat of the same oversized read. The cap therefore
+withdraws the candidate entry when it withholds the payload: two
+identical oversized reads both return the honest overflow marker (the
+recovery is a larger `max-tokens`, which is a different cache key), and
+a delivered under-cap payload keeps its entry and the fast
+hit-before-cap path. An overflow marker is never itself cached as if it
+were the source payload.
+
 Action tools (`dispatch`, `eval-cljs`, `tail-build`)
 bypass the cache — their return value is the
 result of an action,
@@ -1639,10 +1652,15 @@ the injection.
 `restore-epoch`). Default OFF.
 
 **`db` is EDN data, not host source**: parsed as EDN and emitted into
-the runtime call via the normal `pr-str` path (no `rt-raw` splice) —
-the same injection-closing posture `dispatch` takes (rf2-vflrg). A
-prompt-injected `(println :pwn)` string reads as a list literal (data),
-never executed.
+the runtime call as a `(quote <datum>)` literal (no `rt-raw` splice) —
+the same injection-closing posture `dispatch` takes (rf2-vflrg,
+rf2-olqo). A prompt-injected `(println :pwn)` string reads as a list
+literal (data), never executed. The `pr-str` path this argument used to
+take was not that guarantee: printing renders a value as SOURCE, so a
+list inside the app-db value was a call and a symbol a name lookup, and
+a value shaped like one of the emitter's own tagged vectors was spliced
+in as raw source. Quoting is the emission that evaluates to its datum
+for every EDN value (rf2-j2wz is the same repair on `dispatch`).
 
 **Args**: `db` (string, required — EDN app-db value), `frame` (string,
 e.g. `":foo"`; defaults to the operating frame), `build` (string).
