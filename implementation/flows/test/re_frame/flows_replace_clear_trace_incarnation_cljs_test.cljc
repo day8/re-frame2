@@ -272,8 +272,8 @@
           (when (= flow-id (get-in ev [:tags :flow-id]))
             (swap! observer-a-clr conj ev)))))
     (try
-      (is (nil? (rf/clear :flow flow-id {:frame id}))
-          "clear-flow returns nil even though A's owner was lost mid-emit")
+      (is (= flow-id (rf/clear :flow flow-id {:frame id}))
+          "clear returns the id even though A's owner was lost mid-emit")
       (is (= 1 @destroyer-hits)
           "the destroyer received A's :rf.flow/cleared once — the already-entered
            delivery stands")
@@ -296,7 +296,7 @@
       (rf/reg-flow b-flow-id
         {:frame id :inputs [[:bn]] :output-path [:bout]}
         (fn [n] (or n 0)))
-      (is (nil? (rf/clear :flow b-flow-id {:frame id})))
+      (is (= b-flow-id (rf/clear :flow b-flow-id {:frame id})))
       (is (= 1 (count @observer-clr))
           "B's own later clear emits :rf.flow/cleared exactly once — the fence did
            not poison the successor")
@@ -335,7 +335,7 @@
         (when (= :rf.flow/cleared (:operation ev))
           (swap! observed conj ev))))
     (try
-      (is (nil? (rf/clear :flow flow-id {:frame id})))
+      (is (= flow-id (rf/clear :flow flow-id {:frame id})))
       (is (= 1 @touched) "the first listener saw A's cleared event")
       (is (= 1 (count @observed))
           "the SUBSEQUENT listener also received it — the live-owner clear is not

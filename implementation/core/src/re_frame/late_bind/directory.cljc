@@ -271,7 +271,7 @@
     :description "Validate a make-frame config's surviving frame-owned policy key (:observability sink policy). Fails loud (:rf.error/bad-frame-classification) on an unknown observability key / malformed sink entry; the retired :sensitive (HTTP carriers moved to :rf.http/managed; app-db moved to commit-plane effects) and :large frame keys now fail loud here (EP-0025). Pure, installs nothing — called EARLY by the frame engine (before the container exists) so a bad declaration leaves no half-registered frame (EP-0015 §9). EP-0025: the :frame-classification/http-carriers resolver hook is GONE — HTTP carrier classification moved onto the :rf.http/managed reg-fx registration (:carriers block), resolved by the http artefact (re-frame.http.privacy/managed-carriers reads registrar/handler-meta directly)."}
 
    ;; ---- re-frame.flows -------------------------------------------------------
-   ;; Both the public `rf/reg-flow` / `rf/clear-flow` surfaces AND the
+   ;; Both the public `rf/reg-flow` / `(rf/clear :flow id)` surfaces AND the
    ;; `:rf.fx/reg-flow` / `:rf.fx/clear-flow` runtime fxs route through
    ;; the same two hooks. The api-shape `(arg opts)` carries the `:frame`
    ;; opt the fx-side path needs, so no separate `*-fx!` hook pair is

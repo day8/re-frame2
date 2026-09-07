@@ -252,10 +252,10 @@
     ;; entry to clear; its `:output-path` [:step-2 :result] never materialised.
     (rf/reg-flow :pending {:inputs [[:foo]] :output-path [:step-2 :result]} (fn [_] "never-stored"))
     ;; Clear must NOT throw, and must leave the scalar parent intact.
-    (is (nil? (rf/clear :flow :pending))
-        "clear-flow returns nil (no throw) when the intermediate is a non-map")
+    (is (= :pending (rf/clear :flow :pending))
+        "clear returns the id (no throw) when the intermediate is a non-map")
     (is (= 1 (:step-2 (rf/app-db-value :rf/default)))
-        ":step-2 is preserved as its scalar value — clear-flow did not corrupt it")
+        ":step-2 is preserved as its scalar value — the flow clear did not corrupt it")
     ;; Sanity: siblings untouched.
     (is (= 3 (:foo (rf/app-db-value :rf/default))))
     (is (= 4 (:bar (rf/app-db-value :rf/default))))))

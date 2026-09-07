@@ -413,13 +413,13 @@
 ;; old facade floor (`clear-http-interceptor` single-arity used to recurse
 ;; `[:rf/default id]`, synthesising the default before delegating). This test
 ;; clears the ambient scope (`*current-frame* nil`) so NO frame is carried,
-;; then invokes the single-arity facade and asserts it raises the always-on
+;; then invokes the no-opts facade form and asserts it raises the always-on
 ;; `:rf.error/no-frame-context` rather than silently clearing against a
 ;; synthesised `:rf/default` chain. Proves the EP-0002 carried invariant is
-;; live on the public `rf/clear-http-interceptor` surface — the floor is gone.
+;; live on the public `(rf/clear :http-interceptor id)` surface — the floor is gone.
 
 (deftest clear-http-interceptor-single-arity-fails-closed-under-no-scope
-  (testing "rf2-vl5xsp — single-arity `rf/clear-http-interceptor` under NO
+  (testing "rf2-vl5xsp — no-opts `(rf/clear :http-interceptor id)` under NO
             ambient frame raises :rf.error/no-frame-context (fails closed);
             it does NOT synthesise a :rf/default target. The facade must
             delegate frame resolution to the impl's require-current-frame!,

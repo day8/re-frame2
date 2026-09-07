@@ -969,9 +969,6 @@
   ["re-frame.core" "reg-resource"]        {:tier :advanced :owner "016" :status "v1 (optional capability)"
                                           :action :keep
                                           :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. Resource registration is the everyday half of the Spec 016 surface."}
-  ["re-frame.core" "clear-resource"]      {:tier :advanced :owner "016" :status "v1 (optional capability)"
-                                          :action :keep
-                                          :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. It is also the clear-* inverse of reg-resource, which belongs on the door that carries the registrar it undoes."}
   ["re-frame.core" "resource-meta"]       {:tier :advanced :owner "016" :status "v1 (optional capability)"
                                           :action :keep
                                           :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. A registrar read that accompanies reg-resource."}
@@ -991,9 +988,6 @@
   ["re-frame.core" "reg-mutation"]        {:tier :advanced :owner "016" :status "v1 (optional capability)"
                                           :action :keep
                                           :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. Mutations are the causal-write counterpart of the resource registration surface (Spec 016, EP-0003 Mutations) and share its wrapper posture exactly."}
-  ["re-frame.core" "clear-mutation"]      {:tier :advanced :owner "016" :status "v1 (optional capability)"
-                                          :action :keep
-                                          :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. The clear-* inverse of reg-mutation."}
   ["re-frame.core" "mutation-meta"]       {:tier :advanced :owner "016" :status "v1 (optional capability)"
                                           :action :keep
                                           :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. A registrar read that accompanies reg-mutation."}
@@ -1029,9 +1023,6 @@
   ["re-frame.core" "reg-resource-scope"]    {:tier :advanced :owner "016" :status "v1 (optional capability)"
                                             :action :keep
                                             :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. Named resource-scope resolvers are the third resources kind (Spec 016, EP-0016 D3 slice 2) and share the wrapper posture of reg-resource."}
-  ["re-frame.core" "clear-resource-scope"]  {:tier :advanced :owner "016" :status "v1 (optional capability)"
-                                            :action :keep
-                                            :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. The clear-* inverse of reg-resource-scope."}
   ["re-frame.core" "resolve-resource-scope"] {:tier :advanced :owner "016" :status "v1 (optional capability)"
                                              :action :keep
                                              :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. The pure scope-resolution helper an app calls in the logout coeffect-db idiom, in the same file as the resolver it registered."}
@@ -1042,20 +1033,9 @@
   ;; uncertainty those two rows recorded against rf2-uimu is dissolved rather
   ;; than answered -- there is no verb because there is no fn.
   ;; Clearing registrations (spec/API.md §Clearing registrations).
-  ["re-frame.core" "clear-event"]         {:tier :advanced :owner "002" :status "v1 (preserved)"
-                                          :action :keep
-                                          :justification "The clear-* verb is the symmetric inverse of reg-* (Conventions Lifecycle-verb law), so it belongs on the same door as the registrar it undoes. Defined on re-frame.core with no owning-namespace peer."}
-  ["re-frame.core" "clear-sub"]           {:tier :advanced :owner "002" :status "v1 (preserved)"
-                                          :action :keep
-                                          :justification "The clear-* inverse of front-porch reg-sub, on the same door as the registrar it undoes. Defined on re-frame.core with no owning-namespace peer."}
-  ["re-frame.core" "clear-fx"]            {:tier :advanced :owner "002" :status "v1 (preserved)"
-                                          :action :keep
-                                          :justification "The clear-* inverse of front-porch reg-fx, on the same door as the registrar it undoes. Defined on re-frame.core with no owning-namespace peer."}
-  ;; rf2-wad2fl: `clear-flow` is no longer a façade export — reach it through
-  ;; `re-frame.flows/clear-flow` (already classified below).
-  ["re-frame.core" "clear-http-interceptor"] {:tier :advanced :owner "014" :status "v1 (optional capability)"
-                                             :action :keep
-                                             :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-http artefact, and the wrapper raises a documented :rf.error/http-artefact-missing when that artefact is absent. Moving the export to re-frame.http would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. It is also the clear-* inverse of reg-http-interceptor (Conventions Lifecycle-verb law), which belongs on the door that carries the registrar it undoes."}
+  ;; rf2-wad2fl demoted `clear-flow` off the façade to `re-frame.flows`;
+  ;; rf2-kuky.80 then deleted that name too. `(rf/clear :flow id)` is the
+  ;; one public door — see the `clear` row below.
   ["re-frame.core" "destroy-frame!"]      {:tier :front-porch :owner "002" :status "v1"
                                           :action :keep
                                           :justification "Front-porch: the lifecycle inverse of make-frame and the only way to release a frame's registrations, sub-cache and queue. Conventions Lifecycle-verb law cites it as the canonical destroy-* instance."}
@@ -1065,6 +1045,11 @@
   ;; caller's own config). The facade name survives ONLY as a `^:no-doc`
   ;; throwing stub (`:rf.error/reset-frame-removed`) and so carries NO
   ;; manifest row (the manifest generator drops `^:no-doc` vars).
+  ;; Clearing registrations (spec/API.md §Clearing registrations). ONE verb,
+  ;; kind-keyed, replacing the nine per-kind clear-* names (rf2-kuky.80).
+  ["re-frame.core" "clear"]               {:tier :advanced :owner "001" :status "v1 (preserved)"
+                                          :action :keep
+                                          :justification "The ONE registrar inverse: `(clear kind id)` mirrors the `(kind, id)` grammar the registrar itself is keyed by and the read side already speaks, and it belongs on the same door as the `reg-*` verbs it undoes (Conventions Lifecycle-verb law). It REPLACES nine per-kind names in three shapes -- seven facade rows plus re-frame.flows/clear-flow and re-frame.routing/clear-route, twelve manifest rows in all -- which differed on where the name lived, whether a nilary clear-all existed, how the frame was named, and what came back; and it closes six registrar kinds (:cofx :interceptor :view :head :error-projector, plus :resource-scope's siblings) that had no public inverse at all, with zero new names. It stays on the facade rather than moving to an owning namespace for the reason the deleted per-kind rows each gave individually: it dispatches to the OPTIONAL artefacts (flows, routing, resources, http) through their late-bind wrappers, so the facade row IS the optional-capability mechanism -- an app that omits an artefact gets the documented :rf.error/<artefact>-artefact-missing rather than a hard require failure. No owning namespace could carry a verb that spans four artefacts and core."}
   ["re-frame.core" "clear-sub-cache!"]    {:tier :advanced :owner "002" :status "v1 (preserved)"
                                           :action :keep
                                           :justification "The cache arm of the clear-* verb -- drops the process-local subscription cache, which is what every frame-isolation fixture and REPL session reaches for between runs. Defined on re-frame.core with no owning-namespace peer."}
@@ -1723,7 +1708,6 @@
   ;; reads are the `[:rf/route]` / `[:rf/pending-navigation]` subscription
   ;; VECTORS — one read grammar.
   ["re-frame.routing" "reg-route"]              {:tier :implementation :owner "012" :status "v1"}
-  ["re-frame.routing" "clear-route"]            {:tier :tooling :owner "012" :status "v1"}
   ["re-frame.routing" "malformed-url?"]         {:tier :implementation :owner "012" :status "v1"}
   ["re-frame.routing" "url-owner-frame-id"]     {:tier :implementation :owner "012" :status "v1"}
   ["re-frame.routing" "route-sub-fn"]           {:tier :implementation :owner "012" :status "v1"}
@@ -1818,13 +1802,11 @@
   ;; =========================================================================
   ;; (a) Facade-mirrored — resources.
   ["re-frame.resources" "reg-resource"]         {:tier :advanced :owner "016" :status "v1 (optional capability)"}
-  ["re-frame.resources" "clear-resource"]       {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ["re-frame.resources" "resource-meta"]        {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ["re-frame.resources" "resources"]            {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ["re-frame.resources" "resource-state"]       {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ;; (a) Facade-mirrored — mutations (Spec 016 §Mutations).
   ["re-frame.resources" "reg-mutation"]         {:tier :advanced :owner "016" :status "v1 (optional capability)"}
-  ["re-frame.resources" "clear-mutation"]       {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ["re-frame.resources" "mutation-meta"]        {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ["re-frame.resources" "mutations"]            {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ["re-frame.resources" "mutation-state"]       {:tier :advanced :owner "016" :status "v1 (optional capability)"}
@@ -1834,7 +1816,6 @@
   ;; no observability side effect, so it emits no
   ;; `:rf.resource/scope-resolved` trace.
   ["re-frame.resources" "reg-resource-scope"]   {:tier :advanced :owner "016" :status "v1 (optional capability)"}
-  ["re-frame.resources" "clear-resource-scope"] {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ["re-frame.resources" "resolve-resource-scope"] {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ;; (b) Registry-enumerate accessors, owned-ns surface only.
   ["re-frame.resources" "resource-ids"]         {:tier :tooling :owner "016" :status "v1 (optional capability)"}
@@ -1851,7 +1832,6 @@
   ;; re-frame.flows — optional artefact (day8/re-frame2-flows), §013.
   ;; =========================================================================
   ["re-frame.flows" "reg-flow"]              {:tier :implementation :owner "013" :status "v1"}
-  ["re-frame.flows" "clear-flow"]            {:tier :implementation :owner "013" :status "v1"}
   ["re-frame.flows" "flows-snapshot"]        {:tier :tooling :owner "013" :status "v1"}
   ;; The canonical per-frame flow introspection surface — the flows analogue of
   ;; `re-frame.schemas/app-schema-meta-at` (rf2-en00bk, applying the rf2-0frdi
