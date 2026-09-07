@@ -95,7 +95,16 @@ which restore captured context unconditionally — fine until two writes overlap
 Overlapping writes commit at the granularity they wrote at. Nothing stops you
 adding a card while a retitle is still saving, or moving one card while another
 is in flight — the controls stay live, and each write runs under its own
-mutation instance (`[:create tmp-id]`, `[:edit id]`, `[:status id]`). So the
+mutation instance (`[:create tmp-id]`, `[:edit id]`, `[:status id]`). With one
+exception, and it is worth knowing why it is an exception rather than a policy:
+a card whose *create* is still in flight has only the client-minted `tmp-N`
+placeholder, and the server has never heard of that id. A retitle or a move
+would `PUT /api/issues/tmp-N` at a row that does not exist — answered as a
+success that changed nothing, and then overwritten on screen when the create's
+reply swaps the placeholder for the server's row. So that card's own two
+controls wait for its create to reply, which is the moment its id becomes real.
+Every other card stays live throughout. The limit is identity, not concurrency:
+you cannot address an object the server has not named yet. So the
 success consequences have to be disjoint, or one write's commit would undo
 another's. That is why each mutation declares
 [`:patches`](../../../../docs/resources/glossary.md#mutation) and not
