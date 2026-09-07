@@ -28,7 +28,7 @@ The adapter ships in two artefacts: `day8/re-frame2-reagent` (full) and `day8/re
   ```
 - **Description**: The Reagent adapter map: the substrate spec you pass to `(rf/init! ...)` to install the browser-default Reagent substrate (stock `reagent.core` / `reagent.dom.client`).
   - There is no default-adapter registry and no keyword form. Require the adapter ns and pass its `adapter` Var explicitly at the call site.
-  - When this adapter is installed, `current-adapter` (in [`re-frame.core`](re-frame.core.md)) returns `:rf.adapter/reagent`.
+  - When this adapter is installed, `current-adapter` (in [`re-frame.core`](re-frame.core.md)) returns this map itself — that is the installed-adapter value, and its presence is how you ask whether an adapter is seated. The discriminator is a KEY on it: `(:kind (rf/current-adapter))` reads `:rf.adapter/reagent`.
   - The Reagent `frame-provider` is the substrate-agnostic provider from [`re-frame.core`](re-frame.core.md); children stay trailing-positional hiccup (`[rf/frame-provider {:frame …} & children]`).
 - **Example**:
   ```clojure

@@ -532,8 +532,10 @@ imperative escape hatch (canvas refs, mount-lifecycle hooks for large
 list virtualisation, etc.) it resolves the active adapter via
 `re-frame.substrate.adapter/current-adapter` — which answers the installed
 adapter SPEC MAP — and dispatches on its `:kind` key (rf2-kuky.4:
-one read, map-shaped; the keyword-returning `current-adapter-spec` twin
-is struck). These escape-hatch sites are bounded — roughly five
+one read, map-shaped; the map-returning `current-adapter-spec` twin is
+struck, and with it `current-adapter`'s former keyword-returning
+spelling — the keyword was literally the `:kind` of that same map).
+These escape-hatch sites are bounded — roughly five
 of them across the codebase — and each lives next to the component
 that needs it, not in a central shim layer.
 
