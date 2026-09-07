@@ -8,7 +8,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. The :action and :justification columns are the facade-audit axes (spec/Conventions.md §Facade policy fields 4 and 3) — also curated, and present on :facade? true rows ONLY, which is why most rows carry neither. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 515,
+ :var-count 517,
  :tier-vocab
  [:front-porch
   :advanced
@@ -206,6 +206,8 @@
   {:namespace "re-frame.hicasso", :var "defview", :tier :advanced, :kind :macro, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.hicasso", :var "error-boundary", :tier :advanced, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.hicasso", :var "event", :tier :advanced, :kind :macro, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.hicasso", :var "frame-provider", :tier :advanced, :kind :var, :owner "002", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.hicasso", :var "frame-root", :tier :advanced, :kind :var, :owner "002", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.hicasso", :var "hydrate!", :tier :advanced, :kind :fn, :owner "004C", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.hicasso", :var "mount!", :tier :advanced, :kind :fn, :owner "004C", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.hicasso", :var "portal", :tier :advanced, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? true}

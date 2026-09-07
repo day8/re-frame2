@@ -234,7 +234,7 @@
 ;; documentation page, and nothing but this gate would have said so. They were
 ;; tiered honestly and given pages rather than quieted with `^:no-doc`; the two
 ;; tool-tier namespaces (`.tool`, `.evidence`) were rowed `:tooling`, which
-;; obliges no page; the seventeen `re-frame.hicasso.impl.*` are below.
+;; obliges no page; the eighteen `re-frame.hicasso.impl.*` are below.
 ;; Widening to the remaining artefacts is a per-tree decision with a per-tree
 ;; cost; the point of the data-driven shape below is that each is a root plus
 ;; its classifications, never another mechanism.
@@ -359,7 +359,7 @@
      ;; Everything under `re-frame.hicasso.impl.*` and nothing else: the door
      ;; (`re-frame.hicasso`), its five optional authoring modules, its SSR
      ;; module and its two tool-tier namespaces are all ENROLLED instead — nine
-     ;; namespaces of the tree's twenty-six, leaving these seventeen. The `impl`
+     ;; namespaces of the tree's twenty-seven, leaving these eighteen. The `impl`
      ;; segment is the artefact's own published boundary, stated in
      ;; `docs/api/re-frame.hicasso.md` and in spec/Conventions.md's artefact
      ;; row: "everything else is `re-frame.hicasso.impl.*` and is not a
@@ -380,6 +380,9 @@
      ;; Roots, mounting and the hydration adoption window.
      re-frame.hicasso.impl.mount
      re-frame.hicasso.impl.roots
+     ;; The two in-tree frame boundaries' shells, whose door re-exports them
+     ;; as `h/frame-root` / `h/frame-provider` (rf2-kuky.58).
+     re-frame.hicasso.impl.frame-boundary
      ;; Frame-locked ops and instance-key local state.
      re-frame.hicasso.impl.frames
      re-frame.hicasso.impl.state
