@@ -225,6 +225,15 @@ jobs:
             # <sha>". This is not a trade-off between two workable targets: the
             # merge commit was never dispatchable.
             #
+            # THE TOKEN IS NOT THE OBSTACLE, so a correct ref is the whole fix.
+            # Events triggered by `GITHUB_TOKEN` do not normally create workflow
+            # runs — that is the recursion guard — but `workflow_dispatch` is one
+            # of the two documented exceptions that "always create workflow
+            # runs". So `actions: write` above plus a resolvable ref is the
+            # complete set of conditions, and a reader who finds this canary
+            # still silent should suspect the ref or the guards, never the token.
+            # See docs.github.com/en/actions/concepts/security/github_token.
+            #
             # MEASURED (rf2-amh0). This step passed the `github.sha` context
             # value as the ref from the file's first commit until this one — an
             # expression not written out here, because Actions substitutes
@@ -233,10 +242,19 @@ jobs:
             # 2026-09-05), 26 reached a dispatch and made 27 attempts; ALL 27
             # returned that same 422, and all 26 runs concluded `success`,
             # because a `|| { echo WARN; }` swallow that this commit removes took
-            # every one of them. Zero dispatches have ever succeeded. The
-            # 19 older runs (2026-05-28 to 2026-06-05) have expired logs (HTTP
-            # 410) so they are unmeasured, not clean — the argument was identical
-            # in their revisions, so any attempt they made failed the same way.
+            # every one of them. Zero dispatches have ever succeeded — and that
+            # last claim now rests on the whole lifetime rather than on the
+            # readable window, because a successful dispatch leaves a
+            # `workflow_dispatch` RUN behind and runs outlive their logs.
+            # Enumerated 2026-09-08 over every target this canary has named
+            # (expensive-tests.yml, freehand-conformance.yml, freehand-bench.yml)
+            # there are 7 `workflow_dispatch` runs all time, each triggered by
+            # the human maintainer on a branch ref and none by
+            # `github-actions[bot]`; freehand-conformance.yml, which the canary
+            # attempted 5 times, has ZERO. That covers the 19 runs whose logs
+            # have since expired (2026-05-28 to 2026-06-05, HTTP 410) with
+            # evidence, where this comment previously offered only a deduction
+            # from an unchanged argument.
             #
             # THE TIP, NOT THE MERGE COMMIT — deliberate. `github.ref_name` is
             # the branch this event is on (`main` for the push trigger; whatever
