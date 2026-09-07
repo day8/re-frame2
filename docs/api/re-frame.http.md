@@ -13,7 +13,7 @@ See [Managed HTTP — The request is a map](../async/http.md) for the teaching g
           [re-frame.http.managed])
 ```
 
-The `:rf.http/managed` fx is keyword-addressed — you use it in an event's `:fx`, and `re-frame.http.managed` is what registers it. The interceptor and test-stub fns (`reg-http-interceptor`, `clear-http-interceptor`, `with-managed-request-stubs`) are re-exported on the `re-frame.core` façade. Everything ships in the `day8/re-frame2-http` artefact.
+The `:rf.http/managed` fx is keyword-addressed — you use it in an event's `:fx`, and `re-frame.http.managed` is what registers it. The interceptor and test-stub fns (`reg-http-interceptor`, `with-managed-request-stubs`) are re-exported on the `re-frame.core` façade; clearing an interceptor from the façade is the kind-keyed `(rf/clear :http-interceptor id)`, not a `clear-http-interceptor` re-export. Everything ships in the `day8/re-frame2-http` artefact.
 
 Repeating `{:request {:method :get :url …}}` at every call site is an **app** concern, not a framework one: an app that issues many requests writes one request-builder fn over the args map, carrying the policy a per-verb helper cannot — a base URL, default headers, a default `:decode`, body encoding. See [Your own request builder](../async/http.md#your-own-request-builder).
 
@@ -114,7 +114,7 @@ See [Managed HTTP — Failures are a closed set](../async/http.md#failures-are-a
 
 ## Request-interceptor middleware
 
-A middleware surface that mirrors the rest of the `reg-*` family. Use it to inject behaviour into every request: an auth header, a request-id stamp, logging. The fn forms (`reg-http-interceptor`, `clear-http-interceptor`) are re-exported on the `re-frame.core` façade. A façade call with `day8/re-frame2-http` absent raises `:rf.error/http-artefact-missing`. The data-shaped `:rf.fx/*` siblings below are keyword-addressed.
+A middleware surface that mirrors the rest of the `reg-*` family. Use it to inject behaviour into every request: an auth header, a request-id stamp, logging. The fn form `reg-http-interceptor` is re-exported on the `re-frame.core` façade; the façade inverse is the kind-keyed `(rf/clear :http-interceptor id)` rather than a `clear-http-interceptor` re-export (the artefact fn below keeps its own name). A façade call with `day8/re-frame2-http` absent raises `:rf.error/http-artefact-missing`. The data-shaped `:rf.fx/*` siblings below are keyword-addressed.
 
 ### `reg-http-interceptor`
 

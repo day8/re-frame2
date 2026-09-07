@@ -210,7 +210,7 @@ An interceptor map carries **`:before`**, **`:after`**, or both — supply at le
 
 !!! warning "Gotcha — hot-reloading the interceptor"
 
-    Re-evaluating `reg-http-interceptor` with the same id replaces the slot **in place** — its position in the chain is preserved, which is exactly what you want on a file save. `clear-http-interceptor` removes the slot entirely; a later re-registration then **appends to the end** of the chain. So don't clear-then-reg in hot-reload paths unless you genuinely want a fresh end-of-chain slot.
+    Re-evaluating `reg-http-interceptor` with the same id replaces the slot **in place** — its position in the chain is preserved, which is exactly what you want on a file save. `(rf/clear :http-interceptor id)` removes the slot entirely; a later re-registration then **appends to the end** of the chain. So don't clear-then-reg in hot-reload paths unless you genuinely want a fresh end-of-chain slot.
 
 One write site, not many. The frame-scoped interceptor is the single write site for this decoration, so there's no per-request call site to forget — one forgotten wrapper around an `http-xhrio` map is one unauthenticated request, and there are no wrappers here. It's the same shift you make moving from passing an `axios` config object around everywhere to registering one request interceptor: the decoration becomes structural, not something each caller has to remember.
 

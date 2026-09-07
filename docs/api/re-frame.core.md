@@ -1506,15 +1506,14 @@ Managed HTTP is an optional capability: one fx-id (`[:rf.http/managed …]`), on
 - **Signature**: `(reg-http-interceptor id interceptor-map)`
 - Register an HTTP interceptor on a frame's `:rf.http/managed` middleware chain. `:before (fn [ctx] ctx')` runs request-side, in registration order. `:after (fn [ctx response] response')` runs response-side, in reverse order. Full contract in [re-frame.http.md](re-frame.http.md).
 
-#### `clear-http-interceptor`
+#### Clearing an HTTP interceptor
 
-- **Kind**: function
 - **Signature**:
   ```clojure
-  (clear-http-interceptor id)
-  (clear-http-interceptor id {:frame target})
+  (clear :http-interceptor id)
+  (clear :http-interceptor id {:frame target})
   ```
-- Unregister an HTTP interceptor by id (single-arity resolves the frame from carried scope; the opts form names it explicitly via a trailing `{:frame target}` map, mirroring `reg-http-interceptor`). The frame-first `(frame id)` spelling is internal plumbing, not a public call. Full contract in [re-frame.http.md](re-frame.http.md).
+- Unregister an HTTP interceptor by id. There is **no** `clear-http-interceptor` name — `:http-interceptor` is one of the kinds the one kind-keyed registrar inverse dispatches (see [`clear`](#clear)). The kind-and-id arity resolves the frame from carried scope; the opts form names it explicitly via a trailing `{:frame target}` map, mirroring `reg-http-interceptor`. The frame-first `(frame id)` spelling is internal plumbing, not a public call. Full contract in [re-frame.http.md](re-frame.http.md).
 
 #### `with-managed-request-stubs`
 
