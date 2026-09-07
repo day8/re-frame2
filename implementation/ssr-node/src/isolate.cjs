@@ -201,8 +201,28 @@ class Isolate {
       });
       worker.on('exit', () => {
         clearTimeout(bootTimer);
+        // THE SIBLING ARM, AND IT IDENTIFIES ITSELF THE SAME WAY (rf2-rhyi).
+        // `ISOLATE_LOST` covers three distinct causes — a crashed worker, a
+        // worker that exited, and a replacement that will not boot — and a
+        // consumer tells them apart by detail SHAPE, because the code and
+        // the wording are the only other things it has. This arm reached
+        // that code with an EMPTY map, so the one arm whose thread is gone
+        // most quietly (nothing thrown, nothing on stderr) was also the one
+        // that named neither the isolate nor the thread an operator is
+        // about to go looking for. `isolate` and `threadId` are the same
+        // two service-owned facts the `error` arm above and the deadline
+        // refusal below already carry, and for the same reason: neither
+        // originates in the render module.
+        //
+        // The code, the wording and the termination/replacement behaviour
+        // are deliberately unchanged — this is a detail-map gap rather than
+        // a policy change. `_failPendingRender` still stamps `afterChunks`
+        // on top, so a torn exit keeps its discriminator.
         this._failPendingRender(
-          new Refusal(CODE.ISOLATE_LOST, 'the isolate exited mid-render', {}),
+          new Refusal(CODE.ISOLATE_LOST, 'the isolate exited mid-render', {
+            isolate: this.seq,
+            threadId: this.threadId,
+          }),
         );
       });
     });
