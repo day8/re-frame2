@@ -1549,6 +1549,36 @@ Resources are an optional capability (cached server-state reads plus mutations) 
 - **Signature**: `(mutation-state {:instance … :frame …}) → row or nil`
 - Tool/test lane: a mutation **instance**'s durable runtime row (`{:status :result :error …}`) at an explicit frame. Full contract in [re-frame.resources.md](re-frame.resources.md).
 
+#### Enumerating resources and mutations — the three reads
+
+There is no bundled `resources` / `mutations` read (both were deleted by rf2-kuky.85: each packed a
+registry enumeration and a runtime-db table read into one call, and the two halves already have their
+own door). Three distinct reads answer three different questions:
+
+```clojure
+;; 1. REGISTRY — what is registered? Process-global registrar; no frame.
+(keys (rf/registrations {:source :store :kind :resource}))  ;; => (:article/by-slug :feed/timeline)
+(keys (rf/registrations {:source :store :kind :mutation}))  ;; => (:article/save)
+
+;; 2. WHOLE LIVE TABLE — the reserved runtime-db path, off the frame-state projection.
+(get-in (rf/frame-state-value :app/main) [:rf.db/runtime :rf.runtime/resources :entries])
+;; => {<key-id> <entry> …}
+(get-in (rf/frame-state-value :app/main) [:rf.db/runtime :rf.runtime/mutations])
+;; => {<instance-id> {:mutation/id … :instance/id … :status … :result … :error …} …}
+
+;; 3. ONE ENTRY / ONE INSTANCE — the per-target live-state reads above.
+(rf/resource-state {:resource :article/by-slug :scope :rf.scope/global
+                    :params {:slug "welcome"} :frame :app/main})
+(rf/mutation-state {:instance :form/save-1 :frame :app/main})
+```
+
+Read the tables **as they are keyed**. `:entries` is keyed by each entry's CEDN-1 byte `key-id`, and the
+entry carries its own `:resource/key` tuple; `:rf.runtime/mutations` is keyed by mutation **instance** id
+(`:instance/id`), never by mutation id. Re-keying either table onto its human-readable field can collapse
+distinct rows. Both subtrees are allocated lazily, so either read can return `nil` before the capability
+is first used. Full contract in
+[re-frame.resources.md](re-frame.resources.md#enumerating-the-whole-live-table).
+
 ## See also
 
 - [Subscriptions](../core/subscriptions.md), [Frames](../core/frames.md), [Effects](../core/effects.md), [Coeffects](../core/coeffects.md), [Observability](../core/observability.md) — the concept guides behind these surfaces.
