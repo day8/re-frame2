@@ -234,7 +234,15 @@ human-authored beads config surface; everything else under `.beads/` is
 database-derived and refused.
 
 Permitted from any worktree: `.beads/README.md`, `.beads/config.yaml`,
-`.beads/.gitignore`, `.beads/hooks/**`.
+`.beads/.gitignore`, `.beads/PRIME.md`, `.beads/hooks/**`.
+
+`.beads/PRIME.md` is on that list because it is hand-written prose rather
+than a database export: `bd prime` emits it INSTEAD of its own default
+output at SessionStart and PreCompact. The allow-list is enumerated, so it
+needed its own arm — without one it falls to `.beads/*` and is refused from
+every worker worktree, reddening the CI arm on every PR that touches it.
+The widening is exact, and layer 3 pins that: `.beads/PRIME.md.bak`,
+`.beads/PRIME.jsonl` and `.beads/prime/export.jsonl` all stay refused.
 
 Refused outside the mayor checkout: `.beads/issues.jsonl`,
 `.beads/metadata.json`, and anything else under `.beads/` — including

@@ -448,12 +448,45 @@ for p in .beads/metadata.json .beads/events.jsonl .beads/beads.db .beads/dolt/no
 done
 
 # 3e: the human-authored beads config surface stays committable from anywhere.
-out=$(printf '.beads/README.md\n.beads/config.yaml\n.beads/.gitignore\n.beads/hooks/pre-commit\n' \
+out=$(printf '.beads/README.md\n.beads/config.yaml\n.beads/.gitignore\n.beads/PRIME.md\n.beads/hooks/pre-commit\n' \
       | run_beads_lib commit 2>"$BERR") || true
 case "$out" in
   *EXIT=0*) pass "human-authored beads config -> exit 0" ;;
   *) fail "human-authored beads config -> wrongly refused: $out"; cat "$BERR" >&2 ;;
 esac
+
+# 3e-bis: `.beads/PRIME.md` specifically.
+#
+# It is hand-written prose overriding `bd prime`'s SessionStart output, not a
+# database export, so a worker branch may carry it. The allow-list is
+# ENUMERATED, so this needs its own arm — without one the file falls through to
+# `.beads/*` and is refused from every worker worktree, reddening the CI arm on
+# every PR that touches it. Pinned alone rather than only inside 3e's batch: a
+# batch that exits 0 says nothing about WHICH member earned it.
+out=$(printf '.beads/PRIME.md\n' | run_beads_lib commit 2>"$BERR") || true
+case "$out" in
+  *EXIT=0*) pass ".beads/PRIME.md alone -> exit 0 (allow-listed)" ;;
+  *) fail ".beads/PRIME.md alone -> wrongly refused: $out"; cat "$BERR" >&2 ;;
+esac
+
+# ...and the widening is EXACT: neighbours that merely look like it stay
+# refused, so the new arm cannot be a `.beads/PRIME*` or `.beads/*.md` hole.
+for p in .beads/PRIME.md.bak .beads/PRIME.jsonl .beads/prime/export.jsonl .beads/NOTES.md; do
+  out=$(printf '%s\n' "$p" | run_beads_lib commit 2>"$BERR") || true
+  case "$out" in
+    *EXIT=1*) pass "PRIME lookalike still refused: $p" ;;
+    *) fail "PRIME lookalike WRONGLY permitted: $p (exit: $out)" ;;
+  esac
+done
+
+# ...and the refusal diagnostic advertises the permitted surface accurately,
+# so someone who hits it is not told PRIME.md is forbidden when it is not.
+out=$(printf '.beads/issues.jsonl\n' | run_beads_lib commit 2>"$BERR") || true
+if grep -q '\.beads/PRIME\.md' "$BERR"; then
+  pass "refusal diagnostic lists .beads/PRIME.md as permitted"
+else
+  fail "refusal diagnostic omits .beads/PRIME.md from the permitted surface"; cat "$BERR" >&2
+fi
 
 # 3f: mixed -> refused, and the listing names ONLY the beads path.
 out=$(printf 'implementation/core/src/ok.cljc\n.beads/issues.jsonl\n' \
