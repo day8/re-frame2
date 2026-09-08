@@ -60,7 +60,10 @@
 #      against a stub `bd`: a close that lives only in the database survives the
 #      pre-pull checkout, a broken export commits nothing, and a memory reorder
 #      is not a commit — nor does one ride along with a real change
-#      (rf2-51uz1.1), while the >1/10 shrink guard still refuses.
+#      (rf2-51uz1.1), while the >1/10 shrink guard still refuses. 8m-8p add the
+#      memory reconciliation (rf2-cve7): a memory-only deletion is invisible to
+#      every guard above it, so it now WARNS — loudly, by key, and without
+#      refusing the checkpoint.
 #
 #   9. The TRUNCATION FLOOR in the hook (rf2-or8te) — layer 8's guard repeated
 #      where no committer can route around it. Layer 8 proves the checkpoint
@@ -1262,6 +1265,13 @@ rm -rf "$RBOX"
 # so the stub models that contract and 8a asserts the committed tracker still
 # carries its memories — a checkpoint that loses --include-memories fails here
 # before it can silently drop every memory on main.
+#
+# WHETHER ANY OF THEM WENT MISSING is the fourth (rf2-cve7). 8a proves the
+# memories ride; nothing proved they were all still there. The row floor is
+# dominated by issue rows and the divergence guard reads issue rows only, so a
+# memory-only deletion is invisible to both — 210 keys went that way on
+# 2026-09-08 with `bd stats` reporting a healthy issue count throughout. 8m-8p
+# pin the reconciliation, and 8p pins that it stays quiet the rest of the time.
 # ----------------------------------------------------------------------------
 
 printf '\n[8] checkpoint helper: export from the database, never the working file\n'
@@ -1745,6 +1755,167 @@ case "$out" in
     else
       pass "(8l) a same-timestamp status conflict is refused, and no import is offered"
     fi ;;
+esac
+
+# ----------------------------------------------------------------------------
+# 8m-8p: THE MEMORY POPULATION IS RECONCILED, AND THE GUARD WARNS (rf2-cve7).
+#
+# Every guard above is blind to the `bd remember` rows. 8i's floor counts ROWS,
+# which the issue rows dominate, so a memory-only deletion is diluted under it;
+# 8j-8l read `"_type":"issue"` and skip every other line by construction.
+#
+# OBSERVED: on 2026-09-08, 210 memory keys vanished from the live store
+# (1167 -> 957) and NOTHING said a word. `bd stats` reports ISSUES ONLY and read
+# a healthy 1099 straight through the event, and the export was 90.8% of HEAD's
+# rows — comfortably over the floor 8i pins.
+#
+# THE FIXTURE MODELS THAT ARITHMETIC RATHER THAN JUST THE SYMPTOM: 20 issues and
+# 10 memories at HEAD (30 rows), against an export that has lost 2 memories
+# (28 rows). 28*10 = 280 is NOT less than 30*9 = 270, so 8i's floor is silent
+# here — the deletion slides under it exactly as the real one did. If a future
+# change ever made the floor catch this, 8m would still pass for the WRONG
+# reason, so 8n pins the floor's silence separately.
+#
+# AND THE GUARD MUST NOT REFUSE. This is the one shared tool the mayor runs
+# several times an hour; a false positive that aborted it would halt the whole
+# dispatch loop, which is why the reconciliation went unbuilt while the keys
+# went missing. 8m therefore asserts BOTH halves — it warns, AND it commits.
+# 8p is the no-false-positive case, and it matters more than the rest: a warning
+# that fires on ordinary forward motion is one the loop learns to scroll past.
+# ----------------------------------------------------------------------------
+{
+  awk 'BEGIN{for(i=1;i<=20;i++) printf "{\"_type\":\"issue\",\"id\":\"rf2-m%02d\",\"status\":\"open\",\"updated_at\":\"2026-09-01T00:00:00Z\"}\n", i}'
+  awk 'BEGIN{for(i=1;i<=10;i++) printf "{\"_type\":\"memory\",\"key\":\"mem-key-%02d\",\"value\":\"body %d\"}\n", i, i}'
+} > "$CBOX/head-mem.jsonl"
+
+# The same database one retention cull later: both cursor-ish memories dropped,
+# every issue row untouched.
+grep -v '"key":"mem-key-03"' "$CBOX/head-mem.jsonl" \
+  | grep -v '"key":"mem-key-07"' > "$CBOX/db-mem-culled.jsonl"
+
+(
+  cd "$CREPO"
+  cp -f "$CBOX/head-mem.jsonl" .beads/issues.jsonl
+  git add -- .beads/issues.jsonl
+  git commit -q -m 'seed: 20 issues and 10 memories'
+) >/dev/null 2>&1
+
+# 8n: THE FLOOR IS GENUINELY SILENT HERE. Asserted before 8m so that a pass
+# there cannot be credited to the wrong guard. This is the negative control for
+# the whole group: it establishes the hole is open.
+export_rows=$(awk 'END{print NR}' "$CBOX/db-mem-culled.jsonl")
+head_rows=$(awk 'END{print NR}' "$CBOX/head-mem.jsonl")
+if [ "$export_rows" = "28" ] && [ "$head_rows" = "30" ] \
+   && [ $((export_rows * 10)) -ge $((head_rows * 9)) ]; then
+  pass "(8n) the fixture slides under the row floor ($export_rows/$head_rows rows), as the real event did"
+else
+  fail "(8n) the fixture does NOT model the event: $export_rows/$head_rows rows would trip the floor"
+fi
+
+# 8m: THE ACCEPTANCE. A memory-only deletion must produce a loud, NAMED warning
+# and must still checkpoint. Both halves are load-bearing.
+cp -f "$CBOX/db-mem-culled.jsonl" "$CBOX/db.jsonl"
+before=$(git -C "$CREPO" rev-parse HEAD)
+out=$(run_checkpoint "$CREPO")
+after=$(git -C "$CREPO" rev-parse HEAD)
+case "$out" in
+  EXIT=0)
+    if [ "$before" = "$after" ]; then
+      fail "(8m) the memory-loss warning became a refusal: nothing was committed"
+      cat "$CERR" >&2
+    elif ! grep -q 'MEMORY RECONCILIATION FAILED' "$CERR"; then
+      fail "(8m) a 2-of-10 memory deletion was checkpointed in SILENCE — the rf2-cve7 hole is open"
+      cat "$CERR" >&2
+    elif ! grep -q 'mem-key-03' "$CERR" || ! grep -q 'mem-key-07' "$CERR"; then
+      fail "(8m) warned, but did not NAME the lost keys; a count sends the operator diffing by hand"
+      cat "$CERR" >&2
+    elif grep -q 'mem-key-05' "$CERR"; then
+      fail "(8m) named a key that was never lost"
+      cat "$CERR" >&2
+    elif ! grep -q 'WARNING, NOT A REFUSAL' "$CERR"; then
+      fail "(8m) warned without saying the checkpoint continues; the operator cannot tell what happened"
+      cat "$CERR" >&2
+    else
+      pass "(8m) a memory-only deletion WARNS, names the lost keys, and still checkpoints"
+    fi
+    # And the counts must be reported, not merely the names: the operator's
+    # first question is how big the loss is.
+    if grep -q 'export  28 rows = 20 issues + 8 memories' "$CERR" \
+       && grep -q 'HEAD    30 rows = 20 issues + 10 memories' "$CERR"; then
+      pass "(8m) and it reports both populations on both sides, separately counted"
+    else
+      fail "(8m) the warning did not report the two populations against HEAD"
+      cat "$CERR" >&2
+    fi ;;
+  *) fail "(8m) the memory reconciliation REFUSED the checkpoint ($out); it must only warn"
+     cat "$CERR" >&2 ;;
+esac
+
+# 8o: A ROW OF AN UNKNOWN `_type` IS REPORTED. This is the "two populations sum
+# to the row count" half of the bead. It cannot detect the deletion above — the
+# identity holds trivially whenever every row is one of the two known types, so
+# it is silent on both sides of a cull — but it does catch a row that is neither,
+# which nothing else here would notice.
+{
+  cat "$CBOX/head-mem.jsonl"
+  printf '{"_type":"sprint","id":"s1"}\n'
+} > "$CBOX/db.jsonl"
+before=$(git -C "$CREPO" rev-parse HEAD)
+out=$(run_checkpoint "$CREPO")
+after=$(git -C "$CREPO" rev-parse HEAD)
+case "$out" in
+  EXIT=0)
+    if ! grep -q 'neither an issue nor a memory' "$CERR"; then
+      fail "(8o) a row of an unknown _type was not reported; the populations do not sum"
+      cat "$CERR" >&2
+    elif [ "$before" = "$after" ]; then
+      fail "(8o) the unknown-type report became a refusal"
+    else
+      pass "(8o) a row that is neither an issue nor a memory is reported, and still commits"
+    fi ;;
+  *) fail "(8o) an unknown _type row REFUSED the checkpoint ($out); it must only warn"
+     cat "$CERR" >&2 ;;
+esac
+
+# 8p: THE NO-FALSE-POSITIVE CASE, and it is the one that decides whether this
+# guard survives contact with the dispatch loop. Ordinary forward motion — an
+# issue closes, a memory is ADDED, the rest are shuffled the way `bd export`
+# shuffles them on every invocation — must commit without a murmur.
+#
+# HEAD IS RE-SEEDED FIRST, and the reason is worth keeping: 8o's checkpoint
+# COMMITTED its unknown-`_type` row, so HEAD carried it into this case and the
+# guard truthfully reported it — a red that looked like a false positive and was
+# not one. A no-false-positive case has to start from a clean baseline or it
+# grades the previous case's leftovers.
+(
+  cd "$CREPO"
+  cp -f "$CBOX/head-mem.jsonl" .beads/issues.jsonl
+  git add -- .beads/issues.jsonl
+  git commit -q -m 'seed: back to 20 issues and 10 memories, no stray row types'
+) >/dev/null 2>&1
+{
+  awk 'BEGIN{for(i=1;i<=20;i++){s=(i==4?"closed":"open"); u=(i==4?"2026-09-02T00:00:00Z":"2026-09-01T00:00:00Z"); printf "{\"_type\":\"issue\",\"id\":\"rf2-m%02d\",\"status\":\"%s\",\"updated_at\":\"%s\"}\n", i, s, u}}'
+  awk 'BEGIN{for(i=10;i>=1;i--) printf "{\"_type\":\"memory\",\"key\":\"mem-key-%02d\",\"value\":\"body %d\"}\n", i, i}'
+  printf '{"_type":"memory","key":"mem-key-11","value":"a new lesson"}\n'
+} > "$CBOX/db.jsonl"
+git -C "$CREPO" checkout -q HEAD -- .beads
+before=$(git -C "$CREPO" rev-parse HEAD)
+out=$(run_checkpoint "$CREPO")
+after=$(git -C "$CREPO" rev-parse HEAD)
+case "$out" in
+  EXIT=0)
+    if [ "$before" = "$after" ]; then
+      fail "(8p) ordinary forward motion produced no commit"
+      cat "$COUT" >&2
+    elif grep -q 'MEMORY RECONCILIATION' "$CERR"; then
+      fail "(8p) the reconciliation CRIED WOLF on a close plus a new memory plus a reorder"
+      cat "$CERR" >&2
+    elif ! git -C "$CREPO" show HEAD:.beads/issues.jsonl | grep -q '"key":"mem-key-11"'; then
+      fail "(8p) the new memory did not reach the commit"
+    else
+      pass "(8p) a close, a NEW memory and a full memory reorder warn about nothing"
+    fi ;;
+  *) fail "(8p) ordinary forward motion was refused ($out)"; cat "$CERR" >&2 ;;
 esac
 
 rm -rf "$CBOX"

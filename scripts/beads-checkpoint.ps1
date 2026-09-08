@@ -41,6 +41,23 @@
 #   `status` before it is allowed to overwrite anything. See Get-GitOnlyFacts.
 #   EQUAL COUNTS ARE NOT EQUALITY.
 #
+# THE THIRD BLIND SPOT (rf2-cve7): BOTH GUARDS ABOVE ONLY SEE ISSUES.
+#
+#   The floor counts rows, which the issue rows dominate, and the divergence
+#   guard reads `"_type":"issue"` and skips everything else. So the memory rows
+#   - the `bd remember` store - are unguarded by construction.
+#
+#   OBSERVED, not hypothetical: on 2026-09-08, 210 memory keys vanished from
+#   the live store (1167 -> 957) and nothing said a word. `bd stats` reports
+#   ISSUES ONLY and read a healthy 1099 straight through it; the export was
+#   90.8% of HEAD's rows, over the floor. Two substantive memories went with the
+#   retention cull that took the other 204, including a standing operator
+#   preference, and both had to be recovered by hand from an older checkpoint.
+#
+#   Get-MemoryFacts now reconciles the two populations against HEAD by KEY SET.
+#   Unlike the two guards above it WARNS AND DOES NOT REFUSE - see the call site
+#   for why that constraint is deliberate.
+#
 # The commit carries the rows that changed and nothing else: `bd export` does
 # not fix the order of the memory rows, so the file is written in minimal-diff
 # order first (rf2-51uz1.1, Write-MinimalDiffOrder below).
@@ -353,6 +370,114 @@ function Get-GitOnlyFacts {
     }
 }
 
+# Get-MemoryFacts - the memory-reconciliation body when the fresh export
+# accounts for FEWER `bd remember` keys than HEAD, or when either file carries
+# rows that are neither an issue nor a memory. Empty when both populations
+# reconcile, which is every ordinary checkpoint. Identical contract to
+# memory_facts in the .sh sibling, down to the wording of the lines it returns.
+#
+# THE FAULT THIS EXISTS TO STOP (rf2-cve7). On 2026-09-08, 210 memory keys
+# vanished from the live store (1167 -> 957) and NO INSTRUMENT SAID A WORD.
+# `bd stats` read a healthy `Total Issues: 1099` straight through it, because it
+# reports ISSUES ONLY, and every guard above inherited the same blind spot:
+#
+#   * the row-count floor is dominated by issue rows, so a memory-only deletion
+#     slides under it. Measured on the real event: 2073 rows against HEAD's
+#     2283 is 90.8% - over the 90% floor, so it waves the export through.
+#   * Get-GitOnlyFacts reads `"_type":"issue"` rows and skips every other line,
+#     so memories are outside its remit by construction.
+#
+# WHY THIS IS NOT THE "SUM TO THE ROW COUNT" CHECK THE BEAD ASKED FOR, and the
+# distinction is the whole point rather than a quibble. Counting the two
+# populations and checking they sum to the file's row count is an INTERNAL
+# WELL-FORMEDNESS identity: it holds trivially whenever every row is one of the
+# two known types, so it is SILENT ON BOTH SIDES of the event it was proposed to
+# catch - 1116 + 1167 == 2283 before, 1116 + 957 == 2073 after. A population
+# that shrinks is only visible against a BASELINE, and HEAD's committed export
+# is exactly that baseline, already in hand for the guards above. So the sum is
+# kept (it catches a row of an unknown `_type`) and the LOSS DETECTOR is the
+# key-set comparison.
+#
+# KEY SETS, NOT COUNTS. A cull that deletes 210 keys and adds 210 leaves the
+# count flat while losing 210 memories, so the count is the same kind of floor
+# the row count already was. The key set has no such hole.
+function Get-MemoryFacts {
+    param([string]$Export, [string]$HeadCopy)
+
+    $cap = 10
+    $report = New-Object 'System.Collections.Generic.List[string]'
+
+    $xkey = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::Ordinal)
+    $xrows = 0; $xiss = 0; $xmem = 0; $xoth = 0; $xbad = 0
+
+    foreach ($raw in [System.IO.File]::ReadLines($Export)) {
+        $line = $raw -replace "`r$", ''
+        $xrows++
+        if ($line.IndexOf('"_type":"issue"', [System.StringComparison]::Ordinal) -ge 0) { $xiss++; continue }
+        if ($line.IndexOf('"_type":"memory"', [System.StringComparison]::Ordinal) -ge 0) {
+            $xmem++
+            $k = Get-JsonValue -Line $line -Key 'key'
+            if ($k -eq '') { $xbad++; continue }
+            [void]$xkey.Add($k)
+            continue
+        }
+        $xoth++
+    }
+
+    $hrows = 0; $hiss = 0; $hmem = 0; $hoth = 0; $hbad = 0
+    $ngone = 0
+    $lost = New-Object 'System.Collections.Generic.List[string]'
+    if (Test-Path -LiteralPath $HeadCopy) {
+        foreach ($raw in [System.IO.File]::ReadLines($HeadCopy)) {
+            $line = $raw -replace "`r$", ''
+            $hrows++
+            if ($line.IndexOf('"_type":"issue"', [System.StringComparison]::Ordinal) -ge 0) { $hiss++; continue }
+            if ($line.IndexOf('"_type":"memory"', [System.StringComparison]::Ordinal) -ge 0) {
+                $hmem++
+                $k = Get-JsonValue -Line $line -Key 'key'
+                if ($k -eq '') { $hbad++; continue }
+                if (-not $xkey.Contains($k)) {
+                    $ngone++
+                    if ($ngone -le $cap) { $lost.Add($k) }
+                }
+                continue
+            }
+            $hoth++
+        }
+    }
+
+    if ($ngone -eq 0 -and $xoth -eq 0 -and $hoth -eq 0 -and $xbad -eq 0 -and $hbad -eq 0) {
+        return @()
+    }
+
+    $report.Add("  export  $xrows rows = $xiss issues + $xmem memories")
+    $report.Add("  HEAD    $hrows rows = $hiss issues + $hmem memories")
+    if ($ngone -gt 0) {
+        $report.Add('')
+        $report.Add("  $ngone memory key(s) at HEAD are ABSENT from the fresh export:")
+        foreach ($k in $lost) { $report.Add("      $k") }
+        if ($ngone -gt $cap) { $report.Add("      ... and $($ngone - $cap) more") }
+    }
+    if ($xoth -gt 0) {
+        $report.Add('')
+        $report.Add("  $xoth row(s) in the fresh export are neither an issue nor a memory,")
+        $report.Add('  so the two populations do NOT sum to the export row count.')
+    }
+    if ($hoth -gt 0) {
+        $report.Add('')
+        $report.Add("  $hoth row(s) at HEAD are neither an issue nor a memory.")
+    }
+    if ($xbad -gt 0) {
+        $report.Add('')
+        $report.Add("  UNREADABLE  $xbad memory rows in the fresh export carry no readable key")
+    }
+    if ($hbad -gt 0) {
+        $report.Add('')
+        $report.Add("  UNREADABLE  $hbad memory rows at HEAD carry no readable key")
+    }
+    return $report.ToArray()
+}
+
 # ---------------------------------------------------------------------------
 # The tracker database is the MAYOR checkout's to commit (rf2-ia8o7). The
 # primary worktree is the first entry of `git worktree list --porcelain`; the
@@ -615,6 +740,115 @@ if ($SelfTest) {
     Assert-True ($code -ne 0) 'T6 -PrePull warns when clearing .beads would discard state'
     Assert-True ((Get-ChildErr) -match 'AHEAD of HEAD') 'T6 and says so in those words'
 
+    # -----------------------------------------------------------------------
+    # T7-T9: THE MEMORY RECONCILIATION (rf2-cve7).
+    #
+    # T1-T4 grade the ISSUE rows. Nothing above grades the memories: the row
+    # floor is dominated by issue rows and Get-GitOnlyFacts reads issue rows
+    # only, so a memory-only deletion is invisible to both - which is how 210
+    # keys vanished on 2026-09-08 with `bd stats` reporting a healthy issue
+    # count throughout.
+    #
+    # The fixture models that arithmetic rather than just the symptom: 20 issues
+    # and 10 memories at HEAD (30 rows) against an export that has lost 2
+    # memories (28 rows). 28*10 = 280 is NOT less than 30*9 = 270, so the floor
+    # is silent here exactly as it was on the real event.
+    #
+    # AND IT MUST NOT REFUSE. This is the one shared tool the mayor runs several
+    # times an hour; a false positive that aborted it would halt the dispatch
+    # loop. T7 asserts both halves - it warns, AND it commits - and T9 is the
+    # no-false-positive case, which matters more than either.
+    # -----------------------------------------------------------------------
+    # Concatenation rather than the -f operator: these rows are JSON, so every
+    # one carries literal braces and -f reads them as format placeholders
+    # ("Error formatting a string"). -SelfTest caught that too.
+    $memHead = @()
+    for ($i = 1; $i -le 20; $i++) {
+        $n = $i.ToString('00')
+        $memHead += '{"_type":"issue","id":"rf2-m' + $n + '","status":"open","updated_at":"2026-09-01T00:00:00Z"}'
+    }
+    for ($i = 1; $i -le 10; $i++) {
+        $n = $i.ToString('00')
+        $memHead += '{"_type":"memory","key":"mem-key-' + $n + '","value":"body ' + $i + '"}'
+    }
+    Write-Rows -Path (Join-Path $repo '.beads/issues.jsonl') -Rows $memHead
+    & git -C $repo add -- '.beads/issues.jsonl' | Out-Null
+    & git -C $repo commit -q -m 'seed: 20 issues and 10 memories' | Out-Null
+
+    # The same database one retention cull later: two memories dropped, every
+    # issue row untouched.
+    $memCulled = $memHead | Where-Object {
+        $_ -notmatch '"key":"mem-key-03"' -and $_ -notmatch '"key":"mem-key-07"'
+    }
+    Assert-True ($memCulled.Count -eq 28 -and $memHead.Count -eq 30) `
+                'T7 the fixture slides under the row floor (28/30 rows), as the real event did' `
+                "got $($memCulled.Count)/$($memHead.Count)"
+
+    Write-Rows -Path $dbPath -Rows $memCulled
+    $before = Get-HeadSha
+    $code = Invoke-Child @()
+    $err  = Get-ChildErr
+    Assert-True ($code -eq 0) 'T7 a memory-only deletion does NOT refuse the checkpoint' "exit $code"
+    Assert-True ((Get-HeadSha) -ne $before) 'T7 and it still commits'
+    Assert-True ($err -match 'MEMORY RECONCILIATION FAILED') `
+                'T7 a memory-only deletion WARNS rather than passing in silence'
+    Assert-True ($err -match 'mem-key-03' -and $err -match 'mem-key-07') `
+                'T7 and it NAMES the lost keys'
+    Assert-True (-not ($err -match 'mem-key-05')) 'T7 and names no key that was not lost'
+    Assert-True ($err -match 'export  28 rows = 20 issues \+ 8 memories' -and
+                 $err -match 'HEAD    30 rows = 20 issues \+ 10 memories') `
+                'T7 and reports both populations on both sides, separately counted'
+    Assert-True ($err -match 'WARNING, NOT A REFUSAL') `
+                'T7 and says the checkpoint continues, so the operator can tell what happened'
+
+    # T8 - a row of an unknown `_type` is reported. This is the "two populations
+    # sum to the row count" half of the bead. It cannot detect the deletion
+    # above - the identity holds trivially whenever every row is one of the two
+    # known types - but it catches a row that is neither.
+    Write-Rows -Path $dbPath -Rows ($memHead + @('{"_type":"sprint","id":"s1"}'))
+    $before = Get-HeadSha
+    $code = Invoke-Child @()
+    $err  = Get-ChildErr
+    Assert-True ($code -eq 0) 'T8 an unknown _type row does not refuse the checkpoint' "exit $code"
+    Assert-True ($err -match 'neither an issue nor a memory') `
+                'T8 a row that is neither an issue nor a memory is reported'
+    Assert-True ((Get-HeadSha) -ne $before) 'T8 and it still commits'
+
+    # T9 - THE NO-FALSE-POSITIVE CASE. Ordinary forward motion - an issue
+    # closes, a memory is ADDED, the rest are shuffled the way `bd export`
+    # shuffles them on every invocation - must commit without a murmur.
+    #
+    # HEAD IS RE-SEEDED FIRST: T8's checkpoint COMMITTED its unknown-`_type`
+    # row, so HEAD would carry it into this case and the guard would truthfully
+    # report it - a red that looks like a false positive and is not one. A
+    # no-false-positive case has to start from a clean baseline.
+    Write-Rows -Path (Join-Path $repo '.beads/issues.jsonl') -Rows $memHead
+    & git -C $repo add -- '.beads/issues.jsonl' | Out-Null
+    & git -C $repo commit -q -m 'seed: back to 20 issues and 10 memories' | Out-Null
+
+    $forwardMem = @()
+    for ($i = 1; $i -le 20; $i++) {
+        $n  = $i.ToString('00')
+        $st = if ($i -eq 4) { 'closed' } else { 'open' }
+        $up = if ($i -eq 4) { '2026-09-02T00:00:00Z' } else { '2026-09-01T00:00:00Z' }
+        $forwardMem += '{"_type":"issue","id":"rf2-m' + $n + '","status":"' + $st + '","updated_at":"' + $up + '"}'
+    }
+    for ($i = 10; $i -ge 1; $i--) {
+        $n = $i.ToString('00')
+        $forwardMem += '{"_type":"memory","key":"mem-key-' + $n + '","value":"body ' + $i + '"}'
+    }
+    $forwardMem += '{"_type":"memory","key":"mem-key-11","value":"a new lesson"}'
+    Write-Rows -Path $dbPath -Rows $forwardMem
+    $before = Get-HeadSha
+    $code = Invoke-Child @()
+    $err  = Get-ChildErr
+    Assert-True ($code -eq 0) 'T9 ordinary forward motion still checkpoints' "exit $code : $err"
+    Assert-True ((Get-HeadSha) -ne $before) 'T9 and it commits'
+    Assert-True (-not ($err -match 'MEMORY RECONCILIATION')) `
+                'T9 the reconciliation does NOT cry wolf on a close, a new memory and a reorder' $err
+    Assert-True ((Get-HeadTracker) -match '"key":"mem-key-11"') `
+                'T9 and the new memory reached the commit'
+
     Remove-Item -LiteralPath $box -Recurse -Force -ErrorAction SilentlyContinue
     if ($script:failures -gt 0) {
         Write-Output ''
@@ -762,6 +996,55 @@ try {
         $lines.Add('')
         [Console]::Error.WriteLine(($lines -join "`n"))
         exit 1
+    }
+
+    # MEMORY RECONCILIATION (rf2-cve7). Every guard above is blind to the
+    # memory rows: the floor is diluted by the issue rows and the divergence
+    # guard reads only `"_type":"issue"`. This one counts the two populations
+    # separately and names the keys HEAD holds that the export does not.
+    #
+    # IT WARNS. IT DOES NOT REFUSE, and that is a deliberate design constraint
+    # rather than an unfinished one. This is the single shared tool the mayor
+    # runs several times an hour, and a false positive that aborted it would
+    # halt the whole dispatch loop - which is precisely why the reconciliation
+    # sat unbuilt as "a ruling and not a dispatch" while 210 keys went missing
+    # in silence. A warning delivers the entire value of the guard (the event
+    # becomes one loud block instead of nothing at all) with that risk removed.
+    # There is deliberately no strict mode, no override flag and no config key.
+    #
+    # It also runs AFTER the divergence guard on purpose, so it speaks only
+    # when the checkpoint is genuinely about to commit and can say so truly.
+    # @(...) is load-bearing under Set-StrictMode: PowerShell unrolls an empty
+    # or single-element array return, so a bare assignment yields $null on the
+    # ordinary no-warning path and `.Count` then throws. Caught by -SelfTest T2
+    # and T3, which is what that arm is for.
+    $memFacts = @(Get-MemoryFacts -Export $tmpExport -HeadCopy $tmpHead)
+    if ($memFacts.Count -gt 0) {
+        $lines = New-Object 'System.Collections.Generic.List[string]'
+        $lines.Add('')
+        $lines.Add('beads-checkpoint: ***** MEMORY RECONCILIATION FAILED (rf2-cve7) *****')
+        $lines.Add('  The tracker''s `bd remember` rows do not reconcile against HEAD.')
+        $lines.Add('')
+        foreach ($r in $memFacts) { $lines.Add($r) }
+        $lines.Add('')
+        $lines.Add('  `bd stats` reports ISSUES ONLY, and the row-count floor above is dominated')
+        $lines.Add('  by issue rows, so a memory-only deletion passes both in silence. That is')
+        $lines.Add('  exactly how 210 keys disappeared on 2026-09-08 with nothing on screen.')
+        $lines.Add('')
+        $lines.Add('  THIS IS A WARNING, NOT A REFUSAL - the checkpoint continues and commits')
+        $lines.Add('  the export. The database is the source of truth, and this may well be a')
+        $lines.Add('  deliberate `bd forget` or a retention cull. If it is NOT, the rows are not')
+        $lines.Add('  lost: HEAD still carries every one of them, and so does any earlier')
+        $lines.Add('  checkpoint commit.')
+        $lines.Add('')
+        $lines.Add("      git show HEAD:$tracker |")
+        $lines.Add('        jq -r --arg k "<key>" ''select(._type=="memory" and .key==$k)|.value''')
+        $lines.Add('')
+        $lines.Add('  Select on `.key`. A bare grep for the key matches rows that merely MENTION')
+        $lines.Add('  it - bead prose naming a deleted key has already been mistaken for the')
+        $lines.Add('  memory itself (rf2-cve7, CLAUDE.md instrument item (f)).')
+        $lines.Add('')
+        [Console]::Error.WriteLine(($lines -join "`n"))
     }
 
     # The export is trustworthy - it is now the working tracker. From here on

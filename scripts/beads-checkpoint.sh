@@ -41,6 +41,23 @@
 #   `status` before it is allowed to overwrite anything — see `git_only_facts`.
 #   EQUAL COUNTS ARE NOT EQUALITY.
 #
+# THE THIRD BLIND SPOT (rf2-cve7): BOTH GUARDS ABOVE ONLY SEE ISSUES.
+#
+#   The floor counts rows, which the issue rows dominate, and the divergence
+#   guard reads `"_type":"issue"` and skips everything else. So the memory rows
+#   — the `bd remember` store — are unguarded by construction.
+#
+#   OBSERVED, not hypothetical: on 2026-09-08, 210 memory keys vanished from
+#   the live store (1167 -> 957) and nothing said a word. `bd stats` reports
+#   ISSUES ONLY and read a healthy 1099 straight through it; the export was
+#   90.8% of HEAD's rows, over the floor. Two substantive memories went with the
+#   retention cull that took the other 204, including a standing operator
+#   preference, and both had to be recovered by hand from an older checkpoint.
+#
+#   `memory_facts` now reconciles the two populations against HEAD by KEY SET.
+#   Unlike the two guards above it WARNS AND DOES NOT REFUSE — see the call site
+#   for why that constraint is deliberate.
+#
 # USAGE
 #
 #   sh scripts/beads-checkpoint.sh [-m MESSAGE]
@@ -316,6 +333,112 @@ git_only_facts() {
   ' "$1" "$2"
 }
 
+# memory_facts EXPORT HEAD_COPY — print the memory-reconciliation body when the
+# fresh export accounts for FEWER `bd remember` keys than HEAD, or when either
+# file carries rows that are neither an issue nor a memory. Prints NOTHING when
+# both populations reconcile, which is every ordinary checkpoint.
+#
+# THE FAULT THIS EXISTS TO STOP (rf2-cve7). On 2026-09-08, 210 memory keys
+# vanished from the live store (1167 -> 957) and NO INSTRUMENT SAID A WORD.
+# `bd stats` read a healthy `Total Issues: 1099` straight through it, because it
+# reports ISSUES ONLY, and every guard above inherited the same blind spot:
+#
+#   * the row-count floor is dominated by issue rows, so a memory-only deletion
+#     slides under it. Measured on the real event: 2073 rows against HEAD's
+#     2283 is 90.8% — over the 90% floor, so it waves the export through.
+#   * `git_only_facts` reads `"_type":"issue"` rows and skips every other line,
+#     so memories are outside its remit by construction.
+#
+# WHY THIS IS NOT THE "SUM TO THE ROW COUNT" CHECK THE BEAD ASKED FOR, and the
+# distinction is the whole point rather than a quibble. Counting the two
+# populations and checking they sum to the file's row count is an INTERNAL
+# WELL-FORMEDNESS identity: it holds trivially whenever every row is one of the
+# two known types, so it is SILENT ON BOTH SIDES of the event it was proposed to
+# catch — 1116 + 1167 == 2283 before, 1116 + 957 == 2073 after. A population
+# that shrinks is only visible against a BASELINE, and HEAD's committed export
+# is exactly that baseline, already in hand for the guards above. So the sum is
+# kept (it catches a row of an unknown `_type`, which is cheap to notice and
+# would otherwise be invisible) and the LOSS DETECTOR is the key-set comparison.
+#
+# KEY SETS, NOT COUNTS. A cull that deletes 210 keys and adds 210 leaves the
+# count flat while losing 210 memories, so the count is the same kind of floor
+# the row count already was. The key set has no such hole.
+#
+# THE KEY IS READ FROM THE `key` FIELD, never grepped for. `bd export` writes a
+# memory row as exactly `_type`, `key`, `value`, so the FIRST `"key":"` is the
+# row's own; a later one inside `value` is JSON-escaped (`\"key\":\"`) and
+# cannot match. This is the same identity-field discipline `git_only_facts`
+# documents for `"id":"` — and the bead recorded the cost of ignoring it: a
+# `git grep -F` for a deleted key "found" it in a commit that does not carry the
+# memory at all, because it matched the BEAD'S OWN PROSE naming the key.
+#
+# (FNR == NR is sound here for the same reason it is in `git_only_facts`: the
+# caller has already refused a zero-row export, so file 1 is never empty.)
+memory_facts() {
+  awk -v cap=10 '
+    function jval(line, key,   pfx, re) {
+      pfx = "\"" key "\":\""
+      re  = pfx "[^\"]*\""
+      if (match(line, re)) {
+        return substr(line, RSTART + length(pfx), RLENGTH - length(pfx) - 1)
+      }
+      return ""
+    }
+    { sub(/\r$/, "") }
+    # First file: the fresh export.
+    FNR == NR {
+      xrows++
+      if (index($0, "\"_type\":\"issue\"")  > 0) { xiss++; next }
+      if (index($0, "\"_type\":\"memory\"") > 0) {
+        xmem++
+        k = jval($0, "key")
+        if (k == "") { xbad++; next }
+        xkey[k] = 1
+        next
+      }
+      xoth++
+      next
+    }
+    # Second file: HEAD.
+    {
+      hrows++
+      if (index($0, "\"_type\":\"issue\"")  > 0) { hiss++; next }
+      if (index($0, "\"_type\":\"memory\"") > 0) {
+        hmem++
+        k = jval($0, "key")
+        if (k == "") { hbad++; next }
+        if (!(k in xkey)) { if (++ngone <= cap) lost[ngone] = k }
+        next
+      }
+      hoth++
+    }
+    END {
+      if (ngone == 0 && xoth == 0 && hoth == 0 && xbad == 0 && hbad == 0) { exit 0 }
+      printf "  export  %d rows = %d issues + %d memories\n", xrows, xiss, xmem
+      printf "  HEAD    %d rows = %d issues + %d memories\n", hrows, hiss, hmem
+      if (ngone > 0) {
+        printf "\n  %d memory key(s) at HEAD are ABSENT from the fresh export:\n", ngone
+        n = (ngone < cap ? ngone : cap)
+        for (i = 1; i <= n; i++) { printf "      %s\n", lost[i] }
+        if (ngone > cap) { printf "      ... and %d more\n", ngone - cap }
+      }
+      if (xoth > 0) {
+        printf "\n  %d row(s) in the fresh export are neither an issue nor a memory,\n", xoth
+        printf "  so the two populations do NOT sum to the export row count.\n"
+      }
+      if (hoth > 0) {
+        printf "\n  %d row(s) at HEAD are neither an issue nor a memory.\n", hoth
+      }
+      if (xbad > 0) {
+        printf "\n  UNREADABLE  %d memory rows in the fresh export carry no readable key\n", xbad
+      }
+      if (hbad > 0) {
+        printf "\n  UNREADABLE  %d memory rows at HEAD carry no readable key\n", hbad
+      }
+    }
+  ' "$1" "$2"
+}
+
 # ---------------------------------------------------------------------------
 # --pre-pull: would clearing `.beads` throw tracker state away?
 # ---------------------------------------------------------------------------
@@ -425,6 +548,44 @@ if [ -n "$FACTS" ]; then
   exit 1
 fi
 rm -f "$REMEDY"
+
+# MEMORY RECONCILIATION (rf2-cve7). Every guard above is blind to the memory
+# rows: the floor is diluted by the issue rows and the divergence guard reads
+# only `"_type":"issue"`. This one counts the two populations separately and
+# names the keys HEAD holds that the export does not.
+#
+# IT WARNS. IT DOES NOT REFUSE, and that is a deliberate design constraint
+# rather than an unfinished one. This is the single shared tool the mayor runs
+# several times an hour, and a false positive that aborted it would halt the
+# whole dispatch loop — which is precisely why the reconciliation sat unbuilt as
+# "a ruling and not a dispatch" while 210 keys went missing in silence. A
+# warning delivers the entire value of the guard (the event becomes one loud
+# block instead of nothing at all) with that risk removed. There is deliberately
+# no --strict mode, no override flag and no config key: the whole deliverable is
+# one unmissable warning, and a knob would be machinery guarding a warning.
+#
+# It also runs AFTER the divergence guard on purpose, so it speaks only when the
+# checkpoint is genuinely about to commit and can say so truthfully.
+MEMORY_FACTS=$(memory_facts "$TMP_EXPORT" "$TMP_HEAD")
+if [ -n "$MEMORY_FACTS" ]; then
+  printf '\n' >&2
+  printf 'beads-checkpoint: ***** MEMORY RECONCILIATION FAILED (rf2-cve7) *****\n' >&2
+  printf '  The tracker'"'"'s `bd remember` rows do not reconcile against HEAD.\n\n' >&2
+  printf '%s\n' "$MEMORY_FACTS" >&2
+  printf '\n  `bd stats` reports ISSUES ONLY, and the row-count floor above is dominated\n' >&2
+  printf '  by issue rows, so a memory-only deletion passes both in silence. That is\n' >&2
+  printf '  exactly how 210 keys disappeared on 2026-09-08 with nothing on screen.\n' >&2
+  printf '\n  THIS IS A WARNING, NOT A REFUSAL — the checkpoint continues and commits\n' >&2
+  printf '  the export. The database is the source of truth, and this may well be a\n' >&2
+  printf '  deliberate `bd forget` or a retention cull. If it is NOT, the rows are not\n' >&2
+  printf '  lost: HEAD still carries every one of them, and so does any earlier\n' >&2
+  printf '  checkpoint commit.\n' >&2
+  printf '\n      git show HEAD:%s \\\n' "$TRACKER" >&2
+  printf '        | jq -r --arg k "<key>" '"'"'select(._type=="memory" and .key==$k)|.value'"'"'\n' >&2
+  printf '\n  Select on `.key`. A bare grep for the key matches rows that merely MENTION\n' >&2
+  printf '  it — bead prose naming a deleted key has already been mistaken for the\n' >&2
+  printf '  memory itself (rf2-cve7, CLAUDE.md instrument item (f)).\n\n' >&2
+fi
 
 # The export is trustworthy — it is now the working tracker. From here on the
 # working file cannot be a stale revert, whatever it was a moment ago.
