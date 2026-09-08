@@ -1490,6 +1490,19 @@ error, naming the intent. Witnessed, retry button and all, in
 > door still returns with the seeded markup on the page (witnessed in
 > `re-frame.hicasso.frame-boundary-heads-dom-cljs-test`). The text below stands
 > as the record of what was decided; read the frame half through this note.
+>
+> **Amended again 2026-09-08 (rf2-kuky.59) — the four root verbs are one
+> handle.** `h/mount!` and `h/hydrate!` are DELETED and the door is Spec 006
+> §The client root's grammar: `h/client-root` allocates an inert handle,
+> `h/render!`'s FIRST call through it creates the Root — or, under
+> `{:hydrate? true}`, adopts the server's DOM — while every later call updates
+> that same Root, and `h/unmount!` is idempotent. Read every `h/mount!` below
+> as that first `h/render!`, the `flushSync` sentence in the note above
+> included: the commit discipline, the root-scoped doors, the idempotent
+> teardown and the hot reload this record decides are all unchanged, and the
+> impl tier (`root!` / `hydrate-root!` / `render!` / `unmount!`) keeps its own
+> names beneath them. One thing here is NEW rather than respelled:
+> `rf/destroy-adapter!` now releases a live Hicasso root, which it never did.
 
 **Ruling.** (a) **Headless rendering** covers hook-free tier-1 bodies through a
 pure read resolver (structural render as data, sub reads overridable); bodies
