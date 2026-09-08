@@ -1305,7 +1305,7 @@ Two OR-reduced sources contribute the request-side `:sensitive?` flag for a give
 
 Either source set to `true` makes the request sensitive; both sources defaulting to `false`/absent means not sensitive. The runtime resolves the effective flag once at fx-invocation time and threads it through the attempt-and-retry loop so every `:rf.http/*` trace event the run emits sees the same flag (no per-emit re-resolution).
 
-Handler-meta `:sensitive?` is **not** a source — the handler-level `:rf/registration-metadata` annotation has been removed (per [Spec 009 §The `:sensitive?` registration metadata key](009-Instrumentation.md#the-sensitive-registration-metadata-key)). Sensitivity is now declared per-request / per-call (the request-side opt-ins here) and, on the trace surface, schema-derived (Spec 009 §Schema-installed redaction). A query-param denylist hit ([§2](#2-query-param-denylist-always-on)) is a third, automatic stamping signal independent of these opt-ins.
+Handler-meta `:sensitive?` is **not** a source — the handler-level `:rf/registration-metadata` annotation has been removed (per [Spec 009 §The `:sensitive?` registration metadata key](009-Instrumentation.md#the-sensitive-registration-metadata-key)). Sensitivity is now declared per-request / per-call (the request-side opt-ins here) and, on the trace surface, path-classified — the frame's `[:rf.runtime/elision :sensitive-declarations]` registry, fed by the EP-0025 commit-plane `:sensitive` effect rather than by schema slot props (Spec 009 §Schema-installed redaction). A query-param denylist hit ([§2](#2-query-param-denylist-always-on)) is a third, automatic stamping signal independent of these opt-ins.
 
 ```clojure
 ;; Per-request — opt a single request in:

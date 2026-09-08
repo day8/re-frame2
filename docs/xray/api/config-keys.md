@@ -41,8 +41,8 @@ The full v1 key surface, grouped by topical cluster:
    ;; Keybinding cluster — global listener install
    :rf.xray/keybinding-enabled?   true      ; default — set false from embed hosts that own the chord
 
-   ;; Privacy cluster — cross-tool sensitive-event gate
-   :rf.privacy/show-sensitive?     false     ; default — drop :sensitive? true events from the trace buffer
+   ;; Egress-profile cluster — Xray's on-box privacy gate
+   :rf.xray/egress-profile        :rf.egress/local-redacted  ; default — drop :sensitive? true events from the trace buffer
 
    ;; Settings cluster — bulk-replace the Settings popup state
    :rf.xray/settings              {:theme :dark :general {:density :cosy}}
@@ -52,7 +52,7 @@ The full v1 key surface, grouped by topical cluster:
    :rf.xray/filters-storage-key   "re-frame2.xray.filters.v1"})
 ```
 
-Every key lives under a reserved namespace — `:rf.xray/*` for Xray-specific knobs, `:rf.privacy/*` for cross-tool slots Story and any other re-frame2 tool also reads. Unknown keys are silently ignored so newer hosts (passing keys an older Xray hasn't shipped yet) don't break, and newer Xray releases shipping additional keys don't break older hosts.
+Every key lives under the reserved `:rf.xray/*` namespace — Xray owns its whole `configure!` surface, including its privacy gate. (There is no cross-tool shared slot: on-box sensitive visibility is resolved per `(tool, frame)` pair, so Story reads its own `:rf.story/egress-profile`.) Unknown keys are silently ignored so newer hosts (passing keys an older Xray hasn't shipped yet) don't break, and newer Xray releases shipping additional keys don't break older hosts.
 
 ## Editor cluster
 
@@ -144,19 +144,20 @@ The setter suppresses the install at attach time; embed hosts whose mount lifecy
 
 `detach!` is symmetric and idempotent. See [the symbol table](reference.md#day8re-frame2-xraykeybinding) for the full attach / detach contract.
 
-## Privacy cluster
+## Egress-profile cluster (privacy gate)
 
-The privacy cluster carries one cross-tool gate that Xray, Story, and any other re-frame2 tool consuming the trace bus all read. The key lives under `:rf.privacy/*` (not `:rf.xray/*`) because the slot is shared.
+Xray's on-box sensitive-event gate is a **named egress profile**, resolved per `(tool, frame)` pair. There is no process-global `show-sensitive?` boolean and no cross-tool shared slot — each tool owns its own knob (Xray's `:rf.xray/egress-profile`, Story's `:rf.story/egress-profile`).
 
-### `set-show-sensitive!`
+### `set-egress-profile!`
 
 - **Signature**:
   ```clojure
-  (set-show-sensitive! bool) → nil
+  (set-egress-profile! profile) → nil
   ```
-- **Description**: The cross-tool `:rf.privacy/show-sensitive?` flag. When `false` (default), Xray's trace collector drops `:sensitive? true` events and the shell surfaces a redaction hint near the always-on issue/status signals. Set to `true` while debugging redaction policy to see the raw cascade. `nil` resets to the default. Re-exported from `core`.
+- **Description**: Replace Xray's on-box `:rf.egress/*` profile. `:rf.egress/local-redacted` (the default) makes the trace collector drop `:sensitive? true` events before any buffer push and bump the suppressed-events counter, so the shell can surface a `[● REDACTED N]` indicator. `:rf.egress/local-raw` is the trusted-local operator opt-in: every event flows through unchanged. `nil` resets to the default; an unknown keyword is rejected by `configure!` (the enum is closed). Re-exported from `core`.
+- **Narrowing is retroactive**: moving from `:rf.egress/local-raw` back to a redacting profile clears the trace buffer, so a reveal is not a one-way trapdoor. Widening and same-class transitions do not clear.
 
-The single normative emission site for `:sensitive?` redaction is the framework's `elide-wire-value` (see [framework API instrumentation §The wire-boundary walker](../../api/re-frame.core.md)). Xray's gate just decides whether the redacted-out events reach the buffer at all.
+The single normative emission site for `:sensitive?` redaction is the framework's `elide-wire-value` (see [framework API instrumentation §The wire-boundary walker](../../api/re-frame.core.md)). Xray's gate just decides whether the redacted-out events reach the buffer at all — the "is this suppressed?" decision derives from the profile's `:rf.size/include-sensitive?` resolution through the framework projection table, never a re-implemented policy.
 
 ## Settings cluster
 
