@@ -18,6 +18,7 @@
     - handler-body / sub / cofx / fx / route / view / machine / flow /
       classification-effect / app-schema realisation
     - the `:fixture/calls` execution (`run-call`)
+    - the `:fixture/clock` controlled host clock (`run-clock-steps!`)
     - all `:fixture/expect` matchers (app-db, runtime-db, subs, traces,
       effects-routed, error-emit-records, epoch-records, absent-paths,
       SSR public-error)
@@ -68,6 +69,11 @@
     [re-frame.subs :as rf.subs]
     [re-frame.conformance :as rf.conformance]
     [re-frame.identity :as rf.identity]
+    ;; rf2-bmqv — `:fixture/clock` replaces the Spec 005 §Clock-abstraction
+    ;; primitives (`schedule-after!` / `cancel-scheduled!`) with a recording
+    ;; realisation, and collapses the router's `next-tick` drain while a
+    ;; captured host callback runs.
+    [re-frame.interop :as rf.interop]
     [re-frame.path :as rf.path]
     [re-frame.projection :as rf.projection]
     [re-frame.http.privacy-headers :as rf.http.privacy-headers]
@@ -1339,6 +1345,195 @@
 
 ;; ---- fixture execution ----------------------------------------------------
 
+;; ---- `:fixture/clock` — a controlled host clock (rf2-bmqv) ----------------
+;;
+;; Spec 005 §Clock abstraction names ONE host seam for delayed work:
+;; `re-frame.interop/schedule-after!` and `cancel-scheduled!`. A fixture that
+;; declares `:fixture/clock` runs its dispatches with that seam replaced by a
+;; RECORDING realisation, so the harness can observe how many timers the host
+;; armed and still holds, and can fire one on demand instead of waiting out
+;; wall time.
+;;
+;; Everything the steps grade is host-observable AT THE SPEC'S OWN CLOCK
+;; BOUNDARY — no port-internal timer table is read, so a port that arms
+;; through a different internal seam conforms so long as it arms through the
+;; clock primitive Spec 005 names.
+;;
+;; LIVE, not merely ARMED. An arm records a handle; a `cancel-scheduled!` of
+;; that handle marks it dead. `:assert-timers :live` therefore counts what the
+;; host is still HOLDING, which is what "arms exactly one timer per active
+;; declaration" means — a host that arms and then cancels holds none.
+;;
+;; The affordance is general: any fixture whose contract is about delayed host
+;; work may declare it. It is engaged ONLY for a fixture carrying the key, so
+;; every other fixture keeps the real host clock.
+
+(defn- new-clock
+  "Fresh recording-clock state. `:timers` is arm-ordered; each entry is
+  `{:id n :delay ms :thunk f :cancelled? bool}`."
+  []
+  (atom {:next-id 0 :timers []}))
+
+(defn- clock-arm-fn
+  "The recording `schedule-after!`. Records the arm and returns an opaque
+  handle `clock-cancel-fn` recognises."
+  [clock]
+  (fn [thunk delay-ms]
+    (let [state (swap! clock (fn [c]
+                               (-> c
+                                   (update :next-id inc)
+                                   (update :timers conj
+                                           {:id         (:next-id c)
+                                            :delay      delay-ms
+                                            :thunk      thunk
+                                            :cancelled? false}))))]
+      [::clock-handle (:id (peek (:timers state)))])))
+
+(defn- clock-cancel-fn
+  "The recording `cancel-scheduled!`. Marks the named arm dead. A handle this
+  clock did not issue is ignored, exactly as the real host primitives ignore
+  a handle of the wrong kind."
+  [clock]
+  (fn [handle]
+    (when (and (vector? handle) (= ::clock-handle (first handle)))
+      (let [id (second handle)]
+        (swap! clock update :timers
+               (fn [ts]
+                 (mapv #(if (= id (:id %)) (assoc % :cancelled? true) %) ts)))))
+    nil))
+
+(defn- clock-live-timers
+  "The timers the host armed and has NOT cancelled, in arm order."
+  [clock]
+  (into [] (remove :cancelled?) (:timers @clock)))
+
+(defn- run-clock-step!
+  "Execute ONE `:fixture/clock` step. Returns a failure string, or nil on
+  success. Three steps, each orthogonal:
+
+    `{:step :assert-timers :live N :delays [ms …]}`
+        the host holds exactly N live host-clock timers, armed for exactly
+        those delays in arm order. Either key may be omitted.
+
+    `{:step :assert-runtime-db :expect {…} :frame <id>}`
+        a MID-RUN runtime-db assertion (submap, like `:final-runtime-db`), so
+        a fixture can pin the state before a timer expires as well as after.
+        `:frame` defaults to `:rf/default`.
+
+    `{:step :fire :index i}`
+        invoke the i-th LIVE timer's host callback. The callback dispatches
+        through the ASYNC router, whose drain is scheduled on `next-tick`;
+        collapsing that to an inline call is the established seam for
+        observing an async drain deterministically on both hosts."
+  [step clock]
+  (case (:step step)
+    :assert-timers
+    (let [all    (:timers @clock)
+          live   (clock-live-timers clock)
+          want-n (:live step)
+          want-d (:delays step)]
+      (cond
+        (and want-n (not= want-n (count live)))
+        (str ":assert-timers expected " want-n " live host-clock timer(s); the host holds "
+             (count live) " (armed " (count all) ", cancelled "
+             (count (filter :cancelled? all)) ")")
+
+        (and want-d (not= (vec want-d) (mapv :delay live)))
+        (str ":assert-timers expected live delays " (pr-str (vec want-d))
+             "; the host holds " (pr-str (mapv :delay live)))))
+
+    :assert-runtime-db
+    (let [frame-id (:frame step :rf/default)
+          expected (:expect step)
+          actual   (:rf.db/runtime (rf/frame-state-value frame-id))]
+      (when-not (rf.conformance/submap? expected actual)
+        (str ":assert-runtime-db on frame " frame-id " expected " (pr-str expected)
+             " to be a submap of " (pr-str actual))))
+
+    :fire
+    (let [idx  (:index step 0)
+          live (clock-live-timers clock)]
+      (if-let [timer (get live idx)]
+        (do (with-redefs [rf.interop/next-tick (fn [f] (f) nil)]
+              ((:thunk timer)))
+            nil)
+        (str ":fire index " idx " but the host holds only " (count live)
+             " live host-clock timer(s)")))
+
+    (str "unknown :fixture/clock step " (pr-str (:step step)))))
+
+(defn- run-clock-steps!
+  "Run the fixture's `:fixture/clock` steps in order, stopping at the first
+  failure. Throws so `run-fixture`'s catch reports it as a fixture failure,
+  matching how `:fixture/calls` failures surface."
+  [steps clock]
+  (when-let [failure (some #(run-clock-step! % clock) steps)]
+    (throw (ex-info (str "clock step failed: " failure) {:clock-failure failure}))))
+
+(defn- dispatch-fixture-event!
+  "Execute ONE `:fixture/dispatches` entry. Extracted from `run-fixture` so the
+  dispatch phase can be run inside the `:fixture/clock` redefs (rf2-bmqv)
+  without duplicating it. Must run inside the fixture's established frame
+  scope."
+  [ev sub-registry dispatch-error-failures]
+  (cond
+    (map? ev)
+    (cond
+      ;; Harness teardown `{:destroy-frame <frame-id>}`.
+      (contains? ev :destroy-frame)
+      (rf/destroy-frame! (:destroy-frame ev))
+
+      ;; Harness re-registration `{:reg-sub <sub-id> :body <body>}`
+      ;; (Cross-Spec Interaction §18, rf2-qei5a). The realised sub's
+      ;; :kind MUST drive the registration form.
+      (contains? ev :reg-sub)
+      (let [sub-id (:reg-sub ev)
+            steps  (:body ev)
+            {:keys [kind inputs body]} (rf.conformance/realise-sub steps)
+            sub-meta (get sub-registry sub-id {})]
+        (case kind
+          :layer-1 (if (seq sub-meta)
+                     (rf.subs/reg-sub sub-id sub-meta body)
+                     (rf.subs/reg-sub sub-id body))
+          :runtime-db (if (seq sub-meta)
+                        (rf.subs/reg-runtime-sub sub-id sub-meta body)
+                        (rf.subs/reg-runtime-sub sub-id body))
+          :layer-2 (rf.subs/reg-sub
+                     sub-id (assoc sub-meta :inputs (vec inputs)) body)))
+
+      ;; EP-0017 (rf2-d8mvke.3): a dispatch asserting a boundary /
+      ;; context-assembly THROW. The throw escapes `dispatch-sync`, so
+      ;; catch it here and compare the ex-data `:rf.error/id`.
+      (contains? ev :expect-error)
+      (let [{event :event want :expect-error} ev
+            opts (dissoc ev :event :expect-error)
+            got  (try (rf/dispatch-sync event opts) ::no-throw
+                      (catch #?(:clj Throwable :cljs :default) e
+                        (or (:rf.error/id (ex-data e)) e)))]
+        (cond
+          (= got ::no-throw)
+          (swap! dispatch-error-failures conj
+                 (str "dispatch " (pr-str event) " expected to throw "
+                      want " but did not throw"))
+          (not= got want)
+          (swap! dispatch-error-failures conj
+                 (str "dispatch " (pr-str event) " expected error " want
+                      " but got " (if (keyword? got)
+                                    got
+                                    (str "a non-rf.error/id throw: "
+                                         (some-> got ex-message)))))))
+
+      :else
+      (let [{event :event :as opts} ev]
+        (rf/dispatch-sync event (dissoc opts :event))))
+
+    ;; :rf/hydrate dispatches with :source :ssr-hydration (Spec 011).
+    (and (vector? ev) (= :rf/hydrate (first ev)))
+    (rf/dispatch-sync ev {:source :ssr-hydration})
+
+    :else
+    (rf/dispatch-sync ev)))
+
 (defn run-fixture
   "Realise, dispatch, and grade one fixture against `:fixture/expect`. `host`
   supplies the genuinely host-specific seams (`:reset-runtime!`,
@@ -1399,66 +1594,26 @@
           dispatches   (or (:fixture/dispatches fixture) [])
           sub-registry (get-in fixture [:fixture/registry :sub] {})
           ;; EP-0017 (rf2-d8mvke.3): per-dispatch `:expect-error` assertions.
-          dispatch-error-failures (atom [])]
-      (rf/with-frame scope-frame
-        (doseq [ev dispatches]
-          (cond
-            (map? ev)
-            (cond
-              ;; Harness teardown `{:destroy-frame <frame-id>}`.
-              (contains? ev :destroy-frame)
-              (rf/destroy-frame! (:destroy-frame ev))
-
-              ;; Harness re-registration `{:reg-sub <sub-id> :body <body>}`
-              ;; (Cross-Spec Interaction §18, rf2-qei5a). The realised sub's
-              ;; :kind MUST drive the registration form.
-              (contains? ev :reg-sub)
-              (let [sub-id (:reg-sub ev)
-                    steps  (:body ev)
-                    {:keys [kind inputs body]} (rf.conformance/realise-sub steps)
-                    sub-meta (get sub-registry sub-id {})]
-                (case kind
-                  :layer-1 (if (seq sub-meta)
-                             (rf.subs/reg-sub sub-id sub-meta body)
-                             (rf.subs/reg-sub sub-id body))
-                  :runtime-db (if (seq sub-meta)
-                                (rf.subs/reg-runtime-sub sub-id sub-meta body)
-                                (rf.subs/reg-runtime-sub sub-id body))
-                  :layer-2 (rf.subs/reg-sub
-                             sub-id (assoc sub-meta :inputs (vec inputs)) body)))
-
-              ;; EP-0017 (rf2-d8mvke.3): a dispatch asserting a boundary /
-              ;; context-assembly THROW. The throw escapes `dispatch-sync`, so
-              ;; catch it here and compare the ex-data `:rf.error/id`.
-              (contains? ev :expect-error)
-              (let [{event :event want :expect-error} ev
-                    opts (dissoc ev :event :expect-error)
-                    got  (try (rf/dispatch-sync event opts) ::no-throw
-                              (catch #?(:clj Throwable :cljs :default) e
-                                (or (:rf.error/id (ex-data e)) e)))]
-                (cond
-                  (= got ::no-throw)
-                  (swap! dispatch-error-failures conj
-                         (str "dispatch " (pr-str event) " expected to throw "
-                              want " but did not throw"))
-                  (not= got want)
-                  (swap! dispatch-error-failures conj
-                         (str "dispatch " (pr-str event) " expected error " want
-                              " but got " (if (keyword? got)
-                                            got
-                                            (str "a non-rf.error/id throw: "
-                                                 (some-> got ex-message)))))))
-
-              :else
-              (let [{event :event :as opts} ev]
-                (rf/dispatch-sync event (dissoc opts :event))))
-
-            ;; :rf/hydrate dispatches with :source :ssr-hydration (Spec 011).
-            (and (vector? ev) (= :rf/hydrate (first ev)))
-            (rf/dispatch-sync ev {:source :ssr-hydration})
-
-            :else
-            (rf/dispatch-sync ev))))
+          dispatch-error-failures (atom [])
+          ;; rf2-bmqv — `:fixture/clock`. Present ⇒ the dispatch phase runs
+          ;; with the Spec 005 clock primitives recording rather than really
+          ;; scheduling, and the declared steps run immediately after it,
+          ;; still inside those redefs (a fired callback releases its own
+          ;; handle through `cancel-scheduled!`).
+          clock-steps  (:fixture/clock fixture)
+          clock        (when clock-steps (new-clock))
+          run-dispatches!
+          (fn []
+            (rf/with-frame scope-frame
+              (doseq [ev dispatches]
+                (dispatch-fixture-event! ev sub-registry dispatch-error-failures))))]
+      (if clock
+        (with-redefs [rf.interop/schedule-after!   (clock-arm-fn clock)
+                      rf.interop/cancel-scheduled! (clock-cancel-fn clock)]
+          (run-dispatches!)
+          (rf/with-frame scope-frame
+            (run-clock-steps! clock-steps clock)))
+        (run-dispatches!))
       ;; :fixture/render-after-hydrate — simulate the client-side first render
       ;; so `verify-hydration!` can compare hashes.
       (when-let [render-spec (:fixture/render-after-hydrate fixture)]
