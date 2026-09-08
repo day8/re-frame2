@@ -154,28 +154,25 @@
 ;; combination.
 ;; ---------------------------------------------------------------------------
 
-(defn posture->elision-opts
-  "The `:rf.size/*` option set used by `elide-wire-value` for the
-  resolved egress posture — the named profile's floor from the cross-MCP
-  `mcp-base.egress` mirror. The posture→profile mapping is the shared
-  `re-frame.mcp-base.egress/mcp-tool-profile` (called here only AFTER this
-  server's permission gate). `:rf.egress/off-box-tool` redacts sensitive +
-  elides large + emits structural digests; `:rf.egress/local-raw` opts both
-  back in."
-  [include?]
-  (rf.mcp-base.egress/profile-size-opts (rf.mcp-base.egress/mcp-tool-profile include?)))
-
 ;; ---------------------------------------------------------------------------
 ;; Path-based redaction
 ;; ---------------------------------------------------------------------------
 
 (defn elide-app-db
-  "Run `app-db` through `re-frame.core/elide-wire-value` against
+  "Run `app-db` through `re-frame.core/project-egress` against
   `variant-id`'s frame registry, under the named-egress profile the
-  posture resolves to. Returns the elided value,
+  posture resolves to. Returns the projected value,
   or the input unchanged when `include?` is true.
 
-  The egress walker reads `variant-id`'s per-frame elision registry
+  rf2-kuky.88 — this server NAMES the profile and the framework door
+  resolves it. The former `posture->elision-opts` helper (which resolved
+  the profile to its `:rf.size/*` floor through a pure-data mirror of the
+  framework table) is gone along with the mirror: story-mcp is in-process,
+  so `project-egress` is directly reachable and there was never a reason
+  for this server to hold a second copy of the §10 table. This is the same
+  call shape the derived-tree path below already used.
+
+  The egress walk reads `variant-id`'s per-frame elision registry
   (`[:rf.runtime/elision :sensitive-declarations]` / `:declarations`),
   written by the EP-0025 commit-plane `:sensitive` / `:large` classification
   effects (`:source :effect`, a `reg-event` returns them alongside `:db`). No
@@ -184,10 +181,10 @@
   (`:elision/populate-from-schemas!`) was removed with the §8 schema-attached
   app-db egress route.
 
-  The walk runs under the `:rf.egress/off-box-tool` profile floor
-  (`posture->elision-opts`): sensitive redacts to `:rf/redacted`, large
-  elides to `:rf.size/large-elided` (with the structural digest off-box-tool
-  carries), seeded at `variant-id`'s frame.
+  The walk runs under the `:rf.egress/off-box-tool` profile floor (named
+  here, resolved by `project-egress`): sensitive redacts to
+  `:rf/redacted`, large elides to `:rf.size/large-elided` (with the
+  structural digest off-box-tool carries), seeded at `variant-id`'s frame.
 
   Two short-circuits avoid pointless work:
 
@@ -197,18 +194,19 @@
 
     - `include? true` returns the input unchanged. The trusted-local
       `:rf.egress/local-raw` floor flips both inclusion knobs on, so the
-      walker yields `v` at every node (per `elide-wire-value`'s
-      composition rule: `sensitive?` and `large?` both return `v` when
-      their inclusion flag is true; no marker emit, no frame-owned
-      elision, no warning). The walk is a pure no-op — full traversal,
-      zero edits — so we skip it. The escape hatch should be free."
+      walk yields `v` at every node (per the walk's composition rule:
+      `sensitive?` and `large?` both return `v` when their inclusion flag
+      is true; no marker emit, no frame-owned elision, no warning). The
+      walk is a pure no-op — full traversal, zero edits — so we skip it.
+      The escape hatch should be free."
   [app-db variant-id include?]
   (cond
     (nil? app-db) app-db
     include?      app-db
-    :else         (rf/elide-wire-value
+    :else         (rf/project-egress
                     app-db
-                    (assoc (posture->elision-opts include?) :frame variant-id))))
+                    {:frame             variant-id
+                     :rf.egress/profile (rf.mcp-base.egress/mcp-tool-profile include?)})))
 
 (defn scrub-assertions+count
   "Default-drop any assertion records carrying the top-level

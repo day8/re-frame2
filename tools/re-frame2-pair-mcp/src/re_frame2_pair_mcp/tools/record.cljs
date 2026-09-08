@@ -55,7 +55,7 @@
   leak class `get-path` / `read-sub` / `snapshot` / `list-subscriptions`
   close. `record` mirrors their posture: the `--allow-sensitive-reads`
   boot gate (`raw-state/raw-state-allowed?`) + the per-call
-  `:include-sensitive` / `:elision` args resolve an elision-opts map that
+  `:include-sensitive` / `:elision` args resolve an egress-opts map that
   is threaded into the runtime's `start-recording!` as `:elide-opts`, so
   every `:app-db` / `:sub` sample is walked through
   `re-frame.core/elide-wire-value` server-side (app-side, where the
@@ -243,16 +243,16 @@
   slot carries synthesised CLJS source, which can't ride the EDN-literal
   arg path).
 
-  `elision-opts` is the rendered `elision-opts-edn` walker
-  map (the `--allow-sensitive-reads` gate + per-call `:include-sensitive`
-  posture). It rides as `:elide-opts` so the runtime's sampler elides
+  `egress-opts` is the rendered `egress-opts-edn` map naming the
+  `:rf.egress/*` profile (the `--allow-sensitive-reads` gate + per-call
+  `:include-sensitive` posture). It rides as `:elide-opts` so the runtime's sampler projects
   each `:app-db` / `:sub` value for off-box egress before it lands in the
   change-log. The map is a plain EDN literal (no synthesised source), so
   it inlines verbatim."
-  [signals stop frame max-entries elision-opts]
+  [signals stop frame max-entries egress-opts]
   (let [opts-pairs (cond-> [(str ":signals " (pr-str (vec signals)))
                             (str ":stop " (stop-map-src stop))
-                            (str ":elide-opts " elision-opts)]
+                            (str ":elide-opts " egress-opts)]
                      frame       (conj (str ":frame " (pr-str frame)))
                      max-entries (conj (str ":max-entries " (pr-str max-entries))))]
     (ef/emit
@@ -291,7 +291,7 @@
                       false)
         ;; Polarity — MCP `elision` true = emit markers =
         ;; `:rf.size/include-large?` false, hence `(not elision?)`.
-        elision-opts (elision/elision-opts-edn (not elision?) incl?)]
+        egress-opts (elision/egress-opts-edn (not elision?) incl?)]
     (cond
       (or (nil? signals) (empty? signals))
       (js/Promise.resolve
@@ -314,7 +314,7 @@
                        "\"{:pred {:signal 0 :equals :done}}\".")}))
 
       :else
-      (let [form (start-recording-form signals stop frame max-entries elision-opts)]
+      (let [form (start-recording-form signals stop frame max-entries egress-opts)]
         ;; The signalled prelude inserts `signal-runtime!` between
         ;; `ensure-runtime!` and the eval (the raw-state tap gate) so the
         ;; runtime is in the OFF posture before the background sampler

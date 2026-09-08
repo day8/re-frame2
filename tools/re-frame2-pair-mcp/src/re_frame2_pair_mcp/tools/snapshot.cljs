@@ -49,7 +49,7 @@
         ;; Eval form composition.
         ;; The snapshot composer returns a per-frame map; we wrap each
         ;; frame's `:app-db` AND `:sub-cache` slices with
-        ;; `re-frame.core/elide-wire-value` so large / sensitive slots
+        ;; `re-frame.core/project-egress` so large / sensitive slots
         ;; get the `:rf.size/large-elided` / `:rf/redacted` marker
         ;; server-side, before the EDN crosses the wire.
         ;;
@@ -66,7 +66,7 @@
         ;; `:rf.size/include-sensitive?` (default false ⇒ sensitive
         ;; slots redact). The `include-sensitive` MCP arg threads into
         ;; the walker's opt of the same shape via
-        ;; `elision-opts-edn`'s two-arity form. Off-box defaults apply.
+        ;; `egress-opts-edn`'s two-arity form. Off-box defaults apply.
         ;;
         ;; The eval form ALSO counts elision
         ;; markers server-side and returns `{:value <snap>
@@ -78,29 +78,30 @@
         ;; `:sub-cache` slices (where elision fired) — it only
         ;; re-shapes `:epochs` — so the pre-dedup server count equals
         ;; the post-dedup client count.
-        ;; `elision-opts-edn` takes the walker-aligned
+        ;; `egress-opts-edn` takes the walker-aligned
         ;; `include-large?` polarity directly (no in-helper inversion).
         ;; MCP arg `elision` true = emit markers = `:rf.size/include-large?` false,
         ;; hence the local `(not elision?)`.
-        elision-opts-form (elision/elision-opts-edn (not elision?) incl?)
-        ;; Fail-CLOSED: the per-slot walker over the app-db-
-        ;; rooted `:app-db` / `:sub-cache` slices runs UNLESS the caller
-        ;; opted into BOTH raw axes (`:elision false` ⇒ `include-large?
-        ;; true` AND `:include-sensitive true` ⇒ `incl?`). A gate-ON
-        ;; `:elision false` caller who leaves `:include-sensitive` at its
-        ;; default must NOT ship raw `:app-db` / `:sub-cache` slices — a
-        ;; frame-declared-sensitive slot would leak off-box. A bare
-        ;; `:elision false` therefore still walks (large
-        ;; passes, sensitive redacts to `:rf/redacted`). The `:epochs`
-        ;; projection + `:machines` redaction already gate on the sensitive
-        ;; axis (`incl?`) and are unaffected.
-        walk-slices?      (elision/walk-required? (not elision?) incl?)
+        ;;
+        ;; Fail-CLOSED: the `:app-db` / `:sub-cache` slices ALWAYS route
+        ;; through the door (rf2-kuky.88) and the NAMED profile decides
+        ;; the floor. A gate-ON `:elision false` caller who leaves
+        ;; `:include-sensitive` at its default must NOT ship raw
+        ;; `:app-db` / `:sub-cache` slices — a frame-declared-sensitive
+        ;; slot would leak off-box — so that caller stays on
+        ;; `:rf.egress/off-box-tool` with a `:rf.size/include-large? true`
+        ;; overlay (large passes, sensitive redacts to `:rf/redacted`).
+        ;; Only the deliberate BOTH-axes opt-in names
+        ;; `:rf.egress/local-raw`, under which the projection is the
+        ;; identity. The `:epochs` projection + `:machines` redaction
+        ;; already gate on the sensitive axis (`incl?`) and are unaffected.
+        egress-opts-form  (elision/egress-opts-edn (not elision?) incl?)
         ;; The `:epochs` slice ships whole `:rf/epoch-record`s
         ;; (each carrying `:db-before` / `:db-after` app-db snapshots),
         ;; NOT bare app-db slices, so it MUST route through
         ;; `re-frame.core/projected-record` — the framework's single
         ;; normative off-box-egress emission site for epoch records — NOT
-        ;; the per-slot `elide-wire-value` walker that handles `:app-db` /
+        ;; the per-slot `project-egress` door that handles `:app-db` /
         ;; `:sub-cache`. Without the projection the client-side sensitive
         ;; scrub only DROPS whole epochs stamped `:rf.epoch/sensitive? true`;
         ;; it never redacts a schema-declared-sensitive SLOT (e.g.
@@ -129,55 +130,51 @@
         ;; `:include-sensitive true` ⇒ the live runtime-db snapshots ship
         ;; (the operator's deliberate opt-in to runtime-db diagnostics).
         redact-runtime-db? (not incl?)
-        ;; The whole `walked` reduction is needed when ANY transform fires:
-        ;; `:app-db`/`:sub-cache` elision (`walk-slices?`), `:epochs`
-        ;; projection (`project-epochs?`), OR `:machines` runtime-db
-        ;; redaction (`redact-runtime-db?`). When none fire (gate ON +
-        ;; `:elision false` + `:include-sensitive true` — the full raw-egress
-        ;; opt-in) the snapshot passes through verbatim.
-        walk-snapshot?    (or walk-slices? project-epochs? redact-runtime-db?)
+        ;; The `walked` reduction always fires: rf2-kuky.88 routes the
+        ;; `:app-db` / `:sub-cache` slices through the door on EVERY read,
+        ;; and `:epochs` projection (`project-epochs?`) / `:machines`
+        ;; runtime-db redaction (`redact-runtime-db?`) ride the same
+        ;; reduction.
         ;; Source fragment that applies the active per-slot transforms to
-        ;; one frame's slice map `fmap`. `walk-slices?` wraps `:app-db` /
-        ;; `:sub-cache` through `elide-wire-value`; `project-epochs?` maps
-        ;; the `:epochs` vector through `projected-record`;
-        ;; `redact-runtime-db?` substitutes the `:machines` runtime-db slice
-        ;; with the `:rf/redacted` sentinel. Emitted as a threaded `let` so a
-        ;; frame can carry all transforms. The `opts` / `f`
-        ;; (`elide-wire-value`) bindings are emitted ONLY in the
-        ;; `walk-slices?` branch — `:epochs` projection + `:machines`
-        ;; redaction never touch the per-slot walker. A
-        ;; gate-ON `:elision false` read STILL walks the slices (sensitive
-        ;; redacts, large passes); only a full-raw opt-in (`:elision false`
-        ;; AND `:include-sensitive true`) emits NO `elide-wire-value`.
+        ;; one frame's slice map `fmap`. The slice arm routes `:app-db` /
+        ;; `:sub-cache` through `re-frame.core/project-egress` under the
+        ;; NAMED profile; `project-epochs?` maps the `:epochs` vector
+        ;; through `projected-record`; `redact-runtime-db?` substitutes
+        ;; the `:machines` runtime-db slice with the `:rf/redacted`
+        ;; sentinel. Emitted as a threaded `let` so a frame can carry all
+        ;; transforms. A gate-ON `:elision false` read stays on
+        ;; `:rf.egress/off-box-tool` with a large-inclusion overlay
+        ;; (sensitive redacts, large passes); only the full-raw opt-in
+        ;; (`:elision false` AND `:include-sensitive true`) names
+        ;; `:rf.egress/local-raw`, under which the projection is the
+        ;; identity.
         ;; rf2-mtzv5m — the `:sub-cache` slice is `{query-v {:value v …}}`, so
         ;; walking it WHOLE roots every sub value at the whole-slice root,
         ;; where a route's re-rooted `[:rf.runtime/routing :current …]`
         ;; classification can never match the bare route slice a route read
         ;; sub returns. Walk PER ENTRY instead, threading each entry's
-        ;; `query-v` into `elide-wire-value` as `:query-v` so a framework route
+        ;; `query-v` into the projection as `:query-v` so a framework route
         ;; read sub (`:rf/route` / `:rf.route/query` / `:rf.route/params`)
         ;; re-seeds at its storage position (the routing-owned seed table
-        ;; `elide-wire-value` consults) and a `:sensitive` route query / param
+        ;; the walk consults) and a `:sensitive` route query / param
         ;; redacts — mirroring `list-subscriptions :include-values` /
         ;; `read-sub`. The `:app-db` slice has no per-sub structure, so it
         ;; still walks whole.
         slice-walk-src    (str "(let ["
-                               (if walk-slices?
-                                 (str " opts (merge {:frame fid} " elision-opts-form ")"
-                                      " f    (fn [v] (re-frame.core/elide-wire-value v opts))"
-                                      " fmap (if (contains? fmap :app-db)"
-                                      "        (update fmap :app-db f) fmap)"
-                                      " fmap (if (and (contains? fmap :sub-cache) (map? (:sub-cache fmap)))"
-                                      "        (update fmap :sub-cache"
-                                      "          (fn [sc] (reduce-kv"
-                                      "            (fn [m qv entry]"
-                                      "              (assoc m qv"
-                                      "                (if (and (map? entry) (contains? entry :value))"
-                                      "                  (update entry :value"
-                                      "                    (fn [v] (re-frame.core/elide-wire-value v (assoc opts :query-v qv))))"
-                                      "                  entry)))"
-                                      "            {} sc))) fmap)")
-                                 "")
+                               (str " opts (merge {:frame fid} " egress-opts-form ")"
+                                    " f    (fn [v] (re-frame.core/project-egress v opts))"
+                                    " fmap (if (contains? fmap :app-db)"
+                                    "        (update fmap :app-db f) fmap)"
+                                    " fmap (if (and (contains? fmap :sub-cache) (map? (:sub-cache fmap)))"
+                                    "        (update fmap :sub-cache"
+                                    "          (fn [sc] (reduce-kv"
+                                    "            (fn [m qv entry]"
+                                    "              (assoc m qv"
+                                    "                (if (and (map? entry) (contains? entry :value))"
+                                    "                  (update entry :value"
+                                    "                    (fn [v] (re-frame.core/project-egress v (assoc opts :query-v qv))))"
+                                    "                  entry)))"
+                                    "            {} sc))) fmap)")
                                (if project-epochs?
                                  (str " fmap (if (contains? fmap :epochs)"
                                       "        (update fmap :epochs"
@@ -204,27 +201,23 @@
         tool-frames-form (if (= :app frames)
                            "(filterv re-frame2-pair.runtime/reserved-tool-frame? (re-frame.core/frame-ids))"
                            "[]")
-        form     (if walk-snapshot?
-                   (ef/emit
-                     (ef/rt-let
-                       ['snap (ef/rt-call 'snapshot-state opts)
-                        'walked (ef/rt-raw
-                                  (str "(reduce-kv"
-                                       " (fn [m fid fmap]"
-                                       "   (if (map? fmap)"
-                                       "     (assoc m fid " slice-walk-src ")"
-                                       "     (assoc m fid fmap)))"
-                                       " {} snap)"))]
-                       (ef/rt-raw
-                         (str "{:value walked"
-                              " :elided-count (count (filter #(and (map? %) (contains? % :rf.size/large-elided))"
-                              "                              (tree-seq coll? seq walked)))"
-                              " :tool-frames-excluded " tool-frames-form "}"))))
-                   (ef/emit
+        ;; rf2-kuky.88 — one shape, always. The slices always route
+        ;; through the door, so there is no longer a raw-passthrough arm
+        ;; of the eval form to select between.
+        form     (ef/emit
+                   (ef/rt-let
+                     ['snap (ef/rt-call 'snapshot-state opts)
+                      'walked (ef/rt-raw
+                                (str "(reduce-kv"
+                                     " (fn [m fid fmap]"
+                                     "   (if (map? fmap)"
+                                     "     (assoc m fid " slice-walk-src ")"
+                                     "     (assoc m fid fmap)))"
+                                     " {} snap)"))]
                      (ef/rt-raw
-                       (str "{:value "
-                            (ef/emit (ef/rt-call 'snapshot-state opts))
-                            " :elided-count 0"
+                       (str "{:value walked"
+                            " :elided-count (count (filter #(and (map? %) (contains? % :rf.size/large-elided))"
+                            "                              (tree-seq coll? seq walked)))"
                             " :tool-frames-excluded " tool-frames-form "}"))))]
     ;; Server-side backstop: refuse a WHOLESALE (`path: []`
     ;; or `mode :full` + no path) read of a reserved `:rf/*` tool frame

@@ -453,19 +453,30 @@
   (assoc @raw-state-config :ok? true))
 
 (defn- maybe-elide-for-tap
-  "Walk `v` through `re-frame.core/elide-wire-value` when the raw-state
-  gate is OFF, otherwise pass through. The walker substitutes large
+  "Project `v` through `re-frame.core/project-egress` when the raw-state
+  gate is OFF, otherwise pass through. The projection substitutes large
   slots with the `:rf.size/large-elided` marker and sensitive slots
   with `:rf/redacted` — same redaction the wire path applies before
   emitting state over MCP, applied here BEFORE any registered tap
   consumer sees the payload.
 
-  `frame-id` is supplied so the walker resolves the right
+  Named boundary (rf2-kuky.88): `:rf.egress/local-redacted`. A tap
+  consumer is IN-PROCESS, so this is the on-box redacted boundary rather
+  than an off-box one, and its `:rf.size/*` floor — sensitive redact,
+  large elide, no digests — is exactly the all-false floor the bare
+  no-profile walk resolved to before, so the projection is
+  output-identical. The gate-ON arm still short-circuits rather than
+  naming `:rf.egress/local-raw`: with the operator's raw opt-in there is
+  no boundary to cross at all, and passing the value through untouched is
+  both cheaper and strictly narrower than routing it through the door.
+
+  `frame-id` is supplied so the projection resolves the right
   `[:rf.runtime/elision]` registry (in the frame's runtime-db)."
   [v frame-id]
   (if (:allow-raw-state? @raw-state-config)
     v
-    (rf/elide-wire-value v {:frame frame-id})))
+    (rf/project-egress v {:frame             frame-id
+                          :rf.egress/profile :rf.egress/local-redacted})))
 
 (defn- maybe-redact-derived
   "PATH-project a DERIVED `tree` (rendered DOM text / an attribute map / a
@@ -3089,8 +3100,8 @@
    straight from a live app's app-db — a declared-sensitive slot (or a sub
    deriving from one) would cross the AI/off-box boundary RAW, exactly the
    leak class `get-path` / `read-sub` / `snapshot` / `list-subscriptions`
-   already close via `re-frame.core/elide-wire-value`. This routes the
-   value through the SAME walker, server-side (app-side, where the
+   already close via `re-frame.core/project-egress`. This routes the
+   value through the SAME door, server-side (app-side, where the
    `[:rf.runtime/elision]` registry in runtime-db is reachable).
 
    Gate posture mirrors `maybe-elide-for-tap` + the MCP read surfaces:
@@ -3108,15 +3119,29 @@
      fail-closed defaults so a bare REPL caller is never less safe than
      the MCP path.
 
-   `frame-id` is supplied so the walker resolves the right per-frame
+   Named boundary (rf2-kuky.88). The MCP caller (`record` /
+   `watch-until`) renders its own `:rf.egress/profile` into `elide-opts`,
+   so the profile it names wins. A bare REPL caller passing no profile
+   falls to `:rf.egress/off-box-observability` — the all-false floor the
+   no-profile walk resolved to before, so both paths are
+   output-identical. It is deliberately NOT `:rf.egress/off-box-tool`
+   here: that profile turns `:rf.size/include-digests?` ON, which would
+   change what a bare REPL caller gets. The MCP path still reaches
+   off-box-tool, because that is the profile it names.
+
+   `frame-id` is supplied so the projection resolves the right per-frame
    elision registry."
   [v frame-id elide-opts]
   (let [gate-on? (:allow-raw-state? @raw-state-config)
         ;; Fail-closed: when the gate is OFF, force include-sensitive? false
         ;; regardless of what the caller threaded — the launch flag wins.
-        opts     (cond-> (merge {:frame frame-id} elide-opts)
+        ;; An explicit `:rf.size/*` key OVERLAYS the profile floor
+        ;; (EP-0015 §10), so this override beats the named boundary.
+        opts     (cond-> (merge {:frame             frame-id
+                                 :rf.egress/profile :rf.egress/off-box-observability}
+                                elide-opts)
                    (not gate-on?) (assoc :rf.size/include-sensitive? false))]
-    (rf/elide-wire-value v opts)))
+    (rf/project-egress v opts)))
 
 (defn- sample-one-signal
   "Read ONE signal's current value. Pure READ — never mutates. `signal`
