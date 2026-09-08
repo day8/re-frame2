@@ -310,10 +310,17 @@ map in either case.
 
 Keep the returned handle for later renders and teardown. `h/render!` takes the
 whole tree, boundary head and all — the frame lives in the tree now, so a
-re-render that drops the head renders a root with no frame under it:
+re-render that drops the head renders a root with no frame under it. Hand the
+head the same options the mount did: a committed `frame-root` scopes one frame
+for its lifetime, so a re-render that changes its option map — dropping
+`:initial-events` because they have already run, most temptingly — is
+`:rf.error/frame-root-reconfigured` rather than a silent no-op. That is why
+`rerender!` above renders the same form the boot did.
 
 ```clojure
-(h/render! root [h/frame-root {:id :rf/default} [counter]])
+(h/render! root [h/frame-root {:id             :rf/default
+                               :initial-events [[:counter/initialise]]}
+                 [counter]])
 (h/unmount! root)
 ```
 

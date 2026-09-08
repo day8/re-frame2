@@ -788,17 +788,30 @@
      (def ^{:doc "Re-render a mounted root in place, synchronously, and
   answer its handle — **the hot-reload door**:
 
+      (defn- tree []
+        [h/frame-root {:id :app/main :initial-events [[:app/init]]}
+         [app {}]])
+
+      (defn ^:export -main []
+        (reset! !root (h/mount! el {} (tree))))
+
       (defn ^:dev/after-load reload! []
-        (h/render! @!root
-          [h/frame-root {:id :app/main} [app {}]]))
+        (h/render! @!root (tree)))
 
   **Re-render the WHOLE tree the root was mounted with, boundary head
-  included.** The frame is spelled in the tree, so a reload that drops
-  the head renders a root with no frame under it and every bare
-  `dispatch` / `subscribe` beneath it loses the frame it resolved
-  against. Hand `render!` what `mount!` was handed; only the view code
-  inside it has changed. Re-rendering the head is free — `frame-root`
-  ENSUREs, so it finds the frame live and reuses it.
+  included and carrying the SAME options.** The frame is spelled in the
+  tree, so a reload that drops the head renders a root with no frame
+  under it and every bare `dispatch` / `subscribe` beneath it loses the
+  frame it resolved against. Nor may a reload merely TRIM the head's
+  options: a committed `frame-root` scopes one frame for its lifetime
+  and refuses reconfiguration, so re-rendering it with `:initial-events`
+  dropped — on the reasoning that they have already run — raises
+  `:rf.error/frame-root-reconfigured`. Hand `render!` what `mount!` was
+  handed; only the view code inside it has changed. Writing the tree
+  once, as a function both doors call, is what keeps that true. Re-
+  rendering the head is free — `frame-root` ENSUREs, so it finds the
+  frame live and reuses it, and `:initial-events` fire once per frame
+  lifetime, so re-passing them re-records without replaying.
 
   React reconciles the new tree against the one on the page, so the
   reloaded view code meets its own DOM. Calling `mount!` again would
