@@ -14,7 +14,7 @@
   `:rf.machine/spawn` allocator's id sequencing) depends ONLY on the
   arguments. There is no module-level mutable state and no `app-db` read
   — the declarative-`:spawn` spawn-id allocator lives
-  INSIDE the snapshot under `:rf/spawn-counter` (a per-machine-id integer
+  INSIDE the snapshot under `:rf/spawn-counter` (a per-id-prefix integer
   map), so identical triples produce identical Results and the reducer
   threads the bumped counter through the returned snapshot. That is the
   determinism the conformance corpus, the SSR pure-fn surface, and
@@ -542,8 +542,11 @@
 ;; Per Spec 005 §Declarative :spawn (sugar over spawn): on
 ;; entry to a :spawn-bearing state the runtime emits a :rf.machine/spawn
 ;; fx and assigns the spawned actor a deterministic id of the form
-;; `<machine-id>#<n>`. The counter lives inside the snapshot under the
-;; reserved key `:rf/spawn-counter` — a per-machine-id integer map. This
+;; `<id-prefix>#<n>` — the spawn-spec's own `:id-prefix` when it carries
+;; one, else its `:machine-id`. The counter lives inside the snapshot
+;; under the reserved key `:rf/spawn-counter` — a per-id-prefix integer
+;; map, keyed by the SAME prefix the address is minted from, per Spec 005
+;; §Spawn-id allocator — counter location. This
 ;; makes `apply-transition-once` an honest pure function: identical
 ;; (machine snapshot event) triples produce identical [next-snapshot
 ;; effects] pairs including spawn-id sequencing. Each spawn bumps
@@ -558,22 +561,22 @@
 ;; key — the reducer uses `(fnil inc 0)` so absent slots default to 0.
 
 (defn- format-spawn-id
-  "Format a spawned actor id of the form `<machine-id>#<n>` preserving
-  any namespace on the machine-id."
-  [machine-id n]
-  (keyword (namespace machine-id)
-           (str (name machine-id) "#" n)))
+  "Format a spawned actor id of the form `<id-prefix>#<n>` preserving
+  any namespace on the id-prefix."
+  [id-prefix n]
+  (keyword (namespace id-prefix)
+           (str (name id-prefix) "#" n)))
 
 (defn- allocate-spawned-id
-  "Pure allocator. Given a snapshot and the spawned actor's machine-id,
+  "Pure allocator. Given a snapshot and the spawned actor's id-prefix,
   return `[snap' spawned-id]` where snap' carries the bumped counter at
-  `[:rf/spawn-counter <machine-id>]` and spawned-id is
-  `<machine-id>#<bumped-n>`. The counter lives in-snapshot
+  `[:rf/spawn-counter <id-prefix>]` and spawned-id is
+  `<id-prefix>#<bumped-n>`. The counter lives in-snapshot
   so machine-transition is deterministic from its arguments."
-  [snap machine-id]
-  (let [snap' (update-in snap [:rf/spawn-counter machine-id] (fnil inc 0))
-        n     (get-in snap' [:rf/spawn-counter machine-id])]
-    [snap' (format-spawn-id machine-id n)]))
+  [snap id-prefix]
+  (let [snap' (update-in snap [:rf/spawn-counter id-prefix] (fnil inc 0))
+        n     (get-in snap' [:rf/spawn-counter id-prefix])]
+    [snap' (format-spawn-id id-prefix n)]))
 
 (defn- bind-spawned-id-into-parent-data
   "Bind a declaratively-`:spawn`'d actor's assigned id into
@@ -2353,9 +2356,34 @@
 ;; The mode-specific spawn-args wiring is the only delta — a small
 ;; `args-builder` closure per mode.
 
+(defn- spawn-id-prefix
+  "The base the generated `<prefix>#<n>` address is minted from, and the key
+  the in-snapshot `:rf/spawn-counter` sequences it under: `spawn-spec`'s own
+  `:id-prefix` when it carries one, else its `:machine-id` (the registered
+  machine TYPE).
+
+  Per Spec 005 §Spawn-spec keys, `:id-prefix` is `optional; defaults to
+  :machine-id`, and §Spawn-id allocator — counter location keys the
+  declarative counter at `[:rf/spawn-counter <id-prefix>]`. rf2-r9ey: the
+  declarative allocator previously read `:machine-id` unconditionally, so an
+  author who supplied the documented `:id-prefix` was silently ignored — the
+  key was accepted by the spawn-args validator, documented in three places,
+  and had no effect at all. That mattered beyond tidiness once rf2-1sip
+  shipped option (f) alone: a generated address held by a live actor now
+  fails closed, and `:id-prefix` is the author's only namespacing escape from
+  the collision it refuses.
+
+  PREFIX AND COUNTER KEY MOVE TOGETHER, deliberately. Sequencing under one key
+  while minting from another would re-mint `<prefix>#1` for every distinct
+  prefix sharing a `:machine-id`, which is the collision the escape exists to
+  avoid."
+  [spawn-spec]
+  (or (:id-prefix spawn-spec) (:machine-id spawn-spec)))
+
 (defn- allocate-one
-  "Allocate one spawned-id from `spawn-spec`'s `:machine-id` (the registered
-  machine TYPE) against `snap`'s in-snapshot counter. When
+  "Allocate one spawned-id from `spawn-spec`'s `spawn-id-prefix` (its
+  `:id-prefix`, else the registered machine TYPE) against `snap`'s
+  in-snapshot counter. When
   `spawn-spec` carries an explicit `:fixed-actor-id` literal (the explicit
   actor-address input — per-state singleton) the counter is NOT
   bumped and that fixed address is used verbatim. Returns
@@ -2363,7 +2391,7 @@
   [snap spawn-spec]
   (if-let [explicit (:fixed-actor-id spawn-spec)]
     [snap explicit]
-    (allocate-spawned-id snap (:machine-id spawn-spec))))
+    (allocate-spawned-id snap (spawn-id-prefix spawn-spec))))
 
 (defn- spawn-one
   "Single-spawn primitive shared by `:spawn` and `:spawn-all` per-child.
@@ -2405,7 +2433,7 @@
         [s-alloc id] (allocate-one s spawn-spec)
         args-builder (fn [spec' spawned-id]
                        (-> spec'
-                           (assoc :id-prefix     (:machine-id spec'))
+                           (assoc :id-prefix     (spawn-id-prefix spec'))
                            (assoc :rf/spawned-id spawned-id)
                            (assoc :rf/parent-id  parent-id)
                            (assoc :rf/invoke-id  invoke-id)))
@@ -2474,7 +2502,7 @@
                   (fn [child' spawned-id]
                     (-> child'
                         (dissoc :id)
-                        (assoc :id-prefix              (:machine-id child'))
+                        (assoc :id-prefix              (spawn-id-prefix child'))
                         (assoc :rf/spawned-id           spawned-id)
                         (assoc :rf/parent-id            parent-id)
                         (assoc :rf/spawn-all-id        invoke-id)
