@@ -163,7 +163,7 @@
       ;; the `:rf.size/*` opt-set below before delegating here. Spelt directly,
       ;; this IS what `:rf.egress/off-box-tool` resolves to.
       (let [entry-data (get-in lowered [rf.resources.state/resources-key :entries k-id :data])
-            projected  (rf/elide-wire-value
+            projected  (rf.elision/elide-wire-value
                          entry-data
                          {:frame :reg/frame
                           :path  [:rf.runtime/resources :entries k-id :data]

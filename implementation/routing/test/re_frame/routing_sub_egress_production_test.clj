@@ -128,7 +128,7 @@
             declarations match. This is the production egress of a route sub's
             classification, and it is not behind any debug gate."
     (navigate-to-classified-route!)
-    (let [wire (rf/elide-wire-value (route-slice)
+    (let [wire (rf.elision/elide-wire-value (route-slice)
                                     {:query-v [:rf/route] :frame :rf/default})]
       (is (= rf.privacy/redacted-sentinel (get-in wire [:query :token]))
           "the `:sensitive` query value redacts off-box")
@@ -148,7 +148,7 @@
             The hook is the mechanism; remove it and this suite reds rather than
             silently over-approving."
     (navigate-to-classified-route!)
-    (let [wire (rf/elide-wire-value (route-slice) {:frame :rf/default})]
+    (let [wire (rf.elision/elide-wire-value (route-slice) {:frame :rf/default})]
       (is (= token-secret (get-in wire [:query :token]))
           "no `:query-v` ⇒ no re-seed ⇒ the bare slice walks at the root"))))
 
@@ -159,13 +159,13 @@
             both shipping raw, so both are driven here rather than asserted from
             the table's data."
     (navigate-to-classified-route!)
-    (let [wire (rf/elide-wire-value (:query (route-slice))
+    (let [wire (rf.elision/elide-wire-value (:query (route-slice))
                                     {:query-v [:rf.route/query] :frame :rf/default})]
       (is (= rf.privacy/redacted-sentinel (:token wire))
           "`:rf.route/query`'s bare query map redacts through its own seed"))
     (rf/reg-route :route/upload {:sensitive [[:params :secret]]} "/upload/:secret")
     (rf/dispatch-sync [:rf.route/handle-url-change (str "/upload/" param-secret) {:rf.route/cause :link}])
-    (let [wire (rf/elide-wire-value (:params (route-slice))
+    (let [wire (rf.elision/elide-wire-value (:params (route-slice))
                                     {:query-v [:rf.route/params] :frame :rf/default})]
       (is (= rf.privacy/redacted-sentinel (:secret wire))
           "`:rf.route/params`' bare params map redacts through its own seed"))))
@@ -209,10 +209,10 @@
     (navigate-to-classified-route!)
     (let [slice (route-slice)]
       (is (= rf.privacy/redacted-sentinel
-             (rf/elide-wire-value slice {:query-v [:rf/route] :frame :no/such-frame}))
+             (rf.elision/elide-wire-value slice {:query-v [:rf/route] :frame :no/such-frame}))
           "an explicit frame id that resolves to no LIVE frame redacts the
            whole slice — a stale carried scope is treated exactly like no
            scope at all")
       (is (= rf.privacy/redacted-sentinel
-             (rf/elide-wire-value slice {:query-v [:rf/route] :frame :rf/destroyed}))
+             (rf.elision/elide-wire-value slice {:query-v [:rf/route] :frame :rf/destroyed}))
           "and the same holds for any id the frame registry does not know"))))

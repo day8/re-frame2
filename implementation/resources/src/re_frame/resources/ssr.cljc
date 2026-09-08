@@ -24,7 +24,7 @@
     behind the `:ssr/extend-runtime-db-projection` hook) projects the
     durable `:entries`, applying per-entry REDACTION / OMISSION through
     the resource's `:sensitive?` / `:large?` classification and the
-    shared `rf/elide-wire-value` walker, and `projection-metadata`
+    shared `re-frame.elision/elide-wire-value` walker, and `projection-metadata`
     COMPUTES (for a host to record, if it wants to — nothing here does)
     the serialized / redacted / omitted / key-projected / fresh /
     stale / refetch-on-client decision per entry.
@@ -151,7 +151,7 @@
 ;; onto the wire — every visitor of every SSR page would otherwise receive
 ;; it. The whole-entry coarse claim drives redact / omit; a `:serialize`
 ;; entry's data slice still rides through the registry-driven
-;; `rf.resources.classification/project-entry-data` (over the SHARED `rf/elide-wire-value`
+;; `rf.resources.classification/project-entry-data` (over the SHARED `re-frame.elision/elide-wire-value`
 ;; walker) under the SSR boundary profile, so the resource's OWN lowered
 ;; projection-relative `:sensitive` / `:large` path declarations redact / elide
 ;; their slots, and any path the FRAME ALSO classifies composes as

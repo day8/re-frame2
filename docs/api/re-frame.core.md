@@ -793,7 +793,7 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
   |---|---|---|---|---|
   | `:epoch-history` | `{:depth N :trace-events-keep N}` | `{:depth 50, :trace-events-keep 50}` | v1 (dev-only) | Per-frame epoch ring depth and trace-event retention cap per record. |
   | `:trace-buffer` | `{:events-retained N}` | `{:events-retained 50}` | v1 (dev-only) | The dev-only per-frame trace ring's event-slot count: one slot per event, regardless of how many trace events its run emitted. 0 disables retention (the surface stays live). |
-  | `:elision` | `{:rf.size/threshold-bytes N}` | `{:rf.size/threshold-bytes 16384}` | v1 | The size threshold above which `elide-wire-value` emits the `:rf.warning/large-value-unschema'd` advisory for an *undeclared* large string. It is a warning signal, not a cap: the value is forwarded raw. Substituting the `:rf.size/large-elided` marker requires declaring the path `:large`. 0 disables runtime auto-detect. |
+  | `:elision` | `{:rf.size/threshold-bytes N}` | `{:rf.size/threshold-bytes 16384}` | v1 | The size threshold above which the internal `re-frame.elision/elide-wire-value` walker emits the `:rf.warning/large-value-unschema'd` advisory for an *undeclared* large string. It is a warning signal, not a cap: the value is forwarded raw. Substituting the `:rf.size/large-elided` marker requires declaring the path `:large`. 0 disables runtime auto-detect. |
   | `:observability` | `{:handled-events [<entry>…] :errors [<entry>…]}` | none declared | v1 | The **process default** for production observation sinks, in the same closed grammar a frame's `:observability` takes. Precedence is per stream: a frame declaring a stream uses its own entries for it, a frame omitting it inherits this default's, and `{:errors []}` on a frame is that frame's opt-out — exactly one source per record per stream. Inheritance moves the sink list, not the redaction authority. Records with no frame authority (frameless producers; a `:frame` that no longer resolves) reach this default alone, projected with the governing frame explicitly nil. Two departures from its neighbours, both deliberate: an explicit **`nil` clears** it, and it is validated **at the call** (`:rf.error/bad-frame-classification`, `:where 'rf/configure!`). |
 
   **An unrecognised top-level key applies nothing — and, if it is bare, says so.** The vocabulary above is closed and its keys are *bare*, so `{:epoch-histroy {:depth 100}}` is a typo of a real key rather than an extension point. A bare (or `rf`-namespaced) unknown key therefore emits `:rf.warning/unknown-configure-key` in dev builds, naming every offending key and the known set; the call still returns `nil` and still applies nothing (`:recovery :ignored` — observational, never a refusal), and the whole diagnostic is DCE'd out of production. A **user-namespaced** key (`:myapp/thing`) passes in silence, which is what lets a wrapper hand `configure!` a composed config value without filtering it first.
@@ -960,25 +960,6 @@ The event-bundle projection — `group-by-event` and `domino-bucket` — is **no
 the facade. Both live in [`re-frame.trace.projection`](re-frame.trace.projection.md),
 which a tool requires directly.
 
-### `elide-wire-value`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (elide-wire-value v) → v or an elision-marker substitution
-  (elide-wire-value v opts) → v or an elision-marker substitution
-  ```
-- **Description**: The framework primitive that walks tree-shaped values at the wire boundary and substitutes elision markers for sensitive or large slots. It is the **single normative emission site** for the `:rf/redacted` sentinel and the `:rf.size/large-elided` marker. It walks `v` consulting the frame's runtime-db classification declarations; the frame resolves from the explicit `:frame` opt, else from the carried scope. The opt is read by key **presence**, not truthiness: an explicit `:frame nil` means *no governing frame* and fails closed; only an ABSENT `:frame` key falls through to the carried scope.
-  - Redaction is strictly **path-based**: a secret re-keyed off its classified path ships raw. That is the **fail-open** default; to redact it, classify the destination path.
-  - A *live* frame carrying no declarations passes the value through unchanged. A frameless or unresolvable-frame call **fails closed**: the whole value is redacted to `:rf/redacted`. Opt out with `:rf.size/include-sensitive? true`.
-  - This is the low-level *value* walker; the record-level boundary primitive is `project-egress`.
-- **Example**:
-  ```clojure
-  (rf/elide-wire-value slice {:frame :rf/default})
-  ;; Path-scoped: walk one query-vector's value against its declared paths.
-  (rf/elide-wire-value query-map {:query-v [:rf.route/query] :frame :rf/default})
-  ```
-
 ### `project-egress`
 
 - **Kind**: function
@@ -986,7 +967,7 @@ which a tool requires directly.
   ```clojure
   (project-egress record-or-value opts)
   ```
-- **Description**: The public, record-level boundary primitive — **the required step before any off-box sink**. It dispatches on a record's `:kind` (`:rf.observe/handled-event` / `:rf.observe/error`) to a per-kind projector, and falls back to walking a kindless input as a tree-shaped value. Each tree-shaped slot is delegated to `elide-wire-value` against the frame's classification.
+- **Description**: The public, record-level boundary primitive — **the required step before any off-box sink**. It dispatches on a record's `:kind` (`:rf.observe/handled-event` / `:rf.observe/error`) to a per-kind projector, and falls back to walking a kindless input as a tree-shaped value. Each tree-shaped slot is delegated to the internal `re-frame.elision/elide-wire-value` walker against the frame's classification.
   - `opts` carries `:rf.egress/profile` (the closed six-member enum), `:frame`, `:path`, and advanced `:rf.size/*` overrides.
   - Frame ownership resolves by key **presence**, in three steps: an explicit `:frame` key in `opts` wins (`nil` included); else a recognised `:rf.observe/*` record's own `:frame` slot (`nil` included); else the carried scope. A record is recognised by its `:kind`, so a bare value carrying a `:frame` key is a value and seeds nothing.
   - An unknown profile throws `:rf.error/unknown-egress-profile`.

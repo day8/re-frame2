@@ -29,7 +29,7 @@
      the EP-0025 commit-plane `:large [[:user/avatar-pdf]]` effect
      alongside `:db` (durable app-db egress classification rides the
      effects, not a schema prop, not a frame annotation). When
-     `rf/elide-wire-value` walks an app-db payload that includes this
+     `rf.elision/elide-wire-value` walks an app-db payload that includes this
      slot at its classified path, the value is replaced with a
      `{:rf.size/large-elided {:bytes … :path … :reason :effect}}`
      marker. The marker's `:reason :effect` records the commit-plane
@@ -68,7 +68,7 @@
     classification, not auto-detected on arbitrary event-vector blobs.
 
   - **Click 'Walk app-db through elision'** — runs
-    `rf/elide-wire-value` over a snapshot of the live frame's
+    `rf.elision/elide-wire-value` over a snapshot of the live frame's
     app-db. The console shows the `:user/avatar-pdf` slot replaced
     by the `:rf.size/large-elided` marker, carrying `:reason :effect`
     (the commit-plane classification provenance). This is the
@@ -79,6 +79,7 @@
   (:require [reagent.core :as r]
             [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.elision :as rf.elision]
             [re-frame.event-emit :as rf.event-emit]
             [re-frame.schemas]
             [re-frame.schemas.malli])
@@ -94,7 +95,7 @@
 ;; `core/run`), so the wire-walker substitutes its value with the
 ;; `:rf.size/large-elided` marker (carrying byte-count + path +
 ;; `:reason :effect`) whenever any wire consumer walks app-db through
-;; `rf/elide-wire-value`. EP-0025: durable app-db egress classification
+;; `rf.elision/elide-wire-value`. EP-0025: durable app-db egress classification
 ;; rides the commit-plane effects, not a schema prop — the schema below
 ;; describes SHAPE only.
 
@@ -155,7 +156,7 @@
 
 (rf/reg-event :user.avatar-pdf/set
   {:doc "Demo: write a synthetic large blob into the classified
-         `:large` app-db slot. Walking app-db through `rf/elide-wire-value`
+         `:large` app-db slot. Walking app-db through `rf.elision/elide-wire-value`
          substitutes the slot value with a `:rf.size/large-elided`
          marker carrying `:reason :effect` (the commit-plane classification
          provenance)."}
@@ -230,7 +231,7 @@
 (defn- log-record! [record]
   ;; Format the record terse for browser-console readability. The
   ;; `:event` slot has already been passed through
-  ;; `rf/elide-wire-value` with off-box defaults — declared-sensitive
+  ;; `rf.elision/elide-wire-value` with off-box defaults — declared-sensitive
   ;; paths are :rf/redacted; unschema'd / unnominated large leaves ride
   ;; through raw (Path D removed runtime size auto-elision).
   (js/console.log "[event-emit demo]" (pr-str record)))
@@ -258,14 +259,14 @@
 ;; ============================================================================
 ;;
 ;; The visitor clicks 'Walk app-db' and we run the whole live frame's
-;; app-db through `rf/elide-wire-value` and `console.log` the
+;; app-db through `rf.elision/elide-wire-value` and `console.log` the
 ;; result. The `:user/avatar-pdf` slot shows up as the marker map;
 ;; everything else passes through. This is exactly the substitution
 ;; Xray applies when it renders its app-db inspector panel.
 
 (defn- walk-app-db! []
   (let [db     (rf/app-db-value :rf/default)
-        elided (rf/elide-wire-value db {:frame :rf/default})]
+        elided (rf.elision/elide-wire-value db {:frame :rf/default})]
     (js/console.log "[app-db elision walk]" (pr-str elided))))
 
 ;; ============================================================================
@@ -346,5 +347,5 @@
                     :aria-label "Walk app-db through elide-wire-value"}
            "Walk app-db through elision"]
           [:span {:style {:font-size "12px" :color "#595959"}}
-           "console.log app-db after rf/elide-wire-value — :user/avatar-pdf "
+           "console.log app-db after rf.elision/elide-wire-value — :user/avatar-pdf "
            "becomes the marker map carrying :reason :effect"]]]))))

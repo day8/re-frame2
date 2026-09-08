@@ -7,7 +7,7 @@
      consumers (Xray, error-monitor forwarders) to filter on.
   2. The handler runs cleanly under `dispatch-sync`; the password
      does NOT leak into app-db.
-  3. The schema-driven `:large?` branch — `rf/elide-wire-value`
+  3. The schema-driven `:large?` branch — `rf.elision/elide-wire-value`
      substitutes the `:user/avatar-pdf` slot with a
      `:rf.size/large-elided` marker carrying byte-count + path +
      `:hint` from the schema.
@@ -149,7 +149,7 @@
 (deftest large-schema-slot-becomes-wire-marker
   (testing "The `:user/avatar-pdf` slot is classified `:large` via the
             EP-0025 commit-plane classification effect (NOT schema-attached,
-            NOT a frame annotation). Running `rf/elide-wire-value` against a
+            NOT a frame annotation). Running `rf.elision/elide-wire-value` against a
             snapshot of the app-db payload that includes a non-trivial value
             at the slot substitutes the value with a `:rf.size/large-elided`
             marker map carrying byte-count + path + `:reason :effect` (the
@@ -159,7 +159,7 @@
     (rf/dispatch-sync [:user.avatar-pdf/set {:bytes 5000}])
     (let [db     (rf/app-db-value :rf/default)
           blob   (:user/avatar-pdf db)
-          elided (rf/elide-wire-value db {:frame :rf/default})]
+          elided (rf.elision/elide-wire-value db {:frame :rf/default})]
       (is (string? blob) "the handler wrote the synthetic blob into app-db")
       (is (>= (count blob) 5000) "the blob is the requested size")
       (let [marker (get-in elided [:user/avatar-pdf :rf.size/large-elided])]

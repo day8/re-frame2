@@ -161,7 +161,7 @@
   (testing "and through the REAL walker on a live frame, not just the marker
             constructor — a declared-`:large` path"
     (install-large! [[:user :bio]])
-    (let [out  (rf/elide-wire-value {:user {:bio em-dash-40}})
+    (let [out  (rf.elision/elide-wire-value {:user {:bio em-dash-40}})
           body (:rf.size/large-elided (get-in out [:user :bio]))]
       (is (some? body) "the declared path elided to a marker")
       (is (= 122 (:bytes body))
@@ -197,7 +197,7 @@
             but em-dash is 122 bytes and astral is 82"
     (rf.elision/clear-warning-cache!)
     (let [traces (collect-traces! ::over)
-          out    (rf/elide-wire-value {:user {:bio em-dash-40}}
+          out    (rf.elision/elide-wire-value {:user {:bio em-dash-40}}
                                       {:rf.size/threshold-bytes 50})]
       ;; ALWAYS-ON. Advisory, not a cap: the value returns verbatim whether or
       ;; not it warned. A correction that started ELIDING here would be the
@@ -216,7 +216,7 @@
   (testing "the astral payload crosses the same threshold on the same evidence"
     (rf.elision/clear-warning-cache!)
     (let [traces (collect-traces! ::astral)
-          out    (rf/elide-wire-value {:user {:bio astral-20}}
+          out    (rf.elision/elide-wire-value {:user {:bio astral-20}}
                                       {:rf.size/threshold-bytes 50})]
       (is (= astral-20 (get-in out [:user :bio])))
       (when rf.interop/debug-enabled?
@@ -230,7 +230,7 @@
             inflated every measurement would pass"
     (rf.elision/clear-warning-cache!)
     (let [traces (collect-traces! ::under)
-          out    (rf/elide-wire-value {:user {:bio ascii-40}}
+          out    (rf.elision/elide-wire-value {:user {:bio ascii-40}}
                                       {:rf.size/threshold-bytes 50})]
       (is (= ascii-40 (get-in out [:user :bio])))
       (when rf.interop/debug-enabled?
@@ -243,7 +243,7 @@
             no `pr-str-bytes` walk happens at all"
     (rf.elision/clear-warning-cache!)
     (let [traces (collect-traces! ::zero)
-          out    (rf/elide-wire-value {:user {:bio em-dash-40}}
+          out    (rf.elision/elide-wire-value {:user {:bio em-dash-40}}
                                       {:rf.size/threshold-bytes 0})]
       (is (= em-dash-40 (get-in out [:user :bio])))
       (when rf.interop/debug-enabled?

@@ -101,14 +101,14 @@
     acc))
 
 (deftest walker-noop-on-small-values
-  (is (= 42 (rf/elide-wire-value 42)))
-  (is (= "hello" (rf/elide-wire-value "hello")))
-  (is (= {:a 1 :b [2 3]} (rf/elide-wire-value {:a 1 :b [2 3]}))))
+  (is (= 42 (rf.elision/elide-wire-value 42)))
+  (is (= "hello" (rf.elision/elide-wire-value "hello")))
+  (is (= {:a 1 :b [2 3]} (rf.elision/elide-wire-value {:a 1 :b [2 3]}))))
 
 (deftest frame-large-path-emits-marker
   (install-class! [] [[:user :uploaded-pdf]])
   (let [decls (rf.elision/declarations)
-        out   (rf/elide-wire-value
+        out   (rf.elision/elide-wire-value
                 {:user {:name "Ada" :uploaded-pdf "<<5MB-blob>>"}})
         slot  (get-in out [:user :uploaded-pdf])]
     (is (= #{{:source :effect}}
@@ -121,15 +121,15 @@
 
 (deftest include-large-bypasses-frame-elision
   (install-class! [] [[:big]])
-  (is (rf.elision/marker? (:big (rf/elide-wire-value {:big "blob"}))))
+  (is (rf.elision/marker? (:big (rf.elision/elide-wire-value {:big "blob"}))))
   (is (= "blob"
-         (:big (rf/elide-wire-value {:big "blob"}
+         (:big (rf.elision/elide-wire-value {:big "blob"}
                                     {:rf.size/include-large? true})))))
 
 (deftest unschema'd-large-value-warns-but-does-not-elide
   (let [big    (apply str (repeat 3000 "ABCDEFGH"))
         traces (collect-traces! :elision-test/unschema'd)
-        out    (rf/elide-wire-value {:user {:photo big}})]
+        out    (rf.elision/elide-wire-value {:user {:photo big}})]
     ;; ALWAYS-ON: the wire value is unchanged. This is the half of the
     ;; contract that survives the gate, and it is the load-bearing one — a
     ;; diagnostic that started eliding would be the actual defect.
@@ -153,9 +153,9 @@
     ;; ALWAYS-ON: three identical walks return the value verbatim every time —
     ;; the warn-once cache does not start eliding on the second pass.
     (is (= [{:photo big} {:photo big} {:photo big}]
-           [(rf/elide-wire-value {:photo big})
-            (rf/elide-wire-value {:photo big})
-            (rf/elide-wire-value {:photo big})])
+           [(rf.elision/elide-wire-value {:photo big})
+            (rf.elision/elide-wire-value {:photo big})
+            (rf.elision/elide-wire-value {:photo big})])
         "repeat walks of the same unschema'd path leave the value intact")
     ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
     (when rf.interop/debug-enabled?
@@ -199,10 +199,10 @@
     ;; the gate the stream is empty for every value — so the `= 0` half would
     ;; certify `under` as under-threshold without the threshold existing.
     (when rf.interop/debug-enabled?
-      (rf/elide-wire-value {:a {:small under}})
+      (rf.elision/elide-wire-value {:a {:small under}})
       (is (= 0 (count-unschema'd-warnings traces))
           "value under the 16384 default does not trip the auto-detect warning")
-      (rf/elide-wire-value {:b {:big over}})
+      (rf.elision/elide-wire-value {:b {:big over}})
       (is (= 1 (count-unschema'd-warnings traces))
           "value over the 16384 default trips the warning"))
     (rf/unregister-listener! :trace :elision-test/default-thresh)))
@@ -217,12 +217,12 @@
     ;; ALWAYS-ON: `configure!` moves the live threshold, and the wire value
     ;; comes back intact on both sides of the move (the knob governs the
     ;; advisory, never the walk's output).
-    (is (= {:a {:s small}} (rf/elide-wire-value {:a {:s small}}))
+    (is (= {:a {:s small}} (rf.elision/elide-wire-value {:a {:s small}}))
         "under the default the 300-byte string rides verbatim")
     (rf/configure! {:elision {:rf.size/threshold-bytes 100}})
     (is (= 100 (:rf.size/threshold-bytes (rf.elision/current-config)))
         "(configure! {:elision {:rf.size/threshold-bytes 100}}) moved the live threshold")
-    (is (= {:b {:s small}} (rf/elide-wire-value {:b {:s small}}))
+    (is (= {:b {:s small}} (rf.elision/elide-wire-value {:b {:s small}}))
         "and the now-over-threshold string STILL rides verbatim — the knob
          governs the advisory, not the walk")
     ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
@@ -249,7 +249,7 @@
     (rf/configure! {:elision {:rf.size/threshold-bytes 50}})
     ;; ALWAYS-ON: whichever threshold wins, an unschema'd value is returned
     ;; verbatim — the precedence rule governs the advisory, never the walk.
-    (is (= {:a {:s s}} (rf/elide-wire-value {:a {:s s}} {:rf.size/threshold-bytes 100000}))
+    (is (= {:a {:s s}} (rf.elision/elide-wire-value {:a {:s s}} {:rf.size/threshold-bytes 100000}))
         "a per-call threshold opt does not change the walk's output")
     ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
     ;; BOTH halves go inside: the `= 0` would pass over the gate's empty
@@ -259,7 +259,7 @@
           "explicit :rf.size/threshold-bytes opt (100000) overrides configured (50) — no warning")
       ;; And conversely an explicit small opt wins over a large configured value.
       (rf/configure! {:elision {:rf.size/threshold-bytes 1000000}})
-      (rf/elide-wire-value {:b {:s s}} {:rf.size/threshold-bytes 100})
+      (rf.elision/elide-wire-value {:b {:s s}} {:rf.size/threshold-bytes 100})
       (is (= 1 (count-unschema'd-warnings traces))
           "explicit :rf.size/threshold-bytes opt (100) overrides configured (1000000) — warns"))
     (rf/unregister-listener! :trace :elision-test/opt-wins)))
@@ -276,7 +276,7 @@
     ;; `unschema'd-large-value-warns-but-does-not-elide`).
     (is (= 0 (:rf.size/threshold-bytes (rf.elision/current-config)))
         "threshold 0 reaches the live elision config")
-    (is (= {:a {:big big}} (rf/elide-wire-value {:a {:big big}}))
+    (is (= {:a {:big big}} (rf.elision/elide-wire-value {:a {:big big}}))
         "the 40KB unschema'd value rides verbatim under threshold 0")
     ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
     ;; BOTH assertions here are `(= 0 …)` over the warning stream, which is
@@ -287,7 +287,7 @@
           "threshold 0 disables runtime auto-detect — no warning even for a 40KB string")
       ;; Sanity: a per-call explicit 0 also disables, overriding a configured non-zero.
       (rf/configure! {:elision {:rf.size/threshold-bytes 100}})
-      (rf/elide-wire-value {:b {:big big}} {:rf.size/threshold-bytes 0})
+      (rf.elision/elide-wire-value {:b {:big big}} {:rf.size/threshold-bytes 0})
       (is (= 0 (count-unschema'd-warnings traces))
           "explicit threshold-bytes 0 opt disables runtime auto-detect for that call"))
     (rf/unregister-listener! :trace :elision-test/zero)))
@@ -298,18 +298,18 @@
   ;; to a marker regardless of threshold (including threshold 0).
   (install-class! [] [[:doc]])
   (rf/configure! {:elision {:rf.size/threshold-bytes 0}})
-  (let [out (rf/elide-wire-value {:doc "x"})]
+  (let [out (rf.elision/elide-wire-value {:doc "x"})]
     (is (rf.elision/marker? (:doc out))
         "frame-declared :large paths elide independent of the runtime threshold")))
 
 (deftest frame-sensitive-path-redacts
   (install-class! [[:auth :password]] [])
-  (let [out (rf/elide-wire-value {:auth {:username "ada"
+  (let [out (rf.elision/elide-wire-value {:auth {:username "ada"
                                          :password "shh"}})]
     (is (= "ada" (get-in out [:auth :username])))
     (is (= :rf/redacted (get-in out [:auth :password])))
     (is (= "shh"
-           (get-in (rf/elide-wire-value
+           (get-in (rf.elision/elide-wire-value
                      {:auth {:password "shh"}}
                      {:rf.size/include-sensitive? true})
                    [:auth :password])))))
@@ -325,7 +325,7 @@
   ;; coordinate-system consistency (declared index ↔ runtime indexed path)
   ;; is the property under test, independent of how the path was authored.
   (install-class! [[:point 0]] [])
-  (let [out (rf/elide-wire-value {:point ["the-secret" 42]})]
+  (let [out (rf.elision/elide-wire-value {:point ["the-secret" 42]})]
     (is (= :rf/redacted (get-in out [:point 0]))
         "the declared-sensitive element 0 is redacted")
     (is (= 42 (get-in out [:point 1]))
@@ -333,13 +333,13 @@
 
 (deftest sensitive-wins-over-large
   (install-class! [[:secret-pdf]] [[:secret-pdf]])
-  (let [out (rf/elide-wire-value {:secret-pdf "payload"})]
+  (let [out (rf.elision/elide-wire-value {:secret-pdf "payload"})]
     (is (= :rf/redacted (:secret-pdf out)))
     (is (not (rf.elision/marker? (:secret-pdf out))))))
 
 (deftest marker-options
   (install-class! [] [[:b]])
-  (let [out    (rf/elide-wire-value {:b "X"}
+  (let [out    (rf.elision/elide-wire-value {:b "X"}
                                     {:rf.size/include-digests? true
                                      :as-of-epoch 42})
         marker (get-in out [:b :rf.size/large-elided])]
@@ -369,9 +369,9 @@
   ;; for forwarder pipelines that double-projected.
   (install-class! [] [[:doc :body]])
   (let [input  {:doc {:body (apply str (repeat 2000 "X"))}}
-        once   (rf/elide-wire-value input)
-        twice  (rf/elide-wire-value once)
-        thrice (rf/elide-wire-value twice)]
+        once   (rf.elision/elide-wire-value input)
+        twice  (rf.elision/elide-wire-value once)
+        thrice (rf.elision/elide-wire-value twice)]
     (is (rf.elision/marker? (get-in once [:doc :body]))
         "first pass substitutes a marker at the large slot")
     (is (= once twice)
@@ -390,8 +390,8 @@
   ;; future refactor does not move the guard outside the gate.
   (install-class! [] [[:doc :body]])
   (let [input  {:doc {:body (apply str (repeat 2000 "X"))}}
-        once   (rf/elide-wire-value input)
-        opened (rf/elide-wire-value once {:rf.size/include-large? true})]
+        once   (rf.elision/elide-wire-value input)
+        opened (rf.elision/elide-wire-value once {:rf.size/include-large? true})]
     (is (rf.elision/marker? (get-in once [:doc :body])))
     (is (= once opened)
         ":include-large? true descends into the marker map but the
@@ -424,7 +424,7 @@
           input  {:a {:b secret :c "public"}}
           ;; The off-box-tool floor: digests ON, sensitive redaction in force
           ;; (NOT opted out). This is the exact opts that triggered the leak.
-          out    (rf/elide-wire-value input {:rf.size/include-digests? true})]
+          out    (rf.elision/elide-wire-value input {:rf.size/include-digests? true})]
       ;; The sensitive descendant is REDACTED in place …
       (is (= :rf/redacted (get-in out [:a :b]))
           "the :sensitive descendant under the :large subtree is redacted")
@@ -452,7 +452,7 @@
             descendant) — rf2-izlr7f"
     (install-class! [[:b]] [[]])
     (let [secret "ROOT-LEVEL-SECRET"
-          out    (rf/elide-wire-value {:b secret :other "ok"}
+          out    (rf.elision/elide-wire-value {:b secret :other "ok"}
                                       {:rf.size/include-digests? true})]
       (is (= :rf/redacted (get out :b))
           "the sensitive descendant under the whole-value large mark is redacted")
@@ -468,7 +468,7 @@
             is gated on an actual sensitive descendant) — rf2-izlr7f regression
             guard"
     (install-class! [[:other :token]] [[:a]])
-    (let [out (rf/elide-wire-value {:a {:b "x" :c "y"}}
+    (let [out (rf.elision/elide-wire-value {:a {:b "x" :c "y"}}
                                    {:rf.size/include-digests? true})]
       (is (rf.elision/marker? (get out :a))
           "a large subtree with no sensitive descendant still emits its marker"))))
@@ -546,7 +546,7 @@
         ;; exercised separately by the existing frameless tests.)
         walk     (fn [bundles]
                    (mapv (fn [x]
-                           (rf/elide-wire-value
+                           (rf.elision/elide-wire-value
                              x {:frame (:frame x)}))
                          bundles))
         [out-a out-b] (walk [bundle-a bundle-b])]
@@ -563,7 +563,7 @@
       ;; Applying frame A (the would-be operating frame) to BOTH bundles
       ;; leaks frame B's :secret-b — the exact off-box leak the per-element
       ;; fix prevents.
-      (let [buggy (mapv #(rf/elide-wire-value
+      (let [buggy (mapv #(rf.elision/elide-wire-value
                            % {:frame :elision-test/frame-a})
                         [bundle-a bundle-b])]
         (is (= "B-private" (:secret-b (second buggy)))
@@ -607,7 +607,7 @@
        (fn [reg]
          (assoc reg :sensitive-declarations
                 {path {:sensitive? true :source :test}})))
-    (let [out (rf/elide-wire-value sub-cache {:frame frame-id})]
+    (let [out (rf.elision/elide-wire-value sub-cache {:frame frame-id})]
       (is (= :rf/redacted (get-in out [[:auth/token] :value :token]))
           "Declared sensitive path inside the sub-cache `:value` redacts on egress")
       (is (= 42 (get-in out [[:cart/total] :value]))
@@ -617,7 +617,7 @@
     ;; Opt-in: `:rf.size/include-sensitive? true` passes the raw value
     ;; through — the same escape hatch get-path / snapshot expose at the
     ;; MCP layer.
-    (let [out (rf/elide-wire-value sub-cache
+    (let [out (rf.elision/elide-wire-value sub-cache
                                    {:frame frame-id
                                     :rf.size/include-sensitive? true})]
       (is (= "shh-secret" (get-in out [[:auth/token] :value :token]))
@@ -639,7 +639,7 @@
          ;; display `:hint`, which rides into the marker.
          (assoc reg :declarations
                 {path #{{:source :test :hint "Upload preview"}}})))
-    (let [out  (rf/elide-wire-value sub-cache {:frame frame-id})
+    (let [out  (rf.elision/elide-wire-value sub-cache {:frame frame-id})
           slot (get-in out [[:user/uploaded] :value :pdf])]
       (is (rf.elision/marker? slot)
           "Declared large path inside sub-cache `:value` emits the size marker")
@@ -654,7 +654,7 @@
   ;; surface, identity for typical content" guarantee.
   (let [sub-cache {[:cart/total] {:value 42 :ref-count 2}
                    [:user/name]  {:value "Ada" :ref-count 1}}]
-    (is (= sub-cache (rf/elide-wire-value sub-cache))
+    (is (= sub-cache (rf.elision/elide-wire-value sub-cache))
         "No declarations ⇒ walker returns the sub-cache shape verbatim")))
 
 ;; ---------------------------------------------------------------------------
@@ -674,11 +674,11 @@
   ;; The fixture pins `*current-frame* :rf/default`; unbind it to model a
   ;; token that crossed an async / tool boundary and lost its stamp.
   (binding [rf.frame/*current-frame* nil]
-    (is (= :rf/redacted (rf/elide-wire-value {:a 1 :b [2 3]}))
+    (is (= :rf/redacted (rf.elision/elide-wire-value {:a 1 :b [2 3]}))
         "no carried frame ⇒ whole value redacted (no :rf/default borrow)")
-    (is (= :rf/redacted (rf/elide-wire-value 42))
+    (is (= :rf/redacted (rf.elision/elide-wire-value 42))
         "fail-closed applies to scalars too — nothing escapes without a frame")
-    (is (= :rf/redacted (rf/elide-wire-value {:secret "shh"} {}))
+    (is (= :rf/redacted (rf.elision/elide-wire-value {:secret "shh"} {}))
         "an explicit empty opts map does not supply a frame ⇒ still fail-closed")))
 
 (deftest frameless-egress-explicit-frame-override-resolves
@@ -686,7 +686,7 @@
   ;; the contract's *override* tier. With no scope but an explicit frame,
   ;; the named frame's (empty) registry applies — identity, not fail-closed.
   (binding [rf.frame/*current-frame* nil]
-    (is (= {:a 1} (rf/elide-wire-value {:a 1} {:frame :rf/default}))
+    (is (= {:a 1} (rf.elision/elide-wire-value {:a 1} {:frame :rf/default}))
         "explicit :frame override resolves a known frame ⇒ its policy applies")))
 
 (deftest frameless-egress-include-sensitive-opt-out
@@ -695,7 +695,7 @@
   ;; no carried frame (identity walk against an empty policy).
   (binding [rf.frame/*current-frame* nil]
     (is (= {:a 1 :b [2 3]}
-           (rf/elide-wire-value {:a 1 :b [2 3]}
+           (rf.elision/elide-wire-value {:a 1 :b [2 3]}
                                 {:rf.size/include-sensitive? true}))
         "include-sensitive? true ⇒ frameless value rides verbatim (opt-out)")))
 
@@ -717,11 +717,11 @@
   ;; under an empty policy).
   (binding [rf.frame/*current-frame* nil]
     (is (= :rf/redacted
-           (rf/elide-wire-value {:a 1 :b [2 3]}
+           (rf.elision/elide-wire-value {:a 1 :b [2 3]}
                                 {:frame :elision-test/never-registered}))
         "explicit unknown frame ⇒ whole value redacted (no empty-policy leak)")
     (is (= :rf/redacted
-           (rf/elide-wire-value 42 {:frame :elision-test/never-registered}))
+           (rf.elision/elide-wire-value 42 {:frame :elision-test/never-registered}))
         "fail-closed applies to scalars under an unknown explicit frame too")))
 
 (deftest destroyed-explicit-frame-fails-closed
@@ -732,7 +732,7 @@
   (rf.frame/destroy-frame! :elision-test/doomed)
   (binding [rf.frame/*current-frame* nil]
     (is (= :rf/redacted
-           (rf/elide-wire-value {:secret "shh"}
+           (rf.elision/elide-wire-value {:secret "shh"}
                                 {:frame :elision-test/doomed}))
         "destroyed explicit frame ⇒ whole value redacted")))
 
@@ -746,13 +746,13 @@
     ;; Baseline: under the live :rf/default frame (no declarations) the value
     ;; passes through verbatim — it is "public".
     (is (= {:profile {:name "Ada"}}
-           (rf/elide-wire-value {:profile {:name "Ada"}}
+           (rf.elision/elide-wire-value {:profile {:name "Ada"}}
                                 {:frame :rf/default}))
         "baseline: under a KNOWN frame with no policy the value is public")
     ;; Same value, unresolvable frame ⇒ redacted whole. A would-be-public
     ;; value still fails closed when the frame can't be resolved.
     (is (= :rf/redacted
-           (rf/elide-wire-value {:profile {:name "Ada"}}
+           (rf.elision/elide-wire-value {:profile {:name "Ada"}}
                                 {:frame :elision-test/never-registered}))
         "the would-be-public value redacts whole under an unresolvable frame")))
 
@@ -763,7 +763,7 @@
   ;; through. This keeps the escape hatch symmetric with the frameless case.
   (binding [rf.frame/*current-frame* nil]
     (is (= {:a 1 :b [2 3]}
-           (rf/elide-wire-value {:a 1 :b [2 3]}
+           (rf.elision/elide-wire-value {:a 1 :b [2 3]}
                                 {:frame :elision-test/never-registered
                                  :rf.size/include-sensitive? true}))
         "include-sensitive? true ⇒ unresolvable-frame value rides verbatim (opt-out)")))
@@ -778,7 +778,7 @@
   (rf.frame/destroy-frame! :elision-test/stale)
   (binding [rf.frame/*current-frame* :elision-test/stale]
     (is (= :rf/redacted
-           (rf/elide-wire-value {:a 1}))
+           (rf.elision/elide-wire-value {:a 1}))
         "stale carried scope naming a destroyed frame ⇒ fail closed")))
 
 ;; ---------------------------------------------------------------------------
@@ -808,27 +808,27 @@
   (testing "an ABSENT :frame key falls through to the carried scope — today's
             behaviour, pinned so the change below is the narrow one"
     (is (= {:profile {:name "Ada"}}
-           (rf/elide-wire-value {:profile {:name "Ada"}} {}))
+           (rf.elision/elide-wire-value {:profile {:name "Ada"}} {}))
         "no :frame key ⇒ the ambient frame's (empty) policy ⇒ verbatim"))
 
   (testing "an EXPLICIT nil :frame means no governing frame and FAILS CLOSED"
     (is (= :rf/redacted
-           (rf/elide-wire-value {:profile {:name "Ada"}} {:frame nil}))
+           (rf.elision/elide-wire-value {:profile {:name "Ada"}} {:frame nil}))
         "{:frame nil} must NOT borrow the ambient frame")
     (is (= :rf/redacted
-           (rf/elide-wire-value {:auth {:token "secret-jwt"}} {:frame nil}))
+           (rf.elision/elide-wire-value {:auth {:token "secret-jwt"}} {:frame nil}))
         "no secret rides through an explicit nil frame"))
 
   (testing "and the ambient frame is still there — the arm above redacted by
             contract, not because the fixture had no frame to borrow"
     (is (= {:profile {:name "Ada"}}
-           (rf/elide-wire-value {:profile {:name "Ada"}} {})))))
+           (rf.elision/elide-wire-value {:profile {:name "Ada"}} {})))))
 
 (deftest explicit-nil-frame-honours-the-include-sensitive-opt-out
   ;; The deliberate raw opt-out is unchanged: a caller that has explicitly
   ;; waived sensitive redaction gets the identity walk even with no frame.
   (is (= {:a 1 :b [2 3]}
-         (rf/elide-wire-value {:a 1 :b [2 3]}
+         (rf.elision/elide-wire-value {:a 1 :b [2 3]}
                               {:frame nil
                                :rf.size/include-sensitive? true}))
       "include-sensitive? true ⇒ explicit-nil frame still identity-walks"))
@@ -842,7 +842,7 @@
                          (catch Throwable _ false))]
     (try
       (is (= :rf/redacted
-             (rf/elide-wire-value {:auth {:token "secret-jwt"}} {:frame nil}))
+             (rf.elision/elide-wire-value {:auth {:token "secret-jwt"}} {:frame nil}))
           (str "an explicit nil frame must fail closed"
                (when registered? " even with a frame registered under a nil id")))
       (finally
@@ -856,11 +856,11 @@
   ;; explicit nil refuses the borrow outright.
   (install-class! :rf/default [[:auth :token]] [])
   (is (= :rf/redacted
-         (rf/elide-wire-value {:auth {:token "secret-jwt"} :public "ok"}
+         (rf.elision/elide-wire-value {:auth {:token "secret-jwt"} :public "ok"}
                               {:frame nil}))
       "the WHOLE value redacts — never a partial walk under a borrowed policy")
   (is (= {:auth {:token :rf/redacted} :public "ok"}
-         (rf/elide-wire-value {:auth {:token "secret-jwt"} :public "ok"} {}))
+         (rf.elision/elide-wire-value {:auth {:token "secret-jwt"} :public "ok"} {}))
       "CONTROL — the same value under the ambient frame walks its declarations"))
 
 ;; ---------------------------------------------------------------------------
@@ -882,11 +882,11 @@
 
 (deftest collection-nested-sensitive-vector-of-maps-redacts
   ;; rf2-wm9kp Finding 1 (the headline leak). WITHOUT the fix
-  ;; `(rf/elide-wire-value {:items [{:token "SECRET"}]})` returned the
+  ;; `(rf.elision/elide-wire-value {:items [{:token "SECRET"}]})` returned the
   ;; secret verbatim because decl `[:items :token]` did not match runtime
   ;; `[:items 0 :token]`.
   (install-class! [[:items :token]] [])
-  (let [out (rf/elide-wire-value {:items [{:token "SECRET"}
+  (let [out (rf.elision/elide-wire-value {:items [{:token "SECRET"}
                                           {:token "SECRET2"}]})]
     (is (= :rf/redacted (get-in out [:items 0 :token]))
         "vector-element sensitive slot redacts at direct-read egress")
@@ -895,7 +895,7 @@
   ;; Opt-in escape hatch still passes the raw value (the get-path /
   ;; snapshot `:rf.size/include-sensitive? true` path).
   (is (= "SECRET"
-         (get-in (rf/elide-wire-value {:items [{:token "SECRET"}]}
+         (get-in (rf.elision/elide-wire-value {:items [{:token "SECRET"}]}
                                       {:rf.size/include-sensitive? true})
                  [:items 0 :token]))
       "include-sensitive? true ⇒ collection-nested sensitive passes raw"))
@@ -904,7 +904,7 @@
   ;; rf2-wm9kp Finding 1 — `:map-of` value-map sensitive slot. Decl
   ;; `[:by-id :secret]` must match runtime `[:by-id "a" :secret]`.
   (install-class! [[:by-id :secret]] [])
-  (let [out (rf/elide-wire-value {:by-id {"a" {:secret "SECRET"}
+  (let [out (rf.elision/elide-wire-value {:by-id {"a" {:secret "SECRET"}
                                           "b" {:secret "SECRET2"}}})]
     (is (= :rf/redacted (get-in out [:by-id "a" :secret])))
     (is (= :rf/redacted (get-in out [:by-id "b" :secret]))
@@ -914,7 +914,7 @@
   ;; rf2-wm9kp Finding 1 — a sequential of maps (the runtime value can
   ;; arrive as a lazy seq / list, not just a vector).
   (install-class! [[:logs :pw]] [])
-  (let [out (rf/elide-wire-value {:logs (list {:pw "SECRET"})})]
+  (let [out (rf.elision/elide-wire-value {:logs (list {:pw "SECRET"})})]
     (is (= :rf/redacted (-> out :logs vec (get-in [0 :pw])))
         "sequential-element sensitive slot redacts")))
 
@@ -922,7 +922,7 @@
   ;; rf2-wm9kp Finding 1 — `:set` element maps descend at the same base
   ;; path (no positional segment), same as vector/sequential.
   (install-class! [[:tags :s]] [])
-  (let [out (rf/elide-wire-value {:tags #{{:s "SECRET"}}})]
+  (let [out (rf.elision/elide-wire-value {:tags #{{:s "SECRET"}}})]
     (is (= :rf/redacted (:s (first (:tags out))))
         "set-element sensitive slot redacts")))
 
@@ -930,7 +930,7 @@
   ;; rf2-wm9kp Finding 1 — mixed map → vector → map nesting. Decl
   ;; `[:root :rows :pw]` matches runtime `[:root :rows N :pw]`.
   (install-class! [[:root :rows :pw]] [])
-  (let [out (rf/elide-wire-value {:root {:rows [{:pw "SECRET"} {:pw "SECRET2"}]}})]
+  (let [out (rf.elision/elide-wire-value {:root {:rows [{:pw "SECRET"} {:pw "SECRET2"}]}})]
     (is (= :rf/redacted (get-in out [:root :rows 0 :pw])))
     (is (= :rf/redacted (get-in out [:root :rows 1 :pw])))))
 
@@ -939,7 +939,7 @@
   ;; sibling leaf inside the same collection element map rides verbatim.
   ;; The candidate-path fork must not blanket-redact the element.
   (install-class! [[:items :token]] [])
-  (let [out (rf/elide-wire-value {:items [{:token "SECRET" :name "Ada"}]})]
+  (let [out (rf.elision/elide-wire-value {:items [{:token "SECRET" :name "Ada"}]})]
     (is (= :rf/redacted (get-in out [:items 0 :token])))
     (is (= "Ada" (get-in out [:items 0 :name]))
         "sibling non-sensitive slot is NOT over-redacted")))
@@ -953,7 +953,7 @@
   ;; empty seed candidate must not be allowed to skip the leading named
   ;; slots and resume the declaration deeper in the tree.
   (install-class! [[:auth :password]] [])
-  (let [out (rf/elide-wire-value
+  (let [out (rf.elision/elide-wire-value
               {;; the DECLARED position — must redact
                :auth {:username "ada" :password "shh"}
                ;; a coincidentally same-named subtree at a NON-declared
@@ -975,7 +975,7 @@
   ;; (`[:by-id]` is a non-empty partial match, so it skips the key `"a"`),
   ;; while a leaf at a NON-declared top-level map key never matches.
   (install-class! [[:by-id :secret]] [])
-  (let [out (rf/elide-wire-value
+  (let [out (rf.elision/elide-wire-value
               {:by-id   {"a" {:secret "SECRET"}}
                ;; `:secret` here is a top-level map slot, NOT under :by-id —
                ;; decl [:by-id :secret] must not float to match it.
@@ -1000,7 +1000,7 @@
         (assoc reg :sensitive-declarations
                {[:tokens 0] {:sensitive? true :source :test}})))
     ;; seq form (list) — the shape story-mcp's derived-tree scrub relies on
-    (let [out (rf/elide-wire-value
+    (let [out (rf.elision/elide-wire-value
                 {:tokens (list "SECRET" "public") :other "x"}
                 {:frame frame-id})]
       (is (= :rf/redacted (-> out :tokens vec (get 0)))
@@ -1008,7 +1008,7 @@
       (is (= "public" (-> out :tokens vec (get 1)))
           "the non-declared sibling index rides through verbatim"))
     ;; vector form — same literal-index decl matches the vector element
-    (let [out (rf/elide-wire-value
+    (let [out (rf.elision/elide-wire-value
                 {:tokens ["SECRET" "public"]}
                 {:frame frame-id})]
       (is (= :rf/redacted (get-in out [:tokens 0])))
@@ -1021,7 +1021,7 @@
   ;; the marker's `:path` is the CONCRETE indexed runtime path so a
   ;; follow-up `get-path` lands on the exact element.
   (install-class! [] [[:docs :blob]])
-  (let [out  (rf/elide-wire-value {:docs [{:blob "<<5MB-blob>>"}]})
+  (let [out  (rf.elision/elide-wire-value {:docs [{:blob "<<5MB-blob>>"}]})
         slot (get-in out [:docs 0 :blob])]
     (is (rf.elision/marker? slot)
         "collection-nested :large slot emits a size marker")
@@ -1034,7 +1034,7 @@
   ;; BOTH `:large` and `:sensitive`, sensitive wins (redact, no marker),
   ;; same precedence as the top-level `sensitive-wins-over-large` case.
   (install-class! [[:vault :k]] [[:vault :k]])
-  (let [out  (rf/elide-wire-value {:vault [{:k "payload"}]})
+  (let [out  (rf.elision/elide-wire-value {:vault [{:k "payload"}]})
         slot (get-in out [:vault 0 :k])]
     (is (= :rf/redacted slot))
     (is (not (rf.elision/marker? slot))

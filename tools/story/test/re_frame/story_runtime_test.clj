@@ -23,6 +23,7 @@
   Promise on CLJS); the tests `deref` it for the result map."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core            :as rf]
+            [re-frame.elision         :as rf.elision]
             [re-frame.frame           :as rf.frame]
             [re-frame.late-bind       :as rf.late-bind]
             [re-frame.machines        :as rf.machines]
@@ -2114,7 +2115,7 @@
                                             [:auth :token]))
           "the raw value is in app-db (classification is path-based, not value mutation)")
       ;; Wire egress over the frame's app-db substitutes the classified path.
-      (let [walked (rf/elide-wire-value (rf/app-db-value :story.classif/sensitive)
+      (let [walked (rf.elision/elide-wire-value (rf/app-db-value :story.classif/sensitive)
                                         {:frame :story.classif/sensitive})]
         (is (= :rf/redacted (get-in walked [:auth :token]))
             "the documented NESTED :sensitive declaration redacts the path at egress")))
@@ -2131,7 +2132,7 @@
        :large  {:app-db [[:docs :blob]]}})
     (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.classif/large) 5000)]
       (is (= :ready (:lifecycle r)))
-      (let [walked  (rf/elide-wire-value (rf/app-db-value :story.classif/large)
+      (let [walked  (rf.elision/elide-wire-value (rf/app-db-value :story.classif/large)
                                          {:frame :story.classif/large})
             elided  (get-in walked [:docs :blob])]
         (is (and (map? elided) (contains? elided :rf.size/large-elided))
@@ -2211,7 +2212,7 @@
       (is (= "BEARER-secret-lsr95i"
              (get-in (rf/app-db-value :story.classif-ext.lsr95i/child) [:auth :token]))
           "the inherited :setup wrote the raw secret into the child's app-db")
-      (let [walked (rf/elide-wire-value
+      (let [walked (rf.elision/elide-wire-value
                      (rf/app-db-value :story.classif-ext.lsr95i/child)
                      {:frame :story.classif-ext.lsr95i/child})]
         (is (= :rf/redacted (get-in walked [:auth :token]))
@@ -2235,7 +2236,7 @@
        :large   {:app-db [[:docs :blob]]}})
     (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.classif-ext.lsr95i/override) 5000)]
       (is (= :ready (:lifecycle r)))
-      (let [walked (rf/elide-wire-value
+      (let [walked (rf.elision/elide-wire-value
                      (rf/app-db-value :story.classif-ext.lsr95i/override)
                      {:frame :story.classif-ext.lsr95i/override})
             elided (get-in walked [:docs :blob])]
@@ -2262,10 +2263,10 @@
 ;; The inline frame is anonymous and torn down INSIDE the same promise that
 ;; resolves the run result (unlike a registered variant, whose frame stays
 ;; live until an explicit `destroy-variant!`) — so these tests can't probe
-;; `rf/elide-wire-value` AFTER the run resolves the way the registered-
+;; `rf.elision/elide-wire-value` AFTER the run resolves the way the registered-
 ;; variant tests above do. Instead, an inline `:setup` step calls
 ;; `rf/current-frame-id` (the dynamic scope an event handler runs under)
-;; + `rf/elide-wire-value` itself WHILE the frame is still live, and
+;; + `rf.elision/elide-wire-value` itself WHILE the frame is still live, and
 ;; stashes the result into a test-side atom passed as an event arg.
 
 (deftest inline-plan-sensitive-classification-redacts-at-egress
@@ -2278,7 +2279,7 @@
       (fn [{:keys [db]} [_ probe-atom]]
         (let [db'      (assoc-in db [:auth :token] "BEARER-secret-cmjly3")
               frame-id (rf/current-frame-id)
-              walked   (rf/elide-wire-value db' {:frame frame-id})]
+              walked   (rf.elision/elide-wire-value db' {:frame frame-id})]
           (reset! probe-atom (get-in walked [:auth :token]))
           {:db db'})))
     (let [probe (atom ::unset)
@@ -2302,7 +2303,7 @@
       (fn [{:keys [db]} [_ probe-atom]]
         (let [db'      (assoc-in db [:auth :token] "BEARER-secret-cmjly3-plain")
               frame-id (rf/current-frame-id)
-              walked   (rf/elide-wire-value db' {:frame frame-id})]
+              walked   (rf.elision/elide-wire-value db' {:frame frame-id})]
           (reset! probe-atom (get-in walked [:auth :token]))
           {:db db'})))
     (let [probe (atom ::unset)

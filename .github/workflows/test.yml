@@ -769,6 +769,36 @@ jobs:
         continue-on-error: true
         run: python scripts/check_conformance_fixture_edn.py --verbose
 
+      # EGRESS-WALKER RESIDUE (rf2-kuky.90, ruling rf2-kuky.9 option A). The
+      # facade export `rf/elide-wire-value` is RETIRED: `rf/project-egress` is
+      # the one projection door, and the leaf walker is a framework-internal
+      # mechanism behind it. Deleting the export closes the `rf/` spelling, but
+      # `re-frame.elision/elide-wire-value` still RESOLVES (the framework's own
+      # emit-time chokepoints call it), so nothing stops a tool reaching past
+      # the door again — and the failure is silent, because the walker reads no
+      # `:rf.egress/profile` and an under-assembled `:rf.size/*` floor is a
+      # perfectly legitimate argument to it. This scan refuses a CALL from
+      # `tools/*/src` + `skills/*/preload` only; prose and docstrings naming the
+      # mechanism never fire, and the tool TEST trees are deliberately unscanned
+      # (mcp-conformance drives the internal walker on purpose, and several tool
+      # tests pin the retired spelling as a NEGATIVE assertion).
+      #
+      # A STEP HERE RATHER THAN A JOB, and unconditional rather than gated, for
+      # the reason the inject-cofx and conformance-EDN gates above give: the
+      # subject is tool SOURCE, which no docs-workflow path filter arms, and a
+      # stdlib-only scan over ~400 files costs milliseconds. Self-test first
+      # (proves the gate fires on each live shape and stays green on every
+      # sanctioned mention), then the live scan.
+      - name: Self-test the egress-walker residue gate
+        id: check_egress_walker_residue_selftest
+        continue-on-error: true
+        run: python scripts/check_egress_walker_residue.py --self-test --verbose
+
+      - name: Validate no tool-side call to the internal egress walker
+        id: check_egress_walker_residue
+        continue-on-error: true
+        run: python scripts/check_egress_walker_residue.py --verbose
+
       # THE WORKFLOW JOB-CAP RATCHET (rf2-rsn1e) DOES NOT LIVE HERE, AND THE
       # REASON IS THIS JOB'S DEFINING PROPERTY. It landed beside these checkers
       # and redded every PR: it parses the workflow documents with PyYAML —
