@@ -499,46 +499,52 @@
         ":error-emit/dispatch-frame-teardown-report hook is published")))
 
 ;; ===========================================================================
-;; rf2-2bzwr7 — the corpus-wide listener facade exports are CLASSIFIED as
-;; ADVANCED non-off-box-raw integration APIs, NOT off-box shipper surfaces.
+;; rf2-kuky.69 — the facade listener verb documents TWO RAW DEV STREAMS and
+;; nothing else, and it points production observation at the sink.
 ;;
-;; EP-0015 §9 makes the frame-owned `:observability` sink + `project-egress`
-;; the normal off-box egress path; the corpus-wide listener registries deliver
-;; an UNPROJECTED record (raw owner-local data can leave a frame) and so must
-;; not present themselves as the off-box shipper API. This is the
-;; REGRESSION/LINT coverage the bead asks for: a facade `:doc` that re-points
-;; off-box shippers at the raw global listener path goes RED here. The match is
-;; on the FACADE var metadata so it tracks the actual exported surface, not a
-;; copy of the prose.
+;; This pin supersedes rf2-2bzwr7's. That bead asked the facade docstring to
+;; classify its corpus-wide `:events` / `:errors` streams as ADVANCED rather
+;; than as the off-box shipper API — a labelling fix on a door that still
+;; existed. rf2-kuky.69 REMOVED the door: EP-0015 §9's frame-owned
+;; `:observability` sink (plus the `configure!` process default, rf2-kuky.67)
+;; is now the ONLY production observation surface, and independent corpus
+;; observation regardless of a frame's policy is withdrawn as a public
+;; primitive. So the assertion is no longer "is it labelled advanced?" but
+;; "is it gone?", and the regression it catches is a docstring that re-admits
+;; the retired streams to the public vocabulary. The match is on the FACADE var
+;; metadata so it tracks the actual exported surface, not a copy of the prose.
 ;; ===========================================================================
 
 #?(:clj
-   (deftest corpus-wide-listener-facade-docs-classified-advanced-not-off-box
-     (testing "rf2-2bzwr7 / EP-0015 §9 — the unified `register-listener!`
-               facade verb documents its `:events` / `:errors` corpus-wide
-               streams as ADVANCED integration hooks that point off-box
-               shippers at the frame-owned `:observability` sink, and do NOT
-               present as the off-box shipper API (raw owner-local data can
-               leave a frame through the unprojected corpus listener).
-               rf2-ikjmkm: the four `register-(event|error)-listener!` pairs
-               were collapsed into this stream-parameterized verb."
-       (let [v   #'rf/register-listener!
-             doc (:doc (meta v))]
-         (is (string? doc) (str v " carries a docstring"))
-         ;; POSITIVE: classified advanced + cross-frame, and points at the
-         ;; frame-owned sink as the normal off-box path.
-         (is (re-find #"(?i)advanced" doc)
-             (str v ": docstring classifies the corpus-wide streams as ADVANCED"))
+   (deftest facade-listener-docs-name-the-two-raw-dev-streams-only
+     (testing "rf2-kuky.69 / EP-0015 §9 — `register-listener!`'s docstring
+               names the two raw dev streams `:trace` / `:epoch`, does NOT
+               name the retired always-on `:events` / `:errors` members, and
+               points production observation at the frame-owned
+               `:observability` sink and the `configure!` process default."
+       (doseq [v [#'rf/register-listener! #'rf/unregister-listener!]]
+         (let [doc (:doc (meta v))]
+           (is (string? doc) (str v " carries a docstring"))
+           ;; POSITIVE: the surviving vocabulary, both members named.
+           (is (re-find #":trace" doc)
+               (str v ": docstring names the :trace stream"))
+           (is (re-find #":epoch" doc)
+               (str v ": docstring names the :epoch stream"))
+           ;; NEGATIVE: the retired members must not be offered here. This is
+           ;; the regression guard — a docstring that re-admits them would be
+           ;; documenting a second production door the runtime no longer has.
+           (is (not (re-find #":events" doc))
+               (str v ": docstring does NOT offer the retired :events stream"))
+           (is (not (re-find #":errors" doc))
+               (str v ": docstring does NOT offer the retired :errors stream"))))
+       ;; The register verb additionally carries the redirection: a reader who
+       ;; came here for production observation must be sent to the sink.
+       (let [doc (:doc (meta #'rf/register-listener!))]
+         (is (re-find #"register-observability-sink!" doc)
+             "register-listener! points production observation at the sink")
          (is (re-find #":observability" doc)
-             (str v ": docstring points off-box shippers at the frame-owned "
-                  ":observability sink (EP-0015 §9)"))
-         (is (re-find #"(?i)EP-0015" doc)
-             (str v ": docstring cites EP-0015 (the frame-owned egress model)"))
-         ;; NEGATIVE: the prior off-box-shipper framing — naming Sentry /
-         ;; Honeybadger / Rollbar as THE consumers of THIS surface, or
-         ;; calling it "for off-box observability shippers" — must be gone.
-         ;; The frame sink is the off-box surface; this listener is the
-         ;; advanced fallback only.
+             "register-listener! names the frame-owned :observability policy")
+         (is (re-find #"configure!" doc)
+             "register-listener! names the configure! process default")
          (is (not (re-find #"(?i)for off-box observability shippers" doc))
-             (str v ": docstring no longer pitches the raw listener AS the "
-                  "off-box shipper API (EP-0015 §9 — the frame sink is)"))))))
+             "register-listener! does not pitch itself AS the off-box shipper API")))))
