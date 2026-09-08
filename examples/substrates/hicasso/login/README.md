@@ -70,12 +70,22 @@ what each one holds constant.
 ## The boot, and the one place the frame is named
 
 ```clojure
+(defonce app-root (h/client-root))              ;; inert; no DOM at load
+
 (rf/init! substrate/adapter)                    ;; 1. seat an adapter
-(h/mount! el {}                                 ;; 2. one React root, root
-  [h/frame-root (merge {:id :rf/default}        ;;    options only
-                       model/frame-config)      ;; 3. one frame, whole config
-   [root-view]])
+(h/render! app-root                             ;; 2. one React root
+  [h/frame-root (merge {:id :rf/default}        ;; 3. one frame, whole config
+                       model/frame-config)
+   [root-view]]
+  el
+  {:identifier-prefix "login"})                 ;;    root options only
 ```
+
+One verb, not four. The first `h/render!` through `app-root` creates the Root;
+every later one updates it, so the `^:dev/after-load` hook is the same call and
+the page keeps no root state of its own. `{:hydrate? true}` on that first call
+makes it adopt the server's DOM instead — which is the SSR route below, and the
+only difference between the two boots.
 
 Hicasso is a view layer, not a
 [substrate](../../../../docs/core/glossary.md#substrate): it owns Hiccup
@@ -107,9 +117,10 @@ first, DOM second. An `h/frame-root` there would be the wrong shape: its ENSURE
 is commit-owned, so its first render emits no descendant subtree, where an
 adopting root must render the server's element shape on its first pass.
 
-Hot reload re-renders that one retained root (`h/render!`) rather than building
-a second one — calling `h/mount!` again would `createRoot` twice and discard
-every node, subscription and scrap of component state.
+Hot reload is the SAME `h/render!` call through the same handle: a later render
+updates the Root that handle already owns rather than building a second one, so
+every node, subscription and scrap of component state survives. There is no
+second verb that could `createRoot` twice by mistake.
 
 ## Files
 

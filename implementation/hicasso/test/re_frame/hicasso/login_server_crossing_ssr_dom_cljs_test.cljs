@@ -452,10 +452,13 @@
         console   (rf.hicasso.roots-frames-support/open-console-capture! {:swallow-uncaught? swallow-uncaught?})]
     (rf/make-frame (merge {:id cfid} model/frame-config))
     (rf.ssr/hydrate! {:frame cfid :payload payload})
-    (let [handle (rf.hicasso/hydrate! container
-                             {:identifier-prefix views/identifier-prefix}
+    (let [handle (rf.hicasso/client-root)
+          _      (rf.hicasso/render! handle
                              [rf.hicasso/frame-provider {:frame cfid}
-                              [views/root-view]])]
+                              [views/root-view]]
+                             container
+                             {:hydrate?          true
+                              :identifier-prefix views/identifier-prefix})]
       (.then (rf.hicasso.roots-frames-support/adopted! handle)
              (fn [_]
                (let [seen  ((:stop! watch))

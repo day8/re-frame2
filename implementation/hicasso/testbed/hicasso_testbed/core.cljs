@@ -881,11 +881,17 @@
                :focus-log       (:focus-log db)
                :normalisations  (or (:normalisations db) 0)}))))
 
+(defonce ^:private app-root
+  ;; Inert at allocation, so a load-time `defonce` costs nothing and the
+  ;; handle survives a reload.
+  (rf.hicasso/client-root))
+
 (defn ^:export init
   []
   (rf/init! rf.adapter.uix/adapter)
   (rf/make-frame {:id frame-id :initial-events [[:tb/seed]]})
-  (rf.hicasso/mount! (js/document.getElementById "app") {}
-            [rf.hicasso/frame-root {:id frame-id} [app {}]])
+  (rf.hicasso/render! app-root
+    [rf.hicasso/frame-root {:id frame-id} [app {}]]
+    (js/document.getElementById "app"))
   (unchecked-set js/window "__RF2_HIC_TB__" #js {:model model-json})
   nil)

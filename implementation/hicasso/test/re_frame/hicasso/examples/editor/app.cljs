@@ -51,19 +51,22 @@
   differently from the application would be evidence about the witness."
   [[::rf.hicasso.examples.editor.events/seed]])
 
-(defonce ^:private !root
+(defonce ^:private app-root
   ;; `defonce`, because a reload re-evaluates this namespace and a plain
-  ;; `def` would replace the handle the reload exists to re-render.
-  (atom nil))
+  ;; `def` would replace the handle the reload exists to render through.
+  ;; Inert until the first render — no DOM work at allocation.
+  (rf.hicasso/client-root))
 
-(defn ^:dev/after-load reload!
-  "Re-render the mounted root after a hot reload. React reconciles the new
-  tree against the one on the page, so the DOM, the subscriptions and the
-  caret survive."
+(defn ^:dev/after-load mount!
+  "Render the application through its one client-root handle — the boot
+  path and the hot-reload hook, in one call. The FIRST call creates the
+  React root; every later one updates that same root, so the DOM, the
+  subscriptions and every scrap of component state survive a reload."
   []
-  (when-some [root @!root]
-    (rf.hicasso/render! root [rf.hicasso/frame-root {:id frame-id}
-                             [rf.hicasso.examples.editor.views/editor {}]])))
+  (rf.hicasso/render! app-root
+    [rf.hicasso/frame-root {:id frame-id}
+     [rf.hicasso.examples.editor.views/editor {}]]
+    (js/document.getElementById "app")))
 
 (defn ^:export -main
   "Mount the editor on `#app`.
@@ -76,7 +79,5 @@
   []
   (rf/init! rf.adapter.uix/adapter)
   (rf/make-frame {:id frame-id :initial-events initial-events})
-  (reset! !root (rf.hicasso/mount! (js/document.getElementById "app") {}
-                          [rf.hicasso/frame-root {:id frame-id}
-                           [rf.hicasso.examples.editor.views/editor {}]]))
+  (mount!)
   nil)

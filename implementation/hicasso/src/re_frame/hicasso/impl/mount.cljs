@@ -2,11 +2,14 @@
   "The package's root: one operation that associates a DOM node, a frame
   and a hiccup tree, and an idempotent teardown (HD-021(b),
   docs/design/hicasso/decisions.md). `re-frame.hicasso`'s root lifecycle
-  is spelled here — `root!` and `hydrate-root!` are published as
-  `h/mount!` and `h/hydrate!` over the guide's `(node config view)` shape,
-  `render!` and `unmount!` under their own names
-  (docs/design/hicasso/product/naming-ledger.md rows 13 and 20). Every
-  door is root-scoped: it takes a handle, or makes one, and reaches
+  is spelled here, in TWO tiers. The public grammar is Spec 006 §The
+  client root's — `client-root`, `render-client-root!`,
+  `unmount-client-root!`, published as `h/client-root`, `h/render!` and
+  `h/unmount!` — and it is a thin branch over the impl tier below it:
+  `root!` and `hydrate-root!` are the two constructors one first-call
+  `:hydrate?` chooses between, `render!` the update path, `unmount!` the
+  teardown (docs/design/hicasso/product/naming-ledger.md rows 13 and 20).
+  Every door is root-scoped: it takes a handle, or makes one, and reaches
   nothing another root owns. `release!` is the fixture door and is not on
   the facade.
 
@@ -91,8 +94,8 @@
 
 (defn render!
   "Render `hiccup` into an existing root, synchronously, and answer the
-  handle: the public re-render (`h/render!`) and the whole of a consumer's
-  hot-reload hook (docs/core/hicasso/00-installation.md). React reconciles
+  handle: the IMPL tier's update path, and what a live client-root handle
+  reaches on every render after its first. React reconciles
   against the tree on the page, so component state and scroll position
   survive; calling `root!` again would `createRoot` a second time and
   replace the tree. The root hiccup goes through `codec/root-element`
@@ -121,10 +124,16 @@
       o)))
 
 (def ^:private root-options-roster
-  "Every key a ROOT DOOR's config may carry. One key, because a root door
-  configures the REACT ROOT and nothing else: the frame is the TREE's
-  business now (`h/frame-root` / `h/frame-provider`)."
-  #{:identifier-prefix})
+  "Every key a ROOT DOOR's opts map may carry. Two keys, because a root
+  door configures the REACT ROOT and nothing else: the frame is the
+  TREE's business now (`h/frame-root` / `h/frame-provider`).
+
+  `:hydrate?` picks which React constructor the FIRST render through a
+  handle calls; `:identifier-prefix` is React's own `identifierPrefix`,
+  an option of both constructors. Both are first-call keys — a later
+  `h/render!` through a live handle updates the Root it already owns, so
+  neither can be re-read without meaning a second root."
+  #{:hydrate? :identifier-prefix})
 
 (def ^:private frame-config-keys
   "The two keys the root door used to own and no longer does. Named
@@ -135,7 +144,8 @@
    :initial-events "frame-root {:id … :initial-events […]}"})
 
 (defn require-root-options!
-  "Refuse a root-door config carrying anything but `:identifier-prefix`.
+  "Refuse a root-door opts map carrying anything outside
+  `root-options-roster`.
 
   A closed list that was *ignored without complaint* is what this
   replaces, and the two refusals are separated because the two mistakes
@@ -149,15 +159,16 @@
   it.
 
   `where` is the door's own facade symbol, so the refusal names
-  `h/mount!` or `h/hydrate!` rather than an impl fn the caller did not
-  write. Answers nil."
+  `h/render!` rather than an impl fn the caller did not write. Answers
+  nil."
   [config where]
   (when (some? config)
     (when-not (map? config)
       (fail! :rf.error/hicasso-unknown-root-option
              where
-             (str "A root door's config is a MAP of root options, and this one "
-                  "is " (pr-str config) ". The shape is (node config view).")
+             (str "A root door's opts is a MAP of root options, and this one "
+                  "is " (pr-str config) ". The shape is "
+                  "(h/render! handle tree node opts).")
              {:config config}))
     (doseq [k (keys config)]
       (when-not (contains? root-options-roster k)
@@ -166,10 +177,10 @@
                  where
                  (str "The root door no longer configures a frame: " (pr-str k)
                       " belongs in the TREE, on " head ". A root door carries "
-                      "ROOT options only (:identifier-prefix), and the frame "
-                      "boundary is a head you write:\n\n"
-                      "  (h/mount! node {} [h/frame-root {:id :app/main "
-                      ":initial-events [[:app/init]]} [root-view]])\n\n"
+                      "ROOT options only (:hydrate?, :identifier-prefix), and "
+                      "the frame boundary is a head you write:\n\n"
+                      "  (h/render! app-root [h/frame-root {:id :app/main "
+                      ":initial-events [[:app/init]]} [root-view]] node)\n\n"
                       "Scoping a frame that already exists — after "
                       "`rf.ssr/hydrate!`, or a second root on the same frame — "
                       "is [h/frame-provider {:frame :app/main} [root-view]].")
@@ -177,12 +188,13 @@
           (fail! :rf.error/hicasso-unknown-root-option
                  where
                  (str (pr-str k) " is not a root option. A root door carries "
-                      ":identifier-prefix and nothing else — React's own "
-                      "`identifierPrefix`, so a page with two roots can keep "
-                      "their `useId` values apart. Frame configuration lives on "
-                      "the `h/frame-root` / `h/frame-provider` head in the tree, "
-                      "and every `rf/make-frame` option rides `h/frame-root` "
-                      "whole.")
+                      ":hydrate? — adopt this container's server-rendered DOM "
+                      "on the first render through this handle — and "
+                      ":identifier-prefix, React's own `identifierPrefix`, so "
+                      "a page with two roots can keep their `useId` values "
+                      "apart. Frame configuration lives on the `h/frame-root` "
+                      "/ `h/frame-provider` head in the tree, and every "
+                      "`rf/make-frame` option rides `h/frame-root` whole.")
                  {:option k :roster root-options-roster :config config}))))))
 
 (defn ensure-frame!
@@ -219,8 +231,10 @@
 (defn root!
   "Associate `container`, `frame-kw` and `hiccup`: ensure the frame,
   create the React root, render once inside `flushSync`. Returns the
-  handle `{:root :frame :container}` every other door takes. Published as
-  `h/mount!` over the guide's config map.
+  handle `{:root :frame :container}` every other door takes. The IMPL
+  tier's create path: the public grammar reaches it through
+  `mount-client-root!`, and the test kit's `catching-root!` drives this
+  positional shape directly.
 
   `opts` is optional and carries two keys, both the caller's:
   `:initial-events`, ordinary events dispatched in order when this mount
@@ -326,9 +340,10 @@
 
 (defn hydrate-root!
   "Associate `container`'s existing server-rendered DOM with `frame-kw`
-  and `hiccup` by adoption: `root!`'s hydrating twin, published as
-  `h/hydrate!`. Returns `root!`'s handle shape plus `:adoption`, this
-  root's own window, and every other door takes a hydrated handle
+  and `hiccup` by adoption: `root!`'s hydrating twin, reached from the
+  public grammar by `{:hydrate? true}` on the FIRST `h/render!` through a
+  handle. Returns `root!`'s handle shape plus `:adoption`, this root's
+  own window, and every other door takes a hydrated handle
   unchanged. Does not ensure the frame — an adopting root's state arrives
   through `re-frame.ssr/hydrate!` first, and a seed here would overwrite
   it.
@@ -366,8 +381,8 @@
                            (react-dom-client/hydrateRoot container element))))))
 
 (defn unmount!
-  "Take THIS root down and touch nothing else: `h/unmount!`, `root!`'s
-  inverse. Shuts the root's own adoption window first — a root torn down
+  "Take THIS root down and touch nothing else: the impl tier's teardown,
+  `root!`'s inverse. Shuts the root's own adoption window first — a root torn down
   before its passive effects ran never gets its closer — then unmounts
   inside `flushSync`. Idempotent and nil-tolerant: an ordinary handle
   carries no window, and a second call is a no-op.
@@ -402,6 +417,143 @@
   (rf.hicasso.impl.collector/reset-runtime!)
   nil)
 
+;; ---------------------------------------------------------------------------
+;; The client root — Spec 006 §The client root, Hicasso's realisation
+;; ---------------------------------------------------------------------------
+;;
+;; ONE handle with a first-call mode, in place of the four verbs this
+;; package used to spell (rf2-kuky.59). The grammar is the one every React
+;; view adapter publishes — `client-root` / `render!` / `unmount!` — and
+;; the semantics below are the spec's, proved here against Hicasso's OWN
+;; root path rather than the spine's: `flushSync` on every update, a
+;; per-root adoption window, a per-root recoverable-error reporter, and
+;; the stable wrapper tree `tree` puts over every post-hydration render so
+;; the client agrees with `re-frame.hicasso.server/render` about `useId`.
+;;
+;; The handle logic is written here rather than taken from
+;; `re-frame.substrate.spine/make-client-root-fns` DELIBERATELY: the spine
+;; is core's React-HOOK machinery, and one `:require` of it from this
+;; namespace would put the whole spine into the bundle of every Hicasso
+;; application, including the ones that install Reagent, reagent-slim or
+;; UIx instead. That is the exact cost `re-frame.hicasso.substrate`'s row
+;; in `scripts/check_optional_module_reachability.py` exists to keep
+;; optional. Twenty lines of handle branch is the cheaper half of that
+;; trade, and the SEMANTICS are pinned to the shared ones by test rather
+;; than by a shared call.
+
+(defonce ^:private active-roots
+  "React Roots this package currently keeps mounted, `root` → its handle.
+  MEMBERSHIP IS THE SINGLE LIVENESS FACT (the rf2-k5r9t rule): no flag in
+  the handle may disagree with it, which is what lets `drain-active-roots!`
+  and a handle's own `unmount!` both reach the host unmount exactly once
+  per root, whichever gets there first.
+
+  One cell for the package rather than one per adapter, because a Hicasso
+  root is created by Hicasso's own door whatever adapter is installed —
+  `h/render!` never routes through the substrate contract's `render` slot.
+  `re-frame.hicasso.substrate/adapter` chains the drain onto its
+  `dispose-adapter!`, so `rf/destroy-adapter!` releases them."
+  (atom {}))
+
+(defn- track-active-root!
+  "Register `handle`'s Root and return the idempotent release thunk that
+  drops it and calls `unmount!`. `unmount!` shuts the root's adoption
+  window on the way past, so a root torn down before its closer ran
+  leaves no window open."
+  [handle]
+  (let [root (:root handle)]
+    (swap! active-roots assoc root handle)
+    (fn release []
+      (when (contains? @active-roots root)
+        (swap! active-roots dissoc root)
+        (unmount! handle)))))
+
+(defn drain-active-roots!
+  "Unmount every Root this package still holds and empty the cell: the
+  host-resource half of Spec 006 §Adapter disposal lifecycle for Hicasso,
+  chained onto the adapter's `dispose-adapter!` in
+  `re-frame.hicasso.substrate`.
+
+  The cell is emptied FIRST, so a handle whose Root this drain took finds
+  itself already released and a `render!` through it mounts afresh. Each
+  unmount is caught so one throwing root cannot strand its siblings, and
+  the first failure is rethrown once the drain is complete — the shape
+  `re-frame.substrate.spine/dispose-active-roots-and-caches!` uses, for
+  its reason: a teardown that reported clean over a failed host unmount
+  is worse than a late throw."
+  []
+  (let [live (vals @active-roots)]
+    (reset! active-roots {})
+    (let [failure (reduce (fn [failure handle]
+                            (try (unmount! handle) failure
+                                 (catch :default e (or failure e))))
+                          nil
+                          live)]
+      (when failure (throw failure))))
+  nil)
+
+(defn client-root
+  "Allocate an inert client-root handle: `h/client-root`. No DOM work and
+  no React call, so it is safe at namespace load under a `defonce`."
+  []
+  (atom nil))
+
+(defn- mount-client-root!
+  "The FIRST render through a handle: create or adopt this handle's one
+  Root from `mount-point` and `opts`, track it, and answer the live-root
+  map `render-client-root!` drives —
+  `{:live? :update! :unmount!}`.
+
+  `{:hydrate? true}` takes `hydrate-root!`, which installs this root's
+  own adoption window and (in debug builds) its own recoverable-error
+  reporter; anything else takes `root!`, which renders inside `flushSync`.
+  Either way the frame slot is `nil`: post-views.3 the frame is spelled in
+  the TREE, on `h/frame-root` or `h/frame-provider`."
+  [render-tree mount-point opts]
+  (let [handle (if (:hydrate? opts)
+                 (hydrate-root! mount-point nil render-tree opts)
+                 (root! mount-point nil render-tree opts))]
+    {:live?    (fn live? [] (contains? @active-roots (:root handle)))
+     :update!  (fn update! [next-tree] (render! handle next-tree) nil)
+     :unmount! (track-active-root! handle)
+     ;; This root's own adoption window, or nil for a created root. It
+     ;; rides the live-root map so a WITNESS can wait on the completion
+     ;; signal a hydrating first render has instead of a flush — the
+     ;; public handle is opaque to consumers, and the impl tier is the
+     ;; tier a witness may read. It is a reading, never a flag: `tree`
+     ;; still holds the window on the handle it wraps, and the two are
+     ;; the same object rather than two facts that could disagree.
+     :adoption (:adoption handle)}))
+
+(defn render-client-root!
+  "`h/render!`. The first call through `handle` creates (or, with
+  `{:hydrate? true}`, adopts) one Root at `mount-point`; every later call
+  UPDATES that same Root with `render-tree`, inside `flushSync`, so
+  component state, scroll position and the hydration adoption survive and
+  no second constructor ever runs. `mount-point` and `opts` are read on
+  the first call only — a later `{:hydrate? true}` is ignored rather than
+  hydrating twice. Answers nil."
+  ([handle render-tree mount-point]
+   (render-client-root! handle render-tree mount-point nil))
+  ([handle render-tree mount-point opts]
+   (require-root-options! opts 're-frame.hicasso/render!)
+   (let [live @handle]
+     (if (and live ((:live? live)))
+       ((:update! live) render-tree)
+       (reset! handle (mount-client-root! render-tree mount-point opts))))
+   nil))
+
+(defn unmount-client-root!
+  "`h/unmount!`. Release the Root `handle` holds and return it to inert.
+  Idempotent, and a no-op on a handle whose Root `drain-active-roots!`
+  already took — liveness is the active set's to say, never the handle's.
+  Answers nil."
+  [handle]
+  (when-let [live @handle]
+    (reset! handle nil)
+    ((:unmount! live)))
+  nil)
+
 (defn dispatch!
   "Dispatch through the package's synchronous door and commit the echo.
   The witness door; an intent written in a view reaches
@@ -409,7 +561,7 @@
 
   `target` is the FRAME KEYWORD, or a handle that names one. A handle
   names one only when it came from the impl tier's positional shape: a
-  root mounted through `h/mount!` scopes its frame in the TREE
+  root mounted through `h/render!` scopes its frame in the TREE
   (`h/frame-root` / `h/frame-provider`), so its handle names no frame and
   a witness driving one names the frame itself — which is the honest
   spelling anyway, since a root can hold more than one boundary."

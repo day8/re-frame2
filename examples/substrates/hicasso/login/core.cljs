@@ -241,18 +241,22 @@
 ;;      door's config could not carry `:fx-overrides`; the boundary in the tree
 ;;      is what retired that detour (rf2-kuky.58).
 ;;
-;;   3. `rf.hicasso/mount!` associates the DOM node with one root view. Its
-;;      config carries ROOT options only — `:identifier-prefix` — and a key it
-;;      does not own now fails loud rather than being ignored.
+;;   3. `rf.hicasso/render!` associates the DOM node with one root view,
+;;      through the handle allocated below. Its opts carry ROOT options only
+;;      — `:hydrate?` and `:identifier-prefix` — and a key it does not own
+;;      fails loud rather than being ignored.
 ;;
 ;; Nothing above this line touched the DOM. Namespace load registers handlers
 ;; and defines views and does no more, so another namespace can require this
 ;; one for its registrations alone (docs/core/how-to/boot-and-mount-an-app.md).
 
-(defonce ^{:doc "The one Hicasso root this page owns, kept so hot reload can
-  re-render it rather than build a second one."}
-  !root
-  (atom nil))
+(defonce ^{:doc "The one Hicasso client-root handle this page owns. Inert at
+  allocation — no DOM work, no React call — so a load-time `defonce` costs
+  nothing, and the FIRST render through it creates or adopts the Root while
+  every later one updates that same Root. That is what lets the boot and the
+  reload hook be one call with no root state of the page's own."}
+  app-root
+  (rf.hicasso/client-root))
 
 (defonce ^{:doc "The frame boundary this page booted with, as `[head opts]`.
 
@@ -269,15 +273,22 @@
   !boundary
   (atom nil))
 
-;; Shadow's cue to re-run this after each reload. `rf.hicasso/render!` reconciles the new
+;; Shadow's cue to re-run this after each reload. A later `rf.hicasso/render!`
+;; through a live handle UPDATES the Root it already owns, reconciling the new
 ;; tree against the DOM already on the page, so edited views meet their own
-;; nodes and the frame beneath them is untouched. Calling `rf.hicasso/mount!` again would
-;; `createRoot` a second time and throw away every node, subscription and scrap
-;; of component state.
+;; nodes and the frame beneath them is untouched. The create-once half of the
+;; handle contract is what rules out a second `createRoot` throwing away every
+;; node, subscription and scrap of component state.
+;;
+;; The mount point is named again and READ AGAIN BY NOBODY: `render!` takes it
+;; on the first call through a handle only. It is passed because the door's
+;; shape is (handle tree node), and looking the node up is cheaper than
+;; explaining why a reload may omit it.
 (defn ^:dev/after-load re-render! []
-  (when-some [root @!root]
-    (when-some [[head opts] @!boundary]
-      (rf.hicasso/render! root [head opts [root-view]]))))
+  (when-some [[head opts] @!boundary]
+    (rf.hicasso/render! app-root
+                        [head opts [root-view]]
+                        (js/document.getElementById app-element-id))))
 
 ;; ONE boot, two pages. A client-only load has no `__rf_payload` in the
 ;; document, so `rf.ssr/hydrate!` is a no-op and the root MOUNTS — exactly the
@@ -300,7 +311,7 @@
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById app-element-id))]
     (let [payload (rf.ssr/read-server-payload)
-          config  {:identifier-prefix identifier-prefix}]
+          opts    {:identifier-prefix identifier-prefix}]
       (if (some? payload)
         ;; SSR: STATE COMES FIRST, and that is why this branch — and only
         ;; this branch — still calls `rf/make-frame` by hand. `rf.ssr/hydrate!`
@@ -318,16 +329,18 @@
                                   model/frame-config))
             (rf.ssr/hydrate! {:frame frame-id :payload payload})
             (reset! !boundary [rf.hicasso/frame-provider {:frame frame-id}])
-            (reset! !root (rf.hicasso/hydrate! el config
-                            [rf.hicasso/frame-provider {:frame frame-id}
-                             [root-view]])))
+            (rf.hicasso/render! app-root
+              [rf.hicasso/frame-provider {:frame frame-id} [root-view]]
+              el
+              (assoc opts :hydrate? true)))
         ;; Client-only: the tree ENSUREs, with the whole `make-frame` option
         ;; map on the head.
         (let [ensure (merge {:id  frame-id
                              :doc "Login (Hicasso) demo frame."}
                             model/frame-config)]
           (reset! !boundary [rf.hicasso/frame-root ensure])
-          (reset! !root (rf.hicasso/mount! el config
-                          [rf.hicasso/frame-root ensure
-                           [root-view]]))))))
+          (rf.hicasso/render! app-root
+            [rf.hicasso/frame-root ensure [root-view]]
+            el
+            opts)))))
   nil)

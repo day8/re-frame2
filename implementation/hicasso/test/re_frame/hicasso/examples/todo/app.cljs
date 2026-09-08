@@ -50,7 +50,11 @@
   conditional branches are about."
   ["Read the spec" "Write the witness" "Merge the PR"])
 
-(defonce ^:private !root (atom nil))
+(defonce ^:private app-root
+  ;; `defonce`, because a reload re-evaluates this namespace and a plain
+  ;; `def` would replace the handle the reload exists to render through.
+  ;; Inert until the first render — no DOM work at allocation.
+  (rf.hicasso/client-root))
 
 (defn make-frame!
   "Make the application's frame, seeded and pointed at *All*.
@@ -65,23 +69,21 @@
                   :initial-events [[::rf.hicasso.examples.todo.events/seed sample-todos]
                                    [:rf.route/navigate {:to rf.hicasso.examples.todo.routes/all}]]}))
 
-(defn ^:dev/after-load reload!
-  "Re-render the mounted root after a hot reload. React reconciles the
-  new tree against the one on the page, so the DOM, the subscriptions and
-  every scrap of component state survive it and only the changed view
-  code is different. A second `h/mount!` would `createRoot` again and
-  discard all three."
+(defn ^:dev/after-load mount!
+  "Render the application through its one client-root handle — the boot
+  path and the hot-reload hook, in one call. The FIRST call creates the
+  React root; every later one updates that same root, so the DOM, the
+  subscriptions and every scrap of component state survive a reload."
   []
-  (when-some [root @!root]
-    (rf.hicasso/render! root [rf.hicasso/frame-root {:id frame-id}
-                             [rf.hicasso.examples.todo.views/app {}]])))
+  (rf.hicasso/render! app-root
+    [rf.hicasso/frame-root {:id frame-id}
+     [rf.hicasso.examples.todo.views/app {}]]
+    (js/document.getElementById "app")))
 
 (defn ^:export -main
   "Start the application."
   []
   (rf/init! rf.adapter.uix/adapter)
   (make-frame!)
-  (reset! !root (rf.hicasso/mount! (js/document.getElementById "app") {}
-                          [rf.hicasso/frame-root {:id frame-id}
-                           [rf.hicasso.examples.todo.views/app {}]]))
+  (mount!)
   nil)

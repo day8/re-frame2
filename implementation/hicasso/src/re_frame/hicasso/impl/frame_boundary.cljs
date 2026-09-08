@@ -48,7 +48,7 @@
 
   `frame-root`'s ENSURE runs in a `useLayoutEffect` and flips a `useState`
   in the same layout phase, so React re-renders synchronously BEFORE the
-  browser paints; and `h/mount!` renders inside `flushSync`, which does
+  browser paints; and `h/render!` renders inside `flushSync`, which does
   not return until that layout work has run. So a root door still returns
   with the seeded markup on the page — the property `impl.mount/root!`
   used to hold by ensuring before `createRoot`, now held by React's own

@@ -81,7 +81,12 @@
 ;; State that must outlive the reload
 ;; ---------------------------------------------------------------------------
 
-(defonce ^:private !handles   (atom {}))
+(defonce ^:private handles
+  ;; ONE client-root handle per CONTAINER, allocated once and inert until
+  ;; the first render through it. `defonce` because a reload re-evaluates
+  ;; this namespace and a fresh handle would be a fresh Root — exactly the
+  ;; remount this testbed exists to detect.
+  (into {} (for [{:keys [frame]} frames] [frame (rf.hicasso/client-root)])))
 (defonce ^:private !reloads   (volatile! 0))
 (defonce ^:private !baseline  (atom nil))
 (defonce ^:private !instances (atom {}))
@@ -349,13 +354,16 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- render-all!
+  "Render every frame's tree through its own handle. The FIRST call creates
+  that container's Root; every later one updates it, which is why the boot
+  and the reload hook are the same line here."
   []
-  (doseq [{:keys [frame]} frames]
-    (when-some [handle (get @!handles frame)]
-      (rf.hicasso/render! handle
-                          [rf.hicasso/frame-root {:id frame}
-                           [views/app {:ref-sink    (get ref-sinks frame)
-                                       :island-refs (island-refs-for frame)}]]))))
+  (doseq [{:keys [frame container]} frames]
+    (rf.hicasso/render! (get handles frame)
+                        [rf.hicasso/frame-root {:id frame}
+                         [views/app {:ref-sink    (get ref-sinks frame)
+                                     :island-refs (island-refs-for frame)}]]
+                        (js/document.getElementById container))))
 
 (defn- seed!
   [frame-kw label]
@@ -449,14 +457,9 @@
   []
   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
   (rf/init! rf.adapter.uix/adapter)
-  (doseq [{:keys [frame container label]} frames]
+  (doseq [{:keys [frame label]} frames]
     (rf/make-frame {:id frame})
-    (seed! frame label)
-    (swap! !handles assoc frame
-           (rf.hicasso/mount! (js/document.getElementById container)
-                     {}
-                     [rf.hicasso/frame-root {:id frame}
-                      [views/app {:ref-sink    (get ref-sinks frame)
-                                  :island-refs (island-refs-for frame)}]])))
+    (seed! frame label))
+  (render-all!)
   (install-door!)
   nil)
