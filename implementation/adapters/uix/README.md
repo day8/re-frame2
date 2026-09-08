@@ -18,11 +18,11 @@ See [`../README.md`](../README.md) for the wider adapter tier and the substrate 
 - `re-frame.adapter.uix/client-root` / `render!` / `unmount!` — the reusable client root ([Spec 006 §The client root](../../../spec/006-ReactiveSubstrate.md#the-client-root-adapter-owned-reusable)), the same three names and the same semantics the Reagent and reagent-slim adapters publish. `(client-root)` allocates an inert, opaque handle — no DOM work, so it is `defonce`-safe at namespace load and Node-safe; the first `(render! handle element mount-point [opts])` creates the React Root there (or hydrates it once, with `{:hydrate? true}`) and every later call updates that same Root, which is what makes one call both the boot path and the `^:dev/after-load` hook; `(unmount! handle)` releases it and is idempotent. The Root is minted by the shared React spine through `react-dom/client`, so the mount itself needs no `com.pitch/uix.dom` dependency, and it sits in the same active-root set as the one-shot `:render` slot, so `rf/destroy-adapter!` releases it exactly once and a later `render!` mounts afresh. The one substrate difference from Reagent: `element` is a React element built with `uix.core/$` — CLJS data raises `:rf.error/hiccup-on-element-render-slot`, on the first render and every later one alike. The boot recipe:
 
   ```clojure
-  (defonce app-root (rf.adapter.uix/client-root))
+  (defonce app-root (uix-adapter/client-root))
 
   (defn ^:dev/after-load mount! []
-    (rf.adapter.uix/render! app-root
-      ($ rf.adapter.uix/frame-root {:id :rf/default :initial-events [[:app/init]]}
+    (uix-adapter/render! app-root
+      ($ uix-adapter/frame-root {:id :rf/default :initial-events [[:app/init]]}
          ($ app-view))
       (js/document.getElementById "app")))
   ```
