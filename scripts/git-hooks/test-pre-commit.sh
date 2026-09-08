@@ -1782,6 +1782,12 @@ esac
 # went missing. 8m therefore asserts BOTH halves — it warns, AND it commits.
 # 8p is the no-false-positive case, and it matters more than the rest: a warning
 # that fires on ordinary forward motion is one the loop learns to scroll past.
+#
+# AND THE WARNING'S RECOVERY COMMAND MUST RECOVER. 8m's second half runs the
+# emitted lookup AFTER the checkpoint has committed, because that is the only
+# moment that grades what the operator experiences — and the first version of
+# this warning failed exactly there, printing a `HEAD` reference that the
+# checkpoint's own commit invalidated a few lines later.
 # ----------------------------------------------------------------------------
 {
   awk 'BEGIN{for(i=1;i<=20;i++) printf "{\"_type\":\"issue\",\"id\":\"rf2-m%02d\",\"status\":\"open\",\"updated_at\":\"2026-09-01T00:00:00Z\"}\n", i}'
@@ -1850,6 +1856,84 @@ case "$out" in
   *) fail "(8m) the memory reconciliation REFUSED the checkpoint ($out); it must only warn"
      cat "$CERR" >&2 ;;
 esac
+
+# 8m, second half: THE PRINTED RECOVERY COMMAND MUST ACTUALLY RECOVER (rf2-cve7,
+# merged-PR audit of #9520).
+#
+# The warning above is correct and fires correctly. Its recovery instruction was
+# not: it printed `git show HEAD:.beads/issues.jsonl`, and the checkpoint COMMITS
+# the export a few lines after printing it. By the time an operator reads the
+# message and pastes the command, `HEAD` IS the commit that removed the rows, so
+# the lookup exits 0 and prints NOTHING — the worst available failure shape for a
+# recovery instruction, because success and total failure are the same exit code
+# and the same empty output.
+#
+# So the assertions below run the emitted command AFTER the checkpoint has
+# committed, which is the only moment that grades what the operator experiences.
+# The HEAD-form control beside them is what makes the pass mean something: it
+# reproduces the defect in the same repo, in the same breath, so a printed
+# reference that recovers cannot be credited to the deletion never having
+# happened.
+mem_value_at() {
+  # $1 = commit-ish, $2 = key. jq where it exists — that is literally the
+  # emitted pipeline — and a fixed-shape row read where it does not, since the
+  # claim under test is that the REFERENCE still resolves, not that jq is
+  # installed. Both arms return the memory's `value` and nothing else.
+  if command -v jq >/dev/null 2>&1; then
+    git -C "$CREPO" show "$1:.beads/issues.jsonl" 2>/dev/null \
+      | jq -r --arg k "$2" 'select(._type=="memory" and .key==$k)|.value'
+  else
+    git -C "$CREPO" show "$1:.beads/issues.jsonl" 2>/dev/null \
+      | sed -n 's/^{"_type":"memory","key":"'"$2"'","value":"\([^"]*\)"}$/\1/p'
+  fi
+}
+
+rec_lines=$(grep -c '^ *git show ' "$CERR" || :)
+rec_ref=$(sed -n 's/^ *git show \([^:]*\):.*/\1/p' "$CERR" | sed -n '1p')
+if [ "$rec_lines" != "1" ]; then
+  fail "(8m) expected exactly one recovery lookup in the warning, found $rec_lines"
+  cat "$CERR" >&2
+elif [ -z "$rec_ref" ] || [ "$rec_ref" = "HEAD" ]; then
+  fail "(8m) the recovery lookup names '$rec_ref', a MOVING reference; the checkpoint commits below it"
+  cat "$CERR" >&2
+elif [ "$rec_ref" != "$before" ]; then
+  fail "(8m) the recovery lookup names $rec_ref, not the pre-checkpoint commit $before"
+  cat "$CERR" >&2
+else
+  pass "(8m) the recovery lookup names the immutable pre-checkpoint commit, not \`HEAD\`"
+fi
+
+recovered=$(mem_value_at "${rec_ref:-HEAD}" mem-key-03)
+if [ "$recovered" = "body 3" ]; then
+  pass "(8m) and running it AFTER the checkpoint committed recovers the deleted value"
+else
+  fail "(8m) the emitted recovery lookup returned '$recovered', not the deleted value 'body 3'"
+fi
+
+# The control, and it is the whole reason the assertion above is meaningful:
+# the command the script USED to print returns nothing at this exact point.
+head_recovered=$(mem_value_at HEAD mem-key-03)
+if [ -z "$head_recovered" ]; then
+  pass "(8m) while the same lookup against \`HEAD\` recovers nothing — the defect this pins"
+else
+  fail "(8m) the HEAD-form control returned '$head_recovered'; the fixture no longer models the defect"
+fi
+
+# And later commits must not invalidate it. A commit oid is content-addressed,
+# so this holds by construction — but "by construction" is what the HEAD form
+# looked like too, so it is asserted rather than assumed.
+(
+  cd "$CREPO"
+  printf 'a later commit, unrelated to the tracker\n' > later.txt
+  git add -- later.txt
+  git commit -q -m 'a later commit lands on top of the checkpoint'
+) >/dev/null 2>&1
+recovered_later=$(mem_value_at "${rec_ref:-HEAD}" mem-key-03)
+if [ "$recovered_later" = "body 3" ]; then
+  pass "(8m) and a further commit on top does not invalidate the printed reference"
+else
+  fail "(8m) after one more commit the printed reference returned '$recovered_later', not 'body 3'"
+fi
 
 # 8o: A ROW OF AN UNKNOWN `_type` IS REPORTED. This is the "two populations sum
 # to the row count" half of the bead. It cannot detect the deletion above — the

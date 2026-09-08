@@ -592,6 +592,30 @@ if ($SelfTest) {
     function Get-HeadTracker { return (& git -C $repo show 'HEAD:.beads/issues.jsonl') -join "`n" }
     function Get-HeadSha { return (& git -C $repo rev-parse HEAD).Trim() }
 
+    # The memory `value` a given commit carries for a key, or '' when that commit
+    # carries no such row. This is the emitted recovery lookup expressed without
+    # jq, which Windows does not ship: the claim under test is that the printed
+    # REFERENCE still resolves, not that jq is installed. `${Ref}:` needs the
+    # braces - a bare `$Ref:` parses as a scope qualifier. The try/catch is
+    # load-bearing under $ErrorActionPreference = 'Stop': pwsh 7.4+ turns a
+    # native command's non-zero exit into a terminating error, and asking an
+    # unresolvable ref is a case these tests deliberately exercise.
+    function Get-MemoryValueAt {
+        param([string]$Ref, [string]$Key)
+        if (-not $Ref) { return '' }
+        try { $rows = @(& git -C $repo show "${Ref}:.beads/issues.jsonl" 2>$null) }
+        catch { return '' }
+        if ($LASTEXITCODE -ne 0) { return '' }
+        foreach ($r in $rows) {
+            if ($r -match '"_type":"memory"' -and
+                $r -match ('"key":"' + [regex]::Escape($Key) + '"') -and
+                $r -match '"value":"([^"]*)"') {
+                return $Matches[1]
+            }
+        }
+        return ''
+    }
+
     function Assert-True {
         param([bool]$Cond, [string]$What, [string]$Detail = '')
         if ($Cond) { Write-Output "  PASS  $What" }
@@ -801,6 +825,46 @@ if ($SelfTest) {
     Assert-True ($err -match 'WARNING, NOT A REFUSAL') `
                 'T7 and says the checkpoint continues, so the operator can tell what happened'
 
+    # T7, second half: THE PRINTED RECOVERY COMMAND MUST ACTUALLY RECOVER
+    # (rf2-cve7, merged-PR audit of #9520).
+    #
+    # The warning above is correct and fires correctly. Its recovery instruction
+    # was not: it printed `git show HEAD:.beads/issues.jsonl`, and the checkpoint
+    # COMMITS the export a few lines after printing it. By the time an operator
+    # reads the message and pastes the command, `HEAD` IS the commit that removed
+    # the rows, so the lookup exits 0 and prints NOTHING - the worst available
+    # failure shape for a recovery instruction, because success and total failure
+    # are the same exit code and the same empty output.
+    #
+    # These assertions therefore run the emitted lookup AFTER the checkpoint has
+    # committed, with the HEAD-form control beside them reproducing the defect in
+    # the same repo in the same breath.
+    $recRefs = @([regex]::Matches($err, '(?m)^\s*git show (\S+?):') |
+                 ForEach-Object { $_.Groups[1].Value })
+    $recRef = if ($recRefs.Count -gt 0) { $recRefs[0] } else { '' }
+    Assert-True ($recRefs.Count -eq 1) `
+                'T7 the warning carries exactly one recovery lookup' "found $($recRefs.Count)"
+    Assert-True ($recRef -eq $before) `
+                'T7 and it names the immutable pre-checkpoint commit, not the moving HEAD' `
+                "printed '$recRef', pre-checkpoint commit '$before'"
+
+    $lookupRef = if ($recRef) { $recRef } else { 'HEAD' }
+    Assert-True ((Get-MemoryValueAt -Ref $lookupRef -Key 'mem-key-03') -eq 'body 3') `
+                'T7 and running it AFTER the checkpoint committed recovers the deleted value'
+    # The control, and it is the whole reason the assertion above means anything:
+    # the reference the script USED to print returns nothing at this exact point.
+    Assert-True ((Get-MemoryValueAt -Ref 'HEAD' -Key 'mem-key-03') -eq '') `
+                'T7 while the same lookup against HEAD recovers nothing - the defect this pins'
+
+    # And later commits must not invalidate it. A commit oid is content-addressed
+    # so this holds by construction - but "by construction" is what the HEAD form
+    # looked like too, so it is asserted rather than assumed.
+    Write-Rows -Path (Join-Path $repo 'later.txt') -Rows @('a later commit, unrelated to the tracker')
+    & git -C $repo add -- 'later.txt' | Out-Null
+    & git -C $repo commit -q -m 'a later commit lands on top of the checkpoint' | Out-Null
+    Assert-True ((Get-MemoryValueAt -Ref $lookupRef -Key 'mem-key-03') -eq 'body 3') `
+                'T7 and a further commit on top does not invalidate the printed reference'
+
     # T8 - a row of an unknown `_type` is reported. This is the "two populations
     # sum to the row count" half of the bead. It cannot detect the deletion
     # above - the identity holds trivially whenever every row is one of the two
@@ -929,6 +993,29 @@ try {
     }
 
     Write-HeadCopy -Path $tmpHead
+    # The commit $tmpHead was read from - captured HERE, beside the copy it
+    # names, because the memory warning below prints it as a RECOVERY REFERENCE
+    # and this script COMMITS the fresh export a hundred lines later (rf2-cve7,
+    # merged-PR audit of #9520). Printing `HEAD` there is worse than useless: by
+    # the time an operator reads the warning and pastes the command, `HEAD` IS
+    # the checkpoint that just removed those rows, so the lookup exits 0 and
+    # prints nothing - succeeding, and recovering nothing.
+    #
+    # A full commit oid is content-addressed and immutable, so it keeps naming
+    # this exact tree after the checkpoint commits and after any number of later
+    # commits land on top; `HEAD` is a symbolic ref re-resolved at read time and
+    # does not. Empty on an unborn branch (a first-ever checkpoint), where there
+    # is no baseline to recover from and the recovery paragraph is skipped.
+    # --quiet keeps git silent on an unborn branch, and the try/catch is
+    # load-bearing rather than defensive: $ErrorActionPreference is 'Stop' here,
+    # and pwsh 7.4+ turns a native command's non-zero exit into a terminating
+    # error, so the unborn-branch case would abort the whole checkpoint.
+    $baselineCommit = ''
+    try {
+        $probe = (& git rev-parse --verify --quiet HEAD 2>$null)
+        if ($LASTEXITCODE -eq 0 -and $probe) { $baselineCommit = ([string]$probe).Trim() }
+    } catch { $baselineCommit = '' }
+
     $exportRows = Get-RowCount -Path $tmpExport
     $headRows   = Get-RowCount -Path $tmpHead
 
@@ -1034,11 +1121,27 @@ try {
         $lines.Add('  THIS IS A WARNING, NOT A REFUSAL - the checkpoint continues and commits')
         $lines.Add('  the export. The database is the source of truth, and this may well be a')
         $lines.Add('  deliberate `bd forget` or a retention cull. If it is NOT, the rows are not')
-        $lines.Add('  lost: HEAD still carries every one of them, and so does any earlier')
-        $lines.Add('  checkpoint commit.')
-        $lines.Add('')
-        $lines.Add("      git show HEAD:$tracker |")
-        $lines.Add('        jq -r --arg k "<key>" ''select(._type=="memory" and .key==$k)|.value''')
+        if ($baselineCommit) {
+            $lines.Add('  lost. The commit this export was compared against still carries every')
+            $lines.Add('  one of them, and this is the lookup:')
+            $lines.Add('')
+            $lines.Add("      git show ${baselineCommit}:$tracker |")
+            $lines.Add('        jq -r --arg k "<key>" ''select(._type=="memory" and .key==$k)|.value''')
+            $lines.Add('')
+            $lines.Add('  THAT COMMIT IS SPELLED OUT RATHER THAN `HEAD` ON PURPOSE. This checkpoint')
+            $lines.Add('  commits the export a moment from now, so by the time you read this `HEAD`')
+            $lines.Add('  is the commit that REMOVED the rows: the same lookup against it would exit')
+            $lines.Add('  0 and print nothing - succeeding, and recovering nothing. A full commit oid')
+            $lines.Add('  is immutable, so it stays valid after this commit and every later one.')
+            $lines.Add('')
+            $lines.Add('  Older checkpoints are NOT a general fallback - one made before a key was')
+            $lines.Add('  created does not carry it. To find the commit where any single key changed:')
+            $lines.Add('')
+            $lines.Add("      git log -S'""key"":""<key>""' -- $tracker")
+        } else {
+            $lines.Add('  lost - but this is a first-ever checkpoint with no commit behind it, so')
+            $lines.Add('  there is no baseline to recover from. The database is the only copy.')
+        }
         $lines.Add('')
         $lines.Add('  Select on `.key`. A bare grep for the key matches rows that merely MENTION')
         $lines.Add('  it - bead prose naming a deleted key has already been mistaken for the')
