@@ -4,11 +4,22 @@
 
   `cljs.test` accepts a MAP fixture — `(use-fixtures :each {:before f
   :after g})` — and this repo's `*_cljs_test.cljs` files use it throughout.
-  `clojure.test` accepts functions only and validates nothing: it folds
-  whatever `use-fixtures` was handed into a chain and calls it with the test
-  thunk.  A map called with one argument is a KEY LOOKUP, returns nil, and
-  the thunk never runs.  Maps are `IFn`, so nothing throws; the namespace
-  contributes zero tests and the lane exits 0.
+  `clojure.test` validates nothing: it folds whatever `use-fixtures` was
+  handed into a chain and calls it with the test thunk.  A map called with
+  one argument is a KEY LOOKUP, returns nil, and the thunk never runs.  Maps
+  are `IFn`, so nothing throws; the namespace contributes zero tests and the
+  lane exits 0.
+
+  THE RULE IS ABOUT CALLING, NOT ABOUT `fn?` (rf2-4yw1).  `clojure.test`'s
+  requirement is behavioural — the entry is applied to the thunk and must
+  INVOKE it — and both cheap approximations of that are wrong in a different
+  direction.  `ifn?` is too permissive: maps, sets, keywords and symbols are
+  all `IFn` and every one of them treats the thunk as a KEY.  `fn?` is too
+  restrictive: a Var and a multimethod each invoke the thunk correctly while
+  carrying no `clojure.lang.Fn` marker, so `(use-fixtures :each #'lifecycle)`
+  — ordinary, idiomatic, and working — was refused with the false claim that
+  the namespace ran nothing.  Both directions are pinned below, and each is
+  pinned against `clojure.test/join-fixtures` FIRST.
 
   EVERY TEST HERE PINS THE DEFECT BEFORE IT PINS THE GUARD.  The defect is
   pinned against `clojure.test/join-fixtures` itself — the function
@@ -33,6 +44,29 @@
   "The cljs.test form. Legitimate there; uncallable on the JVM."
   {:before (fn [])
    :after  (fn [])})
+
+(defn- lifecycle
+  "An ordinary fixture function, referred to below as `#'lifecycle` — the
+  idiomatic Var form the guard used to refuse (rf2-4yw1)."
+  [t]
+  (t))
+
+(defmulti ^:private multi-lifecycle
+  "A `defmulti` fixture: `clojure.lang.MultiFn` is not `fn?` either, and it
+  invokes the thunk just as a plain fn does."
+  (fn [_t] :only))
+
+(defmethod multi-lifecycle :only [t] (t))
+
+(defn- calls-thunk?
+  "Whether `clojure.test/join-fixtures` — the chain `test-all-vars` builds —
+  actually INVOKES the test thunk when handed `fixture`.  This is the real
+  contract, and every assertion below is graded against it rather than
+  against the guard's opinion of it."
+  [fixture]
+  (let [ran? (atom false)]
+    ((clojure.test/join-fixtures [fixture]) #(reset! ran? true))
+    @ran?))
 
 (defn- with-probe-ns
   "Create `ns-sym`, give it `fixtures` under `meta-key` exactly as
@@ -103,6 +137,46 @@
         (is (= [] (rf.test-quiet.runner/uncallable-fixtures [ns-obj])))))
     (is (= [] (rf.test-quiet.runner/uncallable-fixtures [(the-ns 'clojure.core)])))
     (is (= [] (rf.test-quiet.runner/uncallable-fixtures [])))))
+
+;; ----------------------------------------------------------------------
+;; The other direction: callable entries `fn?` does not recognise (rf2-4yw1).
+
+(deftest callable-fixtures-that-are-not-fn-are-not-offenders
+  (testing "THE DEFECT THIS TIME IS THE GUARD'S: `#'lifecycle` and a
+            `defmulti` fixture both RUN the test, and `fn?` says false of
+            both, so `fn?` cannot be the contract"
+    (doseq [[label fixture] [["a Var referring to a function" #'lifecycle]
+                             ["a multimethod"                 multi-lifecycle]
+                             ["a Var referring to a multimethod"
+                              #'multi-lifecycle]]]
+      (is (false? (fn? fixture))
+          (str label " is not `fn?` — which is why the guard refused it"))
+      (is (true? (calls-thunk? fixture))
+          (str label " nevertheless invokes the test thunk, so"
+               " `clojure.test` runs the namespace's tests normally"))
+      (with-probe-ns 'probe.callable-fixture-ns :clojure.test/each-fixtures
+        (list fixture)
+        (fn [ns-obj]
+          (is (= [] (rf.test-quiet.runner/uncallable-fixtures [ns-obj]))
+              (str "and so the guard must accept " label)))))))
+
+(deftest a-var-referring-to-a-map-is-still-an-offender
+  (testing "a Var is an INDIRECTION, not a licence: `Var.invoke` forwards to
+            its root, so a Var whose root is a map swallows the thunk exactly
+            as the bare map does and must stay refused"
+    (let [holder    (create-ns 'probe.var-to-map-holder)
+          var-to-map (intern holder 'lifecycle map-fixture)]
+      (try
+        (is (false? (calls-thunk? var-to-map))
+            "the thunk is swallowed through the Var just as it is directly")
+        (with-probe-ns 'probe.var-to-map-ns :clojure.test/each-fixtures
+          (list var-to-map)
+          (fn [ns-obj]
+            (is (= 1 (count (rf.test-quiet.runner/uncallable-fixtures
+                              [ns-obj])))
+                "accepting every Var would reopen the defect one level down")))
+        (finally
+          (remove-ns 'probe.var-to-map-holder))))))
 
 (deftest this-lane-is-itself-clean
   (testing "the shipped call — every namespace this JVM has loaded — and so

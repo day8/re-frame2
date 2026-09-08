@@ -34,11 +34,13 @@
      refuses the run (exit 1, named on stderr) instead of leaving it
      silently short a suite — and the same fixture is green the moment
      before that file arrives.
-   - FIXTURES: a namespace whose `use-fixtures` entry is not a function
+   - FIXTURES: a namespace whose `use-fixtures` entry cannot be CALLED
      — the cljs.test `{:before f :after g}` map, whether written at the
      call site or reached through a var — refuses the run (exit 1, the
      namespace named on stderr) instead of contributing zero tests to a
-     tally that reports itself green.
+     tally that reports itself green; and, in the other direction, an
+     entry that IS callable without being `fn?` — a var referring to a
+     fixture function — keeps its lane green (rf2-4yw1).
    - STDERR BUFFER: a green run that emits expected
      stderr warnings stays quiet (the warnings are buffered + dropped);
      a RED run REPLAYS the buffered stderr context so a failing run
@@ -461,25 +463,50 @@
     (assert-uncallable-fixture-refused
       "bound_fixture_test" "probe.bound-fixture-test" source)))
 
+(defn- assert-callable-fixture-runs-green
+  "Run a one-`deftest` probe under `fixture-source` through the real `-main`
+  and assert the honest lane is untouched: the test RAN and the process
+  exited 0.  The passing assertion is the point — under a swallowed fixture
+  the tally would read `Ran 0 tests`, so the count discriminates `it ran` from
+  `it was skipped` exactly as the red rows' failing assertion does."
+  [file-stem ns-name-str fixture-source]
+  (with-fixture-dir
+    (fn [dir]
+      (write-raw-fixture! dir file-stem
+        (str "(ns " ns-name-str "\n"
+             "  (:require [clojure.test :refer [deftest is use-fixtures]]\n"
+             "            [re-frame.test-quiet]))\n"
+             fixture-source
+             "(deftest a-passing-test (is (= 1 1)))\n"))
+      (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
+        (is (zero? exit)
+            (str "got exit " exit "\n--- stdout ---\n" out
+                 "\n--- stderr ---\n" err))
+        (is (str/includes? out "Ran 1 tests containing 1 assertions.")
+            (str "and the fixture chain must still run the test; got\n"
+                 out))))))
+
 (deftest function-fixtures-keep-the-run-green
   (testing "the control: an ordinary lane with :once and :each FN fixtures is
             untouched, so the guard cannot red honest code"
-    (with-fixture-dir
-      (fn [dir]
-        (write-raw-fixture! dir "fn_fixture_test"
-          (str "(ns probe.fn-fixture-test\n"
-               "  (:require [clojure.test :refer [deftest is use-fixtures]]\n"
-               "            [re-frame.test-quiet]))\n"
-               "(use-fixtures :once (fn [t] (t)))\n"
-               "(use-fixtures :each (fn [t] (t)))\n"
-               "(deftest a-passing-test (is (= 1 1)))\n"))
-        (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
-          (is (zero? exit)
-              (str "got exit " exit "\n--- stdout ---\n" out
-                   "\n--- stderr ---\n" err))
-          (is (str/includes? out "Ran 1 tests containing 1 assertions.")
-              (str "and the fixture chain must still run the test; got\n"
-                   out)))))))
+    (assert-callable-fixture-runs-green
+      "fn_fixture_test" "probe.fn-fixture-test"
+      (str "(use-fixtures :once (fn [t] (t)))\n"
+           "(use-fixtures :each (fn [t] (t)))\n"))))
+
+(deftest var-fixtures-keep-the-run-green
+  (testing "THE REGRESSION CONTROL (rf2-4yw1): `(use-fixtures :each
+            #'lifecycle)` is ordinary, idiomatic and WORKING — `Var.invoke`
+            forwards to the root function, so the test runs — yet `fn?` is
+            false of a Var, and the guard refused the lane with the false
+            claim that every test in it silently did not run.  A census of
+            today's corpus cannot stand in for this row: it says only that
+            nobody happens to write the form, not that the form is broken."
+    (assert-callable-fixture-runs-green
+      "var_fixture_test" "probe.var-fixture-test"
+      (str "(defn lifecycle [t] (t))\n"
+           "(use-fixtures :once #'lifecycle)\n"
+           "(use-fixtures :each #'lifecycle)\n"))))
 
 ;; ----------------------------------------------------------------------
 ;; Nested-run banner correctness.
