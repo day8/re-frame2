@@ -260,18 +260,35 @@
     ;; header values are NOT a valid readiness signal here, because
     ;; :other-frame's request is *expected* to carry a nil header, which is
     ;; indistinguishable from "request has not yet landed" (rf2-fun38).
+    ;;
+    ;; But that same ambiguity makes the reply-landed wait insufficient on its
+    ;; OWN as the whole readiness story (rf2-5op3). A transport / error reply
+    ;; satisfies it just as well as a success, so a request that never reached
+    ;; the header observer at all leaves `seen-on-other` at its initial nil and
+    ;; the central `(nil? @seen-on-other)` assertion passes VACUOUSLY — the
+    ;; precise condition this test's own comment claims to exclude. Two
+    ;; witnesses close it, and they close different holes: `observed` records
+    ;; that each handler branch actually RAN (so nil means "observed, no
+    ;; header", never "never observed" — this is the half that survives a
+    ;; server that answers 200 on a path the cond does not match), and the
+    ;; per-reply `:status` assertions below require the expected SUCCESS rather
+    ;; than merely some reply. Neither replaces the wait: it is what keeps this
+    ;; test's own responses from outliving `stop-server!` (rf2-v3f6).
     (let [seen-on-default (atom nil)
           seen-on-other   (atom nil)
+          observed        (atom #{})
           {:keys [port] :as srv}
           (start-server!
             (fn [^HttpExchange ex]
               (let [path (.getPath (.getRequestURI ex))]
                 (cond
                   (.startsWith path "/from-default")
-                  (reset! seen-on-default (header-of ex "X-Marker"))
+                  (do (swap! observed conj :default)
+                      (reset! seen-on-default (header-of ex "X-Marker")))
 
                   (.startsWith path "/from-other")
-                  (reset! seen-on-other (header-of ex "X-Marker")))
+                  (do (swap! observed conj :other)
+                      (reset! seen-on-other (header-of ex "X-Marker"))))
                 (write-response! ex 200 "application/json" "{}"))))]
       (try
         (rf/make-frame {:id :other-frame :doc "alt frame"})
@@ -309,6 +326,17 @@
           #(and (some? (:reply (rf/app-db-value :rf/default)))
                 (some? (:reply (rf/app-db-value :other-frame))))
           {:timeout-ms 5000 :label "both frames' replies landed"})
+        ;; Both replies must be the EXPECTED SUCCESS, not merely present: an
+        ;; error envelope satisfies the wait above without either request
+        ;; having reached the header observer (rf2-5op3).
+        (is (= :ok (:status (:reply (rf/app-db-value :rf/default))))
+            "default-frame reply is a success, not a transport/error envelope")
+        (is (= :ok (:status (:reply (rf/app-db-value :other-frame))))
+            "other-frame reply is a success, not a transport/error envelope")
+        ;; …and both header observers must actually have run, so the nil below
+        ;; reads "observed, carried no header" rather than "never observed".
+        (is (= #{:default :other} @observed)
+            "both requests reached their header-observing handler branch")
         (is (= "default-only" @seen-on-default)
             "default-frame request carried the interceptor's header")
         (is (nil? @seen-on-other)
