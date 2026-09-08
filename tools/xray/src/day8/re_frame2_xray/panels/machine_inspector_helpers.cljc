@@ -96,8 +96,8 @@
   ## What this doesn't do
 
   Pure data. No subscription, no atom, no `js/` interop — the same
-  fn runs under CLJ and CLJS. The CLJS-only surfaces (`rf.machines/machines`
-  on a populated registrar, `rf/app-db-value` on a frame) are read
+  fn runs under CLJ and CLJS. The CLJS-only surfaces (the `:rf/machine?`
+  filter on a populated registrar, `rf/app-db-value` on a frame) are read
   by the composite sub in `registry.cljs`; the result is handed to
   this ns as a plain map."
   (:require [clojure.string :as str]

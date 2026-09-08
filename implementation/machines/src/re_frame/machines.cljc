@@ -418,8 +418,10 @@
 (rf.late-bind/set-fn! :machines/reg-machine            reg-machine*)
 (rf.late-bind/set-fn! :machines/make-machine-handler make-machine-handler)
 (rf.late-bind/set-fn! :machines/machine-transition     machine-transition)
-(rf.late-bind/set-fn! :machines/machines               machines)
-;; The hook key is retained (rf2-kuky.31): the retired `machine-meta` alias was
+;; No `:machines/machines` hook: the retired enumerate alias (rf2-kuky.31) had
+;; no consumer at all, and the read it published is a `filter` over the generic
+;; registrar query any caller can write. Removed from the directory with it.
+;; The `machine-meta` hook key IS retained (rf2-kuky.31): that alias was
 ;; a one-line delegate to `resolver/spec-from-registry`, so the hook publishes
 ;; that resolver directly — same 1-arity, same value, one fewer public name.
 (rf.late-bind/set-fn! :machines/machine-meta           rf.machines.lifecycle-fx.resolver/spec-from-registry)

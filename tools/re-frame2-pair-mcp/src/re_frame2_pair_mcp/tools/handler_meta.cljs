@@ -174,8 +174,8 @@
   a registrar kind; their metadata lives in the schemas artefact's
   per-frame side-table. `machine` is intentionally absent here too —
   it routes through the preload's `machine-describe` / `machines-list`
-  (which read the `:rf/machine` projection / `rf.machines/machines`, the
-  derived views over `:event`-kind metadata carrying the `:rf/machine?`
+  (which read the `:rf/machine` projection and the `:rf/machine?` filter —
+  the derived views over `:event`-kind metadata carrying that
   flag) — but is in `supported-kinds` below.
 
   `:flow` and `:frame` are absent for a THIRD reason, and it is the one
