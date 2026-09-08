@@ -1504,7 +1504,7 @@
       (is (string? (:schema-digest r))
           "the record carries a :schema-digest string")
       (is (= (:schema-digest r)
-             (rf.schemas/app-schemas-digest :test/digest))
+             (rf.schemas/app-schemas-digest {:frame :test/digest}))
           "record's stamp matches the live digest at record time"))))
 
 (deftest restore-failure-missing-handler-route

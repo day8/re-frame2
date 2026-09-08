@@ -2844,10 +2844,18 @@
       ;; Absent when the explain isn't a canonical Malli map.
       (some? decoded)
       (assoc :decoded decoded)
+      ;; rf2-kuky.84 — the violation's OWN frame, stamped on EVERY row
+      ;; rather than only the hot-reload ones. `rf/app-schema-meta` now
+      ;; REQUIRES an explicit `{:frame f}`, and the view's schema
+      ;; source-coord link reads it off this slot; resolving ambiently
+      ;; there would have resolved Xray's own `:rf/xray` frame, not the
+      ;; host frame whose app-db failed. Absent when the trace event
+      ;; carried no frame tag.
+      (some? (:frame tags))
+      (assoc :frame (:frame tags))
       (= :rf.schema/violation op-kw)
       (assoc :pre-reload-schema  (:pre-reload-schema tags)
-             :post-reload-schema (:post-reload-schema tags)
-             :frame              (:frame tags)))))
+             :post-reload-schema (:post-reload-schema tags)))))
 
 (defn schema-violation-rows
   "Walk every schema-violation trace event in `events` (both runtime

@@ -45,10 +45,13 @@
 ;; Registration + per-frame query (Spec 010 §Per-frame schemas).
 (def reg-app-schema       rf.schemas.storage/reg-app-schema)
 (def reg-app-schemas      rf.schemas.storage/reg-app-schemas)
-(def app-schema-at        rf.schemas.storage/app-schema-at)
-(def app-schema-meta-at   rf.schemas.storage/app-schema-meta-at)
+;; ONE FRAME SPELLING (rf2-kuky.84): both reads take a single opts MAP with a
+;; REQUIRED `:frame`, and `app-schemas` answers `{path → meta}` — the same
+;; `{id → meta}` shape the registrar grammar's `rf/registrations` answers. The
+;; former `frame-schema-entries` public var IS this fact and is gone; the
+;; `:schemas/frame-schema-entries` late-bind hook stays as a private seam.
 (def app-schemas          rf.schemas.storage/app-schemas)
-(def frame-schema-entries rf.schemas.storage/frame-schema-entries)
+(def app-schema-meta      rf.schemas.storage/app-schema-meta)
 
 ;; Test-support snapshot / restore / clear.
 (def snapshot-schemas-by-frame rf.schemas.storage/snapshot-schemas-by-frame)
@@ -108,7 +111,7 @@
 (rf.late-bind/set-fn! :schemas/validate-event!      validate-event!)
 (rf.late-bind/set-fn! :schemas/validate-sub!        validate-sub!)
 (rf.late-bind/set-fn! :schemas/validate-fx!         validate-fx!)
-(rf.late-bind/set-fn! :schemas/frame-schema-entries frame-schema-entries)
+(rf.late-bind/set-fn! :schemas/frame-schema-entries rf.schemas.storage/frame-schema-entries)
 ;; Frame-destroy cleanup hook (consumed by frame/destroy-frame!,
 ;; mirrors :machines/on-frame-destroyed! and :ssr/on-frame-destroyed).
 (rf.late-bind/set-fn! :schemas/on-frame-destroyed!  on-frame-destroyed!)
@@ -122,8 +125,7 @@
 ;; Public-API re-export hooks (consumed by re-frame.core-schemas).
 (rf.late-bind/set-fn! :schemas/reg-app-schema        reg-app-schema)
 (rf.late-bind/set-fn! :schemas/reg-app-schemas       reg-app-schemas)
-(rf.late-bind/set-fn! :schemas/app-schema-at         app-schema-at)
-(rf.late-bind/set-fn! :schemas/app-schema-meta-at    app-schema-meta-at)
+(rf.late-bind/set-fn! :schemas/app-schema-meta       app-schema-meta)
 (rf.late-bind/set-fn! :schemas/app-schemas           app-schemas)
 (rf.late-bind/set-fn! :schemas/app-schemas-digest    app-schemas-digest)
 

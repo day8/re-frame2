@@ -4175,7 +4175,7 @@
   [{:keys [flow-id frame path before after duration-ms step-number
            db-pre-flow db-post-flow errors]}]
   (let [;; rf2-20359j — flows are FRAME-DIVERGENT-per-id (Spec 013), so the
-        ;; source-coord lookup reads the per-frame `rf.flows/flow-meta-at`
+        ;; source-coord lookup reads the per-frame `rf.flows/flow-meta`
         ;; (the `(handler-meta :flow id)` replacement after rf2-en00bk
         ;; emptied the registrar `:flow` slot). The flow's OWN frame rides
         ;; the `:rf.flow/computed` event's `:frame` tag (threaded through
@@ -4184,7 +4184,7 @@
         ;; latter would resolve Xray's OWN `:rf/xray` frame, not the host
         ;; frame whose flow this is. nil frame degrades to no source link.
         flow-meta  (when (and (keyword? flow-id) (keyword? frame))
-                     (try (rf.flows/flow-meta-at flow-id {:frame frame})
+                     (try (rf.flows/flow-meta {:frame frame :id flow-id})
                           (catch :default _ nil)))
         coord      (when (and flow-meta (string? (:file flow-meta)))
                      {:file (:file flow-meta) :line (:line flow-meta)})
@@ -5332,20 +5332,26 @@
   Previously-discrete fields (headline `where · failing-id`, path,
   value, separate handler + schema 'open' buttons) all retired —
   subsumed by the prose + humanized explain."
-  [step-key idx {:keys [where failing-id path rollback? recovery
+  [step-key idx {:keys [where failing-id path rollback? recovery frame
                         explain explain-humanized kind sensitive? decoded]
                  :as   _row}]
   (let [recovery-label  (violation-recovery-label where rollback? recovery)
         ;; The schema source-coord resolution varies by :where. For
         ;; `:app-db`, the schema is registered at a PATH (not
-        ;; keyword-id), so we read through `:schemas/app-schema-meta-at`
-        ;; — the same hook the framework's schema-introspection surface
-        ;; uses (rf2-mg6ya). For other `:where` values, the schema
-        ;; rides on the registration's `:schema` metadata, reachable
-        ;; via `handler-meta`. Both paths catch + return nil so missing
-        ;; coords degrade the inline link to plain text.
-        schema-coord    (or (when (and (= :app-db where) (sequential? path))
-                              (try (let [m (rf.schemas/app-schema-meta-at path)]
+        ;; keyword-id), so we read through `rf.schemas/app-schema-meta`
+        ;; — the same surface the framework's schema-introspection uses
+        ;; (rf2-mg6ya). Since rf2-kuky.84 that read takes ONE opts map
+        ;; with a REQUIRED `:frame`, so the violation's own frame (off
+        ;; the projected row) is passed EXPLICITLY: resolving ambiently
+        ;; would have resolved Xray's OWN `:rf/xray` frame rather than
+        ;; the host frame whose app-db failed. For other `:where`
+        ;; values, the schema rides on the registration's `:schema`
+        ;; metadata, reachable via `handler-meta`. Both paths catch +
+        ;; return nil so missing coords degrade the link to plain text.
+        schema-coord    (or (when (and (= :app-db where) (sequential? path)
+                                       (keyword? frame))
+                              (try (let [m (rf.schemas/app-schema-meta
+                                             {:frame frame :path path})]
                                      (when (and m (string? (:file m)))
                                        {:file (:file m) :line (:line m)}))
                                    (catch :default _ nil)))

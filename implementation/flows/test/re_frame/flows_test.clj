@@ -92,10 +92,10 @@
     (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :area)
         "the flow lives under :rf/default's slot of the per-frame registry")
     ;; Per rf2-en00bk the per-frame `flows` store is the SOLE store — the flow
-    ;; is introspectable via the frame-scoped `flow-meta-at`, NOT a frame-blind
+    ;; is introspectable via the frame-scoped `flow-meta`, NOT a frame-blind
     ;; registrar `:flow` slot (which is RESERVED-but-empty).
-    (is (some? (rf.flows/flow-meta-at :area {:frame :rf/default}))
-        "the flow is discoverable via the frame-scoped flow-meta-at")
+    (is (some? (rf.flows/flow-meta {:frame :rf/default :id :area}))
+        "the flow is discoverable via the frame-scoped flow-meta")
     (is (nil? (rf.registrar/lookup :flow :area))
         "the :flow registrar kind is RESERVED-but-empty — no slot is written (rf2-en00bk)")))
 
@@ -883,7 +883,7 @@
             "prior :b's :derive fn has the SAME identity (not the rejected new fn)"))
       ;; And the per-frame store — the single source of truth (rf2-en00bk) —
       ;; must still resolve the prior :b for this frame.
-      (is (some? (rf.flows/flow-meta-at :b {:frame :rf/default}))
+      (is (some? (rf.flows/flow-meta {:frame :rf/default :id :b}))
           "the per-frame flow store for :b is still populated"))))
 
 ;; ---------------------------------------------------------------------------
@@ -1224,17 +1224,17 @@
   (testing "reg-flow writes ONLY the per-frame `flows` store, never a registrar :flow slot; reset-flows! clears it"
     (rf/reg-flow :one {:inputs [[:a]] :output-path [:slots :one]} identity)
     (rf/reg-flow :two {:inputs [[:a]] :output-path [:slots :two]} identity)
-    ;; The flows live in the per-frame store, introspectable via flow-meta-at.
-    (is (some? (rf.flows/flow-meta-at :one {:frame :rf/default})))
-    (is (some? (rf.flows/flow-meta-at :two {:frame :rf/default})))
+    ;; The flows live in the per-frame store, introspectable via flow-meta.
+    (is (some? (rf.flows/flow-meta {:frame :rf/default :id :one})))
+    (is (some? (rf.flows/flow-meta {:frame :rf/default :id :two})))
     ;; The registrar `:flow` slot is RESERVED-but-empty — never written.
     (is (nil? (rf.registrar/lookup :flow :one))
         ":flow registrar slot is empty — flows own their per-frame store (rf2-en00bk)")
     (is (nil? (rf.registrar/lookup :flow :two)))
     ;; `reset-flows!` (NOT registrar/clear-all!) is what clears the flow store.
     (rf.flows/reset-flows!)
-    (is (nil? (rf.flows/flow-meta-at :one {:frame :rf/default})))
-    (is (nil? (rf.flows/flow-meta-at :two {:frame :rf/default})))))
+    (is (nil? (rf.flows/flow-meta {:frame :rf/default :id :one})))
+    (is (nil? (rf.flows/flow-meta {:frame :rf/default :id :two})))))
 
 (deftest reset-flows-clears-both-flows-and-last-inputs
   ;; `reset-flows!` resets BOTH the flow registry AND the dirty-check
@@ -1365,9 +1365,9 @@
     ;; Under the per-frame single store, :right's entry is authoritative in
     ;; place — there is no shared registrar `:flow` slot to keep aligned. Per-
     ;; frame introspection shows :left cleared, :right still owning the id.
-    (is (nil? (rf.flows/flow-meta-at :compute {:frame :left}))
+    (is (nil? (rf.flows/flow-meta {:frame :left :id :compute}))
         ":left's per-frame flow entry is gone after the clear")
-    (is (some? (rf.flows/flow-meta-at :compute {:frame :right}))
+    (is (some? (rf.flows/flow-meta {:frame :right :id :compute}))
         ":right's per-frame flow entry is intact — it still registers the id")
     (is (nil? (rf.registrar/lookup :flow :compute))
         "the :flow registrar slot is RESERVED-but-empty throughout (rf2-en00bk)"))
@@ -1376,7 +1376,7 @@
     (rf/clear :flow :compute {:frame :right})
     (is (not (contains? (get (rf.flows/flows-snapshot) :right) :compute))
         ":right's slot is now gone")
-    (is (nil? (rf.flows/flow-meta-at :compute {:frame :right}))
+    (is (nil? (rf.flows/flow-meta {:frame :right :id :compute}))
         ":right's per-frame flow entry is gone")
     (is (nil? (rf.registrar/lookup :flow :compute))
         "the :flow registrar slot stays empty — single-store, nothing to unregister (rf2-en00bk)")))
@@ -1387,7 +1387,7 @@
 ;; The public frame-target contract (EP-0024) admits a frame VALUE
 ;; (make-frame's return token) EVERYWHERE a frame-id keyword is accepted; the
 ;; internal normalization seam (`frame/frame-target->id`) funnels a value to
-;; its id. The flows READ path (`flow-meta-at`) already normalized; the WRITE
+;; its id. The flows READ path (`flow-meta`) already normalized; the WRITE
 ;; paths (`reg-flow` / `clear-flow`) did NOT, so an explicit `{:frame <value>}`
 ;; keyed the per-frame store by the raw map — a live frame read as not-live at
 ;; registration, and a clear silently missed the flow. This pins that both
@@ -1397,7 +1397,7 @@
 
 (deftest reg-and-clear-flow-normalize-frame-value-target
   (testing "reg-flow with an explicit FRAME-VALUE `:frame` registers the flow
-            (does NOT report the live frame as not-live), and flow-meta-at
+            (does NOT report the live frame as not-live), and flow-meta
             observes the SAME flow whether keyed by id or by value"
     (let [frame-val (rf/make-frame {:id :fv/host})]
       (is (rf.frame/frame-value? frame-val)
@@ -1413,12 +1413,12 @@
                           (fn [w h] (* (or w 0) (or h 0)))))
           "reg-flow against a frame VALUE succeeds (frame normalized to its id)")
       ;; Read by id AND by value resolve the same registered flow.
-      (is (some? (rf.flows/flow-meta-at :area {:frame :fv/host}))
-          "flow-meta-at by frame-id finds the flow registered via the value")
-      (is (some? (rf.flows/flow-meta-at :area {:frame frame-val}))
-          "flow-meta-at by frame VALUE finds the same flow")
-      (is (= (rf.flows/flow-meta-at :area {:frame :fv/host})
-             (rf.flows/flow-meta-at :area {:frame frame-val}))
+      (is (some? (rf.flows/flow-meta {:frame :fv/host :id :area}))
+          "flow-meta by frame-id finds the flow registered via the value")
+      (is (some? (rf.flows/flow-meta {:frame frame-val :id :area}))
+          "flow-meta by frame VALUE finds the same flow")
+      (is (= (rf.flows/flow-meta {:frame :fv/host :id :area})
+             (rf.flows/flow-meta {:frame frame-val :id :area}))
           "by-id and by-value observe the IDENTICAL flow meta")
       ;; The store is keyed by the normalized id, not the raw value map.
       (is (contains? (get (rf.flows/flows-snapshot) :fv/host) :area)
@@ -1430,9 +1430,9 @@
               registered under the frame-id (does not silently miss it)"
       (let [frame-val (rf/make-frame {:id :fv/host})]  ; idempotent re-make; same id
         (rf/clear :flow :area {:frame frame-val})
-        (is (nil? (rf.flows/flow-meta-at :area {:frame :fv/host}))
+        (is (nil? (rf.flows/flow-meta {:frame :fv/host :id :area}))
             "clear-by-value removed the flow observed by id")
-        (is (nil? (rf.flows/flow-meta-at :area {:frame frame-val}))
+        (is (nil? (rf.flows/flow-meta {:frame frame-val :id :area}))
             "clear-by-value removed the flow observed by value")
         (is (not (contains? (get (rf.flows/flows-snapshot) :fv/host) :area))
             "the per-frame store slot is gone after the value-keyed clear")))))
@@ -1503,7 +1503,7 @@
 ;; per-frame `flows` atom as the SOLE store (the rf2-0frdi schemas precedent
 ;; applied to flows), each frame's entry is authoritative in place: the SAME
 ;; flow-id registered against two frames returns each frame's OWN divergent
-;; definition via `flow-meta-at`, and a clear / destroy on one frame never
+;; definition via `flow-meta`, and a clear / destroy on one frame never
 ;; disturbs the other. The frame-attribution + `:different-fn?` hot-reload
 ;; signals the realignment used to serve are now driven directly by `reg-flow`
 ;; (see `flow-hot-reload-different-fn?-reflects-real-body-swap`). The whole
@@ -1512,21 +1512,21 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest per-frame-store-keeps-frame-divergent-definitions
-  (testing "the SAME flow-id registered against two frames returns each frame's OWN divergent definition via flow-meta-at; no frame-blind registrar slot"
+  (testing "the SAME flow-id registered against two frames returns each frame's OWN divergent definition via flow-meta; no frame-blind registrar slot"
     (rf/make-frame {:id :left :doc "left frame"})
     (rf/make-frame {:id :right :doc "right frame"})
     (let [f-left  (fn [n] (* 2 (or n 0)))
           f-right (fn [n] (* 100 (or n 0)))]
       (rf/reg-flow :shared {:frame :left :inputs [[:n]] :output-path [:result-left]} f-left)
       (rf/reg-flow :shared {:frame :right :inputs [[:m]] :output-path [:result-right]} f-right)
-      ;; Each frame's flow-meta-at returns its OWN divergent definition — the
+      ;; Each frame's flow-meta returns its OWN divergent definition — the
       ;; very thing a frame-blind slot could never represent.
-      (is (= f-left  (:derive (rf.flows/flow-meta-at :shared {:frame :left})))
-          ":left's flow-meta-at carries :left's :derive")
-      (is (= f-right (:derive (rf.flows/flow-meta-at :shared {:frame :right})))
-          ":right's flow-meta-at carries :right's :derive (divergent, not overwritten)")
-      (is (= [:result-left]  (:output-path (rf.flows/flow-meta-at :shared {:frame :left}))))
-      (is (= [:result-right] (:output-path (rf.flows/flow-meta-at :shared {:frame :right}))))
+      (is (= f-left  (:derive (rf.flows/flow-meta {:frame :left :id :shared})))
+          ":left's flow-meta carries :left's :derive")
+      (is (= f-right (:derive (rf.flows/flow-meta {:frame :right :id :shared})))
+          ":right's flow-meta carries :right's :derive (divergent, not overwritten)")
+      (is (= [:result-left]  (:output-path (rf.flows/flow-meta {:frame :left :id :shared}))))
+      (is (= [:result-right] (:output-path (rf.flows/flow-meta {:frame :right :id :shared}))))
       ;; The registrar `:flow` slot is RESERVED-but-empty throughout.
       (is (nil? (rf.registrar/lookup :flow :shared))
           "no frame-blind registrar :flow slot is written (rf2-en00bk)"))))
@@ -1541,9 +1541,9 @@
       (rf/reg-flow :shared {:frame :right :inputs [[:n]] :output-path [:result]} f-right)
       ;; Clear :right. :left still holds :shared — its entry is unchanged.
       (rf/clear :flow :shared {:frame :right})
-      (is (nil? (rf.flows/flow-meta-at :shared {:frame :right}))
+      (is (nil? (rf.flows/flow-meta {:frame :right :id :shared}))
           ":right's per-frame entry is gone")
-      (is (= f-left (:derive (rf.flows/flow-meta-at :shared {:frame :left})))
+      (is (= f-left (:derive (rf.flows/flow-meta {:frame :left :id :shared})))
           ":left's entry is intact and authoritative IN PLACE — no realignment needed")
       (is (nil? (rf.registrar/lookup :flow :shared))
           "registrar :flow slot stays empty (rf2-en00bk)"))))
@@ -1556,19 +1556,19 @@
     ;; :left never registered :shared — clearing it is a frame-local no-op for
     ;; :right's entry.
     (rf/clear :flow :shared {:frame :left})
-    (is (some? (rf.flows/flow-meta-at :shared {:frame :right}))
+    (is (some? (rf.flows/flow-meta {:frame :right :id :shared}))
         ":right's entry survives — the clear on :left could not touch it")
-    (is (nil? (rf.flows/flow-meta-at :shared {:frame :left}))
+    (is (nil? (rf.flows/flow-meta {:frame :left :id :shared}))
         ":left never held :shared")))
 
 (deftest clear-flow-last-frame-drops-the-final-per-frame-entry
   (testing "clearing the only registering frame drops the final per-frame entry; the registrar slot was empty all along (rf2-en00bk)"
     (rf/reg-flow :solo {:inputs [[:n]] :output-path [:result]} (fn [n] n))
-    (is (some? (rf.flows/flow-meta-at :solo {:frame :rf/default})))
+    (is (some? (rf.flows/flow-meta {:frame :rf/default :id :solo})))
     (is (nil? (rf.registrar/lookup :flow :solo))
         "registrar :flow slot is RESERVED-but-empty even while the flow is live")
     (rf/clear :flow :solo)
-    (is (nil? (rf.flows/flow-meta-at :solo {:frame :rf/default}))
+    (is (nil? (rf.flows/flow-meta {:frame :rf/default :id :solo}))
         "the per-frame entry is gone after the clear")
     (is (nil? (rf.registrar/lookup :flow :solo))
         "registrar :flow slot remains empty — nothing to unregister (rf2-en00bk)")))

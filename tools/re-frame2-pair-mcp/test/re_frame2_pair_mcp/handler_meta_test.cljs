@@ -220,7 +220,7 @@
 ;; The two RESERVED-BUT-EMPTY registrar slots — `flow` and `frame` (rf2-zhef).
 ;;
 ;; `re-frame.registrar/kinds` reserves both, but nothing is ever written to
-;; either: flows live in `re-frame.flows` (`flows-snapshot` / `flow-meta-at`)
+;; either: flows live in `re-frame.flows` (`flows-snapshot` / `flow-meta`)
 ;; and frames in `rf/frame-ids` / `rf/frame-meta`. The framework made querying
 ;; them LOUD in rf2-kuky.30 — `(rf/registrations {:source :store :kind :flow})`
 ;; throws `:rf.error/registrar-kind-not-queryable` — and the preload's

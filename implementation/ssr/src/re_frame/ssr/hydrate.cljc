@@ -488,15 +488,21 @@
   []
   rf.ssr.payload-policy/pattern-protocol-version)
 
-(defn- schema-digest-lookup
-  "Look up the active frame's `app-schemas-digest`. Sourced via the
-  schemas artefact's `:schemas/app-schemas-digest` late-bind hook so
+(defn- schema-digest-lookup-for
+  "Return a 0-arity lookup of `frame-id`'s `app-schemas-digest`. Sourced via
+  the schemas artefact's `:schemas/app-schemas-digest` late-bind hook so
   re-frame.ssr does not statically `:require` the schemas artefact —
   in builds where schemas is absent the lookup returns nil and the
-  check emits `:rf.ssr/compatibility-check-skipped`."
-  []
-  (when-let [f (rf.late-bind/get-fn :schemas/app-schemas-digest)]
-    (f)))
+  check emits `:rf.ssr/compatibility-check-skipped`.
+
+  The hook takes ONE opts MAP with a REQUIRED `:frame` (rf2-kuky.84 — one
+  frame spelling on the side-table read lane), so the fx handler's own
+  `:frame` is threaded in here rather than resolved ambiently inside the
+  hook."
+  [frame-id]
+  (fn []
+    (when-let [f (rf.late-bind/get-fn :schemas/app-schemas-digest)]
+      (f {:frame frame-id}))))
 
 (defn check-version-fx
   "Handler fn for the `:rf.ssr/check-version` fx. Compares the
@@ -528,7 +534,7 @@
   registered app-schema digest via the `:schemas/app-schemas-digest`
   late-bind hook."
   [{:keys [frame]} arg]
-  (let [{:keys [expected actual]} (check-args arg schema-digest-lookup)]
+  (let [{:keys [expected actual]} (check-args arg (schema-digest-lookup-for frame))]
     (cond
       (nil? expected) nil                              ;; nothing to check
 

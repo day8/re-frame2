@@ -554,16 +554,17 @@
         ;; fixed digest value. EP-0002 (rf2-bd4div) — the digest is
         ;; frame-local, so `view-schema-digest` now invokes the hook with
         ;; the variant's TARGET frame-id (no ambient resolution). The stub
-        ;; takes (and ignores) that frame-id arg, matching the real
-        ;; `app-schemas-digest` hook's keyword-frame-id arity.
+        ;; takes (and ignores) that `{:frame target}` opts map, matching
+        ;; the real `app-schemas-digest` hook's one map arity
+        ;; (rf2-kuky.84).
         (rf.late-bind/set-fn! :schemas/app-schemas-digest
-                           (fn [_frame-id] "sha256:0000000000000001"))
+                           (fn [_opts] "sha256:0000000000000001"))
         (let [h1 (-> (rf.story/snapshot-identity :story.id-sd/v) :content-hash)]
           ;; Now simulate a schema change by mutating the hook's
           ;; return value. The framework actually re-installs the hook
           ;; each time schemas mutate; we model that here.
           (rf.late-bind/set-fn! :schemas/app-schemas-digest
-                             (fn [_frame-id] "sha256:0000000000000002"))
+                             (fn [_opts] "sha256:0000000000000002"))
           (let [h2 (-> (rf.story/snapshot-identity :story.id-sd/v) :content-hash)]
             (is (not= h1 h2)
                 "a view schema-digest change must produce a fresh hash")))

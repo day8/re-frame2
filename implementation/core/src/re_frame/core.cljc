@@ -1080,8 +1080,8 @@
 ;; The flows + schemas QUERY / LIFECYCLE / VALIDATOR-INSTALL helpers are NO
 ;; LONGER re-exported from `re-frame.core` (rf2-wad2fl — front-porch shrink).
 ;; They are optional-feature surfaces whose owned namespace is the better
-;; public home: reach them through `re-frame.schemas` (`app-schema-at`,
-;; `app-schema-meta-at`, `app-schemas`, `app-schemas-digest`,
+;; public home: reach them through `re-frame.schemas` (`app-schemas`,
+;; `app-schema-meta`, `app-schemas-digest`,
 ;; `set-schema-fns!`, `schema-fns`, `default-schema-fns`) — the owned
 ;; namespaces already
 ;; publish them. The `reg-flow` / `reg-app-schema` / `reg-app-schemas`
@@ -1725,7 +1725,7 @@
 ;; them handed the caller an apparently authoritative empty catalogue while the
 ;; real store lived elsewhere (it bit Xray's flow panel). Both now throw
 ;; `:rf.error/registrar-kind-not-queryable`, whose message NAMES THE REAL DOOR
-;; (`re-frame.flows/flows-snapshot` / `flow-meta-at`; `rf/frame-ids` /
+;; (`re-frame.flows/flows` / `flow-meta` / `flows-snapshot`; `rf/frame-ids` /
 ;; `rf/frame-meta`). A kind outside the queryable set throws the registrar's
 ;; own `:rf.error/unknown-registry-kind`.
 ;;
@@ -1846,7 +1846,7 @@
 ;; asking a real question at the wrong door, so the answer names the right door
 ;; rather than being a `{}` that reads as "there are none".
 (def ^:private not-queryable-kinds
-  {:flow  "re-frame.flows/flows-snapshot (the whole per-frame store) or re-frame.flows/flow-meta-at (one flow)"
+  {:flow  "re-frame.flows/flows {:frame f} (one frame's flows), re-frame.flows/flow-meta {:frame f :id id} (one flow), or re-frame.flows/flows-snapshot (the whole per-frame store)"
    :frame "rf/frame-ids (the live frame ids) or rf/frame-meta (one frame's config)"})
 
 (defn- assert-queryable-kind!

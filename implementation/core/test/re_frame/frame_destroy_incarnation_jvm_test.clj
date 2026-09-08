@@ -1578,14 +1578,15 @@
     (try
       (rf.late-bind/set-fn!
         :schemas/app-schemas-digest
-        (fn [frame-id]
-          (if (= id frame-id)
+        ;; rf2-kuky.84 - the hook takes ONE opts map with a REQUIRED :frame.
+        (fn [{:keys [frame] :as opts}]
+          (if (= id frame)
             (do
               (rf.frame/destroy-frame! id)
               (.countDown digest-lost-a)
               (.await release-digest 10 TimeUnit/SECONDS)
               (throw (ex-info "digest lost A" {})))
-            (when original-digest (original-digest frame-id)))))
+            (when original-digest (original-digest opts)))))
       (rf.late-bind/set-fn!
         :trace.cascade/capture-for-epoch!
         (fn [& args]

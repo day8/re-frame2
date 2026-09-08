@@ -17,42 +17,44 @@
    :maven         "day8/re-frame2-schemas"
    :require-ns    "re-frame.schemas"})
 
-(defwrapper app-schema-at
-  "Return the registered schema for a path in a frame, or nil. Per Spec
-  010 §Schemas as a tooling and agent surface. Returns nil when the
-  schemas artefact is not on the classpath."
-  {:hook :schemas/app-schema-at :artefact schemas-artefact :on-absent :nil}
-  ([path]      [path {}])
-  ([path opts] :delegate))
+;; ONE FRAME SPELLING (rf2-kuky.84). The three side-table READS each take a
+;; single opts MAP with a REQUIRED `:frame` — no ambient default, no trailing
+;; frame-target sniffing, no bare-frame-id sugar. A frameless or non-map call
+;; raises the catalogued `:rf.error/no-frame-context`.
 
-(defwrapper app-schema-meta-at
-  "Return the full registration-metadata map for a path in a frame, or
-  nil. Unlike `app-schema-at` (which returns just the `:schema` value),
-  this returns the meta stamped at `reg-app-schema` — `:path`,
-  `:schema`, `:frame`, and the source-coords `:ns` / `:line` / `:file`.
-  The source-coord introspection surface pair-tools and 10x read when
-  they need the registration anchor (e.g. click-back-to-code). Per Spec
-  010 §Schemas as a tooling and agent surface. Returns nil when the
-  schemas artefact is not on the classpath."
-  {:hook :schemas/app-schema-meta-at :artefact schemas-artefact :on-absent :nil}
-  ([path]      [path {}])
-  ([path opts] :delegate))
+(defwrapper app-schema-meta
+  "Return the full registration-metadata map for one path in a frame, or
+  nil — the meta stamped at `reg-app-schema`: `:path`, `:schema`,
+  `:frame`, and the source-coords `:ns` / `:line` / `:file`. The
+  registered schema itself is `(:schema …)`. The source-coord
+  introspection surface pair-tools and 10x read when they need the
+  registration anchor (e.g. click-back-to-code).
+
+  Shape: `(app-schema-meta {:frame f :path p})` — both keys required.
+  Per Spec 010 §Schemas as a tooling and agent surface. Returns nil when
+  the schemas artefact is not on the classpath."
+  {:hook :schemas/app-schema-meta :artefact schemas-artefact :on-absent :nil}
+  ([opts] :delegate))
 
 (defwrapper app-schemas
-  "Return every registered `app-schema-at` declaration for a frame as a
-  `{path → schema}` map. Per Spec 010 §Per-frame schemas. Returns `{}`
-  when the schemas artefact is not on the classpath."
+  "Return a frame's whole `{path → registration-metadata}` map — the same
+  `{id → meta}` shape `rf/registrations` answers. Project `:schema` for
+  the schema values alone.
+
+  Shape: `(app-schemas {:frame f})` — `:frame` required. Per Spec 010
+  §Per-frame schemas. Returns `{}` when the schemas artefact is not on
+  the classpath."
   {:hook :schemas/app-schemas :artefact schemas-artefact :on-absent :empty-map}
-  ([]                 [{}])
-  ([opts-or-frame-id] :delegate))
+  ([opts] :delegate))
 
 (defwrapper app-schemas-digest
-  "Return a stable digest of the registered schemas for a frame. Per
-  Spec 010 §Digest algorithm. Returns `nil` when the schemas artefact
-  is not on the classpath."
+  "Return a stable digest of the registered schemas for a frame.
+
+  Shape: `(app-schemas-digest {:frame f})` — `:frame` required. Per Spec
+  010 §Digest algorithm. Returns `nil` when the schemas artefact is not
+  on the classpath."
   {:hook :schemas/app-schemas-digest :artefact schemas-artefact :on-absent :nil}
-  ([]                 [{}])
-  ([opts-or-frame-id] :delegate))
+  ([opts] :delegate))
 
 ;; ---- validator-install wrappers — RETIRED (rf2-kuky.39) -------------------
 ;;

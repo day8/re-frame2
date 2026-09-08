@@ -25,7 +25,7 @@
   writes only to the schemas artefact's own per-frame side-table
   (`schemas/schemas-by-frame`), which is the single source of truth.
   Tools introspecting app-db schemas go through `schemas/app-schemas`
-  / `schemas/app-schema-meta-at`.
+  / `schemas/app-schema-meta`.
 
   Per rf2-en00bk the `:flow` kind is RESERVED but the registrar slot is
   intentionally **empty** — `reg-flow` writes only to the flows artefact's
@@ -35,7 +35,7 @@
   `:output-path` per frame, Spec 013), so a frame-blind `{flow-id metadata}`
   registrar slot is the wrong shape; the kind keyword is preserved for
   Spec 001 §Registry model continuity. Tools introspecting flows go through
-  `flows/flow-meta-at` / `flows/flows-snapshot` rather than
+  `flows/flows` / `flows/flow-meta` / `flows/flows-snapshot` rather than
   `handlers :flow` / `handler-meta :flow` — matching the `:app-schema`
   precedent (rf2-0frdi).
 
@@ -110,7 +110,7 @@
 
   App-db schemas are NOT a registrar kind — they live in the schemas
   artefact's per-frame side-table (`schemas/schemas-by-frame`).
-  Introspect via `schemas/app-schemas` / `schemas/app-schema-meta-at`.
+  Introspect via `schemas/app-schemas` / `schemas/app-schema-meta`.
 
   `:resource` (Spec 016 §Registration) is the resources
   artefact's registrar kind — `reg-resource` registers a resource spec

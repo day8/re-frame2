@@ -3313,7 +3313,7 @@ carrying, top to bottom:
    `schema check` is the inline click-to-source link;
    click dispatches `:rf.xray/open-in-editor` against the
    schema's resolved source-coord. Coord resolution varies by
-   `:where`: `:app-db` reads `(rf/app-schema-meta-at path)`
+   `:where`: `:app-db` reads `(rf/app-schema-meta {:frame f :path path})`
    (per rf2-mg6ya); other `:where` values read
    `(rf/handler-meta {:source :store :kind :schema :id failing-id})`. Missing coord →
    the link degrades to plain inline text inside the sentence
@@ -3394,8 +3394,10 @@ mute below) handles the downstream-step opacity overlay.
 **Inline link → coord resolution.** The `schema check` link
 resolves to the schema's source-coord, NOT the handler's:
 
-- `:app-db` → `(rf/app-schema-meta-at path)` (the
-  `:schemas/app-schema-meta-at` late-bind hook per rf2-mg6ya)
+- `:app-db` → `(rf/app-schema-meta {:frame f :path path})` (the
+  `:schemas/app-schema-meta` late-bind hook per rf2-mg6ya; the frame is
+  the violation row's own, never an ambient resolution — that would
+  resolve Xray's own frame)
   reads the registration meta the schemas artefact stamped on
   `reg-app-schema`. Returns `{:file :line}` or nil.
 - `:fx-args` / `:sub-return` / `:event` / `:cofx` →
@@ -3948,7 +3950,7 @@ The accompanying view-layer chrome:
 
 - **Header** — `:FLOW` badge + flow-id button to the right of
   the badge. The button is clickable when
-  `(re-frame.flows/flow-meta-at <id> {:frame <frame-id>})` returns a
+  `(re-frame.flows/flow-meta {:frame <frame-id> :id <id>})` returns a
   coordinate (the `(rf/handler-meta {:source :store :kind :flow :id id})` replacement after framework
   rf2-en00bk made the per-frame flows atom the sole store and emptied the
   registrar `:flow` slot; the flow's frame rides the `:rf.flow/computed`

@@ -3140,7 +3140,7 @@ rf2-kuky.30 the framework refuses such a query outright
 one layer earlier with the ordinary
 `{:ok? false :reason :invalid-kind :kind <raw> :hint "..."}` envelope
 rather than propagating the framework throw. Read flows through
-`re-frame.flows/flows-snapshot` / `flow-meta-at`, and frames through
+`re-frame.flows/flows-snapshot` / `flow-meta`, and frames through
 `rf/frame-ids` / `rf/frame-meta` (`discover-app` surfaces the frame
 roster over the wire).
 
@@ -3183,7 +3183,8 @@ and the `:interceptor` kind (EP-0022 — `reg-interceptor`; its meta
 surfaces the registered `:rf/interceptor-descriptor`).
 App-db schemas are **not** a registrar kind
 (rf2-cq1ak) — their metadata lives in the schemas artefact's per-frame
-side-table, queried via `rf/app-schemas` / `rf/app-schema-meta-at`.
+side-table, queried via `rf/app-schemas {:frame f}` / `rf/app-schema-meta
+{:frame f :path p}`.
 The twelve registrar kinds route through
 `(re-frame2-pair.runtime/registrar-describe kind id)`. For a
 `:resource-scope` the meta surfaces the named scope resolver's declared
@@ -3292,7 +3293,7 @@ There is no `realm` arg — the EP-0013 realm substrate was deleted in full
 (including the resources-artefact `:resource` / `:mutation` /
 `:resource-scope` kinds — EP-0016 / rf2-f8s9g6 — and the `:interceptor`
 kind — EP-0022; per rf2-cq1ak app-db
-schemas are not a registrar kind — use `rf/app-schemas` for those; plus
+schemas are not a registrar kind — use `rf/app-schemas {:frame f}` for those; plus
 the virtual `:machine` kind). The fourteen
 registrar kinds lift the id vector off the registrar's per-kind
 map via `(re-frame2-pair.runtime/registrar-list kind)` —

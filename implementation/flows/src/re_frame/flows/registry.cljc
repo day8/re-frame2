@@ -21,7 +21,7 @@
   ^{:doc     "frame-id → flow-id → flow-map. Per-frame so undo / time-travel
               / clear semantics are unambiguous."
     :private true}
-  flows
+  flows-by-frame
   (atom {}))
 
 ;; The outer registry changes only when a frame's cache is created or removed.
@@ -49,41 +49,58 @@
 (defn flows-snapshot
   "Return `{frame-id {flow-id flow-map}}`."
   []
-  @flows)
+  @flows-by-frame)
 
 ;; ---- per-frame flow introspection ----------------------------------------
+;;
+;; ONE FRAME SPELLING (rf2-kuky.84). Both per-frame reads take a single opts
+;; MAP whose `:frame` is REQUIRED — the same accepted target shapes
+;; `rf/registrations` takes (a frame-id keyword or a frame value), resolved to
+;; the frame id that keys this side table. There is deliberately NO ambient
+;; default and no trailing frame-target sniffing: a live frame value is itself
+;; a map, so a type-sniffing trailing argument cannot be read locally (Spec
+;; Principles §Name over place). A frameless or non-map call raises the
+;; catalogued `:rf.error/no-frame-context`.
 
-(defn- coerce-flow-opts
-  "Coerce a frame target or opts map to the `flow-meta-at` opts shape.
+(defn- read-frame-id
+  "Resolve the REQUIRED `:frame` target of a side-table read's opts map.
 
-  Test frame values before `map?` because frame values are maps."
-  [opts-or-frame-target]
-  (cond
-    (nil? opts-or-frame-target) {}
-    (or (keyword? opts-or-frame-target)
-        (rf.frame/frame-value? opts-or-frame-target)) {:frame opts-or-frame-target}
-    (map? opts-or-frame-target) opts-or-frame-target
-    :else {:frame opts-or-frame-target}))
+  `where-sym` names the public fn in the diagnostic. No liveness or image
+  resolution happens here: the side tables are keyed by frame id, so a read
+  of a frame holding no flows answers `{}` / `nil` rather than throwing."
+  [opts where-sym]
+  (let [target (when (map? opts) (:frame opts))]
+    (if (some? target)
+      (rf.frame/frame-target->id target)
+      (let [payload (rf.frame/no-frame-context-payload
+                      :flow-introspection
+                      {:where    where-sym
+                       :reason   (str where-sym " requires an explicit frame: pass "
+                                      "{:frame <frame-id-or-frame-value>}. Side-table "
+                                      "reads never fall back to an ambient frame, and "
+                                      "the frame target is never a trailing positional "
+                                      "argument. Got " (pr-str opts) ".")
+                       :recovery :supply-frame})]
+        (rf.frame/emit-no-frame-context! payload)
+        (throw (rf.error/ex-info-from-data payload))))))
 
-(defn- resolve-read-frame-id
-  "Resolve an explicit frame target or require an ambient frame."
+(defn flows
+  "Return `{flow-id flow-map}` — every flow registered in the named frame, or
+  `{}` when that frame holds none.
+
+  `(flows {:frame f})`. `:frame` is required and accepts a frame-id keyword or
+  a frame value (`rf/make-frame`'s return token). The whole-registry read is
+  `flows-snapshot`."
   [opts]
-  (let [override (:frame opts)]
-    (if (some? override)
-      (rf.frame/frame-target->id override)
-      (rf.frame/require-current-frame!
-        :flow-meta-at {:where 'rf/flow-meta-at}))))
+  (get @flows-by-frame (read-frame-id opts 'rf/flows) {}))
 
-(defn flow-meta-at
-  "Return a flow's registration map in the selected frame, or nil.
+(defn flow-meta
+  "Return one flow's registration map in the named frame, or nil.
 
-  With one argument, use the ambient frame. The second argument accepts either
-  `{:frame target}` or a frame target directly."
-  ([flow-id] (flow-meta-at flow-id {}))
-  ([flow-id opts-or-frame-target]
-   (let [opts     (coerce-flow-opts opts-or-frame-target)
-         frame-id (resolve-read-frame-id opts)]
-     (get-in @flows [frame-id flow-id]))))
+  `(flow-meta {:frame f :id flow-id})`. Both keys are required; `:frame`
+  accepts a frame-id keyword or a frame value."
+  [{:keys [id] :as opts}]
+  (get-in @flows-by-frame [(read-frame-id opts 'rf/flow-meta) id]))
 
 (defn ^:no-doc last-inputs-snapshot
   "Return raw cached inputs as `{flow-id {frame-id inputs}}`.
@@ -189,7 +206,7 @@
   when `owner-token` no longer names the live incarnation."
   [frame-id owner-token]
   (when (rf.frame/event-continuation-live? frame-id owner-token)
-    (let [state {:flow-map        (get @flows frame-id)
+    (let [state {:flow-map        (get @flows-by-frame frame-id)
                  :last-inputs     (ensure-frame-last-inputs-atom! frame-id)
                  :abandoned-paths (ensure-frame-abandoned-paths-atom! frame-id)}]
       (when (rf.frame/event-continuation-live? frame-id owner-token)
@@ -198,7 +215,7 @@
 (defn ^:no-doc legacy-flow-pass-state
   "Capture flow-pass state without an exact-owner fence (legacy/test arity)."
   [frame-id]
-  {:flow-map        (get @flows frame-id)
+  {:flow-map        (get @flows-by-frame frame-id)
    :last-inputs     (ensure-frame-last-inputs-atom! frame-id)
    :abandoned-paths (ensure-frame-abandoned-paths-atom! frame-id)})
 
@@ -630,9 +647,9 @@
                {:recovery :fix-registration
                 :extra    {:frame frame-id
                            :flow  flow}}))
-           (swap! flows
-                  (fn [flows-by-frame]
-                    (let [prior-frame-flows (get flows-by-frame frame-id)]
+           (swap! flows-by-frame
+                  (fn [by-frame]
+                    (let [prior-frame-flows (get by-frame frame-id)]
                       (vreset! prior-frame-flow (get prior-frame-flows flow-id))
                       (let [prospective-frame-flows
                             (assoc prior-frame-flows flow-id flow)]
@@ -640,7 +657,7 @@
                         ;; the dependency-cycle check.
                         (rf.flows.topo/detect-output-path-overlap! prospective-frame-flows)
                         (rf.flows.topo/topo-sort prospective-frame-flows)
-                        (assoc flows-by-frame frame-id prospective-frame-flows)))))
+                        (assoc by-frame frame-id prospective-frame-flows)))))
            ;; A moved output must vacate the old path. Queue the vacation during
            ;; a drain so it is applied to the pending db; otherwise write now.
            ;; rf2-vxgfnd.155: the direct-path vacation is a callback-bearing
@@ -856,7 +873,7 @@
      (rf.frame/call-serialized-with-drain!
        frame-id
        (fn []
-         (when-let [flow (get-in @flows [frame-id id])]
+         (when-let [flow (get-in @flows-by-frame [frame-id id])]
            ;; rf2-vxgfnd.155: PIN A's incarnation so the callback-bearing
            ;; output-mark / path-vacation writes below cannot let a stale A
            ;; tail dissociate a same-id B's flow row, drop B's dirty-check
@@ -894,7 +911,7 @@
              ;; flow-row dissoc, dirty-cache drop, and clear-trace pipeline reach B.
              (when (rf.frame/event-continuation-live? frame-id pinned)
                ;; Prune an empty frame row rather than expose `{frame-id {}}`.
-               (swap! flows (fn [m]
+               (swap! flows-by-frame (fn [m]
                               (let [m' (update m frame-id dissoc id)]
                                 (cond-> m'
                                   (empty? (get m' frame-id)) (dissoc frame-id)))))
@@ -1002,7 +1019,7 @@
   also removes flow declarations without a separate scrub. Idempotent."
   [frame-id]
   (when frame-id
-    (swap! flows dissoc frame-id)
+    (swap! flows-by-frame dissoc frame-id)
     (swap! frame-last-inputs dissoc frame-id)
     (swap! frame-abandoned-output-paths dissoc frame-id))
   nil)
@@ -1018,7 +1035,7 @@
 (defn reset-flows!
   "Test-only: clear registrations, dirty-check caches, and pending vacations."
   []
-  (reset! flows {})
+  (reset! flows-by-frame {})
   (reset! frame-last-inputs {})
   (reset! frame-abandoned-output-paths {})
   nil)

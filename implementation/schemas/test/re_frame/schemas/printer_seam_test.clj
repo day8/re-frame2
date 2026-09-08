@@ -89,16 +89,16 @@
             describes: 'two ports using *different* schema languages
             produce different digests by construction'."
     (rf.schemas/reg-app-schema [:n] :int)
-    (let [default-digest (rf.schemas/app-schemas-digest)]
+    (let [default-digest (rf.schemas/app-schemas-digest {:frame :rf/default})]
       (rf.schemas/set-schema-fns! {:print (fn [_schema] "::DIFFERENT::")})
-      (let [swapped-digest (rf.schemas/app-schemas-digest)]
+      (let [swapped-digest (rf.schemas/app-schemas-digest {:frame :rf/default})]
         (is (not= default-digest swapped-digest)
             "digest changes once the printer registers different bytes")))
     ;; Restoring the default brings the digest back — the printer
     ;; surface is purely a contract over the serialisation step.
     (rf.schemas/set-schema-fns! {:print nil})
     (is (= "sha256:e7939756d704eaab"
-           (rf.schemas/app-schemas-digest))
+           (rf.schemas/app-schemas-digest {:frame :rf/default}))
         "{:print nil} restores the default — the digest matches
          the rf2-xssfv `single-prim` literal byte-for-byte (the path key is
          CEDN-1 `canonical-bytes`, not pr-str — rf2-ujmc3u)")))
@@ -153,10 +153,10 @@
     ;; Empty set — printer never called; the empty-set digest is
     ;; the historical sha256:e3b0c44298fc1c14 (rf2-0z1z).
     (is (= "sha256:e3b0c44298fc1c14"
-           (rf.schemas/app-schemas-digest))
+           (rf.schemas/app-schemas-digest {:frame :rf/default}))
         "empty schema set still produces the canonical empty-string SHA")
     (rf.schemas/reg-app-schema [:n] :int)
-    (let [d1 (rf.schemas/app-schemas-digest)]
+    (let [d1 (rf.schemas/app-schemas-digest {:frame :rf/default})]
       (is (re-matches #"^sha256:[0-9a-f]{16}$" d1)
           "wire form is still '\"sha256:\" + 16-hex' regardless of printer"))))
 

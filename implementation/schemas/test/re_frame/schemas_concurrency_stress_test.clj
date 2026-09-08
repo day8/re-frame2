@@ -135,7 +135,7 @@
   ;;   - Each per-thread (path, schema) pair landed verbatim — assert
   ;;     reading every (t, m) coordinate's registered schema returns
   ;;     the exact schema this thread issued (no cross-thread bleed).
-  ;;   - The `app-schema-meta-at` source-coords ride into every entry
+  ;;   - The `app-schema-meta` source-coords ride into every entry
   ;;     (the registration's stamp is captured per-call inside the
   ;;     `swap!` body and is per-call data — concurrent calls must
   ;;     not corrupt each other's meta).

@@ -458,7 +458,7 @@ Spec: [`005-Schema-Timeline.md`](./005-Schema-Timeline.md).
 
 | Sub | Returns |
 |---|---|
-| `:rf.xray/registered-schemas` | Vector of `path-or-id` row keys from `rf/app-schemas`. `[]` when the schemas artefact is not on the classpath. |
+| `:rf.xray/registered-schemas` | Vector of `path-or-id` row keys from `rf/app-schemas {:frame f}`. `[]` when the schemas artefact is not on the classpath. |
 | `:rf.xray/selected-violation-id` | The trace event's `:id` (stable per-process per [`spec/009-Instrumentation.md`](../../../spec/009-Instrumentation.md)). |
 | `:rf.xray/schema-filter` | Schema-id or `nil`. Narrows the rendered rows to one schema. |
 | `:rf.xray/schema-timeline-window` | `{:t0 :t1}` in ms; falls back to the default 60s window ending at now. |

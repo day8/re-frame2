@@ -395,10 +395,8 @@
           (is (= [:derived :sortable] (:output-path entry-b))
               "frame B keeps its OWN :output-path — divergent per frame")))
       ;; Cross-check the introspection surface the Epoch panel's source link
-      ;; reads (`flow-meta-at` with an explicit :frame) agrees, frame-by-frame.
-      (is (= derive-a (:derive (rf.flows/flow-meta-at :user/full-name
-                                                   {:frame :flows-test/frame-a})))
-          "flow-meta-at resolves frame A's divergent definition")
-      (is (= derive-b (:derive (rf.flows/flow-meta-at :user/full-name
-                                                   {:frame :flows-test/frame-b})))
-          "flow-meta-at resolves frame B's divergent definition"))))
+      ;; reads (`flow-meta` with an explicit :frame) agrees, frame-by-frame.
+      (is (= derive-a (:derive (rf.flows/flow-meta {:frame :flows-test/frame-a :id :user/full-name})))
+          "flow-meta resolves frame A's divergent definition")
+      (is (= derive-b (:derive (rf.flows/flow-meta {:frame :flows-test/frame-b :id :user/full-name})))
+          "flow-meta resolves frame B's divergent definition"))))
