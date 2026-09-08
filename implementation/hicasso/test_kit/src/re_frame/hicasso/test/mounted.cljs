@@ -1427,7 +1427,8 @@
   `{:key … :drain …}` where `drain` empties the buffer and answers what
   was in it as `[frame-kw event-v]` pairs.
 
-  Spec 009's `:events` observation port, which is the same port
+  `re-frame.event-emit`, the substrate's event-observation registry,
+  which is the same port
   `re-frame.hicasso.test/capture-intents` takes its reading at — this
   variant exists only because it must be armed BEFORE either frame
   exists. `capture-intents` filters to a frame keyword the caller already

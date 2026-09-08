@@ -542,7 +542,7 @@ ht/tree-version
 | `ht/revision` | the `::h/revision` value a native form carries, read pre-merge-conversion where the codec reads it |
 | `ht/materialize` | the marker law as a pure function: what an intent materializes to, given what the event target carried |
 | `ht/canonical-dom` | a DOM subtree serialised with every element's attribute names sorted — the fairness gate two renderings are compared through |
-| `ht/capture-intents` | `{:value … :intents […]}` for `f`, captured at Spec 009's `:events` port. Other frames' events are ignored |
+| `ht/capture-intents` | `{:value … :intents […]}` for `f`, captured at the substrate's event-observation registry. Other frames' events are ignored |
 | `ht/fire!` | lowers one handler position and invokes it with an event described as data; answers `{:intents […] :prevented? bool}` |
 | `ht/tree` | runs one hook-free body under injected read fixtures and answers its versioned semantic tree. `opts`' roster is closed at `:subs`, so a misspelled key is refused rather than ignored |
 | `ht/tree-version` | the structural-tree schema version `ht/tree` stamps on its root |

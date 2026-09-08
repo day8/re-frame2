@@ -460,7 +460,7 @@
     (skip! ":node-test has no React DOM")
     (async done
       (let [m   (at-article! "controls")
-            ;; Captured at Spec 009's `:events` port — the substrate's own
+            ;; Captured at `re-frame.event-emit` — the substrate's own
             ;; public stream — so the script is what the PAGE dispatched
             ;; and holds no hook into the rendering under test.
             log (atom [])]

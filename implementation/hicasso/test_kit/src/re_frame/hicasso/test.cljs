@@ -609,11 +609,14 @@
   "Run `f` with the frame's dispatched events captured, and answer
   `{:value <f's value> :intents [event-v …]}`.
 
-  The capture is taken at **Spec 009's `:events` observation port** — the
-  substrate's own public stream — so the witness holds no hook into the
+  The capture is taken at **`re-frame.event-emit`, the substrate's own
+  event-observation registry**, so the witness holds no hook into the
   rendering under test and reads the same events whichever substrate
   produced them. That is what let one script judge a Hicasso rendering, a
   raw UIx rendering and a hydrated page against ONE stated expectation.
+  The registry is implementation-tier since rf2-kuky.69 retired `:events`
+  from the public `rf/register-listener!` vocabulary — a spelling change
+  under this helper, not a change to what it promises callers.
 
   Events from other frames are ignored, so a capture taken while another
   frame is live is still this frame's. The listener is registered when
@@ -635,10 +638,11 @@
   (let [log (atom [])
         k   (keyword "re-frame.hicasso.test"
                      (str "intent-capture-" (swap! !capture-seq inc)))]
-    (rf.event-emit/register-event-listener! k
-                           (fn [record]
-                             (when (= frame-kw (:frame record))
-                               (swap! log conj (:event record)))))
+    (rf.event-emit/register-event-listener!
+      k
+      (fn [record]
+        (when (= frame-kw (:frame record))
+          (swap! log conj (:event record)))))
     (try
       (let [v (f)] {:value v :intents @log})
       (finally (rf.event-emit/unregister-event-listener! k)))))
@@ -674,7 +678,7 @@
       ;; => {:intents [[:draft/edit 1 \"milk\"]] :prevented? false}
 
   It answers `{:intents […] :prevented? bool}` — what the position
-  dispatched, captured at Spec 009's `:events` port, and whether the
+  dispatched, captured at `re-frame.event-emit`, and whether the
   handler called `preventDefault`. The dispatch is the frame's own, so
   the events reach real handlers and app-db really moves; assert the
   result with an ordinary subscription read.
