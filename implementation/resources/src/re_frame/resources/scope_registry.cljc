@@ -128,9 +128,11 @@
   is a loud registration error that names the reservation, so a typo is not
   mistaken for an unshipped feature. `:runtime` is the route-derived source
   (`[:runtime <path>]`) — reserved until an in-repo consumer carries a
-  principal in a path segment and needs named-resolver scope at a non-route
-  site; route-entry-only demand is already served by the `(fn [route ctx]
-  …)` resolver tier. Per Spec 016 §Route-derived scope is reserved."
+  principal in a path segment and needs named-resolver scope at ANY site, a
+  route entry included. (rf2-kuky.83 retired the anonymous route-scope
+  resolver tier that used to serve route-entry-only demand, so the trigger is
+  no longer narrowed to non-route sites.) Per Spec 016 §Route-derived scope
+  is reserved."
   #{:runtime})
 
 ;; ---- registration-error shape --------------------------------------------

@@ -897,10 +897,12 @@
 
 (defn- route-resource-node
   "Project ONE `:resources` entry on a route into a graph node. The
-  `:params` / `:scope` resolvers are fns (opaque), so the node records
-  THAT they are declared, the blocking flag (SSR wait point), the
-  keep-previous flag, the local `:id` + `:after` dependency, and any
-  `:when` guard — the structure Xray draws without parsing handlers. When
+  `:params` resolver is a fn (opaque) and `:scope` is a declared override
+  (a concrete value or a `{:from-db <id>}` reference — never a fn, since
+  rf2-kuky.83 retired that tier), so the node records THAT each is
+  declared, the blocking flag (SSR wait point), the keep-previous flag, the
+  local `:id` + `:after` dependency, and any `:when` guard — the structure
+  Xray draws without parsing handlers. When
   live inputs are supplied (rf2-m5u3gt) the node also carries a `:live`
   rollup of the resource-id's current cache/work state."
   [entry instance-rows work-rows]

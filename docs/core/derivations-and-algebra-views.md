@@ -298,13 +298,13 @@ bytes actually are.
 
 ### Buying back static visibility: named resolvers
 
-The don't-execute rule has a price. Static inspection won't *run* your scope function
-— so a resource scoped by an inline `(fn [route ctx] …)` reports the opaque marker
-`[:scope :rf.scope/resolver]` and nothing more. Fair enough. But there's an escape
-hatch that buys back static visibility: a **named scope resolver**. Declare the scope
-as a data reference — `{:from-db :session/current-tenant}` instead of an inline
-function — and the resolver's *declared inputs* are themselves declarations, so the
-static graph can read them without running anything:
+The don't-execute rule has a price: static inspection won't *run* anything to find
+out what a value will be. Scope is where that price would have bitten hardest — the
+cache's tenant boundary is exactly the fact a tool most wants to see — so re-frame2
+simply doesn't let you hide it in a function body. A scope is declared as **data**,
+and the shape that buys back full static visibility is a **named scope resolver**:
+write `{:from-db :session/current-tenant}` and the resolver's *declared inputs* are
+themselves declarations, so the static graph reads them without running anything:
 
 ```clojure
 ;; STATIC ALGEBRA VIEW — named-resolver scope
