@@ -932,8 +932,12 @@
   without breaking the deterministic `<type>#<n>` sequencing
   `machine-transition`'s purity contract rests on, and it must not destroy the
   occupant, which Spec 005's *Teardown is explicit in v1* rule reserves to the
-  author. The `reason` therefore names both author-side escapes: a distinct
-  `:fixed-actor-id`, or destroying the occupant before spawning over it."
+  author. The `reason` therefore names the author-side escapes: a distinct
+  `:id-prefix` (rf2-r9ey made that key load-bearing on the declarative path,
+  where it had been accepted, documented and then ignored — it is the
+  NAMESPACING escape, and the one that fits the two-parents-one-TYPE shape this
+  reject fires on), a distinct `:fixed-actor-id`, or destroying the occupant
+  before spawning over it."
   [frame-id args spawned-id]
   (let [machine-id (:machine-id args)
         parent-id  (:rf/parent-id args)
@@ -948,8 +952,9 @@
                           "address space is per-frame, so a respawned parent, or "
                           "a second parent spawning the same machine TYPE, can "
                           "re-mint an address that is still held. Give this spawn "
-                          "a distinct :fixed-actor-id, or destroy the occupant "
-                          "explicitly before spawning over it."))]
+                          "a distinct :id-prefix so its addresses are namespaced "
+                          "apart, or a distinct :fixed-actor-id, or destroy the "
+                          "occupant explicitly before spawning over it."))]
     (rf.trace/emit-error! :rf.error/machine-spawn-all-duplicate-id
                        {:machine-id machine-id
                         :failing-id spawned-id
