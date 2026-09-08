@@ -82,7 +82,7 @@
   {:route/article
    {:path "/articles/:slug"
     :resources [{:resource :article/by-slug :blocking? true
-                 :params (fn [_] {}) :scope (fn [_ _] nil)}
+                 :params (fn [_] {}) :scope {:from-db :app/session}}
                 {:resource :comments/list :blocking? false :keep-previous? true}]}
    :route/home {:path "/"}})
 

@@ -174,7 +174,7 @@
                       {:resources
                        [{:resource  :article/by-slug
                          :params    (fn [route] {:slug (get-in route [:params :slug])})
-                         :scope     (fn [_route ctx] (:current-session-scope ctx))
+                         :scope     {:from-db :session/current-tenant}
                          :blocking? true}
                         {:resource :article/comments
                          :params   (fn [route] {:slug (get-in route [:params :slug])})}]} "/articles/:slug")
@@ -198,7 +198,10 @@
                 ":blocking? is surfaced only when the entry declared it")))))))
 
 (deftest resource-edge-never-executes-entry-fns
-  (testing "static projection NEVER invokes a resource entry's :params / :scope / :when fns (don't-execute rule)"
+  ;; A route entry's remaining fn slots are `:params` and `:when` — the
+  ;; anonymous route-scope resolver tier is retired (rf2-kuky.83), so `:scope`
+  ;; is a declared override the static view reads verbatim.
+  (testing "static projection NEVER invokes a resource entry's :params / :when fns (don't-execute rule)"
     (with-resources-route-key
       (fn []
         (let [boom (atom false)]
@@ -206,7 +209,7 @@
                         {:resources
                          [{:resource :thing/by-id
                            :params   (fn [_route] (reset! boom true) {:id 1})
-                           :scope    (fn [_ _] (reset! boom true) :rf.scope/global)
+                           :scope    {:from-db :session/current-tenant}
                            :when     (fn [_ _ _] (reset! boom true) true)}]} "/danger/:id")
           (let [node ((rf.routing.tooling/route-algebra-view) :route/danger)]
             (is (= [:resource :thing/by-id] (:to (first (:resource-edges node)))))

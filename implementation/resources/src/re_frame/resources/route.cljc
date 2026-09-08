@@ -433,10 +433,12 @@
 
 ;; ---- plan execution + the route-resource planning ctx seam (rf2-ac71vm) ---
 ;;
-;; A route-resource `:scope` / `:when` resolver is `(fn [route ctx] …)`. The
-;; ctx is the reserved entry context routing threads through its
+;; A route-resource `:when` predicate is `(fn [route ctx] …)`. The ctx is the
+;; reserved entry context routing threads through its
 ;; `:routing/on-route-entry` hook (currently `{}`); db-derived viewer scope
-;; comes from a `{:from-db …}` named-resolver reference, not from the ctx.
+;; comes from a `{:from-db …}` named-resolver reference, never from the ctx
+;; and never from an anonymous route-scope fn (that tier is RETIRED —
+;; rf2-kuky.83; see `resolve-entry-scope`).
 ;; The seam is REAL (not a placeholder): the planner fails CLOSED when a
 ;; resolver needs the ctx but planning was handed no ctx (a `nil`), rather
 ;; than silently feeding the resolver `nil` and letting it collapse to an
@@ -505,56 +507,80 @@
     {}))
 
 (defn- resolve-entry-scope
-  "Resolve a route-resource entry's scope to a CONCRETE value (the route
-  tier of the precedence ladder), or nil when the entry declares NO route
-  `:scope` (the spec scope policy then governs — `resolve-scope-for-event`
-  with no route scope). A route-resource `:scope` may be:
+  "Resolve a route-resource entry's `:scope` OVERRIDE to a CONCRETE value
+  (the route tier of the precedence ladder), or nil when the entry declares
+  NO `:scope` at all (the spec scope policy then governs —
+  `resolve-scope-for-event` with no route scope). The absent-vs-present test
+  is `(contains? entry :scope)`, exactly as `resolve-entry-params` keys on
+  the presence of its resolver: ABSENCE inherits, and a PRESENT value is
+  never allowed to fall through silently.
+
+  A present route-resource `:scope` is EXACTLY one of two shapes (rf2-kuky.83
+  — the same two currencies a registration policy has):
 
     - a `{:from-db <id>}` named-resolver REFERENCE (EP-0016 D3 slice 3),
       resolved against the route-entry `app-db` at use time — db-derived
       viewer scope (session / tenant / account);
-    - a `(fn [route ctx] …)` resolver, evaluated against the route + entry
-      ctx (the route-resource resolver form — Spec 016 §Scope resolution
-      precedence tier 2).
+    - a CONCRETE scope value (`:rf.scope/global`, a `[:rf.scope/session {…}]`
+      tuple, an app value), canonicalized through the SAME shared
+      concrete-scope guard the payload override uses
+      (`state/canonicalize-scope`), so a reserved-namespace typo, the wrapped
+      `[:rf.scope/global]` alias and a host/opaque value are refused here on
+      the same terms as everywhere else — no guard of this function's own,
+      and no error id of its own.
 
-  A PRESENT `:scope` that resolves to `nil` (a reference whose declared
-  inputs are absent, or a fn returning nil) is a fail-closed PLANNING error
-  — it INTENDED to resolve the tenant / user / leak-boundary scope and could
-  not, which must NOT silently fall through to the resource's spec policy or
-  a `:rf.scope/global` read (rf2-ac71vm / Spec 016 §Resolver references —
-  nil at a scope-requiring site is fail-closed). Per Spec 016 §Scope
-  resolution (precedence tier 2)."
-  [{scope-fn :scope :keys [resource]} route ctx app-db]
+  ANYTHING ELSE PRESENT is a loud PLANNING error. That covers the RETIRED
+  anonymous `(fn [route ctx] …)` resolver tier (rf2-kuky.83 — Spec 016 rules
+  out anonymous route-context functions as a second public scope-resolution
+  currency; name the derivation with `reg-resource-scope` and reference it),
+  and a literal `nil`. Neither may silently inherit the registration policy:
+  the scope IS the tenant / user / leak boundary, so a `:scope` the author
+  meant to say something with and got wrong must fail closed rather than read
+  a different cache partition (rf2-ac71vm).
+
+  A `{:from-db …}` reference that resolves to `nil` (its declared inputs are
+  absent) is the same fail-closed planning error it has always been — never a
+  fallback to the spec policy or a `:rf.scope/global` read (Spec 016
+  §Resolver references). Per Spec 016 §Scope resolution (precedence tier 2)."
+  [{scope :scope :keys [resource] :as entry} app-db]
   (cond
+    ;; ABSENT — the spec policy governs (resolve-scope-for-event)
+    (not (contains? entry :scope))
+    nil
+
     ;; a {:from-db …} reference — db-derived route-resource scope (slice 3)
-    (rf.resources.scope-registry/from-db-reference? scope-fn)
+    (rf.resources.scope-registry/from-db-reference? scope)
     (let [resolved-scope (rf.resources.scope-registry/resolve-from-db-reference
-                           scope-fn (or app-db {}) 'rf.resource/route-entry)]
+                           scope (or app-db {}) 'rf.resource/route-entry)]
       (if (nil? resolved-scope)
         (throw (planning-error
                  (str "route resource " resource " :scope {:from-db "
-                      (pr-str (:from-db scope-fn)) "} resolved nil against the "
+                      (pr-str (:from-db scope)) "} resolved nil against the "
                       "route-entry app-db — a planning error, not a silent "
                       "fallback to the spec policy or a global read. The named "
                       "resolver's declared :inputs are absent (e.g. no "
                       "logged-in user). Per Spec 016 §Resolver references / "
                       "§Scope resolution.")
-                 {:resource-id resource :recovery :fix-scope :from-db (:from-db scope-fn)}))
+                 {:resource-id resource :recovery :fix-scope :from-db (:from-db scope)}))
         resolved-scope))
-    ;; a (fn [route ctx] …) resolver — the route-resource resolver form
-    (fn? scope-fn)
-    (let [resolved-scope (scope-fn route ctx)]
-      (if (nil? resolved-scope)
-        (throw (planning-error
-                 (str "route resource " resource " :scope resolver returned "
-                      "nil — a planning error, not a silent fallback to the "
-                      "resource's spec scope policy or a global read. The "
-                      "scope is the tenant / user / leak boundary and MUST "
-                      "fail closed. Per Spec 016 §Scope resolution.")
-                 {:resource-id resource :recovery :fix-scope}))
-        resolved-scope))
-    ;; no route `:scope` — the spec policy governs (resolve-scope-for-event)
-    :else nil))
+
+    ;; PRESENT but neither shape — the retired (fn [route ctx] …) tier, or nil
+    (or (fn? scope) (nil? scope))
+    (throw (planning-error
+             (str "route resource " resource " :scope is " (pr-str scope)
+                  " — not a route-entry scope override. A route entry's :scope "
+                  "is EXACTLY one of: a {:from-db <scope-resolver-id>} named-"
+                  "resolver reference, or a concrete scope value. The anonymous "
+                  "(fn [route ctx] …) route-scope resolver tier is RETIRED — "
+                  "name the derivation with reg-resource-scope and reference it "
+                  "as {:from-db <id>}. Omit :scope entirely to inherit the "
+                  "resource registration's policy. Per Spec 016 §Scope "
+                  "resolution.")
+             {:resource-id resource :recovery :fix-scope :scope scope}))
+
+    ;; a CONCRETE scope value — the route tier of the precedence ladder
+    :else
+    (rf.resources.state/canonicalize-scope scope 'rf.resource/route-entry resource)))
 
 ;; ---- :after — DISPATCH-ORDER waterfall, fail-closed (rf2-xeb4l1) ----------
 ;;
@@ -719,7 +745,7 @@
                       spec        (rf.resources.registry/require-resource-spec!
                                     resource-id 'rf.resource/route-entry)
                       raw-params  (resolve-entry-params entry route)
-                      route-scope (resolve-entry-scope entry route ctx app-db)
+                      route-scope (resolve-entry-scope entry app-db)
                       scope       (rf.resources.registry/resolve-scope-for-event
                                     resource-id spec {:route-scope route-scope :db app-db}
                                     'rf.resource/route-entry)
@@ -999,7 +1025,8 @@
   `route` is the resolved route value
   (`{:id :params :query :fragment …}`), `ctx` the reserved entry context
   (the seam routing threads through `:routing/on-route-entry`; currently `{}`
-  — a `:scope` / `:when` resolver receives it as its trailing argument).
+  — a `:when` predicate receives it as its trailing argument; `:scope` is a
+  declared override, never a fn, so it never reads the ctx).
   `entry-ctx` carries `:nav-token`, `:prev-id`, `:prev-nav-token`, `:app-db`
   (the route-entry app-db value — see the `:app-db` paragraph below), and
   `:runtime-db` (the pre-commit runtime-db, read for the AT-COMMIT resource

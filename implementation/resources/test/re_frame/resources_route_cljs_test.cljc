@@ -587,24 +587,46 @@
 ;; 12. rf2-ac71vm — fail-closed ctx + nil planning inputs
 ;; ===========================================================================
 
-(deftest scope-resolved-from-ctx-uses-the-ctx-seam
-  ;; The ctx seam is REAL: a :scope resolver reads (:current-session-scope ctx)
-  ;; and the resolved scope is used as the cache scope (not a global fallback).
+(deftest concrete-route-scope-overrides-the-registration-policy
+  ;; rf2-kuky.83 — a route entry's `:scope` may be a CONCRETE value, and it is
+  ;; the route tier of the precedence ladder. The registration policy here is a
+  ;; {:from-db …} reference over an UNWRITTEN db slot, so it resolves nil and
+  ;; would fail closed on its own: a clean plan is positive evidence that the
+  ;; route tier was consulted and won.
   (rf/reg-resource :secret/doc (article-spec {:scope {:from-db :t/caller-scope}}) article-spec-request)
   (let [plan (rf.resources.route/route-resource-plan
                {:id :route/secret :params {:slug "x"}
                 :resources [{:resource :secret/doc
                              :params   (fn [route] {:slug (get-in route [:params :slug])})
-                             :scope    (fn [_route ctx] (:current-session-scope ctx))}]}
-               {:current-session-scope {:tenant "acme" :user 7}}
+                             :scope    [:rf.scope/session {:tenant "acme" :user 7}]}]}
+               {}
                {:nav-token 1 :prev-id nil :prev-nav-token nil})]
-    (testing "the ctx-resolved session scope is threaded into the ensure"
-      (is (nil? (:plan-error plan)) "no planning error — the ctx resolved a scope")
+    (testing "the concrete route scope is threaded into the ensure"
+      (is (nil? (:plan-error plan))
+          "no planning error — the route tier supplied the scope the policy could not")
       (let [ensure (->> (:fx plan)
                         (some (fn [[fx-id ev]] (when (= :dispatch fx-id) ev))))]
         (is (= :rf.resource/ensure (first ensure)))
-        (is (= {:tenant "acme" :user 7} (:scope (second ensure)))
-            "the cache scope came from ctx, NOT a global / spec fallback")))))
+        (is (= [:rf.scope/session {:tenant "acme" :user 7}] (:scope (second ensure)))
+            "the cache scope came from the route entry, NOT the spec policy")))))
+
+(deftest absent-route-scope-inherits-the-registration-policy
+  ;; The absent-vs-present test is (contains? entry :scope) — an entry that
+  ;; declares no :scope at all inherits, exactly as before.
+  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)  ;; :rf.scope/global
+  (let [plan (rf.resources.route/route-resource-plan
+               {:id :route/article :params {:slug "x"}
+                :resources [{:resource :article/by-slug
+                             :params   (fn [route] {:slug (get-in route [:params :slug])})}]}
+               {}
+               {:nav-token 1 :prev-id nil :prev-nav-token nil})]
+    (testing "an entry with no :scope key resolves the registration policy"
+      (is (nil? (:plan-error plan)))
+      (let [ensure (->> (:fx plan)
+                        (some (fn [[fx-id ev]] (when (= :dispatch fx-id) ev))))]
+        (is (= :rf.resource/ensure (first ensure)))
+        (is (= :rf.scope/global (:scope (second ensure)))
+            "the registration's explicit global claim governs")))))
 
 (deftest nil-ctx-fails-closed
   ;; A nil ctx (a routing↔resources seam bug) must throw — not silently
@@ -671,20 +693,65 @@
           "the planning error is ALSO on the trace/error stream")
       (is (empty? (entries)) "no entry was ensured for the unplannable resource"))))
 
-(deftest nil-scope-resolver-is-a-planning-error
-  ;; A PRESENT :scope resolver returning nil must NOT silently fall through to
-  ;; the spec policy / a global read — the scope is the leak boundary.
+(deftest retired-fn-route-scope-is-a-planning-error
+  ;; rf2-kuky.83 — the anonymous (fn [route ctx] …) route-scope resolver tier
+  ;; is RETIRED. It must be REFUSED LOUD, never silently inherit the spec
+  ;; policy: the scope is the tenant / user / leak boundary, so a :scope the
+  ;; author meant something by and got wrong reads no cache partition at all.
   (rf/reg-resource :secret/doc (article-spec {:scope {:from-db :t/caller-scope}}) article-spec-request)
   (rf/reg-route :route/secret
                 {:params    [:map [:slug :string]]
                  :resources [{:resource :secret/doc
                               :params   (fn [route] {:slug (get-in route [:params :slug])})
-                              :scope    (fn [_route _ctx] nil)}]} "/secret/:slug")  ;; resolver returns nil
+                              ;; the retired tier, in its exact former spelling
+                              :scope    (fn [_route _ctx] [:rf.scope/session {:user 7}])}]}
+                "/secret/:slug")
   (rf/dispatch-sync [:rf.route/navigate {:to :route/secret :params {:slug "x"}}])
-  (testing "a nil :scope resolver result is a fail-closed planning error"
+  (testing "a fn :scope on a route entry is a fail-closed planning error"
     (is (= :rf.error/resource-route-plan (:rf.error/id (:error (slice))))
         "no silent fallback to spec scope / global read")
     (is (= :fix-scope (:recovery (:error (slice)))) "carries :fix-scope recovery")
+    (is (re-find #"RETIRED" (str (:reason (:error (slice)))))
+        "the diagnostic names the retirement, not merely 'invalid'")
+    (is (re-find #"reg-resource-scope" (str (:reason (:error (slice)))))
+        "and names the replacement currency")
+    (is (empty? (entries)) "no entry was ensured")))
+
+(deftest nil-route-scope-is-a-planning-error
+  ;; A PRESENT :scope of nil is NOT the absent case — absence is
+  ;; (contains? entry :scope). An author who wrote a nil there meant to say
+  ;; something and could not; inheriting silently would key a different
+  ;; partition than intended.
+  (rf/reg-resource :secret/doc (article-spec {:scope {:from-db :t/caller-scope}}) article-spec-request)
+  (rf/reg-route :route/secret
+                {:params    [:map [:slug :string]]
+                 :resources [{:resource :secret/doc
+                              :params   (fn [route] {:slug (get-in route [:params :slug])})
+                              :scope    nil}]} "/secret/:slug")
+  (rf/dispatch-sync [:rf.route/navigate {:to :route/secret :params {:slug "x"}}])
+  (testing "a present-but-nil :scope is a fail-closed planning error"
+    (is (= :rf.error/resource-route-plan (:rf.error/id (:error (slice)))))
+    (is (= :fix-scope (:recovery (:error (slice)))))
+    (is (empty? (entries)) "no entry was ensured")))
+
+(deftest reserved-scope-typo-on-a-route-entry-is-a-planning-error
+  ;; The CONCRETE arm routes through the SAME shared canonicalization guard
+  ;; the payload override uses, so a misspelled reserved keyword is refused
+  ;; here on exactly the same terms — this site mints no id and no guard of
+  ;; its own.
+  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
+  (rf/reg-route :route/article
+                {:params    [:map [:slug :string]]
+                 :resources [{:resource :article/by-slug
+                              :params   (fn [route] {:slug (get-in route [:params :slug])})
+                              :scope    :rf.scope/glabal}]} "/articles/:slug")
+  (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "x"}}])
+  (testing "an unrecognised :rf.scope/* keyword is refused at route planning"
+    (is (= :rf.error/resource-route-plan (:rf.error/id (:error (slice))))
+        "surfaced on the route slice as a planning error")
+    (is (= :fix-scope (:recovery (:error (slice)))) "carries :fix-scope recovery")
+    (is (= :rf.error/resource-invalid-scope (:rf.error/id (:cause (:error (slice)))))
+        "the shared concrete-scope guard is what refused it — no new error id")
     (is (empty? (entries)) "no entry was ensured")))
 
 (deftest throwing-when-predicate-is-a-planning-error
@@ -2086,11 +2153,11 @@
           (is (empty? (of-event ds :rf.resource/ensure)))
           (is (empty? (of-event ds :rf.resource.internal/adopt-owner)))
           (is (empty? (:identities plan)))))))
-  (testing "an ancestor :scope resolver returning nil"
+  (testing "an ancestor :scope that is the retired fn tier"
     (let [[plan _] (ancestor-plan-error
                      (ancestor-branch {:resource :audit/ancestor :id :anc
                                        :params (fn [_] {:slug "a"})
-                                       :scope  (fn [_ _] nil)}))]
+                                       :scope  (fn [_ _] :rf.scope/global)}))]
       (is (= {:route-id :route/ancestor :local-id :anc} (:contributor (:plan-error plan))))
       (is (= :fix-scope (:recovery (:plan-error plan))) "the specific recovery survives")))
   (testing "an ancestor :when predicate that throws"
