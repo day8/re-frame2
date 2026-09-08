@@ -792,6 +792,95 @@ jobs:
           RF2_KSBUR_STRESS_ITERS: ${{ matrix.artefact == 'routing' && '500' || '' }}
         run: clojure -M:slow-test
 
+  # rf2-a7ds — THE ONLY THING IN CI THAT COMPILES THE HICASSO BENCH LANE.
+  # NIGHTLY, AND NIGHTLY ONLY: ruling rf2-6c12m.1 deliberately keeps `bench/*`
+  # off every per-PR lane, and a nightly is not a PR gate. Nothing here may be
+  # promoted to `test.yml`, whose `pull_request` trigger is unfiltered.
+  #
+  # WHAT WAS UNCOVERED, AND WHY THE OBVIOUS INSTRUMENT COULD NOT SEE IT.
+  # `bench/hicasso/` is its own shadow-cljs project rather than a roster entry:
+  # `implementation/scripts/check-examples-compile.cjs` derives its build ids
+  # from `implementation/shadow-cljs.edn`, which carries none of the bench ones
+  # (ask it — `node implementation/scripts/check-examples-compile.cjs --list`).
+  # `bench/` Clojure files DO arm `lint.yml`'s require-alias-dialect step, but
+  # clj-kondo runs with no classpath and therefore cannot resolve vars at all —
+  # run over the pre-fix tree it named the deleted `re-frame.hicasso/mount!`
+  # ZERO times. An undeclared var is caught by a COMPILER or by nothing, so
+  # five bench arms called a deleted public name from the day it was deleted
+  # until somebody happened to look (fixed in 5c024a0eb3). This job is the
+  # instrument of the right kind.
+  #
+  # NO `npm ci` IN `bench/hicasso/`, AND THAT IS THE DESIGN RATHER THAN A
+  # SHORTCUT — so do not "fix" the absent `bench/hicasso/package-lock.json` by
+  # adding one. The lane has no `node_modules` of its own and needs none:
+  # `lane_build.cjs` spawns shadow-cljs's JS entry point out of the
+  # implementation install, and `shadow-cljs.edn` points npm resolution at that
+  # same tree through `:js-options :node-modules-dir`. Its `package.json`
+  # exists only to declare the shadow-cljs pin — 3.4.10, the identical version
+  # `implementation/package.json` pins — so the CLI does not warn. One install,
+  # one lockfile, one pin.
+  hicasso-bench-compile:
+    name: Hicasso bench lane compiles (nightly only - rf2-6c12m.1)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      # shadow-cljs resolves this project's `:dependencies` itself (there is no
+      # `:deps true` and no `deps.edn` beside it), so the JVM is required and
+      # the Clojure CLI is not.
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: implementation/package-lock.json
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+          key: ${{ runner.os }}-expensive-hicasso-bench-${{ hashFiles('bench/hicasso/shadow-cljs.edn', 'implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-expensive-hicasso-bench-
+            ${{ runner.os }}-cljs-
+
+      - name: Install the implementation node tree (the bench lane borrows it)
+        working-directory: implementation
+        run: npm ci
+
+      # The entry list is DERIVED by walking `src/`, never listed — so a bench
+      # arm added tomorrow is covered by this job without editing it. The gate
+      # refuses a collapsed derivation (floor 40) and refuses an unparsable
+      # shadow summary, so it cannot pass vacuously.
+      - name: Compile every lane namespace (:hicasso-bench, warnings-fatal)
+        working-directory: bench/hicasso
+        run: node src/re_frame/bench/hicasso/compile_gate.cjs
+
+      # The step above compiles that same source under the BROWSER id; this is
+      # the `:node-script` target with `:infer-externs false`, which is the one
+      # claim the browser id cannot make. Driven through `lane_build.cjs`
+      # rather than shadow's CLI deliberately: SHADOW-CLJS EXITS 0 ON WARNINGS,
+      # and that module is the lane's only warnings-fatal judge. No
+      # `--config-merge` is needed — `shadow-cljs.edn` already declares this
+      # build's `:main` and `:output-to` so that a bare compile builds the SSR
+      # entry rather than nothing.
+      - name: Compile the node lane (:hicasso-bench-node, warnings-fatal)
+        working-directory: bench/hicasso
+        # A literal block, because the inline object below carries `: ` pairs
+        # that a plain YAML scalar cannot hold (measured: it parses as a
+        # mapping and `check_workflow_yaml.py` refuses the file).
+        run: |
+          node -e "require('./src/re_frame/bench/hicasso/lane_build.cjs').shadowBuild({project: process.cwd(), mode: 'compile', buildId: 'hicasso-bench-node', tag: 'hicasso-bench-node'})"
+
   # THE GATE-SCHEDULING AUDIT USED TO LIVE HERE, AND NO LONGER DOES (rf2-k78o2).
   # It asserts that every `test:*` / `bench:*` / `build:*` command in
   # implementation/package.json is either reachable from a workflow or carries a
@@ -840,6 +929,11 @@ jobs:
       - mcp-live
       - mcp-live-windows
       - jvm-slow-tests
+      # rf2-a7ds. The alerter reads the whole run's jobs from the API, so this
+      # entry is about ORDERING rather than visibility: without it the
+      # signature can be derived while the bench compile is still running, and
+      # a red lane would be absent from the night's tracking issue.
+      - hicasso-bench-compile
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
