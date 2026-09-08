@@ -287,9 +287,9 @@ Crash reporting is the error route's job. Its sibling, the **`:handled-events`**
         {:event-id (str event-id) :frame (str frame) :status (name status)}))))
 ```
 
-!!! warning "The slot is `:status` on a sink, `:outcome` on the corpus listener"
+!!! warning "The slot is `:status` on a sink, `:outcome` on the raw substrate record"
 
-    Same value, two spellings, one per door. A projected `:rf.observe/handled-event` record — the one your sink receives — carries the dispatch result under **`:status`**. The corpus-wide `register-listener! :events` record (§8) carries the identical keyword under **`:outcome`**. Destructuring `outcome` in a sink fn binds `nil`, and `(name nil)` throws; there is no `:outcome` slot to read there.
+    Same value, two spellings, one per layer. A projected `:rf.observe/handled-event` record — the one your sink receives under the off-box default — carries the dispatch result under **`:status`**. The raw substrate record underneath it, which is what a `:rf.egress/local-raw` entry hands you, carries the identical keyword under **`:outcome`**. Destructuring `outcome` in a sink fn on the default profile binds `nil`, and `(name nil)` throws; there is no `:outcome` slot to read there.
 
 The `:status` slot earns its keep, because it reports the dispatch result across **every** way a run can fail — so a dispatch that aborted is never mis-reported to your APM as a clean `:ok`. It takes one of five values:
 
@@ -313,29 +313,17 @@ The two pair naturally: `:handled-events` tells you *something is wrong* (a spik
 
     Think of `:handled-events` as the per-query lifecycle telemetry you'd feed a metrics dashboard, and `:errors` as the crash channel you'd feed an issue tracker — except here they're two entries in one frame's policy, differentiated by data, not two separate libraries you bolt on.
 
-## 8. Advanced — the corpus-wide listener
+## 8. The two records no frame owns
 
-Everything above is **policy-selected, projected** delivery: a frame declares where its records go, and the runtime projects each one under that frame's classification before your sink sees it.
+Everything above is **policy-selected, projected** delivery: a frame declares where its records go, and the runtime projects each one under that frame's classification before your sink sees it. Two kinds of record have no frame to declare anything, and the **process default** from §1 is what owns them:
 
-There is a second door, and it is a different *kind* of thing rather than a different flavour of the same thing. **`(rf/register-listener! :errors id f)` is independent corpus observation**: one fan-out per process, across every frame, delivered *regardless of any frame's policy*, and always **unprojected**.
+- **Frameless records.** A `:frame nil` record — `:rf.error/no-frame-context`, the pre-frame SSR hydration-parse path — has no owning frame to supply a policy, so no *frame* sink can route it. The process default owns it, projected as though no frame vouched for it: ids intact, payload `:rf/redacted`.
+- **Records belonging to a frame that is already gone.** No frame's policy is consulted for these, so a dead frame's bare id can never resolve to a same-id successor's sink. The process default delivers the record, keeping the dead id as a diagnostic.
+
+Declare the default once and both are covered:
 
 ```clojure
-;; Advanced: one seat that sees the whole corpus, unprojected.
-(rf/register-listener! :errors ::corpus-tap
-  (fn [record]
-    (audit/record! record)))
+(rf/configure! {:observability {:errors [{:sink ::sentry}]}})
 ```
 
-Three things reach that seat and nothing else — though the first two only while you have declared **no process default** (§1):
-
-- **Frameless records.** A `:frame nil` record — `:rf.error/no-frame-context`, the pre-frame SSR hydration-parse path — has no owning frame to supply a policy, so no *frame* sink can route it. A process default owns it, projected as though no frame vouched for it: ids intact, payload `:rf/redacted`.
-- **Records belonging to a frame that is already gone.** No frame's policy is consulted for these, so a dead frame's bare id can never resolve to a same-id successor's sink. A process default still delivers the record, keeping the dead id as a diagnostic; the corpus fan-out fires either way.
-- **Producer attribution.** `:failing-id`, the human `:reason` and the `:source-coord` definition site ride the corpus-wide record and are not carried on the sink route (§3's note).
-
-What is **not** on that list is the host `:exception`. It is tempting to read the corpus-wide door as "the one that keeps the throwable" — it isn't. The sink keeps the throwable too under the default profile; only `:rf.egress/public-error` drops it (§5). The discriminator is *independent corpus observation versus policy-selected projected delivery*, not the presence of a stack trace.
-
-The price of the seat is that you own the trust boundary yourself: nothing arrives redacted except the `:event` vector, which the substrate wire-elides once before fan-out. Take it back down with `(rf/unregister-listener! :errors ::corpus-tap)`.
-
-!!! note "One more consequence of ownership"
-
-    In an untooled dev build the framework prints a console line for any error record *nothing routed*. Registering a corpus-wide listener — for any reason, even one that ignores the category — takes ownership of every record on the page and silences that fallback for all of them, a host app's frames included. A frame sink takes ownership of just its own frame's records. That asymmetry is a reason to prefer the sink even when either would do.
+There is no other door. re-frame2 used to offer a corpus-wide listener stream beside the sink — one unprojected fan-out per process, delivered regardless of any frame's policy — and it is **retired**: a raw seat nobody's policy governs is fail-open by construction, and the two things it alone carried are the two above. If you want the untouched substrate shape rather than the projected one, ask for it as a profile: `{:sink ::sentry :rf.egress/profile :rf.egress/local-raw}`.

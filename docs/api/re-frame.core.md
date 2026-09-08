@@ -859,7 +859,7 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
 
 ## Instrumentation and listeners
 
-Two surfaces stacked. The first is **dev-only**: a trace bus that emits one richly-tagged record per noteworthy event. Records are buffered into a ring and fanned out to registered listeners synchronously; the whole surface is elided under `:advanced` + `goog.DEBUG=false`. The second is **always-on**: tight, production-survivable substrates (event-emit, error-emit) that deliver one record per processed event and one per `:rf.error/*` event. The epoch (time-travel) surfaces are dev-only and also available natively as [re-frame.epoch.md](re-frame.epoch.md). The complete error catalogue is normative in Spec 009.
+Two surfaces stacked, and they have different verbs. The first is **dev-only**: a trace bus that emits one richly-tagged record per noteworthy event. Records are buffered into a ring and fanned out to registered listeners synchronously; the whole surface is elided under `:advanced` + `goog.DEBUG=false`. `register-listener!` is that verb, and since rf2-kuky.69 it is only that verb — its closed vocabulary is the two raw dev streams `:trace` / `:epoch`. The second is **always-on**: tight, production-survivable substrates (event-emit, error-emit) that deliver one record per processed event and one per `:rf.error/*` event, reached through [`register-observability-sink!`](#register-observability-sink) plus a frame's `:observability` policy or the `(rf/configure! {:observability …})` process default. The epoch (time-travel) surfaces are dev-only and also available natively as [re-frame.epoch.md](re-frame.epoch.md). The complete error catalogue is normative in Spec 009.
 
 ### `register-listener!`
 
@@ -871,8 +871,9 @@ Two surfaces stacked. The first is **dev-only**: a trace bus that emits one rich
 - **Description**: Register `callback-fn` under `id` to receive every record the runtime emits on `stream`. Delivery is synchronous: the callback returns before the next record. On the JVM, where emits can race across threads, each listener is invoked serially — a callback is never entered concurrently with itself, so tool appenders and stateful folds need no locking of their own. Re-registering the same id on a stream replaces.
   - Streams:
     - `:trace` — dev-only, DCE'd in production.
-    - `:events` and `:errors` — **always-on**; they survive CLJS `:advanced` + `goog.DEBUG=false`.
-    - `:epoch` — optional artefact.
+    - `:epoch` — optional artefact, dev-only.
+
+    Both are raw and DCE-able, which is the whole of what this verb means. Production observation is [`register-observability-sink!`](#register-observability-sink).
   - Returns `id` (`nil` on the `:epoch` stream when the `day8/re-frame2-epoch` artefact is absent). An unknown `stream` throws `:rf.error/unknown-listener-stream`.
 - **Example**:
   ```clojure
@@ -881,24 +882,18 @@ Two surfaces stacked. The first is **dev-only**: a trace bus that emits one rich
     (fn [trace-event]
       (js/console.log (:op-type trace-event) (:operation trace-event))))
 
-  ;; Always-on, corpus-wide: one record per processed event, every frame.
-  ;; A test-kit capture — the whole corpus in one seat, unprojected.
-  (rf/register-listener! :events :my-app.test/outcomes
-    (fn [{:keys [event-id frame outcome]}]
-      (swap! seen conj [frame event-id outcome])))
-
-  ;; Always-on, corpus-wide: a cross-frame audit tap. The payload is a union;
-  ;; branch on (:error record). Delivered regardless of any frame's policy —
-  ;; including frameless records no frame sink can reach.
-  (rf/register-listener! :errors :my-app.audit/tap
+  ;; Dev-only: one assembled :rf/epoch-record per dequeued event. Returns nil
+  ;; (and registers nothing) when day8/re-frame2-epoch is absent.
+  (rf/register-listener! :epoch :my-app/epoch-tap
     (fn [record]
-      (audit/record! (select-keys record [:error :frame :event-id :failing-id]))))
+      (js/console.log (:frame record) (:epoch-id record))))
   ```
-- **Production note**: for shipping telemetry off-box, the frame-owned
-  [`register-observability-sink!`](#register-observability-sink) seam is the normal
-  route — records arrive already projected under the owning frame's classification.
-  The `:events` / `:errors` streams here are the ADVANCED corpus-wide hook: one
-  unprojected fan-out per process, for independent corpus observation. See
+- **Production note**: this verb is not a production surface. Shipping telemetry
+  off-box is [`register-observability-sink!`](#register-observability-sink) against a
+  frame's `:observability` policy, or the same entry grammar declared once with
+  `(rf/configure! {:observability …})` — which is also where a record with no
+  resolvable frame lands. Records arrive already projected under the governing
+  classification. See
   [Report errors in production](../core/how-to/report-errors-in-production.md).
 
 ### `unregister-listener!`

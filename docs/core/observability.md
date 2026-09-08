@@ -501,24 +501,36 @@ an error, and how the framework recovers, is [errors](errors.md).
     production telemetry, you want a sink, not a trace listener.** The sink is also
     the one that redacts for you, which a raw stream listener never does.
 
-### Advanced: the corpus-wide listener streams
+### One door, and what a cross-frame seat looks like
 
-There is a second door onto the same two substrates, and it is a different *kind* of
-thing rather than a different flavour of the sink. `(rf/register-listener! :events …)`
-and `(rf/register-listener! :errors …)` are **independent corpus observation**: one
-fan-out per process, across every frame, delivered regardless of any frame's policy —
-including frameless records no frame sink can reach (though a **process default** does — see below) — and always **unprojected**.
-Reach for that seat when you genuinely need a single cross-frame hook, and accept that
-the trust boundary is then yours.
+There is exactly **one** production observation door — the sink you just declared.
+There used to be a second — an always-on listener stream for handled events and one
+for errors — delivering an unprojected record across every frame regardless of any
+frame's policy. It is **retired**: independent corpus
+observation was withdrawn as a public primitive, because a raw fan-out nobody's policy
+governs is a fail-open seat sitting one search away from the safe one.
 
-The corpus records below are intentionally tight, because they cross into production
-where the rich dev tags don't exist. They are **not** the shapes a sink receives:
+What you actually wanted from it, you still have. A **cross-frame** seat is the same
+entry grammar declared once for the process rather than per frame:
+
+```clojure
+(rf/configure! {:observability {:errors [{:sink ::sentry}]}})
+```
+
+A frame that declares the stream itself uses its own entries; a frame that says nothing
+inherits these. Records with **no resolvable frame** — a frameless failure, or one whose
+frame incarnation is already gone — land here too, projected under an explicitly nil
+governing frame, and a dead frame's id never resolves to a same-id successor's sink.
+And if what you wanted was the **raw** record, ask for it as a profile:
+`{:sink ::sentry :rf.egress/profile :rf.egress/local-raw}`.
+
+The substrate records below are what the runtime produces *before* projection. They are
+intentionally tight, because they cross into production where the rich dev tags don't
+exist, and they are **not** the shapes a sink receives under the off-box default:
 projection is a different record, not the same record with fields blanked out. On the
 sink route the dispatch result is spelled `:status` rather than `:outcome`, the
-`:event` args slot is dropped entirely under the off-box default, every non-summary
-slot is lifted onto a `:tags` tree, and the producer-attribution slots (`:failing-id`,
-the human `:reason`, the `:source-coord` definition site) are not carried at all. Read
-the shapes here as the *corpus* door's, and
+`:event` args slot is dropped entirely under the off-box default, and every non-summary
+slot is lifted onto a `:tags` tree. Read the shapes here as the substrate's, and
 [report errors in production](how-to/report-errors-in-production.md) for the sink's:
 
 ```clojure
@@ -548,11 +560,11 @@ easier to remember as a pair. `:rolled-back` has no producer in a release build:
 `:events` stream survives the gate but `reg-app-schema` candidate validation does not, so
 a dispatch whose `:db` violates a registered schema installs anyway and reports `:ok` —
 the outcome is quiet in production by construction, not because your schemas are holding.
-In *dev*, though, it is not quiet on either stream: the rejection also fans one
+In *dev*, though, it is not quiet on either axis: the rejection also fans one
 structural-only `:rf.error/schema-validation-failure` record per failing registration
-onto `:errors`, carrying `:rollback? true` and the `:registered-path`, so the discarded
-transaction reaches a listener and your frame's `:observability :errors` sink rather than
-only the trace. The other ways a candidate can be discarded report there too — a machine
+onto the error substrate, carrying `:rollback? true` and the `:registered-path`, so the
+discarded transaction reaches your frame's `:observability :errors` sink rather than only
+the trace. The other ways a candidate can be discarded report there too — a machine
 `:data` violation (`:where :machine-data`, naming the `:machine-id` and the `:phase`) and
 a `:rf.error/malformed-schema` rejection, which means the schema *you registered* is
 itself broken. What does not is anything that skipped one step rather than discarding the
@@ -561,7 +573,7 @@ for the same reason `:rolled-back` is.
 `:rejected` is the other way round, and it is the one that fires there. The boundary
 interceptor's check is ungated and so is its report: a refused payload settles
 `:outcome :rejected` here and fans one `:rf.error/schema-validation-failure` record
-(`:source :boundary`) onto the `:errors` stream beside it. That record is structural only
+(`:source :boundary`) onto the error substrate beside it. That record is structural only
 — the event id, the schema id, the frame, and nothing derived from the payload, because a
 boundary payload is attacker-controlled or user-private by definition. See
 [Validate with schemas](how-to/validate-with-schemas.md#in-production-what-goes-what-stays). The
@@ -571,16 +583,14 @@ fan-out — a large value becomes `:rf.size/large-elided`, a sensitive one
 error record rides raw, deliberately, because off-box shippers need the host throwable
 and its stack.)
 
-One thing not to read into the split: the raw `:exception`. It is tempting to take the
-corpus-wide stream as "the one that keeps the throwable" — it isn't. A sink keeps the
-throwable too under the default `:rf.egress/off-box-observability` profile; only
-`:rf.egress/public-error` drops it. What the corpus-wide seat alone carries is the
-producer-attribution slots (`:failing-id`, `:reason`, `:source-coord`) the sink route
-does not pass through — plus, only while no process default is declared, a frameless
-record and a record whose owning frame is already gone.
+One thing not to read into the split: the raw `:exception`. It was tempting to take the
+old corpus-wide stream as "the one that keeps the throwable" — it wasn't. A sink keeps
+the throwable too under the default `:rf.egress/off-box-observability` profile; only
+`:rf.egress/public-error` drops it, and `:rf.egress/local-raw` hands you the untouched
+shape when that is what you want.
 
 Want timing in production, too? There's a third production-survivable surface besides
-`:events` and `:errors`: a Performance API channel, off by default, that brackets the
+the handled-event and error sinks: a Performance API channel, off by default, that brackets the
 four hot paths (event dispatch, sub recompute, fx walk, render) in
 `performance.mark` / `performance.measure` calls. Flip it on at build time with
 `:closure-defines {re-frame.performance/enabled? true}` and any
