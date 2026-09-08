@@ -96,7 +96,7 @@ sees the same slot here.
 
 Every tool that surfaces `:app-db` — `snapshot` (each frame's
 `:app-db` slice) and `get-path` (the resolved value) — runs
-the slot through `re-frame.core/elide-wire-value` (rf2-v9tw2)
+the slot through `re-frame.core/project-egress` (rf2-v9tw2)
 server-side before the EDN crosses the wire (see
 [`Principles.md` §Size-elision wire markers](Principles.md#size-elision-wire-markers-rf2-urjnc)).
 Each affected tool accepts an `elision` arg (boolean,
@@ -722,7 +722,7 @@ off-box read surfaces above — and `dispatch-dry-run`'s egress slots
    `(re-frame2-pair.runtime/configure-raw-state! {:allow-raw-state? false})`
    once per build per server lifetime. The runtime's `app-db-reset!`
    then wraps both `:previous` and `:next` slots in the `tap>` payload
-   through `re-frame.core/elide-wire-value` — the same redaction the
+   through `re-frame.core/project-egress` — the same redaction the
    wire path applies — so any registered tap consumer sees the
    pre-redacted shape rather than the raw state.
 
@@ -1366,7 +1366,7 @@ see §`--allow-sensitive-reads`), reusing the existing model rather than
 minting a new confirmation gate:
 
 - **App-db projection**: `:db-state-after-simulation` runs through
-  `re-frame.core/elide-wire-value`. With the launch gate OFF, the
+  `re-frame.core/project-egress`. With the launch gate OFF, the
   per-call knobs are forced safe. With it ON, `elision false` includes
   large app-db values and `include-sensitive true` includes declared-
   sensitive app-db leaves; these are independent axes.
@@ -2314,7 +2314,7 @@ wants several slices in the same round-trip; both share the same
 
 > Implemented by `tools.read-sub`; routes through the runtime
 > `read-sub!` (validate → resolve frame → subscribe + deref once) +
-> `re-frame.core/elide-wire-value` at the wire boundary. rf2-3bu3d.7.
+> `re-frame.core/project-egress` at the wire boundary. rf2-3bu3d.7.
 
 Read a **subscription value** — the single most common read on any
 re-frame2 app — **validated**, with **no-silent-swallow parity with
@@ -2345,7 +2345,7 @@ rather than silently reading `:rf/default`.
 Privacy / elision matches `snapshot`'s `:sub-cache` slice and
 `get-path` (per [Tool-Pair §Direct-read privacy
 posture](../../../spec/Tool-Pair.md#direct-read-privacy-posture-for-sub-cache-and-get-path)):
-the value is run through `re-frame.core/elide-wire-value` server-side —
+the value is run through `re-frame.core/project-egress` server-side —
 declared-sensitive values redact to `:rf/redacted`, declared-large
 values elide to `:rf.size/large-elided`. `elision false` /
 `include-sensitive true` (honoured only under `--allow-sensitive-reads`)
@@ -2511,7 +2511,7 @@ tagged ancestor (the producing view — "what's under the cursor?");
 `:subs-read` (the frame's live materialised sub-cache query-vectors).
 
 **Privacy — elide like `snapshot` / `get-path`.** The rendered `:text`
-is routed through `re-frame.core/elide-wire-value` with off-box defaults
+is routed through `re-frame.core/project-egress` with off-box defaults
 (see §Size-elision; Tool-Pair §Direct-read privacy posture) — a
 declared-large blob collapses to `:rf.size/large-elided` rather than
 shipping raw user DOM text unconditionally. A hard per-node `max-text`
@@ -2857,7 +2857,7 @@ default true), `include-sensitive` (boolean, default false), `frame`
 (string).
 
 **Privacy** (rf2-8fin7.2): the `:app-db` / `:sub` sample **values** are
-walked by `re-frame.core/elide-wire-value` at sample time, **before**
+walked by `re-frame.core/project-egress` at sample time, **before**
 they enter the change-log read back by `read-recording` — declared-`:large?`
 slots collapse to `{:rf.size/large-elided ...}` markers and
 declared-`:sensitive?` leaves redact to `:rf/redacted`, the same off-box
@@ -2965,7 +2965,7 @@ omitted `timeout-ms` uses the documented 30000 default.
 
 **Privacy** (rf2-8fin7.2): the `:app-db` / `:sub` values returned in the
 `:sample` (on hold) and `:last-sample` (on timeout) slots are walked by
-`re-frame.core/elide-wire-value` server-side — same off-box posture as
+`re-frame.core/project-egress` server-side — same off-box posture as
 `snapshot` / `get-path` / `record`. The predicate itself evaluates over
 the **unwalked** values, so elision never changes whether the watch trips
 — only what the returned sample shows. `elision` / `include-sensitive`

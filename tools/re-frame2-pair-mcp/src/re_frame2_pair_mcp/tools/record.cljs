@@ -58,7 +58,7 @@
   `:include-sensitive` / `:elision` args resolve an egress-opts map that
   is threaded into the runtime's `start-recording!` as `:elide-opts`, so
   every `:app-db` / `:sub` sample is walked through
-  `re-frame.core/elide-wire-value` server-side (app-side, where the
+  `re-frame.core/project-egress` server-side (app-side, where the
   per-frame elision registry lives) BEFORE it lands in the change-log.
   Gate OFF (the published default) forces `:include-sensitive false` ⇒
   declared-sensitive slots redact to `:rf/redacted`. The tool also issues

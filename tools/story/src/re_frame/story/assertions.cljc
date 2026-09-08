@@ -398,7 +398,7 @@
 ;;      and the value-pinning author (writes the raw value) get a passing
 ;;      assertion with a leak-free record.
 ;;
-;; Projection rides `re-frame.elision/elide-wire-value` (the frame-aware
+;; Projection rides `re-frame.core/project-egress` (the frame-aware
 ;; wire-egress walker) keyed on the asserted path + the variant frame; a path
 ;; with no sensitive declaration passes through unchanged.
 ;; ---------------------------------------------------------------------------
@@ -562,7 +562,7 @@
   ;;
   ;; Redaction: a sub reading a sensitive path propagates the sensitive
   ;; marker into its output value (spec/015 §reg-sub). We project the
-  ;; sub's value through `elide-wire-value` keyed on the SUB's root path
+  ;; sub's value through `project-egress` keyed on the SUB's root path
   ;; (`(rest sub-vec)` is the args; the first element is the sub-id, not
   ;; an app-db path). Where the sub-vec carries an app-db path (the
   ;; common `[:sub/id & path]` shape) the projection redacts; otherwise

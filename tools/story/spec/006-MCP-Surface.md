@@ -103,7 +103,7 @@ above, with `:sensitive` / `:large` declarations carried alongside as
 declarative metadata. The wire-elision substitution to `:rf/redacted`
 / `:rf.size/large-elided` happens at the **MCP jar's egress boundary**, NOT in
 Story core — every tool-response payload the MCP jar emits is passed
-through `re-frame.elision/elide-wire-value` before it crosses the
+through `re-frame.core/project-egress` before it crosses the
 JSON-RPC wire (per
 [spec/015 §3. MCP wire transport](../../../spec/015-Data-Classification.md#in-scope--the-five-observation-points-marks-must-guard)
 and [`tools/mcp-base/spec/elision.md`](../../mcp-base/spec/elision.md)).
@@ -119,7 +119,7 @@ data, so the egress classifies each payload as runtime/captured VALUE
 - **Runtime / captured VALUE slots — PATH-projected by default
   (EP-0025 fail-open).** Every slot that carries observed runtime state or
   a captured/plan-resolved value is run through the egress projectors:
-  `re-frame.core/elide-wire-value` for `:app-db`, and
+  `re-frame.core/project-egress` for `:app-db`, and
   `re-frame.core/project-egress`'s `:rf.observe/derived-tree` record for
   derived / non-live trees. Both are PATH-BASED, on the `:sensitive` and
   `:large` PEER axes: a value AT a classified app-db path redacts to

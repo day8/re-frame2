@@ -2,7 +2,7 @@
   "Wire-boundary elision-marker walker.
 
   Per `spec/009` §Size elision in traces, the framework's
-  `rf/elide-wire-value` walker substitutes over-threshold leaves with
+  `rf/project-egress` walker substitutes over-threshold leaves with
   a `{:rf.size/large-elided {...}}` marker before the payload leaves
   the runtime. Every MCP tool that returns a tree-typed payload
   surfaces a scalar count of those substitutions on its response

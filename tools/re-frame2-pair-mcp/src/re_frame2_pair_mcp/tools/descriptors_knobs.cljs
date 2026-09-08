@@ -84,7 +84,7 @@
   in sync (the `descriptor-elision-knob-parity` regression test pins it)."
   {:type        "boolean"
    :description (str "Apply the size-elision walker "
-                     "(`re-frame.core/elide-wire-value`, rf2-v9tw2) "
+                     "(`re-frame.core/project-egress`, rf2-v9tw2) "
                      "to the egressed app-db value server-side, before the "
                      "EDN crosses the wire. Default true. "
                      "Schema-driven `:large? true` slots get "

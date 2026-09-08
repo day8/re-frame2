@@ -10,13 +10,13 @@ This doc is one of thirteen per-namespace contracts indexed from [`README.md`](R
 `vocab` owns:
 
 - The `:rf.mcp/*` marker keyword catalogue.
-- The `:rf.size/*` marker keyword catalogue (shared with the framework's `rf/elide-wire-value` walker).
+- The `:rf.size/*` marker keyword catalogue (shared with the framework's `rf/project-egress` walker).
 - The unqualified envelope counter slots (`:dropped-sensitive`, `:elided-large`).
 - The JSON-RPC 2.0 §5.1 error-code constants used by direct JSON-RPC consumers.
 
 `vocab` does NOT own:
 
-- The walker implementation (`elide-wire-value` lives in `day8/re-frame2` core).
+- The walker implementation (`project-egress` lives in `day8/re-frame2` core).
 - The marker-emission policy (which tool emits which marker — that lives in each consumer's tool catalogue).
 - Wire-transport framing (each server uses its own stdio JSON-RPC binding — see `tools/mcp-base/spec/README.md` §What deliberately does NOT live here).
 
@@ -24,7 +24,7 @@ This doc is one of thirteen per-namespace contracts indexed from [`README.md`](R
 
 `:rf.mcp/*` — per-tool wire-mechanism markers. Owned by the MCP servers; not part of the framework runtime vocabulary.
 
-`:rf.size/*` — size-elision markers. Owned jointly with the framework's `rf/elide-wire-value` walker (per [`../../../spec/Conventions.md` §Reserved namespaces](../../../spec/Conventions.md#reserved-namespaces-framework-owned); [`../../../spec/009-Instrumentation.md` §Size elision in traces](../../../spec/009-Instrumentation.md)).
+`:rf.size/*` — size-elision markers. Owned jointly with the framework's `rf/project-egress` walker (per [`../../../spec/Conventions.md` §Reserved namespaces](../../../spec/Conventions.md#reserved-namespaces-framework-owned); [`../../../spec/009-Instrumentation.md` §Size elision in traces](../../../spec/009-Instrumentation.md)).
 
 Unqualified envelope slots — `:dropped-sensitive`, `:elided-large` — are per-call scalar counters summarising suppression and elision (per [`../../../spec/Conventions.md` §Cross-MCP indicator-field vocabulary](../../../spec/Conventions.md) and [`../../../spec/009-Instrumentation.md` §Size elision in traces](../../../spec/009-Instrumentation.md)).
 
@@ -48,7 +48,7 @@ Unqualified envelope slots — `:dropped-sensitive`, `:elided-large` — are per
 | `large-elided-key` | `:rf.size/large-elided` | Substituted for an over-threshold leaf (or declared-large slot). | Spec 009 §Size elision |
 | `redacted-sentinel` | `:rf/redacted` | In-place **scalar sentinel** substituted by the egress projection/walker for a sensitive value. Unlike `:rf.size/large-elided`, it has no handle: the value must not be re-fetched. | Spec 009 §Privacy |
 | `elision-handle-key` | First slot in the elision handle vector | Vector-shaped handle for follow-up `get-path` calls. | Spec 009 §Size elision |
-| `include-large-opt` / `include-sensitive-opt` / `include-digests-opt` / `threshold-bytes-opt` | (framework-side opts) | Knobs `rf/elide-wire-value` honours when the consumer relays a wire request to the walker. | Spec 009 §Size elision |
+| `include-large-opt` / `include-sensitive-opt` / `include-digests-opt` / `threshold-bytes-opt` | (framework-side opts) | Knobs `rf/project-egress` honours when the consumer relays a wire request to the walker. | Spec 009 §Size elision |
 
 ## Envelope counter slots
 

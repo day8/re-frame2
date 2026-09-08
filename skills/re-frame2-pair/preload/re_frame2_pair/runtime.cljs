@@ -413,7 +413,7 @@
 ;; via `(configure-raw-state! {:allow-raw-state? bool})`. The flag is
 ;; consulted by `app-db-reset!` (and any other raw-state tap site)
 ;; before deciding whether to ship verbatim payloads or run them through
-;; `re-frame.core/elide-wire-value`.
+;; `re-frame.core/project-egress`.
 ;;
 ;; Default raw-allowed — a runtime loaded into an app without a
 ;; re-frame2-pair-mcp server sees the gate as "raw allowed", so a direct
@@ -434,7 +434,7 @@
      :allow-raw-state?  boolean — when true (default), `app-db-reset!`
                         taps verbatim pre- and post-reset app-db
                         values. When false, the values are walked
-                        through `re-frame.core/elide-wire-value` so
+                        through `re-frame.core/project-egress` so
                         large / sensitive slots redact before any tap
                         consumer sees them.
 
@@ -482,12 +482,12 @@
   "PATH-project a DERIVED `tree` (rendered DOM text / an attribute map / a
   focus descriptor) for off-box egress.
 
-  The path-based `elide-wire-value` walker redacts by DECLARED app-db path.
+  The path-based `project-egress` walker redacts by DECLARED app-db path.
   Rendered DOM text / attribute values that sit AT a classified path within
   `tree` redact; values RE-KEYED to a non-app-db position the path walker can
   never reach ship RAW. The framework boundary `re-frame.core/project-egress`
   — the `:rf.observe/derived-tree` record kind (EP-0025 B4) — walks
-  the tree through `elide-wire-value` against the frame's classification (the
+  the tree through `project-egress` against the frame's classification (the
   SAME per-frame registry the `:app-db` path walker reads: frame- /
   EP-0025-commit-plane-effect- / flow-sourced declarations, unioned).
 
@@ -1093,7 +1093,7 @@
 
    On success returns `{:ok? true :query-v <v> :frame <id> :value <v>}`.
    The `:value` is the RAW deref; the MCP `read-sub` tool wraps it through
-   `re-frame.core/elide-wire-value` at the wire boundary (the privacy
+   `re-frame.core/project-egress` at the wire boundary (the privacy
    posture, like snapshot's `:sub-cache` slice + `get-path`) — this
    runtime fn returns the verbatim value so direct CLJS callers (and the
    wire wrapper) see the real thing.
@@ -2601,7 +2601,7 @@
 ;; ## Privacy — elide like snapshot / get-path
 ;;
 ;; Rendered DOM text can carry user data (a name, an email, a PDF dump).
-;; The returned text is routed through `re-frame.core/elide-wire-value`
+;; The returned text is routed through `re-frame.core/project-egress`
 ;; with off-box defaults (the SAME walker `snapshot` / `get-path` use, per
 ;; Tool-Pair §Direct-read privacy posture) so a declared-large blob
 ;; collapses to `:rf.size/large-elided` rather than shipping raw user DOM
@@ -3021,7 +3021,7 @@
                    ;; PATH-project the WHOLE rendered content (text AND attrs)
                    ;; against the frame's declared classification.
                    ;; `project-egress` (:rf.observe/derived-tree) walks the
-                   ;; tree through the path-based `elide-wire-value`: a value
+                   ;; tree through the path-based `project-egress`: a value
                    ;; AT a classified app-db path redacts. EP-0025 FAIL-OPEN —
                    ;; value-match is removed, so a secret re-keyed INTO a
                    ;; non-app-db DOM position ships raw. Off-box default

@@ -188,12 +188,12 @@ bundle-isolated core tooling ns `re-frame.derivation.egress/project-graph`
 panel and the derivation-conformance suite share **one** implementation
 rather than the two drifting copies they used to maintain. The owner lives in
 `implementation/core` and is built entirely from `implementation/`-resident
-primitives (`elide-wire-value` + `canonical-bytes`), so the delegation adds
+primitives (`project-egress` + `canonical-bytes`), so the delegation adds
 no `tools/` → `implementation/` dependency inversion. The call site behaves as
 follows:
 
 - each node's value-bearing summary field (`:value` / `:params` / `:query`
-  / `:state`) is projected through the single shared `rf/elide-wire-value`
+  / `:state`) is projected through the single shared `rf/project-egress`
   walker ([`spec/009-Instrumentation.md`](../../../spec/009-Instrumentation.md)
   §Privacy, [`spec/015-Data-Classification.md`](../../../spec/015-Data-Classification.md),
   [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) §5);
@@ -202,7 +202,7 @@ follows:
   `make-frame`), passed as the explicit `:frame` opt so the named frame's
   policy applies, never a borrowed or ambient one;
 - **fail-closed** — the observed frame-id is **stamped verbatim**, whatever
-  it is. `rf/elide-wire-value` reads its `:frame` opt by **key presence**, so
+  it is. `rf/project-egress` reads its `:frame` opt by **key presence**, so
   a nil id, a destroyed frame and a never-registered one all take its
   unresolvable-frame fail-closed branch and redact the whole value to the
   `:rf/redacted` sentinel rather than ship it raw under no policy. What the
@@ -314,7 +314,7 @@ from the enclosing `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`.
   (`g-*`); this suite proves the Xray delegate wires that algorithm through,
   across the frame-policy value walk and the resource-identity projection.
   The **positive** off-box egress test (rf2-yjarv6): a sensitive node value
-  run through the frame's `elide-wire-value` is elided **while** the node +
+  run through the frame's `project-egress` is elided **while** the node +
   edge structure survives (the "redact value, keep edge" arm the EP-0014
   testing-coverage audit flagged as missing); large elision → marker keeping
   structure; per-frame policy (a non-classifying frame ships the same value

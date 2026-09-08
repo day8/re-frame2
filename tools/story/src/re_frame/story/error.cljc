@@ -33,7 +33,7 @@
     `*out*`), so capturing the trace requires handing `printStackTrace`
     a writer directly. On CLJS it is `(.-stack e)`. nil when `e` is nil;
   - `:data`    — `(ex-data e)` projected through
-    `re-frame.elision/elide-wire-value` so author-keyed `ex-data`
+    `re-frame.core/project-egress` so author-keyed `ex-data`
     sourced from path-marked app-db slots records `:rf/redacted`
     rather than the raw value (spec/API.md §Error-projection
     records, spec/002 §Error projection §Privacy). nil for a
@@ -157,7 +157,7 @@
                pre-extracted `:exception-message`). Falls back to the
                throwable's message when nil/absent.
     :frame   — the Story frame the error belongs to. Threaded to
-               `re-frame.elision/elide-wire-value` so the `:data` slot's
+               `re-frame.core/project-egress` so the `:data` slot's
                author-keyed sensitive paths substitute `:rf/redacted`
                (spec/002 §Error projection §Privacy). Absent ⇒ frameless
                egress, which fails closed (the whole `ex-data` redacts)."

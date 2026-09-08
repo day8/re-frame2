@@ -295,7 +295,7 @@ play sequence never runs; `(run-variant)` resolves with
 | Failure mode | Trigger | Lifecycle state | Recorded assertion | Worked example (counter testbed) |
 |---|---|---|---|---|
 | **Throw** — loader handler raises | A `:loaders` event's registered handler throws or rejects synchronously. | Machine transitions to `:error` via `event-errored`. | `{:assertion :rf.error/exception :phase :phase-1-loaders :error {:message ... :stack ... :data ...} :passed? false}` | `:story.counter-diagnostics/loader-throws` (handler `(throw (js/Error. ...))` in `:counter/throw-deterministic`) |
-| **Reject** — loader emits a typed rejection | A `:loaders` event handler throws an `ex-info` whose `ex-data` carries a `:kind :loader-rejection` (or equivalent author-chosen marker). Same record-and-park path as Throw; the `:data` slot preserves the rejection's `ex-data` so test diagnostics can assert on it. | Machine transitions to `:error`. | Same shape as Throw, with `:error {:data {:kind :loader-rejection ...}}` round-tripped through `re-frame.elision/elide-wire-value` (per §Privacy above). | `:story.counter-matrix/loader-rejects` (handler `(throw (ex-info ... {:kind :loader-rejection}))`) |
+| **Reject** — loader emits a typed rejection | A `:loaders` event handler throws an `ex-info` whose `ex-data` carries a `:kind :loader-rejection` (or equivalent author-chosen marker). Same record-and-park path as Throw; the `:data` slot preserves the rejection's `ex-data` so test diagnostics can assert on it. | Machine transitions to `:error`. | Same shape as Throw, with `:error {:data {:kind :loader-rejection ...}}` round-tripped through `re-frame.core/project-egress` (per §Privacy above). | `:story.counter-matrix/loader-rejects` (handler `(throw (ex-info ... {:kind :loader-rejection}))`) |
 | **Never-complete** — loader drain settles but predicate stays false | `:loaders-complete-when` is a predicate event-id whose handler keeps `[:rf.story/loaders-complete?]` `false` indefinitely (or returns a vector-of-event-vectors that the runtime never observes drain). | Machine parks at `:loading`. The runtime records a deterministic assertion when the loader cascade has no further events to dispatch and the predicate is still false. | `{:assertion :rf.error/loader-incomplete :phase :phase-1-loaders :passed? false}` | `:story.counter-matrix/loader-never-completes` (predicate `:counter/loader-never-ready?` assoc's `:rf.story/loaders-complete? false`) |
 
 **Async timeout.** There is no built-in wall-clock timeout for phase 1.
@@ -384,7 +384,7 @@ two-route capture path above. The convention is purely author-side:
 when a loader emits a typed rejection it throws an `ex-info` whose
 `ex-data` carries a marker key (`:kind :loader-rejection`,
 `:kind :http/400`, or any author-chosen taxonomy). The marker
-round-trips through `re-frame.elision/elide-wire-value` into the
+round-trips through `re-frame.core/project-egress` into the
 record's `:error :data` slot so downstream test assertions and
 diagnostic panes can pattern-match on the rejection kind. The
 lifecycle settlement, phase-2/3/4 skip, and `run-variant` return
@@ -663,9 +663,9 @@ sensitive-path values:
   [spec/015 §Author guidance for the exception-path residual](../../../spec/015-Data-Classification.md#author-guidance-for-the-exception-path-residual))
   is the recommended pattern.
 
-**ex-data passes through `re-frame.elision/elide-wire-value` before
+**ex-data passes through `re-frame.core/project-egress` before
 landing in `:assertions`.** The wire-elision walker (per
-[spec/API.md §elide-wire-value](../../../spec/API.md))
+[spec/API.md §project-egress](../../../spec/API.md))
 substitutes sentinels at any path the elision registry resolves on the
 `ex-data` map — so an author who DID populate `ex-data` with values
 sourced from path-marked app-db slots gets transitive redaction at

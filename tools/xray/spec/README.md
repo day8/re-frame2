@@ -125,7 +125,7 @@ main read.
   superkinds (`:derivation` / `:process`), static vs live, with the
   contributor seam supplying the families Xray `:require`s. Carries the
   off-box egress redaction call site (`redact-graph-for-egress` —
-  per-frame, fail-closed, via `rf/elide-wire-value`; redact value, keep
+  per-frame, fail-closed, via `rf/project-egress`; redact value, keep
   edge): on-box rendering is raw (Security.md permits on-box), off-box
   egress projects through the frame's elision policy. Read-only.
 - [026-Module-View-Panel.md](026-Module-View-Panel.md) — the

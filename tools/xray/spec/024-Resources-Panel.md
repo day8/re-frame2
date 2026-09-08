@@ -114,7 +114,7 @@ Two elision layers compose:
    `pr-str` preview (tail elided past the budget), never the raw value. A
    value the runtime already redacted/elided upstream (the framework
    `:rf/redacted` / `:rf.size/large-elided` sentinels emitted for
-   `:sensitive?` / `:large?` slots via `elide-wire-value`) keeps its
+   `:sensitive?` / `:large?` slots via `project-egress`) keeps its
    sentinel status and renders `[redacted]` / `[large — elided]` with no
    raw preview.
 2. **Per-slot payload egress** (`instance-row`'s optional `egress-fn`;

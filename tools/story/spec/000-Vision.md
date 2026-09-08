@@ -208,7 +208,7 @@ The posture is normative across Story's surfaces:
    [`004-Assertions.md`](004-Assertions.md); the eighth canonical id
    `:rf.assert/schema-error` is tape-evaluated) build assertion records
    whose `:actual` / `:expected` / `:payload` slots pass through
-   `re-frame.elision/elide-wire-value` at record-build time. An
+   `re-frame.core/project-egress` at record-build time. An
    assertion of `:rf.assert/path-equals [:auth :token] :rf/redacted`
    against a path-marked-sensitive slot records `:actual :rf/redacted`,
    NOT the raw value — the assertion records ARE an observation
@@ -221,7 +221,7 @@ The posture is normative across Story's surfaces:
    `:rf.error/exception` projection record (per
    [`002-Runtime.md`](002-Runtime.md) §Error projection) honours
    event-level `:sensitive` declarations and passes `ex-data` through
-   `re-frame.elision/elide-wire-value` before the record lands in
+   `re-frame.core/project-egress` before the record lands in
    `:assertions`. Exception messages are NOT auto-walked — that's the
    spec/Security.md §Author guidance for exceptions under path-level
    `:sensitive?` rule (rf2-dv79m). See
@@ -311,7 +311,7 @@ Cross-references:
 | Propagation rules | [spec/015 §Propagation rules](../../../spec/015-Data-Classification.md#propagation-rules) |
 | Exception-path residual | [spec/Security.md §Author guidance for exceptions under path-level `:sensitive?`](../../../spec/Security.md) (rf2-dv79m) |
 | Event-level `:sensitive?` (legacy / parallel) | [spec/009 §Privacy / sensitive data in traces](../../../spec/009-Instrumentation.md) |
-| Wire-elision walker | [spec/API.md §elide-wire-value](../../../spec/API.md) |
+| Wire-egress door | [spec/API.md §project-egress](../../../spec/API.md) |
 | MCP-side elision | [`tools/mcp-base/spec/elision.md`](../../mcp-base/spec/elision.md) + [`tools/mcp-base/spec/sensitive.md`](../../mcp-base/spec/sensitive.md) |
 | Knob verb split | [spec/Conventions.md §Privacy config-knob naming](../../../spec/Conventions.md) |
 | Error projection (Story-side) | [`002-Runtime.md`](002-Runtime.md) §Error projection §Privacy |

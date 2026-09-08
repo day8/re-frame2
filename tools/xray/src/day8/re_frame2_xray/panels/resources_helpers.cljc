@@ -274,7 +274,7 @@
 (def redacted-sentinel
   "The framework sensitive-redaction sentinel. A value already redacted
   upstream (the runtime emits `:rf/redacted` for `:sensitive?` slots via
-  `elide-wire-value`) renders as `[redacted]`, not as a raw preview."
+  `project-egress`) renders as `[redacted]`, not as a raw preview."
   :rf/redacted)
 
 (def large-elided-sentinel
@@ -1824,7 +1824,7 @@
 ;; ---------------------------------------------------------------------------
 ;; Per-slot value egress contract (rf2-tgm1xu). Spec 016 §Xray, line 314:
 ;; "Params, scopes, and data carry :sensitive? / :large? classification
-;; through the shared elide-wire-value walker; Xray sees REDACTED SUMMARIES,
+;; through the shared project-egress door; Xray sees REDACTED SUMMARIES,
 ;; NOT raw values."
 ;; ---------------------------------------------------------------------------
 ;;

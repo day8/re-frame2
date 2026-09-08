@@ -52,7 +52,7 @@
   OFF-BOX egress boundary — where a tool ships the graph to a remote agent
   or a serialized capture — is `derivation-graph-helpers/redact-graph-for-
   egress`, which projects each node's value-bearing fields through the
-  frame's `rf/elide-wire-value` policy (per-frame, fail-closed), preserving
+  frame's `rf/project-egress` policy (per-frame, fail-closed), preserving
   edge + node structure (rf2-yjarv6). This panel renders on-box, so it
   reads the RAW graph.
 

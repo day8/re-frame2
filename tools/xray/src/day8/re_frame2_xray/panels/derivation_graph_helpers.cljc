@@ -52,7 +52,7 @@
   a service). Per [Derivations.md] §Redaction metadata and the EP-0014
   issue-1 disposition, the graph SHOULD be useful WITHOUT exposing sensitive
   raw values: each node's value-bearing summary fields are projected through
-  the frame's `elide-wire-value` walker under the FRAME's own elision policy
+  the frame's `project-egress` walker under the FRAME's own elision policy
   (per-frame, fail-closed when frameless), and identity-embedded resource
   scope/params are opaqued. Redaction MUST NOT lose graph STRUCTURE — a
   redacted param is still an edge; the node is still present + classified.
@@ -263,14 +263,14 @@
   "Project a `DerivationGraph` through the observed FRAME's egress policy for
   the off-box wire boundary — a thin DELEGATE to the core-owned algorithm
   `re-frame.derivation.egress/project-graph` (rf2-mm3y49). See that ns for
-  the full contract: per-frame `elide-wire-value` value redaction; dead-frame
+  the full contract: per-frame `project-egress` value redaction; dead-frame
   fail-closed (never borrowing an ambient frame and shipping raw); stable
   opaque live-resource-identity handles across every identity position (node
   key, `:id`, `:output`, realized `:inputs`, `:work-ledger` work-id +
   `:resource/key`, `:host-transient`) and every edge endpoint; structure
   preservation (a redacted param is still an edge); and idempotence.
   `([graph frame-id] [graph frame-id opts])` — `opts` ride through to
-  `elide-wire-value`; the `:frame` opt is set from `frame-id`."
+  `project-egress`; the `:frame` opt is set from `frame-id`."
   rf.derivation.egress/project-graph)
 ;; ---------------------------------------------------------------------------
 ;; Header summary (counts + family/role tallies for the panel header).
