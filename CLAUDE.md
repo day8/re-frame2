@@ -2,6 +2,20 @@
 
 This file provides instructions and context for AI coding agents working on this project.
 
+## Project stance
+
+> Posture is that we are pre-alpha and focused on elegance, power and a masterpiece.
+> But we are not over-engineering or gold plating. Also, we trust the programmer.
+> We're trying to facilitate high productivity for them (and the AI they use) via a
+> library with excellent ergonomics and low friction. We don't need to litigate every
+> last fine detail and drown in the minutiae.
+
+**That quoted block is the stance, and it is pasted VERBATIM into every dispatch preamble — never summarised, never trimmed to fit.** The reason is in its shape: the lenses say what good looks like, and everything after them says when to STOP. A paraphrase keeps the memorable half and drops the restraining one, and what survives does not read as incomplete — it reads as a stance that wants MORE of everything, which is precisely the failure the second half exists to prevent. Two clauses do the most work and are the first to be lost: *trust the programmer* rejects a nagging diagnostic, and *don't litigate the minutiae* lets an item die with its reasoning recorded instead of consuming a worker.
+
+**This file is the stance's home, and that is deliberate rather than incidental.** [`docs/the-mayor-method/dispatch-prompt-template.md`](docs/the-mayor-method/dispatch-prompt-template.md) does NOT carry it and must not: that page is the reusable, OS-neutral method, and it says in terms that the stance is project-specific, that it is "PASTED rather than pulled", that it "lives in its own file", and — the sentence that matters here — **"Do not send the worker to a file that does not carry a stance."** So do not go looking for it there, and do not add it there.
+
+**It is written down HERE because it was measured to have no tracked home at all (2026-09-09).** The full text appeared in exactly ZERO git-tracked files as a stance block — the only hit anywhere was inside `.beads/issues.jsonl`, i.e. quoted in bead prose, against a live control of 70 tracked files carrying `hot-zone`. Its one working copy was `ai/dispatch-blocks.md`, which is **gitignored** (`/ai/`), and whose own header names `dispatch-prompt-template.md` as the source it was regenerated from — a file that, by the design above, does not contain the stance. So the standing regeneration procedure would have silently dropped the one block the method says must never be lost or paraphrased, and the staleness test everybody runs (blocks-file header sha against the template's last commit) cannot see it, because it can only ever validate the three blocks that DO come from the template. Regenerate the other three from the template; take the stance from here.
+
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:ca08a54f -->
 ## Beads Issue Tracker
 
