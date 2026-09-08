@@ -36,7 +36,10 @@
             ;; transport's own reply shape.
             [re-frame.http.managed]
             [re-frame.recipes.async-nav :as rf.recipes.async-nav]
-            [re-frame.routing :as rf.routing]
+            ;; Side-effect require: the routing artefact's handlers.
+            ;; No alias — the registered route's metadata is read through
+            ;; the generic `rf/handler-meta` query, not a routing accessor.
+            [re-frame.routing]
             [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
