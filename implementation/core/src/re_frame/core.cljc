@@ -2391,9 +2391,15 @@
   clear-trace-buffer!    rf.trace.tooling/clear-trace-buffer!)
 
 ;; The always-on event-emit / error-emit listener registries are NO LONGER
-;; facade exports. They are reached through the stream-parameterized
-;; `register-listener!` / `unregister-listener!` verb above with the
-;; `:events` / `:errors` stream (rf2-ikjmkm, decision rf2-dbo0c9 Option C).
+;; facade exports. The per-registry verbs were folded into the
+;; stream-parameterized `register-listener!` / `unregister-listener!` pair
+;; above (rf2-ikjmkm, decision rf2-dbo0c9 Option C), and rf2-kuky.69 then
+;; retired the `:events` / `:errors` streams from that pair's vocabulary —
+;; which is now `#{:trace :epoch}`, two raw dev streams. So NO facade
+;; spelling reaches these registries at all: they are IMPLEMENTATION-tier,
+;; and production observation is a different verb —
+;; `register-observability-sink!` against a frame's `:observability` policy,
+;; or the `(rf/configure! {:observability …})` process default.
 ;; Between-scenario test isolation clears the registries via the lower-level
 ;; `re-frame.event-emit/clear-event-listeners!` /
 ;; `re-frame.error-emit/clear-error-listeners!` sinks directly (the former
@@ -2526,10 +2532,12 @@
 
 ;; There are deliberately NO façade `register-epoch-listener!` /
 ;; `unregister-epoch-listener!` exports (retired rf2-9flalp — API-shrink #4).
-;; The epoch stream is one of the four pure observation streams,
-;; so it is registered through the single stream-parameterized verb —
+;; The epoch stream is one of the TWO raw dev observation streams —
+;; `register-listener!`'s vocabulary is `#{:trace :epoch}` since rf2-kuky.69
+;; retired the `:events` / `:errors` members — so it is registered through
+;; the single stream-parameterized verb —
 ;; `(rf/register-listener! :epoch id f)` / `(rf/unregister-listener! :epoch
-;; id)` — exactly like `:trace` / `:events` / `:errors`. Those verbs delegate
+;; id)` — exactly like `:trace`, the other member. Those verbs delegate
 ;; to the same optional-artefact wrappers (`re-frame.core-epoch/register-
 ;; epoch-listener!`, late-bound via `:epoch/register-epoch-listener!`), which
 ;; remain the implementation and degrade to nil when the `day8/re-frame2-epoch`
