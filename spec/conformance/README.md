@@ -55,6 +55,7 @@ Every top-level key the corpus uses. A harness that meets a key it does not impl
 | `:fixture/dynamic-host-only?` | gating | `true` marks a fixture asserting a **runtime** validation trace that a statically-typed host claiming schemas through its type system cannot produce — the malformed value never compiles. Such a host filters these out *before* the capability-subset check and records the reason; that is a documented static-host path, not claim-set drift. |
 | `:fixture/dispatches` | Mode A | The event vectors to dispatch, in order. |
 | `:fixture/calls` | Mode B | Direct invocations of pure primitives, each carrying its own expectation. See [§Mode B](#mode-b--pure--direct-call). |
+| `:fixture/clock` | Mode A | Runs the dispatches against a **controlled** realisation of the Spec 005 §Clock-abstraction primitives (`schedule-after!` / `cancel-scheduled!`), then executes the declared steps against it. See [§The `:fixture/clock` controlled host clock](#the-fixtureclock-controlled-host-clock). |
 | `:fixture/expect` | Mode A | The single post-drain expectation block. |
 | `:fixture/compute-subs` | expectation | Sub query-vectors the harness invokes against the post-dispatch state, so a sub that *throws* is observed as a sub failure rather than as an absent value. |
 | `:fixture/render-after-hydrate` | expectation | Simulates the client's first render after `:rf/hydrate` so hydration-mismatch detection can be exercised: `:simulated-client-render-hash` and optional `:first-diff-path` are compared against the server hash carried in the hydrate payload. |
@@ -90,6 +91,34 @@ The classic shape: a starting state (frame configuration plus initial `app-db`),
 ```
 
 The expectation keys inside `:fixture/expect` are partial-match by convention: `:trace-emissions` matches each trace event by its specified keys (absent keys ignored), `:final-app-db` is a submap compare (every declared key must match; extra actual keys are tolerated), `:effects-routed` matches the routed-fx pairs in declaration order. Because `:final-app-db`'s submap match tolerates extras, a negative companion key `:final-app-db-absent` — a vector of `get-in`-shaped paths that must be ABSENT from the final app-db (the tip key not present; a present-with-`nil` leaf counts as present) — pins contracts the positive submap cannot, for example declared-only coeffect delivery (a port that over-delivers undeclared coeffects still passes the positive check but fails the absent-path check). See [§Fixture lifecycle](#fixture-lifecycle) for the full comparison contract.
+
+### The `:fixture/clock` controlled host clock
+
+Some contracts are about **delayed host work** — a machine `:after` timer, an SSR hydration re-arm — and a post-drain expectation block cannot reach them. A trace assertion says a row was emitted; it cannot say the timer behind that row still exists (`:trace-emissions` is an order-preserving **subset** match, so a later cancellation is tolerated), and it cannot say the timer is wired to anything, because a row is not a callback. Waiting out wall time is not an option for a corpus.
+
+`:fixture/clock` closes that gap at the seam Spec 005 §Clock abstraction already names — `re-frame.interop/schedule-after!` and `cancel-scheduled!`. A fixture carrying the key runs its `:fixture/dispatches` with those two primitives replaced by a **recording** realisation, then executes the declared steps against it, before `:fixture/calls` and before `:fixture/expect` is graded. A fixture without the key is untouched and keeps the real host clock.
+
+Everything the steps observe is host-observable at that clock boundary; no port-internal timer table is read. A port that arms through some other internal mechanism conforms so long as it arms through the clock primitive the spec names.
+
+The value is a vector of step maps, executed in order, stopping at the first failure:
+
+| Step | Keys | What it asserts / does |
+|---|---|---|
+| `:assert-timers` | `:live`, `:delays` | The host holds exactly `:live` timers it armed and has **not** cancelled, armed for exactly `:delays` (in arm order). Either key may be omitted. |
+| `:assert-runtime-db` | `:expect`, `:frame` | A **mid-run** runtime-db assertion, submap-compared like `:final-runtime-db`, so a fixture can pin the state *before* a timer expires as well as after. `:frame` defaults to `:rf/default`. |
+| `:fire` | `:index` | Invoke the `:index`-th **live** timer's own host callback (default `0`). Whatever that callback does — typically dispatching a synthetic elapsed event — then settles, and the rest of the fixture grades the result. |
+
+`:live` is deliberately *live* rather than *armed*: an arm records a handle, and a `cancel-scheduled!` of that handle marks it dead, so "arms exactly one timer per active declaration" is graded as *still holding one*. A host that arms and immediately cancels holds none and fails, even though its `/scheduled` trace row is identical to a conforming host's. A host that arms nothing holds none either, so a fixture using this step cannot pass vacuously.
+
+```clojure
+:fixture/clock
+[{:step :assert-timers :live 1 :delays [5000]}
+ {:step   :assert-runtime-db
+  :expect {:rf.runtime/machines {:snapshots {:auth/probe {:state :waiting}}}}}
+ {:step :fire :index 0}]
+```
+
+`cross-spec-machine-after-hydration-rearm.edn` is the worked example.
 
 ### Mode B — pure / direct-call
 
@@ -413,10 +442,11 @@ Each fixture defines an invariant the implementation upholds. The harness:
 1. Bootstraps the registrar — for each kind in `:fixture/registry`, register every id with the supplied metadata.
 2. Realises handler bodies — for each `:fixture/handlers` entry, interpret the DSL ops into a host-native closure and bind it to the id under the kind.
 3. Creates the frame — apply `:fixture/frame-config` via `make-frame` (or the host equivalent); this fires the frame's `:initial-events` seeded into it.
-4. Runs `:fixture/dispatches` — one event vector per call, each via `dispatch-sync`. Each settles to fixed point before the next.
-5. Runs `:fixture/calls` (if present) — direct invocations of pure primitives (`machine-transition`, `reg-machine`, `make-frame`, `match-url`, `route-url`, `render-to-string`, `round-trip`, `assert-rank-greater`, and the data-classification projector ops). Each call carries its own expectation; mismatches surface as fixture-level failures.
-6. Captures observables (Mode A) — final `app-db`, sub values (per `:fixture/expect :sub-values`), trace events emitted, effects routed.
-7. Compares (Mode A) — partial-match per assertion. `:trace-emissions` partial-matches each trace event by its specified keys; absent keys are ignored. `:final-app-db` is a submap compare (declared keys must match; extra actual keys tolerated); `:final-app-db-absent` (a vector of `get-in`-shaped paths) asserts each path's tip key is ABSENT. `:effects-routed` matches the routed-fx pairs in declaration order. A dispatch carrying `:expect-error` asserts that dispatch threw the named `:rf.error/id`.
+4. Runs `:fixture/dispatches` — one event vector per call, each via `dispatch-sync`. Each settles to fixed point before the next. Where `:fixture/clock` is present, this step runs against the controlled clock described in [§The `:fixture/clock` controlled host clock](#the-fixtureclock-controlled-host-clock).
+5. Runs `:fixture/clock` steps (if present) — still inside the controlled clock, so a fired callback releases its own handle through it.
+6. Runs `:fixture/calls` (if present) — direct invocations of pure primitives (`machine-transition`, `reg-machine`, `make-frame`, `match-url`, `route-url`, `render-to-string`, `round-trip`, `assert-rank-greater`, and the data-classification projector ops). Each call carries its own expectation; mismatches surface as fixture-level failures.
+7. Captures observables (Mode A) — final `app-db`, sub values (per `:fixture/expect :sub-values`), trace events emitted, effects routed.
+8. Compares (Mode A) — partial-match per assertion. `:trace-emissions` partial-matches each trace event by its specified keys; absent keys are ignored. `:final-app-db` is a submap compare (declared keys must match; extra actual keys tolerated); `:final-app-db-absent` (a vector of `get-in`-shaped paths) asserts each path's tip key is ABSENT. `:effects-routed` matches the routed-fx pairs in declaration order. A dispatch carrying `:expect-error` asserts that dispatch threw the named `:rf.error/id`.
 
 For Mode B fixtures, comparison happens inline at each call; there is no top-level `:fixture/expect` to evaluate after drain.
 
@@ -432,7 +462,8 @@ Each fixture is a single file of <200 lines including registrations and expectat
    b. Realise handler bodies via the DSL interpreter.
    c. If `:fixture/dispatches` is present (Mode A):
       - Create a frame per `:fixture/frame-config`.
-      - Run each dispatch.
+      - Run each dispatch — against the controlled clock where `:fixture/clock` is present.
+      - Run the `:fixture/clock` steps, if any, still inside that clock.
       - After drain, capture: final `app-db`, sub values, emitted trace events, effects routed.
       - Compare actuals against `:fixture/expect`.
    d. If `:fixture/calls` is present (Mode B):
