@@ -227,7 +227,7 @@
   (testing "a {:from-db} sub whose resolver yields nil raises the sub-side
             fail-closed diagnostic — never a silent :idle / global read.
             (Asserted at the resolution boundary `resolve-scoped-key`, the
-            same level the from-caller sub-unresolved test asserts at; a sub
+            same level `sub-side-scope-fail-closed` asserts at; a sub
             body throw is otherwise routed to the runtime error path.)"
     ;; no logged-in user — the {:from-db} spec policy resolves nil against `{}`
     (is (thrown-with-msg?
