@@ -1176,6 +1176,12 @@ _NS_FORM_RE = re.compile(
 # Reader-conditionals are the reason this matters more than the shapes it
 # replaces: `#?` is ordinary `.cljc` and this tree is full of it.
 #
+# AND THE MANIFEST CONTROL CANNOT REACH ANY OF IT. `oracle_problems` is a
+# SUBSET test, so it detects public names the parser has STOPPED seeing, never
+# fictitious ones it has STARTED inventing. What guards this direction is the
+# exact-set assertion in `_run_where_sym_self_tests`, over an oracle fixture
+# that defines each of these names behind its prefix and nowhere else.
+#
 # The fix is to read forward the way the READER does. `#_` does not decorate
 # the next balanced list — it consumes the next DATUM, whatever that datum is
 # spelled as, and a discard met while reading that datum is itself consumed
