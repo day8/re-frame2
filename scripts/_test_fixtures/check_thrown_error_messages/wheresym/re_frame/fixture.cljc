@@ -114,3 +114,46 @@
 (do
   (defn do-defined-public [] nil)
   #_(defn ghost-discarded-inside-do [] nil))
+
+;; ---- COMPOSED READER PREFIXES: THE PREFIX IS THE ONLY THING DOING THE WORK -
+;;
+;; Audit #9511's residual on the repair above. `_reader_inert_at` decided
+;; inertness from the ONE character before the `(`, so `#_#?(...)` and
+;; `'#?(...)` reached that `(` after a `?` and were walked as LIVE, and a
+;; STACKED `#_#_ a b` skipped only the first form though the reader discards
+;; both. Reader-conditionals are why that matters more than the shapes it
+;; replaced: `#?` is ordinary `.cljc` and this tree is full of it.
+;;
+;; EVERY SHAPE HERE IS ADVERSARIAL AGAINST THE PREDICATE THAT READS IT. Strip
+;; the prefix and each form defines its var for real, so nothing BUT the prefix
+;; can be making it inert — `conditional-defined-public` below is that live
+;; twin, body for body. A fixture whose inertness has a second cause proves
+;; nothing about the predicate, which is exactly how every comma fixture came
+;; back green under a sabotage plant that reverted `_is_clj_ws`.
+
+#_#?(:clj  (defn ghost-discarded-conditional [] nil)
+     :cljs (defn ghost-discarded-conditional [] nil))
+
+'#?(:clj  (defn ghost-quoted-conditional [] nil)
+    :cljs (defn ghost-quoted-conditional [] nil))
+
+`#?(:clj (defn ghost-syntax-quoted-conditional [] nil))
+
+#_#?@(:clj [(defn ghost-discarded-splice [] nil)])
+
+;; A STACKED DISCARD NEUTRALISES BOTH FORMS. The first was already unreachable
+;; by look-back; the SECOND is the residual — nothing stands between it and the
+;; form the first discard consumed, so there is no prefix behind it to see.
+
+#_#_ (def ghost-stacked-first 1)
+     (defn ghost-stacked-second [] nil)
+
+;; ---- LIVE reader-conditional: the discriminating twin ---------------------
+;;
+;; Identical, body for body, to the discarded conditional above. It must stay
+;; PUBLIC: widening the inert set until it swallows this is the failure the
+;; `do` control guards against one shape along, and a `#?(:cljs (def
+;; frame-root ...))` export is how the real facade ships.
+
+#?(:clj  (defn conditional-defined-public [] nil)
+   :cljs (defn conditional-defined-public [] nil))

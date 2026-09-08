@@ -1161,49 +1161,156 @@ _NS_FORM_RE = re.compile(
 )
 
 
-def _reader_inert_at(masked: str, open_idx: int) -> bool:
-    """Is the form opening at `open_idx` neutralised by a READER PREFIX?
+# THE PREFIX AND ITS FORM ARE ONE UNIT. A first repair (PR #9511) decided
+# inertness by looking back ONE character from the `(`, and audit #9511
+# reproduced three shapes it cannot see, each of which interns nothing and each
+# of which turned a dead door green:
+#
+#   * `#_#?(:clj (defn ghost …))` — the character before the `(` is `?`, so the
+#     discard is never reached and the conditional's arms are walked as live;
+#   * `'#?(:clj (defn ghost …))` — the same, through a quote;
+#   * `#_#_ (def ignored 1) (defn ghost …)` — a STACKED discard, which look-back
+#     cannot reach in principle: the second discard's target sits AFTER a form
+#     the walker has already stepped past, so there is no prefix behind it.
+#
+# Reader-conditionals are the reason this matters more than the shapes it
+# replaces: `#?` is ordinary `.cljc` and this tree is full of it.
+#
+# The fix is to read forward the way the READER does. `#_` does not decorate
+# the next balanced list — it consumes the next DATUM, whatever that datum is
+# spelled as, and a discard met while reading that datum is itself consumed
+# first, which is exactly why `#_#_ a b` neutralises BOTH. `_datum_end` is that
+# rule and nothing more; it answers `#_#?`, `'#?`, `` `#? ``, `#_#?@`, `#_'`
+# and any further stacking with the same six lines.
+#
+# Reader prefixes that DECORATE the datum after them, longest-first so `#?@` is
+# never read as `#?`. `#_` is deliberately absent: a discard consumes its datum
+# rather than decorating it, and that difference is the stacked-discard case.
+_READER_PREFIXES: tuple[str, ...] = ("#?@", "#?", "#'", "~@", "'", "`", "~", "@")
 
-    THE SAME FALSE-GREEN AS `comment`, REACHED THROUGH THE READER RATHER THAN
-    THROUGH A HEAD SYMBOL. `#_(defn ghost …)` is discarded and `'(defn ghost
-    …)` / `` `(defn ghost …) `` are data, so none of the three defines
-    anything — but each is a balanced `( … )` form, and a walk that only looks
-    at what is INSIDE the parens sees `defn` and calls `ghost` public.
 
-    THIS IS THE DANGEROUS DIRECTION AND THE MANIFEST CONTROL CANNOT REACH IT:
-    `oracle_problems` is a SUBSET test, so it detects public names the parser
-    has stopped seeing, never fictitious ones it has started inventing.
+def _string_end(text: str, open_idx: int) -> int:
+    """The index just past the string literal opening at `open_idx`."""
+    n = len(text)
+    i = open_idx + 1
+    while i < n:
+        if text[i] == "\\":
+            i += 2
+            continue
+        if text[i] == '"':
+            return i + 1
+        i += 1
+    return n
 
-    Look-BACK rather than a forward prefix stack, because the caller has
-    already walked to this `(` at depth 0 — so the characters behind it are
-    top-level text and nothing else. `\\'` is the CHARACTER quote, not a quote
-    prefix, which is the same reader trap that once swallowed half a file.
+
+def _at_datum_start(text: str, i: int) -> bool:
+    """Is `i` the START of a datum rather than a character inside a token?
+
+    `'` is BOTH the quote prefix and a legal symbol constituent (`foo'`), and
+    `\\'` is the character literal — the reader trap that once swallowed half a
+    file. Either read as a prefix would swallow the form after it, so a quote
+    counts only where a datum could actually begin.
     """
-    j = open_idx - 1
-    while j >= 0 and _is_clj_ws(masked[j]):
-        j -= 1
-    if j < 0:
-        return False
-    if masked[j] in "'`":
-        return not (j > 0 and masked[j - 1] == "\\")
-    return masked[j] == "_" and j > 0 and masked[j - 1] == "#"
+    return i == 0 or _is_clj_ws(text[i - 1]) or text[i - 1] in "()[]{}"
+
+
+def _skip_reader_discards(text: str, i: int) -> int:
+    """Advance past reader whitespace and every complete `#_ <datum>` at `i`.
+
+    STACKED DISCARDS FALL OUT OF THE RECURSION: reading the datum a `#_`
+    discards goes through `_datum_end`, which skips a nested discard on its way
+    to a datum — so `#_#_ a b` consumes `a` while reading the inner discard's
+    target and then `b` as the outer one's, and neither reaches the caller.
+    """
+    n = len(text)
+    while True:
+        while i < n and _is_clj_ws(text[i]):
+            i += 1
+        if not text.startswith("#_", i):
+            return i
+        i = _datum_end(text, i + 2)
+
+
+def _datum_end(text: str, i: int) -> int:
+    """The index just past the next complete DATUM at or after `i`.
+
+    A miniature reader, not a full one — it answers only "where does this datum
+    end", which is all a walk deciding what to DESCEND INTO needs. It is
+    string-aware through `_balanced_extent` and `_string_end`, prefix-aware
+    through `_READER_PREFIXES`, and discard-aware through
+    `_skip_reader_discards`.
+    """
+    n = len(text)
+    i = _skip_reader_discards(text, i)
+    if i >= n:
+        return n
+    for prefix in _READER_PREFIXES:
+        if text.startswith(prefix, i):
+            return _datum_end(text, i + len(prefix))
+    c = text[i]
+    if c == "^":
+        # Metadata is read, then the datum it decorates.
+        return _datum_end(text, _datum_end(text, i + 1))
+    if c == "#":
+        if i + 1 < n and (text[i + 1].isalpha() or text[i + 1] == ":"):
+            # A tagged literal — `#js {…}`, `#inst "…"` — is tag then datum.
+            return _datum_end(text, _datum_end(text, i + 1))
+        # `#(`, `#{`, `#"…"`: dispatch on whatever follows.
+        return _datum_end(text, i + 1)
+    if c in "([{":
+        end = _balanced_extent(text, i)
+        return n if end is None else end
+    if c == '"':
+        return _string_end(text, i)
+    j = i
+    while j < n and not _is_clj_ws(text[j]) and text[j] not in '()[]{}"':
+        j += 1
+    return j if j > i else i + 1
 
 
 def _top_level_forms(masked: str) -> Iterable[str]:
     """Every balanced top-level `( … )` form in comment-masked text, MINUS the
-    ones a reader prefix makes inert (see `_reader_inert_at`)."""
+    ones the READER neutralises — see the prefix note above.
+
+    DELIBERATELY NOT A FULL READER. Anything that is not a top-level `(`, a
+    discard run or a quote is stepped over one character at a time, exactly as
+    before, because this walker also serves `do` bodies and reader-conditional
+    ARMS (`_public_names_defined_by`), where the leading `:clj` / `:cljs`
+    keyword has to be walked past rather than parsed.
+    """
     i = 0
     n = len(masked)
     while i < n:
-        if masked[i] == "(":
+        # Reader whitespace and `#_ <datum>` runs — stacked ones included —
+        # vanish here, whatever the discarded datum turns out to be.
+        after_noise = _skip_reader_discards(masked, i)
+        if after_noise != i:
+            i = after_noise
+            continue
+        c = masked[i]
+        if c in "'`" and _at_datum_start(masked, i):
+            # Quoted and syntax-quoted data define nothing, however the datum
+            # is spelled: `'(defn …)`, `'#?(:clj (defn …))`, `` `#?(…) ``.
+            i = _datum_end(masked, i)
+            continue
+        if masked.startswith("#?@", i):
+            # Splicing is a reader ERROR at the top level, so it interns
+            # nothing; consume it rather than descending into its arms. Inside
+            # a collection it is legal, and that path is unchanged — the arms
+            # are reached through the enclosing form.
+            i = _datum_end(masked, i)
+            continue
+        if c == "(":
             end = _balanced_extent(masked, i)
             if end is None:
                 return
-            if not _reader_inert_at(masked, i):
-                yield masked[i:end]
+            # `#?(…)` reaches here with the `#?` stepped over, which is what
+            # keeps a LIVE reader-conditional's arms descendable: the façade
+            # ships `rf/frame-root` as `#?(:cljs (def frame-root …))`.
+            yield masked[i:end]
             i = end
-        else:
-            i += 1
+            continue
+        i += 1
 
 
 def _public_names_defined_by(form: str) -> list[str]:
@@ -2729,16 +2836,24 @@ def _run_where_sym_self_tests(verbose: bool = False) -> int:
     # transparent.
     #
     # THE ABSENCES ARE HALF THE ASSERTION, and this is the only place that can
-    # make them: three privacy spellings, a `defmethod`, and the four inactive
-    # forms (`comment`, `#_`, `'`, `` ` ``) plus the discard nested in the live
-    # `do`. The manifest control cannot stand in for it — `oracle_problems` is
-    # a SUBSET test, so it catches public names the parser has stopped seeing
-    # and is blind to fictitious ones it has started inventing, which is
-    # exactly the direction `comment` failed in.
+    # make them: three privacy spellings, a `defmethod`, the four inactive
+    # forms (`comment`, `#_`, `'`, `` ` ``), the discard nested in the live
+    # `do`, and — audit #9511's residual — the six names behind a COMPOSED
+    # reader prefix (`#_#?`, `'#?`, `` `#? ``, `#_#?@` and both halves of a
+    # stacked `#_#_`). The manifest control cannot stand in for it —
+    # `oracle_problems` is a SUBSET test, so it catches public names the parser
+    # has stopped seeing and is blind to fictitious ones it has started
+    # inventing, which is exactly the direction `comment` failed in.
+    #
+    # `conditional-defined-public` is the twin that keeps the repair honest in
+    # the other direction: the oracle fixture writes it as a LIVE `#?(…)` with
+    # a body identical to the discarded one, so an inert-set widened until it
+    # swallows reader-conditionals costs this name and the exact set says so.
     expected_publics = {
         "known-var", "known-public", "known-macro", "known-multi",
         "no-doc-public", "cljs-only-public", "clj-only-public",
         "Panel", "imported-fn", "do-defined-public",
+        "conditional-defined-public",
     }
     got_publics = index.publics_of("re-frame.fixture")
     if got_publics != expected_publics:
@@ -2811,6 +2926,24 @@ def _run_where_sym_self_tests(verbose: bool = False) -> int:
             # blind spot, which is the failure this gate's audit was about.
             (233, "where-sym-unresolvable", "rf.fixture/ghost-comma-five"),
             (236, "where-sym-unresolvable", "rf.fixture/ghost-comma-six"),
+            # (7) COMPOSED READER PREFIXES — audit #9511's residual. The first
+            # repair read the ONE character before the `(`, which is `?` for
+            # both `#_#?(…)` and `'#?(…)`; the stacked `#_#_ a b` it could not
+            # reach at all, because nothing stands behind the second form but
+            # the one the first discard consumed. Each name is defined in the
+            # oracle fixture behind its prefix and NOWHERE ELSE, and stripping
+            # that prefix makes the form define its var for real — so the
+            # prefix is the only thing under test here.
+            (254, "where-sym-unresolvable",
+             "rf.fixture/ghost-discarded-conditional"),
+            (260, "where-sym-unresolvable",
+             "rf.fixture/ghost-quoted-conditional"),
+            (266, "where-sym-unresolvable",
+             "rf.fixture/ghost-syntax-quoted-conditional"),
+            (272, "where-sym-unresolvable",
+             "rf.fixture/ghost-discarded-splice"),
+            (279, "where-sym-unresolvable", "rf.fixture/ghost-stacked-first"),
+            (285, "where-sym-unresolvable", "rf.fixture/ghost-stacked-second"),
         )),
         (_WHERE_SYM_NEGATIVE, ()),
     ]
@@ -2840,7 +2973,7 @@ def _run_where_sym_self_tests(verbose: bool = False) -> int:
     neg_path = _WHERE_SYM_FIXTURE_ROOT / _WHERE_SYM_NEGATIVE
     neg_text = neg_path.read_text(encoding="utf-8", errors="replace")
     neg_observed = _scan_where_syms(neg_path, neg_text, neg_text.splitlines())
-    if len(neg_observed) < 21:
+    if len(neg_observed) < 22:
         fail(
             f"the negative fixture observed only {len(neg_observed)} where-sym(s). "
             "A green there is only evidence while the sites are still being SEEN "
@@ -2865,6 +2998,10 @@ def _run_where_sym_self_tests(verbose: bool = False) -> int:
         # proved the pair above could not reach.
         (175, "builder", "rf.fixture/known-public"),
         (178, "where-slot", "rf.fixture/known-public"),
+        # a LIVE reader-conditional, body-for-body the twin of the oracle
+        # fixture's discarded one. Green here alone would also be what a
+        # detector blind to the whole site looks like, so it is pinned SEEN.
+        (190, "builder", "rf.fixture/conditional-defined-public"),
     )
     got_observations = {(w.line, w.source, w.symbol) for w in neg_observed}
     for pin in required_observations:
