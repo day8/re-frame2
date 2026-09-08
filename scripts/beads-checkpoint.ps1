@@ -145,11 +145,34 @@ function Get-RowCount {
     return $n
 }
 
-# Write HEAD's copy of the tracker to $Path; an empty file if the tracker does
-# not exist at HEAD (a first-ever checkpoint).
+# Resolve git ONCE, to a full path, for the same reason `bd` is resolved that
+# way below: CreateProcess's own PATH search appends only .exe, so a `git.cmd`
+# ahead of git.exe would be found by PowerShell's `& git` and NOT by
+# Process.Start. The baseline capture and the comparison copy are ONE snapshot
+# (see the checkpoint path below) and they run through those two different
+# launchers, so they must resolve to the same binary. `-CommandType Application`
+# skips a `git` function or alias from an operator profile, which has no
+# `.Source` to hand Process.Start. Falls back to the bare name, i.e. to today's
+# behaviour, if resolution finds nothing.
+$gitExe = 'git'
+$gitCmd = @(Get-Command git -CommandType Application -ErrorAction SilentlyContinue)
+if ($gitCmd.Count -gt 0 -and $gitCmd[0].Source) { $gitExe = $gitCmd[0].Source }
+
+# Write $Ref's copy of the tracker to $Path (default HEAD); an empty file if the
+# tracker does not exist there (a first-ever checkpoint, or an unborn branch).
+#
+# THE REF PARAMETER IS THE FIX (rf2-cve7, merged-PR audit of #9524), not an
+# ergonomic flourish. The caller prints a commit oid as a RECOVERY REFERENCE,
+# and a helper that re-resolves `HEAD` for itself makes that oid a SEPARATE READ
+# of a moving branch: a commit landing in the shared checkout between the two
+# reads leaves the guard comparing commit A's bytes while printing commit B's
+# oid, and B never carried the values the operator is told to recover. Adjacent
+# calls are not one snapshot - the drift reproduces deterministically with a
+# single commit in the gap. Pass the resolved oid and the two cannot disagree.
+# `${Ref}:` needs the braces: a bare `$Ref:` parses as a scope qualifier.
 function Write-HeadCopy {
-    param([string]$Path)
-    $code = Invoke-RawToFile -Exe 'git' -Arguments @('show', "HEAD:$tracker") -OutFile $Path
+    param([string]$Path, [string]$Ref = 'HEAD')
+    $code = Invoke-RawToFile -Exe $gitExe -Arguments @('show', "${Ref}:$tracker") -OutFile $Path
     if ($code -ne 0) {
         [System.IO.File]::WriteAllText($Path, '', (New-Object System.Text.UTF8Encoding $false))
     }
@@ -865,6 +888,162 @@ if ($SelfTest) {
     Assert-True ((Get-MemoryValueAt -Ref $lookupRef -Key 'mem-key-03') -eq 'body 3') `
                 'T7 and a further commit on top does not invalidate the printed reference'
 
+    # -----------------------------------------------------------------------
+    # T7, third arm: A CONCURRENT COMMIT BETWEEN THE CAPTURE AND THE COPY
+    # (rf2-cve7, merged-PR audit of #9524).
+    #
+    # The arm above proves the printed reference is IMMUTABLE. It cannot prove
+    # it is the RIGHT object, because in a quiet repo every reading of `HEAD`
+    # returns the same oid, so a script that reads it twice looks identical to
+    # one that reads it once. The first fix did read it twice - Write-HeadCopy
+    # ran its own `git show HEAD:`, and the rev-parse below it was a SECOND
+    # read - and its comment asserted that adjacency made them one snapshot. It
+    # does not. This is the mayor's SHARED checkout: a second checkpoint or an
+    # ordinary commit lands in that gap, and then the guard compares commit A's
+    # bytes while printing commit B's oid. B never carried the values the
+    # message tells the operator to recover, so the printed lookup exits 0 and
+    # prints nothing - the same reassuring failure #9520 removed, one step on.
+    #
+    # THE SEAM. A `git.cmd` ahead of the real git on the CHILD's PATH, firing
+    # once, immediately after the checkpoint's first read of the tracker at
+    # HEAD - whichever of the two reads that turns out to be. Keying it on "the
+    # first of the pair" is what lets ONE fixture grade BOTH shapes. The script
+    # under test is NOT modified; a permanent case that patched its own subject
+    # would drift away from it.
+    #
+    # THE SHIM REACHES BOTH READS ONLY BECAUSE THE SCRIPT RESOLVES git ONCE.
+    # `& git` is PowerShell's resolution and finds a .cmd; Process.Start's PATH
+    # search appends only .exe and would not. Write-HeadCopy therefore launches
+    # the resolved $gitExe, exactly as the bd call does and for the same
+    # documented reason - which is also what stops the two reads resolving to
+    # two different binaries in the field.
+    #
+    # THE FIXTURE, which is the audit's own:
+    #   A  the baseline commit          30 rows = 20 issues + 10 memories
+    #   B  the concurrent commit        28 rows, mem-key-03 and mem-key-07 culled
+    #   E  this checkpoint's export     29 rows, B's rows plus a new mem-key-11
+    # E is B plus a row rather than B exactly, so this checkpoint has something
+    # to commit on top of B - `git commit` on an empty diff fails, and the case
+    # would then red for the wrong reason. Against A, E is still missing 03 and
+    # 07, so the warning fires with the same two keys the arms above use.
+    #
+    # WHAT EACH SHAPE PRODUCES:
+    #   fixed      oid A, bytes A  -> warns, prints A, and A recovers `body 3`
+    #   two reads  oid B, bytes A  -> warns, prints B, and B recovers NOTHING
+    #   reversed   oid A, bytes B  -> E matches B on memories, so no warning
+    # The negative control is B specifically, not merely `HEAD`: the question is
+    # not "did it print something immutable" but "did it print the object whose
+    # bytes it actually compared".
+    # -----------------------------------------------------------------------
+    $raceHeadBefore = @(Get-HeadTracker -split "`n")
+    $realGitCmd = @(Get-Command git -CommandType Application -ErrorAction SilentlyContinue)
+    $realGit = if ($realGitCmd.Count -gt 0) { $realGitCmd[0].Source } else { 'git' }
+    $seamBin = Join-Path $box 'seam-bin'
+    New-Item -ItemType Directory -Force -Path $seamBin | Out-Null
+    $armFile = Join-Path $box 'seam-armed'
+    $raceLedger = Join-Path $box 'race-concurrent.jsonl'
+    # CRLF, and written whole: cmd.exe mis-parses a parenthesised block in an
+    # LF-only batch file, and this shim is nothing but such a block.
+    $seamLines = @(
+        '@echo off',
+        'setlocal EnableDelayedExpansion',
+        'set "RF2ARGS=%*"',
+        'set "RF2FIRE="',
+        'echo(!RF2ARGS!| findstr /C:"rev-parse --verify" >nul 2>&1 && set "RF2FIRE=1"',
+        'echo(!RF2ARGS!| findstr /C:":.beads/issues.jsonl" >nul 2>&1 && set "RF2FIRE=1"',
+        ('if defined RF2FIRE if exist "' + $armFile + '" ('),
+        ('  "' + $realGit + '" %*'),
+        '  set RF2ST=!ERRORLEVEL!',
+        ('  del "' + $armFile + '" >nul 2>&1'),
+        ('  copy /y "' + $raceLedger + '" "' + (Join-Path $repo '.beads\issues.jsonl') + '" >nul 2>&1'),
+        ('  "' + $realGit + '" -C "' + $repo + '" add -- .beads/issues.jsonl >nul 2>&1'),
+        ('  "' + $realGit + '" -C "' + $repo + '" commit -q -m "a concurrent checkpoint lands between the two reads" >nul 2>&1'),
+        '  exit /b !RF2ST!',
+        ')',
+        ('"' + $realGit + '" %*'),
+        'exit /b %ERRORLEVEL%'
+    )
+    [System.IO.File]::WriteAllText((Join-Path $seamBin 'git.cmd'),
+                                   (($seamLines -join "`r`n") + "`r`n"),
+                                   (New-Object System.Text.UTF8Encoding $false))
+
+    # A: the baseline this checkpoint will compare against and must name.
+    Write-Rows -Path (Join-Path $repo '.beads/issues.jsonl') -Rows $memHead
+    & git -C $repo add -- '.beads/issues.jsonl' | Out-Null
+    & git -C $repo commit -q -m 'seed: 20 issues and 10 memories, ahead of the race' | Out-Null
+    $raceA = Get-HeadSha
+
+    # B: what the racing process commits. E: what this checkpoint exports.
+    Write-Rows -Path $raceLedger -Rows $memCulled
+    Write-Rows -Path $dbPath -Rows ($memCulled +
+        @('{"_type":"memory","key":"mem-key-11","value":"a new lesson"}'))
+
+    [System.IO.File]::WriteAllText($armFile, '', (New-Object System.Text.UTF8Encoding $false))
+    $savedPath = $env:PATH
+    $env:PATH = "$seamBin;$env:PATH"
+    try { $code = Invoke-Child @() } finally { $env:PATH = $savedPath }
+    $err = Get-ChildErr
+    $seamFired = -not (Test-Path -LiteralPath $armFile)
+    Remove-Item -LiteralPath $armFile -Force -ErrorAction SilentlyContinue
+
+    # The seam has to have fired, or every assertion below passes vacuously.
+    $raceB = ''
+    $raceBSubject = ''
+    try {
+        $probe = (& git -C $repo rev-parse 'HEAD~1' 2>$null)
+        if ($LASTEXITCODE -eq 0 -and $probe) { $raceB = ([string]$probe).Trim() }
+    } catch { $raceB = '' }
+    if ($raceB) {
+        try { $raceBSubject = ([string](& git -C $repo log -1 --format=%s $raceB)).Trim() }
+        catch { $raceBSubject = '' }
+    }
+    Assert-True ($seamFired -and $raceB -and $raceB -ne $raceA -and
+                 $raceBSubject -eq 'a concurrent checkpoint lands between the two reads') `
+                'T7 the seam landed a concurrent commit between the capture and the copy' `
+                "fired=$seamFired raceA=$raceA raceB=$raceB subject='$raceBSubject'"
+
+    Assert-True ($code -eq 0) 'T7 the racing checkpoint still warns-and-commits' "exit $code : $err"
+    Assert-True (($err -match 'MEMORY RECONCILIATION FAILED') -and
+                 ($err -match 'mem-key-03') -and ($err -match 'mem-key-07')) `
+                'T7 a concurrent commit does not stop the warning naming the lost keys' $err
+
+    $raceRefs = @([regex]::Matches($err, '(?m)^\s*git show (\S+?):') |
+                  ForEach-Object { $_.Groups[1].Value })
+    $raceRef = if ($raceRefs.Count -gt 0) { $raceRefs[0] } else { '' }
+    Assert-True ($raceRef -eq $raceA) `
+                'T7 and it prints the commit it COMPARED against, not the one that raced it' `
+                "printed '$raceRef', compared baseline '$raceA', racer '$raceB'"
+
+    # The populations the warning reports for HEAD must be the populations at
+    # the commit it printed. This grades the pairing itself rather than the oid:
+    # bytes from one snapshot described under another's name IS the drift.
+    if ($raceRef) {
+        $refRows = @()
+        try { $refRows = @(& git -C $repo show "${raceRef}:.beads/issues.jsonl" 2>$null) }
+        catch { $refRows = @() }
+        $refIss = @($refRows | Where-Object { $_ -match '"_type":"issue"' }).Count
+        $refMem = @($refRows | Where-Object { $_ -match '"_type":"memory"' }).Count
+        $want = "HEAD    $($refRows.Count) rows = $refIss issues + $refMem memories"
+        Assert-True ($err -match [regex]::Escape($want)) `
+                    "T7 and the populations it reports are the ones at that very commit ($($refRows.Count) rows)" `
+                    "expected '$want'"
+    }
+
+    Assert-True ((Get-MemoryValueAt -Ref (&{ if ($raceRef) { $raceRef } else { 'HEAD' } }) -Key 'mem-key-03') -eq 'body 3') `
+                'T7 and the emitted lookup still recovers the deleted value through the race'
+
+    # THE NEGATIVE CONTROL, and it is the racer rather than `HEAD`: this is the
+    # oid the two-reads shape printed, and it recovers nothing.
+    Assert-True (((Get-MemoryValueAt -Ref $raceB -Key 'mem-key-03') -eq '') -and
+                 ((Get-MemoryValueAt -Ref 'HEAD' -Key 'mem-key-03') -eq '')) `
+                'T7 while the racing commit - the oid the two-reads shape printed - recovers nothing'
+
+    # Put HEAD's tracker back exactly as T8 and T9 found it, so this arm is an
+    # addition to the group rather than a change of their inputs.
+    Write-Rows -Path (Join-Path $repo '.beads/issues.jsonl') -Rows $raceHeadBefore
+    & git -C $repo add -- '.beads/issues.jsonl' | Out-Null
+    & git -C $repo commit -q -m 'restore: the tracker as it stood before the race arm' | Out-Null
+
     # T8 - a row of an unknown `_type` is reported. This is the "two populations
     # sum to the row count" half of the bead. It cannot detect the deletion
     # above - the identity holds trivially whenever every row is one of the two
@@ -992,29 +1171,46 @@ try {
         Die "bd export failed (exit $code); leaving $tracker untouched."
     }
 
-    Write-HeadCopy -Path $tmpHead
-    # The commit $tmpHead was read from - captured HERE, beside the copy it
-    # names, because the memory warning below prints it as a RECOVERY REFERENCE
-    # and this script COMMITS the fresh export a hundred lines later (rf2-cve7,
-    # merged-PR audit of #9520). Printing `HEAD` there is worse than useless: by
-    # the time an operator reads the warning and pastes the command, `HEAD` IS
-    # the checkpoint that just removed those rows, so the lookup exits 0 and
-    # prints nothing - succeeding, and recovering nothing.
+    # THE BASELINE SNAPSHOT. Resolved ONCE, and resolved FIRST - every read of
+    # the tracker-at-HEAD below goes through this one oid, so the bytes this
+    # checkpoint compares against and the oid it prints are the same object by
+    # construction.
     #
-    # A full commit oid is content-addressed and immutable, so it keeps naming
-    # this exact tree after the checkpoint commits and after any number of later
-    # commits land on top; `HEAD` is a symbolic ref re-resolved at read time and
-    # does not. Empty on an unborn branch (a first-ever checkpoint), where there
-    # is no baseline to recover from and the recovery paragraph is skipped.
-    # --quiet keeps git silent on an unborn branch, and the try/catch is
-    # load-bearing rather than defensive: $ErrorActionPreference is 'Stop' here,
-    # and pwsh 7.4+ turns a native command's non-zero exit into a terminating
-    # error, so the unborn-branch case would abort the whole checkpoint.
+    # WHY IT IS PRINTED AT ALL (rf2-cve7, merged-PR audit of #9520). The memory
+    # warning below prints it as a RECOVERY REFERENCE, and this script COMMITS
+    # the fresh export a hundred lines later. Printing `HEAD` there is worse
+    # than useless: by the time an operator reads the warning and pastes the
+    # command, `HEAD` IS the checkpoint that just removed those rows, so the
+    # lookup exits 0 and prints nothing - succeeding, and recovering nothing. A
+    # full commit oid is content-addressed and immutable, so it keeps naming
+    # this exact tree after the checkpoint commits and after every later one.
+    #
+    # WHY IT IS RESOLVED BEFORE THE COPY, AND PASSED IN (rf2-cve7, merged-PR
+    # audit of #9524). The first version of this captured the oid immediately
+    # AFTER Write-HeadCopy, on the reasoning that adjacent statements cannot
+    # drift. They can: those were two separate reads of a moving branch, and
+    # this is the mayor's SHARED checkout, where a second checkpoint or an
+    # ordinary commit can land in the gap. When one does, the guard compares
+    # commit A's bytes and prints commit B's oid - and B never contained the
+    # values the message tells the operator to recover. Moving this up while
+    # leaving Write-HeadCopy to resolve `HEAD` for itself would REVERSE that
+    # race, not close it; both reads have to come from this one oid.
+    #
+    # Empty on an unborn branch (a first-ever checkpoint), where there is no
+    # baseline to recover from and the recovery paragraph is skipped; the copy
+    # then falls back to `HEAD`, which fails the same way and yields the same
+    # empty comparison file. --quiet keeps git silent there, and the try/catch
+    # is load-bearing rather than defensive: $ErrorActionPreference is 'Stop'
+    # here, and pwsh 7.4+ turns a native command's non-zero exit into a
+    # terminating error, so the unborn-branch case would abort the checkpoint.
     $baselineCommit = ''
     try {
-        $probe = (& git rev-parse --verify --quiet HEAD 2>$null)
+        $probe = (& $gitExe rev-parse --verify --quiet HEAD 2>$null)
         if ($LASTEXITCODE -eq 0 -and $probe) { $baselineCommit = ([string]$probe).Trim() }
     } catch { $baselineCommit = '' }
+
+    $baselineRef = if ($baselineCommit) { $baselineCommit } else { 'HEAD' }
+    Write-HeadCopy -Path $tmpHead -Ref $baselineRef
 
     $exportRows = Get-RowCount -Path $tmpExport
     $headRows   = Get-RowCount -Path $tmpHead

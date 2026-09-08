@@ -158,10 +158,21 @@ rows() {
   awk 'END{print NR}' "$1"
 }
 
-# head_copy PATH — write HEAD's copy of the tracker to PATH. Empty file if the
-# path does not exist at HEAD (a first-ever checkpoint).
+# head_copy PATH [REF] — write REF's copy of the tracker to PATH; REF defaults
+# to HEAD. Empty file if the path does not exist there (a first-ever checkpoint,
+# or an unborn branch).
+#
+# THE REF ARGUMENT IS THE FIX (rf2-cve7, merged-PR audit of #9524), not an
+# ergonomic flourish. The caller below prints a commit oid as a RECOVERY
+# REFERENCE, and a helper that re-resolves `HEAD` for itself makes that oid a
+# SEPARATE READ of a moving branch: a commit landing in the shared checkout
+# between the two reads leaves the guard comparing commit A's bytes while
+# printing commit B's oid, and B never carried the values the operator is told
+# to recover. Adjacent calls are not one snapshot — the drift reproduces
+# deterministically with a single commit in the gap. Pass the resolved oid and
+# the two cannot disagree.
 head_copy() {
-  git show "HEAD:$TRACKER" > "$1" 2>/dev/null || : > "$1"
+  git show "${2:-HEAD}:$TRACKER" > "$1" 2>/dev/null || : > "$1"
 }
 
 # minimal_diff_rewrite EXPORT HEAD_COPY OUT — write EXPORT's rows to OUT, but
@@ -490,23 +501,40 @@ TMP_EXPORT=$(mktemp "${TMPDIR:-/tmp}/rf2-bdchk-export-XXXXXX")
 bd export --include-memories > "$TMP_EXPORT" 2>/dev/null \
   || die "bd export failed; leaving $TRACKER untouched."
 
-TMP_HEAD=$(mktemp "${TMPDIR:-/tmp}/rf2-bdchk-head-XXXXXX")
-head_copy "$TMP_HEAD"
-
-# The commit TMP_HEAD was read from — captured HERE, beside the copy it names,
-# because the memory warning below prints it as a RECOVERY REFERENCE and this
-# script COMMITS the fresh export a hundred lines later (rf2-cve7, merged-PR
-# audit of #9520). Printing `HEAD` there is worse than useless: by the time an
-# operator reads the warning and pastes the command, `HEAD` IS the checkpoint
-# that just removed those rows, so the lookup exits 0 and prints nothing —
-# succeeding, and recovering nothing.
+# THE BASELINE SNAPSHOT. Resolved ONCE, and resolved FIRST — every read of the
+# tracker-at-HEAD below goes through this one oid, so the bytes this checkpoint
+# compares against and the oid it prints are the same object by construction.
 #
-# A full commit oid is content-addressed and immutable, so it keeps naming this
-# exact tree after the checkpoint commits and after any number of later commits
-# land on top; `HEAD` is a symbolic ref re-resolved at read time and does not.
+# WHY IT IS PRINTED AT ALL (rf2-cve7, merged-PR audit of #9520). The memory
+# warning below prints it as a RECOVERY REFERENCE, and this script COMMITS the
+# fresh export a hundred lines later. Printing `HEAD` there is worse than
+# useless: by the time an operator reads the warning and pastes the command,
+# `HEAD` IS the checkpoint that just removed those rows, so the lookup exits 0
+# and prints nothing — succeeding, and recovering nothing. A full commit oid is
+# content-addressed and immutable, so it keeps naming this exact tree after the
+# checkpoint commits and after any number of later commits land on top.
+#
+# WHY IT IS RESOLVED BEFORE THE COPY, AND PASSED IN (rf2-cve7, merged-PR audit
+# of #9524). The first version of this captured the oid immediately AFTER
+# `head_copy "$TMP_HEAD"`, on the reasoning that adjacent statements cannot
+# drift. They can: those were two separate reads of a moving branch, and this is
+# the mayor's SHARED checkout, where a second checkpoint or an ordinary commit
+# can land in the gap. When one does, the guard compares commit A's bytes and
+# prints commit B's oid — and B never contained the values the message tells the
+# operator to recover, so the printed lookup exits 0 and prints nothing. That is
+# the same reassuring failure the #9520 fix set out to remove, reached one step
+# further along. Moving the `rev-parse` up while leaving `head_copy` reading
+# `HEAD` for itself would REVERSE that race, not close it — both reads have to
+# come from this one oid, which is why it is an argument and not a comment.
+#
 # Empty on an unborn branch (a first-ever checkpoint), where there is no
-# baseline to recover from and the recovery paragraph is skipped.
+# baseline to recover from and the recovery paragraph is skipped; `head_copy`
+# then falls back to `HEAD`, which fails the same way and yields the same empty
+# comparison file.
 BASELINE_COMMIT=$(git rev-parse --verify HEAD 2>/dev/null || printf '')
+
+TMP_HEAD=$(mktemp "${TMPDIR:-/tmp}/rf2-bdchk-head-XXXXXX")
+head_copy "$TMP_HEAD" "${BASELINE_COMMIT:-HEAD}"
 
 export_rows=$(rows "$TMP_EXPORT")
 head_rows=$(rows "$TMP_HEAD")

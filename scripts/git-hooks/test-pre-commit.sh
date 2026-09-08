@@ -1935,6 +1935,184 @@ else
   fail "(8m) after one more commit the printed reference returned '$recovered_later', not 'body 3'"
 fi
 
+# ----------------------------------------------------------------------------
+# 8m, third arm: A CONCURRENT COMMIT BETWEEN THE CAPTURE AND THE COPY
+# (rf2-cve7, merged-PR audit of #9524).
+#
+# The arm above proves the printed reference is IMMUTABLE. It cannot prove it is
+# the RIGHT object, because in a quiet repo every reading of `HEAD` returns the
+# same oid, so a script that reads it twice looks identical to one that reads it
+# once. The first fix did read it twice — `head_copy` ran its own
+# `git show HEAD:`, and the `rev-parse` fifteen lines later was a SECOND read —
+# and its comment asserted that adjacency made them one snapshot. It does not.
+# This is the mayor's SHARED checkout: a second checkpoint or an ordinary commit
+# lands in that gap, and then the guard compares commit A's bytes while printing
+# commit B's oid. B never carried the values the message tells the operator to
+# recover, so the printed lookup exits 0 and prints nothing — the SAME
+# reassuring failure the #9520 fix removed, one step further along.
+#
+# THE SEAM. A `git` shim ahead of the real one on the child's PATH, firing ONCE,
+# immediately after the checkpoint's FIRST read of the tracker at HEAD —
+# whichever of the two reads that turns out to be. Keying it on "the first of the
+# pair" is what lets ONE fixture grade BOTH shapes: the fixed script resolves the
+# oid first and copies through it, the defective one copied the bytes first and
+# resolved after, and the concurrent commit lands between the pair either way.
+# The script under test is NOT modified — a permanent case that patched its own
+# subject would drift away from it.
+#
+# THE FIXTURE, which is the audit's own:
+#   A  the baseline commit          30 rows = 20 issues + 10 memories
+#   B  the concurrent commit        28 rows, mem-key-03 and mem-key-07 culled
+#   E  this checkpoint's export     29 rows, B's rows plus a new mem-key-11
+# E is B plus a row rather than B exactly, so this checkpoint has something to
+# commit on top of B — `git commit` on an empty diff fails, and the case would
+# then red for the wrong reason. Against A, E is still missing 03 and 07, so the
+# warning fires with the same two keys the arms above use.
+#
+# WHAT EACH SHAPE PRODUCES, and why the assertions are the ones below:
+#   fixed      oid A, bytes A  → warns, prints A, and A recovers `body 3`
+#   two reads  oid B, bytes A  → warns, prints B, and B recovers NOTHING
+#   reversed   oid A, bytes B  → E matches B exactly on memories, so it does not
+#                                warn at all, and the acceptance above reds
+# The negative control is therefore B specifically, not merely `HEAD`: the
+# question is not "did it print something immutable" but "did it print the
+# object whose bytes it actually compared".
+# ----------------------------------------------------------------------------
+race_head_before=$(git -C "$CREPO" show HEAD:.beads/issues.jsonl 2>/dev/null || true)
+
+REAL_GIT=$(command -v git)
+CSEAM="$CBOX/seam-bin"
+mkdir -p "$CSEAM"
+cat > "$CSEAM/git" <<EOF
+#!/usr/bin/env sh
+# Layer-8 race seam. Forwards every call to the real git untouched, and once —
+# while \$CBOX/seam-armed exists — lands an ordinary concurrent commit right
+# after the first read of the tracker at HEAD. Nothing is written to stdout, so
+# the forwarded \`git show\` still delivers the tracker bytes to its redirect.
+case "\$*" in
+  'rev-parse --verify HEAD'|'show '*':.beads/issues.jsonl')
+    if [ -f "$CBOX/seam-armed" ]; then
+      "$REAL_GIT" "\$@"
+      st=\$?
+      rm -f "$CBOX/seam-armed"
+      cp -f "$CBOX/race-concurrent.jsonl" "$CREPO/.beads/issues.jsonl"
+      "$REAL_GIT" -C "$CREPO" add -- .beads/issues.jsonl >/dev/null 2>&1
+      "$REAL_GIT" -C "$CREPO" commit -q -m 'a concurrent checkpoint lands between the two reads' >/dev/null 2>&1
+      exit \$st
+    fi ;;
+esac
+exec "$REAL_GIT" "\$@"
+EOF
+chmod +x "$CSEAM/git"
+
+run_checkpoint_seamed() {
+  d="$1"; shift
+  ( cd "$d" && PATH="$CSEAM:$CBIN:$PATH" sh scripts/beads-checkpoint.sh "$@" \
+      >"$COUT" 2>"$CERR" ) && echo "EXIT=0" || echo "EXIT=$?"
+}
+
+# A: the baseline this checkpoint will compare against and must name.
+(
+  cd "$CREPO"
+  cp -f "$CBOX/head-mem.jsonl" .beads/issues.jsonl
+  git add -- .beads/issues.jsonl
+  git commit -q -m 'seed: 20 issues and 10 memories, ahead of the race'
+) >/dev/null 2>&1
+race_a=$(git -C "$CREPO" rev-parse HEAD)
+
+# B: what the racing process commits. E: what this checkpoint exports.
+cp -f "$CBOX/db-mem-culled.jsonl" "$CBOX/race-concurrent.jsonl"
+{
+  cat "$CBOX/db-mem-culled.jsonl"
+  printf '{"_type":"memory","key":"mem-key-11","value":"a new lesson"}\n'
+} > "$CBOX/db-race.jsonl"
+cp -f "$CBOX/db-race.jsonl" "$CBOX/db.jsonl"
+
+: > "$CBOX/seam-armed"
+out=$(run_checkpoint_seamed "$CREPO")
+# `if`, not `[ ... ] && x`: under `set -e` an AND-list whose test fails takes the
+# whole script down, and the test failing here is the PASSING case.
+seam_fired=1
+if [ -f "$CBOX/seam-armed" ]; then seam_fired=0; fi
+rm -f "$CBOX/seam-armed"
+
+# The seam has to have fired, or every assertion below passes vacuously — this
+# is the control that stops the case grading a quiet repo.
+race_b=$(git -C "$CREPO" rev-parse HEAD~1 2>/dev/null || true)
+race_b_subject=$(git -C "$CREPO" log -1 --format=%s "${race_b:-HEAD}" 2>/dev/null || true)
+if [ "$seam_fired" = "1" ] && [ -n "$race_b" ] && [ "$race_b" != "$race_a" ] \
+   && [ "$race_b_subject" = "a concurrent checkpoint lands between the two reads" ]; then
+  pass "(8m) the seam landed a concurrent commit between the capture and the copy"
+else
+  fail "(8m) the race seam did not fire; every assertion below would pass vacuously"
+  printf 'seam_fired=%s race_a=%s race_b=%s subject=%s\n' \
+    "$seam_fired" "$race_a" "$race_b" "$race_b_subject" >&2
+fi
+
+case "$out" in
+  EXIT=0)
+    if grep -q 'MEMORY RECONCILIATION FAILED' "$CERR" \
+       && grep -q 'mem-key-03' "$CERR" && grep -q 'mem-key-07' "$CERR"; then
+      pass "(8m) a concurrent commit does not stop the warning naming the lost keys"
+    else
+      fail "(8m) with a commit racing the capture the warning was lost or renamed no keys"
+      cat "$CERR" >&2
+    fi ;;
+  *) fail "(8m) the racing checkpoint exited $out; it must still warn-and-commit"
+     cat "$CERR" >&2 ;;
+esac
+
+race_ref=$(sed -n 's/^ *git show \([^:]*\):.*/\1/p' "$CERR" | sed -n '1p')
+if [ "$race_ref" = "$race_a" ]; then
+  pass "(8m) and it prints the commit it COMPARED against, not the one that raced it"
+else
+  fail "(8m) the printed reference is '$race_ref'; the compared baseline was $race_a (the racer was $race_b)"
+  cat "$CERR" >&2
+fi
+
+# The populations the warning reports for HEAD must be the populations at the
+# commit it printed. This grades the pairing itself rather than the oid: bytes
+# from one snapshot described under another's name is precisely the drift.
+if [ -n "$race_ref" ]; then
+  ref_body=$(git -C "$CREPO" show "$race_ref:.beads/issues.jsonl" 2>/dev/null || true)
+  ref_rows=$(printf '%s\n' "$ref_body" | awk 'END{print NR}')
+  ref_iss=$(printf '%s\n' "$ref_body" | grep -c '"_type":"issue"' || :)
+  ref_mem=$(printf '%s\n' "$ref_body" | grep -c '"_type":"memory"' || :)
+  if grep -q "HEAD    $ref_rows rows = $ref_iss issues + $ref_mem memories" "$CERR"; then
+    pass "(8m) and the populations it reports are the ones at that very commit ($ref_rows rows)"
+  else
+    fail "(8m) the reported HEAD populations do not match the printed commit $race_ref"
+    cat "$CERR" >&2
+  fi
+fi
+
+race_recovered=$(mem_value_at "${race_ref:-HEAD}" mem-key-03)
+if [ "$race_recovered" = "body 3" ]; then
+  pass "(8m) and the emitted lookup still recovers the deleted value through the race"
+else
+  fail "(8m) the emitted lookup returned '$race_recovered' after the race, not 'body 3'"
+fi
+
+# THE NEGATIVE CONTROL, and it is the racer rather than `HEAD`: this is the oid
+# the two-reads shape printed, and it recovers nothing. A pass above that also
+# passed here would mean the fixture had stopped modelling the defect.
+race_b_recovered=$(mem_value_at "${race_b:-HEAD}" mem-key-03)
+race_head_recovered=$(mem_value_at HEAD mem-key-03)
+if [ -z "$race_b_recovered" ] && [ -z "$race_head_recovered" ]; then
+  pass "(8m) while the racing commit — the oid the two-reads shape printed — recovers nothing"
+else
+  fail "(8m) the controls recovered '$race_b_recovered' / '$race_head_recovered'; the fixture no longer models the defect"
+fi
+
+# Put HEAD's tracker back exactly as 8o and 8p found it, so this arm is an
+# addition to the group rather than a change of their inputs.
+(
+  cd "$CREPO"
+  printf '%s\n' "$race_head_before" > .beads/issues.jsonl
+  git add -- .beads/issues.jsonl
+  git commit -q -m 'restore: the tracker as it stood before the race arm'
+) >/dev/null 2>&1
+
 # 8o: A ROW OF AN UNKNOWN `_type` IS REPORTED. This is the "two populations sum
 # to the row count" half of the bead. It cannot detect the deletion above — the
 # identity holds trivially whenever every row is one of the two known types, so
