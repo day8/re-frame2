@@ -92,7 +92,7 @@
   a frame value (`rf/make-frame`'s return token). The whole-registry read is
   `flows-snapshot`."
   [opts]
-  (get @flows-by-frame (read-frame-id opts 'rf/flows) {}))
+  (get @flows-by-frame (read-frame-id opts 're-frame.flows/flows) {}))
 
 (defn flow-meta
   "Return one flow's registration map in the named frame, or nil.
@@ -100,7 +100,7 @@
   `(flow-meta {:frame f :id flow-id})`. Both keys are required; `:frame`
   accepts a frame-id keyword or a frame value."
   [{:keys [id] :as opts}]
-  (get-in @flows-by-frame [(read-frame-id opts 'rf/flow-meta) id]))
+  (get-in @flows-by-frame [(read-frame-id opts 're-frame.flows/flow-meta) id]))
 
 (defn ^:no-doc last-inputs-snapshot
   "Return raw cached inputs as `{flow-id {frame-id inputs}}`.

@@ -159,7 +159,7 @@
   event), the epoch-restore schema-mismatch trace (Tool-Pair §Time-
   travel), and pair-tool drift detection."
   [opts]
-  (-> (rf.schemas.storage/read-frame-id opts 'rf/app-schemas-digest)
+  (-> (rf.schemas.storage/read-frame-id opts 're-frame.schemas/app-schemas-digest)
       (rf.schemas.storage/frame-schema-entries)
       (update-vals :schema)
       (compute-digest)))
