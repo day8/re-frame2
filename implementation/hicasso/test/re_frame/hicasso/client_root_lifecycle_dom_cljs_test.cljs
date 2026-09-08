@@ -48,7 +48,7 @@
             [re-frame.hicasso :as rf.hicasso]
             [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
             [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
-            [re-frame.hicasso.roots-frames-support :as sup]
+            [re-frame.hicasso.roots-frames-support :as rf.hicasso.roots-frames-support]
             [re-frame.hicasso.substrate :as rf.hicasso.substrate]
             [re-frame.test-support :as rf.test-support]))
 
@@ -61,10 +61,16 @@
 (rf/reg-event ::seed (fn [_ [_ label]] {:db {:label label}}))
 (rf/reg-event ::relabel (fn [{:keys [db]} [_ label]] {:db (assoc db :label label)}))
 
+;; `:async? true` because W5 is an `async` row, and `cljs.test` refuses a
+;; FUNCTION fixture in any namespace that carries one — "Async tests require
+;; fixtures to be specified as maps. Testing aborted." The flag is what makes
+;; `make-reset-runtime-fixture` hand back the `{:before :after}` map form; the
+;; async SSR suites in this package all set it for the same reason.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
+     :async?        true
      :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
@@ -99,12 +105,12 @@
 ;; Harness
 ;; ---------------------------------------------------------------------------
 
-(defn- skip! [why] (sup/skip! why))
+(defn- skip! [why] (rf.hicasso.roots-frames-support/skip! why))
 
 (defn- fresh!
   "One frame, seeded, and an empty runtime."
   []
-  (sup/leave-act-environment!)
+  (rf.hicasso.roots-frames-support/leave-act-environment!)
   (rf/make-frame {:id frame-a})
   (rf/with-frame frame-a (rf/dispatch-sync [::seed "alpha"]))
   (rf.hicasso.impl.collector/reset-runtime!)
@@ -325,10 +331,10 @@
     (skip! ":node-test has no DOM")
     (async done
       (let [_         (fresh!)
-            html      (sup/server-html! frame-a [rf.hicasso/frame-provider {:frame frame-a}
+            html      (rf.hicasso.roots-frames-support/server-html! frame-a [rf.hicasso/frame-provider {:frame frame-a}
                                                  [panel {:tag "server"}]])
-            container (sup/stamp-server-nodes! (sup/server-dom! html))
-            watch     (sup/watch-mismatches!)
+            container (rf.hicasso.roots-frames-support/stamp-server-nodes! (rf.hicasso.roots-frames-support/server-dom! html))
+            watch     (rf.hicasso.roots-frames-support/watch-mismatches!)
             a         (rf.hicasso/client-root)]
         (is (str/includes? html "alpha")
             "premise: the server bytes carry the seeded label")
@@ -337,7 +343,7 @@
                              [panel {:tag "server"}]]
                             container
                             {:hydrate? true})
-        (-> (sup/adopted! a)
+        (-> (rf.hicasso.roots-frames-support/adopted! a)
             (.then (fn [shut?]
                      (testing "the root's OWN adoption window shut — the
                                completion signal a hydrating first render has
@@ -345,7 +351,7 @@
                        (is (true? shut?)))
                      (testing "it ADOPTED rather than replaced: the server's
                                own nodes are still the page's nodes"
-                       (is (sup/every-server-node? container ".panel")))
+                       (is (rf.hicasso.roots-frames-support/every-server-node? container ".panel")))
                      (testing "and the framework reported no mismatch"
                        (is (= [] ((:stop! watch)))))
 
@@ -365,7 +371,7 @@
                          (is (identical? node (node-at container ".panel"))
                              "the post-hydration update remounted the adopted
                               subtree instead of reconciling it")
-                         (is (sup/every-server-node? container ".panel")))
+                         (is (rf.hicasso.roots-frames-support/every-server-node? container ".panel")))
 
                        (testing "and `{:hydrate? true}` on a LATER call is
                                  IGNORED rather than hydrating a second time
@@ -380,8 +386,8 @@
                          (is (= "again" (.getAttribute (node-at container ".panel") "data-tag")))
                          (is (identical? node (node-at container ".panel"))
                              "a later `{:hydrate? true}` hydrated a second time")
-                         (is (sup/every-server-node? container ".panel"))))))
-            (sup/settle-row! {:row      "the hydrate-once row"
+                         (is (rf.hicasso.roots-frames-support/every-server-node? container ".panel"))))))
+            (rf.hicasso.roots-frames-support/settle-row! {:row      "the hydrate-once row"
                               :done     done
                               :release! (fn []
                                           ((:stop! watch))
