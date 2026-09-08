@@ -501,8 +501,10 @@
   redaction / egress projection (Spec 015 / EP-0015); `:tags` /
   `:interceptors` / the resource-mutation runtime keys drive runtime
   behaviour; `:schema` drives PRODUCTION payload validation — the
-  `re-frame.spec/validate-at-boundary-interceptor` production arm and the
-  always-on `re-frame.cofx` recordable-value check that throws
+  `re-frame.spec/validate-at-boundary!` production arm (the router's
+  step-1 site for `:boundary? true` handlers, on the original dispatched
+  event vector, before the interceptor chain) and the always-on
+  `re-frame.cofx` recordable-value check that throws
   `:rf.error/cofx-value-invalid` — and its per-slot `:sensitive?` /
   `:large?` props survive ONLY to redact THAT validator's own failure trace
   and thrown ex-data, NOT as a route into data classification (EP-0025
