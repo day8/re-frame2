@@ -182,18 +182,29 @@
 
 (deftest near-collapse-extraction-violates-the-floor
   (testing "a near-collapse (a small subset extracted, well below the live
-            ~196) trips the floor"
+            count) trips the floor"
     (is (some? (rf.api-manifest.api-md-check/floor-violation 5))
         "5 extracted rows is a near-total collapse — must trip the floor")
-    (is (some? (rf.api-manifest.api-md-check/floor-violation 149))
-        "149 rows is below the 150 floor — must trip it")))
+    (is (some? (rf.api-manifest.api-md-check/floor-violation 49))
+        "49 rows is below the 50 floor — must trip it")))
 
 (deftest healthy-extraction-does-not-violate-the-floor
-  (testing "the live extracted-row count (~196) is comfortably above the floor"
+  (testing "the live extracted-row count is comfortably above the floor"
     (is (nil? (rf.api-manifest.api-md-check/floor-violation 196))
         "the live count must NOT trip the floor (no false positive)")
-    (is (nil? (rf.api-manifest.api-md-check/floor-violation 150))
+    (is (nil? (rf.api-manifest.api-md-check/floor-violation 50))
         "exactly at the floor is acceptable (strictly-below trips)")
+    ;; rf2-kuky.31: this pair is the calibration invariant, and it is what
+    ;; caught the floor going stale. Asserting a specific number trips AND
+    ;; asserting the real parse clears cannot both hold once the real parse
+    ;; reaches that number — which is exactly what happened at 149 against the
+    ;; old floor of 150. Keep the tripping number a genuine collapse.
+    (is (nil? (rf.api-manifest.api-md-check/floor-violation
+                (long (* 0.9 (count (rf.api-manifest.api-md-check/parse-api-md-var-rows))))))
+        "a 10% shrink of API.md's var-rows must NOT trip the floor: the floor
+         guards a near-total collapse, never ordinary retirement churn. This is
+         the assertion the old calibration failed — at 151 live against a floor
+         of 150, retiring TWO public rows tripped it.")
     ;; And the REAL parse over the committed API.md is above the floor — the
     ;; floor is calibrated below the live count, never tripping on real churn.
     (is (nil? (rf.api-manifest.api-md-check/floor-violation (count (rf.api-manifest.api-md-check/parse-api-md-var-rows))))

@@ -61,14 +61,34 @@
 
 (def ^:private min-var-rows
   "Non-vacuous extracted-row floor for the spec/API.md projection
-   (rf2-4ka7c2.2). The live extracted-var-row count is ~196; a parser /
-   table-shape / tier-header / marker-cell drift that collapses extraction
-   toward zero would otherwise let `check!` report a VACUOUS OK while most of
-   API.md's public-var references go unchecked against the manifest. This
-   floor is set well below the live count so it trips ONLY on a near-total
-   collapse (the vacuous-green class), never on ordinary API.md churn — the
-   same calibration the secondary projection floors use (rf2-utvst)."
-  150)
+   (rf2-4ka7c2.2). A parser / table-shape / tier-header / marker-cell drift
+   that collapses extraction toward zero would otherwise let `check!` report a
+   VACUOUS OK while most of API.md's public-var references go unchecked
+   against the manifest. The floor sits well below the live count so it trips
+   ONLY on a near-total collapse (the vacuous-green class), never on ordinary
+   API.md churn — the same calibration the secondary projection floors use
+   (rf2-utvst).
+
+   RE-CALIBRATED (rf2-kuky.31) from 150. The docstring above used to cite a
+   live count of ~196 and that premise had gone stale: API.md is SHRINKING
+   under the rf2-kuky API-review epic, whose whole purpose is to retire
+   overlapping public surfaces, and the live count had fallen to 151. A floor
+   of 150 against 151 live is not a non-vacuity floor at all — it is a
+   hair-trigger that ANY retirement of two public var-rows trips, which is the
+   opposite of `never on ordinary API.md churn`. The sibling floors in this
+   family sit 3.7x-8.3x below their live counts (skills 601/100,
+   docs-guide 825/100, story API.md 73/20); 150/151 sat at 1.007x. 50 puts
+   this floor back in that band (3.0x below live) while still refusing any
+   collapse past a third of the table, which is the class it exists to catch.
+
+   The mis-calibration was visible in this ns's OWN TESTS, which had come to
+   contradict each other: `near-collapse-extraction-violates-the-floor`
+   asserted 149 must trip as a near-total collapse, while
+   `healthy-extraction-does-not-violate-the-floor` asserted the REAL parse over
+   the committed API.md must clear the floor. Both cannot hold once the real
+   parse reads 149. Do NOT repair a future breach by adding var-rows to
+   API.md for names that are not public: that inverts the gate."
+  50)
 
 (def ^:private api-md-file (delay (io/file rf.api-manifest.gen/repo-root "spec" "API.md")))
 
