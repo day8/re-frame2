@@ -187,3 +187,103 @@
                                m {:state {:a :one :b :one} :data {}} [:go])]
         (is (= {:a :one :b :two} (:state snap))
             "the root :on ancestor fallback moves the named region")))))
+
+;; ---- 4. THE THREE SANCTIONED SPELLINGS — and the limit that separates them
+;;
+;; rf2-569h RULED 2026-09-08: a region-sourced cross-region `:target` stays
+;; REJECTED, and Spec 005 §Cross-region coordination now teaches the three
+;; spellings that DO reach across regions. These cases pin the two that are
+;; easy to get wrong, so the taught example cannot rot silently:
+;;
+;;   (a) a transition on the TARGET region guarded on the source region's
+;;       `:all-state` — it works, but it is NOT an exact substitute for a
+;;       native cross-region transition;
+;;   (b) the same machine plus a TARGETLESS handler on the target region's own
+;;       active leaf — the leaf wins the leaf→root walk, so the region-root
+;;       `:on` carrying rule (a) is never consulted. `pick-transition`
+;;       (`machines/transition.cljc`) consults the region body's own root `:on`
+;;       "only when no state-path node handled the event";
+;;   (c) a source-owned `:raise`, which keeps SOURCE-SIDE selection and so
+;;       still reaches the sibling in exactly the configuration that defeats
+;;       (a) — paired here with its no-raise control.
+;;
+;; The third spelling, the root's atomic region-qualified fallback, is already
+;; pinned by `root-region-qualified-target-is-the-sanctioned-cross-region-spelling`
+;; above; its own limit (atomic suppression the moment any region competes) is
+;; pinned in `final_region_sourcing_test.clj` under rf2-hu69.
+
+(def ^:private wizard-helper
+  "Two regions: `:wizard` and `:helper`. `[:help]` always moves the wizard on;
+  whether the helper's hint opens is what each case below measures.
+
+  The guard names `:step2` — the PRE-event value — while the same event moves
+  `:wizard` to `:step3`. A passing guard alongside a `:step3` result is
+  therefore positive evidence that `:all-state` is the FROZEN pre-event view."
+  {:type    :parallel
+   :data    {}
+   :guards  {:wizard-at-step2 (fn [{:keys [all-state]}] (= :step2 (:wizard all-state)))}
+   :regions {:wizard {:initial :step2
+                      :states  {:step2 {:on {:help {:target :step3}}}
+                                :step3 {}}}
+             :helper {:initial :closed
+                      ;; spelling (a): the TARGET region owns the transition and
+                      ;; reads the source region out of the frozen `:all-state`.
+                      :on      {:help {:target :hint :guard :wizard-at-step2}}
+                      :states  {:closed {} :hint {}}}}})
+
+(defn- help-from-step2
+  "Dispatch `[:help]` at `{:wizard :step2 :helper :closed}`, return the committed
+  `:state` map."
+  [spec]
+  (:state (:snapshot (rf.machines/machine-transition
+                       spec {:state {:wizard :step2 :helper :closed} :data {}} [:help]))))
+
+(deftest guarded-target-region-transition-is-a-sanctioned-cross-region-spelling
+  (testing "the target region's own :on, guarded on the source region's frozen
+            :all-state, moves both regions in the one microstep"
+    (is (fn? (rf.machines/make-machine-handler wizard-helper)))
+    (is (= {:wizard :step3 :helper :hint} (help-from-step2 wizard-helper))
+        "the helper opened its hint by reading :wizard out of :all-state, and
+         the guard's :step2 passing beside a :step3 result shows the view is
+         the frozen PRE-event one")))
+
+(deftest targetless-handler-on-the-target-region-suppresses-the-guarded-rewrite
+  (testing "a TARGETLESS :help on the helper's own active leaf wins the
+            leaf→root walk, so the region-root :on carrying spelling (a) is
+            never consulted and the hint stays CLOSED — this is precisely why a
+            target-region rewrite is not an exact substitute for a native
+            cross-region transition"
+    (let [suppressed (assoc-in wizard-helper [:regions :helper :states :closed :on] {:help {}})]
+      (is (fn? (rf.machines/make-machine-handler suppressed)))
+      (is (= {:wizard :step3 :helper :closed} (help-from-step2 suppressed))
+          "the targetless leaf handler exits nothing, yet still suppresses the
+           helper's own region-root fallback"))))
+
+(deftest source-owned-raise-reaches-the-sibling-that-suppression-blocks
+  (let [raising {:type    :parallel
+                 :data    {}
+                 :actions {:ask-for-hint (fn [{:keys [data]}]
+                                           {:data data :fx [[:raise [:helper/show-hint]]]})
+                           :noop         (fn [{:keys [data]}] {:data data})}
+                 :regions {:wizard {:initial :step2
+                                    :states  {:step2 {:on {:help {:target :step3
+                                                                  :action :ask-for-hint}}}
+                                              :step3 {}}}
+                           :helper {:initial :closed
+                                    ;; the SAME targetless :help that defeated
+                                    ;; spelling (a) is still declared here.
+                                    :states  {:closed {:on {:help             {}
+                                                            :helper/show-hint {:target :hint}}}
+                                              :hint   {}}}}}]
+    (testing "the source region keeps selection and raises; the raise
+              re-broadcasts across every region and opens the hint on the next
+              microstep, inside the one macrostep"
+      (is (= {:wizard :step3 :helper :hint} (help-from-step2 raising))
+          "spelling (b) reaches the sibling in exactly the configuration that
+           defeats spelling (a)"))
+
+    (testing "CONTROL — the identical machine with the raise replaced by a
+              no-op action leaves the helper CLOSED, so the hint is the raise's
+              doing and not the helper's own targetless handler"
+      (let [no-raise (assoc-in raising [:regions :wizard :states :step2 :on :help :action] :noop)]
+        (is (= {:wizard :step3 :helper :closed} (help-from-step2 no-raise)))))))

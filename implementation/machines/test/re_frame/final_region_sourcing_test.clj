@@ -24,18 +24,22 @@
       it off its final leaf. All four sourcing routes reach it: `:on`,
       `:always`, `:after`, and a `:raise` re-broadcast.
 
-  CONSEQUENCE, and it is the v6 hazard reached by a different door. Per
-  §Root parallel `:on` the root transition is suppressed ENTIRELY when any
-  region handles the event. \"Any region\" includes a region sitting on a
-  `:final?` leaf — so a completed region can suppress a root transition that
-  would have moved a LIVE sibling. `root-transition-suppressed-by-final-region`
-  pins that, with `root-transition-fires-when-no-region-competes` as its
-  control.
+  CONSEQUENCE — real, measured, and NOT the v6 hazard it was first read as
+  (see the ruling below). Per §Root parallel `:on` the root transition is
+  suppressed ENTIRELY when any region handles the event. \"Any region\" includes
+  a region sitting on a `:final?` leaf — so a completed region can suppress a
+  root transition that would have moved a LIVE sibling.
+  `root-transition-suppressed-by-final-region` pins that, with
+  `root-transition-fires-when-no-region-competes` as its control.
 
-  These fixtures PIN TODAY'S BEHAVIOUR. They assert what the engine does, not
-  what it ought to do — whether re-frame2 keeps this resolution or adopts v6's
-  live-region-wins is an open question on rf2-hu69, and nothing here presumes
-  the answer."
+  These fixtures PIN TODAY'S BEHAVIOUR, and that behaviour is now RULED.
+  rf2-hu69 (2026-09-08) RETAINS the atomic ancestor-fallback rule unchanged:
+  the parallel root's `:on` is suppressed entirely when ANY region handles the
+  event, one resting on a `:final?` leaf included. No engine change was made
+  and none is owed. Nor is there a v6 divergence to close —
+  `xstate@6.0.0-alpha.52` produces the IDENTICAL result on the machine in (7).
+  What these fixtures assert is still what the engine does, not what it ought
+  to do; the ruling is recorded in Spec 005 §`:final?` constraints."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines :as rf.machines]
@@ -226,8 +230,18 @@
 ;; snapshot commits with that region's transition applied, the root `:on` is
 ;; SUPPRESSED." Measured: "any region" includes one sitting on a :final? leaf,
 ;; so a COMPLETED region suppresses a root transition that would have moved a
-;; LIVE sibling. This is the re-frame2 shape of the hazard XState v6
-;; `alpha.17` addressed from the other direction.
+;; LIVE sibling.
+;;
+;; RULED (rf2-hu69, 2026-09-08) — this behaviour is RETAINED, unchanged, and
+;; the earlier framing of it as \"the re-frame2 shape of the hazard XState v6
+;; alpha.17 addressed from the other direction\" is REFUTED. `xstate@6.0.0-
+;; alpha.52` produces the IDENTICAL result on this machine, so there is no
+;; divergence to close. alpha.17's clause tests the transition's ACTUAL SOURCE
+;; NODE, and the upstream shape it addresses — `on` declared directly on a
+;; final node targeting a sibling region — is rejected here twice over
+;; (registration refuses `:on` on a `:final?` state, and a region-local target
+;; cannot name a sibling region). The mechanism measured below is
+;; ANCESTOR-versus-ROOT; see the control's note on what actually causes it.
 
 (deftest root-transition-suppressed-by-final-region
   (testing "a :final? region's ancestor :on suppresses the parallel root
@@ -257,7 +271,10 @@
 (deftest root-transition-fires-when-no-region-competes
   (testing "CONTROL for the case above — the identical machine with no region
             handler for :bump lets the root transition through, proving the
-            suppression is the final region's doing and not a dead root :on"
+            suppression is A REGION HANDLING THE EVENT and not a dead root :on.
+            The cause is the ANCESTOR HANDLER, not the finality: keep that
+            handler but make `done` an ordinary leaf and the suppression is
+            unchanged. The final region only makes it visible."
     (rf/reg-machine
       :hu69/control
       {:type :parallel
