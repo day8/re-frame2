@@ -176,8 +176,9 @@
 (defn- parallel-output-key
   "Per Spec 005 §Final states: resolve a finishing PARALLEL
   machine's `:output-key` by scanning EVERY region's final leaf — not just
-  the first region's. Returns the first (state-map order) region leaf that
-  declares an `:output-key`, or nil when no region designates output.
+  the first region's. Returns the first (canonical region-declaration
+  order) region leaf that declares an `:output-key`, or nil when no region
+  designates output.
 
   `:output-key` works on ANY region (the spec never restricted it to the
   first). A genuine CONFLICT — two regions declaring DIFFERENT

@@ -336,9 +336,9 @@
 
 ;; ---- (C2) :output-key on a NON-FIRST region's terminal leaf ----
 ;; A spawned parallel child whose :output-key lives on a region OTHER than the
-;; first (state-map order) still reports that slot back through the parent's
-;; :spawn :on-done — finalize scans every region's terminal leaf for the
-;; :output-key, not just the first.
+;; first (canonical region-declaration order) still reports that slot back
+;; through the parent's :spawn :on-done — finalize scans every region's
+;; terminal leaf for the :output-key, not just the first.
 
 (deftest parallel-output-key-on-non-first-region-reported
   (testing "C2: a spawned parallel child reports :output-key from a NON-FIRST region"
@@ -413,8 +413,9 @@
             "a :rf.error/machine-parallel-output-key-conflict trace was emitted")))))
 
 ;; ---- :error? final on a NON-FIRST region routes as ERROR ------
-;; A spawned PARALLEL child whose FIRST region (state-map order) reaches a
-;; plain final but a NON-FIRST region reaches `{:final? true :error? true}`
+;; A spawned PARALLEL child whose FIRST region (canonical region-declaration
+;; order) reaches a plain final but a NON-FIRST region reaches
+;; `{:final? true :error? true}`
 ;; routes to the spawning parent's `:spawn :on-error` (control flow) — NOT
 ;; `:on-done` — and the `:rf.machine/done` trace carries `:error? true`.
 ;; Finalize scans every region's terminal leaf for `:error?` (the same
