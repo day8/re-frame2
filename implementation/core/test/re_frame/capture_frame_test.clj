@@ -26,9 +26,11 @@
   the always-on corpus-wide listener registry (`error-emit` ns docstring,
   §promoted set covers frame-destroyed dispatch / subscribe), so every incarnation
   -fence assertion in this file survives the production gate verbatim once it
-  reads the `:errors` STREAM instead of the `:trace` stream. That is the whole
-  change: `register-listener! :errors`, and `(:error rec)` where the trace
-  spelled `(:operation ev)`.
+  reads the ERROR-EMIT registry instead of the `:trace` stream. That is the whole
+  change: `re-frame.error-emit/register-error-listener!`, and `(:error rec)`
+  where the trace spelled `(:operation ev)`. (rf2-kuky.69 retired the public
+  facade spelling for that registry; the registry itself is implementation tier
+  and is exactly what a test like this one is meant to read.)
 
   It matters more here than the mechanical size of the diff suggests. These are
   incarnation-fence tests — the class of defect where a capture pinned to a
