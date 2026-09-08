@@ -156,9 +156,31 @@ on:
     - cron: '30 3 * * *'
   workflow_dispatch:
 
+# Cancel older in-flight runs of THIS workflow on the same PR when a
+# force-push / rebase lands a new HEAD — but never on the trunk. Mirrors
+# the shape test.yml has carried since rf2-d4t7g.
+#
+# Keying: for PRs, group on the PR number so every push to the same PR
+# branch reuses one slot. On every other event — push to main, the nightly
+# schedule, a manual dispatch — fall back to `github.run_id`, which is
+# unique per run, so each trunk commit gets its own independent group and
+# successive main pushes cannot share one.
+#
+# BOTH HALVES ARE LOAD-BEARING (rf2-vktd); keying alone would half-fix it.
+# The previous shape grouped on `github.ref` and cancelled unconditionally,
+# and on main `github.ref` is the SAME VALUE for every push — so all trunk
+# runs shared one group and each push cancelled the one before it. A
+# cancelled run still REPORTS: the `Lint required` aggregator below is
+# `if: always()`, and a cancelled dependency is neither success nor
+# skipped, so the aggregate goes red with no lint finding behind it.
+# Measured over the last 200 main-branch runs before this change: 76
+# cancelled, 124 success, 0 failure — every red on trunk was a
+# cancellation — against 0 cancelled for test.yml over the same window,
+# branch and instrument. `Lint required` is a required status check in the
+# branch ruleset, so that noise sits on a signal that gates merges.
 concurrency:
-  group: lint-${{ github.ref }}
-  cancel-in-progress: true
+  group: lint-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # Lightweight changed-surface gate (rf2-aemyt). On a pull_request this
