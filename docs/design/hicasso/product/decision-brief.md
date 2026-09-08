@@ -138,10 +138,10 @@ Comparative bands follow: an initial mount ceiling of 1.25x direct UIx; tuned br
 
 **The ideas ledger** (full designs in `lanes/left-field-ideas.md`, and in its operator-local source `fable/left-field-ideas.md`, which is not published in this tree):
 
-- *Adopt*: complaint catalogue, cause-aware hot advisor, capability receipts (counts only; self time refused), direct React output with the Hicasso-owned native tier (`n/$` and companions; gates in Part II).
+- *Adopt*: complaint catalogue, cause-aware hot advisor, direct React output with the Hicasso-owned native tier (the `n/use-sub` and `n/use-frame` hooks; gates in Part II). (*This clause also read* "capability receipts (counts only; self time refused)" *until 2026-09-08, when `rf2-xcqk` DECLINED them outright; they move to* Reject *below, and self time stays refused exactly as it always was. It named the native tier* "`n/$` and companions" *until the same day: `rf2-6c12m.3` deleted `n/$`, `n/defcomponent`, `n/memo` and `n/lazy` on 2026-08-29, leaving the two hooks as the tier, while the direct-element route itself survives as rung 3 of the [performance ladder](lanes/hot-path-architecture.md#the-performance-ladder) written with React's own API. No gate, status or route count moves — only the spellings.*)
 - *Spike with deciding rules*: committed-read resource demand; pull-shaped reads; schema-driven generators; counterfactual topology advice; replayable view capsules after L2; MCP-queryable runtime and migration shadowing through existing tools; shared read-set notification groups after a census.
 - *Watch*: a read-free shell as a read-nothing optimization, not a heap fix; codec shape planning only when classification/lowering exceeds 10% of hot-boundary self time; intent replay through Story; keyed-list maintenance only after a red bulk verdict; a future React store seam.
-- *Reject*: compiler/JIT modes, second renderers, worker view runtimes, signals replacement, universal callback cells, and hydration-free inference.
+- *Reject*: compiler/JIT modes, second renderers, worker view runtimes, signals replacement, universal callback cells, hydration-free inference, and capability receipts (declined 2026-09-08, `rf2-xcqk`; per-boundary self time was and remains separately refused).
 
 Every spike must retain the detailed fence and deciding witness in `lanes/left-field-ideas.md`; this ledger is not permission to build an open-ended experiment.
 
