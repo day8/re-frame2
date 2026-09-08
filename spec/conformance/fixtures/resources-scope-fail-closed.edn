@@ -16,10 +16,12 @@
 ;;         a literal map, a string, or a `:rf.scope/*` typo is refused by the
 ;;         SAME error. A constant at registration partitions the cache exactly
 ;;         as `:rf.scope/global` does; a tenant that is STATE is `{:from-db …}`.
-;;   (iii) WRITE-SIDE / READ-SIDE USE-TIME — a `{:from-db <id>}` policy naming a
+;;   (iii) WRITE-SIDE / READ-SIDE USE-TIME — a `{:from-db <id>}` scope naming a
 ;;         resolver no `reg-resource-scope` registered fails closed at BOTH
 ;;         resolution boundaries (:rf.error/resource-scope-not-registered),
-;;         never a silent global read and never a silent :idle.
+;;         never a silent global read and never a silent :idle. Exercised at the
+;;         use-site OVERRIDE tier, which resolves the reference through the same
+;;         single use-time rule the spec policy tier does.
 ;;
 ;; Each is pinned against the LIVE resolvers via a pure `:fixture/calls` op —
 ;; the write-side / read-side throws are captured DIRECTLY (no dispatch), the
@@ -32,20 +34,18 @@
 {:fixture/id           :resources/scope-fail-closed
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:resources/scope-fail-closed}
- :fixture/doc          "The scope fail-closed set: reg-resource with no :scope policy, or with a value that is neither :rf.scope/global nor {:from-db <id>} → :rf.error/resource-missing-scope-policy; a {:from-db <id>} policy naming an unregistered resolver → :rf.error/resource-scope-not-registered on both the write and read resolvers. A control confirms an explicit :rf.scope/global policy resolves."
+ :fixture/doc          "The scope fail-closed set: reg-resource with no :scope policy, or with a value that is neither :rf.scope/global nor {:from-db <id>} → :rf.error/resource-missing-scope-policy; a {:from-db <id>} scope naming an unregistered resolver → :rf.error/resource-scope-not-registered on both the write and read resolvers. A control confirms an explicit :rf.scope/global policy resolves."
 
  :fixture/registry
  {:resource
-  ;; A registered resource whose policy is a named-resolver REFERENCE. The
-  ;; reference shape alone is enough at registration (the resolver id is
-  ;; resolved at USE time), so both use-time resolvers fail closed here.
-  {:res/derived {:scope         {:from-db :res/session}
-                 :params-schema [:map [:slug :string]]
-                 :url-template  "/api/derived/"}
-   ;; An explicitly global resource — the control.
-   :res/global  {:scope         :rf.scope/global
-                 :params-schema [:map [:slug :string]]
-                 :url-template  "/api/global/"}}}
+  ;; An explicitly global resource. The use-time cases below reach it with a
+  ;; `{:from-db …}` scope OVERRIDE, which resolves through the same single
+  ;; use-time rule a `{:from-db …}` spec policy does — so the fail-closed
+  ;; behaviour is pinned without the fixture having to carry a resolver
+  ;; registration (EDN cannot express the resolver fn).
+  {:res/global {:scope         :rf.scope/global
+                :params-schema [:map [:slug :string]]
+                :url-template  "/api/global/"}}}
 
  :fixture/calls
  [;; (i) REGISTRATION fail-closed: a spec with no :scope policy is rejected.
@@ -78,15 +78,16 @@
   ;; (iii) WRITE-SIDE use-time fail-closed: the reference names no resolver.
   {:call :resolve-scope
    :side :event
-   :resource-id :res/derived
-   :payload-scope nil
+   :resource-id :res/global
+   :payload-scope {:from-db :res/session}
    :expect-error :rf.error/resource-scope-not-registered}
 
   ;; (iii) READ-SIDE use-time fail-closed: the same reference, sub resolver.
   {:call :resolve-scope
    :side :sub
-   :resource-id :res/derived
+   :resource-id :res/global
    :params {:slug "x"}
+   :payload-scope {:from-db :res/session}
    :expect-error :rf.error/resource-scope-not-registered}
 
   ;; CONTROL: an explicit :rf.scope/global policy resolves to global — because
@@ -97,9 +98,9 @@
    :payload-scope nil
    :expect :rf.scope/global}
 
-  ;; CONTROL: a payload :scope is an OVERRIDE and resolves to itself.
+  ;; CONTROL: a concrete payload :scope is an OVERRIDE and resolves to itself.
   {:call :resolve-scope
    :side :event
-   :resource-id :res/derived
+   :resource-id :res/global
    :payload-scope {:user "u-1"}
    :expect {:user "u-1"}}]}

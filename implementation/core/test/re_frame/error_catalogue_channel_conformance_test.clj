@@ -1382,15 +1382,30 @@
   declares. One schema added, one row added, one pairing gained: this integer
   moves by exactly one.
 
-  Lowered 93 -> 92 by rf2-kuky.70 (the `:system-id` family's deletion), and the
-  removal is in this same diff: `SystemIdCollisionTags` was DELETED from
-  spec/Spec-Schemas.md because its category `:rf.error/system-id-collision` had
-  exactly one emitter — `install-spawn!`'s rebind arm — and the emitter went
-  with the family (rf2-kuky.15 ruled A: the address IS the id, so there is no
-  separate name registry to collide with). The `:rf.error/system-id-collision`
-  catalogue row went too, so the pairing it held is gone. One schema deleted,
-  one row deleted, one pairing lost: this integer moves by exactly one."
-  92)
+  Lowered 93 -> 92 by rf2-kuky.70 (the `:system-id` family's deletion):
+  `SystemIdCollisionTags` was DELETED from spec/Spec-Schemas.md because its
+  category `:rf.error/system-id-collision` had exactly one emitter —
+  `install-spawn!`'s rebind arm — and the emitter went with the family
+  (rf2-kuky.15 ruled A: the address IS the id, so there is no separate name
+  registry to collide with). The catalogue row went too.
+
+  Lowered 92 -> 91 by rf2-kuky.81 (the `:scope` policy collapsed to
+  `:rf.scope/global` | `{:from-db <id>}`), and the removal is in this same
+  diff: `ResourceScopeRequiredFromCallerTags` was DELETED from
+  spec/Spec-Schemas.md because its category existed only for the retired
+  scope-required-from-the-use-site registration policy — no registered
+  resource can be reached without a resolvable policy any more. Its spec/009
+  row is RETIRED IN PLACE (struck first cell) per the catalogue's own
+  convention, and a retired row claims no Tags schema.
+
+  NOTE ON THE ARITHMETIC (rf2-kuky.81's rebase). These two removals landed
+  concurrently and EACH independently wrote `93 -> 92`, for DIFFERENT lost
+  pairings. Taking either side of that conflict wholesale would have left 92
+  standing over a corpus that had lost TWO pairings — the silent-count-merge
+  class this ledger exists to make impossible, arriving in the ledger itself.
+  Both narratives are kept above and the integer is the composition of both:
+  one schema deleted per removal, two pairings lost, 93 -> 91."
+  91)
 
 (def ^:private tags-column-shrink-only-baseline
   "SHRINK-ONLY. The rows that still red when the arm is armed — pre-existing
