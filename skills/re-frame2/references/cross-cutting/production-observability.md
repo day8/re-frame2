@@ -91,25 +91,20 @@ What decides which side a check falls on is **what the check is for, not who dec
 
 No trace-bus keys (no `:dispatch-id`, `:parent-dispatch-id`, `:rf.trace/trigger-handler`, source coords) — those ride the dev-only trace surface.
 
-??? info "The substrate record underneath (IMPLEMENTATION TIER — not what your sink receives)"
+**The substrate record underneath — IMPLEMENTATION TIER, not what your sink receives.**
+The sink route lowers onto the always-on `re-frame.event-emit` substrate, whose own record is a different shape. You will meet it reading framework source or a framework-internal capture bracket; it has **no public registration verb**, and **no egress profile reaches it**.
 
-    The sink route lowers onto the always-on `re-frame.event-emit` substrate, whose own
-    record is a different shape. You will meet it reading framework source or a
-    framework-internal capture bracket; it has **no public registration verb** and
-    **no egress profile reaches it**.
+```clojure
+;; re-frame.event-emit/dispatch-on-event! — IMPLEMENTATION TIER
+{:event      [:cart/checkout {:items [...]}]
+ :event-id   :cart/checkout
+ :frame      :rf/default
+ :time       1715600000000                         ;; emit timestamp, ms since epoch
+ :outcome    :ok                                   ;; the substrate's spelling of :status
+ :elapsed-ms 12}
+```
 
-    ```clojure
-    ;; re-frame.event-emit/dispatch-on-event! — implementation tier
-    {:event      [:cart/checkout {:items [...]}]
-     :event-id   :cart/checkout
-     :frame      :rf/default
-     :time       1715600000000                       ;; emit timestamp, ms since epoch
-     :outcome    :ok                                 ;; the substrate's spelling of :status
-     :elapsed-ms 12}
-    ```
-
-    `:outcome`/`:time` live **only** here. The projected `:rf.observe/handled-event`
-    above is the record every sink sees, on every profile.
+`:outcome` and `:time` live **only** here. The projected `:rf.observe/handled-event` above is the record every sink sees, on every profile.
 
 **Privacy is path-based, applied at egress — the record always fans out.** Every surviving record's `:event` vector is walked by `elide-wire-value` with off-box defaults (large → `:rf.size/large-elided`; classified sensitive paths → `:rf/redacted`) *before* any consumer runs — and the sink route then projects that record again under the governing frame's classification and the entry's profile. Sensitivity is owner-classified by *path* (the registration's `:sensitive` paths for transient event args; the durable app-db `:sensitive` classification effect a handler returns alongside `:db`), **fail-open** — an unclassified path ships raw. **No** whole-record privacy drop at the handler boundary: `dispatch-on-event!` never suppresses a record for sensitivity — it redacts the payload per `[:rf.runtime/elision :sensitive-declarations]` (runtime-db) and ships the rest. (Handler-meta `:sensitive?` is **not** consulted — removed from the runtime, see `event_emit.cljc` docstring.) The only whole-record drop gate is `:rf.trace/no-emit?` on handler-meta — a **documented opt-out for tool authors**, not a privacy knob. It exists so a tool that dispatches its own events (a recorder, an inspector, the pair MCP) does not narrate its own bookkeeping onto the wire it is watching; Xray, Story and the pair use it, and so may you. Its frame-scoped sibling is `:rf.trace/frame-no-emit?` in the frame config. Never reach for either to hide sensitive data: sensitivity is path-classified and redacted at egress, and a `no-emit?` handler drops the record for *everyone*, auditors included. (Spec 009 §Trace-emission opt-out is the contract; the observability guide's Advanced section is the worked recipe.)
 
