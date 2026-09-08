@@ -50,7 +50,7 @@
      (when-not (keyword? frame-id)
        (rf.error/throw-error!
          :rf.error/app-schemas-bad-arg
-         'rf/app-schemas
+         're-frame.schemas/app-schemas
           (str "the :frame opt must be a frame-id keyword or a frame value "
               "(from rf/make-frame); got " (pr-str frame-target)
               ", which resolved to the non-keyword frame target "
@@ -77,7 +77,7 @@
     :else
     (rf.error/throw-error!
       :rf.error/app-schemas-bad-arg
-      'rf/app-schemas
+      're-frame.schemas/app-schemas
       (str "app-schemas expects a keyword frame-id, a frame value, or an "
            "opts map; got " (pr-str opts-or-frame-id) ". Pass a frame-id "
            "keyword, a frame value (from rf/make-frame), or a "
@@ -699,7 +699,7 @@
   against the NAMED frame; schemas registered against a different frame do
   not appear."
   [opts]
-  (frame-schema-entries (read-frame-id opts 'rf/app-schemas)))
+  (frame-schema-entries (read-frame-id opts 're-frame.schemas/app-schemas)))
 
 (defn app-schema-meta
   "Return one path's registration metadata map in a frame, or nil.
@@ -717,7 +717,7 @@
   as a tooling and agent surface."
   [{:keys [path] :as opts}]
   ;; Lookup uses the same canonical concrete path identity as registration.
-  (get-in @schemas-by-frame [(read-frame-id opts 'rf/app-schema-meta)
+  (get-in @schemas-by-frame [(read-frame-id opts 're-frame.schemas/app-schema-meta)
                              (rf.path/normalize-concrete path)]))
 
 ;; ---- hot-reload semantics ------------------------------------------------
