@@ -1,0 +1,143 @@
+;; Conformance fixture: data-classification/process-default-record-projection
+;;
+;; Per Spec 015 §The process default — `(rf/configure! {:observability …})`.
+;; The process default exists to carry the records NO frame policy can route:
+;; the three producers that stamp `:frame nil` by construction, and any record
+;; whose `:frame` no longer resolves (a destroyed frame, a dissociated
+;; incarnation's exact-incarnation teardown report). Those reach the default
+;; ALONE, projected with the governing frame EXPLICITLY NIL.
+;;
+;; The corpus pins the PROJECTION CONTRACT of that delivery — the exact record
+;; shape such a sink must accept — because it cannot capture a sink fan-out
+;; host-neutrally (no side-effect-capture harness; the same division the
+;; sibling `observability-sink-receives-projected-record.edn` records). The
+;; per-stream PRECEDENCE half (inherit / `[]` opt-out / one-source-per-record)
+;; and the ROUTING half are pinned by the dual-runtime CLJC test
+;; `re-frame.observability-process-default-cljs-test`, which runs under BOTH
+;; `npm run test:cljs` and the JVM `clojure -M:test`.
+;;
+;; The claim has TWO halves and the fixture separates them, because a port can
+;; satisfy either alone and be wrong:
+;;
+;;   TREE SLOTS FAIL CLOSED. With no frame authority the governing frame is
+;;   explicitly nil, so `:tags` redacts WHOLE to `:rf/redacted` — no frame's
+;;   classification vouched for its contents. Calls [0] and [1].
+;;
+;;   SUMMARY IDS SURVIVE. `:kind` / `:error` / `:time`, and a STALE `:frame`
+;;   id, pass through unchanged: the id is what tells an operator which frame
+;;   died, and it is kept as a DIAGNOSTIC while never being re-resolved
+;;   against the live registry. Call [1] is the discriminating one — the id it
+;;   carries names a frame this fixture never creates.
+;;
+;; Call [2] is the CONTROL, and it is what makes [0] and [1] evidence rather
+;; than a restatement of "everything redacts". The SAME record body under the
+;; LIVE `:obs/main` — which classifies `[:auth :token]` — is WALKED rather than
+;; failed closed: the classified leaf redacts and its undeclared sibling rides
+;; raw. A port that redacted unconditionally passes [0] and [1] and fails [2].
+;;
+;; Call [3] is Spec 015 §The process default's cross-frame RAW HOOK: an
+;; explicit `:rf.egress/local-raw` entry on the default is the ONE sanctioned
+;; way to see these records unprojected. It is a projection PROFILE on the
+;; `:rf.observe/*` record — deliberately not an additive global observer,
+;; which would be a third routing model.
+;;
+;; A port that resolves the governing frame by truthiness rather than key
+;; presence fails [0] and [1] while passing [2] and [3], which is the
+;; signature to look for. Same discrimination the sibling
+;; `project-egress-explicit-nil-frame-fails-closed.edn` draws for a KINDLESS
+;; direct read; this one draws it for the `:rf.observe/error` RECORD, where
+;; the summary slots must survive the same walk that redacts the tree.
+
+{:fixture/id           :data-classification/process-default-record-projection
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:data-classification/classification-effects}
+ :fixture/doc          "The projection a PROCESS-DEFAULT sink consumes for a record with no frame authority (Spec 015 §The process default): the governing frame is explicitly nil, so tree slots fail closed to :rf/redacted while summary ids — including a STALE :frame id kept as a diagnostic and never re-resolved — survive. The control call shows the same record under a live classified frame is walked, not redacted whole; the local-raw call is the sanctioned cross-frame raw hook. (Per-stream precedence and routing are pinned by re-frame.observability-process-default-cljs-test.)"
+
+ :fixture/frames
+ [{:id :obs/main}]
+
+ ;; EP-0025: durable app-db classification rides the commit-plane
+ ;; `:sensitive` effect, not a frame annotation. Installed on the scope frame
+ ;; `:obs/main` — the LIVE owner call [2] projects under.
+ :fixture/classification-effects
+ [{:sensitive [[:auth :token]]}]
+
+ :fixture/calls
+ [;; [0] FRAMELESS — the shape `:rf.error/no-frame-context` and hicasso's
+  ;; compute-sub `:rf.error/sub-exception` carry by construction. The record's
+  ;; own `:frame` is nil and the governing frame is explicitly nil.
+  {:call              :project-egress
+   :rf.egress/profile :rf.egress/off-box-observability
+   :frame             nil
+   :value             {:kind  :rf.observe/error
+                       :frame nil
+                       :error :rf.error/no-frame-context
+                       :time  42
+                       :tags  {:auth   {:token "super-secret"}
+                               :reason "no frame in scope"}}
+   :expect            {:kind  :rf.observe/error
+                       :frame nil
+                       :error :rf.error/no-frame-context
+                       :time  42
+                       :tags  :rf/redacted}}
+
+  ;; [1] STALE OWNER — a dissociated incarnation's teardown report. The
+  ;; `:frame` id names a frame this fixture never created; it SURVIVES in the
+  ;; summary as the diagnostic that tells an operator which frame died, while
+  ;; the governing frame stays explicitly nil so the tree still fails closed.
+  ;; The id is never re-resolved: a same-id successor is not the owner.
+  {:call              :project-egress
+   :rf.egress/profile :rf.egress/off-box-observability
+   :frame             nil
+   :value             {:kind  :rf.observe/error
+                       :frame :obs/dead
+                       :error :rf.error/frame-teardown-failed
+                       :time  7
+                       :tags  {:auth   {:token "super-secret"}
+                               :reason "teardown hook threw"}}
+   :expect            {:kind  :rf.observe/error
+                       :frame :obs/dead
+                       :error :rf.error/frame-teardown-failed
+                       :time  7
+                       :tags  :rf/redacted}}
+
+  ;; [2] CONTROL — the SAME tree under the LIVE `:obs/main`, which classifies
+  ;; [:auth :token]. The slot is WALKED, not failed closed: the declared leaf
+  ;; redacts, its undeclared sibling rides raw. This is what a frame that
+  ;; INHERITS the default's entries gets — inheritance moves the sink list,
+  ;; never the redaction authority.
+  {:call              :project-egress
+   :rf.egress/profile :rf.egress/off-box-observability
+   :frame             :obs/main
+   :value             {:kind  :rf.observe/error
+                       :frame :obs/main
+                       :error :rf.error/handler-exception
+                       :time  7
+                       :tags  {:auth   {:token "super-secret"}
+                               :reason "teardown hook threw"}}
+   :expect            {:kind  :rf.observe/error
+                       :frame :obs/main
+                       :error :rf.error/handler-exception
+                       :time  7
+                       :tags  {:auth   {:token :rf/redacted}
+                               :reason "teardown hook threw"}}}
+
+  ;; [3] The cross-frame RAW HOOK — an explicit `:rf.egress/local-raw` entry
+  ;; on the process default, for a trusted local operator who genuinely wants
+  ;; these records unprojected. Same nil governing frame as [0]; the profile
+  ;; is the deliberate opt-out, so the tree crosses verbatim.
+  {:call              :project-egress
+   :rf.egress/profile :rf.egress/local-raw
+   :frame             nil
+   :value             {:kind  :rf.observe/error
+                       :frame nil
+                       :error :rf.error/no-frame-context
+                       :time  42
+                       :tags  {:auth   {:token "super-secret"}
+                               :reason "no frame in scope"}}
+   :expect            {:kind  :rf.observe/error
+                       :frame nil
+                       :error :rf.error/no-frame-context
+                       :time  42
+                       :tags  {:auth   {:token "super-secret"}
+                               :reason "no frame in scope"}}}]}
