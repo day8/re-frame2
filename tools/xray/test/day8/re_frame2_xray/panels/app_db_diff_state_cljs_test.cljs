@@ -280,7 +280,6 @@
     (let [model (sections {:rf/machines           {:title/flow {:state :idle}}
                            :rf/spawned            {:parent     {:invoke :child}}
                            :rf/route              {:id :home}
-                           :rf/system-ids         #{:app}
                            :rf/pending-navigation {:to :next}
                            :rf/elision            {:declarations {}}})
           tree   (state/state-body model)

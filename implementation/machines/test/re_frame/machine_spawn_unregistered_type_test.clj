@@ -6,13 +6,13 @@
   `:definition` — is REJECTED fail-closed and emits the always-on
   `:rf.error/machine-spawn-unregistered-type`. There is no implicit
   spec-less spawn lifecycle: a rejected spawn installs NO snapshot, NO slot,
-  NO system-id, allocates NO spawned-id, records NO spawn-order entry, fires
+  allocates NO spawned-id, records NO spawn-order entry, fires
   NO `:rf.machine.spawn/spawned` trace, and dispatches NO `:start`.
 
   Pinned here (the bead's required contract):
 
    1. **Single `:spawn` reject contract.** A declarative `:spawn` of an
-      unregistered TYPE installs nothing (snapshot / slot / system-id /
+      unregistered TYPE installs nothing (snapshot / slot /
       spawn-order / `:start`) — the strongest atomicity.
 
    2. **Always-on conformance leg.** The reject fans ONE
@@ -84,14 +84,13 @@
 
 (deftest single-spawn-of-unregistered-type-installs-nothing
   (testing "a declarative :spawn naming an UNREGISTERED :machine-id rejects:
-            no snapshot, no slot, no system-id, no spawned-id, no
+            no snapshot, no slot, no spawned-id, no
             spawn-order, no :start dispatch"
     ;; NOTE: :ghost/worker is NEVER reg-machine'd — the unregistered TYPE.
     (let [parent {:initial :idle
                   :states
                   {:idle    {:on {:start :working}}
                    :working {:spawn {:machine-id :ghost/worker
-                                     :system-id  :ghost-actor
                                      :start      [:go {:secret "tok"}]}
                              :on    {:done :idle}}}}]
       (rf/reg-machine :sup/ghost parent)
@@ -106,9 +105,6 @@
         ;; The spawn-counter was never bumped (no allocation happened).
         (is (nil? (get-in db [:rf.runtime/machines :spawn-counter :ghost/worker]))
             "no spawned-id was allocated (counter untouched)")
-        ;; No :system-id reverse-index binding.
-        (is (nil? (get-in db [:rf.runtime/machines :system-ids :ghost-actor]))
-            "no :system-id binding for the rejected spawn")
         ;; No spawn-order entry for the rejected actor.
         (is (not (some #{:ghost/worker#1} (rf.machines.spawn-order/frame-order :rf/default)))
             "no spawn-order entry recorded for the rejected actor")

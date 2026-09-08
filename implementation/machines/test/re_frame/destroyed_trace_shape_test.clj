@@ -5,17 +5,15 @@
     1. `destroy-spawn-all-children!` (lifecycle_fx/destroy.cljc):
        per-child fire when a `:spawn-all` parent tears down its
        children. The trace carries an extra `:child-id` slot keying
-       the join-state map but does NOT include `:system-id`.
+       the join-state map.
 
     2. `destroy-single!` (lifecycle_fx/destroy.cljc): the keyword /
        tracked-map fire for an explicit `:rf.machine/destroy` fx or
-       the standard declarative-`:spawn` exit cascade. The trace
-       carries `:system-id` (resolved from the reverse-index BEFORE
-       teardown).
+       the standard declarative-`:spawn` exit cascade.
 
     3. `finalize-machine` (lifecycle_fx/finalize.cljc): the auto-destroy
        fire when a state-machine enters a `:final?` state. The trace
-       carries `:system-id` AND `:reason :rf.machine/finished`.
+       carries `:reason :rf.machine/finished`.
 
   Tools (re-frame-10x, Xray, story-mcp) key on the trace's argument
   map. If the three emission sites drift in their key-set shape, tools
@@ -25,12 +23,11 @@
   SAME tap and asserts:
 
     - every fire's argument map is a subset of the canonical union
-      `{:frame :actor-id :system-id :parent-id :invoke-id :child-id
-        :reason}`,
+      `{:frame :actor-id :parent-id :invoke-id :child-id :reason}`,
     - `:reason` is always present (the discriminator),
     - `:frame` and `:actor-id` are always present (the common id pair),
-    - sites that don't have `:child-id` / `:system-id` simply omit
-      those slots (no nil-stamping)."
+    - sites that don't have `:child-id` simply omit that slot
+      (no nil-stamping)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines.test-support :as rf.machines.test-support]
@@ -63,7 +60,7 @@
 
 (def ^:private canonical-site-keys
   (clojure.set/union
-    #{:frame :actor-id :system-id :parent-id :invoke-id :child-id :reason}
+    #{:frame :actor-id :parent-id :invoke-id :child-id :reason}
     reply-envelope-keys))
 
 (def ^:private framework-stamped-keys
@@ -138,7 +135,7 @@
 ;; ---- Site 1: destroy-spawn-all-children! ---------------------------------
 
 (deftest invoke-all-children-destroy-trace-shape
-  (testing "destroy-spawn-all-children! per-child traces carry :child-id and omit :system-id"
+  (testing "destroy-spawn-all-children! per-child traces carry :child-id"
     (let [[cap unreg] (record!)
           child {:initial :running
                  :data    {}
@@ -172,15 +169,13 @@
           (is (seq child-traces)
               "at least one trace carries the :child-id discriminator (per-child path)")
           (doseq [t child-traces]
-            (is (not (contains? (:tags t) :system-id))
-                "per-child fires omit :system-id (children weren't system-id-bound)")
             (is (= :explicit (-> t :tags :reason)))))
         (finally (unreg))))))
 
 ;; ---- Site 2: destroy-single! ----------------------------------------------
 
 (deftest destroy-single-trace-shape
-  (testing "destroy-single! (declarative :spawn exit cascade) carries :system-id slot key"
+  (testing "destroy-single! (declarative :spawn exit cascade) fires :reason :explicit"
     (let [[cap unreg] (record!)
           child {:initial :running
                  :data    {}
@@ -199,8 +194,6 @@
         (let [traces (destroyed-traces cap)]
           (assert-shape! traces "destroy-single")
           (doseq [t traces]
-            (is (contains? (:tags t) :system-id)
-                "destroy-single! always emits :system-id (even if nil for non-system-id-bound actors)")
             (is (= :explicit (-> t :tags :reason)))))
         (finally (unreg))))))
 
@@ -226,10 +219,7 @@
               finish-traces (filter #(= :rf.machine/finished (-> % :tags :reason)) traces)]
           (assert-shape! traces "finalize-machine")
           (is (seq finish-traces)
-              "at least one trace carries :reason :rf.machine/finished")
-          (doseq [t finish-traces]
-            (is (contains? (:tags t) :system-id)
-                "finalize-machine always emits :system-id")))
+              "at least one trace carries :reason :rf.machine/finished"))
         (finally (unreg))))))
 
 ;; ---- Cross-site stability check -------------------------------------------

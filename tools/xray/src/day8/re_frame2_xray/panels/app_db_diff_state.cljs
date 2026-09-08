@@ -13,7 +13,7 @@
       longer app-db's retired `:rf/runtime` container). Map-of-instances
       areas (`:rf/machines`, `:rf/spawned`) FAN OUT to one named
       sub-section per instance — section title = the instance id (e.g.
-      `:title/flow`). Singleton slices (`:rf/route`, `:rf/system-ids`,
+      `:title/flow`). Singleton slices (`:rf/route`,
       `:rf/pending-navigation`, `:rf/elision`) render as one section
       each.
 
@@ -337,7 +337,7 @@
 
 (defn singleton-area
   "Render a singleton-slice reserved area (`:rf/route`,
-  `:rf/system-ids`, `:rf/pending-navigation`, `:rf/elision`) as ONE
+  `:rf/pending-navigation`, `:rf/elision`) as ONE
   section.
 
   rf2-jcdvo — empty/absent slices are filtered at projection time

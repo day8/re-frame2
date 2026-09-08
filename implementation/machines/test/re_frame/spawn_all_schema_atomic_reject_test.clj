@@ -111,16 +111,15 @@
 
 (deftest mixed-invalid-child-rejects-the-whole-invoke-atomically
   (testing "a schema-invalid child rejects the WHOLE invoke before any live
-            join or child effect is published: no snapshots, no system-id
-            bindings, no spawn-order entries, no spawned traces — and the join
+            join or child effect is published: no snapshots,
+            no spawn-order entries, no spawned traces — and the join
             slot is ONE childless reject sentinel, not a live join naming an
             impossible child"
     (rf/reg-machine :sa/strict strict-child)
     (rf/reg-machine :sa/plain plain-child)
     (rf/reg-machine :sup/mixed
                     (parent-over [{:id :bad :machine-id :sa/strict :data {:n -1}}
-                                  {:id :ok  :machine-id :sa/plain
-                                   :system-id :ok-actor}]))
+                                  {:id :ok  :machine-id :sa/plain}]))
     (rf/dispatch-sync [:sup/mixed [:start]])
     ;; The join slot is a childless reject sentinel — NOT a live join.
     (is (= {:rf/spawn-all-rejected? true} (join-slot :sup/mixed))
@@ -132,8 +131,6 @@
         "the schema-invalid child installs no snapshot")
     (is (nil? (snapshot-of :sa/plain#1))
         "the VALID sibling is suppressed too — the reject is ATOMIC")
-    (is (nil? (get-in (frame-db) [:rf.runtime/machines :system-ids :ok-actor]))
-        "no :system-id binding for the suppressed sibling")
     (is (empty? (filterv #{:sa/strict#1 :sa/plain#1}
                          (rf.machines.spawn-order/frame-order :rf/default)))
         "no spawn-order entry for either child")

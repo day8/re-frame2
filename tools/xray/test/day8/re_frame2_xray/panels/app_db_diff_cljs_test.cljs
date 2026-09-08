@@ -591,7 +591,7 @@
       (rf/dispatch-sync [:rf.xray/set-target-frame :rf/default]))
     (rf/with-frame :rf/xray
       (let [tree (app-db-diff/Panel)]
-        (doseq [area [:rf/machines :rf/spawned :rf/route :rf/system-ids
+        (doseq [area [:rf/machines :rf/spawned :rf/route
                       :rf/pending-navigation :rf/elision]]
           (is (nil? (find-by-testid
                       tree (str "rf-xray-app-db-state-area-" (pr-str area))))

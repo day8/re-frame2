@@ -14,8 +14,8 @@
 
    2. **Destroy reads the slot, tears down, clears.** Exiting the
       `:spawn`-bearing state destroys the spawned actor and dissocs
-      the registry slot. Per the lazy-allocation invariant (sibling to
-      `[:rf.runtime/machines :system-ids]`), the empty parent map is
+      the registry slot. Per the lazy-allocation invariant, the empty
+      parent map is
       pruned and the empty `[:rf.runtime/machines :spawned]` slot is
       dissoc'd entirely.
 
@@ -97,7 +97,7 @@
             "the registry slot was cleared on destroy")
         ;; Lazy-allocation invariant: the now-empty parent submap is
         ;; pruned, and the now-empty [:rf.runtime/machines :spawned]
-        ;; slot is dissoc'd entirely (sibling to :system-ids).
+        ;; slot is dissoc'd entirely.
         (is (not (contains? (get-in db [:rf.runtime/machines]) :spawned))
             "the empty :spawned slot under [:rf.runtime/machines] is pruned to absent")))))
 

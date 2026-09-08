@@ -393,7 +393,7 @@
 
 (defn- assoc-step-reason
   "For a THREADING STEP of a `cond->` (the step form, threaded acc elided) —
-  e.g. `(assoc :system-id system-id)` — return `[::ok <reason-values>]` where
+  e.g. `(assoc :parent-id parent-id)` — return `[::ok <reason-values>]` where
   `<reason-values>` are the literal `:reason` values that step injects (empty
   when it injects none), or `[::unproven]` when the step cannot be proven
   reason-safe. Supported reason-safe steps: `(assoc …)` / `(assoc! …)` whose

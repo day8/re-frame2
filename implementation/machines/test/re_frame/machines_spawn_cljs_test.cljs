@@ -381,7 +381,6 @@
                   :states
                   {:idle    {:on {:start :working}}
                    :working {:spawn {:machine-id :ghost/worker
-                                     :system-id  :ghost-actor
                                      :start      [:go]}}}}
           traces (atom [])]
       ;; :ghost/worker is NEVER reg-machine'd.
@@ -396,16 +395,13 @@
             "the record names the unregistered TYPE")
         (is (= [:ghost/worker] (reject-trace-machine-ids traces))
             "exactly ONE dev trace for the standalone unregistered spawn")
-        ;; Nothing installed — no snapshot, no slot, no system-id, no spawn-order.
+        ;; Nothing installed — no snapshot, no slot, no spawn-order.
         (is (nil? (get-in (runtime-db-value)
                           [:rf.runtime/machines :snapshots :ghost/worker#1]))
             "no snapshot installed for the rejected actor")
         (is (nil? (get-in (runtime-db-value)
                           [:rf.runtime/machines :spawned :sup/ghost [:working]]))
             "no [:rf.runtime/machines :spawned …] slot for the rejected spawn")
-        (is (nil? (get-in (runtime-db-value)
-                          [:rf.runtime/machines :system-ids :ghost-actor]))
-            "no :system-id binding for the rejected spawn")
         (is (not (some #{:ghost/worker#1} (rf.machines.spawn-order/frame-order :rf/default)))
             "no spawn-order entry for the rejected actor")))))
 

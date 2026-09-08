@@ -155,7 +155,6 @@
     :actor/spawn-destroy                              ;; rf2-mtq4h — renamed from :actor/spawn to align with spec vocabulary
     :actor/declarative-spawn
     :actor/spawn-and-join                             ;; rf2-6vmw / rf2-er0t
-    :actor/system-id                                  ;; rf2-suue / rf2-ecv4
     ;; :actor/timeout retired per rf2-3y3y — :fsm/delayed-after subsumes it.
     :flow/basic
     :flow/topo

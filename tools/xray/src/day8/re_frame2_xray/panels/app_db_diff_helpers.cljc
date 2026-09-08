@@ -285,7 +285,6 @@
   {:rf/machines           [:rf.runtime/machines :snapshots]
    :rf/spawned            [:rf.runtime/machines :spawned]
    :rf/route              [:rf.runtime/routing :current]
-   :rf/system-ids         [:rf.runtime/machines :system-ids]
    :rf/pending-navigation [:rf.runtime/routing :pending-navigation]
    :rf/elision            [:rf.runtime/elision]})
 
@@ -333,7 +332,7 @@
 ;;     single section. `:rf/route` (the SINGULAR current-route slice
 ;;     `{:id :params :query :fragment :transition :error :nav-token}`,
 ;;     schema `:rf/route-slice`, spec/012 §The `:rf/route` slice),
-;;     `:rf/system-ids`, `:rf/pending-navigation`, and `:rf/elision`
+;;     `:rf/pending-navigation`, and `:rf/elision`
 ;;     are singletons.
 ;;
 ;; Empty / absent reserved areas are FILTERED at projection time
@@ -352,7 +351,6 @@
   [:rf/machines
    :rf/spawned
    :rf/route
-   :rf/system-ids
    :rf/pending-navigation
    :rf/elision])
 
@@ -481,7 +479,7 @@
     - the reserved key is absent from the db, OR
     - the value is `nil`, OR
     - the value is a present-but-empty collection (`{}` pending-nav,
-      `{}` registry, `#{}` system-ids), OR
+      `{}` registry), OR
     - (for `:rf/machines` / `:rf/spawned`) the registry contains no
       instance ids.
 

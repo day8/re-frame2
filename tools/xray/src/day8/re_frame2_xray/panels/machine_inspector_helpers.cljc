@@ -219,8 +219,8 @@
 (defn machine-id-of
   "Resolve the addressed machine/actor id off a trace event. Per rf2-ws5thu
   the live-actor lifecycle rows (`:rf.machine/transition`,
-  `:rf.machine/snapshot-updated`, `:rf.machine/done`, the timer rows,
-  `:rf.machine/system-id-*`) carry the live INSTANCE address under
+  `:rf.machine/snapshot-updated`, `:rf.machine/done`, the timer rows)
+  carry the live INSTANCE address under
   `:tags :actor-id`; the older diagnostic rows (`:rf.machine/started`,
   `:rf.machine/guard-evaluated`, `:rf.machine/action-ran`,
   `:rf.machine/event-received`) and the registrar `:created` row carry it

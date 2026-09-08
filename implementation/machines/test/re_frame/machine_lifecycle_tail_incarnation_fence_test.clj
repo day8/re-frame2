@@ -12,11 +12,11 @@
       `:rf.machine.timer/cancelled` per cancellation. A listener replaces A with
       same-id B after the FIRST cancellation; the stale snapshot loop then reads
       B's LIVE entry under a later key and cancels B's timer, and the finalize
-      tail continues into classification / spawn-order / system-id-release
+      tail continues into classification / spawn-order work
       against B. FIX: thread the monotonic `owner-gone?` gate into the
       cancellation loop (short-circuit after the losing cancellation) AND recheck
-      it at the finalize call-site before the classification / spawn-order /
-      system-id-release work.
+      it at the finalize call-site before the classification / spawn-order
+      work.
 
     - REGISTRAR: `rf.registrar/unregister!` emits a SYNCHRONOUS
       `:rf.registry/handler-cleared`. A listener replaces A with B; the stale
@@ -26,11 +26,11 @@
 
     - SPAWN-WRITE: `install-spawn!` used a non-exact `rf.frame/swap-runtime-db!`. A
       container watch replaces A DURING the physical write; the bare write bumps
-      B's id-keyed commit epoch and emits `:rf.machine/system-id-bound` before
+      B's id-keyed commit epoch before
       the later owner check. FIX: route the install through the exact owner token
       + `rf.frame/swap-runtime-db-exact!`, which binds the write to A's own
-      container and returns nil on mid-write loss (no epoch bump, no
-      system-id-bound, no lifecycle tail).
+      container and returns nil on mid-write loss (no epoch bump, no snapshot,
+      no lifecycle tail).
 
   These fixtures drive the tails DIRECTLY under a bound event owner (A's
   dequeue-time token) with a destroyer that publishes same-id B on the callback's
@@ -169,7 +169,7 @@
             ;; --- call-site recheck: A-derived spawn-order forget never lands ---
             (is (= [machine-id] (rf.machines.spawn-order/frame-order frame-a))
                 "B's spawn-order entry survives — the finalize call-site rechecked
-                 ownership before the classification / spawn-order / system-id
+                 ownership before the classification / spawn-order
                  tail, so `rf.machines.spawn-order/forget!` never ran against B")
             ;; --- inert publication ---
             (is (= [] (:fx ret)) "finalize published no fx after the loss")
@@ -359,10 +359,10 @@
   (testing "a container watch that destroys A + publishes same-id B DURING the
             spawn install write: the exact write binds to A's own container and
             reports mid-write loss, so no A-derived child snapshot lands on B, no
-            id-keyed commit epoch is bumped for B, and no `:rf.machine/
-            system-id-bound` / `:rf.machine.lifecycle/spawned` / spawn-order tail
+            id-keyed commit epoch is bumped for B, and no
+            `:rf.machine.lifecycle/spawned` / spawn-order tail
             is attributed after loss. Mutation tooth: the bare `swap-runtime-db!`
-            bumps B's commit epoch and fires system-id-bound for B."
+            bumps B's commit epoch and runs the lifecycle tail for B."
     (rf.machines.spawn-order/reset-all!)
     (rf/reg-machine :rf2-4ipqe4/spawn-write-child
       {:initial :running
@@ -400,7 +400,6 @@
           (rf.frame/call-with-event-owner-token frame-a token-a
             (fn [] (rf.machines.lifecycle-fx.spawn/spawn-fx {:frame frame-a}
                                    {:machine-id :rf2-4ipqe4/spawn-write-child
-                                    :system-id  :rf2-4ipqe4/sys-1
                                     :start      [:go]})))
           (is (true? @fired?) "the install-write container watch ran (fence exercised)")
           (is (some? @b-birth) "the watch published a same-id B")
@@ -412,8 +411,6 @@
               "A's mid-write loss never bumped B's id-keyed commit epoch")
           (is (empty? (rf.machines.spawn-order/frame-order frame-a))
               "no A-derived spawn-order entry recorded against B")
-          (is (empty? (filter #(= :rf.machine/system-id-bound (:operation %)) @traces))
-              "no :rf.machine/system-id-bound trace attributed after the write loss")
           (is (empty? (filter #(= :rf.machine.lifecycle/spawned (:operation %)) @traces))
               "no :rf.machine.lifecycle/spawned tail attributed after the write loss"))
         (finally
@@ -424,7 +421,7 @@
 (deftest spawn-install-write-live-owner-installs-once
   (testing "control: a non-destroying install-write watch keeps A live — the
             exact write commits, the child snapshot installs, and the
-            system-id-bound / lifecycle-spawned / spawn-order tail all fire
+            lifecycle-spawned / spawn-order tail all fire
             exactly once. A wrongly-fencing exact write would skip the install."
     (rf.machines.spawn-order/reset-all!)
     (rf/reg-machine :rf2-4ipqe4/spawn-write-live-child
@@ -463,15 +460,12 @@
           (rf.frame/call-with-event-owner-token frame-a token-a
             (fn [] (rf.machines.lifecycle-fx.spawn/spawn-fx {:frame frame-a}
                                    {:machine-id :rf2-4ipqe4/spawn-write-live-child
-                                    :system-id  :rf2-4ipqe4/sys-live
                                     :start      [:go]})))
           (is (pos? @watch-runs) "the install-write watch fired (the exact write hit the container)")
           (is (some? (rf.machines.test-support/snapshot frame-a child-id))
               "the live-owner install committed the child snapshot through the exact write")
           (is (= [child-id] (rf.machines.spawn-order/frame-order frame-a))
               "the live-owner install recorded the child in spawn-order")
-          (is (= 1 (count (filter #(= :rf.machine/system-id-bound (:operation %)) @traces)))
-              "the live-owner install emitted :rf.machine/system-id-bound exactly once")
           (is (= 1 (count (filter #(= :rf.machine.lifecycle/spawned (:operation %)) @traces)))
               "the live-owner install emitted :rf.machine.lifecycle/spawned exactly once"))
         (finally

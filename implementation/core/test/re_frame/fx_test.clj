@@ -1512,7 +1512,7 @@
 ;; Mike-ruled 2026-06-10 (option A, STATE-INSTALLATION criterion): a reserved
 ;; fx-id stays OVERRIDABLE when its body only routes dispatches / touches
 ;; host-browser state (`:dispatch`, `:dispatch-later`,
-;; `:rf.machine/dispatch-to-system`, `:rf.nav/*`); it HARD-REJECTS the
+;; `:rf.nav/*`); it HARD-REJECTS the
 ;; override (emit :rf.error/reserved-fx-override + run the real reserved body)
 ;; when its body installs/clears durable frame runtime state
 ;; (`:rf.machine/spawn`, `:rf.machine/destroy`, `:rf.fx/reg-flow`,

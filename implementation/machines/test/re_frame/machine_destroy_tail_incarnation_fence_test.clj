@@ -11,8 +11,8 @@
        ran an UNFENCED pipeline: the `:exit` cascade, the late-bound HTTP-abort
        hook, the `:rf.machine.timer/cancelled` traces, the bare classification
        drop, the bare durable teardown projection, the `:rf.machine/destroyed`
-       trace, the spawn-order forget, the `:rf.machine/system-id-released` +
-       `:rf.registry/handler-cleared` traces, and the resource-owner release. A
+       trace, the spawn-order forget, the `:rf.registry/handler-cleared`
+       trace, and the resource-owner release. A
        callback at ANY of those boundaries could destroy A / publish same-id B,
        and the whole tail continued against B. FIX: capture A's continuation +
        raw token ONCE at the effect entry, recheck after every callback-bearing
@@ -68,10 +68,8 @@
 
 (def ^:private actor-type :rf2-i4aj9c/child)
 (def ^:private actor-id   (keyword "rf2-i4aj9c" "child#1"))
-(def ^:private the-sid    :rf2-i4aj9c/child-sid)
 
 (defn- snapshot-path [id] [:rf.runtime/machines :snapshots id])
-(defn- system-id-path [sid] [:rf.runtime/machines :system-ids sid])
 (defn- elision-slot [frame-id] (get-in (rf/frame-state-value frame-id) [:rf.db/runtime :rf.runtime/elision]))
 (defn- runtime-db [frame-id] (:rf.db/runtime (rf/frame-state-value frame-id)))
 (defn- snapshot [frame-id id] (get-in (runtime-db frame-id) (snapshot-path id)))
@@ -90,20 +88,17 @@
 
 (defn- seed-live-actor!
   "Seed a LIVE spawned actor `actor-id` into `frame-id`: snapshot (with the
-  spawned-actor `:rf/machine-type` discriminator), a `:system-id` reverse-index
-  binding, a spawn-order entry, and its per-instance classification lowered into
-  the elision registry. Registers the TYPE so the spec (and its `:exit` hook)
-  resolves off the snapshot."
+  spawned-actor `:rf/machine-type` discriminator), a spawn-order entry, and its
+  per-instance classification lowered into the elision registry. Registers the
+  TYPE so the spec (and its `:exit` hook) resolves off the snapshot."
   [frame-id on-exit]
   (rf/reg-machine actor-type (classified-spec on-exit))
   (rf.frame/swap-runtime-db!
     frame-id
-    (fn [rt] (-> rt
-                 (assoc-in (snapshot-path actor-id)
-                           {:state           :running
-                            :data            {:rf/self-id actor-id :token "secret"}
-                            :rf/machine-type actor-type})
-                 (assoc-in (system-id-path the-sid) actor-id))))
+    (fn [rt] (assoc-in rt (snapshot-path actor-id)
+                       {:state           :running
+                        :data            {:rf/self-id actor-id :token "secret"}
+                        :rf/machine-type actor-type})))
   (rf.machines.spawn-order/record! frame-id actor-id)
   (rf.machines.classification/lower-at-spawn! frame-id actor-id (classified-spec on-exit)))
 
@@ -114,10 +109,10 @@
   drive `rf.machines.lifecycle-fx.destroy/destroy-machine-fx` (the imperative keyword form) DIRECTLY under
   A's bound event owner. The destroyer — fired EXACTLY once on the trigger's
   callback / hook stack — destroys frame A and republishes same-id B (re-seeding
-  B identically: snapshot, system-id, spawn-order, classification). Returns the
+  B identically: snapshot, spawn-order, classification). Returns the
   observable post-destroy state of B.
 
-  `trigger` ∈ {:exit :http-abort :timer-cancelled :destroyed :system-id-released}."
+  `trigger` ∈ {:exit :http-abort :timer-cancelled :destroyed}."
   [frame-a trigger]
   (rf.machines.spawn-order/reset-all!)
   (rf/make-frame {:id frame-a})
@@ -131,12 +126,10 @@
                        ;; Re-seed B identically (no :exit hook on B).
                        (rf.frame/swap-runtime-db!
                          frame-a
-                         (fn [rt] (-> rt
-                                      (assoc-in (snapshot-path actor-id)
-                                                {:state           :running
-                                                 :data            {:rf/self-id actor-id :token "secret"}
-                                                 :rf/machine-type actor-type})
-                                      (assoc-in (system-id-path the-sid) actor-id))))
+                         (fn [rt] (assoc-in rt (snapshot-path actor-id)
+                                            {:state           :running
+                                             :data            {:rf/self-id actor-id :token "secret"}
+                                             :rf/machine-type actor-type})))
                        (rf.machines.spawn-order/record! frame-a actor-id)
                        (rf.machines.classification/lower-at-spawn! frame-a actor-id (classified-spec nil))
                        (reset! b-birth (runtime-db frame-a))))]
@@ -155,7 +148,6 @@
         (case (:operation ev)
           :rf.machine.timer/cancelled   (when (= trigger :timer-cancelled) (destroy+B!))
           :rf.machine/destroyed         (when (= trigger :destroyed) (destroy+B!))
-          :rf.machine/system-id-released (when (= trigger :system-id-released) (destroy+B!))
           nil)))
     (try
       (when (= trigger :http-abort)
@@ -169,7 +161,6 @@
        :b-birth     @b-birth
        :b-runtime   (runtime-db frame-a)
        :b-snapshot  (snapshot frame-a actor-id)
-       :b-system-id (get-in (runtime-db frame-a) (system-id-path the-sid))
        :b-elision   (elision-slot frame-a)
        :spawn-order (vec (rf.machines.spawn-order/frame-order frame-a))}
       (finally
@@ -177,11 +168,9 @@
         (rf.late-bind/set-fn! :http/abort-on-actor-destroy orig-abort)
         (swap! rf.machines.timer/after-timers dissoc frame-a)))))
 
-(defn- assert-b-inert [{:keys [b-birth b-runtime b-snapshot b-system-id b-elision spawn-order]}]
+(defn- assert-b-inert [{:keys [b-birth b-runtime b-snapshot b-elision spawn-order]}]
   (is (some? b-snapshot)
       "successor B's snapshot survived — the A-derived teardown projection did not dissoc it")
-  (is (= actor-id b-system-id)
-      "successor B's :system-id binding survived — no A-derived release landed on B")
   (is (= [actor-id] spawn-order)
       "successor B's spawn-order entry survived — A's forget was fenced")
   (is (and (some? b-elision) (seq b-elision))
@@ -194,7 +183,7 @@
             destroys A + publishes same-id B: ownership is rechecked after the
             exit cascade, so the HTTP-abort / classification drop / timer cancel
             / teardown projection / destroyed trace / spawn-order forget /
-            system-id-release / registrar unregister / resource-release tail is
+            registrar unregister / resource-release tail is
             all fenced. Mutation tooth: the historically-unfenced tail runs
             against B."
     (let [result (run-destroy-tail :rf2-i4aj9c/exit-frame :exit)]
@@ -214,7 +203,7 @@
   (testing "a :rf.machine.timer/cancelled listener destroys A + publishes same-id
             B: `cancel-actor-timers!` short-circuits and the destroy tail's
             teardown projection / destroyed trace / spawn-order forget /
-            system-id-release / registrar / resource-release are fenced."
+            registrar / resource-release are fenced."
     (let [result (run-destroy-tail :rf2-i4aj9c/timer-frame :timer-cancelled)]
       (is (true? (:fired? result)) "the timer-cancelled listener ran (fence exercised)")
       (assert-b-inert result))))
@@ -223,26 +212,18 @@
   (testing "a :rf.machine/destroyed listener destroys A + publishes same-id B
             (the trace fires after the teardown projection committed against A):
             ownership is rechecked after it, so the spawn-order forget /
-            system-id-release / registrar unregister / resource-release tail is
+            registrar unregister / resource-release tail is
             fenced — B's re-seeded state survives."
     (let [result (run-destroy-tail :rf2-i4aj9c/destroyed-frame :destroyed)]
       (is (true? (:fired? result)) "the :rf.machine/destroyed listener ran (fence exercised)")
-      (assert-b-inert result))))
-
-(deftest system-id-released-loss-fences-destroy-tail
-  (testing "a :rf.machine/system-id-released listener destroys A + publishes
-            same-id B (late in the tail): ownership is rechecked after it, so the
-            registrar unregister + resource-release tail is fenced."
-    (let [result (run-destroy-tail :rf2-i4aj9c/released-frame :system-id-released)]
-      (is (true? (:fired? result)) "the system-id-released listener ran (fence exercised)")
       (assert-b-inert result))))
 
 ;; ---- live-owner control (full teardown once) ------------------------------
 
 (deftest live-owner-destroy-tears-down-once
   (testing "control: an ordinary `:rf.machine/destroy` whose tail fires no
-            destroyer tears the actor down FULLY — snapshot dissoc'd, system-id
-            released, spawn-order forgotten, classification dropped, destroyed
+            destroyer tears the actor down FULLY — snapshot dissoc'd,
+            spawn-order forgotten, classification dropped, destroyed
             trace fired exactly once. The fence is scoped to owner-loss only."
     (rf.machines.spawn-order/reset-all!)
     (let [frame-a   :rf2-i4aj9c/live-destroy-frame
@@ -259,8 +240,6 @@
             (fn [] (rf.machines.lifecycle-fx.destroy/destroy-machine-fx {:frame frame-a} actor-id))))
         (is (nil? (snapshot frame-a actor-id))
             "the live destroy dissoc'd the actor's snapshot")
-        (is (nil? (get-in (runtime-db frame-a) (system-id-path the-sid)))
-            "the live destroy released the :system-id binding")
         (is (empty? (rf.machines.spawn-order/frame-order frame-a))
             "the live destroy forgot the actor from spawn-order")
         (is (empty? (or (elision-slot frame-a) {}))
@@ -285,8 +264,6 @@
       (rf.machines.lifecycle-fx.destroy/destroy-single-actor! frame-a actor-id)
       (is (nil? (snapshot frame-a actor-id))
           "the eventless teardown dissoc'd the snapshot")
-      (is (nil? (get-in (runtime-db frame-a) (system-id-path the-sid)))
-          "the eventless teardown released the :system-id binding")
       (is (empty? (rf.machines.spawn-order/frame-order frame-a))
           "the eventless teardown forgot the actor from spawn-order"))))
 

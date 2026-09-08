@@ -281,7 +281,7 @@ Capability tag conventions:
 
 - `:core/*` — pattern-required basics every conformant port supports (event handler, frame, dispatch envelope, sub, trace, fx, error). `:core/image` is the image-API surface (`:select-ns` selection, image-order layering, the shadow report, the collision / retired-key / inline-grammar fail-loud taxonomy, the default-image projection) exercised by the `image-*.edn` fixtures via the `:assemble-image` call op.
 - `:fsm/*` — FSM-richness axis (`:fsm/flat`, `:fsm/hierarchical`, `:fsm/eventless-always`, `:fsm/delayed-after`, `:fsm/tags`, `:fsm/parallel-regions`, `:fsm/final-states`, `:fsm/registration-validation`).
-- `:actor/*` — actor-model axis (`:actor/own-state`, `:actor/spawn-destroy`, `:actor/cross-actor-fx`, `:actor/declarative-spawn`, `:actor/spawn-and-join`, `:actor/system-id`).
+- `:actor/*` — actor-model axis (`:actor/own-state`, `:actor/spawn-destroy`, `:actor/cross-actor-fx`, `:actor/declarative-spawn`, `:actor/spawn-and-join`).
 - `:routing/*`, `:ssr/*`, `:schemas/*` — per-spec capabilities for ports that ship them.
 - `:identity/*` — the canonical-identity byte contract: CEDN-1 encoding, identity comparison, and the `:rf/path` instantiate boundary, per [Conventions §The `:rf/path` algebra](../Conventions.md#the-rfpath-algebra). **Not optional** — it backs the required identity primitive, so every port runs these.
 - `:flow/*` — the Spec 013 flow substrate (`:flow/basic`, `:flow/topo`, `:flow/dirty-check`, `:flow/toggle`, `:flow/frame-scoped`, `:flow/hot-reload`, `:flow/trace`). **Not optional** — [013](../013-Flows.md) is v1-required.

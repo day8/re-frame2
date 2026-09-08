@@ -170,7 +170,6 @@
             :rf.runtime/* roots (EP-0001 rf2-vzld77 / rf2-tj6w9l)"
     (is (= [:rf.runtime/machines :snapshots]         (get h/runtime-areas :rf/machines)))
     (is (= [:rf.runtime/machines :spawned]           (get h/runtime-areas :rf/spawned)))
-    (is (= [:rf.runtime/machines :system-ids]        (get h/runtime-areas :rf/system-ids)))
     (is (= [:rf.runtime/routing :current]            (get h/runtime-areas :rf/route)))
     (is (= [:rf.runtime/routing :pending-navigation] (get h/runtime-areas :rf/pending-navigation)))
     (is (= [:rf.runtime/elision]                     (get h/runtime-areas :rf/elision)))
@@ -392,8 +391,7 @@
             order. The underlying values live at [:rf.runtime/…] in the
             runtime-db partition (EP-0001 rf2-tj6w9l)."
     (let [runtime-db {:rf.runtime/machines {:snapshots  {:auth {:state :idle}}
-                                            :spawned    {:parent {:invoke :child}}
-                                            :system-ids #{:app}}
+                                            :spawned    {:parent {:invoke :child}}}
                       :rf.runtime/routing  {:current             {:route-id :home}
                                             :pending-navigation  {:to :next}}
                       :rf.runtime/elision  {:declarations {}}}
@@ -461,15 +459,15 @@
             (rf2-227cz)"
     (let [rt-before {:rf.runtime/routing {:current {:route-id :home}}}
           rt-after  {:rf.runtime/routing  {:current {:route-id :cart}}
-                     :rf.runtime/machines {:system-ids #{:app}}}
+                     :rf.runtime/machines {:spawned {:parent {:invoke :child}}}}
           model  (h/current-state-sections {} rt-after
                                            {:app {} :runtime rt-before})
-          route  (area-by model :rf/route)
-          sysids (area-by model :rf/system-ids)]
+          route   (area-by model :rf/route)
+          spawned (area-by model :rf/spawned)]
       (is (= {:route-id :home} (:before route)) "route diffs old → new")
       (is (= {:route-id :cart} (:value route)))
-      (is (= h/added (:before sysids))
-          "rf2-227cz — system-ids absent before-cascade → `added`
+      (is (= h/added (:before spawned))
+          "rf2-227cz — an area absent before-cascade → `added`
            (the slice appeared this epoch), not `no-diff`"))))
 
 (deftest current-state-sections-3-arity-nil-before-safe
