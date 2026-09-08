@@ -936,11 +936,14 @@
   "Mount both arms into their own containers on their own frames, and
   answer a promise that resolves once both pages are on the screen.
 
-  The Hicasso arm goes through `rf.hicasso/mount!`, the application's own root
-  door, with the application's own views and `initial-events`. The donor
-  arm makes its frame with `rf/make-frame` — core's own door, carrying
-  the SAME `:initial-events` — and renders through `uix.dom`, which is
-  how a UIx application mounts.
+  The Hicasso arm goes through `rf.hicasso/client-root` +
+  `rf.hicasso/render!`, the application's own root door, with the
+  application's own views and `initial-events`. Its frame is spelled in
+  the TREE, on `rf.hicasso/frame-root`, which ENSUREs it — so the Hicasso
+  arm still makes its own frame, exactly as it did when the root door
+  carried `:frame`. The donor arm makes its frame with `rf/make-frame` —
+  core's own door, carrying the SAME `:initial-events` — and renders
+  through `uix.dom`, which is how a UIx application mounts.
 
   `:identifier-prefix` on both, distinct: `useId` numbers every root from
   the same start, and a page with two roots either names them apart or
@@ -988,11 +991,17 @@
   ([{hic-frame :hicasso don-frame :donor}]
    (let [hic-container (rf.bench.hicasso.lane/fresh-container!)
          don-container (rf.bench.hicasso.lane/fresh-container!)
-         handle        (rf.hicasso/mount! hic-container
-                                 {:frame             hic-frame
-                                  :identifier-prefix "hic"
-                                  :initial-events    initial-events}
-                                 [rf.hicasso.examples.slice.views/app {}])
+         handle        (rf.hicasso/client-root)
+         ;; `:identifier-prefix` is a ROOT option and stays on the door;
+         ;; `:frame` and `:initial-events` are FRAME configuration and are
+         ;; spelled in the TREE, on the ENSUREing `frame-root` head.
+         _             (rf.hicasso/render! handle
+                                           [rf.hicasso/frame-root
+                                            {:id             hic-frame
+                                             :initial-events initial-events}
+                                            [rf.hicasso.examples.slice.views/app {}]]
+                                           hic-container
+                                           {:identifier-prefix "hic"})
          _             (rf/make-frame {:id             don-frame
                                        :initial-events initial-events})
          don-root      (uix-dom/create-root don-container {:identifier-prefix "don"})]

@@ -171,9 +171,10 @@
 
   ## THE POPULATION IS THE SLICE APPLICATION, MOUNTED THROUGH ITS OWN DOOR
 
-  [[boot!]] calls `rf.hicasso/mount!` with the slice's own `[views/app {}]` and the
-  same two `:initial-events` its `-main` passes, differing only in which
-  route it opens on — which is data the application already takes. Nothing
+  [[boot!]] calls `rf.hicasso/render!` with the slice's own `[views/app {}]`
+  under an ENSUREing `rf.hicasso/frame-root` head carrying the same two
+  `:initial-events` its `-main` passes, differing only in which route it
+  opens on — which is data the application already takes. Nothing
   here reaches under `re-frame.hicasso.impl.*`, nothing rebuilds a view,
   and no interaction is simulated by dispatching an event: every reading
   starts at a DOM event on a node the application rendered.
@@ -831,13 +832,16 @@
   `act` flag have to survive it, so it installs its own through
   `re-frame.test-support`'s reset fixture and restores the flag itself."
   [container frame-id]
-  (let [handle (rf.hicasso/mount! container
-                         {:frame          frame-id
-                          :initial-events [[::rf.hicasso.examples.slice.events/seed]
-                                           [:rf.route/navigate
-                                            {:to     rf.hicasso.examples.slice.routes/article
-                                             :params {:slug article-slug}}]]}
-                         [rf.hicasso.examples.slice.views/app {}])]
+  (let [handle (rf.hicasso/client-root)
+        _      (rf.hicasso/render! handle
+                                   [rf.hicasso/frame-root
+                                    {:id             frame-id
+                                     :initial-events [[::rf.hicasso.examples.slice.events/seed]
+                                                      [:rf.route/navigate
+                                                       {:to     rf.hicasso.examples.slice.routes/article
+                                                        :params {:slug article-slug}}]]}
+                                    [rf.hicasso.examples.slice.views/app {}]]
+                                   container)]
     (swap! !state assoc
            :container container
            :handle handle
