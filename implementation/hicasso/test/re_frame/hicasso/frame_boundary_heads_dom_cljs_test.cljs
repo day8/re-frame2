@@ -370,10 +370,11 @@
 ;; copying the pair got a throw where the whole point of `render!` is to
 ;; preserve the mounted tree.
 ;;
-;; Both directions are witnessed here, because either alone reads as an
-;; accident: the repaired pair must go through, and the trimmed one must be the
-;; refusal that made the repair necessary. Neither could be seen by W2, which
-;; measures the ENSURE's option handoff at MOUNT time and never re-renders.
+;; Both directions are witnessed, because either alone reads as an accident:
+;; the repaired pair must go through (this row), and the trimmed one must be
+;; the refusal that made the repair necessary (W8, which needs a different
+;; instrument and says why there). Neither could be seen by W2, which measures
+;; the ENSURE's option handoff at MOUNT time and never re-renders.
 
 (defn- reload-tree
   "The documented boot tree, parameterised only by the view code that a hot
@@ -428,19 +429,70 @@
           (is (identical? node (node-at a ".panel"))
               "the reload remounted instead of reconciling"))
 
-        (testing "THE TRAP, and the reason the guides write the tree once: a
-                  reload that TRIMS the head's options — dropping
-                  `:initial-events` because they have already run — is a
-                  reconfiguration of a committed boundary and is refused by
-                  name. Run last, because React takes the root down over a
-                  render-phase throw"
-          (is (= :rf.error/frame-root-reconfigured
-                 (:rf.error/id
-                   (refusal #(rf.hicasso/render! a [rf.hicasso/frame-root
-                                                    {:id reloaded}
-                                                    [panel {:tag "trimmed"}]]))))
-              "a committed frame-root accepted a different option map: the
-               silent-ignore this boundary exists to refuse"))
+        (finally
+          (rf.hicasso/unmount! a)
+          (detach! a)
+          (rf.hicasso.impl.collector/reset-runtime!))))))
+
+;; ---------------------------------------------------------------------------
+;; W8 — THE TRAP on the other side of W7, and why it is witnessed THIS way
+;; ---------------------------------------------------------------------------
+;;
+;; W7 shows the repaired pair going through. On its own that is not evidence
+;; the repair was NEEDED: a row that passes proves the guard is quiet, never
+;; that it would have spoken. This is the half that bites.
+;;
+;; **The obvious spelling of it does not work, and the reason is worth having
+;; rather than rediscovering.** `require-unchanged-root-opts!` throws in
+;; `frame-root-fc`'s RENDER body, and React does not rethrow a render-phase
+;; throw to whoever called `flushSync`: it reports it as an uncaught Chromium
+;; `pageerror` (measured — `cljs$core$ExceptionInfo`, with React naming
+;; `<re_frame$views$frame_boundary$frame_root_fc>` and asking for an error
+;; boundary), so a `try`/`catch` around `h/render!` sees NOTHING and reads as
+;; "the guard never fired". Worse, this lane's verdict policy makes any
+;; pageerror fatal on purpose (`_impl-browser-runners-verdict-policy.test.cjs`,
+;; rf2-mwx08 / rf2-wf5al), so provoking one to observe it would red the whole
+;; browser suite rather than this row.
+;;
+;; So the refusal is observed through the affordance the guide tells an
+;; application to put there anyway: an `h/error-boundary` ABOVE the frame-root
+;; catches the throw, React hands it to the boundary instead of the page, and
+;; the FALLBACK taking the tree is the reading. That is also the honest
+;; statement of the harm — the mounted tree is replaced, which is exactly what
+;; `render!` exists not to do.
+
+(def ^:private trimmed-frame ::trimmed)
+
+(defn- guarded
+  "The documented root tree with an error boundary over it — `opts` is the
+  frame-root's option map, `tag` the view code a reload is what changes."
+  [opts tag]
+  [rf.hicasso/error-boundary {:fallback [:p.fell "fell"]}
+   [rf.hicasso/frame-root opts [panel {:tag tag}]]])
+
+(deftest a-reload-that-trims-the-heads-options-is-refused-as-a-reconfiguration
+  (if-not (rf.hicasso.impl.mount/browser?)
+    (skip! ":node-test has no DOM")
+    (let [_ (bare!)
+          a (rf.hicasso/mount! (rf.hicasso.impl.mount/fresh-container!) {}
+              (guarded {:id trimmed-frame :initial-events [[::seed "boot"]]}
+                       "boot"))]
+      (try
+        (testing "premise: the guarded boot painted its seed and did NOT fall
+                  back, so the fallback below is this row's doing"
+          (is (= "boot" (text-at a ".label")))
+          (is (nil? (text-at a ".fell"))))
+
+        (testing "the reload TRIMS `:initial-events` — precisely the omission
+                  the guides used to teach, on the ground that the seed had
+                  already run — and the committed boundary refuses it"
+          (rf.hicasso/render! a (guarded {:id trimmed-frame} "trimmed"))
+          (is (= "fell" (text-at a ".fell"))
+              "a committed frame-root accepted a DIFFERENT option map: the
+               silent reconfiguration this boundary exists to refuse")
+          (is (nil? (text-at a ".label"))
+              "the tree survived a refusal that should have replaced it, so
+               the fallback above is not evidence the guard fired"))
 
         (finally
           (rf.hicasso/unmount! a)
