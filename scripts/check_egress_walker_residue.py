@@ -138,7 +138,7 @@ def run_scan(paths: list[Path], verbose: bool = False) -> int:
         "                          :frame frame-id})\n\n"
         "The profile resolves to the `:rf.size/*` floor the walker then applies, so\n"
         "the boundary is stated once and cannot be under-assembled by hand.\n"
-        "Naming the walker in prose or a docstring is fine — only a CALL fires.\n"
+        "Naming the walker in prose or a docstring is fine -- only a CALL fires.\n"
     )
     return 1
 
