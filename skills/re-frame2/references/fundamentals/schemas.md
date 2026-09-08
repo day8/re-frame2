@@ -16,9 +16,11 @@ The `reg-app-schema` / `reg-app-schemas` **registration macros** stay on the `re
 (rf/reg-app-schema path schema)                              ;; schema is the positional value slot
 (rf/reg-app-schema path {:frame :rf/default} schema)          ;; 3-slot — frame target rides the middle metadata map
 
-(schemas/app-schema-at      path)                  ;; -> schema or nil
-(schemas/app-schemas)                              ;; -> {path schema ...}
-(schemas/app-schemas-digest)                       ;; -> stable digest string
+(schemas/app-schemas      {:frame f})              ;; -> {path registration-metadata ...}
+(schemas/app-schema-meta  {:frame f :path path})   ;; -> registration-metadata or nil
+(schemas/app-schemas-digest {:frame f})            ;; -> stable digest string
+;; :frame is REQUIRED on all three (rf2-kuky.84) - no ambient default, no bare
+;; frame-id sugar. The schema value alone is the :schema projection.
 
 (schemas/set-schema-fns! {:validate validate-fn-or-nil   ;; swap in non-Malli validator
                           :explain  explain-fn})
@@ -31,7 +33,7 @@ schemas/default-schema-fns                            ;; the framework's own bun
 
 > **An omitted key is not an explicit `nil`.** `set-schema-fns!` writes only the keys the map carries, so `{:validate f}` swaps the validator and leaves the explainer and printer alone — that is how you swap one fn. Passing an explicit `nil` IS a write, and disables that fn.
 
-Verified against `implementation/core/src/re_frame/core.cljc`: the `reg-app-schema` macro (and `reg-app-schemas` plural form) are `def`-aliased onto `re-frame.schemas` and stay on the `re-frame.core` façade; the `app-schema-at` / `app-schemas` / `app-schemas-digest` query aliases and the `set-schema-fns!` / `schema-fns` / `default-schema-fns` validator seam is reached on `re-frame.schemas` directly (not on the `re-frame.core` façade).
+Verified against `implementation/core/src/re_frame/core.cljc`: the `reg-app-schema` macro (and `reg-app-schemas` plural form) are `def`-aliased onto `re-frame.schemas` and stay on the `re-frame.core` façade; the `app-schemas` / `app-schema-meta` / `app-schemas-digest` query aliases and the `set-schema-fns!` / `schema-fns` / `default-schema-fns` validator seam is reached on `re-frame.schemas` directly (not on the `re-frame.core` façade).
 
 Registrations are **frame-scoped** — the schema attaches to a path inside one frame's `app-db`. Default frame is `(current-frame-id)`; pass `{:frame :other}` in `opts` to target another.
 

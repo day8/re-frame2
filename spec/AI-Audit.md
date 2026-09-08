@@ -204,7 +204,7 @@ _As-of 2026-07-04._
 | P1 Regularity | ✓ | One `:schema` key; one `reg-app-schema` call. |
 | P2 Named things | ✓ | Schemas attached to id'd registrations. |
 | P3 Data before magic | ✓ | Malli schemas are data. |
-| P4 Public query surfaces | ✓ | `(app-schemas)`, `(app-schema-at path)`. |
+| P4 Public query surfaces | ✓ | `(app-schemas {:frame f})`, `(app-schema-meta {:frame f :path p})`. |
 | P5 Schemas | ✓ | (Self-referential, of course.) |
 | P6 Deterministic execution | ✓ | Validation runs at deterministic boundaries. |
 | P7 Machine-readable errors | ✓ | The validation-error envelope is a structured shape alongside the other errors — `:rf.error/schema-validation-failure` carries the failing path, value, and explainer output per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) (per **G-A**, RESOLVED). |
@@ -238,7 +238,7 @@ _As-of 2026-07-04._
 | P1 Regularity | ✓ | One `reg-flow` map shape; one flow-transform position (outermost `:after`); one dirty-check rule; one topsort per drain. `:rf.fx/reg-flow` / `:rf.fx/clear-flow` are the toggle pair — no second lifecycle surface. |
 | P2 Named things | ✓ | Flows, inputs, `:output-path`, `:derive` all id'd; the `:flow` registrar kind is reserved. Registration is frame-scoped, so `(frame-id, flow-id)` is the stable address. |
 | P3 Data before magic | ◐ | The flow map, `:inputs` paths, and `:output-path` are data; the dependency graph is statically derivable from them. `:derive` is a fn slot (per the data-DSL-vs-fn rule) — the references and structure are data, the compute step is a host fn. |
-| P4 Public query surfaces | ✓ | `(registrations :flow)` (which flows exist), `re-frame.flows/flow-meta-at` and `flows-snapshot` (the frame-scoped `{frame-id {flow-id flow-map}}` view), plus `(sub-cache-consumers-of-path …)` for output consumers. The single-store per-frame registry is the sole authoritative surface — a frame-blind `handler-meta :flow` deliberately returns nil. |
+| P4 Public query surfaces | ✓ | `(registrations :flow)` (which flows exist), `re-frame.flows/flows` / `flow-meta` and `flows-snapshot` (the frame-scoped `{frame-id {flow-id flow-map}}` view), plus `(sub-cache-consumers-of-path …)` for output consumers. The single-store per-frame registry is the sole authoritative surface — a frame-blind `handler-meta :flow` deliberately returns nil. |
 | P5 Schemas | ✓ | `:rf/flow-meta` registers the `reg-flow` map in [Spec-Schemas](Spec-Schemas.md#rfflow-meta); the optional `:schema` key declares a Malli schema for the flow output, validated on every recompute in dev ([§Flow output validation](013-Flows.md#flow-output-validation)). |
 | P6 Deterministic execution | ✓ | Pure `:derive`; deterministic topological order each drain; single-pass evaluation (cycles rejected at registration); `=`-equality dirty-check; exactly one `app-db` install per event. |
 | P7 Machine-readable errors | ✓ | `:rf.error/flow-cycle` (with `:cycle` closing-repeat vector), `:rf.error/flow-path-overlap`, `:rf.error/flow-frame-not-live`, `:rf.error/flow-bad-marks`, and the run-level `:rf.error/flow-eval-exception` on the always-on error substrate; `:rf.flow/*` trace taxonomy per [009 §Flow trace events](009-Instrumentation.md#flow-trace-events). Registered `:tags` schemas (`FlowCycleTags`, `FlowEvalExceptionTags`). |
@@ -380,7 +380,7 @@ Errors used to be gestured at in 002, 009, 010 with no single doc defining the c
 
 ### G-B. Construction prompts wired into pre-flight tooling — RESOLVED
 
-Construction-Prompts.md used to describe how an AI uses the prompts without specifying the API calls that satisfy the "verify the id is unused" / "consult registered schemas" pre-flight checks. **[Construction-Prompts §Shared pre-flight (applies to every CP)](Construction-Prompts.md) closes this**: a single shared pre-flight preamble gives *every* CP the exact registry-query API — `(rf/registrations {:source :store :kind :event})` / `:sub` / `:fx` / `:view` / `:route` for the id-uniqueness check, and `(rf/app-schemas)` / `(rf/app-schema-at <path>)` for the schema-consult check. Each CP now carries only a "Pre-flight delta" over the shared preamble, so the earlier per-CP gap (CP-2/3/5/7/8/9 missing the API) is closed structurally by hoisting it into the shared block.
+Construction-Prompts.md used to describe how an AI uses the prompts without specifying the API calls that satisfy the "verify the id is unused" / "consult registered schemas" pre-flight checks. **[Construction-Prompts §Shared pre-flight (applies to every CP)](Construction-Prompts.md) closes this**: a single shared pre-flight preamble gives *every* CP the exact registry-query API — `(rf/registrations {:source :store :kind :event})` / `:sub` / `:fx` / `:view` / `:route` for the id-uniqueness check, and `(rf/app-schemas {:frame f})` / `(rf/app-schema-meta {:frame f :path <path>})` for the schema-consult check. Each CP now carries only a "Pre-flight delta" over the shared preamble, so the earlier per-CP gap (CP-2/3/5/7/8/9 missing the API) is closed structurally by hoisting it into the shared block.
 
 ### G-C. The override seam is id-based and canonical-reference-matched — RESOLVED
 

@@ -23,7 +23,7 @@ Every CP below begins with the same mechanics; rather than restate them in each,
 
 1. **Choose a namespaced id.** Lowercase, kebab-case. The id-prefix matches the feature (per [Conventions §Feature-modularity prefix convention](Conventions.md#feature-modularity-prefix-convention)).
 2. **Verify the id is unused.** Query the registry via the public registrar query API for the relevant kind (e.g., `(rf/registrations {:source :store :kind :event})`, `(rf/registrations {:source :store :kind :sub})`, `(rf/registrations {:source :store :kind :fx})`, `(rf/registrations {:source :store :kind :view})`, `(rf/registrations {:source :store :kind :route})`).
-3. **Consult registered schemas** (`(rf/app-schemas)`, `(rf/app-schema-at <path>)`) so the new artefact aligns with shapes already in use.
+3. **Consult registered schemas** (`(rf/app-schemas {:frame f})`, `(rf/app-schema-meta {:frame f :path <path>})`) so the new artefact aligns with shapes already in use.
 
 ## Catalogue
 
@@ -897,7 +897,7 @@ Routing has ONE URL-change event. `:rf.route/handle-url-change` is dispatched by
 
 1. **Identify what shape you're describing.** Event vector? Sub return? `app-db` slice? Fx args?
 2. **Decide open vs closed.** Default: **open** (consumers tolerate unknown keys). Use `:closed true` only at *system boundaries* — incoming HTTP request payloads, outgoing API requests, EDN/JSON crossing process boundaries.
-3. **Check existing schemas at the same path.** `(app-schema-at [:feature])` — don't shadow.
+3. **Check existing schemas at the same path.** `(app-schema-meta {:frame f :path [:feature]})` — don't shadow.
 
 **Templates by site:**
 

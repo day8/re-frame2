@@ -136,7 +136,7 @@ The view-tree assertion axis (commonly aliased `:as h`). Walk hiccup by `:data-t
 
 | Surface | Shape |
 |---|---|
-| `re-frame.schemas/app-schema-at` / `app-schemas` / `app-schemas-digest` | read-only schema queries — owned-ns surface, **not** on the `rf/` façade (the `reg-app-schema` registration macro stays on `rf/`) |
+| `re-frame.schemas/app-schemas` / `app-schema-meta` / `app-schemas-digest` (each takes one map; `:frame` required) | read-only schema queries — owned-ns surface, **not** on the `rf/` façade (the `reg-app-schema` registration macro stays on `rf/`) |
 | `re-frame.schemas/set-schema-fns!` / `schema-fns` / `default-schema-fns` | swap-in non-Malli validator port — owned-ns surface, **not** on the `rf/` façade |
 | `:boundary? true` (`reg-event` metadata) | production-side boundary validation — a boolean registration key, not an interceptor. It makes that handler's own `:schema` **ungated in a production build**, checked at the router's resolve step ahead of the chain — the survivor an application author reaches for, not the only one the framework keeps ([`../fundamentals/schemas.md`](../fundamentals/schemas.md#what-survives-is-settled-by-what-the-check-is-for-not-by-who-declared-it) has the full list). No `:schema` key → `:rf.error/at-boundary-missing-schema` at registration |
 

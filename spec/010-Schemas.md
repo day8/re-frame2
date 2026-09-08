@@ -89,7 +89,7 @@ Rather than one giant schema for the whole `app-db`, schemas are registered **at
 
 An optional **middle metadata map** carries the `:frame` target (and `:doc` / open `:my/*` keys) for the 3-slot form: `(rf/reg-app-schema [:user] {:frame :session} UserSchema)`. A non-map middle argument is a loud `:rf.error/app-schema-bad-metadata` (the common slip is passing the schema where the metadata map goes).
 
-> **App-db schemas are checked in development builds only.** `reg-app-schema` arms a development-time assertion, not a production integrity guarantee. A production build still performs the *registration* — `app-schema-at` and `app-schemas` keep answering, so tools and agents introspect exactly the same shapes — but the candidate validator is compile-time eliminated along with the rest of the dev instrumentation, so nothing consults them. A candidate that violates a registered app-db schema therefore **installs** in production, silently: no rejection, no rollback, no trace. In the words an application author needs: *your app-db schemas do not run in production builds.* The candidate-rejection and per-step-recovery rules stated below are normative for dev builds and describe nothing that happens in a release build. An invariant that must hold in production belongs in the handler itself; untrusted input crossing a system boundary belongs behind the `:boundary? true` flag, whose check survives the elision. See [§Production builds](#production-builds).
+> **App-db schemas are checked in development builds only.** `reg-app-schema` arms a development-time assertion, not a production integrity guarantee. A production build still performs the *registration* — `app-schemas` and `app-schema-meta` keep answering, so tools and agents introspect exactly the same shapes — but the candidate validator is compile-time eliminated along with the rest of the dev instrumentation, so nothing consults them. A candidate that violates a registered app-db schema therefore **installs** in production, silently: no rejection, no rollback, no trace. In the words an application author needs: *your app-db schemas do not run in production builds.* The candidate-rejection and per-step-recovery rules stated below are normative for dev builds and describe nothing that happens in a release build. An invariant that must hold in production belongs in the handler itself; untrusted input crossing a system boundary belongs behind the `:boundary? true` flag, whose check survives the elision. See [§Production builds](#production-builds).
 
 This fits re-frame's grain — code already accesses `app-db` via paths; schemas are similarly path-anchored. Composable. Hot-reload-friendly per slice. Tooling and agents can ask "what's the schema at path P?" and get a precise local answer.
 
@@ -236,7 +236,9 @@ Production builds in this configuration: 99% of code has zero validation overhea
 
 ## Schemas as a tooling and agent surface
 
-Handler schemas are queryable via the public registrar query API ([002 §The public registrar query API](002-Frames.md#the-public-registrar-query-api)), which lives on the `re-frame.core` façade. The **app-db schema query surface is not on the façade**: `app-schema-at` / `app-schema-meta-at` / `app-schemas` / `app-schemas-digest` live on the owning `re-frame.schemas` namespace and are reached by requiring it directly (per [API §Schemas](API.md#schemas) — only the `reg-app-schema` / `reg-app-schemas` registration macros stay central on `re-frame.core`):
+Handler schemas are queryable via the public registrar query API ([002 §The public registrar query API](002-Frames.md#the-public-registrar-query-api)), which lives on the `re-frame.core` façade. The **app-db schema query surface is not on the façade**: `app-schemas` / `app-schema-meta` / `app-schemas-digest` live on the owning `re-frame.schemas` namespace and are reached by requiring it directly (per [API §Schemas](API.md#schemas) — only the `reg-app-schema` / `reg-app-schemas` registration macros stay central on `re-frame.core`).
+
+**ONE FRAME SPELLING.** Each read takes a single opts **map** whose `:frame` is **REQUIRED**. There is no ambient default — a schema read is a tooling question ABOUT a named frame, not an operation inside one — and no bare-frame-id or trailing frame-target sugar, because a live frame VALUE is itself a map and a type-sniffing positional argument could never be read locally ([Principles §Name over place](Principles.md)). A frameless or non-map call raises the catalogued `:rf.error/no-frame-context` naming the `{:frame f}` spelling.
 
 ```clojure
 (require '[re-frame.schemas :as schemas])
@@ -244,19 +246,22 @@ Handler schemas are queryable via the public registrar query API ([002 §The pub
 (rf/handler-meta {:source :store :kind :event :id :auth/login})
 ;; → {:doc "..." :schema [:cat ...] :ns ... :line ... :file ...}
 
-(schemas/app-schema-at [:user])
-;; → UserSchema (the registered schema value, in whatever language the
-;;    registered validator interprets — Malli on the CLJS reference)
+(schemas/app-schemas {:frame frame-id})
+;; → {[:user] {:path [:user] :schema UserSchema :frame frame-id :ns ... :line ...}
+;;     [:todos] …}
+;;    one frame's WHOLE app-db schema registration map, keyed by path — the
+;;    same {id → meta} shape rf/registrations answers for registrar kinds
 
-(schemas/app-schemas)
+(update-vals (schemas/app-schemas {:frame frame-id}) :schema)
 ;; → {[:user] UserSchema, [:todos] TodosSchema, [:auth] AuthSchema, [] WholeAppDbSchema}
+;;    the schema values alone, in whatever language the registered validator
+;;    interprets — Malli on the CLJS reference
 
-(schemas/app-schemas frame-id)
-;; → same {path schema} map for the named frame; sugar for
-;;   (schemas/app-schemas {:frame frame-id})
+(schemas/app-schema-meta {:frame frame-id :path [:user]})
+;; → that one path's registration metadata, or nil
 ```
 
-`(schemas/app-schemas frame-id)` is the surface pair-shaped tools (per [Tool-Pair §How AI tools attach](Tool-Pair.md#how-ai-tools-attach)) call to reflect on the schemas registered against a given frame — the result is a `{path schema}` map of the `app-schema-at` declarations active for that frame, in the same shape `app-schemas-digest` hashes. The form is sugar for the `{:frame frame-id}`-opt arity: passing a bare keyword is the common pair-tool case; the opts-map arity is the configurable case (and the place future opts will land).
+`(schemas/app-schemas {:frame frame-id})` is the surface pair-shaped tools (per [Tool-Pair §How AI tools attach](Tool-Pair.md#how-ai-tools-attach)) call to reflect on the schemas registered against a given frame. Its `{path → registration-metadata}` result carries every `reg-app-schema` declaration active for that frame; `app-schemas-digest` hashes the `{path → schema}` projection of it, so the digest bytes do not depend on the metadata riding alongside.
 
 Tools and agents read these to:
 
@@ -439,9 +444,9 @@ Path-of-failure (`:tags :path`), failing handler id (`:tags :failing-id`), schem
 
 ## Per-frame schemas
 
-`reg-app-schema` is per-frame — registered against the active frame at registration time. The public lookup APIs (`app-schemas`, `app-schema-at`) take an optional `frame-id`; without one they resolve the carried active frame and raise `:rf.error/no-frame-context` outside any established scope.
+`reg-app-schema` is per-frame — registered against the active frame at registration time. The public lookup APIs (`app-schemas`, `app-schema-meta`, `app-schemas-digest`) take one opts map whose `:frame` is **REQUIRED**: they never resolve an ambient frame, and a frameless or non-map call raises `:rf.error/no-frame-context`. The frame need not be LIVE — no liveness or image resolution happens on this read lane, so a read of a frame holding no schemas answers `{}` / `nil` / the empty-set digest rather than raising.
 
-**Frame TARGETS, not just keyword ids.** Wherever a schema surface names a frame — the `frame-id` / `{:frame …}` arg of `app-schemas` / `app-schema-at` / `app-schema-meta-at` / `app-schemas-digest`, the `:frame` key of `reg-app-schema`'s metadata map (`:frame` — with `:doc` / open `:my/*` keys — rides the metadata map; the schema is the positional value slot), and the `opts` `:frame` of `reg-app-schemas` — the target is a **frame-id keyword OR a frame value** (`rf/make-frame`'s return token), the same target shapes the registrar query API accepts. A frame value is normalized to its frame id (its routing address) before it keys the per-frame schema store, so a schema registered against a frame value is found by a later read-by-id (and vice versa); a bare frame value passed as the opts argument routes to **its own** frame, never the ambient one. An explicit `:frame` resolving to a non-keyword target (a string, a non-frame map, a vector) **fails loud** with `:rf.error/app-schemas-bad-arg` rather than silently becoming an unreachable registry key (no silent swallow).
+**Frame TARGETS, not just keyword ids.** Wherever a schema surface names a frame — the `:frame` slot of the reads `app-schemas` / `app-schema-meta` / `app-schemas-digest`, the `:frame` key of `reg-app-schema`'s metadata map (`:frame` — with `:doc` / open `:my/*` keys — rides the metadata map; the schema is the positional value slot), and the `opts` `:frame` of `reg-app-schemas` — the target is a **frame-id keyword OR a frame value** (`rf/make-frame`'s return token), the same target shapes the registrar query API accepts. A frame value is normalized to its frame id (its routing address) before it keys the per-frame schema store, so a schema registered against a frame value is found by a later read-by-id (and vice versa). An explicit `:frame` resolving to a non-keyword target (a string, a non-frame map, a vector) **fails loud** with `:rf.error/app-schemas-bad-arg` rather than silently becoming an unreachable registry key (no silent swallow). The `reg-*` WRITE surfaces keep their own opts sugar; that is a registration contract, not a read.
 
 ```clojure
 ;; Registers against the carried active frame; raises outside any frame scope.
@@ -452,14 +457,14 @@ Path-of-failure (`:tags :path`), failing handler id (`:tags :failing-id`), schem
 (rf/with-frame :story.auth.login-form/empty
   (rf/reg-app-schema [:user] StoryUserSchema))
 
-;; Public query API takes an optional frame-id. It lives on the owning
-;; re-frame.schemas namespace, NOT the re-frame.core front porch.
+;; Public query API takes ONE map with a REQUIRED :frame. It lives on the
+;; owning re-frame.schemas namespace, NOT the re-frame.core front porch.
 (require '[re-frame.schemas :as schemas])
 
-(schemas/app-schema-at [:user])                           ;; → schema in the active frame
-(schemas/app-schema-at [:user] {:frame :story.auth.login-form/empty})
-(schemas/app-schemas)                                     ;; → {[:user] ... [:todos] ...} for the active frame
-(schemas/app-schemas {:frame :production})                ;; → schema set for the named frame
+(schemas/app-schema-meta {:frame :production :path [:user]})   ;; → that path's registration meta
+(:schema (schemas/app-schema-meta {:frame :story.auth.login-form/empty
+                                   :path  [:user]}))          ;; → the schema value alone
+(schemas/app-schemas {:frame :production})                     ;; → {[:user] … [:todos] …} for that frame
 ```
 
 **Why per-frame:** stories, multi-instance widgets, and per-test fixtures need shape-flexibility — a stripped-down schema for a story variant should not bleed into the production frame's contract. Path + frame-id is the registration key; tools query "what schema applies at path P in frame F?".

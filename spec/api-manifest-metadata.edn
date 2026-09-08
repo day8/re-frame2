@@ -1301,8 +1301,8 @@
                                            :action :keep
                                            :justification "A test-tier read that computes a subscription's value with no live view. The fixture layer (re-frame.test-support) is about runtime state rather than sub evaluation, so it has no peer there, and test authors reach it in the same file as the reg-sub it exercises."}
   ;; Schema introspection + validator-install re-exports REMOVED from the
-  ;; façade (rf2-wad2fl — front-porch shrink): `app-schemas`, `app-schema-at`,
-  ;; `app-schema-meta-at`, `app-schemas-digest`, `set-schema-fns!`,
+  ;; façade (rf2-wad2fl — front-porch shrink): `app-schemas`,
+  ;; `app-schema-meta`, `app-schemas-digest`, `set-schema-fns!`,
   ;; `schema-fns`, `default-schema-fns` are
   ;; reached through `re-frame.schemas` (already classified below). The
   ;; `reg-app-schema` / `reg-app-schemas` REGISTRATION MACROS stay on the
@@ -1559,9 +1559,16 @@
   ;; public-for-technical-reasons (cross-namespace reach) and NOT a
   ;; supported surface → `implementation` (rf2-oekz6s; was internal-public).
   ;; =========================================================================
+  ;; rf2-kuky.84 — ONE frame spelling on the side-table read lane. The three
+  ;; reads each take a single opts MAP with a REQUIRED `:frame`. `app-schemas`
+  ;; answers `{path -> registration-metadata}` (the `{id -> meta}` shape
+  ;; `registrations` answers), which IS the fact the former public
+  ;; `frame-schema-entries` var carried, so that var is gone and its
+  ;; `:schemas/frame-schema-entries` late-bind hook stays as a private seam.
+  ;; `app-schema-meta` replaces the `app-schema-at` / `app-schema-meta-at`
+  ;; pair: the schema alone is the `:schema` projection.
   ["re-frame.schemas" "app-schemas"]             {:tier :tooling :owner "010" :status "v1"}
-  ["re-frame.schemas" "app-schema-at"]           {:tier :tooling :owner "010" :status "v1"}
-  ["re-frame.schemas" "app-schema-meta-at"]      {:tier :tooling :owner "010" :status "v1"}
+  ["re-frame.schemas" "app-schema-meta"]         {:tier :tooling :owner "010" :status "v1"}
   ["re-frame.schemas" "app-schemas-digest"]      {:tier :tooling :owner "010" :status "v1"}
   ;; Schema-fns configuration surface (rf2-kuky.39). The validator port is a
   ;; VALUE reached through ONE door: `set-schema-fns!` installs any subset,
@@ -1595,7 +1602,6 @@
   ;; already give the cross-artefact fixtures (routing/ssr/ssr-ring) capture and
   ;; restore without reaching the raw atoms.
   ["re-frame.schemas" "clear-schemas-by-frame!"]   {:tier :implementation :owner "010" :status "v1"}
-  ["re-frame.schemas" "frame-schema-entries"]      {:tier :implementation :owner "010" :status "v1"}
   ["re-frame.schemas" "on-frame-destroyed!"]       {:tier :implementation :owner "010" :status "v1"}
   ["re-frame.schemas" "validate-app-schema!"]      {:tier :implementation :owner "010" :status "v1"}
   ["re-frame.schemas" "validate-event!"]           {:tier :implementation :owner "010" :status "v1"}
@@ -1838,12 +1844,15 @@
   ;; =========================================================================
   ["re-frame.flows" "reg-flow"]              {:tier :implementation :owner "013" :status "v1"}
   ["re-frame.flows" "flows-snapshot"]        {:tier :tooling :owner "013" :status "v1"}
-  ;; The canonical per-frame flow introspection surface — the flows analogue of
-  ;; `re-frame.schemas/app-schema-meta-at` (rf2-en00bk, applying the rf2-0frdi
-  ;; precedent). Frame-divergent-per-id; the `(handler-meta :flow flow-id)`
-  ;; replacement. `:tooling` (pair-tools / 10x panels / source-coord tests),
-  ;; mirroring `app-schema-meta-at`'s classification.
-  ["re-frame.flows" "flow-meta-at"]          {:tier :tooling :owner "013" :status "v1"}
+  ;; The canonical per-frame flow introspection surfaces — the flows analogue
+  ;; of `re-frame.schemas/app-schemas` / `app-schema-meta` (rf2-en00bk,
+  ;; applying the rf2-0frdi precedent). Frame-divergent-per-id; the
+  ;; `(handler-meta :flow flow-id)` replacement. Both take ONE opts map with a
+  ;; REQUIRED `:frame` (rf2-kuky.84). `:tooling` (pair-tools / 10x panels /
+  ;; source-coord tests), mirroring the schemas classification. `flows` is the
+  ;; per-frame slice of `flows-snapshot`, which stays as the whole-registry verb.
+  ["re-frame.flows" "flows"]                 {:tier :tooling :owner "013" :status "v1"}
+  ["re-frame.flows" "flow-meta"]             {:tier :tooling :owner "013" :status "v1"}
   ;; EP-0015: the raw `last-inputs-snapshot` is `^:no-doc` (internal / test /
   ;; rollback seam, NOT an egress boundary), so it stays off the public
   ;; manifest. Off-box reads ride the elided trace path, not a dedicated

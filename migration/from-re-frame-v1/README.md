@@ -1319,11 +1319,11 @@ For the SSR-head trio (`reg-head` / `render-head` / `active-head`) — these wer
 
 **Type A** (mechanical, dep-only).
 
-As the first per-feature artefact split (Strategy B), Spec 010's schema-attachment surface — `reg-app-schema`, `app-schema-at`, `app-schemas`, the validation hot-path entry points, and the `re-frame.schemas` namespace — ships as a separate Maven artefact `day8/re-frame2-schemas`. The core artefact (`day8/re-frame2`) no longer carries the namespace or its Malli dep; an app that doesn't register any schemas builds an `:advanced` bundle clean of schema strings, Malli code, and the `re-frame.schemas` ns symbols.
+As the first per-feature artefact split (Strategy B), Spec 010's schema-attachment surface — `reg-app-schema`, `app-schemas`, `app-schema-meta`, the validation hot-path entry points, and the `re-frame.schemas` namespace — ships as a separate Maven artefact `day8/re-frame2-schemas`. The core artefact (`day8/re-frame2`) no longer carries the namespace or its Malli dep; an app that doesn't register any schemas builds an `:advanced` bundle clean of schema strings, Malli code, and the `re-frame.schemas` ns symbols.
 
 **What to look for** in the codebase:
 
-- Any call to `re-frame.core/reg-app-schema`, `re-frame.core/app-schema-at`, or `re-frame.core/app-schemas`.
+- Any call to `re-frame.core/reg-app-schema`, or to a v1-era `re-frame.core` schema READ (`app-schema-at` / `app-schemas`).
 - A direct `(:require [re-frame.schemas])` clause.
 - Use of the `:rf.error/schema-validation-failure` trace op (that is, the app reads the validation outcome).
 
@@ -1331,7 +1331,18 @@ As the first per-feature artefact split (Strategy B), Spec 010's schema-attachme
 
 CLJS apps additionally require `re-frame.schemas.malli` somewhere in their boot path so the default validator delegates to Malli. The adapter namespace publishes `malli.core/validate` and `malli.core/explain` into the framework's late-bind hook table on ns-load; the schemas artefact's default validator consults the hook on every call. Absent the require, the default validator soft-passes per Spec 010 §Recommended soft-pass (CLJS has no runtime `resolve`, so a previous-generation `(resolve 'malli.core/validate)` approach silently no-op'd even when Malli was on the classpath). The schemas artefact carries Malli as a `:deps` entry so the namespace is available without an explicit `:require`; the app's `:require [re-frame.schemas.malli]` is what wires the runtime fns into the framework.
 
-**Public API** (in `re-frame.core`) is unchanged — `(rf/reg-app-schema ...)`, `(rf/app-schema-at ...)`, `(rf/app-schemas ...)` still work, the wrappers in core late-bind through the hook table to the schemas artefact's implementations. An app that calls `rf/reg-app-schema` *without* the schemas artefact on the classpath gets a clear `:rf.error/schemas-artefact-missing` error at the call site.
+**Public API.** The REGISTRATION macros stay on the `re-frame.core` façade — `(rf/reg-app-schema ...)` / `(rf/reg-app-schemas ...)` still work, and the wrappers in core late-bind through the hook table to the schemas artefact's implementations. An app that calls `rf/reg-app-schema` *without* the schemas artefact on the classpath gets a clear `:rf.error/schemas-artefact-missing` error at the call site.
+
+The READ surface is **not** on the façade (rf2-wad2fl — front-porch shrink): require the owning namespace and call it there. Since rf2-kuky.84 each read takes ONE opts map whose `:frame` is REQUIRED:
+
+```clojure
+(require '[re-frame.schemas :as schemas])
+
+(schemas/app-schemas {:frame f})                  ;; → {path → registration-metadata}
+(schemas/app-schema-meta {:frame f :path p})      ;; → that path's registration metadata, or nil
+(schemas/app-schemas-digest {:frame f})           ;; → "sha256:…"
+```
+
 
 **Why:** see [Conventions §Adapter shipping convention](../../spec/Conventions.md#adapter-shipping-convention) (extended for per-feature artefacts); per-feature artefact splits give bundle-isolation through artefact split.
 
