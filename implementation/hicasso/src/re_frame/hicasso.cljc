@@ -573,17 +573,26 @@
 
   **ENSURE, not create.** Absent, the frame is created and
   `:initial-events` run once; live, it is REUSED — so a second root under
-  the same `:id` JOINs rather than resets. What survives is the DURABLE
-  state: app-db, runtime-db, sub-cache and queue, and `:initial-events`
-  are re-recorded but NEVER replayed (spec/002 §`frame-root`
-  reuse-without-reseed; EP-0027). What the re-acquire DOES refresh is the
-  record config, because the ENSURE is a second `rf/make-frame` under the
-  same id and that is `make-frame`'s ruled idempotent-replacement path —
-  the Clojure re-def model, where re-declaring an id refreshes its config
-  while its state survives. So a joining boundary that passes DIFFERENT
-  opts installs them; pass the creator's opts to join without changing
-  anything. Unmounting destroys NOTHING: a frame outlives the boundary
-  that ensured it, and `rf/destroy-frame!` is the verb for ending one.
+  the same `:id` attaches to it rather than resetting it. What survives
+  is the DURABLE state: app-db, runtime-db, sub-cache and queue, and
+  `:initial-events` are re-recorded but NEVER replayed (spec/002
+  §`frame-root` reuse-without-reseed; EP-0027). What the re-acquire DOES
+  refresh is the record config, because the ENSURE is a second
+  `rf/make-frame` under the same id and that is `make-frame`'s ruled
+  idempotent-replacement path — the Clojure re-def model, where
+  re-declaring an id refreshes its config while its state survives —
+  which is what makes a hot reload Just Work.
+
+  **So `frame-root` DECLARES a frame; it is not the verb for JOINING
+  one.** That refresh REPLACES the record config wholesale rather than
+  merging it, so a second boundary naming a live `:id` with a partial
+  opts map silently drops what the creator configured. To reach a frame
+  some other boundary already declared, use the sibling verb:
+  `[h/frame-provider {:frame :app/main} …]` takes no opts at all, and
+  creates, refreshes and destroys nothing.
+
+  Unmounting destroys NOTHING: a frame outlives the boundary that ensured
+  it, and `rf/destroy-frame!` is the verb for ending one.
 
   **The ENSURE is commit-owned.** The first render emits no subtree at
   all, and the frame is made in a `useLayoutEffect` — so a render React
@@ -613,13 +622,16 @@
         node
         {:hydrate? true :identifier-prefix \"main\"})
 
-  Three places want it. **After SSR**, where the frame was made before
-  the payload was installed and an adopting root must render the server's
-  element shape on its FIRST pass — which is the reason SCOPE is the verb
-  there, and it is a shape argument rather than a state one: see
-  `h/render!`'s `{:hydrate? true}`. **A second root on the page** sharing a frame the first
-  ensured. **A subtree on another frame** — a tenant switcher, a preview
-  pane — nested under the root's own boundary.
+  Three places want it. **A second root on the page**, sharing a frame
+  another root already ensured — the PURE JOIN, and the reason
+  `frame-root` is not the verb for it: re-declaring a live `:id` would
+  replace that frame's record config. **After SSR**, where the frame was
+  made before the payload was installed and an adopting root must render
+  the server's element shape on its FIRST pass — which is the reason
+  SCOPE is the verb there, and it is a shape argument rather than a state
+  one: see `h/render!`'s `{:hydrate? true}`. **A subtree on another
+  frame** — a tenant switcher, a preview pane — nested under the root's
+  own boundary.
 
   `:frame` is required and takes the one frame-target grammar `dispatch`
   and `subscribe` teach: a frame-id keyword, or the live frame value
