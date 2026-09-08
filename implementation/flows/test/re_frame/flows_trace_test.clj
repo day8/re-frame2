@@ -592,8 +592,11 @@
         (is (some? thrown) "the rethrown ex-info reached the substrate record")
         (is (= :rf.error/flow-eval-exception (:rf.error/id data))
             ":rf.error/id is the canonical machine discriminator (was nil pre-fix)")
-        (is (= 'rf/run-flows-on-db (:where data))
-            ":where names the user-facing surface symbol (bare canonical slot)")
+        (is (= 're-frame.flows/run-flows-on-db (:where data))
+            ":where names the user-facing surface symbol (bare canonical slot),
+             qualified by its OWNING namespace because `run-flows-on-db` is not
+             exported by the `re-frame.core` facade — an `rf/`-prefixed spelling
+             would be a symbol the reader cannot resolve (rf2-0v23)")
         (is (= :no-recovery (:recovery data))
             ":recovery names the disposition (matches the catalogue row)")
         (is (string? (:reason data)) ":reason is a human sentence")
