@@ -1418,7 +1418,7 @@
             the final payload's :rf/render-hash (body-only). The <head>
             element carries data-rf-head-hash, equal to the final payload's
             :rf/head-hash (the separate channel — a default head is always
-            reconstructible via active-head, so the channel is present even
+            reconstructible via head-model, so the channel is present even
             with no explicit :head/:reg-head)."
     (let [handler  (rf.ssr.ring/stream-handler
                      {:initial-events  [[:rf.test.server/init]]

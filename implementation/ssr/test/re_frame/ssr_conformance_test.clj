@@ -3,7 +3,7 @@
   `spec/conformance/fixtures/ssr-*.edn` fixture through the live ssr
   runtime — `render-to-string`, the `:rf/hydrate` event, the `:rf.server/*`
   fx family, the per-request response accumulator, `reg-head` /
-  `render-head` / `active-head`, and the default error projector — and
+  `head-model`, and the default error projector — and
   asserts the conformance-corpus's recorded outcome against what the
   artefact actually produces.
 
@@ -149,7 +149,6 @@
             [re-frame.interop :as rf.interop]
             [re-frame.registrar :as rf.registrar]
             [re-frame.ssr :as rf.ssr]
-            [re-frame.ssr.head :as rf.ssr.head]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
             [re-frame.subs :as rf.subs]
             [re-frame.trace.tooling :as rf.trace.tooling]))
@@ -777,13 +776,19 @@
 ;; ---- SSR-specific matchers (the ones core's runner doesn't implement) ---
 
 (defn- active-head-for
-  "Read the active head model for `frame-id` if the runtime carries
-  one. Returns nil when no head has been rendered or when the head ns
-  doesn't expose an active-head fn."
+  "Read `frame-id`'s head model. Returns nil when resolution throws (an
+  unregistered route-declared `:head`, an absent frame) — the corpus
+  channel is an assertion about a model, not about the failure mode.
+
+  rf2-kuky.89 — this and `rendered-head-html` below were `(resolve
+  're-frame.ssr.head/<sym>)` guards, so a rename left them silently
+  answering nil and the `:ssr/active-head` /
+  `:ssr/rendered-head-contains` channels stopped running with nothing on
+  screen. They are DIRECT calls through the required alias now: a future
+  rename fails to compile."
   [frame-id]
   (try
-    (when-let [active (resolve 're-frame.ssr.head/active-head)]
-      ((deref active) frame-id))
+    (rf.ssr/head-model frame-id)
     (catch Throwable _ nil)))
 
 (defn- rendered-head-html
@@ -791,9 +796,8 @@
   `\"\"` when no head model is set."
   [frame-id]
   (try
-    (when-let [h2html (resolve 're-frame.ssr.head/head-model->html)]
-      (when-let [model (active-head-for frame-id)]
-        ((deref h2html) model)))
+    (when-let [model (active-head-for frame-id)]
+      (rf.ssr/head-model->html model))
     (catch Throwable _ "")))
 
 ;; ---- single-fixture execution -------------------------------------------

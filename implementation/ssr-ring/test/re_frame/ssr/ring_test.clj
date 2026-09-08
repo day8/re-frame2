@@ -17,7 +17,6 @@
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.interop :as rf.interop]
             [re-frame.ssr :as rf.ssr]
-            [re-frame.ssr.head :as rf.ssr.head]
             [re-frame.ssr.ring :as rf.ssr.ring]
             [re-frame.ssr.ring.lifecycle :as rf.ssr.ring.lifecycle]
             [re-frame.ssr.ring.pipeline :as rf.ssr.ring.pipeline]
@@ -845,7 +844,7 @@
 ;; that a head-only change does NOT move :rf/render-hash / data-rf-render-
 ;; hash), and carry head divergence on a SEPARATE :rf/head-hash /
 ;; data-rf-head-hash channel — a structural hash over the CANONICAL HEAD
-;; MODEL (not emitted HTML), client-reconstructible via `(rf.ssr.head/active-head
+;; MODEL (not emitted HTML), client-reconstructible via `(rf.ssr/head-model
 ;; frame-id)` (Spec 011 §Default flow step 5).
 ;; ===========================================================================
 
@@ -2036,7 +2035,7 @@
           "the head fragment's title is what reaches the wire"))))
 
 (deftest default-shell-emits-default-head-title-when-no-route-head
-  (testing "no route :head → active-head returns default-head, which rolls
+  (testing "no route :head → head-model returns default-head, which rolls
             the frame's :doc into :title; still exactly one <title> tag."
     (rf/reg-view* :pages/blank-no-head (fn [] [:div]))
     (rf/reg-event :init/noop (fn [{:keys [db]} _] {:db db}))
@@ -2722,7 +2721,7 @@
     (let [;; The head fragment as the pipeline produces it for a route
           ;; with no declared :head — default-head rendered to HTML.
           f          (rf.frame/make-anon-frame-record! {:doc "Charset probe" :platform :server})
-          head-model (rf.ssr.head/active-head f)
+          head-model (rf.ssr/head-model f)
           head-html  (rf.ssr/head-model->html head-model)
           html       (rf.ssr.ring/default-html-shell "body" "{}" {:head head-html})
           n-charset  (count (re-seq #"(?i)<meta\s+charset" html))]
@@ -2813,7 +2812,7 @@
                                         (:operation ev))
                                  (swap! traces conj ev))))
       (let [result (try
-                     (with-redefs [rf.ssr.head/active-head
+                     (with-redefs [rf.ssr/head-model
                                    (fn [_]
                                      (throw (ex-info "synthetic head failure"
                                                      {:reason :test})))]
@@ -2864,7 +2863,7 @@
                                         (:operation ev))
                                  (swap! traces conj ev))))
       (try
-        (with-redefs [rf.ssr.head/active-head (fn [_] nil)]
+        (with-redefs [rf.ssr/head-model (fn [_] nil)]
           (let [result (resolve-head! frame-id)]
             (is (= "" (:head-html result))
                 "nil head-model → empty fragment (canonical empty-head shape)")

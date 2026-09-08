@@ -2,7 +2,7 @@
   "rf2-blpg — the explicitly targeted SSR queries resolve their
   REGISTRATIONS through the target frame's generation, not only its data.
 
-  `render-head`, `active-head` and `project-error` all take an explicit
+  `head-model` and `project-error` both take an explicit
   frame and are called OUTSIDE any `with-frame` binding — that is what
   \"explicit target\" means, and it is how `ssr_head_test` and the Ring
   host call them. Each read the named frame's app-db / `:ssr` config by
@@ -55,7 +55,6 @@
             [re-frame.source-store :as rf.source-store]
             [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.error-projector :as rf.ssr.error-projector]
-            [re-frame.ssr.head :as rf.ssr.head]
             [re-frame.ssr.head-image-alpha :as rf.ssr.head-image-alpha]
             [re-frame.ssr.head-image-beta :as rf.ssr.head-image-beta]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
@@ -143,25 +142,26 @@
       (is (= {:title "beta:probe"}  ((head-fn-for beta-frame)  {:marker "probe"} nil))))))
 
 ;; ---------------------------------------------------------------------------
-;; render-head
+;; head-model
 ;; ---------------------------------------------------------------------------
 
-(deftest render-head-runs-the-target-frames-own-registration
+(deftest head-model-runs-the-target-frames-own-registration
   (register-both!)
   (let [alpha-frame (frame-selecting! "re-frame.ssr.head-image-alpha" {:marker "A"})
         beta-frame  (frame-selecting! "re-frame.ssr.head-image-beta" {:marker "B"})]
     (testing "the frame whose image carries ALPHA's body gets ALPHA's body —
               not the registrar atom's last writer"
-      (is (= {:title "alpha:A"} (rf.ssr.head/render-head rf.ssr.head-image-alpha/head-id {:frame alpha-frame}))))
+      (is (= {:title "alpha:A"} (rf.ssr/head-model alpha-frame {:head-id rf.ssr.head-image-alpha/head-id}))))
 
     (testing "and BETA's frame gets BETA's, so the fix is resolution rather
               than a different fixed answer"
-      (is (= {:title "beta:B"} (rf.ssr.head/render-head rf.ssr.head-image-alpha/head-id {:frame beta-frame}))))
+      (is (= {:title "beta:B"} (rf.ssr/head-model beta-frame {:head-id rf.ssr.head-image-alpha/head-id}))))
 
-    (testing "the keyword shorthand carries the same target"
-      (is (= {:title "alpha:A"} (rf.ssr.head/render-head rf.ssr.head-image-alpha/head-id alpha-frame))))))
+    (testing "and the read is pure — re-reading ALPHA's frame answers ALPHA
+              again rather than the last frame asked about"
+      (is (= {:title "alpha:A"} (rf.ssr/head-model alpha-frame {:head-id rf.ssr.head-image-alpha/head-id}))))))
 
-(deftest render-head-refuses-a-head-the-target-frames-image-does-not-carry
+(deftest head-model-refuses-a-head-the-target-frames-image-does-not-carry
   (register-both!)
   (rf/reg-head ::unselected (fn [_ _] {:title "unselected"}))
   (let [alpha-frame (frame-selecting! "re-frame.ssr.head-image-alpha" {:marker "A"})]
@@ -169,20 +169,20 @@
               head — resolving it from the process store rendered another
               application's <title> into this one"
       (is (= :rf.error/no-such-head
-             (caught-error-id #(rf.ssr.head/render-head ::unselected {:frame alpha-frame})))))))
+             (caught-error-id #(rf.ssr/head-model alpha-frame {:head-id ::unselected})))))))
 
 ;; ---------------------------------------------------------------------------
-;; active-head — the route metadata NAMING the head must come from the same
+;; head-model — the route metadata NAMING the head must come from the same
 ;; image as the head itself
 ;; ---------------------------------------------------------------------------
 
-(deftest active-head-resolves-route-metadata-and-head-in-the-target-generation
+(deftest head-model-resolves-route-metadata-and-head-in-the-target-generation
   (register-both!)
   (let [alpha-frame (frame-selecting! "re-frame.ssr.head-image-alpha" {:marker "A"})]
     (rf/dispatch-sync [:rf/set-db {:marker "A"}] {:frame alpha-frame})
-    (testing "with no route in the runtime-db slice, active-head is the default
+    (testing "with no route in the runtime-db slice, head-model is the default
               head — the arm that must keep working"
-      (is (= "" (:title (rf.ssr.head/active-head alpha-frame)))
+      (is (= "" (:title (rf.ssr/head-model alpha-frame)))
           "the frame carries no :doc, so the default title is the empty string"))))
 
 ;; ---------------------------------------------------------------------------

@@ -305,7 +305,7 @@ Ships in the `day8/re-frame2-ssr-ring` artefact. See [Server-side rendering — 
 
 ## See also
 
-- [`re-frame.ssr`](re-frame.ssr.md) — the SSR runtime: `render-to-string`, the streaming triple, the head model (`reg-head` / `active-head` / `render-head`), error projection (`reg-error-projector` / `project-error`), the SSR events / subs / cofx, and the per-request `:rf.server/*` fx.
+- [`re-frame.ssr`](re-frame.ssr.md) — the SSR runtime: `render-to-string`, the streaming triple, the head model (`reg-head` / `head-model`), error projection (`reg-error-projector` / `project-error`), the SSR events / subs / cofx, and the per-request `:rf.server/*` fx.
 - [`re-frame.core`](re-frame.core.md) — `init!`, `make-frame`, `reg-event`, and the render / head primitives re-exported on the facade.
 - [`re-frame.routing`](re-frame.routing.md) — routes opt into per-route head models via `:head` metadata.
 - [Server-side rendering — the tutorial](../ssr/concepts.md) — the conceptual walkthrough.

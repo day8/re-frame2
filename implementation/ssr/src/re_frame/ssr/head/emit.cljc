@@ -14,9 +14,8 @@
                          `{:wrap? true}` wraps in `<head>…</head>`.
 
   The other surfaces of the head/meta contract — `reg-head`,
-  `render-head`, `active-head`, `default-head`, the per-frame snapshot
-  bookkeeping, and the late-bind hook registrations — live in the
-  `re-frame.ssr.head` façade."
+  `head-model`, `default-head`, and the late-bind hook registration —
+  live in the `re-frame.ssr.head` façade."
   ;; `clojure.string` and `re-frame.error` are JVM-only: every use is
   ;; inside `ld-json-string`'s `:clj` arm (the hand-rolled JSON emitter and
   ;; its two fail-fast gates). CLJS goes through `js/JSON.stringify`.

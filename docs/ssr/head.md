@@ -52,7 +52,7 @@ app-db.
   `data-rf-head-hash` on `<head>`), omitted when the head can't be recomputed — an
   explicit `:head` string, or a degraded head. The bundled runtime compares only the
   body hash; it ships **no** automatic head comparison. The head *model* is
-  reconstructible, so a host that wants the check recomputes `(head/active-head
+  reconstructible, so a host that wants the check recomputes `(ssr/head-model
   frame-id)` from the hydrated app-db + route slice and compares it to `:rf/head-hash`
   itself — that wiring is the host's, not automatic.
 - **Keeping the document head current is the app's job.** There is no DOM-head
@@ -73,7 +73,7 @@ app-db.
 | `reg-head` throws at first call | `:rf.error/ssr-artefact-missing` | Require `re-frame.ssr` |
 | Path put in route metadata | `:rf.error/route-bad-metadata` — throws at registration, so the route never registers | Path is the **third** positional arg of `reg-route`, not a metadata key |
 | SPA route change leaves stale `<title>` | No automatic DOM-head reconciler in v1 | App- or host-level head manager after hydrate |
-| Expecting automatic head-hash compare | Runtime compares body `:rf/render-hash` only | Host recomputes `(head/active-head frame-id)` vs `:rf/head-hash` if wanted |
+| Expecting automatic head-hash compare | Runtime compares body `:rf/render-hash` only | Host recomputes `(ssr/head-model frame-id)` vs `:rf/head-hash` if wanted |
 
 ## See also
 

@@ -43,24 +43,26 @@ The default head does **not** carry `<meta charset>`, and neither should a head 
 
 `reg-head` returns its `id` (family-wide reg-* return convention). Query via `(rf/registrations {:source :store :kind :head})` → `id → metadata`.
 
-## `render-head` — materialise the head model
+## `head-model` — the one head read
 
 ```clojure
-(head/render-head :head/article {:frame :rf/default
-                                 :route active-route})         ;; :route optional; defaults to the frame's active route slice
+(ssr/head-model frame-id)                       ;; frame is carried, not ambient
+(ssr/head-model frame-id
+  {:head-id :head/article                       ;; optional; else the effective route's :head
+   :route   active-route})                      ;; optional; else the frame's active route slice
 ```
 
-Returns the head-model map. Pure, JVM-runnable. Used by the SSR pipeline (and by tooling that wants to inspect the head without re-rendering the body). With `:route` omitted it reads the frame's active route slice from the **runtime-db** at `[:rf.runtime/routing :current]` (the head fn reads the frame's app-db for its model; the route is a runtime-db read). Raises `:rf.error/no-such-head` when `head-id` is not registered.
+Returns the head-model map. Pure, JVM-runnable. Used by the SSR pipeline (and by tooling that wants to inspect a head without re-rendering the body). One read answers the whole question:
 
-## `active-head` — the current route's head model
+1. The **effective route** is `:route` when the key is present — an explicit `{:route nil}` means *no route* — else the frame's active route slice, read from the **runtime-db** at `[:rf.runtime/routing :current]` (the head fn reads the frame's app-db for its model; the route is a runtime-db read).
+2. The **head** is `:head-id` when supplied, else the effective route's `:head` metadata, else `default-head`. A selected-but-unregistered id raises `:rf.error/no-such-head`; a route declaring no `:head` at all falls back silently.
+3. The head fn runs against that **same** effective route, so `{:route r}` with no `:head-id` previews `r` end to end.
 
-```clojure
-(head/active-head frame-id)       ;; frame is carried, not ambient
-```
+**1-arity or 2-arity, never no-arg** — the no-arg form was removed (EP-0002); a `nil` `frame-id` raises `:rf.error/no-frame-context` rather than resolving against a synthesised default frame.
 
-`active-head` is **1-arity only** — the no-arg form was removed (EP-0002); a `nil` `frame-id` raises `:rf.error/no-frame-context` rather than resolving against a synthesised default frame. Sugar: looks up the active route's `:head` metadata, resolves to a registered head id, calls `render-head`, returns the model; with no `:head` on the route (or no active route) it returns `default-head`.
+`head-model` is re-exported on `re-frame.ssr` from its home on `re-frame.ssr.head`; `head/head-model` and `ssr/head-model` are the same function.
 
-**There is no `:rf/head` subscription.** The SSR head registry registers none, so a view or tool that wants the active head calls `(head/active-head frame-id)` — `(subscribe [:rf/head])` resolves nothing. (Per Cardinal rule 1, where a spec row and `implementation/**` disagree, the implementation is ground truth.)
+**There is no `:rf/head` subscription.** The SSR head registry registers none, so a view or tool that wants the active head calls `(ssr/head-model frame-id)` — `(subscribe [:rf/head])` resolves nothing. (Per Cardinal rule 1, where a spec row and `implementation/**` disagree, the implementation is ground truth.)
 
 ## `head-model->html` — explicit serialiser
 
@@ -157,13 +159,13 @@ Worked example: `examples/capabilities/ssr/ssr_streaming/core.cljc` (a three-slo
 - **The default `:rf/hydrate` already dispatches the checks.** It ships in `re-frame.ssr`; most apps never write their own. Re-registering replaces a reserved framework event — do it only as documented framework-extension code to change the merge policy, and preserve the malformed-payload fail-closed guard, the runtime-metadata merge, and the handler-level platform gate.
 - **`:platforms #{:client}` gates both fxs.** Server-side dispatches no-op silently; don't sprinkle `:platforms` guards inside your own code.
 - **The fxs never throw.** An absent `:schemas/app-schemas-digest` hook → the schema-digest check emits `:rf.ssr/compatibility-check-skipped` (warning), not a crash; the version check reads the SSR-owned constant and never skips. Read the trace surface to confirm wiring.
-- **The head has its own hash channel, and the bundled client never checks it — so head drift is silent.** The server hashes the canonical head *model* (the EDN map `active-head` returns, **not** the emitted `<head>` HTML) and ships it as `:rf/head-hash` in the payload plus `data-rf-head-hash` on `<head>`. That is a **separate** channel from the body's `:rf/render-hash`, which is body-only. The bundled v1 client does not read, recompute or compare `:rf/head-hash`, so a head-only divergence emits **no** `:rf.ssr/hydration-mismatch` — the body channel never sees it. A host that wants the check recomputes the model with `active-head` against the just-hydrated state (`:rf/app-db` plus the `:rf/runtime-db` route slice), hashes it identically, compares against `:rf/head-hash`, re-renders the head on disagreement, and attributes it as `:rf.ssr/head-mismatch` through the generic `:failing-id` seam — host-suppliable today, runtime-emitted only post-v1. The channel is **omitted** for an explicit-`:head`-string request or a degraded head resolution: no reconstructible model, so shipping a hash would guarantee a false positive.
+- **The head has its own hash channel, and the bundled client never checks it — so head drift is silent.** The server hashes the canonical head *model* (the EDN map `head-model` returns, **not** the emitted `<head>` HTML) and ships it as `:rf/head-hash` in the payload plus `data-rf-head-hash` on `<head>`. That is a **separate** channel from the body's `:rf/render-hash`, which is body-only. The bundled v1 client does not read, recompute or compare `:rf/head-hash`, so a head-only divergence emits **no** `:rf.ssr/hydration-mismatch` — the body channel never sees it. A host that wants the check recomputes the model with `head-model` against the just-hydrated state (`:rf/app-db` plus the `:rf/runtime-db` route slice), hashes it identically, compares against `:rf/head-hash`, re-renders the head on disagreement, and attributes it as `:rf.ssr/head-mismatch` through the generic `:failing-id` seam — host-suppliable today, runtime-emitted only post-v1. The channel is **omitted** for an explicit-`:head`-string request or a degraded head resolution: no reconstructible model, so shipping a hash would guarantee a false positive.
 
 ## Cross-references
 
 - SSR patterns: [`../../patterns/form-action.md`](../../patterns/form-action.md) (handling an HTML form POST — progressive enhancement, CSRF, multipart); [`../../patterns/resources.md` §Route-driven loading](../../patterns/resources.md#route-driven-loading-route-resources) (route-owned blocking `:resources` — the one SSR render barrier the runtime installs; machines are synchronous-only under SSR). A page typically uses blocking route resources for the GET render and FormAction for subsequent POSTs.
-- Spec normative: [`spec/011-SSR.md §Head/meta contract`](https://github.com/day8/re-frame2/blob/main/spec/011-SSR.md) (`reg-head` / `render-head` / `active-head`); [`§The :rf/hydrate event`](https://github.com/day8/re-frame2/blob/main/spec/011-SSR.md) (check fxs).
-- API summary: [`spec/API.md §SSR (Spec 011)`](https://github.com/day8/re-frame2/blob/main/spec/API.md) — `render-head`, `active-head`, `head-model->html` row; `reg-head` row in §Registration.
+- Spec normative: [`spec/011-SSR.md §Head/meta contract`](https://github.com/day8/re-frame2/blob/main/spec/011-SSR.md) (`reg-head` / `head-model`); [`§The :rf/hydrate event`](https://github.com/day8/re-frame2/blob/main/spec/011-SSR.md) (check fxs).
+- API summary: [`spec/API.md §SSR (Spec 011)`](https://github.com/day8/re-frame2/blob/main/spec/API.md) — `head-model`, `head-model->html` rows; `reg-head` row in §Registration.
 - Guide concept: [`docs/ssr/concepts.md`](https://github.com/day8/re-frame2/blob/main/docs/ssr/concepts.md) — narrative walkthrough, head/meta and hydration sections.
 - Worked example: [`examples/capabilities/ssr/ssr/core.cljc`](https://github.com/day8/re-frame2/blob/main/examples/capabilities/ssr/ssr/core.cljc) — note it registers **no** `:rf/hydrate` handler (on purpose: `:rf/hydrate` is a reserved `:rf/*` event that `re-frame.ssr` owns, handler and all). The shipped body lives in `implementation/ssr/src/re_frame/ssr/hydrate.cljc` and [`spec/011-SSR.md §The :rf/hydrate event`](https://github.com/day8/re-frame2/blob/main/spec/011-SSR.md#the-rfhydrate-event).
 - Production observability: [`production-observability.md`](production-observability.md) — the always-on event/error-emit listeners, and the single roster of the promoted SSR records (§The trace events you'll see says which axis carries what).

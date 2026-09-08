@@ -114,9 +114,9 @@
     re-frame.ssr
     ;; The head/meta contract's public door (rf2-kuky.87). It became a
     ;; consumer-facing surface when the SSR query re-exports left
-    ;; `re-frame.core`: `render-head` / `active-head` are now reached
-    ;; ONLY here, so an app or host `(:require [re-frame.ssr.head :as
-    ;; head])` directly. Its two producing sub-namespaces
+    ;; `re-frame.core`: `reg-head` and `default-head` are reached ONLY
+    ;; here, so an app or host `(:require [re-frame.ssr.head :as head])`
+    ;; directly. Its two producing sub-namespaces
     ;; (`re-frame.ssr.head.emit` / `.registry`) stay internal below.
     re-frame.ssr.head
     re-frame.ssr.ring

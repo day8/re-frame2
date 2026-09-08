@@ -3,8 +3,9 @@
   the ssr artefact's `re-frame.core` REGISTRAR re-exports.
 
   rf2-kuky.87 deleted the six QUERY re-exports (`render-to-string`,
-  `render-tree-hash`, `project-error`, `render-head`, `active-head`,
-  `head-model->html`) and their late-bind hooks: `re-frame.ssr` /
+  `render-tree-hash`, `project-error`, `head-model->html` and the two head
+  reads rf2-kuky.89 has since collapsed into one `head-model`) and their
+  late-bind hooks: `re-frame.ssr` /
   `re-frame.ssr.head` are their only door, so an app that calls one has
   necessarily loaded the artefact and the guided-failure branch this test
   pins cannot be reached for them. `reg-error-projector` and `reg-head`
