@@ -205,7 +205,8 @@
   {:op-type :rf.event :operation operation :tags tags})
 
 (defn- record-with [trace-events]
-  {:epoch-id      1
+  {:kind          :rf/epoch-record
+   :epoch-id      1
    :frame         :test/rt
    :committed-at  0
    :event-id      :go
@@ -231,7 +232,7 @@
                        [(event :rf.resource/cache-hit
                                {:rf.frame/id :test/rt :resource/key scoped-key
                                 :generation 1 :owner [:app :l 1] :cause :ensure})])
-          projected  (rf.epoch/projected-record record)
+          projected  (rf/project-egress record)
           tags       (:tags (first (:trace-events projected)))
           [pscope rid pparams] (:resource/key tags)]
       (is (= :secret/article rid) "the resource-id (position 1) survives")
@@ -258,7 +259,7 @@
                               {:rf.frame/id :test/rt :mutation :m/del :instance 1
                                :work/id [:rf.work/mutation :m/del 1]
                                :removed [k1]})])
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           tags      (:tags (first (:trace-events projected)))
           [pscope rid pparams] (first (:removed tags))]
       (is (= :big/blob rid) "the resource-id survives")
@@ -293,7 +294,7 @@
                                 :dispositions [{:resource/key scoped-key
                                                 :restored     true
                                                 :conflict     false}]})])
-          projected  (rf.epoch/projected-record record)
+          projected  (rf/project-egress record)
           tags       (:tags (first (:trace-events projected)))
           row        (first (:dispositions tags))
           [pscope rid pparams] (:resource/key row)]
@@ -325,7 +326,7 @@
                                             :removed   [k-rem]
                                             :rollback  [{:resource/key k-roll
                                                          :revision 3}]}})])
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           tags      (:tags (first (:trace-events projected)))
           ps        (:patch-summary tags)
           [_ rid pparams]   (first (:removed ps))
@@ -352,7 +353,7 @@
                        [(event :rf.resource/cache-hit
                                {:rf.frame/id :test/rt :resource/key scoped-key
                                 :generation 1 :cause :ensure})])
-          projected  (rf.epoch/projected-record record)
+          projected  (rf/project-egress record)
           tags       (:tags (first (:trace-events projected)))]
       (is (= scoped-key (:resource/key tags))
           "the plain scoped key rides verbatim (no over-redaction)")
@@ -372,7 +373,7 @@
                        [(event :rf.resource/cache-hit
                                {:rf.frame/id :test/rt :resource/key scoped-key
                                 :generation 1 :cause :ensure})])
-          projected  (rf.epoch/projected-record record)
+          projected  (rf/project-egress record)
           tags       (:tags (first (:trace-events projected)))
           [pscope rid pparams] (:resource/key tags)]
       (is (= :gone/article rid) "the resource-id survives")
@@ -400,7 +401,7 @@
                     (event :rf.mutation/optimistic-rolled-back
                            {:rf.frame/id :test/rt
                             :dispositions [{:resource/key k-disp :restored true}]})])
-          projected (rf.epoch/projected-record record {:rf.size/include-sensitive? true})
+          projected (rf/project-egress record {:rf.size/include-sensitive? true})
           [hit succ roll] (:trace-events projected)]
       (is (= k-hit (:resource/key (:tags hit)))
           "raw :resource/key rides with :rf.size/include-sensitive?")
@@ -433,7 +434,7 @@
                                 :generation 2 :work/id [:rf.work/resource 2]
                                 :page-param cursor-secret :page-index 1
                                 :page-count 1 :owner [:app :l 1] :cause :load-more})])
-          projected  (rf.epoch/projected-record record)
+          projected  (rf/project-egress record)
           tags       (:tags (first (:trace-events projected)))]
       (is (redacted-component? (:page-param tags))
           "the cursor is tokenized to an opaque {:rf/redacted <digest>}")
@@ -457,7 +458,7 @@
                                   :work/id [:rf.work/resource 2] :generation 2
                                   :page-index 1 :page-count 2
                                   :next-page-param cursor-secret :terminal? false})])
-          projected    (rf.epoch/projected-record record)
+          projected    (rf/project-egress record)
           tags         (:tags (first (:trace-events projected)))]
       (is (redacted-component? (:next-page-param tags))
           "the next-page cursor is tokenized")
@@ -477,7 +478,7 @@
                                {:rf.frame/id :test/rt :resource/key scoped-key
                                 :page-param "cursor-page-2" :page-index 1
                                 :page-count 1 :cause :load-more})])
-          projected  (rf.epoch/projected-record record)
+          projected  (rf/project-egress record)
           tags       (:tags (first (:trace-events projected)))]
       (is (= "cursor-page-2" (:page-param tags))
           "the plain feed's cursor rides verbatim (no over-redaction)")
@@ -491,7 +492,7 @@
                        [(event :rf.resource/load-more
                                {:rf.frame/id :test/rt :resource/key scoped-key
                                 :page-param cursor-secret :page-index 1})])
-          projected  (rf.epoch/projected-record record {:rf.size/include-sensitive? true})
+          projected  (rf/project-egress record {:rf.size/include-sensitive? true})
           tags       (:tags (first (:trace-events projected)))]
       (is (= cursor-secret (:page-param tags))
           "raw cursor rides with :rf.size/include-sensitive?"))))
@@ -524,7 +525,7 @@
                                 :work/id [:rf.work/resource 1] :generation 1
                                 :status-before :loading :status-after :error
                                 :error http-error-envelope})])
-          projected  (rf.epoch/projected-record record)
+          projected  (rf/project-egress record)
           tags       (:tags (first (:trace-events projected)))]
       (is (redacted-component? (:error tags))
           "the HTTP failure envelope is tokenized off-box")
@@ -546,7 +547,7 @@
                                 :work/id [:rf.work/resource 1] :generation 2
                                 :status-before :loaded :status-after :loaded
                                 :page-error http-error-envelope})])
-          projected  (rf.epoch/projected-record record)
+          projected  (rf/project-egress record)
           tags       (:tags (first (:trace-events projected)))]
       (is (redacted-component? (:page-error tags))
           "the load-more failure envelope is tokenized off-box")
@@ -562,7 +563,7 @@
                               {:rf.frame/id :test/rt :instance 7 :mutation :m/save
                                :work/id [:rf.work/mutation :m/save 7] :generation 1
                                :error http-error-envelope})])
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           tags      (:tags (first (:trace-events projected)))]
       (is (redacted-component? (:error tags))
           "the mutation failure envelope is tokenized off-box")
@@ -585,7 +586,7 @@
                                 :generation 5 :cause :ensure
                                 ;; a hypothetical future map slot with NO clause
                                 :future-detail {:hidden (str secret "-future")}})])
-          projected  (rf.epoch/projected-record record)
+          projected  (rf/project-egress record)
           tags       (:tags (first (:trace-events projected)))]
       (is (redacted-component? (:future-detail tags))
           "an unknown MAP slot is tokenized by the fail-closed default")
@@ -603,7 +604,7 @@
                       [(event :rf.resource/failed
                               {:rf.frame/id :test/rt :status-after :error
                                :error http-error-envelope})])
-          projected (rf.epoch/projected-record record {:rf.size/include-sensitive? true})
+          projected (rf/project-egress record {:rf.size/include-sensitive? true})
           tags      (:tags (first (:trace-events projected)))]
       (is (= http-error-envelope (:error tags))
           "the raw envelope rides with :rf.size/include-sensitive?"))))
@@ -650,7 +651,7 @@
                         {:auth-token (str secret "-2")})
           record    (record-with
                       [(event :rf.resource/route-plan (route-plan-tags [k1] [k1 k2]))])
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           tags      (:tags (first (:trace-events projected)))
           [bscope brid bparams] (first (:blocking tags))]
       (testing ":blocking tokenizes per key"
@@ -708,7 +709,7 @@
                                :ensured-identities [ensured]
                                :kept-identities    [kept]
                                :removed-identities [removed]})])
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           tags      (:tags (first (:trace-events projected)))
           partition-slots (juxt :ensured-identities :kept-identities
                                 :removed-identities)]
@@ -750,7 +751,7 @@
                                      :ensured-identities [k1]
                                      :kept-identities    []
                                      :removed-identities [k2]))])
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           tags      (:tags (first (:trace-events projected)))]
       (is (= [k1] (:ensured-identities tags)))
       (is (= [] (:kept-identities tags)) "an empty partition slot survives empty")
@@ -778,7 +779,7 @@
                                :ensured-identities ks
                                :kept-identities    ks
                                :removed-identities ks})])
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           tags      (:tags (first (:trace-events projected)))]
       (is (= (:matched tags) (:blocking tags))
           ":blocking projects exactly as the NAMED :matched does")
@@ -799,7 +800,7 @@
     (let [k1        (sk :rf.scope/global :plain/article {:slug "welcome"})
           record    (record-with
                       [(event :rf.resource/route-plan (route-plan-tags [k1] [k1]))])
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           tags      (:tags (first (:trace-events projected)))]
       (is (= [k1] (:blocking tags)) "a plain owner's :blocking rides verbatim")
       (is (= [k1] (:identities tags)) "a plain owner's :identities rides verbatim")
@@ -820,7 +821,7 @@
                                {:rf.frame/id :test/rt :resource/key scoped-key
                                 :generation 3 :work/id work-id
                                 :status :running :cause :ensure})])
-          projected  (rf.epoch/projected-record record)
+          projected  (rf/project-egress record)
           tags       (:tags (first (:trace-events projected)))
           [marker embedded generation] (:work/id tags)]
       (is (= :rf.work/resource marker) "the work-kind marker rides verbatim")
@@ -850,7 +851,7 @@
                                :work/id [:rf.work/mutation :m/del 1]
                                :tags    #{:tag/articles :tag/feed}
                                :left-stale 2})])
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           tags      (:tags (first (:trace-events projected)))]
       (is (= [:rf.work/mutation :m/del 1] (:work/id tags))
           "a mutation work-id is scalar-only and rides verbatim")
@@ -872,7 +873,7 @@
                       [(event :rf.resource/route-plan (route-plan-tags [k1] [k1]))
                        (event :rf.resource/work-started
                               {:rf.frame/id :test/rt :work/id work-id})])
-          projected (rf.epoch/projected-record record {:rf.size/include-sensitive? true})
+          projected (rf/project-egress record {:rf.size/include-sensitive? true})
           [plan work] (:trace-events projected)]
       (is (= [k1] (:blocking (:tags plan))) "raw :blocking rides")
       (is (= [k1] (:identities (:tags plan))) "raw :identities rides")
@@ -900,7 +901,7 @@
 ;;   - `real-cascade-lands-family-rows-...` is the SPECIFIC control. It reds if
 ;;     the family stops reaching the record for any reason, and it is the arm
 ;;     that satisfies rf2-hbmeb's acceptance criterion — a real record, a real
-;;     `projected-record`, a `:sensitive?` owner redacted beside a plain one
+;;     `project-egress`, a `:sensitive?` owner redacted beside a plain one
 ;;     verbatim.
 ;;   - `real-cascade-emits-no-frameless-correlated-row` is the GENERAL one, and
 ;;     it is the assertion whose absence was the actual defect. It fixes no
@@ -960,7 +961,7 @@
 (deftest real-cascade-lands-family-rows-in-the-settled-epoch-record
   (testing "rf2-hbmeb — the rows a REAL `ensure` / `release-owner` cascade emits
             reach the settling epoch record's `:trace-events`, and
-            `projected-record` over THAT record (not a hand-built one) redacts a
+            `project-egress` over THAT record (not a hand-built one) redacts a
             `:sensitive?` owner's scope + params while a plain owner's ride
             verbatim. Before the capture-seam fix the bus carried 7 family rows
             and the 3 settled records carried 0, so every `record-with` arm in
@@ -993,7 +994,7 @@
         ;; the plain `ensure` and the `release-owner` each settle their own,
         ;; and the two-sided control needs both owners.
         (let [proj-rows (->> (rf/epoch-history :test/rt)
-                             (map rf.epoch/projected-record)
+                             (map rf/project-egress)
                              (mapcat :trace-events)
                              (filterv family-row?))
               sens      (->> proj-rows
@@ -1111,7 +1112,7 @@
 (defn- free-scope
   "The `:scope` tag as it egresses from a projected single-row record."
   [record]
-  (:scope (:tags (first (:trace-events (rf.epoch/projected-record record))))))
+  (:scope (:tags (first (:trace-events (rf/project-egress record))))))
 
 ;; ---------------------------------------------------------------------------
 ;; (1) :rf.resource/invalidated — events.cljc:1811
@@ -1135,7 +1136,7 @@
                             :refetched    1
                             :left-stale   0
                             :exempt       []})])
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           tags      (:tags (first (:trace-events projected)))
           [tier identity-map] (:scope tags)]
       (is (= :rf.scope/session tier)
@@ -1171,7 +1172,7 @@
                                :decision     :refetch
                                :tags         #{:tag/profile}
                                :cause        [:mutation :m/save 1]})])
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           tags      (:tags (first (:trace-events projected)))]
       (testing "carrier 1 — the owner-classified scoped key (already correct)"
         (is (redacted-component? (first (:resource/key tags)))
@@ -1213,7 +1214,7 @@
                                :reason       :clear-scope
                                :aborted      []
                                :completed-at 1234})])
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           tags      (:tags (first (:trace-events projected)))
           [tier identity-map] (:scope tags)]
       (is (= :rf.scope/session tier) "the tier keyword rides verbatim")
@@ -1257,7 +1258,7 @@
                                :tag-matched-keys  []
                                :target-unresolved []
                                :cause             [:mutation :m/save 7]})])
-          projected      (rf.epoch/projected-record record)
+          projected      (rf/project-egress record)
           [started opt]  (:trace-events projected)]
       (testing ":rf.mutation/started"
         (let [tags (:tags started)
@@ -1299,7 +1300,7 @@
                                :active?      true
                                :decision     :refetch
                                :tags         #{:tag/articles}})])
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           tags      (:tags (first (:trace-events projected)))]
       (is (= :rf.scope/global (:scope tags))
           "a global scope rides VERBATIM — no over-redaction")
@@ -1327,7 +1328,7 @@
                                :tags         #{:tag/profile}
                                :matched      [k1]
                                :refetched    1})])
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           tags      (:tags (first (:trace-events projected)))]
       (is (= :rf.scope/session (first (:scope tags)))
           "the tier keyword rides verbatim")
@@ -1388,7 +1389,7 @@
                                :input-values  {:username secret}
                                :scope         session-scope
                                :resolved-nil? false})])
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           tags      (:tags (first (:trace-events projected)))]
       (is (= :rf/redacted (:scope tags))
           "the sibling's sentinel rides through the family projector unchanged")
@@ -1423,7 +1424,7 @@
                               {:rf.frame/id :test/rt :scope session-scope})
                        (event :rf.mutation/optimistic-applied
                               {:rf.frame/id :test/rt :scope session-scope})])
-          projected (rf.epoch/projected-record record {:rf.size/include-sensitive? true})
+          projected (rf/project-egress record {:rf.size/include-sensitive? true})
           scopes    (mapv #(:scope (:tags %)) (:trace-events projected))]
       (is (= [session-scope session-scope session-scope
               session-scope session-scope]
@@ -1570,7 +1571,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest real-session-scoped-ensure-leaks-no-identity-into-fx-carriers
-  (testing "rf2-425mm — `projected-record` over the record a REAL
+  (testing "rf2-425mm — `project-egress` over the record a REAL
             `[:rf.resource/ensure …]` settles for a `:sensitive?` resource with
             a `{:from-db …}` scope must carry the resolved identity at ZERO
             paths. Before the repair it carried it at four: the `:scope` inside
@@ -1578,7 +1579,7 @@
             `:rf.fx/args` and again under `:rf.event/fx`."
     (let [records   (drive-session-scoped-ensure! :derived/profile)
           raw       (last records)
-          projected (rf.epoch/projected-record raw)]
+          projected (rf/project-egress raw)]
 
       (testing "FIXTURE — the producer really put an identity-bearing scope on
                 the fx carriers, so the assertions below are not passing over an
@@ -1663,7 +1664,7 @@
             planted there."
     (let [k1        (sk session-scope :derived/profile profile-params)
           args      (managed-args k1 session-scope)
-          projected (rf.epoch/projected-record (fx-carrier-record args))
+          projected (rf/project-egress (fx-carrier-record args))
           scopes    (carrier-scopes projected)]
       (is (= 4 (count scopes))
           "two payloads per carrier, two carriers — the four paths the bead named")
@@ -1694,7 +1695,7 @@
     (let [k1        (sk :rf.scope/global :plain/article {:slug plain-slug})
           args      (managed-args k1 :rf.scope/global)
           record    (fx-carrier-record args)
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           [handled do-fx] (:trace-events projected)]
       (is (= args (:rf.fx/args (:tags handled)))
           "the whole args map rides verbatim — request, request-id and both
@@ -1719,7 +1720,7 @@
     (let [proj  (fn [scope]
                   (let [k (sk scope :derived/profile profile-params)]
                     (-> (fx-carrier-record (managed-args k scope))
-                        rf.epoch/projected-record
+                        rf/project-egress
                         carrier-scopes
                         first)))
           s1    (proj session-scope)
@@ -1742,7 +1743,7 @@
             off-box default, not a strip)"
     (let [k1        (sk session-scope :derived/profile profile-params)
           args      (managed-args k1 session-scope)
-          projected (rf.epoch/projected-record (fx-carrier-record args)
+          projected (rf/project-egress (fx-carrier-record args)
                                             {:rf.size/include-sensitive? true})]
       (is (= [session-scope session-scope session-scope session-scope]
              (carrier-scopes projected))
@@ -1903,7 +1904,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest real-reply-to-read-leaks-no-decoded-body-into-fx-carriers
-  (testing "rf2-xx4ty — `projected-record` over the records a REAL
+  (testing "rf2-xx4ty — `project-egress` over the records a REAL
             `[:rf.resource/ensure … :reply-to …]` settles for a `:sensitive?`
             resource must carry the decoded response body and the canonical
             params at ZERO paths, on BOTH continuation paths. Before the repair
@@ -1913,7 +1914,7 @@
       (doseq [[label cache-hit?] [["async settle" false] ["fresh-skip cache hit" true]]]
         (testing label
           (let [raw       (record-carrying-reply records cache-hit?)
-                projected (rf.epoch/projected-record raw)]
+                projected (rf/project-egress raw)]
 
             (testing "FIXTURE — the producer really put a decoded body on the fx
                       carriers, so the assertions below are not passing over an
@@ -2011,7 +2012,7 @@
             because the resource family speaks only for what it planted."
     (let [k1        (sk session-scope :derived/profile reply-params)
           reply     (read-reply k1 session-scope reply-value)
-          projected (rf.epoch/projected-record (reply-carrier-record reply))
+          projected (rf/project-egress (reply-carrier-record reply))
           replies   (carrier-replies projected)
           [handled do-fx] (:trace-events projected)]
       (is (= 2 (count replies))
@@ -2047,7 +2048,7 @@
     (let [k1        (sk :rf.scope/global :plain/article {:slug plain-slug})
           reply     (read-reply k1 :rf.scope/global {:title "hello"})
           record    (reply-carrier-record reply)
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           [handled do-fx] (:trace-events projected)]
       (is (= (conj read-reply-target reply) (:rf.fx/args (:tags handled)))
           "the whole dispatched event vector rides verbatim — reply :value,
@@ -2079,7 +2080,7 @@
                            {:rf.frame/id :test/rt :frame :test/rt
                             :rf.fx/id :rf.http/managed
                             :rf.fx/args {:request req}})])
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           [reply-row req-row] (:trace-events projected)]
       (is (redacted-component? (:params (first (carrier-replies projected))))
           "the reply's :params — a named owner's, read through that owner")
@@ -2104,7 +2105,7 @@
     (let [proj  (fn [params value]
                   (let [k (sk session-scope :derived/profile params)]
                     (-> (reply-carrier-record (read-reply k session-scope value))
-                        rf.epoch/projected-record
+                        rf/project-egress
                         carrier-replies
                         first)))
           r1    (proj reply-params reply-value)
@@ -2127,7 +2128,7 @@
             debug the workflow at all."
     (let [k1        (sk session-scope :derived/profile reply-params)
           reply     (read-reply k1 session-scope reply-value)
-          projected (rf.epoch/projected-record (reply-carrier-record reply)
+          projected (rf/project-egress (reply-carrier-record reply)
                                             {:rf.size/include-sensitive? true})]
       (is (= [reply-value reply-value] (mapv :value (carrier-replies projected)))
           "every carrier's raw :value rides with :rf.size/include-sensitive?")
@@ -2197,7 +2198,7 @@
                                :rf.fx/id :rf.resource/cancel-timers
                                :rf.fx/args {:frame-id :test/rt
                                             :resource/keys [gone]}})])
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           [custom audit cancel] (:trace-events projected)]
       (testing "the foreign lookalikes ride verbatim"
         (is (= foreign (first (:rows (:rf.fx/args (:tags custom)))))
@@ -2258,7 +2259,7 @@
           mut-row*  (event :rf.fx/handled
                            {:rf.frame/id :test/rt :frame :test/rt
                             :rf.fx/id :rf.http/managed :rf.fx/args mut-args})
-          project1  (fn [row] (rf.epoch/projected-record (record-with [row])))]
+          project1  (fn [row] (rf/project-egress (record-with [row])))]
       (testing "the app's own request map is untouched"
         (let [tags (:tags (first (:trace-events (project1 app-row*))))]
           (is (= {:method :post :scope app-scope :body {:x 1}} (:request (:rf.fx/args tags)))
@@ -2306,7 +2307,7 @@
                               {:rf.frame/id :test/rt :frame :test/rt
                                :rf.fx/id :dispatch
                                :rf.fx/args (conj read-reply-target marked)})])
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           [custom reply-row] (:trace-events projected)
           proj-un   (:rf.fx/args (:tags custom))]
       (testing "the UNMARKED map: the key tokenizes, its foreign neighbours do not"
@@ -2438,7 +2439,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest real-declared-reply-to-read-leaks-no-declared-slot-into-fx-carriers
-  (testing "rf2-ko5lm — `projected-record` over the records a REAL
+  (testing "rf2-ko5lm — `project-egress` over the records a REAL
             `[:rf.resource/ensure … :reply-to …]` settles for an owner whose
             ONLY claim is a projection-relative declaration must carry the
             declared body slot at ZERO paths, on BOTH continuation paths.
@@ -2448,7 +2449,7 @@
       (doseq [[label cache-hit?] [["async settle" false] ["fresh-skip cache hit" true]]]
         (testing label
           (let [raw       (record-carrying-reply records cache-hit?)
-                projected (rf.epoch/projected-record raw)]
+                projected (rf/project-egress raw)]
 
             (testing "FIXTURE — the producer really put a decoded body on the fx
                       carriers, and the owner really makes no coarse claim"
@@ -2506,7 +2507,7 @@
             resource family speaks only for what it planted."
     (let [k1        (sk :rf.scope/global :declared/profile declared-reply-params)
           reply     (read-reply k1 :rf.scope/global declared-reply-value)
-          projected (rf.epoch/projected-record (reply-carrier-record reply))
+          projected (rf/project-egress (reply-carrier-record reply))
           replies   (carrier-replies projected)
           [handled do-fx] (:trace-events projected)]
       (is (= 2 (count replies))
@@ -2542,7 +2543,7 @@
     (let [params    {:account "acct-9911" :slug plain-slug}
           k1        (sk :rf.scope/global :declared/params-owner params)
           reply     (read-reply k1 :rf.scope/global {:ok true})
-          projected (rf.epoch/projected-record (reply-carrier-record reply))
+          projected (rf/project-egress (reply-carrier-record reply))
           r         (first (carrier-replies projected))]
       (is (= :rf/redacted (:account (:params r)))
           "the `[:params :account]` declaration reaches the reply's :params")
@@ -2566,7 +2567,7 @@
     (let [k1        (sk :rf.scope/global :plain/article {:slug plain-slug})
           reply     (read-reply k1 :rf.scope/global declared-reply-value)
           record    (reply-carrier-record reply)
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           [handled do-fx] (:trace-events projected)]
       (is (= (conj read-reply-target reply) (:rf.fx/args (:tags handled)))
           "the whole dispatched event vector rides verbatim — reply :value,
@@ -2592,7 +2593,7 @@
                       [(event :rf.fx/handled
                               {:rf.frame/id :test/rt :frame :test/rt
                                :rf.fx/id :app/custom :rf.fx/args unmarked})])
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           tags      (:tags (first (:trace-events projected)))]
       (is (= declared-reply-value (:value (:rf.fx/args tags)))
           "no marker, no reply, no declaration — the map rides byte-for-byte")
@@ -2612,7 +2613,7 @@
             field could not debug the workflow."
     (let [k1        (sk :rf.scope/global :declared/profile declared-reply-params)
           reply     (read-reply k1 :rf.scope/global declared-reply-value)
-          projected (rf.epoch/projected-record (reply-carrier-record reply)
+          projected (rf/project-egress (reply-carrier-record reply)
                                             {:rf.size/include-sensitive? true})]
       (is (= [declared-reply-value declared-reply-value]
              (mapv :value (carrier-replies projected)))
@@ -2721,7 +2722,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest real-declared-feed-reply-to-read-leaks-no-declared-item-slot
-  (testing "rf2-zaopo — `projected-record` over the records a REAL
+  (testing "rf2-zaopo — `project-egress` over the records a REAL
             `[:rf.resource/ensure … :reply-to …]` settles for an INFINITE FEED
             whose only claim is a projection-relative `[:data …]` declaration
             must carry the declared item field at ZERO paths, on BOTH
@@ -2732,7 +2733,7 @@
                                   ["fresh-skip cache hit" true]]]
         (testing label
           (let [raw       (record-carrying-reply records cache-hit?)
-                projected (rf.epoch/projected-record raw)]
+                projected (rf/project-egress raw)]
 
             (testing "FIXTURE — the producer really put the MERGED ITEM LIST on
                       the fx carriers, so the assertions below are not passing
@@ -2804,7 +2805,7 @@
             shape: the identically-named `:email` / `:avatar` fields that
             redact for `:declared/feed` are fully readable here."
     (let [raw       (record-carrying-reply (drive-feed-reply-to-read! :plain/feed) false)
-          projected (rf.epoch/projected-record raw)]
+          projected (rf/project-egress raw)]
       (is (some? raw) "FIXTURE — the plain feed's continuation reached a carrier")
       (is (= 2 (count (reply-carrier-rows raw)))
           "FIXTURE — both carriers are present, as they are for the declared feed")
@@ -2829,7 +2830,7 @@
                       :display-name "Ada"
                       :meta         {:email (str secret "-nested@example.com")}}]
           reply     (read-reply k1 :rf.scope/global items)
-          projected (rf.epoch/projected-record (reply-carrier-record reply))
+          projected (rf/project-egress (reply-carrier-record reply))
           item      (first (:value (first (carrier-replies projected))))]
       (is (= :rf/redacted (:email item))
           "the declared field, one index down, redacts")
@@ -2851,7 +2852,7 @@
             debug the workflow."
     (let [k1        (sk :rf.scope/global :declared/feed declared-feed-params)
           reply     (read-reply k1 :rf.scope/global declared-feed-items)
-          projected (rf.epoch/projected-record (reply-carrier-record reply)
+          projected (rf/project-egress (reply-carrier-record reply)
                                             {:rf.size/include-sensitive? true})]
       (is (= [declared-feed-items declared-feed-items]
              (mapv :value (carrier-replies projected)))
@@ -2917,7 +2918,7 @@
                         [(str vector-secret "-2")])
           record    (record-with
                       [(event :rf.resource/route-plan (route-plan-tags [k1] [k1 k2]))])
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           tags      (:tags (first (:trace-events projected)))
           [bscope brid bparams] (first (:blocking tags))]
       (testing ":blocking tokenizes per key"
@@ -2953,7 +2954,7 @@
                                :matched     ks     ; NAMED   -> position arm
                                :blocking    ks     ; UNNAMED -> shape arm
                                :identities  ks})])
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           tags      (:tags (first (:trace-events projected)))]
       (is (= (:matched tags) (:blocking tags))
           ":blocking projects exactly as the NAMED :matched does")
@@ -2974,7 +2975,7 @@
                                {:rf.frame/id :test/rt :resource/key scoped-key
                                 :generation 3 :work/id work-id
                                 :status :running :cause :ensure})])
-          projected  (rf.epoch/projected-record record)
+          projected  (rf/project-egress record)
           tags       (:tags (first (:trace-events projected)))
           [marker embedded generation] (:work/id tags)]
       (is (= :rf.work/resource marker) "the work-kind marker rides verbatim")
@@ -3001,7 +3002,7 @@
     (let [k1        (sk :rf.scope/global :plain/vector-params ["welcome"])
           record    (record-with
                       [(event :rf.resource/route-plan (route-plan-tags [k1] [k1]))])
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           tags      (:tags (first (:trace-events projected)))]
       (is (= [k1] (:blocking tags)) "a plain owner's :blocking rides verbatim")
       (is (= [k1] (:identities tags)) "a plain owner's :identities rides verbatim")
@@ -3024,7 +3025,7 @@
                                :cause       [:mutation :m/save 7]
                                :branch      [:r/root :r/article :r/comments]
                                :nav-token   7})])
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           tags      (:tags (first (:trace-events projected)))]
       (is (= [:app :l 1] (:owner tags)) "a view path rides verbatim")
       (is (= [:mutation :m/save 7] (:cause tags))
@@ -3046,7 +3047,7 @@
                       [(event :rf.resource/route-plan (route-plan-tags [k1] [k1]))
                        (event :rf.resource/work-started
                               {:rf.frame/id :test/rt :work/id work-id})])
-          projected (rf.epoch/projected-record record {:rf.size/include-sensitive? true})
+          projected (rf/project-egress record {:rf.size/include-sensitive? true})
           [plan work] (:trace-events projected)]
       (is (= [k1] (:blocking (:tags plan))) "raw :blocking rides")
       (is (= [k1] (:identities (:tags plan))) "raw :identities rides")
@@ -3066,7 +3067,7 @@
             halves inside ONE map."
     (let [k1        (sk :rf.scope/global :secret/vector-params vector-params)
           reply     (read-reply k1 :rf.scope/global {:email (str vector-secret "@example.com")})
-          projected (rf.epoch/projected-record (reply-carrier-record reply))
+          projected (rf/project-egress (reply-carrier-record reply))
           replies   (carrier-replies projected)]
       (is (= 2 (count replies)) "one reply per carrier")
       (doseq [r replies]
@@ -3094,7 +3095,7 @@
     (let [gone      [:rf.scope/global :gone/vector-params [vector-secret]]
           reply     (assoc (read-reply gone :rf.scope/global {:ok true})
                            :resource :gone/vector-params)
-          projected (rf.epoch/projected-record (reply-carrier-record reply))
+          projected (rf/project-egress (reply-carrier-record reply))
           replies   (carrier-replies projected)]
       (is (= 2 (count replies)))
       (doseq [r replies]
@@ -3139,7 +3140,7 @@
     (rf/epoch-history :test/rt)))
 
 (deftest real-vector-params-reply-to-read-leaks-nothing-into-fx-carriers
-  (testing "rf2-xx4ty / rf2-wd9im audit #7013 ACCEPTANCE — `projected-record`
+  (testing "rf2-xx4ty / rf2-wd9im audit #7013 ACCEPTANCE — `project-egress`
             over the records a REAL `[:rf.resource/ensure … :reply-to …]`
             settles for a `:sensitive?` owner with NON-MAP canonical params must
             carry the raw params at ZERO paths of its trace carriers, on BOTH
@@ -3149,7 +3150,7 @@
       (doseq [[label cache-hit?] [["async settle" false] ["fresh-skip cache hit" true]]]
         (testing label
           (let [raw       (record-carrying-reply records cache-hit?)
-                projected (rf.epoch/projected-record raw)]
+                projected (rf/project-egress raw)]
             (testing "FIXTURE — the producer really put the vector params on the
                       fx carriers"
               (is (some? raw) "the continuation reached an fx carrier at all")
@@ -3289,7 +3290,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest real-failing-reply-to-read-leaks-no-error-envelope-into-fx-carriers
-  (testing "rf2-rnsv2 — `projected-record` over the records a REAL
+  (testing "rf2-rnsv2 — `project-egress` over the records a REAL
             `[:rf.resource/ensure … :reply-to …]` settles into FAILURE must
             carry the decoded error body at ZERO paths. Before the repair the
             envelope rode raw on both carriers, at
@@ -3298,7 +3299,7 @@
     (let [records   (drive-failing-reply-to-read! :derived/profile reply-params
                                                   failure-envelope)
           raw       (record-carrying-reply records false)
-          projected (rf.epoch/projected-record raw)]
+          projected (rf/project-egress raw)]
 
       (testing "FIXTURE — the producer really put the envelope on the fx
                 carriers, so the sweep below is not passing over an empty set"
@@ -3349,7 +3350,7 @@
     (let [records   (drive-failing-reply-to-read! :plain/article {:slug plain-slug}
                                                   failure-envelope)
           raw       (record-carrying-reply records false)
-          projected (rf.epoch/projected-record raw)]
+          projected (rf/project-egress raw)]
       (testing "FIXTURE — a plain owner, and the envelope is the ONLY secret"
         (is (some? raw))
         (is (every? #(= failure-envelope (:error %)) (carrier-replies raw)))
@@ -3430,7 +3431,7 @@
             split."
     (let [k         (sk :rf.scope/global :plain/article {:slug plain-slug})
           reply     (failure-read-reply k :rf.scope/global failure-envelope)
-          projected (rf.epoch/projected-record (both-carriers-of k reply))
+          projected (rf/project-egress (both-carriers-of k reply))
           row-error (:error (:tags (first (:trace-events projected))))
           replies   (family-carrier-replies projected)]
       (is (= 2 (count replies)) "one reply per carrier")
@@ -3448,7 +3449,7 @@
             `:error`, so it must tokenize on the cancel branch too."
     (let [k         (sk :rf.scope/global :plain/article {:slug plain-slug})
           reply     (failure-read-reply k :rf.scope/global abort-envelope)
-          projected (rf.epoch/projected-record (both-carriers-of k reply))
+          projected (rf/project-egress (both-carriers-of k reply))
           replies   (family-carrier-replies projected)]
       (is (= :cancelled (:status (first replies))) "it really is the cancel branch")
       (is (= :user-abort (:rf.reply/cancel-reason (first replies)))
@@ -3462,7 +3463,7 @@
     (let [k    (sk :rf.scope/global :plain/article {:slug plain-slug})
           tok  (fn [envelope]
                  (-> (both-carriers-of k (failure-read-reply k :rf.scope/global envelope))
-                     rf.epoch/projected-record
+                     rf/project-egress
                      family-carrier-replies
                      first
                      :error))]
@@ -3475,9 +3476,9 @@
   (testing "rf2-rnsv2 — an already-projected record re-projects to itself; the
             token is not re-digested (the `redacted-token?` guard)."
     (let [k     (sk :rf.scope/global :plain/article {:slug plain-slug})
-          once  (rf.epoch/projected-record
+          once  (rf/project-egress
                   (both-carriers-of k (failure-read-reply k :rf.scope/global failure-envelope)))
-          twice (rf.epoch/projected-record once)]
+          twice (rf/project-egress once)]
       (is (= once twice)))))
 
 ;; ---------------------------------------------------------------------------
@@ -3495,7 +3496,7 @@
                               {:rf.frame/id :test/rt :frame :test/rt
                                :rf.event/fx [[:rf.error/report foreign]
                                              [:dispatch [:app/oops foreign]]]})])
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           tags      (:tags (first (:trace-events projected)))]
       (is (= [[:rf.error/report foreign] [:dispatch [:app/oops foreign]]]
              (:rf.event/fx tags))
@@ -3518,7 +3519,7 @@
                                {:rf.frame/id :test/rt :frame :test/rt
                                 :rf.fx/id :dispatch
                                 :rf.fx/args [:app/http-done http-reply]})])
-          projected  (rf.epoch/projected-record record)
+          projected  (rf/project-egress record)
           tags       (:tags (first (:trace-events projected)))]
       (is (= [:app/http-done http-reply] (:rf.fx/args tags))
           "the HTTP family's reply rides through this projector untouched"))))
@@ -3533,7 +3534,7 @@
             debugging a 422 needs the body."
     (let [k         (sk :rf.scope/global :plain/article {:slug plain-slug})
           reply     (failure-read-reply k :rf.scope/global failure-envelope)
-          projected (rf.epoch/projected-record (both-carriers-of k reply)
+          projected (rf/project-egress (both-carriers-of k reply)
                                             {:rf.size/include-sensitive? true})]
       (is (= [failure-envelope failure-envelope]
              (mapv :error (family-carrier-replies projected)))
@@ -3629,7 +3630,7 @@
             closed the sixth."
     (let [records   (drive-mutation-reply-to! :m/save {:status :error :error failure-envelope})
           raw       (first (filter #(seq (family-carrier-replies %)) records))
-          projected (rf.epoch/projected-record raw)]
+          projected (rf/project-egress raw)]
       (testing "FIXTURE — the producer really put the envelope on the carriers"
         (is (some? raw) "the mutation continuation reached an fx carrier")
         (is (every? #(= :mutation (:rf.reply/work-kind %))
@@ -3852,7 +3853,7 @@
   other's registrations and cached entries.
 
   THE ASSERTIONS RUN INSIDE TOO, and that is not a stylistic choice.
-  `projected-record` resolves the frame's classification through the LIVE
+  `project-egress` resolves the frame's classification through the LIVE
   frame; the fixture's teardown drops `:test/rt`, and a projection taken
   afterwards fails closed and redacts everything — a sweep that passes because
   there is nothing left to read. Returning records and asserting outside was
@@ -3884,7 +3885,7 @@
         (str "the drive really settled the named branch — " k " = " v)))
   (is (seq (secret-leak-paths raw))
       "FIXTURE — the unprojected record leaks, so the sweep below is real")
-  (is (= [] (secret-leak-paths (rf.epoch/projected-record raw)))
+  (is (= [] (secret-leak-paths (rf/project-egress raw)))
       "ACCEPTANCE — the canary survives at zero paths of the projected record"))
 
 (defn- drive-session-feed-reply-to!

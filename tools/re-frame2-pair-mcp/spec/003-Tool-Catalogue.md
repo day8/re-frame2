@@ -138,8 +138,8 @@ Every tool that ships `:rf/epoch-record` values — `dispatch`
 (trace AND settle modes, rf2-8fin7.3), `trace-window`,
 `watch-epochs`, and `snapshot` (the `:epochs` slot of each frame) —
 routes every record server-side through
-`re-frame.core/projected-record`, the single normative off-box-egress
-emission site ([Security §Epoch privacy
+`re-frame.core/project-egress`, the single normative record-level
+egress door ([Security §Epoch privacy
 posture](../../../spec/Security.md#epoch-privacy-posture--raw-in-process-records-vs-projected-egress),
 [Tool-Pair §Time-travel](../../../spec/Tool-Pair.md#time-travel-epoch-snapshots-and-undo)).
 The per-frame ring buffer and every `:epoch`-stream
@@ -151,7 +151,7 @@ ring and listeners stay raw for exact replay.
 There is no app-installed `:redact-fn` hook (retired 2026-09-08,
 rf2-kuky.7 — zero installers measured). A consuming app that needs a
 further scrub composes it where the record leaves its process,
-`(-> r (rf/projected-record opts) scrub)`; that scrub is invisible to
+`(-> r (rf/project-egress opts) scrub)`; that scrub is invisible to
 this server, which sees only what the app hands it.
 
 Tools cannot recover raw shapes from the wire: any slot the projection
@@ -167,10 +167,28 @@ runs, so it remains an accurate signal even when the projection erases
 the leaves it keyed on — `--allow-sensitive-reads OFF` strips records
 that carry the rollup regardless.
 
+**GUARD G3 — an epoch record must arrive STAMPED.** `project-egress`
+is the ONE record-level door (rf2-bv1p, ruling rf2-kuky.9 option A
+retired the standalone `projected-record` door), and it recognises an
+epoch record SOLELY by its stamped `:kind :rf/epoch-record`. A record
+it does not recognise is **not refused** — it falls through to the
+kindless bare-value walk, which is right for a direct read and a leak
+for an epoch record: that walk starts at `:path []`, so a frame's
+`[:auth :token]` sensitive declaration cannot match the record's
+`[:db-after :auth :token]` slot, nothing redacts, and the whole app-db
+snapshot ships raw. An app whose `re-frame.epoch.assembly` predates
+rf2-kuky.92 stamps no `:kind` at all, so a version-skewed pair session
+hits exactly that path. Every eval form this server emits therefore
+checks `(= :rf/epoch-record (:kind r))` **before** the door call and
+throws `:rf.error/pair-mcp-unstamped-epoch-record` otherwise, naming
+the too-old app. A loud error beats a silent leak. An **absent**
+`:epoch` slot stays legitimate and untouched — a degraded runtime and
+the `:ok? false` frame-untargetable envelope both carry none.
+
 ### Framework-default projection (rf2-8fin7.1)
 
 For the pull-mode epoch tools the framework backstop is
-`re-frame.core/projected-record`: each egressed record is routed
+`re-frame.core/project-egress`: each egressed record is routed
 through it server-side under the `--allow-sensitive-reads OFF`
 default, so a schema-declared sensitive **slot** sitting inside a
 **non-sensitive** epoch's `:db-before` / `:db-after` lands as
@@ -178,7 +196,7 @@ default, so a schema-declared sensitive **slot** sitting inside a
 
 `snapshot`'s `:epochs` slot is held to the SAME projection
 contract as `trace-window` / `watch-epochs` (rf2-6wvh5): every
-epoch record in the slice is mapped through `projected-record`
+epoch record in the slice is mapped through `project-egress`
 server-side when the slice expands to `:full`. The
 `:include-sensitive` two-key opt-in (launch flag AND per-call arg)
 changes only the app-db sensitive axis within that projection. Before
@@ -650,7 +668,7 @@ CLI flags:
 | Flag                      | Default       | Effect when set |
 |---------------------------|---------------|------------------|
 | `--no-eval`               | absent (eval-cljs ON) | Disables `eval-cljs` (rf2-a0z0h; inverts the prior rf2-cxx5s default-OFF posture). Default is eval-cljs ENABLED — it is the REPL primitive of a pair-debug session. With this flag, `eval-cljs` returns `{:ok? false :reason :rf.error/eval-cljs-disabled}` without touching the nREPL socket. |
-| `--allow-sensitive-reads` | OFF | Enables the per-call disclosure knobs documented by each value-egress tool; it does not reveal every payload class by itself. Direct app-db reads have independent `include-sensitive` and `elision` axes; epochs always use `projected-record` and `include-sensitive` lifts only its app-db sensitive axis. Dry-run effect arguments additionally require `include-fx-args true`. Also signals the preload's launch-time raw-state posture for `app-db-reset!` taps and compact cascade summaries. Canonical cross-MCP flag name shared with Story-MCP. |
+| `--allow-sensitive-reads` | OFF | Enables the per-call disclosure knobs documented by each value-egress tool; it does not reveal every payload class by itself. Direct app-db reads have independent `include-sensitive` and `elision` axes; epochs always use `project-egress` and `include-sensitive` lifts only its app-db sensitive axis. Dry-run effect arguments additionally require `include-fx-args true`. Also signals the preload's launch-time raw-state posture for `app-db-reset!` taps and compact cascade summaries. Canonical cross-MCP flag name shared with Story-MCP. |
 | `--allow-writes`          | OFF           | Enables the state-mutating tools `restore-epoch` (time-travel undo) and `replace-app-db` (state injection). Without the flag, both return `{:ok? false :reason :rf.error/writes-disabled}` without touching the nREPL socket. `dispatch` (which drives the application's own handlers) is unaffected. The descriptors still appear in `tools/list`; the gate is enforced at `tools/call` time. Note: this gate protects the named-write audit trail; it does NOT defend against eval-driven writes (eval-cljs can express the same writes). `--no-eval` additionally removes eval-driven writes, but neither flag disables `dispatch` or `replay-epoch`; the combination is not a read-only mode. |
 
 ### Launch-config validation (rf2-a0kxsb)
@@ -702,7 +720,7 @@ off-box read surfaces above — and `dispatch-dry-run`'s egress slots
    IN the dispatch vector redacts regardless of the epoch's
    `:rf.epoch/sensitive?` rollup — keying it to the rollup alone leaked a
    non-declared trigger-event's secret (rf2-6klf02). This is the same
-   projection `projected-record` applies to a record's `:trigger-event`
+   projection `project-egress` applies to a record's `:trigger-event`
    slot (`epoch/tool_pair.cljc` §`elide-trigger-event-slot`). It is
    applied SERVER-SIDE inside the runtime projection
    (`restore-cascade-summary` / `cascade-summary`) because the
@@ -1024,7 +1042,7 @@ compact summary; settle mode carries the projected settled `:epoch`
 plus `:render-events` derived from that projected record.
 
 **Epoch-egress privacy.** Trace and settle always route their epoch
-through `re-frame.core/projected-record` with the off-box-tool profile;
+through `re-frame.core/project-egress` with the off-box-tool profile;
 settle's `:render-events` are selected from that projected epoch.
 The `--allow-sensitive-reads` + `include-sensitive true` combination
 only lifts declared-sensitive app-db leaves. It does not bypass

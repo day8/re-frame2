@@ -295,9 +295,13 @@ known_red=(
   #    egress-PRIVACY surface passed on the nil: two `(= x y)` where both were
   #    nil, `(not (contains? nil :digest))`, a `count` over an empty string, a
   #    `not-any?` over an empty history, and a human-sentence check on a nil
-  #    message.  The fix was not a guard — `projected-record` is a pure
-  #    function of a record plus the frame's durable elision registry, so the
-  #    profile rows now drive a SYNTHETIC record and run in both postures.
+  #    message.  The fix was not a guard — the epoch egress projection is a
+  #    pure function of a record plus the frame's durable elision registry, so
+  #    the profile rows now drive a SYNTHETIC record and run in both postures.
+  #    (That projection was spelled `projected-record` when this was written;
+  #    rf2-bv1p retired the standalone door and it is now the
+  #    `:kind :rf/epoch-record` arm of `rf/project-egress`.  Purity is
+  #    unchanged, so the fix stands as described.)
   #
   #    THIS HEADING IS NOW EMPTY, and the last fifteen came off WITHOUT a
   #    posture split — see "WHERE THE TRACE SUITES WENT" below.

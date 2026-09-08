@@ -340,7 +340,7 @@
       (rf/configure! {:epoch-history {:depth 0}})
       (is (= [] (rf/epoch-history :rf/default))
           "depth 0 empties the ring, records retained beforehand included")
-      (is (= [] (mapv rf/projected-record (rf/epoch-history :rf/default)))
+      (is (= [] (mapv rf/project-egress (rf/epoch-history :rf/default)))
           "the off-box projection reads the same pruned ring")
       (is (false? (rf/restore-epoch! :rf/default saved-id))
           "a retired id is no longer a valid restore target")

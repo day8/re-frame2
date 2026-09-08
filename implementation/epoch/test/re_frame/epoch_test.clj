@@ -697,7 +697,7 @@
       ;; QUERYABLE half — both public read surfaces read the same ring.
       (is (= [] (rf/epoch-history :test/main))
           "epoch-history is empty immediately, per Tool-Pair §Time-travel")
-      (is (= [] (mapv rf/projected-record (rf/epoch-history :test/main)))
+      (is (= [] (mapv rf/project-egress (rf/epoch-history :test/main)))
           "the off-box projection reads the same pruned ring")
 
       ;; RESTORABLE half — the more serious one: a retired id must not
@@ -1773,7 +1773,7 @@
             trace tag (when the sub's output is marked large but its raw
             value is left in place for the on-box ring) is threaded onto
             the structured `:sub-runs` row as `:large?`, so the off-box
-            `projected-record` egress boundary can substitute a
+            `project-egress` egress boundary can substitute a
             `:rf.size/large-elided` marker for `:value` / `:prev-value`.
             Direct unit test against `capture/sub-run-row`."
     (testing ":large? tag PRESENT → row carries :large? true, value intact

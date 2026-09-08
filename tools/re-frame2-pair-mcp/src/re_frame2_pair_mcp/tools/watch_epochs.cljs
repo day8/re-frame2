@@ -75,12 +75,14 @@
         ;; Pull-mode `watch-epochs` egresses full epoch records carrying
         ;; `:db-before` / `:db-after` (and `:trigger-event` /
         ;; `:trace-events`) app-db snapshots. Each egressed record routes
-        ;; through `re-frame.core/projected-record` — the framework's
-        ;; single normative off-box-egress emission site (Security.md
-        ;; §Epoch privacy posture).
+        ;; through `re-frame.core/project-egress` — the framework's
+        ;; single normative record-level egress door (Security.md
+        ;; §Epoch privacy posture) — on the strength of the record's
+        ;; stamped `:kind :rf/epoch-record`, which
+        ;; `epoch_egress/project-page-src` checks first (GUARD G3).
         ;; `incl?` (gate-ON + explicit `:include-sensitive
         ;; true`) does NOT bypass projection. It is threaded as the
-        ;; `{:rf.size/include-sensitive? true}` egress opt INTO `projected-record`,
+        ;; `{:rf.size/include-sensitive? true}` egress opt INTO `project-egress`,
         ;; lifting ONLY the app-db sensitive axis; the orthogonal fx-args /
         ;; runtime-db / large axes stay fail-closed (Security.md §Off-box
         ;; egress). Every egressed page is ALWAYS projected.
@@ -129,7 +131,7 @@
             history-call (fr/frame-sym-call 'epoch-history)
             ;; The `:pred` filter runs on the RAW records
             ;; server-side (never egressed); the capped `:page` is the
-            ;; egress slice, ALWAYS projected via `projected-record` for
+            ;; egress slice, ALWAYS projected via `project-egress` for
             ;; off-box egress. `incl?` threads
             ;; `{:rf.size/include-sensitive? true}` INTO the projection (app-db
             ;; sensitive axis only), it does NOT disable projection.

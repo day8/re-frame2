@@ -241,11 +241,13 @@ smaller — `5`, say — to bound a long dev session's heap more aggressively.
 There is no scrub hook on this config key, and where redaction runs matters: it
 is **projection-side, not storage-side**. The ring always stores the *raw*
 record, because an epoch record is causal replay material and mutating it at
-rest would corrupt `restore-epoch!`. `rf/projected-record` applies the frame's
-`:sensitive` / `:large` classification at the **off-box egress boundary**, and a
+rest would corrupt `restore-epoch!`. `rf/project-egress` applies the frame's
+`:sensitive` / `:large` classification at the **off-box egress boundary** — it is
+the one record-level egress door, and it recognises an epoch record by its
+stamped `:kind` — and a
 forwarder that needs a last scrub for something the declaration-driven
 projection can't prove (a sensitive slot no schema or classification covers)
-composes one over the result: `(-> record rf/projected-record my-scrub)`. That
+composes one over the result: `(-> record rf/project-egress my-scrub)`. That
 is the rare escape hatch; ordinary redaction wants the
 [data classification](glossary.md#data-classification) model, not this.
 

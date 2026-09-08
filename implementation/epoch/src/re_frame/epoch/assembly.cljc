@@ -11,7 +11,7 @@
                           sensitive paths).
 
   The ring and listeners retain raw replay material; redaction happens at
-  off-box egress inside `re-frame.epoch.tool-pair/projected-record`.
+  off-box egress inside `re-frame.epoch.tool-pair/project-record`.
 
   `current-schema-digest` pins the schema identity later compared by restore
   preconditions."
@@ -125,7 +125,7 @@
 ;;      record's app-db state carries sensitive material.
 ;;
 ;; Either signal is sufficient. The check runs once at record-assembly
-;; time so listeners and the projected-record helper read the rollup
+;; time so listeners and the projection helper read the rollup
 ;; without re-walking the record. Production builds elide the entire
 ;; record-assembly path — the rollup is dev-only by construction.
 

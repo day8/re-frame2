@@ -419,7 +419,7 @@
             `resolve-egress-profile` guard). The duplicated hand-rolled
             ex-info that could silently drift is gone."
     (let [a    (rf.projection/unknown-egress-profile-ex 'rf/project-egress :rf.egress/bogus)
-          b    (rf.projection/unknown-egress-profile-ex 'epoch/projected-record :rf.egress/bogus)
+          b    (rf.projection/unknown-egress-profile-ex 'rf/project-egress :rf.egress/bogus)
           da   (ex-data a)
           db   (ex-data b)]
       ;; message + every ex-data slot EXCEPT :where are identical across sites
@@ -428,7 +428,7 @@
       (is (= (dissoc da :where) (dissoc db :where))
           "every ex-data slot but :where is identical")
       (is (= 'rf/project-egress (:where da)))
-      (is (= 'epoch/projected-record (:where db)))
+      (is (= 'rf/project-egress (:where db)))
       (is (= :rf.error/unknown-egress-profile (:rf.error/id da) (:rf.error/id db)))
       (is (rf.error/message-has-id-token? (ex-message a))))))
 

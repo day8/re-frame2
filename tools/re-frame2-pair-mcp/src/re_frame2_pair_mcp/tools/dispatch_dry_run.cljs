@@ -54,8 +54,9 @@
       HTTP request body, a dispatched event vector, a payment map) are
       NOT rooted at app-db, so the schema-path-keyed walker CANNOT
       prove them safe. This is the same leak class as an epoch
-      record's `:effects[*].args`, which `projected-record` already
-      FAILS CLOSED off-box (`elide-effect-row`). Consistency wins
+      record's `:effects[*].args`, which the epoch arm of
+      `project-egress` already FAILS CLOSED off-box
+      (`elide-effect-row`). Consistency wins
       (EP-0015 §13): off-box egress fails closed
       here too — `:args` redacts to `:rf/redacted` for EVERY recorded
       fx BY DEFAULT, while the value-free row structure (`:fx-id`, the
@@ -151,8 +152,8 @@
   HTTP request body, a dispatched event vector, a payment map. These are
   NOT rooted at the frame's app-db, so the schema-path-keyed
   `project-egress` path walk CANNOT prove them safe. This is the same leak
-  class as an epoch record's `:effects[*].args`, which `projected-record`
-  already fails closed off-box (`elide-effect-row`,
+  class as an epoch record's `:effects[*].args`, which the epoch arm of
+  `project-egress` already fails closed off-box (`elide-effect-row`,
   `:include-fx-args? false`). Consistency wins: off-box egress FAILS
   CLOSED here too — `:args` is replaced with the `:rf/redacted` sentinel
   for EVERY recorded fx by default.
@@ -199,7 +200,7 @@
   RAW fx-handler args (HTTP bodies, dispatched event vectors, payment
   maps) that are NOT app-db-rooted, so the walker cannot prove them safe.
   They fail closed via `redact-fx-args-src`, matching
-  `projected-record`'s `:effects[*].args` posture, independently of
+  the epoch projector's `:effects[*].args` posture, independently of
   whether this size-elision walker runs at all.
 
   `:cascade-summary` is a depth-bounded projection (path lists + counts,
@@ -265,7 +266,7 @@
         ;; arguments NOT rooted at app-db, so `project-egress` cannot
         ;; prove them safe (same leak class as an epoch record's
         ;; :effects[*].args). Off-box egress FAILS CLOSED: :args redacts to
-        ;; :rf/redacted by default, matching `projected-record`. The
+        ;; :rf/redacted by default, matching the epoch projector. The
         ;; trusted-local :include-fx-args true opt-in is honoured ONLY under
         ;; --allow-sensitive-reads (same two-key gate as :include-sensitive);
         ;; gate OFF forces the redaction on regardless of the per-call knob.

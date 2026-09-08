@@ -100,10 +100,9 @@
   "Build the canonical `:rf.error/unknown-egress-profile` thrown-error
   (Spec 009 §The thrown-error shape) for a `:rf.egress/profile` value
   outside the closed `profiles` enum. ONE source of truth for BOTH closed-
-  enum guards — the in-file `resolve-elision-opts` guard
-  (`:where 'rf/project-egress`) and the epoch boundary guard
-  (`re-frame.epoch.tool-pair/resolve-egress-profile`,
-  `:where 'epoch/projected-record`) — so the human sentence + the
+  enum guards — the in-file `resolve-elision-opts` guard and the epoch
+  boundary guard (`re-frame.epoch.tool-pair/resolve-egress-profile`), both
+  of which now name `:where 'rf/project-egress` — so the human sentence + the
   `[:rf.error/unknown-egress-profile]` token never drift between the two
   sites (rf2-krrv87). Each caller passes its own `where-sym`; the bad
   `profile` value + the valid `profiles` enum land in ex-data. Routes
@@ -178,14 +177,36 @@
 ;; `:as-of-epoch`) flow through to `elide-wire-value` untouched.
 ;; ---------------------------------------------------------------------------
 
+(def epoch-only-opt-keys
+  "The three per-axis overrides that govern keyspaces only an
+  `:rf/epoch-record` HAS — effect `:args`, the `:rf.db/runtime` frame-state
+  partition, and trigger / trace event args. They are NOT app-db axes, which
+  is why they are spelled bare rather than `:rf.size/*` (rf2-kuky.93 decides
+  the qualified spelling for all six axes at once).
+
+  They live on the DOOR because rf2-bv1p retired `projected-record`, the
+  standalone epoch door that used to own them. A door that retires must not
+  take a capability with it, and the rf2-kuky.9 option-A target opts map
+  names all six axes on this one door.
+
+  They are STRIPPED before `resolve-elision-opts` (see `project-egress`):
+  the walker's map is closed and knows nothing about effects or event args,
+  so forwarding one would throw from the wrong layer."
+  #{:include-fx-args?
+    :include-runtime-db?
+    :include-event-args?})
+
 (def project-egress-opt-keys
   "The CLOSED key set `project-egress` accepts (rf2-kuky.6): the walker's
-  own closed set plus the ONE key this layer owns — `:rf.egress/profile`,
-  which resolves here and never reaches the walker.
+  own closed set, the ONE key this layer owns — `:rf.egress/profile`,
+  which resolves here and never reaches the walker — and the three
+  `epoch-only-opt-keys` the retired `projected-record` door handed over
+  (rf2-bv1p).
 
   Derived from `re-frame.elision/walker-opt-keys` rather than re-spelled,
   so the two doors cannot drift into disagreeing about the vocabulary."
-  (conj rf.elision/walker-opt-keys :rf.egress/profile))
+  (into (conj rf.elision/walker-opt-keys :rf.egress/profile)
+        epoch-only-opt-keys))
 
 (def ^:private size-override-keys
   "The `:rf.size/*` boolean keys a profile resolves but a caller may
@@ -677,7 +698,7 @@
   deliberate way to ship a frameless tree raw.
 
   `opts` is a CLOSED map (`project-egress-opt-keys` — the walker's closed
-  set plus the one key this layer owns):
+  set, the one key this layer owns, and the three `epoch-only-opt-keys`):
 
       {:rf.egress/profile <one of `profiles`>   ;; the named boundary
        :frame             <frame-id>            ;; whose classification applies (override; else the record's own :frame)
@@ -687,7 +708,16 @@
        :rf.size/include-large?     <bool>
        :rf.size/include-digests?   <bool>
        :rf.size/threshold-bytes    <int>        ;; pass-through tuning
-       :as-of-epoch                <epoch-id>}  ;; pass-through
+       :as-of-epoch                <epoch-id>   ;; pass-through
+       :include-fx-args?           <bool>       ;; :rf/epoch-record only — effect :args
+       :include-runtime-db?        <bool>       ;; :rf/epoch-record only — the :rf.db/runtime partition
+       :include-event-args?        <bool>}      ;; :rf/epoch-record only — trigger / trace event args
+
+  The last three are TRUSTED-LOCAL opt-ins over keyspaces only an
+  `:rf/epoch-record` has, so they are meaningful on that kind alone; on
+  every other kind (and on a kindless value) they are accepted and
+  inert, because the tree being walked has no such slots. All three
+  default false — omitted, each stays fail-closed.
 
   Composition (EP-0015 §10): the profile's `:rf.size/*` opt-set is the
   floor; any `:rf.size/*` boolean the caller passes explicitly overlays it
@@ -756,5 +786,11 @@
 
                         :else
                         opts)
-         elision-opts (resolve-elision-opts opts)]
+         ;; The three epoch-only axes never reach the walker: its opts map
+         ;; is CLOSED over app-db axes, and effect args / the runtime-db
+         ;; partition / event args are different keyspaces entirely. The
+         ;; epoch arm reads them off the UNSTRIPPED `opts` below; every
+         ;; other arm walks a tree that has no such slots (rf2-bv1p).
+         elision-opts (resolve-elision-opts
+                        (apply dissoc opts epoch-only-opt-keys))]
      (project-record-by-kind record-or-value opts elision-opts))))

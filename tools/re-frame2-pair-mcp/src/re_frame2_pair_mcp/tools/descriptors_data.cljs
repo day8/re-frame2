@@ -363,7 +363,7 @@
                      "over await-render / trace / queued. "
                      "PRIVACY (rf2-olvr5 / rf2-m9duxl): the epoch-bearing modes (`trace` / `settle`) return a RAW "
                      ":rf/epoch-record and ALWAYS route it through the framework's off-box projection "
-                     "(`re-frame.core/projected-record`) before crossing the wire — declared-`:sensitive?` app-db "
+                     "(`re-frame.core/project-egress`) before crossing the wire — declared-`:sensitive?` app-db "
                      "slots redact to `:rf/redacted` by default. Pass `include-sensitive true` to keep those slots "
                      "verbatim (app-db sensitive axis only; honoured ONLY under `--allow-sensitive-reads`, else "
                      "forced false). The default sync / queued / await-render consequence shapes carry no raw "
@@ -502,7 +502,7 @@
                                                                     "(rf2-olvr5 / rf2-m9duxl). Those modes return a RAW "
                                                                     ":rf/epoch-record (:db-before / :db-after / :trace-events; "
                                                                     ":settle also :render-events) that ALWAYS routes through the "
-                                                                    "framework's off-box projection (re-frame.core/projected-record) "
+                                                                    "framework's off-box projection (re-frame.core/project-egress) "
                                                                     "before crossing the wire, exactly like trace-window / "
                                                                     "watch-epochs. Default false: declared-:sensitive? app-db slots "
                                                                     "in the projected epoch redact to :rf/redacted. Set true to pass "
@@ -550,7 +550,7 @@
                      "launched with --allow-sensitive-reads, otherwise forced safe. :would-fire-effects[*].args "
                      "are RAW fx-handler args (HTTP bodies, dispatched event vectors, payment maps) NOT rooted "
                      "at app-db, so the walker cannot prove them safe — they FAIL CLOSED (rf2-6to9xj, matching "
-                     "epoch projected-record's :effects[*].args): :args redacts to :rf/redacted for EVERY fx "
+                     "the epoch projector's :effects[*].args): :args redacts to :rf/redacted for EVERY fx "
                      "by default, while :fx-id / the effect kind ride through so you still see WHICH effects "
                      "would fire. Opt the raw args back in with :include-fx-args true (honoured ONLY under "
                      "--allow-sensitive-reads; orthogonal to :include-sensitive). :cascade-summary is a "
@@ -603,7 +603,7 @@
                                                                   "bodies, dispatched event vectors, payment maps) through verbatim instead "
                                                                   "of failing closed to :rf/redacted. These are NOT rooted at app-db so the "
                                                                   "elision walker cannot prove them safe; off-box egress fails closed by "
-                                                                  "default (rf2-6to9xj, matching epoch projected-record's :effects[*].args). "
+                                                                  "default (rf2-6to9xj, matching the epoch projector's :effects[*].args). "
                                                                   "Default false. Honoured ONLY when the server was launched with "
                                                                   "--allow-sensitive-reads; otherwise forced false. Orthogonal to "
                                                                   ":include-sensitive (a different keyspace).")}
@@ -775,7 +775,7 @@
                                             :enum ["diff" "full"]}
                               :dedup knobs/dedup-property
                               :include-sensitive {:type "boolean"
-                                                   :description "Opt back in to forwarding `:sensitive? true` items. Default false. Also governs off-box record projection (rf2-6wvh5): default-false routes every egressed epoch through `re-frame.core/projected-record` — declared-sensitive `:db-*`/`:trigger-event`/`:trace-events` slots redact to `:rf/redacted`, declared-large slots elide to `:rf.size/large-elided`. `true` (honoured only when the server was launched with --allow-sensitive-reads) ships the raw records."}
+                                                   :description "Opt back in to forwarding `:sensitive? true` items. Default false. Also governs off-box record projection (rf2-6wvh5): default-false routes every egressed epoch through `re-frame.core/project-egress` — declared-sensitive `:db-*`/`:trigger-event`/`:trace-events` slots redact to `:rf/redacted`, declared-large slots elide to `:rf.size/large-elided`. `true` (honoured only when the server was launched with --allow-sensitive-reads) ships the raw records."}
                               :build {:type "string"}}
                  :additionalProperties false}})
 
@@ -823,7 +823,7 @@
                                             :enum ["diff" "full"]}
                               :dedup    knobs/dedup-property
                               :include-sensitive {:type "boolean"
-                                                   :description "Opt back in to forwarding `:sensitive? true` items. Default false. Also governs off-box record projection (rf2-6wvh5): default-false routes every egressed epoch through `re-frame.core/projected-record` — declared-sensitive `:db-*`/`:trigger-event`/`:trace-events` slots redact to `:rf/redacted`, declared-large slots elide to `:rf.size/large-elided`. `true` (honoured only when the server was launched with --allow-sensitive-reads) ships the raw records."}
+                                                   :description "Opt back in to forwarding `:sensitive? true` items. Default false. Also governs off-box record projection (rf2-6wvh5): default-false routes every egressed epoch through `re-frame.core/project-egress` — declared-sensitive `:db-*`/`:trigger-event`/`:trace-events` slots redact to `:rf/redacted`, declared-large slots elide to `:rf.size/large-elided`. `true` (honoured only when the server was launched with --allow-sensitive-reads) ships the raw records."}
                               :build    {:type "string"}}
                  :additionalProperties false}})
 

@@ -2636,22 +2636,17 @@
   `:epoch/replace-frame-state!`."}
   replace-frame-state!   rf.core-epoch/replace-frame-state!)
 
-;; Per Security.md §Epoch privacy posture and rf2-mrsck — single
-;; normative projection helpers for off-box epoch egress.
-(def ^{:doc "Project an `:rf/epoch-record` for off-box egress — the
-  single normative projection emission site for off-box epoch egress
-  (parallel to the internal `re-frame.elision/elide-wire-value` walker for
-  direct reads). Routes payload
-  slots through wire-elision with off-box defaults; bookkeeping slots
-  pass through unchanged. Tools that egress epoch records across a
-  process boundary (Xray-MCP `watch-epochs`, recorders, forwarders)
-  MUST route through this fn. Per Security.md §Epoch privacy posture
-  (rf2-mrsck). Late-bound via `:epoch/projected-record`.
-
-  The whole ring is ordinary composition:
-
-      (mapv #(projected-record % opts) (epoch-history frame-id))"}
-  projected-record   rf.core-epoch/projected-record)
+;; Per Security.md §Epoch privacy posture and rf2-mrsck — off-box epoch
+;; egress. There is deliberately NO `projected-record` façade export
+;; (retired rf2-bv1p, ruling rf2-kuky.9 option A): `rf/project-egress` is
+;; the ONE record-level egress door, and an `:rf/epoch-record` reaches its
+;; per-kind projector by its stamped `:kind`, not by a second name.
+;;
+;;     (rf/project-egress record {:rf.egress/profile :rf.egress/off-box-tool})
+;;
+;; The whole ring is ordinary composition:
+;;
+;;     (mapv #(rf/project-egress % opts) (epoch-history frame-id))
 
 ;; ---- Spec 014 — :rf.http/managed -----------------------------------------
 ;;
@@ -2738,7 +2733,7 @@
   longer restates its Sentry policy on every `make-frame` call:
 
       (rf/configure! {:observability {:errors [{:sink :app/sentry}]}})
-      (rf/register-observability-sink! :app/sentry (fn [projected-record] …))
+      (rf/register-observability-sink! :app/sentry (fn [record] …))
 
   Precedence is PER STREAM, never whole-map. A frame that DECLARES a stream
   uses its own entries for it; a frame that OMITS the stream inherits the

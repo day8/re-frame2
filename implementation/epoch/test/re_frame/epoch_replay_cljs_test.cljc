@@ -117,7 +117,7 @@
         (is (= {::audit nil} (:interceptor-overrides r)))
         ;; AC2 / AC6 — the arg an off-box consumer would have to copy by hand
         ;; is exactly the one the projection never exposes.
-        (let [projected (:trigger-event (rf/projected-record r))]
+        (let [projected (:trigger-event (rf/project-egress r))]
           (is (= :replay/add (first projected))
               "off-box projection keeps the event id")
           (is (= [:rf/redacted] (vec (rest projected)))

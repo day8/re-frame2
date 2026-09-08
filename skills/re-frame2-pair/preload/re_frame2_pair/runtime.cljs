@@ -1676,8 +1676,8 @@
 
 (defn- redact-sensitive-event-vector
   "Egress guard for the cascade-summary `:event-vector` slot — the
-  fail-closed projection the framework's `projected-record` applies to a
-  record's `:trigger-event` slot (`epoch/tool_pair.cljc`
+  fail-closed projection the framework's `project-egress` applies to an
+  epoch record's `:trigger-event` slot (`epoch/tool_pair.cljc`
   §`elide-trigger-event-slot`), reproduced here
   because the cascade-summary rides OUTSIDE the wire-path projection.
 

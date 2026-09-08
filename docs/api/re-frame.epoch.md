@@ -160,28 +160,27 @@ so it is stated here:
 
 ## Off-box egress projection
 
-Tools that forward epoch records across a process boundary must route through these helpers at the wire boundary. That covers Xray-MCP `watch-epochs`, story / pair recorders, and hosted post-mortem forwarders. The on-box ring buffer and the `register-epoch-listener!` fan-out always deliver the raw record, so on-box devtools (Xray diff, REPL, `restore-epoch!`) can reason about exact state. See [keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md) for the projection model.
+Tools that forward epoch records across a process boundary must project at the wire boundary. That covers Xray-MCP `watch-epochs`, story / pair recorders, and hosted post-mortem forwarders. The on-box ring buffer and the `register-epoch-listener!` fan-out always deliver the raw record, so on-box devtools (Xray diff, REPL, `restore-epoch!`) can reason about exact state. See [keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md) for the projection model.
 
-### `projected-record`
+### The door is `rf/project-egress`
 
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (projected-record record)
-  (projected-record record opts)
-  ```
-- **Description**: Projects an `:rf/epoch-record` for off-box egress. This is the single normative projection emission site for forwarding records across a process boundary. It routes the full-value payload slots (`:frame-state-before`, `:frame-state-after`, `:db-before`, `:db-after`, `:trace-events`) through the record-level egress boundary under a `:rf.egress/profile`. Sensitive paths redact to `:rf/redacted`; large paths elide to `:rf.size/large-elided` markers. The frame-state `:rf.db/runtime` partition, the structured `:effects` `:args`, and the `:trigger-event` / trace-event args all fail closed (redacted) by default. `record` may be `nil` (returns `nil`). The 2-arity threads trusted-local egress `opts`; the 1-arity is the safe, fully-redacted off-box path.
-  - **Profiles** (the primary `:rf.egress/profile` selector — *"which boundary is this?"*):
-    - `:rf.egress/off-box-observability` (DEFAULT) — for hosted monitoring, log shippers, Story, and pair recorders. Redacts sensitive paths, elides large ones, and omits structural digests.
+**`re-frame.epoch` publishes no egress var of its own.** Record-level egress has ONE public door — [`rf/project-egress`](re-frame.core.md#project-egress) — and an epoch record reaches its projector through its stamped `:kind :rf/epoch-record`, not through a second name. The per-kind projector is a late-bind seam (`:epoch/project-record`) inside this artefact and is never public: the door names the *boundary*, `:kind` names the *record kind*. (The former `rf/projected-record` spelling was retired 2026-09-09 under rf2-bv1p, ruling rf2-kuky.9 option A; its three epoch-only opts moved onto the door.)
+
+- **Signature**: `(rf/project-egress record)` / `(rf/project-egress record opts)`.
+- It routes the full-value payload slots (`:frame-state-before`, `:frame-state-after`, `:db-before`, `:db-after`, `:trace-events`) through the record-level egress boundary under a `:rf.egress/profile`. Sensitive paths redact to `:rf/redacted`; large paths elide to `:rf.size/large-elided` markers. The frame-state `:rf.db/runtime` partition, the structured `:effects` `:args`, and the `:trigger-event` / trace-event args all fail closed (redacted) by default. A non-map `record` returns `nil`. The 2-arity threads trusted-local egress `opts`; the 1-arity is the safe, fully-redacted off-box path.
+- **Profiles** (the primary `:rf.egress/profile` selector — *"which boundary is this?"*):
+    - `:rf.egress/off-box-observability` (the epoch arm's DEFAULT) — for hosted monitoring, log shippers, Story, and pair recorders. Redacts sensitive paths, elides large ones, and omits structural digests.
     - `:rf.egress/off-box-tool` — the MCP / AI / tool wire. Same redact/elide defaults, but includes structural marker indicators (`:digest`) so a tool can reason about an elided large slot's shape. An unknown profile is rejected against the closed enum.
-  - The advanced per-call inclusion overrides (`:rf.size/include-sensitive?` / `:rf.size/include-large?` / `:include-runtime-db?` / `:include-fx-args?` / `:include-event-args?`, all default `false`) compose over the selected profile. The two app-db axes take the `:rf.size/*` spelling every egress door reads; the three epoch-local knobs are bare because they are different keyspaces, not app-db axes.
-  - `opts` is a **closed** map — those five plus `:rf.egress/profile`. Any other key throws `:rf.error/bad-egress-opts` naming it, the unqualified `include-sensitive?` / `include-large?` spellings included.
+- The advanced per-call inclusion overrides (`:rf.size/include-sensitive?` / `:rf.size/include-large?` / `:include-runtime-db?` / `:include-fx-args?` / `:include-event-args?`, all default `false`) compose over the selected profile. The two app-db axes take the `:rf.size/*` spelling every egress door reads; the three epoch-only knobs are bare because they are different keyspaces, not app-db axes.
+- `opts` is a **closed** twelve-key map. Any other key throws `:rf.error/bad-egress-opts` naming it, the unqualified `include-sensitive?` / `include-large?` spellings included. With the `day8/re-frame2-epoch` artefact absent, an epoch record handed to the door throws `:rf.error/epoch-artefact-missing` naming the kind rather than being bare-walked.
 
 ```clojure
 ;; Project an epoch record before forwarding it off-box (fully redacted).
-(rf/projected-record (last (rf/epoch-history :app/main)))
+(rf/project-egress (last (rf/epoch-history :app/main)))
 ;; Tool wire — include structural digests for elided slots.
-(rf/projected-record record {:rf.egress/profile :rf.egress/off-box-tool})
+(rf/project-egress record {:rf.egress/profile :rf.egress/off-box-tool})
+;; The whole ring is ordinary composition.
+(mapv #(rf/project-egress % opts) (rf/epoch-history :app/main))
 ```
 
 ## Configuration
@@ -196,7 +195,7 @@ Buffer-depth knobs for the epoch ring are set through the facade, under the `:ep
 
 - `:depth` — non-negative integer; per-frame ring-buffer depth (default 50). `0` disables recording.
 - `:trace-events-keep` — non-negative integer. Caps how many of the most-recent records per frame retain their raw `:trace-events` vector; older records keep only the cheap structured `:sub-runs` / `:renders` / `:effects` projections. Defaults to 50 (matching the default `:depth`) so trace and epoch evict atomically. Pass a smaller value to bound dev-session heap.
-- There is no post-projection scrub hook. A forwarder that wants one composes it: `(-> record (rf/projected-record opts) scrub)`.
+- There is no post-projection scrub hook. A forwarder that wants one composes it: `(-> record (rf/project-egress opts) scrub)`.
 - Invalid `:depth` / `:trace-events-keep` (not a non-negative integer) are silently dropped at the boundary.
 
 ```clojure

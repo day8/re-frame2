@@ -1,5 +1,5 @@
 (ns re-frame.epoch-mcp-egress-conformance-test
-  "MCP-style egress conformance for `projected-record` and the whole-ring
+  "MCP-style egress conformance for `project-egress` and the whole-ring
   composition over it. Any process-boundary forwarder must project raw epoch
   records before egress.
 
@@ -29,9 +29,9 @@
        identity-bearing and the scalar scope shape — and, since rf2-425mm
        landed, an `ensure` of a SESSION-scoped owner, which is the only way an
        identity-bearing scope reaches the fx CARRIERS rather than a family row.
-    2. Run the ring through `projected-record` (per-record forwarder shape,
+    2. Run the ring through `project-egress` (per-record forwarder shape,
        e.g. `register-epoch-listener!` ship!) AND the whole-ring composition
-       `(mapv projected-record (epoch-history fid))` (bulk-egress shape,
+       `(mapv project-egress (epoch-history fid))` (bulk-egress shape,
        e.g. `watch-epochs` initial snapshot).
     3. Assert the off-box egress contract:
          - No raw sensitive bytes anywhere in the projected output (the
@@ -41,14 +41,14 @@
          - Bookkeeping slots (`:epoch-id`, `:frame`, `:committed-at`,
            `:event-id`, `:outcome`, `:halt-reason`, `:schema-digest`,
            `:rf.epoch/sensitive?`) are preserved byte-for-byte.
-         - `projected-record` is pure + idempotent — calling it twice over
+         - `project-egress` is pure + idempotent — calling it twice over
            the same input is structurally identical, so a forwarder that
            accidentally double-projects (e.g. middleware composition)
            does not corrupt the wire shape.
          - Ordering is deterministic (oldest-first), matching the raw
            ring; an MCP `watch-epochs` initial snapshot relies on this
            to set the resume-cursor's `:after-id`.
-         - No side effects: `projected-record` never mutates the
+         - No side effects: `project-egress` never mutates the
            underlying ring, the schemas registry, or the elision registry.
 
   Why this file lives in implementation/epoch/test rather than under an
@@ -522,7 +522,7 @@
     fx-carrier scans return to reporting green over ground they no longer cover.
     Pinning it here is what stops the cascade's LENGTH from being load-bearing;
     the `every? (comp seq :trace-events)` fixture control in
-    `forwarder-projected-record-leaks-no-raw-resource-family-bytes` is what
+    `forwarder-project-egress-leaks-no-raw-resource-family-bytes` is what
     catches the pin itself rotting."
   [frame-id]
   (rf/configure! {:epoch-history {:trace-events-keep 50}})
@@ -863,12 +863,12 @@
        (redacted-token? (second s))))
 
 ;; ============================================================================
-;;  Forwarder-shape conformance — projected-record (per-record egress)
+;;  Forwarder-shape conformance — project-egress (per-record egress)
 ;; ============================================================================
 
-(deftest forwarder-projected-record-leaks-no-raw-secret-bytes
+(deftest forwarder-project-egress-leaks-no-raw-secret-bytes
   (testing "MCP `register-epoch-listener!` forwarder pattern: ship! body runs
-            `projected-record` on each record before egress. The projected
+            `project-egress` on each record before egress. The projected
             shape MUST NOT carry the raw secret string anywhere — the
             promise the MCP wire boundary makes to Security.md §Epoch
             privacy posture (line 104)."
@@ -877,7 +877,7 @@
     (let [shipped (atom [])
           ship!   (fn [record]
                     ;; Tool-side forwarder body — project at egress.
-                    (swap! shipped conj (rf.epoch/projected-record record)))]
+                    (swap! shipped conj (rf/project-egress record)))]
       (rf/register-listener! :epoch ::forwarder ship!)
       (drive-mixed-ring! :test/mcp)
       (is (pos? (count @shipped))
@@ -887,7 +887,7 @@
            in its structure — every leaf at the sensitive path is the
            :rf/redacted scalar sentinel"))))
 
-(deftest forwarder-projected-record-bounds-large-leaf-bytes
+(deftest forwarder-project-egress-bounds-large-leaf-bytes
   (testing "MCP `register-epoch-listener!` forwarder pattern: the projected
             record MUST NOT egress the full large payload as a leaf
             string — the wire-elision walker substitutes a
@@ -916,7 +916,7 @@
     (let [shipped (atom [])]
       (rf/register-listener! :epoch ::forwarder
                              (fn [record]
-                               (swap! shipped conj (rf.epoch/projected-record record))))
+                               (swap! shipped conj (rf/project-egress record))))
       (drive-mixed-ring! :test/mcp)
       (let [raw-leaf-count       (count-leaf-strings-at-least payload-size
                                                               (rf/epoch-history :test/mcp))
@@ -1001,7 +1001,7 @@
           (is (= control-note (:rf.sub/prev-value ctrl-tags))
               "NEGATIVE CONTROL — and its trace tag's previous value"))))))
 
-(deftest forwarder-projected-record-preserves-bookkeeping-slots
+(deftest forwarder-project-egress-preserves-bookkeeping-slots
   (testing "MCP forwarder pattern: the projected record's bookkeeping
             slots are byte-identical to the raw record's. An MCP tool
             uses :epoch-id for the resume cursor, :frame for the scoped
@@ -1012,7 +1012,7 @@
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
     (let [raw       (rf/epoch-history :test/mcp)
-          projected (mapv rf.epoch/projected-record raw)
+          projected (mapv rf/project-egress raw)
           bookkeeping-keys [:epoch-id :frame :committed-at :event-id
                             :outcome :halt-reason :schema-digest
                             :rf.epoch/sensitive?]]
@@ -1020,10 +1020,10 @@
               [r p] (map vector raw projected)]
         (is (= (get r k) (get p k))
             (str "bookkeeping slot " k
-                 " is preserved byte-identically by projected-record"))))))
+                 " is preserved byte-identically by project-egress"))))))
 
-(deftest forwarder-projected-record-is-pure-no-side-effects
-  (testing "MCP forwarder pattern: projected-record is a pure data
+(deftest forwarder-project-egress-is-pure-no-side-effects
+  (testing "MCP forwarder pattern: project-egress is a pure data
             transform — it MUST NOT mutate the underlying ring, the
             schemas registry, or the elision registry. A forwarder
             running on every cascade would compound any side effect."
@@ -1032,20 +1032,20 @@
     (drive-mixed-ring! :test/mcp)
     (let [ring-before        (rf/epoch-history :test/mcp)
           schemas-before     (rf.schemas/snapshot-schemas-by-frame)
-          ;; Hit projected-record many times — a real forwarder might
+          ;; Hit project-egress many times — a real forwarder might
           ;; project the same record multiple times (re-trigger, replay).
           _                  (dotimes [_ 25]
-                               (mapv rf.epoch/projected-record ring-before))
+                               (mapv rf/project-egress ring-before))
           ring-after         (rf/epoch-history :test/mcp)
           schemas-after      (rf.schemas/snapshot-schemas-by-frame)]
       (is (= ring-before ring-after)
-          "the epoch ring is unchanged — projected-record does not mutate")
+          "the epoch ring is unchanged — project-egress does not mutate")
       (is (= schemas-before schemas-after)
           "the schemas registry is unchanged"))))
 
-(deftest forwarder-projected-record-is-sensitive-idempotent
+(deftest forwarder-project-egress-is-sensitive-idempotent
   (testing "MCP forwarder pattern: under :sensitive? substitutions
-            `projected-record` is idempotent — re-projecting an
+            `project-egress` is idempotent — re-projecting an
             already-projected record returns a structurally-equal value
             at the sensitive slot. The :sensitive? sentinel
             (`:rf/redacted`) is a scalar keyword, so the walker has no
@@ -1054,7 +1054,7 @@
             middleware composition, tool-then-watcher fan-out) MUST NOT
             re-leak a sensitive value across passes.
 
-            Sibling test `forwarder-projected-record-is-large-idempotent`
+            Sibling test `forwarder-project-egress-is-large-idempotent`
             pins the parallel guarantee for the :large? marker: the
             wire-elision walker is now marker-aware (per rf2-fq8ep), so
             both the sensitive and large substitutions are uniformly
@@ -1072,9 +1072,9 @@
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
     (let [raw    (rf/epoch-history :test/mcp)
-          once   (mapv rf.epoch/projected-record raw)
-          twice  (mapv rf.epoch/projected-record once)
-          thrice (mapv rf.epoch/projected-record twice)]
+          once   (mapv rf/project-egress raw)
+          twice  (mapv rf/project-egress once)
+          thrice (mapv rf/project-egress twice)]
       ;; Sensitive substitution holds across all three passes.
       (is (every? (fn [r] (= :rf/redacted (get-in r [:db-after :auth :password])))
                   (rest once))
@@ -1093,9 +1093,9 @@
            the MCP forwarder's no-leak guarantee holds even under
            accidental double-projection"))))
 
-(deftest forwarder-projected-record-is-large-idempotent
+(deftest forwarder-project-egress-is-large-idempotent
   (testing "MCP forwarder pattern: under :large? substitutions
-            `projected-record` is idempotent — re-projecting a record
+            `project-egress` is idempotent — re-projecting a record
             whose `:large?`-declared path already carries the
             `:rf.size/large-elided` marker MUST return a structurally-
             equal value at that slot. Per rf2-fq8ep, the wire-elision
@@ -1122,9 +1122,9 @@
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
     (let [raw    (rf/epoch-history :test/mcp)
-          once   (mapv rf.epoch/projected-record raw)
-          twice  (mapv rf.epoch/projected-record once)
-          thrice (mapv rf.epoch/projected-record twice)
+          once   (mapv rf/project-egress raw)
+          twice  (mapv rf/project-egress once)
+          thrice (mapv rf/project-egress twice)
           ;; The :upload cascade is the third one driven (index 2):
           ;; that record is the one whose :db-after carries the large
           ;; payload at the frame-declared `[:blob :payload]` slot.
@@ -1143,12 +1143,12 @@
            sensitive-case guarantee")
       (is (= once twice thrice)
           "across the full record vector, every slot is byte-identical
-           across N>=2 projection passes — projected-record is now
+           across N>=2 projection passes — project-egress is now
            uniformly idempotent under both :sensitive? and :large?
            substitutions"))))
 
-(deftest forwarder-projected-record-handles-mixed-nil-and-real-records
-  (testing "MCP forwarder pattern: projected-record returns nil for nil
+(deftest forwarder-project-egress-handles-mixed-nil-and-real-records
+  (testing "MCP forwarder pattern: project-egress returns nil for nil
             input (a missed-epoch lookup MUST NOT throw); it returns a
             projected map for a real record. A forwarder that mixes
             optional / present records (cursor mid-stream, an epoch-id
@@ -1158,7 +1158,7 @@
     (drive-mixed-ring! :test/mcp)
     (let [raw    (rf/epoch-history :test/mcp)
           mixed  (concat [nil] raw [nil] raw [nil])
-          shaped (mapv rf.epoch/projected-record mixed)]
+          shaped (mapv rf/project-egress mixed)]
       (is (= (count mixed) (count shaped))
           "every input slot produced an output slot")
       (is (= 3 (count (filter nil? shaped)))
@@ -1178,15 +1178,15 @@
 ;; writes and what these deftests pin.
 
 (defn- project-ring
-  "The supported whole-ring egress spelling: map `projected-record` over the
+  "The supported whole-ring egress spelling: map `project-egress` over the
   raw ring. This is exactly what an MCP `watch-epochs` initial snapshot does."
-  ([frame-id] (mapv rf.epoch/projected-record (rf.epoch/epoch-history frame-id)))
+  ([frame-id] (mapv rf/project-egress (rf.epoch/epoch-history frame-id)))
   ([frame-id opts]
-   (mapv #(rf.epoch/projected-record % opts) (rf.epoch/epoch-history frame-id))))
+   (mapv #(rf/project-egress % opts) (rf.epoch/epoch-history frame-id))))
 
 (deftest watch-epochs-whole-ring-projection-leaks-no-raw-bytes
   (testing "MCP `watch-epochs` initial snapshot pattern: the server maps
-            `projected-record` over the ring once to emit the full ring. The
+            `project-egress` over the ring once to emit the full ring. The
             bulk output MUST NOT leak the raw secret OR the raw large
             payload anywhere in its structure — the same per-record
             guarantee, lifted to the bulk surface."
@@ -1252,7 +1252,7 @@
 ;;
 ;; The Pair-MCP epoch-egress tools used to treat the operator's
 ;; `:include-sensitive true` opt-in as a FULL raw epoch bypass — they
-;; disabled `projected-record` wholesale. That conflated the app-db
+;; disabled `project-egress` wholesale. That conflated the app-db
 ;; sensitive axis with EVERY other independent projection axis and shipped
 ;; the raw fx-args payload, the raw runtime-db partition, and an
 ;; un-projected record off-box. The fix routes `:include-sensitive`
@@ -1292,7 +1292,7 @@
                           :fx [[:fxp/login c]]}))
       (rf/dispatch-sync [:do-login creds] {:frame :test/mcp})
       (let [raw      (last (rf/epoch-history :test/mcp))
-            proj     (rf.epoch/projected-record raw {:rf.size/include-sensitive? true})
+            proj     (rf/project-egress raw {:rf.size/include-sensitive? true})
             fx-row   (some #(when (= :fxp/login (:fx-id %)) %) (:effects proj))]
         ;; App-db sensitive axis: REVEALED by include-sensitive.
         (is (= secret-password (get-in proj [:db-after :auth :password]))
@@ -1322,7 +1322,7 @@
                                                  {:state :live})}))
     (rf/dispatch-sync [:seed-both] {:frame :test/mcp})
     (let [raw  (last (rf/epoch-history :test/mcp))
-          proj (rf.epoch/projected-record raw {:rf.size/include-sensitive? true})]
+          proj (rf/project-egress raw {:rf.size/include-sensitive? true})]
       ;; Sanity: the raw record DOES carry a populated runtime-db partition
       ;; (the machine snapshot we wrote, alongside the frame's elision
       ;; registry which also lives in the runtime-db partition).
@@ -1340,7 +1340,7 @@
            include-sensitive alone — runtime-db is orthogonal to the app-db
            sensitive axis")
       ;; And the explicit runtime-db opt DOES lift it (negative control).
-      (let [proj+rt (rf.epoch/projected-record raw {:rf.size/include-sensitive?  true
+      (let [proj+rt (rf/project-egress raw {:rf.size/include-sensitive?  true
                                                  :include-runtime-db? true})]
         (is (not= :rf/redacted (get-in proj+rt [:frame-state-after :rf.db/runtime]))
             "the explicit `:include-runtime-db? true` opt lifts the partition —
@@ -1358,7 +1358,7 @@
                                 :blob {:payload (big-string payload-size)}}}))
     (rf/dispatch-sync [:seed-large] {:frame :test/mcp})
     (let [raw  (last (rf/epoch-history :test/mcp))
-          proj (rf.epoch/projected-record raw {:rf.size/include-sensitive? true})]
+          proj (rf/project-egress raw {:rf.size/include-sensitive? true})]
       ;; Sensitive REVEALED; large STILL elided.
       (is (= secret-password (get-in proj [:db-after :auth :password]))
           "`:rf.size/include-sensitive? true` reveals the app-db sensitive leaf")
@@ -1368,7 +1368,7 @@
       (is (zero? (count-leaf-strings-at-least payload-size proj))
           "no raw large-payload bytes egress under include-sensitive alone")
       ;; Negative control: :rf.size/include-large? true lifts it.
-      (let [proj+lg (rf.epoch/projected-record raw {:rf.size/include-sensitive? true
+      (let [proj+lg (rf/project-egress raw {:rf.size/include-sensitive? true
                                                  :rf.size/include-large?     true})]
         (is (not (rf.elision/marker? (get-in proj+lg [:db-after :blob :payload])))
             "the explicit `:rf.size/include-large? true` opt lifts the large slot —
@@ -1390,7 +1390,7 @@
     (drive-mixed-ring! :test/mcp)
     (let [raw        (rf/epoch-history :test/mcp)
           bulk       (project-ring :test/mcp)
-          per-record (mapv rf.epoch/projected-record raw)]
+          per-record (mapv rf/project-egress raw)]
       ;; The :login cascade is the second one driven; pull both shapes'
       ;; corresponding record and compare leaf-by-leaf.
       (let [login-bulk (nth bulk       1)
@@ -1432,7 +1432,7 @@
 (deftest forwarder-trigger-event-positional-secret-fails-closed
   (testing "rf2-nm611o — an MCP forwarder shipping a record whose dispatched
             event vector carried a secret POSITIONALLY ([:login secret])
-            MUST NOT egress the secret. projected-record fails closed: the
+            MUST NOT egress the secret. project-egress fails closed: the
             head event-id is retained, the positional arg is :rf/redacted."
     (rf/make-frame {:id :test/mcp})
     (install-mcp-style-schemas! :test/mcp)
@@ -1440,7 +1440,7 @@
                            {:db (assoc-in db [:auth :password] pw)}))
     (let [shipped (atom [])]
       (rf/register-listener! :epoch ::forwarder
-                                   (fn [r] (swap! shipped conj (rf.epoch/projected-record r))))
+                                   (fn [r] (swap! shipped conj (rf/project-egress r))))
       (rf/dispatch-sync [:login secret-password] {:frame :test/mcp})
       (is (pos? (count @shipped)) "the forwarder saw the cascade")
       (is (not-any? contains-secret? @shipped)
@@ -1460,7 +1460,7 @@
     (rf/reg-event :auth/login (fn [{:keys [db]} [_ {:keys [password]}]]
                                 {:db (assoc-in db [:auth :password] password)}))
     (rf/dispatch-sync [:auth/login {:password secret-password}] {:frame :test/mcp})
-    (let [proj (rf.epoch/projected-record (last (rf/epoch-history :test/mcp)))]
+    (let [proj (rf/project-egress (last (rf/epoch-history :test/mcp)))]
       (is (= [:auth/login :rf/redacted] (:trigger-event proj)))
       (is (not (contains-secret? (:trigger-event proj)))
           "the map-arg secret is absent from the projected trigger-event"))))
@@ -1478,13 +1478,13 @@
     (rf/dispatch-sync [:login secret-password] {:frame :test/mcp})
     (let [raw (last (rf/epoch-history :test/mcp))]
       ;; include-event-args reveals the args but keeps app-db sensitive redacted.
-      (let [proj (rf.epoch/projected-record raw {:include-event-args? true})]
+      (let [proj (rf/project-egress raw {:include-event-args? true})]
         (is (= [:login secret-password] (:trigger-event proj))
             "`:include-event-args? true` reveals the raw trigger-event args")
         (is (= :rf/redacted (get-in proj [:db-after :auth :password]))
             "the app-db sensitive leaf STAYS redacted — orthogonal axis"))
       ;; include-sensitive reveals the app-db leaf but keeps event args redacted.
-      (let [proj (rf.epoch/projected-record raw {:rf.size/include-sensitive? true})]
+      (let [proj (rf/project-egress raw {:rf.size/include-sensitive? true})]
         (is (= secret-password (get-in proj [:db-after :auth :password]))
             "`:rf.size/include-sensitive? true` reveals the app-db sensitive leaf")
         (is (= [:login :rf/redacted] (:trigger-event proj))
@@ -1501,7 +1501,7 @@
 ;;  satisfied by a blanket strip.
 ;; ============================================================================
 
-(deftest forwarder-projected-record-leaks-no-raw-resource-family-bytes
+(deftest forwarder-project-egress-leaks-no-raw-resource-family-bytes
   (testing "MCP forwarder pattern over the RESOURCE trace family: a record
             carrying the rows a real `ensure` / `release-owner` cascade emitted
             MUST NOT egress a `:sensitive?` owner's resolved scope or canonical
@@ -1517,9 +1517,9 @@
     (let [rows      (drive-resource-family! :test/mcp)
           raw-hist  (rf/epoch-history :test/mcp)
           record    (record-carrying-resource-rows :test/mcp rows)
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           proj-rows (filter resource-family-row? (:trace-events projected))
-          proj-hist (mapv rf.epoch/projected-record raw-hist)]
+          proj-hist (mapv rf/project-egress raw-hist)]
 
       ;; ---- fixture controls: the shape the scans below must be able to see --
       (testing "FIXTURE — the cascade produced real family rows carrying the
@@ -1811,10 +1811,10 @@
       (testing "idempotent under repeated projection — a forwarder that
                 accidentally projects twice (middleware composition,
                 tool-then-watcher fan-out) MUST NOT re-hash the tokens"
-        (is (= projected (rf.epoch/projected-record projected))
+        (is (= projected (rf/project-egress projected))
             "re-projecting an already-projected record is a fixed point")))))
 
-(deftest forwarder-projected-record-keeps-plain-resource-owner-verbatim
+(deftest forwarder-project-egress-keeps-plain-resource-owner-verbatim
   (testing "rf2-isp3i two-sided control — a PLAIN (registered, non-`:sensitive?`,
             non-`:large?`) resource owner's scoped key rides its scope + params
             VERBATIM off-box, in the SAME rows that tokenize the sensitive
@@ -1827,8 +1827,8 @@
     (install-mcp-style-schemas! :test/mcp)
     (install-resource-family! :test/mcp)
     (let [rows      (drive-resource-family! :test/mcp)
-          proj-hist (mapv rf.epoch/projected-record (rf/epoch-history :test/mcp))
-          projected (rf.epoch/projected-record
+          proj-hist (mapv rf/project-egress (rf/epoch-history :test/mcp))
+          projected (rf/project-egress
                       (record-carrying-resource-rows :test/mcp rows))
           proj-rows (filter resource-family-row? (:trace-events projected))
           plain-key [:rf.scope/global plain-resource-id {:slug plain-slug}]

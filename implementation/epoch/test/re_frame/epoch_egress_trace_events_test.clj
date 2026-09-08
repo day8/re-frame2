@@ -28,10 +28,10 @@
   `:rf.event/db` tag is ALSO redacted at EMIT time, so the on-ring trace
   already carries `:rf/redacted` for frame-declared paths. The egress
   re-root is therefore the redaction site for records whose tag was NOT
-  emit-redacted — a raw record fed to `projected-record` directly, or a
+  emit-redacted — a raw record fed to `project-egress` directly, or a
   frame whose declarations were registered after the record was captured —
   plus the idempotency guarantee for already-redacted records. The unit
-  tests below pin the source behaviour by feeding `projected-record` a
+  tests below pin the source behaviour by feeding `project-egress` a
   hand-built record carrying the RAW secret nested in a t1 tag (the
   not-emit-redacted shape); the live tests pin the emit-time redaction +
   end-to-end no-leak + idempotency.
@@ -41,7 +41,7 @@
        `:rf.event/db-pending` emits captured into the epoch record's
        `:trace-events`); the on-ring tag is emit-redacted, and the
        projection keeps it redacted (no leak, idempotent).
-    2. Direct unit test of `projected-record` against a hand-built record
+    2. Direct unit test of `project-egress` against a hand-built record
        whose `:trace-events` carries a t1/t2 event with the RAW sensitive
        leaf — isolates the egress re-root as the redaction site."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -141,14 +141,14 @@
       ;; NOTE: the ring record's :db-before / :db-after ARE raw on-box (the
       ;; privacy posture: ring is raw; off-box egress is the redaction
       ;; boundary). Only the TRACE TAG is emit-redacted, because the trace
-      ;; stream fans out to listeners directly, bypassing projected-record.
+      ;; stream fans out to listeners directly, bypassing project-egress.
       (is (= secret (get-in raw [:db-after :auth :password]))
           ":db-after carries the RAW secret on the ring — on-box records are
            unredacted by design; the trace tag is the lone emit-redacted
            slot (it has a separate, listener-facing fan-out path)"))))
 
 (deftest projection-keeps-db-pending-trace-leaf-redacted-end-to-end
-  (testing "rf2-ta0y7 — projected-record over a live record (whose t1/t2
+  (testing "rf2-ta0y7 — project-egress over a live record (whose t1/t2
             :rf.event/db tag was emit-redacted) keeps the nested sensitive
             leaf :rf/redacted and leaks nothing. The re-root re-walks the
             tag at the app-db root; an already-:rf/redacted scalar passes
@@ -160,7 +160,7 @@
     (rf/dispatch-sync [:login] {:frame :test/eg})
 
     (let [raw       (last (rf/epoch-history :test/eg))
-          projected (rf.epoch/projected-record raw)
+          projected (rf/project-egress raw)
           t-evts    (db-pending-events projected)]
       (is (seq t-evts)
           "the projected record still carries the t1/t2 trace events")
@@ -176,7 +176,7 @@
            :db-after, not nested inside any :trace-events :rf.event/db tag"))))
 
 (deftest whole-ring-projection-redacts-sensitive-leaf-inside-db-pending-trace
-  (testing "rf2-ta0y7 — the bulk-egress composition (mapv projected-record
+  (testing "rf2-ta0y7 — the bulk-egress composition (mapv project-egress
             over epoch-history) applies the same per-event re-root: no
             projected record in the ring leaks the sensitive leaf nested
             inside a t1/t2 trace's :rf.event/db tag"
@@ -187,7 +187,7 @@
     (rf/dispatch-sync [:seed]  {:frame :test/eg})
     (rf/dispatch-sync [:login] {:frame :test/eg})
 
-    (let [snapshot (mapv rf.epoch/projected-record
+    (let [snapshot (mapv rf/project-egress
                          (rf.epoch/epoch-history :test/eg))]
       (is (pos? (count snapshot)))
       (is (not-any? contains-secret? snapshot)
@@ -195,7 +195,7 @@
            including nested inside any :rf.event/db trace tag"))))
 
 ;; ===========================================================================
-;; 2. Direct unit: projected-record over a hand-built record whose
+;; 2. Direct unit: project-egress over a hand-built record whose
 ;;    :trace-events carries a t1/t2 event with a sensitive leaf. Isolates
 ;;    the re-root from whichever traces the live router happens to emit.
 ;; ===========================================================================
@@ -204,7 +204,7 @@
   (testing "rf2-ta0y7 — direct unit: a synthetic record whose :trace-events
             holds a t1/t2 event with the RAW sensitive leaf nested at
             [:tags :rf.event/db :auth :password] (the not-emit-redacted
-            shape) is redacted by projected-record's re-root. This is the
+            shape) is redacted by project-egress's re-root. This is the
             source-behaviour pin: deleting reroot-trace-event-db-slots
             leaves the raw secret nested in the projected trace"
     (rf/make-frame {:id :test/eg})
@@ -215,7 +215,8 @@
           t2-event    {:op-type   :rf.event
                        :operation :rf.event/db-pending-post-flow
                        :tags      {:rf.event/db {:auth {:password secret}}}}
-          record      {:epoch-id      1
+          record      {:kind          :rf/epoch-record
+                       :epoch-id      1
                        :frame         :test/eg
                        :committed-at  0
                        :event-id      :login
@@ -228,7 +229,7 @@
                        :sub-runs      []
                        :renders       []
                        :effects       []}
-          projected   (rf.epoch/projected-record record)
+          projected   (rf/project-egress record)
           [p-t1 p-t2] (:trace-events projected)]
       (is (= :rf/redacted (get-in p-t1 [:tags :rf.event/db :auth :password]))
           "t1 :rf.event/db-pending: nested sensitive leaf re-rooted + redacted")
@@ -251,7 +252,8 @@
           other-event {:op-type   :rf.event
                        :operation :rf.event/db-changed
                        :tags      {:some-other-slot {:auth {:password "scoped-marker"}}}}
-          record      {:epoch-id      2
+          record      {:kind          :rf/epoch-record
+                       :epoch-id      2
                        :frame         :test/eg2
                        :committed-at  0
                        :event-id      :ev
@@ -264,7 +266,7 @@
                        :sub-runs      []
                        :renders       []
                        :effects       []}
-          projected   (rf.epoch/projected-record record)
+          projected   (rf/project-egress record)
           p-other     (first (:trace-events projected))]
       (is (= "scoped-marker" (get-in p-other [:tags :some-other-slot :auth :password]))
           "the non-t1/t2 event's nested value is untouched — the re-root is
@@ -281,7 +283,8 @@
           t1-event  {:op-type   :rf.event
                      :operation :rf.event/db-pending
                      :tags      {:rf.event/db {:blob {:payload payload}}}}
-          record    {:epoch-id      1
+          record    {:kind          :rf/epoch-record
+                     :epoch-id      1
                      :frame         :test/eg
                      :committed-at  0
                      :event-id      :upload
@@ -294,7 +297,7 @@
                      :sub-runs      []
                      :renders       []
                      :effects       []}
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           p-t1      (first (:trace-events projected))
           leaf      (get-in p-t1 [:tags :rf.event/db :blob :payload])]
       (is (rf.elision/marker? leaf)
@@ -314,7 +317,8 @@
     (rf/make-frame {:id :test/eg})
     (install-sensitive-schema! :test/eg)
     (let [no-db-tag {:op-type :rf.event :operation :rf.event/db-pending :tags {}}
-          record    {:epoch-id      1
+          record    {:kind          :rf/epoch-record
+                     :epoch-id      1
                      :frame         :test/eg
                      :committed-at  0
                      :event-id      :ev
@@ -328,7 +332,7 @@
                      :sub-runs      []
                      :renders       []
                      :effects       []}
-          projected (rf.epoch/projected-record record)]
+          projected (rf/project-egress record)]
       (is (some? projected) "projection did not throw on the edge shapes")
       (is (= {} (get-in (first (:trace-events projected)) [:tags]))
           "the t1 event lacking :rf.event/db passes through with empty tags")
@@ -339,7 +343,8 @@
   (testing "rf2-ta0y7 — when the whole :trace-events slot is already the
             scalar :rf/redacted sentinel, the re-root returns it untouched
             (no descent into a non-vector)"
-    (let [record    {:epoch-id      1
+    (let [record    {:kind          :rf/epoch-record
+                     :epoch-id      1
                      :frame         :test/eg
                      :committed-at  0
                      :event-id      :ev
@@ -352,7 +357,7 @@
                      :sub-runs      []
                      :renders       []
                      :effects       []}
-          projected (rf.epoch/projected-record record)]
+          projected (rf/project-egress record)]
       (is (= :rf/redacted (:trace-events projected))
           "scalar-sentinel :trace-events passes through the re-root chain"))))
 
@@ -367,8 +372,8 @@
     (rf/dispatch-sync [:login] {:frame :test/eg})
 
     (let [raw    (last (rf/epoch-history :test/eg))
-          once   (rf.epoch/projected-record raw)
-          twice  (rf.epoch/projected-record once)]
+          once   (rf/project-egress raw)
+          twice  (rf/project-egress once)]
       (is (= once twice)
           "second projection pass is a no-op — the re-rooted :rf.event/db
            leaves are already :rf/redacted")
@@ -404,7 +409,8 @@
   trace event with the decoded body at `body-slot` and the given off-box
   disposition stamp."
   [frame-id operation body-slot body disposition]
-  {:epoch-id      1
+  {:kind          :rf/epoch-record
+   :epoch-id      1
    :frame         frame-id
    :committed-at  0
    :event-id      :http/done
@@ -428,7 +434,7 @@
     (rf/make-frame {:id :test/http})
     (let [record    (http-record :test/http :rf.http/replied :value
                                   {:token http-body-secret :user-id 42} :omit)
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           ev        (first (:trace-events projected))]
       (is (= :rf/redacted (get-in ev [:tags :value]))
           "the unschematized body slot is omitted off-box (fail-closed)")
@@ -441,7 +447,7 @@
     (rf/make-frame {:id :test/http})
     (let [record    (http-record :test/http :rf.http/accept-failure :decoded
                                   {:token http-body-secret} :omit)
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           ev        (first (:trace-events projected))]
       (is (= :rf/redacted (get-in ev [:tags :decoded]))
           "the unschematized :decoded body slot is omitted off-box"))))
@@ -457,7 +463,7 @@
     (let [classified {:token :rf/redacted :user-id 42}
           record     (http-record :test/http :rf.http/replied :value
                                    classified :classify)
-          projected  (rf.epoch/projected-record record)
+          projected  (rf/project-egress record)
           ev         (first (:trace-events projected))]
       (is (= classified (get-in ev [:tags :value]))
           "the classified schema body rides off-box untouched (sensitive
@@ -470,7 +476,7 @@
     (rf/make-frame {:id :test/http})
     (let [body      {:token http-body-secret :user-id 42}
           record    (http-record :test/http :rf.http/replied :value body :omit)
-          projected (rf.epoch/projected-record record {:rf.size/include-sensitive? true})
+          projected (rf/project-egress record {:rf.size/include-sensitive? true})
           ev        (first (:trace-events projected))]
       (is (= body (get-in ev [:tags :value]))
           "with :rf.size/include-sensitive? true the body is NOT omitted (lifted)"))))
@@ -486,7 +492,7 @@
           ev     (first (:trace-events record))]
       (is (= body (get-in ev [:tags :value]))
           "the hand-built ring record carries the raw body (no projection ran)
-           — projected-record is the boundary, the ring stays raw"))))
+           — project-egress is the boundary, the ring stays raw"))))
 
 (deftest off-box-passes-through-http-events-without-stamp
   (testing "rf2-t55hxg.6 — an :rf.http/replied event with NO :rf.http/off-box-body
@@ -495,7 +501,7 @@
     (rf/make-frame {:id :test/http})
     (let [body      {:k "v"}
           record    (http-record :test/http :rf.http/replied :value body nil)
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           ev        (first (:trace-events projected))]
       (is (= body (get-in ev [:tags :value]))
           "no stamp ⇒ no omission (the projector only omits an explicit :omit)"))))
@@ -518,7 +524,7 @@
     (rf/make-frame {:id :test/http})
     (let [record    (http-record :test/http :rf.http/http-5xx :body
                                   (str "error echoing " http-body-secret) :omit)
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           ev        (first (:trace-events projected))]
       (is (= :rf/redacted (get-in ev [:tags :body]))
           "the raw 5xx body slot is omitted off-box (fail-closed)")
@@ -530,7 +536,7 @@
     (rf/make-frame {:id :test/http})
     (let [record    (http-record :test/http :rf.http/http-4xx :body
                                   (str "forbidden " http-body-secret) :omit)
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           ev        (first (:trace-events projected))]
       (is (= :rf/redacted (get-in ev [:tags :body])))
       (is (not (contains-http-secret? projected))))))
@@ -541,7 +547,7 @@
     (rf/make-frame {:id :test/http})
     (let [record    (http-record :test/http :rf.http/decode-failure :body-text
                                   (str "not-json " http-body-secret) :omit)
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           ev        (first (:trace-events projected))]
       (is (= :rf/redacted (get-in ev [:tags :body-text]))
           "the raw decode-failure body-text is omitted off-box")
@@ -552,7 +558,8 @@
             failure's raw body at [:failure :body]; stamped :omit it is omitted
             off-box (a retry-eligible 4xx/5xx echoing a token)"
     (rf/make-frame {:id :test/http})
-    (let [record    {:epoch-id      1
+    (let [record    {:kind          :rf/epoch-record
+                     :epoch-id      1
                      :frame         :test/http
                      :committed-at  0
                      :event-id      :http/retry
@@ -572,7 +579,7 @@
                      :sub-runs      []
                      :renders       []
                      :effects       []}
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           ev        (first (:trace-events projected))]
       (is (= :rf/redacted (get-in ev [:tags :failure :body]))
           "the nested intermediate-failure raw body is omitted off-box")
@@ -587,7 +594,7 @@
     (rf/make-frame {:id :test/http})
     (let [body      (str "raw error " http-body-secret)
           record    (http-record :test/http :rf.http/http-5xx :body body :omit)
-          projected (rf.epoch/projected-record record {:rf.size/include-sensitive? true})
+          projected (rf/project-egress record {:rf.size/include-sensitive? true})
           ev        (first (:trace-events projected))]
       (is (= body (get-in ev [:tags :body]))
           "with :rf.size/include-sensitive? true the raw error body is NOT omitted"))))
@@ -602,10 +609,10 @@
           ev     (first (:trace-events record))]
       (is (= body (get-in ev [:tags :body]))
           "the hand-built ring record carries the raw error body (no projection
-           ran) — projected-record is the boundary, the ring stays raw"))))
+           ran) — project-egress is the boundary, the ring stays raw"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-92uvq — COLD gate-false seam. `projected-record` is a PURE off-box
+;; rf2-92uvq — COLD gate-false seam. `project-egress` is a PURE off-box
 ;; projection transform callable even when `interop/debug-enabled?` is false
 ;; (a JVM SSR process booted with RE_FRAME_DEBUG=false, or an already-held /
 ;; synthetic record — the gate elides record ASSEMBLY, not PROJECTION). Its
@@ -618,7 +625,7 @@
 ;; already full. This test reproduces a genuine cold process-start by
 ;; RE-LOADING tool-pair with the gate redefed false — recomputing the
 ;; body-slot table under the false gate exactly as a prod JVM boot would — and
-;; confirms public projected-record still omits every production-real stamped
+;; confirms public project-egress still omits every production-real stamped
 ;; HTTP body. Red-before: the wholly-gated table folded to nil, so
 ;; `omit-off-box-http-bodies` found no slot path and passed the raw body
 ;; through. After: the five production rows are unconditional, so it fails
@@ -634,7 +641,7 @@
     (try
       ;; Recompute the tool-pair defs (incl. the HTTP body-slot table) with
       ;; the debug gate false — a cold process-start reproduction. Existing
-      ;; tests never reach this: their table loaded gate-true. projected-record
+      ;; tests never reach this: their table loaded gate-true. project-egress
       ;; is a pure transform (it never consults the gate), so it runs after.
       (with-redefs [rf.interop/debug-enabled? false]
         (require 're-frame.epoch.tool-pair :reload))
@@ -646,7 +653,7 @@
                                      [:rf.http/decode-failure :body-text]]]
         (let [record    (http-record :test/http operation body-slot
                                      {:token http-body-secret :user-id 7} :omit)
-              projected (rf.epoch/projected-record record)
+              projected (rf/project-egress record)
               ev        (first (:trace-events projected))]
           (is (= :rf/redacted (get-in ev [:tags body-slot]))
               (str "cold gate-false: " operation " body slot " body-slot

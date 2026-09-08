@@ -63,7 +63,7 @@
 ;; second public spelling, and the manifest says so in one of two ways:
 ;;
 ;;   * The vars the facade re-exports under the SAME name — `epoch-history`,
-;;     `epoch-silence-current?`, `projected-record`,
+;;     `epoch-silence-current?`,
 ;;     `replace-frame-state!`, `replay-epoch!`, `restore-epoch!` — carry
 ;;     `^:no-doc` and are NOT rowed here (spec/API.md §Not-rowed internal
 ;;     carve-outs). The `re-frame.core` row carries the classification alone,
@@ -112,7 +112,7 @@
                         (e.g. 5) to bound dev-session heap more aggressively.
 
   There is no post-projection scrub hook. An app that needs one composes it
-  at the forwarder / sink: `(-> r (projected-record opts) scrub)`.
+  at the forwarder / sink: `(-> r (rf.projection/project-egress opts) scrub)`.
 
   Invalid `:depth` / `:trace-events-keep` (not a non-negative integer) are
   silently dropped at the boundary.
@@ -722,43 +722,6 @@
 
 ;; ---- projected egress -----------------------------------------------------
 
-(defn ^:no-doc projected-record
-  "Project an `:rf/epoch-record` for off-box egress.
-
-  This is the required boundary for forwarding records across a process,
-  logging, or tool wire. The in-process ring and listeners remain raw so
-  restore and local inspection retain exact state.
-
-  App-db-rooted slots are projected under the selected closed
-  `:rf.egress/profile`. Sensitive values become `:rf/redacted`; large values
-  become `:rf.size/large-elided` markers. Whole-frame slots project their
-  app-db partition and redact runtime-db by default.
-
-  Payloads that are not app-db-rooted fail closed independently:
-
-    - trigger and trace-event arguments retain only the event id;
-    - effect `:args` are redacted;
-    - sub-run values respect sensitive and large classification;
-    - unschematized HTTP bodies and resource-owned identities are redacted by
-      their dedicated projectors.
-
-  The default profile is `:rf.egress/off-box-observability`. MCP and AI tools
-  use `:rf.egress/off-box-tool`, which also includes structural marker
-  digests. Advanced trusted-local overrides are `:rf.size/include-sensitive?`,
-  `:rf.size/include-large?`, `:include-runtime-db?`, `:include-fx-args?`, and
-  `:include-event-args?`; each lifts only its own boundary.
-
-  `opts` is a CLOSED map: those five plus `:rf.egress/profile`, and nothing
-  else. An unrecognised key throws `:rf.error/bad-egress-opts` naming it —
-  including the two shared axes' UNQUALIFIED spellings, which is what this
-  door used to read and every other door did not (rf2-kuky.6). The two
-  shared axes are `:rf.size/*`, the one egress vocabulary; the three
-  epoch-local knobs stay bare because they are not app-db axes at all.
-
-  The 1-arity uses safe defaults. Nil input returns nil."
-  ([record] (rf.epoch.tool-pair/projected-record record))
-  ([record opts] (rf.epoch.tool-pair/projected-record record opts)))
-
 (defn ^:no-doc project-record
   "The per-kind projector `re-frame.projection/project-egress` dispatches a
   `:kind :rf/epoch-record` record to (rf2-kuky.92). Published under the
@@ -910,11 +873,8 @@
    :epoch/clear-epoch-listeners!     clear-epoch-listeners!
 
    ;; ---- off-box egress projection ---------------------------------
-   ;; TWO doors during the rf2-kuky.92 / rf2-bv1p strangler. The arm below
-   ;; is the one `rf/project-egress` dispatches a `:kind :rf/epoch-record`
-   ;; record to; `:epoch/projected-record` is the standalone door
-   ;; `rf/projected-record` still wraps and retires under rf2-bv1p. Both
-   ;; project through the SAME engine (`tool-pair/project-record-slots`),
-   ;; so they cannot drift apart while they coexist.
-   :epoch/projected-record    projected-record
+   ;; ONE door (rf2-bv1p, ruling rf2-kuky.9 option A). `rf/project-egress`
+   ;; dispatches a `:kind :rf/epoch-record` record to this per-kind
+   ;; projector; the standalone `projected-record` spelling it used to sit
+   ;; beside is retired, so there is no second name to drift against.
    :epoch/project-record      project-record})

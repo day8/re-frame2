@@ -12,8 +12,9 @@
   Every walker in the path is set-aware: `summary/tree-summary` and
   `source-uri/decorate` carry explicit `set?` branches; `de-dupe-eq`
   routes a set through its generic `(coll? form)` arm, not the
-  map-entry arm; the framework's server-side `project-egress` /
-  `projected-record` likewise branch on `set?`. These tests PIN that
+  map-entry arm; the framework's server-side `project-egress` — both
+  its bare-value arm and its epoch-record arm — likewise branches on
+  `set?`. These tests PIN that
   set-safety as an enforced invariant across the FULL client-side
   pipeline — both tools, both the summary and the diff/dedup epoch
   paths — so a refactor that drops a `set?` branch from any walker

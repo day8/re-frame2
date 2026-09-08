@@ -29,7 +29,7 @@
        (the spec/009 §Privacy / Security.md §Epoch privacy rollup, the
        qualified key the runtime epoch assembler writes once at
        record-assembly time — see
-       `re-frame.epoch.assembly` and the `projected-record` egress
+       `re-frame.epoch.assembly` and the `project-egress` epoch
        projection, which preserves the key verbatim). The rollup is
        classified through the SHARED fail-closed
        `re-frame.mcp-base.sensitive/sensitive-stamp?` so a malformed

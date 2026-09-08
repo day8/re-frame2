@@ -205,7 +205,7 @@
 ;; epoch assembler computes a record-level `:rf.epoch/sensitive?` rollup at
 ;; record-assembly time (the "epoch is sensitive iff any constituent trace
 ;; event is sensitive OR a schema-declared sensitive app-db path resolves"
-;; rule). `projected-record` preserves that QUALIFIED key verbatim through
+;; rule). `project-egress` preserves that QUALIFIED key verbatim through
 ;; off-box projection. This forwarder-side guard reads the
 ;; `:rf.epoch/sensitive?` key — the runtime never writes the UNqualified
 ;; `:sensitive?` on a record, so reading the unqualified key would leak

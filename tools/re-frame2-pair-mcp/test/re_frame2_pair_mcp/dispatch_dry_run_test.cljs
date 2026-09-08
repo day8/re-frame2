@@ -436,7 +436,7 @@
 ;; args are RAW fx-handler arguments (HTTP bodies, dispatched event
 ;; vectors, payment maps) NOT rooted at app-db, so the schema-path
 ;; `elide-wire-value` walker cannot prove them safe — the same leak class
-;; as an epoch record's :effects[*].args, which projected-record fails
+;; as an epoch record's :effects[*].args, which project-egress fails
 ;; closed. The dry-run egress MUST fail closed too: the emitted form
 ;; assoc's :rf/redacted onto every :would-fire-effects row's :args BY
 ;; DEFAULT (independently of the size-elision walker), and the trusted-

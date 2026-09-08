@@ -464,7 +464,7 @@
   stamp, however, only marks largeness on the trace tag and leaves the raw
   value intact (the on-box ring must keep the exact value for Xray diff /
   REPL / `restore-epoch!`). We thread that tag onto the row as `:large?` so
-  the off-box `projected-record` egress boundary can substitute the
+  the off-box `rf/project-egress` boundary can substitute the
   `:rf.size/large-elided` marker for `:value` / `:prev-value` under the
   `:rf.size/include-large? false` default. Threaded `cond->` (absent, not false,
   when the sub's output is not large) — parity with the trace tag's

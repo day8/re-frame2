@@ -262,7 +262,7 @@ app's state, so all of them honour the same gate:
 - Pull-mode epoch reads — `trace-window`, `watch-epochs`, and
   `dispatch`'s epoch-bearing `:trace` / `:settle` modes (rf2-olvr5 /
   rf2-m9duxl): the raw `:rf/epoch-record` routes through
-  `re-frame.core/projected-record`, whose app-db sensitive axis the
+  `re-frame.core/project-egress`, whose app-db sensitive axis the
   per-call `:include-sensitive` governs. (These have no `:elision` knob —
   they egress whole records, not per-slot values.)
 - Signal recorders — `record` / `read-recording` and `watch-until`

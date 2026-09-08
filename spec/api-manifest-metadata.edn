@@ -1424,20 +1424,21 @@
   ;; re-frame.trace.projection section below.
   ;; Epoch history re-exports (canonical home: re-frame.epoch) — §Tool-Pair.
   ;;
-  ;; WHY THE SIX EPOCH JUSTIFICATIONS BELOW READ DIFFERENTLY FROM THEIR 31
+  ;; WHY THE FIVE EPOCH JUSTIFICATIONS BELOW READ DIFFERENTLY FROM THEIR 31
   ;; optional-artefact siblings above (rf2-2hpxo, post-merge audit of PR
   ;; #9187). Epoch is the ONE optional artefact whose facade wrappers do NOT
   ;; raise `:rf.error/<feature>-artefact-missing` when the artefact is absent:
   ;; `core_epoch.cljc` gives `epoch-history` `:on-absent :empty-vec`,
   ;; `restore-epoch!` / `replay-epoch!` /
-  ;; `epoch-silence-current?` `:on-absent :false`, and `projected-record`
-  ;; `:on-absent :nil`. Only the WRITE surface `replace-frame-state!` carries
+  ;; `epoch-silence-current?` `:on-absent :false`. (The sixth, the
+  ;; `:on-absent :nil` `projected-record`, retired under rf2-bv1p.)
+  ;; Only the WRITE surface `replace-frame-state!` carries
   ;; `:on-absent :throw`, because a silent no-op would lie about its caller's
   ;; "undo works after this call" invariant. The split is normative in three
   ;; places — Tool-Pair §Time-travel "Artefact home", the
   ;; `:rf.error/epoch-artefact-missing` row of the Spec 009 error catalogue,
   ;; and Conventions §Adapter shipping convention "Dependency direction" — so
-  ;; the five read-shaped rows justify their `:keep` on the silent-degrade /
+  ;; the four read-shaped rows justify their `:keep` on the silent-degrade /
   ;; release-DCE seam rather than on a guided exception they do not throw.
   ["re-frame.core" "epoch-history"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"
                                                  :action :keep
@@ -1484,9 +1485,17 @@
   ;; registered through the single stream-parameterized verb,
   ;; `(rf/register-listener! :epoch id f)`, like :trace.
   ;; The wrappers remain in re-frame.epoch (rowed below, canonical home).
-  ["re-frame.core" "projected-record"]           {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"
-                                                 :action :keep
-                                                 :justification "Facade re-export, optional artefact (Conventions Optional-artefact wrapper convention) -- but epoch is that convention's SILENT-DEGRADE exception, not its raising case. core_epoch.cljc gives this wrapper :on-absent :nil, so an absent day8/re-frame2-epoch artefact no-ops returning nil rather than raising; only the write surface replace-frame-state! raises :rf.error/epoch-artefact-missing (Tool-Pair Time-travel Artefact home; the 009 :rf.error/epoch-artefact-missing catalogue row; Conventions Adapter shipping convention Dependency direction). That degrade is only expressible from the ALWAYS-LOADED facade: moving the export to re-frame.epoch would turn a leftover dev-time call site into a hard require failure in a release build that omits the artefact, and would pull the artefact onto the production classpath against Conventions Bundle-isolation conformance. The surface is dev-tier, gated on interop/debug-enabled? and elided by Closure DCE under :advanced + goog.DEBUG=false (Tool-Pair Time-travel Production elision), so the facade row IS the optional-capability and release-DCE seam, not a convenience alias. The record projection of the same Tool-Pair epoch surface."}
+  ;; rf2-bv1p (ruling rf2-kuky.9 option A): the "projected-record" facade
+  ;; re-export is RETIRED, and with it re-frame.core-epoch/projected-record,
+  ;; re-frame.epoch/projected-record and the :epoch/projected-record
+  ;; late-bind hook. An :rf/epoch-record now reaches its projector through
+  ;; the ONE door, project-egress, by its stamped :kind -- so record-level
+  ;; egress has one public name and the epoch slot knowledge sits behind it,
+  ;; which is what "the door names the BOUNDARY, not a record kind" already
+  ;; said. The three trusted-local axes that door owned
+  ;; (:include-fx-args? / :include-runtime-db? / :include-event-args?) moved
+  ;; onto project-egress-opt-keys rather than retiring with it; rf2-kuky.93
+  ;; renames all six axes together.
   ;; rf2-kuky.90 (ruling rf2-kuky.9 option A): the "elide-wire-value" facade
   ;; re-export is RETIRED -- the path walker is a framework-internal mechanism
   ;; behind the project-egress door, public only at its re-frame.elision home.
@@ -1792,7 +1801,7 @@
   ;; TIERING RULE APPLIED HERE, stated so the next reader is not guessing.
   ;;   (a) Where a `re-frame.core` facade row already exists, the home-ns row
   ;;       carries the SAME classification. Precedent: `epoch-history` /
-  ;;       `projected-record` / `restore-epoch!` are `:tooling` on BOTH
+  ;;       `replay-epoch!` / `restore-epoch!` are `:tooling` on BOTH
   ;;       `re-frame.core` and `re-frame.epoch`. One capability, one tier — the
   ;;       manifest must not classify the same var `:advanced` through the
   ;;       facade door and something else through its home door. All fifteen
@@ -2036,8 +2045,8 @@
   ;; ring through the facade 46:0. The namespace therefore rows only what
   ;; the facade does NOT already name:
   ;;
-  ;;   * SIX vars the facade re-exports under the SAME name —
-  ;;     epoch-history, epoch-silence-current?, projected-record,
+  ;;   * FIVE vars the facade re-exports under the SAME name —
+  ;;     epoch-history, epoch-silence-current?,
   ;;     replace-frame-state!, replay-epoch!,
   ;;     restore-epoch! — are `^:no-doc` in epoch.cljc and therefore NOT
   ;;     rowed here at all (spec/API.md §Not-rowed internal carve-outs).

@@ -586,7 +586,7 @@
                                 ;; Production post-settle path: the back-fill
                                 ;; stores the RAW delta — no redact arg
                                 ;; (redaction is projection-side, in
-                                ;; `projected-record`).
+                                ;; `project-egress`).
                                 (rf.epoch.state/back-fill-sub-run!
                                   frame-id epoch-id
                                   (sub-run-event frame-id sid i)

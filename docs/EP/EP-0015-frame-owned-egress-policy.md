@@ -893,10 +893,20 @@ this repo's own tests: no application, tool, skill or example ever called
 `configure!` key. Deleted along with `re-frame.epoch.assembly/apply-redact-fn`,
 its `epoch/state` config slot and validation arm, and the
 `:rf.warning/epoch-redact-fn-exception` catalogue row. A forwarder that wants
-an extra scrub now writes `(-> r (rf/projected-record opts) scrub)` at the
+an extra scrub now writes `(-> r (rf/project-egress opts) scrub)` at the
 sink, where its own error handling sees a throw. The section above is left
 standing as the design record that led here; it is history, not current
 contract.
+
+> **Spelling update 2026-09-09 (rf2-bv1p, ruling rf2-kuky.9 option A).** The
+> call above originally read `rf/projected-record`. That standalone epoch
+> egress door is retired: record-level egress has ONE public door,
+> `rf/project-egress`, and an epoch record reaches its projector by its
+> stamped `:kind :rf/epoch-record` rather than by a second name. The three
+> epoch-only opts (`:include-fx-args?` / `:include-runtime-db?` /
+> `:include-event-args?`) moved onto that door, so nothing is stranded. This
+> EP's §10/§11 `project-egress` model is unchanged by the move — it is what
+> the surviving door already was.
 
 ### 16. Derived Sensitivity
 

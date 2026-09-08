@@ -205,7 +205,7 @@
   shape is built in ONE place.
 
   Public because the off-box epoch egress projector
-  (`re-frame.epoch.tool-pair/projected-record`) reuses it to substitute the
+  (`re-frame.epoch.tool-pair/project-record`) reuses it to substitute the
   marker for a whole-output `:large?`-stamped sub's `:value` / `:prev-value`."
   [v path]
   (rf.elision/->marker v path {:reason :classification}))

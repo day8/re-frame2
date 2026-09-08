@@ -67,7 +67,8 @@
    ;; vectors, payment maps). They are NOT rooted at the frame's app-db,
    ;; so the schema-path-keyed `project-egress` walker cannot prove them
    ;; safe — the same leak class as an epoch record's :effects[].args,
-   ;; which `projected-record` fails closed (EP-0015 §13). Off-box
+   ;; which the epoch arm of `project-egress` fails closed
+   ;; (EP-0015 §13). Off-box
    ;; egress therefore FAILS CLOSED: :args redacts to :rf/redacted by
    ;; default. This knob is the trusted-local opt-in that keeps the raw
    ;; args, honoured only under --allow-sensitive-reads (same gate as

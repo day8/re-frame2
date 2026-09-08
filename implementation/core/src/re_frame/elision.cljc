@@ -1118,8 +1118,8 @@
 (defn bad-egress-opts-ex
   "Build the `:rf.error/bad-egress-opts` `ex-info` for a CLOSED egress-opts
   map that carried `unknown` keys. Shared by every closed egress door
-  (`elide-wire-value` here, `rf/project-egress` in `re-frame.projection`,
-  the epoch `projected-record` boundary) so the wording and the
+  (`elide-wire-value` here and `rf/project-egress` in
+  `re-frame.projection`) so the wording and the
   machine-readable token cannot drift; each passes its own `where-sym` and
   its own `accepted` set, because the sets differ by exactly the keys the
   door itself owns.

@@ -1,12 +1,12 @@
 (ns re-frame.core-epoch-egress-profile-test
-  "rf2-ylvp4m — the CORE epoch projection WRAPPER (`rf/projected-record`,
+  "rf2-ylvp4m — the CORE epoch projection WRAPPER (`rf/project-egress`,
   `re-frame.core-epoch`) honors the EP-0015 §10 named
   `:rf.egress/profile` boundary selector, not just the legacy unqualified
   `:include-*` opts.
 
   The epoch artefact (`re-frame.epoch.tool-pair`) already implements the
   EP-0015 model (rf2-1afn7q); this suite pins it END-TO-END THROUGH THE CORE
-  FACADE WRAPPER — `rf/projected-record` is the public surface consumers reach
+  FACADE WRAPPER — `rf/project-egress` is the public surface consumers reach
   for, and the bead's finding was that the wrapper's documented vocabulary
   lagged the EP. The test drives the named selector through the wrapper and
   asserts the profile is honored (the off-box-tool boundary adds the structural
@@ -27,7 +27,7 @@
   stream and `epoch.capture/observe-trace-event!` opens with
   `(when rf.interop/debug-enabled? ...)`, so under
   `scripts/test-core-prod-gate.sh` `rf/epoch-history` is empty by construction.
-  The PROJECTION under test is a different animal: `projected-record` is a pure
+  The PROJECTION under test is a different animal: `project-egress` is a pure
   function of a record map plus the frame's DURABLE elision registry, and both
   of those exist in production.
 
@@ -80,7 +80,15 @@
   durable elision registry, so driving it directly exercises the same wrapper
   code path in BOTH postures."
   [frame-id payload]
-  {:frame     frame-id
+  ;; rf2-kuky.92 / rf2-bv1p — the `:kind` DISCRIMINATOR is what makes
+  ;; `project-egress` dispatch this to the epoch ARM instead of walking it as
+  ;; a kindless tree. It is load-bearing HERE rather than decorative: a bare
+  ;; walk starts at `:path []`, so the frame's `[:blob :payload]` large
+  ;; declaration cannot match `[:db-after :blob :payload]` and the 50KB
+  ;; payload egresses RAW. That is precisely the fail-open guard G1 exists to
+  ;; close, and an unstamped fixture here would assert it away.
+  {:kind      :rf/epoch-record
+   :frame     frame-id
    :db-before {:blob {:payload nil}}
    :db-after  {:blob {:payload payload}}})
 
@@ -96,8 +104,8 @@
 ;; rf2-ylvp4m — the CORE wrapper honors :rf.egress/profile.
 ;; ---------------------------------------------------------------------------
 
-(deftest core-projected-record-honors-egress-profile
-  (testing "rf2-ylvp4m — `rf/projected-record` (the core facade wrapper)
+(deftest core-project-egress-honors-egress-profile
+  (testing "rf2-ylvp4m — `rf/project-egress` (the core facade wrapper)
             honors the named EP-0015 §10 :rf.egress/profile selector: the
             :rf.egress/off-box-tool boundary adds the structural :digest a tool
             consumer needs, while the default :rf.egress/off-box-observability
@@ -112,17 +120,17 @@
     ;; ---- ALWAYS-ON (rf2-d2841): the profile selector, driven on a record
     ;;      whose existence does not depend on the dev trace stream.
     (let [synth        (synthetic-record :ep/main (big-string 50000))
-          default-body (large-marker-body (rf/projected-record synth))
+          default-body (large-marker-body (rf/project-egress synth))
           obs-body     (large-marker-body
-                         (rf/projected-record
+                         (rf/project-egress
                            synth {:rf.egress/profile :rf.egress/off-box-observability}))
           tool-body    (large-marker-body
-                         (rf/projected-record
+                         (rf/project-egress
                            synth {:rf.egress/profile :rf.egress/off-box-tool}))]
       (is (some? default-body) "the default boundary elides the large slot")
       (is (some? obs-body)     "the named observability boundary elides it too")
       (is (some? tool-body)    "the tool boundary elides the large slot")
-      (is (not= 50000 (count (str (get-in (rf/projected-record synth)
+      (is (not= 50000 (count (str (get-in (rf/project-egress synth)
                                           [:db-after :blob :payload]))))
           "the raw 50KB string never egresses under either off-box boundary")
       (is (= default-body obs-body)
@@ -143,19 +151,19 @@
     (let [raw       (last-record :ep/main)
           ;; The bare 1-arity (default observability boundary), through the
           ;; CORE wrapper.
-          default-body (large-marker-body (rf/projected-record raw))
+          default-body (large-marker-body (rf/project-egress raw))
           ;; The named off-box-observability boundary, explicitly.
           obs-body  (large-marker-body
-                      (rf/projected-record
+                      (rf/project-egress
                         raw {:rf.egress/profile :rf.egress/off-box-observability}))
           ;; The named off-box-tool boundary — the EP-0015 selector under test.
           tool-body (large-marker-body
-                      (rf/projected-record
+                      (rf/project-egress
                         raw {:rf.egress/profile :rf.egress/off-box-tool}))]
       (is (some? raw) "an epoch record was captured")
       (is (some? default-body) "the default boundary elides the large slot")
       (is (some? tool-body) "the tool boundary elides the large slot")
-      (is (not= 50000 (count (str (get-in (rf/projected-record raw)
+      (is (not= 50000 (count (str (get-in (rf/project-egress raw)
                                           [:db-after :blob :payload]))))
           "the raw 50KB string never egresses under either off-box boundary")
       ;; The bare 1-arity default == the named observability boundary.
@@ -173,7 +181,7 @@
       (is (= (dissoc tool-body :digest) obs-body)
           "tool boundary == observability marker PLUS the structural digest")))))
 
-(deftest core-projected-record-rejects-unknown-profile
+(deftest core-project-egress-rejects-unknown-profile
   (testing "rf2-ylvp4m — an unknown :rf.egress/profile through the core wrapper
             is rejected against the shared closed enum (a typo is a loud error,
             never a silent permissive walk)."
@@ -183,10 +191,10 @@
     ;; ALWAYS-ON (rf2-d2841): a closed-enum rejection is a property of the
     ;; wrapper, not of the ring. Driven on a synthetic record so a typo stays
     ;; loud in the posture that ships — reading it off the live ring meant that
-    ;; under the gate `raw` was nil, `projected-record` returned nil for a
+    ;; under the gate `raw` was nil, `project-egress` returned nil for a
     ;; non-map, and NOTHING was rejected at all.
     (let [raw  (synthetic-record :ep/main "v")
-          ex   (try (rf/projected-record raw {:rf.egress/profile :rf.egress/not-real})
+          ex   (try (rf/project-egress raw {:rf.egress/profile :rf.egress/not-real})
                     nil
                     (catch clojure.lang.ExceptionInfo e e))
           data (ex-data ex)
@@ -203,13 +211,13 @@
           "the message carries the trailing greppability token (rule 4)")
       (is (not (rf.error/keyword-only-message? msg))
           "the message is a human sentence, not a bare keyword (rule 1)")
-      (is (= 'epoch/projected-record (:where data))
+      (is (= 'rf/project-egress (:where data))
           ":where names the epoch boundary helper")
       (is (= :use-a-known-profile (:recovery data)))
       ;; The epoch site's thrown shape is IDENTICAL (but for :where) to the
       ;; shared builder's — proving the dedup: one reason, two call sites.
       (let [canonical (rf.projection/unknown-egress-profile-ex
-                        'epoch/projected-record :rf.egress/not-real)]
+                        'rf/project-egress :rf.egress/not-real)]
         (is (= (ex-message canonical) msg)
             "the epoch throw's message == the shared builder's")
         (is (= (ex-data canonical) data)
@@ -226,7 +234,7 @@
   ;; stand-in: the ring is the subject. The per-record profile threading it
   ;; delegates to is covered always-on above.
   (when rf.interop/debug-enabled?
-  (testing "rf2-kuky.7 — `(mapv #(rf/projected-record % opts)
+  (testing "rf2-kuky.7 — `(mapv #(rf/project-egress % opts)
             (rf/epoch-history frame-id))` threads the named
             :rf.egress/profile boundary to every record."
     (rf/make-frame {:id :ep/main})
@@ -236,10 +244,10 @@
                     {:db (assoc-in db [:blob :payload] payload)}))
     (rf/dispatch-sync [:store (big-string 50000)] {:frame :ep/main})
     (let [ring      (rf/epoch-history :ep/main)
-          tool-hist (mapv #(rf/projected-record
+          tool-hist (mapv #(rf/project-egress
                              % {:rf.egress/profile :rf.egress/off-box-tool})
                           ring)
-          obs-hist  (mapv rf/projected-record ring)]
+          obs-hist  (mapv rf/project-egress ring)]
       (is (seq tool-hist) "the composition returns the ring")
       (is (every? #(contains? (large-marker-body %) :digest)
                   (filter large-marker-body tool-hist))
