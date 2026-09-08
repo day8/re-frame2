@@ -113,9 +113,11 @@
   ## What the lane's FIXTURES will do
 
   A namespace that WAS discovered, WAS loaded and DOES hold tests still
-  runs none of them if its fixtures are not functions — `clojure.test`
-  calls a fixture with the test thunk, and a map called with one argument
-  is a key lookup that returns nil.  `uncallable-fixtures` is the fourth
+  runs none of them if its fixtures are not CALLABLE — `clojure.test`
+  calls a fixture with the test thunk, and a data structure called with one
+  argument is a key lookup that returns nil.  Callable is the whole
+  requirement, and it is wider than `fn?`: a var referring to a fixture
+  function is idiomatic and works.  `uncallable-fixtures` is the fourth
   rule; it fires from `:summary`, the first hook that holds control after
   every namespace this lane runs has loaded.  See its own docstring, and
   rf2-4yw1."
@@ -883,12 +885,18 @@
 ;;
 ;; `cljs.test` accepts a MAP fixture — `(use-fixtures :each {:before f
 ;; :after g})` — and this repo's `*_cljs_test.cljs` files use it throughout.
-;; `clojure.test` accepts functions ONLY, and validates nothing:
-;; `join-fixtures` folds whatever it is handed into the chain and calls it
-;; with the test thunk, and a map called with one argument is a KEY LOOKUP
-;; that returns nil, so the thunk never runs.  Maps are `IFn`, so nothing
-;; throws.  cljs.test asserts on this ("Fixtures may not be of mixed
-;; types"); the JVM half is the unguarded one.
+;; `clojure.test` validates nothing: `join-fixtures` folds whatever it is
+;; handed into the chain and calls it with the test thunk, and a map called
+;; with one argument is a KEY LOOKUP that returns nil, so the thunk never
+;; runs.  Maps are `IFn`, so nothing throws.  cljs.test asserts on this
+;; ("Fixtures may not be of mixed types"); the JVM half is the unguarded one.
+;;
+;; WHAT THE RULE MAY NOT DO IS REFUSE HONEST CODE.  The requirement is that
+;; the entry be CALLED, not that it be `fn?`, and the two differ: a var
+;; referring to a fixture function, and a multimethod, both invoke the thunk
+;; while failing `fn?`.  `callable-fixture?` owns that distinction; the
+;; opposite over-correction — `ifn?` — would accept the map and disarm the
+;; rule entirely.
 ;;
 ;; MEASURED: a two-line namespace whose single `deftest` asserts `(= 1 2)`
 ;; reports `Ran 0 tests containing 0 assertions. / 0 failures, 0 errors.`
@@ -911,19 +919,48 @@
   to a map land here indistinguishably — which is the point."
   [:clojure.test/once-fixtures :clojure.test/each-fixtures])
 
+(defn- callable-fixture?
+  "Whether `clojure.test` will INVOKE `fixture` with the test thunk rather
+  than LOOK the thunk up inside it.
+
+  `join-fixtures` folds the entries with `compose-fixtures` into
+  `(fn [g] (f1 (fn [] (f2 g))))`, so the contract is behavioural — each entry
+  is applied to one argument and must CALL it — and behaviour is not
+  decidable from a value.  Both cheap approximations of it are wrong, in
+  opposite directions, and this predicate is the narrowest thing that is
+  wrong in neither (MEASURED on Clojure 1.12, rf2-4yw1):
+
+    - `ifn?` is too permissive.  Maps, sets, vectors, keywords and symbols
+      are all `IFn`, and every one of them reads its argument as a KEY.  That
+      is the defect this rule exists to catch, so `ifn?` would disarm it.
+    - `fn?` is too restrictive, which is the regression this predicate
+      replaces.  It tests for the `clojure.lang.Fn` marker, which
+      `clojure.lang.Var` and `clojure.lang.MultiFn` do not carry even though
+      both invoke the thunk correctly: `(use-fixtures :each #'lifecycle)` is
+      ordinary, idiomatic and WORKING, and the rule refused it while claiming
+      the namespace had run nothing.
+
+  So: a function, a multimethod, or an indirection resolving to one.  The Var
+  case RECURSES on the root rather than accepting every Var, because
+  `Var.invoke` forwards to whatever the root is — a Var whose root is a map
+  swallows the thunk exactly as the bare map does."
+  [fixture]
+  (or (fn? fixture)
+      (instance? clojure.lang.MultiFn fixture)
+      (and (var? fixture) (callable-fixture? (deref fixture)))))
+
 (defn uncallable-fixtures
   "Every `[ns-sym fixture-key fixture]` registered on `namespaces` that
   `clojure.test` cannot call, sorted by namespace name.
 
-  Empty is the only acceptable answer.  `fn?` is the whole test: it is
-  precisely what `join-fixtures` needs of each entry, so anything else is a
-  namespace whose tests will not run."
+  Empty is the only acceptable answer.  `callable-fixture?` is the test; see
+  its docstring for why neither `fn?` nor `ifn?` is."
   [namespaces]
   (vec (sort-by (comp str first)
                 (for [ns-obj    namespaces
                       meta-key  fixture-meta-keys
                       fixture   (get (meta ns-obj) meta-key)
-                      :when     (not (fn? fixture))]
+                      :when     (not (callable-fixture? fixture))]
                   [(ns-name ns-obj) meta-key fixture]))))
 
 (defn- uncallable-fixture-complaint
@@ -937,10 +974,11 @@
        (str/join "\n" (for [[ns-sym meta-key fixture] offenders]
                         (str "  " ns-sym " " meta-key " -> "
                              (.getName (class fixture)))))
-       "\nclojure.test hands each fixture the test thunk; a map called with"
-       " one argument is a key lookup returning nil, so the thunk never runs"
-       " and the tally stays green.\n"
-       "The {:before f :after g} map is cljs.test-only. Use the fn form:"
+       "\nclojure.test calls each fixture with the test thunk; a data"
+       " structure called with one argument is a key lookup returning nil,"
+       " so the thunk never runs and the tally stays green.\n"
+       "A fixture must be callable: a fn, a multimethod, or a var referring"
+       " to one. The {:before f :after g} map is cljs.test-only --"
        " (use-fixtures :each (fn [t] (before) (t) (after))) (rf2-4yw1).\n"))
 
 (defn- install-summary-method!
