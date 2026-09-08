@@ -2931,7 +2931,7 @@ A frame owns two durable partitions held as one physical frame-state container (
                                                       [:or :keyword              ;; :spawn leaf — gensym'd spawned-id
                                                            InvokeAllJoinState     ;; :spawn-all LIVE child-bearing join bookkeeping
                                                            InvokeAllRejectedState]]]] ;; :spawn-all pre-per-child REJECT sentinel (childless — atomic reject)
-   [:spawn-counter {:optional true} [:map-of :keyword :int]]                     ;; per-machine-id integer counter for hand-emitted :rf.machine/spawn fxs
+   [:spawn-counter {:optional true} [:map-of :keyword :int]]                     ;; per-id-prefix integer counter for hand-emitted :rf.machine/spawn fxs
    [:spawn-order   {:optional true} [:vector :keyword]]])                        ;; live spawned actor-ids, OLDEST → NEWEST — the frame-global total creation order frame destroy reverses. Appended by the spawn install in the same swap that lands the snapshot; removed by the unified teardown projection in the same swap that dissocs it; pruned when it empties.
 
 (def InvokeAllJoinState
