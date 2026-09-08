@@ -493,6 +493,21 @@ bd export --include-memories > "$TMP_EXPORT" 2>/dev/null \
 TMP_HEAD=$(mktemp "${TMPDIR:-/tmp}/rf2-bdchk-head-XXXXXX")
 head_copy "$TMP_HEAD"
 
+# The commit TMP_HEAD was read from — captured HERE, beside the copy it names,
+# because the memory warning below prints it as a RECOVERY REFERENCE and this
+# script COMMITS the fresh export a hundred lines later (rf2-cve7, merged-PR
+# audit of #9520). Printing `HEAD` there is worse than useless: by the time an
+# operator reads the warning and pastes the command, `HEAD` IS the checkpoint
+# that just removed those rows, so the lookup exits 0 and prints nothing —
+# succeeding, and recovering nothing.
+#
+# A full commit oid is content-addressed and immutable, so it keeps naming this
+# exact tree after the checkpoint commits and after any number of later commits
+# land on top; `HEAD` is a symbolic ref re-resolved at read time and does not.
+# Empty on an unborn branch (a first-ever checkpoint), where there is no
+# baseline to recover from and the recovery paragraph is skipped.
+BASELINE_COMMIT=$(git rev-parse --verify HEAD 2>/dev/null || printf '')
+
 export_rows=$(rows "$TMP_EXPORT")
 head_rows=$(rows "$TMP_HEAD")
 
@@ -578,10 +593,23 @@ if [ -n "$MEMORY_FACTS" ]; then
   printf '\n  THIS IS A WARNING, NOT A REFUSAL — the checkpoint continues and commits\n' >&2
   printf '  the export. The database is the source of truth, and this may well be a\n' >&2
   printf '  deliberate `bd forget` or a retention cull. If it is NOT, the rows are not\n' >&2
-  printf '  lost: HEAD still carries every one of them, and so does any earlier\n' >&2
-  printf '  checkpoint commit.\n' >&2
-  printf '\n      git show HEAD:%s \\\n' "$TRACKER" >&2
-  printf '        | jq -r --arg k "<key>" '"'"'select(._type=="memory" and .key==$k)|.value'"'"'\n' >&2
+  if [ -n "$BASELINE_COMMIT" ]; then
+    printf '  lost. The commit this export was compared against still carries every\n' >&2
+    printf '  one of them, and this is the lookup:\n' >&2
+    printf '\n      git show %s:%s \\\n' "$BASELINE_COMMIT" "$TRACKER" >&2
+    printf '        | jq -r --arg k "<key>" '"'"'select(._type=="memory" and .key==$k)|.value'"'"'\n' >&2
+    printf '\n  THAT COMMIT IS SPELLED OUT RATHER THAN `HEAD` ON PURPOSE. This checkpoint\n' >&2
+    printf '  commits the export a moment from now, so by the time you read this `HEAD`\n' >&2
+    printf '  is the commit that REMOVED the rows: the same lookup against it would exit\n' >&2
+    printf '  0 and print nothing — succeeding, and recovering nothing. A full commit oid\n' >&2
+    printf '  is immutable, so it stays valid after this commit and every later one.\n' >&2
+    printf '\n  Older checkpoints are NOT a general fallback — one made before a key was\n' >&2
+    printf '  created does not carry it. To find the commit where any single key changed:\n' >&2
+    printf '\n      git log -S'"'"'"key":"<key>"'"'"' -- %s\n' "$TRACKER" >&2
+  else
+    printf '  lost — but this is a first-ever checkpoint with no commit behind it, so\n' >&2
+    printf '  there is no baseline to recover from. The database is the only copy.\n' >&2
+  fi
   printf '\n  Select on `.key`. A bare grep for the key matches rows that merely MENTION\n' >&2
   printf '  it — bead prose naming a deleted key has already been mistaken for the\n' >&2
   printf '  memory itself (rf2-cve7, CLAUDE.md instrument item (f)).\n\n' >&2
