@@ -34,13 +34,14 @@
      refuses the run (exit 1, named on stderr) instead of leaving it
      silently short a suite — and the same fixture is green the moment
      before that file arrives.
-   - FIXTURES: a namespace whose `use-fixtures` entry cannot be CALLED
-     — the cljs.test `{:before f :after g}` map, whether written at the
-     call site or reached through a var — refuses the run (exit 1, the
-     namespace named on stderr) instead of contributing zero tests to a
-     tally that reports itself green; and, in the other direction, an
-     entry that IS callable without being `fn?` — a var referring to a
-     fixture function — keeps its lane green (rf2-4yw1).
+   - FIXTURES: a namespace whose `use-fixtures` entry is DATA rather
+     than a function — the cljs.test `{:before f :after g}` map, whether
+     written at the call site or reached through a var — refuses the run
+     (exit 1, the namespace named on stderr) instead of contributing
+     zero tests to a tally that reports itself green; and, in the other
+     direction, entries that APPLY the thunk without being `fn?` — a var
+     referring to a fixture function, and a bare `reify` of
+     `clojure.lang.IFn` — keep their lane green (rf2-4yw1).
    - STDERR BUFFER: a green run that emits expected
      stderr warnings stays quiet (the warnings are buffered + dropped);
      a RED run REPLAYS the buffered stderr context so a failing run
@@ -507,6 +508,20 @@
       (str "(defn lifecycle [t] (t))\n"
            "(use-fixtures :once #'lifecycle)\n"
            "(use-fixtures :each #'lifecycle)\n"))))
+
+(deftest custom-ifn-fixtures-keep-the-run-green
+  (testing "THE ROW THAT ENDS THE LIST (rf2-4yw1): a bare `reify` of
+            `clojure.lang.IFn` invokes the thunk and the test runs, yet it
+            carries no `Fn` marker, is no `MultiFn` and is no Var — so no
+            enumeration of accepted implementation classes can name it, and
+            two rounds of this guard refused it while the test it guards was
+            passing.  The rule is now `ifn?` minus the closed set of values
+            Clojure invokes as a lookup, which admits this without admitting
+            a map; the two red rows above are the other half of that claim."
+    (assert-callable-fixture-runs-green
+      "ifn_fixture_test" "probe.ifn-fixture-test"
+      (str "(use-fixtures :each"
+           " (reify clojure.lang.IFn (invoke [_ t] (t))))\n"))))
 
 ;; ----------------------------------------------------------------------
 ;; Nested-run banner correctness.
