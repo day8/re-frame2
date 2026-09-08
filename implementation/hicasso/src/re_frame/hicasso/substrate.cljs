@@ -76,7 +76,6 @@
   (:require ["react" :as react]
             [re-frame.adapter.context :as rf.adapter.context]
             [re-frame.frame :as rf.frame]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
             [re-frame.substrate.spine :as rf.substrate.spine]
             [re-frame.views.frame-boundary :as rf.views.frame-boundary]))
 
@@ -157,32 +156,26 @@
   frame-provider stays here because the spine carries no substrate's own
   element machinery.
 
-  ## The client-root drain (rf2-kuky.59)
+  ## The client-root drain is NOT here (rf2-kuky.59)
 
-  `dispose-adapter!` is the spine's with Hicasso's own root drain chained
-  in FRONT of it, so `rf/destroy-adapter!` releases every Root a
-  `h/client-root` handle still holds — Spec 006 §Adapter disposal
-  lifecycle MUST (2), and the reason `h/unmount!` can be idempotent
-  against the drain rather than in spite of it.
+  `dispose-adapter!` is exactly the spine's. The drain that releases every
+  Root a `h/client-root` handle still holds — Spec 006 §Adapter disposal
+  lifecycle MUST (2) — hangs off the PROCESS teardown boundary instead:
+  `re-frame.hicasso.impl.mount` publishes it on core's
+  `:hicasso/drain-client-roots!` late-bind hook and
+  `re-frame.substrate.adapter/dispose-adapter!` invokes it before the
+  installed adapter's own disposer.
 
-  It is chained HERE rather than inside the spine because Hicasso's roots
-  are not the spine's: `h/render!` calls `createRoot` / `hydrateRoot`
-  through `re-frame.hicasso.impl.mount`, never through the substrate
-  contract's `render` slot, so the spine's own active-roots cell never
-  sees one. The wrap is applied to the map handed to `make-react-adapter`
-  and NOT to `spine-fns` itself, which stays exactly what the spine
-  produced for the shared conformance suite to assert about.
-
-  The spine's half runs in a `finally`, so a root whose host unmount
-  throws cannot leave the spine's sub-caches and emitter cell seated —
-  the teardown reaches its terminal state and the failure still
-  propagates, which is `dispose-active-roots-and-caches!`'s own rule one
-  level down."
+  It was chained here first, and the merged-PR audit of #9459 found what
+  that misses. Hicasso's roots are not the spine's — `h/render!` calls
+  `createRoot` / `hydrateRoot` through `re-frame.hicasso.impl.mount`,
+  never through the substrate contract's `render` slot — but they are not
+  THIS ADAPTER's either, and an application may install UIx or Reagent and
+  still mount Hicasso roots. A drain reached only through this map is
+  reached only when this map is the installed one, so that supported
+  composition leaked a Root on every `rf/destroy-adapter!`. The guarantee
+  belongs where it holds for all of them."
   (rf.substrate.spine/make-react-adapter
-    (update spine-fns :dispose-adapter!
-            (fn chain-root-drain [spine-dispose!]
-              (fn dispose-adapter! []
-                (try (rf.hicasso.impl.mount/drain-active-roots!)
-                     (finally (spine-dispose!))))))
+    spine-fns
     {:kind           :rf.adapter/hicasso
      :frame-provider frame-provider}))

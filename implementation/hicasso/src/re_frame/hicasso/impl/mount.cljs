@@ -28,6 +28,7 @@
             [re-frame.hicasso.impl.error :refer [fail!]]
             [re-frame.hicasso.impl.roots :as rf.hicasso.impl.roots]
             [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
             [re-frame.trace :as rf.trace]
             ["react" :as react]
             ["react-dom" :as react-dom]
@@ -450,8 +451,12 @@
 ;; One cell for the package rather than one per adapter, because a Hicasso
 ;; root is created by Hicasso's own door whatever adapter is installed —
 ;; `h/render!` never routes through the substrate contract's `render` slot.
-;; `re-frame.hicasso.substrate/adapter` chains the drain onto its
-;; `dispose-adapter!`, so `rf/destroy-adapter!` releases them.
+;; The drain is published to core on the `:hicasso/drain-client-roots!`
+;; late-bind hook below and invoked by
+;; `re-frame.substrate.adapter/dispose-adapter!`, which is the PROCESS
+;; teardown boundary: `rf/destroy-adapter!` therefore releases these roots
+;; whichever adapter an application installed, Hicasso over UIx and over
+;; Reagent included (rf2-kuky.59).
 ;;
 ;; A comment rather than a docstring because CLJS `defonce` takes no
 ;; docstring — it is `(defonce name expr)` and nothing else.
@@ -473,8 +478,8 @@
 (defn drain-active-roots!
   "Unmount every Root this package still holds and empty the cell: the
   host-resource half of Spec 006 §Adapter disposal lifecycle for Hicasso,
-  chained onto the adapter's `dispose-adapter!` in
-  `re-frame.hicasso.substrate`.
+  reached from `re-frame.substrate.adapter/dispose-adapter!` through the
+  `:hicasso/drain-client-roots!` hook published below.
 
   The cell is emptied FIRST, so a handle whose Root this drain took finds
   itself already released and a `render!` through it mounts afresh. Each
@@ -493,6 +498,14 @@
                           live)]
       (when failure (throw failure))))
   nil)
+
+;; Published at NS LOAD, not from a once-body, per `late-bind`'s own contract
+;; that `hooks` is populated by the producing namespace at load time — the
+;; upgrade path a `defonce`-guarded publication breaks is written out at
+;; `:live-frame/release-frame-generation-pool!`'s directory row. This
+;; namespace is loaded by every door that can create a root, so the hook is
+;; bound before the first Root can exist.
+(rf.late-bind/set-fn! :hicasso/drain-client-roots! drain-active-roots!)
 
 (defn client-root
   "Allocate an inert client-root handle: `h/client-root`. No DOM work and
