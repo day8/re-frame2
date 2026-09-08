@@ -1311,7 +1311,7 @@
   ;; metadata key, so there is no public var left to classify.
   ;; SSR query surface: NOT re-exported (rf2-kuky.44, executed rf2-kuky.87).
   ;; `render-to-string` / `render-tree-hash` / `project-error` /
-  ;; `render-head` / `active-head` / `head-model->html` carried
+  ;; the two head reads (now one `head-model`) / `head-model->html` carried
   ;; `:action :keep` facade rows here until 2026-09. The justification was
   ;; the guided `:rf.error/ssr-artefact-missing` a facade wrapper gives an
   ;; app that calls an SSR fn without the artefact -- but loading
@@ -1886,8 +1886,12 @@
   ["re-frame.ssr" "project-error"]                 {:tier :advanced :owner "011" :status "v1"}
   ;; rf2-kuky.87 re-exported the head-model SERIALISER here from
   ;; `re-frame.ssr.head`, so the emission half of the head contract sits
-  ;; on the same door as `render-to-string`. The two head READS stay at
-  ;; home on `re-frame.ssr.head` (rowed below).
+  ;; on the same door as `render-to-string`; rf2-kuky.89 brought the READ
+  ;; across with it once the two former head reads collapsed into the
+  ;; single `head-model`. `(ssr/head-model->html (ssr/head-model f))` is
+  ;; the whole head contract on one door. Both names are ALSO rowed at
+  ;; home on `re-frame.ssr.head` below; the pairs are the same functions.
+  ["re-frame.ssr" "head-model"]                    {:tier :advanced :owner "011" :status "v1"}
   ["re-frame.ssr" "head-model->html"]              {:tier :advanced :owner "011" :status "v1"}
   ;; The cross-host suspense boundary COMPONENT — the streaming AUTHORING
   ;; surface (rf2-ycz3k). Advanced rather than front-porch: streaming SSR is
@@ -1934,20 +1938,20 @@
   ;; re-frame.ssr.head — the head/meta contract's public door
   ;; (day8/re-frame2-ssr, §011 §Head/meta contract). It became a
   ;; consumer-facing surface under rf2-kuky.87: with the SSR query
-  ;; re-exports gone from `re-frame.core`, `render-head` / `active-head`
-  ;; are reached ONLY here, so an app or host `(:require
-  ;; [re-frame.ssr.head :as head])` directly. `head-model->html` is ALSO
-  ;; re-exported on `re-frame.ssr` (rowed above) so the emission half sits
-  ;; beside `render-to-string`; both rows are real. `reg-head` is the one
-  ;; head surface that also rides the `re-frame.core` facade, via the
-  ;; `:ssr/reg-head` late-bind hook. `default-head` is the fallback model
-  ;; `active-head` returns for a route with no `:head` — plumbing a host
-  ;; reads only when reimplementing the default flow, hence
-  ;; `:implementation`.
+  ;; re-exports gone from `re-frame.core`, the head surface is reached
+  ;; only through the artefact, so an app or host `(:require
+  ;; [re-frame.ssr.head :as head])` directly. `head-model` and
+  ;; `head-model->html` are ALSO re-exported on `re-frame.ssr` (rowed
+  ;; above) so the whole head contract sits beside `render-to-string`;
+  ;; both pairs of rows are real and name the same functions. `reg-head`
+  ;; is the one head surface that also rides the `re-frame.core` facade,
+  ;; via the `:ssr/reg-head` late-bind hook. `default-head` is the
+  ;; fallback model `head-model` returns for a route with no `:head` —
+  ;; plumbing a host reads only when reimplementing the default flow,
+  ;; hence `:implementation`.
   ;; =========================================================================
   ["re-frame.ssr.head" "reg-head"]                 {:tier :implementation :owner "011" :status "v1"}
-  ["re-frame.ssr.head" "render-head"]              {:tier :advanced :owner "011" :status "v1"}
-  ["re-frame.ssr.head" "active-head"]              {:tier :advanced :owner "011" :status "v1"}
+  ["re-frame.ssr.head" "head-model"]               {:tier :advanced :owner "011" :status "v1"}
   ["re-frame.ssr.head" "head-model->html"]         {:tier :advanced :owner "011" :status "v1"}
   ["re-frame.ssr.head" "default-head"]             {:tier :implementation :owner "011" :status "v1"}
 

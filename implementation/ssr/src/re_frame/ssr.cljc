@@ -23,7 +23,7 @@
             [re-frame.ssr.error-listener :as rf.ssr.error-listener]
             [re-frame.ssr.error-projector :as rf.ssr.error-projector]
             ;; Publishes the `:ssr/reg-head` hook at namespace load, and is
-            ;; the home of the head READS (`render-head` / `active-head`).
+            ;; the home of the head READ (`head-model`).
             [re-frame.ssr.head :as rf.ssr.head]
             [re-frame.ssr.hash :as rf.ssr.hash]
             [re-frame.ssr.hydrate :as rf.ssr.hydrate]
@@ -57,10 +57,13 @@
 ;; now lives at the reg-view registration boundary
 ;; (`re-frame.views.jvm-source-coord-annotation`), not in the emitter.
 (def render-tree-hash                rf.ssr.hash/render-tree-hash)
-;; The head-model serialiser, re-exported here so the emission half of
-;; the head contract sits on the same door as `render-to-string`
-;; (rf2-kuky.87). `reg-head`, `render-head` and `active-head` stay at
-;; home on `re-frame.ssr.head`.
+;; The two halves of the head contract's READ side, re-exported here so
+;; they sit on the same door as `render-to-string` (rf2-kuky.87 /
+;; rf2-kuky.89): `head-model` resolves a frame's `:rf/head-model`,
+;; `head-model->html` serialises one. The REGISTRAR `reg-head` stays at
+;; home on `re-frame.ssr.head` (and is reachable through `re-frame.core`
+;; via the `:ssr/reg-head` late-bind hook).
+(def head-model                      rf.ssr.head/head-model)
 (def head-model->html                rf.ssr.head/head-model->html)
 ;; framework-private: tests reach into `#'ssr/canonical-edn` for the
 ;; JVM↔CLJS canonical-EDN parity check (hash_check_cljs_test).

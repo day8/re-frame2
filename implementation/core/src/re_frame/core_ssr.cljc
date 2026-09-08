@@ -5,10 +5,10 @@
 
   Only `reg-error-projector` and `reg-head` ride the façade. The SSR
   QUERY surface (`render-to-string`, `render-tree-hash`, `project-error`,
-  `render-head`, `active-head`, `head-model->html`) is NOT re-exported:
-  loading `re-frame.ssr` is what installs the SSR runtime, so every SSR
-  app already names the artefact namespace and reaches those reads at
-  home (rf2-kuky.44 / rf2-kuky.87).
+  `head-model`, `head-model->html`) is NOT re-exported: loading
+  `re-frame.ssr` is what installs the SSR runtime, so every SSR app
+  already names the artefact namespace and reaches those reads at home
+  (rf2-kuky.44 / rf2-kuky.87 / rf2-kuky.89).
 
   See [Conventions §Optional-artefact wrapper convention](../../../../../spec/Conventions.md#optional-artefact-wrapper-convention)."
   (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]

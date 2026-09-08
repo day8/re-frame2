@@ -10,7 +10,6 @@
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.ssr :as rf.ssr]
-            [re-frame.ssr.head :as rf.ssr.head]
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
             [re-frame.ssr.ring.trust :as rf.ssr.ring.trust]
             [re-frame.trace :as rf.trace]))
@@ -167,7 +166,7 @@
   step 4: `:html-attrs` populate `<html>`; `:body-attrs` populate
   `<body>` — the host shell stamps them, not the head emitter).
 
-  `:head-model` is the raw `rf.ssr.head/active-head` value used by the separately
+  `:head-model` is the raw `rf.ssr/head-model` value used by the separately
   client-reconstructible head hash; emitted HTML is not a stable shared input.
 
   Exceptions during resolution degrade gracefully — empty fragment,
@@ -177,7 +176,7 @@
   empty head while the usable body remains a 200."
   [frame-id]
   (try
-    (let [model (rf.ssr.head/active-head frame-id)]
+    (let [model (rf.ssr/head-model frame-id)]
       {:head-html  (rf.ssr/head-model->html model)
        :html-attrs (:html-attrs model)
        :body-attrs (:body-attrs model)
@@ -277,11 +276,11 @@
   `:rf/head-hash` key.
 
   `head-model` is the RAW model `resolve-head` attaches under
-  `:head-model` — the map `rf.ssr.head/active-head` (or a registered `reg-head` fn)
+  `:head-model` — the map `rf.ssr/head-model` (or a registered `reg-head` fn)
   returns (`{:title :meta :link :script :json-ld :html-attrs
   :body-attrs}`), NOT the rendered `:head-html` string. Hashing the model
   (not emitted HTML) is what makes the channel client-reconstructible at
-  all: the client calls the SAME `(rf.ssr.head/active-head frame-id)` against the
+  all: the client calls the SAME `(rf.ssr/head-model frame-id)` against the
   just-hydrated app-db + the route slice carried in `:rf/runtime-db`
   (Spec 011 §Default flow step 5) and hashes the resulting model identically.
 

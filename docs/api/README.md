@@ -87,7 +87,7 @@ notation and nothing else.
 | [re-frame.routing](re-frame.routing.md) | Router, routes, route link |
 | [re-frame.resources](re-frame.resources.md) | Resource cache, owners, mutations |
 | [re-frame.ssr](re-frame.ssr.md) | Server render, head, payloads |
-| [re-frame.ssr.head](re-frame.ssr.head.md) | `<head>` model reads — `render-head` / `active-head` |
+| [re-frame.ssr.head](re-frame.ssr.head.md) | `<head>` model home — `reg-head` / `head-model` / `head-model->html` |
 | [re-frame.ssr.ring](re-frame.ssr.ring.md) | Ring adapter for SSR |
 | [re-frame.epoch](re-frame.epoch.md) | Epoch history / time-travel surface |
 

@@ -1,15 +1,19 @@
 (ns re-frame.ssr-head-test
-  "Spec 011 §Head/meta contract — reg-head / render-head / active-head
-  (rf2-4dra9).
+  "Spec 011 §Head/meta contract — reg-head / head-model (rf2-4dra9,
+  rf2-kuky.89).
 
   Covers:
     - reg-head registers under registry kind :head
-    - render-head invokes the registered fn against db + route
-    - active-head reads the active route's :head metadata and dispatches
-    - default-head fires when no route declares :head
-    - render-head RETURNS the produced model (a pure read; nothing is recorded)
+    - head-model's ONE selection rule, clause by clause: an explicit
+      :head-id, else the effective route's :head, else default-head
+    - the effective route is resolved ONCE and the head fn is evaluated
+      against THAT route — including a {:route r} preview with no :head-id
+    - {:route nil} (\"no route\") differs from an absent :route
+    - head-model RETURNS the produced model (a pure read; nothing is recorded)
     - head-model->html emits canonical-ordered tags
-    - :rf.error/no-such-head raised for unregistered ids
+    - :rf.error/no-such-head raised for unregistered ids, whether the id
+      came from :head-id or from the route's :head metadata
+    - :rf.error/no-frame-context for a nil frame — the target is carried
     - reg-head is idempotent — re-registering replaces the slot
 
   Mirrors the reset-runtime fixture pattern from ssr_end_to_end_test.clj.
@@ -38,7 +42,6 @@
             [re-frame.interop :as rf.interop]
             [re-frame.registrar :as rf.registrar]
             [re-frame.ssr :as rf.ssr]
-            [re-frame.ssr.head :as rf.ssr.head]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
 ;; Shared reset fixture lives in `re-frame.ssr.test-fixture` (rf2-i3qc0).
@@ -104,12 +107,13 @@
           "second registration wins"))))
 
 ;; ===========================================================================
-;; render-head — invoke against frame + active route
+;; head-model — :head-id supplied
 ;; ===========================================================================
 
-(deftest render-head-invokes-handler-against-db-and-route
-  (testing "render-head reads the frame's app-db, the active route from the
-            [:rf.runtime/routing :current] slice, and applies the registered fn"
+(deftest head-model-invokes-handler-against-db-and-route
+  (testing "head-model reads the frame's app-db, the active route from the
+            [:rf.runtime/routing :current] slice, and applies the fn
+            registered under the supplied :head-id"
     (rf/reg-head :head/article
                  (fn [db {:keys [params]}]
                    (let [{:keys [title summary]} (get-in db [:articles (:id params)])]
@@ -129,33 +133,85 @@
                           :rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
                                                    {:route-id :route/article :params {:id "123"}})}))
       (rf/dispatch-sync [:set-test-state] {:frame f})
-      (let [model (rf.ssr.head/render-head :head/article {:frame f})]
+      (let [model (rf.ssr/head-model f {:head-id :head/article})]
         (is (= "Hello SSR" (:title model)))
         (is (= [{:name "description" :content "A summary"}]
                (:meta model)))))))
 
-(deftest render-head-accepts-frame-keyword-shorthand
-  (testing "(render-head head-id frame-id) is sugar for (render-head head-id
-            {:frame frame-id})"
-    (rf/reg-head :head/simple (fn [_ _] {:title "bare"}))
-    (let [f (rf.frame/make-anon-frame-record! {:doc "shorthand frame" :platform :server})]
-      (is (= {:title "bare"} (rf.ssr.head/render-head :head/simple f))))))
+(deftest head-model-head-id-beats-the-routes-head
+  (testing "an explicit :head-id wins over the :head the effective route
+            declares — clause 3's first arm"
+    (rf/reg-head :head/from-route    (fn [_ _] {:title "route's"}))
+    (rf/reg-head :head/from-opts     (fn [_ _] {:title "opts'"}))
+    (rf/reg-route :route/declares-head {:head :head/from-route} "/declares")
+    (let [f (rf.frame/make-anon-frame-record! {:doc "override frame" :platform :server})]
+      (rf/reg-event ::seed-declares
+                    (fn [{rt :rf.db/runtime} _]
+                      {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
+                                                {:route-id :route/declares-head})}))
+      (rf/dispatch-sync [::seed-declares] {:frame f})
+      (is (= {:title "route's"} (rf.ssr/head-model f))
+          "with no :head-id the route's :head is selected")
+      (is (= {:title "opts'"} (rf.ssr/head-model f {:head-id :head/from-opts}))
+          ":head-id displaces it"))))
 
-(deftest render-head-accepts-explicit-route-override
-  (testing ":route opt overrides the slice read from app-db — useful for
-            tools that want a hypothetical-route preview"
+(deftest head-model-accepts-explicit-route-override
+  (testing ":route opt overrides the slice read from the runtime-db —
+            useful for tools that want a hypothetical-route preview"
     (rf/reg-head :head/echo (fn [_ route] {:title (str (:route-id route))}))
     (let [f (rf.frame/make-anon-frame-record! {:doc "explicit-route frame" :platform :server})]
       (is (= ":route/explicit"
-             (:title (rf.ssr.head/render-head :head/echo
-                                     {:frame f
-                                      :route {:route-id :route/explicit}})))))))
+             (:title (rf.ssr/head-model f {:head-id :head/echo
+                                           :route   {:route-id :route/explicit}})))))))
 
-(deftest render-head-raises-on-unregistered-id
-  (testing "render-head against an unknown id throws :rf.error/no-such-head"
+(deftest head-model-route-preview-without-head-id-selects-and-evaluates-that-route
+  (testing "clause 4 — (head-model f {:route r}) with NO :head-id selects
+            r's declared :head AND evaluates it against r. The head fn
+            echoes the route it was handed, so a model naming the frame's
+            OWN route would prove the two halves had come apart."
+    (rf/reg-head :head/echo-route
+                 (fn [_db route] {:title (str (:route-id route)
+                                              "/" (get-in route [:params :id]))}))
+    (rf/reg-route :route/preview {:head :head/echo-route} "/preview/:id")
+    (rf/reg-head :head/live (fn [_ _] {:title "live"}))
+    (rf/reg-route :route/live {:head :head/live} "/live")
+    (let [f (rf.frame/make-anon-frame-record! {:doc "preview frame" :platform :server})]
+      (rf/reg-event ::seed-live
+                    (fn [{rt :rf.db/runtime} _]
+                      {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
+                                                {:route-id :route/live})}))
+      (rf/dispatch-sync [::seed-live] {:frame f})
+      (is (= {:title "live"} (rf.ssr/head-model f))
+          "control — the frame's own route resolves to its own head")
+      (is (= {:title ":route/preview/42"}
+             (rf.ssr/head-model f {:route {:route-id :route/preview
+                                           :params   {:id "42"}}}))
+          "the preview route SELECTED :head/echo-route and the head fn was
+           EVALUATED against that same route — one effective route, both uses"))))
+
+(deftest head-model-explicit-nil-route-differs-from-an-absent-route
+  (testing "clause 2 — (contains? opts :route) is the test, so {:route nil}
+            means \"no route\" while an ABSENT :route reads the frame's slice"
+    (rf/reg-head :head/named (fn [_ _] {:title "named"}))
+    (rf/reg-route :route/named {:head :head/named} "/named")
+    (let [f (rf.frame/make-anon-frame-record! {:doc "nil-route frame" :platform :server})]
+      (rf/reg-event ::seed-named
+                    (fn [{rt :rf.db/runtime} _]
+                      {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
+                                                {:route-id :route/named})}))
+      (rf/dispatch-sync [::seed-named] {:frame f})
+      (is (= {:title "named"} (rf.ssr/head-model f))
+          "absent :route → the frame's runtime-db slice → the route's head")
+      (let [model (rf.ssr/head-model f {:route nil})]
+        (is (= "nil-route frame" (:title model))
+            "explicit {:route nil} → NO route → default-head, not the
+             route's head")))))
+
+(deftest head-model-raises-on-unregistered-head-id
+  (testing "head-model with an unknown :head-id throws :rf.error/no-such-head"
     (let [f (rf.frame/make-anon-frame-record! {:doc "missing-head frame" :platform :server})]
       (try
-        (rf.ssr.head/render-head :head/nope {:frame f})
+        (rf.ssr/head-model f {:head-id :head/nope})
         (is false "expected exception")
         (catch clojure.lang.ExceptionInfo e
           ;; rf2-vvixub — branch on the canonical :rf.error/id; the message is
@@ -163,27 +219,59 @@
           (is (= :rf.error/no-such-head (:rf.error/id (ex-data e))))
           (is (= :head/nope (:head-id (ex-data e)))))))))
 
-(deftest render-head-returns-each-head-model
-  (testing "each render-head call RETURNS the model its registered fn
+(deftest head-model-raises-when-the-route-declares-an-unregistered-head
+  (testing "clause 3's second arm — a route that OPTS IN to a head id which
+            was never registered is an error, not a silent default. Only a
+            route declaring NO :head at all falls back."
+    (rf/reg-route :route/dangling {:head :head/never-registered} "/dangling")
+    (let [f (rf.frame/make-anon-frame-record! {:doc "dangling frame" :platform :server})]
+      (rf/reg-event ::seed-dangling
+                    (fn [{rt :rf.db/runtime} _]
+                      {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
+                                                {:route-id :route/dangling})}))
+      (rf/dispatch-sync [::seed-dangling] {:frame f})
+      (try
+        (rf.ssr/head-model f)
+        (is false "expected exception")
+        (catch clojure.lang.ExceptionInfo e
+          (is (= :rf.error/no-such-head (:rf.error/id (ex-data e))))
+          (is (= :head/never-registered (:head-id (ex-data e)))))))))
+
+(deftest head-model-refuses-a-nil-frame
+  (testing "EP-0002 — the frame is CARRIED. A nil frame-id is an absent
+            stamp: :rf.error/no-frame-context, never a synthesised
+            :rf/default. Both arities."
+    (doseq [[label thunk] [["1-arity" #(rf.ssr/head-model nil)]
+                           ["2-arity" #(rf.ssr/head-model nil {:head-id :head/whatever})]]]
+      (try
+        (thunk)
+        (is false (str "expected exception (" label ")"))
+        (catch clojure.lang.ExceptionInfo e
+          (is (= :rf.error/no-frame-context (:rf.error/id (ex-data e))) label)
+          (is (= 're-frame.ssr/head-model (:where (ex-data e)))
+              (str ":where names the one public head read (" label ")")))))))
+
+(deftest head-model-returns-each-head-model
+  (testing "each head-model call RETURNS the model its registered fn
             produced — successive calls on one frame are independent reads,
             and the second call's return is the second head's model"
     (rf/reg-head :head/a (fn [_ _] {:title "A"}))
     (rf/reg-head :head/b (fn [_ _] {:title "B"}))
-    (let [f (rf.frame/make-anon-frame-record! {:doc "render-head frame" :platform :server})]
-      (is (= {:title "A"} (rf.ssr.head/render-head :head/a {:frame f}))
+    (let [f (rf.frame/make-anon-frame-record! {:doc "head-model frame" :platform :server})]
+      (is (= {:title "A"} (rf.ssr/head-model f {:head-id :head/a}))
           "the first call returns the first head's model")
-      (is (= {:title "B"} (rf.ssr.head/render-head :head/b {:frame f}))
+      (is (= {:title "B"} (rf.ssr/head-model f {:head-id :head/b}))
           "the second call returns the SECOND head's model, not the first's")
-      (is (= {:title "A"} (rf.ssr.head/render-head :head/a {:frame f}))
+      (is (= {:title "A"} (rf.ssr/head-model f {:head-id :head/a}))
           "re-reading the first head returns its model again — the read is pure"))))
 
 ;; ===========================================================================
-;; active-head — resolves via :head route metadata
+;; head-model — no :head-id, resolves via :head route metadata
 ;; ===========================================================================
 
-(deftest active-head-uses-route-head-metadata
-  (testing "active-head reads the :head key from the active route's
-            registration; calls render-head; returns the model"
+(deftest head-model-uses-route-head-metadata
+  (testing "head-model reads the :head key from the active route's
+            registration, runs it, and returns the model"
     (rf/reg-head :head/article
                  (fn [_db {:keys [params]}]
                    {:title (str "Article " (:id params))}))
@@ -203,9 +291,9 @@
                                                    {:route-id :route/article :params {:id "42"}})}))
       (rf/dispatch-sync [::seed-route] {:frame f})
       (is (= {:title "Article 42"}
-             (rf.ssr.head/active-head f))))))
+             (rf.ssr/head-model f))))))
 
-(deftest active-head-falls-back-to-default-when-route-omits-head
+(deftest head-model-falls-back-to-default-when-route-omits-head
   (testing "no :head on the route → default-head fires (viewport only)"
     (rf/reg-route :route/no-head
                   {:doc  "Bare route"} "/")
@@ -214,7 +302,7 @@
                        (fn [{rt :rf.db/runtime} _]
                          {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :route/no-head})}))
       (rf/dispatch-sync [::seed-route-no-head] {:frame f})
-      (let [model (rf.ssr.head/active-head f)]
+      (let [model (rf.ssr/head-model f)]
         (is (= "Default-head probe" (:title model))
             ":doc rolls into :title per Spec 011 §Default head")
         (is (not-any? #(contains? % :charset) (:meta model))
@@ -223,10 +311,10 @@
         (is (some #(= "viewport" (:name %)) (:meta model))
             "default carries the viewport meta")))))
 
-(deftest active-head-uses-default-when-no-route-at-all
+(deftest head-model-uses-default-when-no-route-at-all
   (testing "no route slice (e.g. a frame that hasn't routed yet) → default"
     (let [f (rf.frame/make-anon-frame-record! {:doc "Bare" :platform :server})
-          model (rf.ssr.head/active-head f)]
+          model (rf.ssr/head-model f)]
       (is (= "Bare" (:title model)))
       (is (seq (:meta model))))))
 
@@ -538,13 +626,13 @@
       (is (str/includes? html "<title>Hi</title>")))))
 
 ;; ===========================================================================
-;; full integration — reg-head + reg-route + active-head + html emission
+;; full integration — reg-head + reg-route + head-model + html emission
 ;; ===========================================================================
 
 (deftest head-emits-canonical-html-from-active-route
   (testing "the canonical Spec-011 example flow: an article route declares
             :head :head/article; the head fn derives title/meta/link from
-            app-db; active-head → head-model->html emits the tags in
+            app-db; head-model → head-model->html emits the tags in
             canonical order"
     (rf/reg-event :seed-article
                      (fn [{:keys [db] rt :rf.db/runtime} _]
@@ -571,7 +659,7 @@
                    :head :head/article} "/articles/:id")
     (let [f (rf.frame/make-anon-frame-record! {:doc "article frame" :platform :server})]
       (rf/dispatch-sync [:seed-article] {:frame f})
-      (let [model (rf.ssr.head/active-head f)
+      (let [model (rf.ssr/head-model f)
             html  (rf.ssr/head-model->html model)]
         (is (= "Article: re-frame2 SSR — Example" (:title model)))
         (is (str/includes? html
@@ -594,12 +682,12 @@
 ;; (`head-model->html` deliberately drops them — the shell layer is the
 ;; right place to stamp). The ssr-ring shell test pins the wire emission;
 ;; this test pins the model-side contract — the keys survive
-;; `reg-head` → `render-head` → `active-head` verbatim, so any shell
+;; `reg-head` → `head-model` verbatim, so any shell
 ;; implementation (including non-default ones) can read them.
 
-(deftest html-attrs-and-body-attrs-survive-render-head
+(deftest html-attrs-and-body-attrs-survive-head-model
   (testing "head models with :html-attrs / :body-attrs are produced verbatim
-            and reach the active-head consumer (Spec 011 §Head/meta line 478)"
+            and reach the head-model consumer (Spec 011 §Head/meta line 478)"
     (rf/reg-head :head/with-attrs
                  (fn [_ _]
                    {:title      "Article — fr-FR"
@@ -614,7 +702,7 @@
                                                  {:route-id :route/article-fr :params {:id "1"}})}))
     (let [f (rf.frame/make-anon-frame-record! {:platform :server})]
       (rf/dispatch-sync [:seed-fr] {:frame f})
-      (let [model (rf.ssr.head/active-head f)]
+      (let [model (rf.ssr/head-model f)]
         (is (= "Article — fr-FR" (:title model)))
         (is (= {:lang "fr" :data-theme "dark"} (:html-attrs model))
             ":html-attrs reaches the model verbatim")

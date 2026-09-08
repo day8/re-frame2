@@ -1,5 +1,5 @@
 (ns re-frame.ssr.head
-  "Head/meta contract façade — `reg-head`, `render-head`, `active-head`
+  "Head/meta contract façade — `reg-head`, `head-model`, `default-head`
   and `head-model->html`.
 
   The server-rendered HTML must carry head metadata — `<title>`,
@@ -16,8 +16,8 @@
                                       hiccup emitter AND the head emitter.
     - `re-frame.ssr.head.emit`      — `head-model->html` and its
                                       per-element emitters.
-    - `re-frame.ssr.head.registry`  — `reg-head`, `render-head`,
-                                      `active-head`, `default-head`.
+    - `re-frame.ssr.head.registry`  — `reg-head`, `head-model`,
+                                      `default-head`.
     - `re-frame.ssr.head`           — this façade. Re-exports the public
                                       surface and publishes the late-bind
                                       hooks so `(require 're-frame.ssr.head
@@ -27,9 +27,10 @@
   Per the optional-artefact wrapper convention (Conventions.md
   §Optional-artefact wrapper convention), the REGISTRAR `reg-head` is
   reachable via `re-frame.core` through the `:ssr/reg-head` late-bind hook
-  so core never statically `:require`s this namespace. The READS are not
-  re-exported: consumers require this namespace (or `re-frame.ssr`, which
-  re-exports `head-model->html`) directly — rf2-kuky.44 / rf2-kuky.87."
+  so core never statically `:require`s this namespace. The READ is not
+  re-exported onto core: `re-frame.ssr` carries `head-model` and
+  `head-model->html`, and consumers reach them there or here —
+  rf2-kuky.44 / rf2-kuky.87 / rf2-kuky.89."
   (:require [re-frame.late-bind :as rf.late-bind]
             [re-frame.ssr.head.emit :as rf.ssr.head.emit]
             [re-frame.ssr.head.registry :as rf.ssr.head.registry]))
@@ -39,8 +40,7 @@
 (def head-model->html    rf.ssr.head.emit/head-model->html)
 
 (def reg-head            rf.ssr.head.registry/reg-head)
-(def render-head         rf.ssr.head.registry/render-head)
-(def active-head         rf.ssr.head.registry/active-head)
+(def head-model          rf.ssr.head.registry/head-model)
 (def default-head        rf.ssr.head.registry/default-head)
 
 ;; ---- late-bind hook registration ------------------------------------------

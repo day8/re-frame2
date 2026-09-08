@@ -131,8 +131,7 @@ The view-tree assertion axis (commonly aliased `:as h`). Walk hiccup by `:data-t
 | `ssr/render-tree-hash` | `(tree)` → `"fnv1a-32bit-hex"` |
 | `ssr/project-error` | `(frame-id trace-event)` → public-error-map |
 | `rf/reg-head` | `(id metadata? (fn [db route] head-model))` — register a head-fragment producer; routes name a head via `:head` route metadata |
-| `head/render-head` | `(head-id frame-id)` / `(head-id {:frame :route})` → produced `:rf/head-model` for a frame's app-db + active route |
-| `head/active-head` | `(frame-id)` → the active route's `:head` model (or the default head when none configured). Frame is **carried, not ambient** — the no-arg form was removed (EP-0002); a `nil` frame raises `:rf.error/no-frame-context` |
+| `ssr/head-model` | `(frame-id)` / `(frame-id {:head-id :route})` → the `:rf/head-model` for a frame. `:head-id` selects a registration outright, else the effective route's `:head`, else the default head; `:route` (present-key test, so an explicit `nil` means *no route*) overrides the frame's active route slice and the head fn runs against that same route. Frame is **carried, not ambient** — the no-arg form was removed (EP-0002); a `nil` frame raises `:rf.error/no-frame-context` |
 | `ssr/head-model->html` | `(head-model)` → inner-head HTML fragment in canonical order |
 
 ## Schemas — `day8/re-frame2-schemas`

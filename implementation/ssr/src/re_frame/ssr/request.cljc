@@ -90,9 +90,9 @@
   second call against the same frame-id sees the atoms already cleared
   and does nothing.
 
-  Reading a head is a pure read (`render-head` / `active-head` RETURN
-  the model), so the head namespace keeps no per-frame bookkeeping and
-  there is nothing here to release on its behalf."
+  Reading a head is a pure read (`head-model` RETURNS the model), so the
+  head namespace keeps no per-frame bookkeeping and there is nothing here
+  to release on its behalf."
   [frame-id]
   (rf.ssr.error-listener/clear-pending-error-traces! frame-id)
   (clear-request! frame-id)

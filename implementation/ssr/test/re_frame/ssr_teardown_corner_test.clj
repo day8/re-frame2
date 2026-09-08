@@ -48,7 +48,7 @@
             cleared a subset (or none); the post-fix contract pins the
             all-in-one-call composition that the individual tests don't
             exercise together. (Head reads keep NO per-frame state —
-            `render-head` returns its model and records nothing — so
+            `head-model` returns its model and records nothing — so
             there is no fourth head channel to clear.)"
     (let [fid :rf.test/composition-target]
       ;; Populate every side-channel slot for fid.

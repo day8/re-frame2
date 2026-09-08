@@ -181,7 +181,7 @@
            so a present-and-nil key is not a legal spelling of absence")
       (is (some? (payload-head-hash body))
           "the SEPARATE head channel is untouched — the head model is
-           client-reconstructible on every tier via `active-head`, so it is
+           client-reconstructible on every tier via `head-model`, so it is
            never degenerate and never omitted for tier reasons")
       (is (str/includes? body "data-rf-head-hash")
           "and its wire marker rides too"))))
