@@ -110,8 +110,16 @@
     {:params-schema [:map [:slug :string]]}
     (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
   ;; The READ half's owner — the agreement counterpart. Also declares nothing.
+  ;; The caller-supplied cache scope, declared the canonical way (Spec 016
+  ;; §Every resource declares a scope policy): a NAMED RESOLVER over an app-db
+  ;; slot. This suite's ensures pass an explicit `:scope` override, so the slot
+  ;; stays unwritten and a bare ensure fails closed — the "the caller must say"
+  ;; property the fixture wants, with no policy tier of its own.
+  (rf/reg-resource-scope :t/caller-scope
+    {:inputs {:scope [:db [:t/scope]]}}
+    (fn [{:keys [scope]} _ctx] scope))
   (rf/reg-resource :r/article
-    {:scope         :rf.scope/from-caller
+    {:scope         {:from-db :t/caller-scope}
      :params-schema [:map [:slug :string]]}
     (fn [_p _ctx] {:request {:method :get :url "/a"}})))
 

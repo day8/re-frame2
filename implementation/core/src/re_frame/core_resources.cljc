@@ -23,8 +23,8 @@
   cached read of remote/external state. Per rf2-wvh95f F1 the canonical 3-slot
   grammar is `(reg-resource resource-id metadata request-fn)`: the `:request`
   fetch fn is the third VALUE slot, and `metadata` carries the REQUIRED,
-  fail-closed `:scope` policy (`:rf.scope/global` | a resolver |
-  `:rf.scope/from-caller`), `:params-schema`, and optional `:data-schema` /
+  fail-closed `:scope` policy (`:rf.scope/global` |
+  `{:from-db <resource-scope-id>}`), `:params-schema`, and optional `:data-schema` /
   `:stale-after-ms` / `:gc-after-ms` / `:tags` / `:sensitive?`. Views read
   the resource through passive `[:rf.resource/*]` subscriptions; route
   entry / events / machines cause it to fetch. Late-bound via

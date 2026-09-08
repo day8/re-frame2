@@ -228,12 +228,12 @@
         "control: the Var and the fn it holds are genuinely different values,
          so the Var row cannot pass by silently testing the plain fn twice")))
 
-(deftest reserved-scope-namespace-typo-rejected-fail-closed
+(deftest scope-policy-is-exactly-two-shapes-fail-closed
   ;; rf2-y7lcqy — a bare keyword in the framework-reserved :rf.scope/*
-  ;; namespace that is NOT one of the closed enum (:rf.scope/global,
-  ;; :rf.scope/from-caller) is a TYPO. It MUST be rejected loudly at
-  ;; registration (fail-closed) rather than silently accepted as a literal
-  ;; scope that would resolve to the wrong [:rf.scope/glabal] cache scope.
+  ;; namespace that is NOT :rf.scope/global is a TYPO. It MUST be rejected
+  ;; loudly at registration (fail-closed) rather than silently accepted as a
+  ;; literal scope that would resolve to the wrong [:rf.scope/glabal] cache
+  ;; scope. The closed two-shape policy enum is what makes that so.
   (testing "a :rf.scope/* typo throws :rf.error/resource-missing-scope-policy"
     (is (thrown-with-msg?
           js/Error #"resource-missing-scope-policy"
@@ -243,40 +243,48 @@
           js/Error #"resource-missing-scope-policy"
           (rf.resources/reg-resource :test/typo2
                                   (assoc (valid-spec) :scope :rf.scope/sesssion) valid-request))))
-  ;; The closed enum members stay valid.
-  (testing ":rf.scope/global and :rf.scope/from-caller remain valid"
+  ;; The two shapes the policy admits.
+  (testing ":rf.scope/global and {:from-db <id>} are the two valid policies"
     (is (= :test/global
            (rf.resources/reg-resource :test/global
                                    (assoc (valid-spec) :scope :rf.scope/global) valid-request)))
-    (is (= :test/from-caller
-           (rf.resources/reg-resource :test/from-caller
-                                   (assoc (valid-spec) :scope :rf.scope/from-caller) valid-request))))
-  ;; An app-namespaced keyword is a legitimate literal scope — NOT in the
-  ;; reserved :rf.scope/* namespace, so it is accepted unchanged.
-  (testing "an app-namespaced keyword scope is accepted as a literal scope"
-    (is (= :test/app-ns
-           (rf.resources/reg-resource :test/app-ns
-                                   (assoc (valid-spec) :scope :my.app/whatever) valid-request))))
-  ;; Data-value scopes (the legitimate data-value-resolver feature) stay
-  ;; valid: a [:rf.scope/session {…}] tuple is a value, not a bare keyword,
-  ;; and a map / string scope is likewise a literal data value.
-  (testing "data-value scopes (tuple / map / string) remain valid"
-    (is (= :test/tuple
-           (rf.resources/reg-resource :test/tuple
-                                   (assoc (valid-spec)
-                                          :scope [:rf.scope/session {:user-id "u-1"}])
-                                   valid-request)))
-    (is (= :test/map
-           (rf.resources/reg-resource :test/map
-                                   (assoc (valid-spec) :scope {:tenant-id "acme"}) valid-request)))
-    (is (= :test/string
-           (rf.resources/reg-resource :test/string
-                                   (assoc (valid-spec) :scope "tenant-acme") valid-request))))
-  ;; A fn resolver is valid.
-  (testing "a fn resolver scope is accepted"
-    (is (= :test/fn
-           (rf.resources/reg-resource :test/fn
-                                   (assoc (valid-spec) :scope (fn [] :rf.scope/global)) valid-request)))))
+    (is (= :test/from-db
+           (rf.resources/reg-resource :test/from-db
+                                   (assoc (valid-spec) :scope {:from-db :app/session})
+                                   valid-request))
+        "a {:from-db <id>} reference is accepted at registration — the resolver
+         id is resolved at USE time, so it need not be registered yet"))
+  ;; Every OTHER shape the policy once admitted is now refused at
+  ;; registration (rf2-kuky.81): from-caller, an app-namespaced keyword, a
+  ;; literal data value (tuple / map / string) and a fn resolver.
+  (testing "an app-namespaced keyword scope is REFUSED (it is not a policy)"
+    (is (thrown-with-msg?
+          js/Error #"resource-missing-scope-policy"
+          (rf.resources/reg-resource :test/app-ns
+                                  (assoc (valid-spec) :scope :my.app/whatever) valid-request))))
+  (testing "literal data-value scopes (tuple / map / string) are REFUSED — a
+            constant at registration partitions the cache exactly as
+            :rf.scope/global does, and a tenant that is STATE is {:from-db …}"
+    (is (thrown-with-msg?
+          js/Error #"resource-missing-scope-policy"
+          (rf.resources/reg-resource :test/tuple
+                                  (assoc (valid-spec)
+                                         :scope [:rf.scope/session {:user-id "u-1"}])
+                                  valid-request)))
+    (is (thrown-with-msg?
+          js/Error #"resource-missing-scope-policy"
+          (rf.resources/reg-resource :test/map
+                                  (assoc (valid-spec) :scope {:tenant-id "acme"}) valid-request)))
+    (is (thrown-with-msg?
+          js/Error #"resource-missing-scope-policy"
+          (rf.resources/reg-resource :test/string
+                                  (assoc (valid-spec) :scope "tenant-acme") valid-request))))
+  (testing "a fn resolver scope is REFUSED"
+    (is (thrown-with-msg?
+          js/Error #"resource-missing-scope-policy"
+          (rf.resources/reg-resource :test/fn
+                                  (assoc (valid-spec) :scope (fn [] :rf.scope/global))
+                                  valid-request)))))
 
 (deftest resource-kind-in-closed-set
   (testing ":resource is a valid registrar kind"

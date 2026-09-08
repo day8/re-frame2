@@ -452,29 +452,25 @@
 (def reserved-scope-ns
   "The framework-reserved scope namespace (`:rf.scope/*`, per Conventions
   §Reserved namespaces / the `:rf.<spec-area>/*` scheme). A *bare keyword*
-  in this namespace is a CLOSED reserved enum (`#{:rf.scope/global
-  :rf.scope/from-caller}`); any other `:rf.scope/*` bare keyword is a typo,
-  NOT a literal scope. Note a scope VALUE like `[:rf.scope/session {…}]` is a
-  vector tuple, not a bare keyword — the reserved namespace governs only the
-  bare-keyword slot."
+  in this namespace is a CLOSED reserved enum (`#{:rf.scope/global}`); any
+  other `:rf.scope/*` bare keyword is a typo, NOT a literal scope. Note a
+  scope VALUE like `[:rf.scope/session {…}]` is a vector tuple, not a bare
+  keyword — the reserved namespace governs only the bare-keyword slot."
   "rf.scope")
 
 (def reserved-concrete-scopes
   "The closed set of bare `:rf.scope/*` keywords that are VALID as a concrete
-  resolved scope. Only `:rf.scope/global` is a concrete cache scope —
-  `:rf.scope/from-caller` is a registration POLICY (it never resolves to a
-  concrete value; the use site supplies one) and so is NOT a valid concrete
-  scope. Any other `:rf.scope/*` bare keyword is a typo. Per Spec 016 §Scope
+  resolved scope. Only `:rf.scope/global` is a concrete cache scope; any
+  other `:rf.scope/*` bare keyword is a typo. Per Spec 016 §Scope
   resolution."
   #{:rf.scope/global})
 
 (defn reserved-scope-typo?
   "True when `scope` is a BARE keyword in the framework-reserved
   `:rf.scope/*` namespace that is NOT a valid concrete scope (rf2-pd7akw) —
-  i.e. a misspelled reserved scope like `:rf.scope/glabal`, or the
-  policy-only `:rf.scope/from-caller` reaching a concrete boundary. A
-  non-keyword scope (a `[:rf.scope/session …]` tuple, a map, a string) is
-  NOT in the bare-keyword reserved slot and is never a typo here."
+  i.e. a misspelled reserved scope like `:rf.scope/glabal`. A non-keyword
+  scope (a `[:rf.scope/session …]` tuple, a map, a string) is NOT in the
+  bare-keyword reserved slot and is never a typo here."
   [scope]
   (and (keyword? scope)
        (= reserved-scope-ns (namespace scope))
@@ -527,13 +523,11 @@
            "scope " (pr-str scope) " in the framework-"
            "reserved :rf.scope/* namespace that is not a "
            "valid concrete scope. The only concrete "
-           "reserved scope is :rf.scope/global; "
-           ":rf.scope/from-caller is a registration "
-           "policy (the use site supplies the concrete "
-           "scope), and any other :rf.scope/* keyword is "
-           "a typo. A framework-namespace typo MUST fail "
-           "closed rather than become a silent wrong "
-           "cache scope. Per Spec 016 §Scope resolution.")
+           "reserved scope is :rf.scope/global; any "
+           "other :rf.scope/* keyword is a typo. A "
+           "framework-namespace typo MUST fail closed "
+           "rather than become a silent wrong cache "
+           "scope. Per Spec 016 §Scope resolution.")
       {:recovery :fix-scope
        :extra    {:resource-id resource-id
                   :scope       scope}}))

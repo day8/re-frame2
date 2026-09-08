@@ -480,10 +480,14 @@
 ;; [:mutation …] cause wiring. This is the end-to-end pin.
 
 (deftest descriptor-cross-scope-fans-out-and-supplies-mutation-cause-at-settle
-  ;; a FROM-CALLER article so the two entries can live under two concrete
-  ;; (distinct) scopes; a :rf.scope/global-policy resource could not.
+  ;; a caller-scoped article so the two entries can live under two concrete
+  ;; (distinct) scopes; a :rf.scope/global-policy resource could not. The
+  ;; ensures below each pass an explicit `:scope`, which overrides the policy.
+  (rf/reg-resource-scope :t/caller-scope
+    {:inputs {:scope [:db [:t/scope]]}}
+    (fn [{:keys [scope]} _ctx] scope))
   (rf/reg-resource :rx/article
-    {:scope :rf.scope/from-caller
+    {:scope {:from-db :t/caller-scope}
      :params-schema [:map [:slug :string]]
      :tags (fn [{:keys [slug]} _] #{[:article slug]})}
     (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))

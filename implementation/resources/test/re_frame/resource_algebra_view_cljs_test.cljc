@@ -155,19 +155,14 @@
 
 ;; ---- the don't-execute rule on scope -------------------------------------
 
-(deftest inline-fn-scope-is-marked-never-run
-  (testing "an inline-fn scope is reported as the opaque :rf.scope/resolver marker (never run)"
-    ;; The don't-execute rule (Derivations §The don't-execute rule): static
-    ;; inspection NEVER runs a scope resolver. A throwing fn proves it.
-    (rf/reg-resource :fn/scoped
-                     (article-spec {:scope (fn [_route _ctx]
-                                             (throw (ex-info "must not run in static view" {})))})
-                     article-spec-request)
-    (let [node (rf.resources.tooling/resource-algebra-view :fn/scoped)]
-      (is (= [[:param :rf.params] [:scope :rf.scope/resolver]] (:inputs node))
-          "the fn scope lowers to the opaque resolver marker — the fn is never executed")
-      (is (not (contains? node :scope-resolver))
-          "an inline fn carries no named-resolver enrichment"))))
+(deftest inline-fn-scope-is-refused-at-registration
+  (testing "an inline-fn :scope is not one of the two policy shapes, so it
+            never reaches the static view at all (rf2-kuky.81)"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"resource-missing-scope-policy"
+          (rf/reg-resource :fn/scoped
+                           (article-spec {:scope (fn [_route _ctx] :rf.scope/global)})
+                           article-spec-request)))))
 
 ;; ---- named-resolver enrichment ({:from-db <id>}) -------------------------
 

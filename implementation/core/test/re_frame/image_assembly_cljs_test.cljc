@@ -572,13 +572,13 @@
             check fires ONLY on an unresolved {:from-db …} reference"
     (let [global   (resource-desc "shop.a" :a/global :rf.scope/global)
           tuple    (resource-desc "shop.b" :b/session [:rf.scope/session {:u 1}])
-          from-clr (resource-desc "shop.c" :c/from-caller :rf.scope/from-caller)
-          pool     [global tuple from-clr]
+          appkw    (resource-desc "shop.c" :c/app-keyword :my.app/tenant)
+          pool     [global tuple appkw]
           img      (rf.image/image {:id :i :select-ns {:include ["shop.a" "shop.b" "shop.c"]}})
           gen      (rf.image-assembly/assemble [img] pool)]
       (is (contains? (:rf.gen/resolver gen) [:resource :a/global]))
       (is (contains? (:rf.gen/resolver gen) [:resource :b/session]))
-      (is (contains? (:rf.gen/resolver gen) [:resource :c/from-caller])))))
+      (is (contains? (:rf.gen/resolver gen) [:resource :c/app-keyword])))))
 
 (deftest resource-missing-scope-ref-ex-data-is-structured
   (testing "the resource missing-scope-resolver diagnostic carries image, [kind

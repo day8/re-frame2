@@ -440,8 +440,8 @@
   rf2-r8oiw7 has now CATALOGUED the entire wider-scan backlog as DIAGNOSTIC
   rows (Spec 009 §Error event catalogue) and dropped them from this list in
   the same PR. The earlier rf2-hhutya pass folded original-set rows into
-  the catalogue (`:rf.epoch.cb/listener-exception`,
-  `:rf.warning/resource-sub-scope-mismatch`) and PROMOTED + catalogued
+  the catalogue — `:rf.epoch.cb/listener-exception` is the one still live, the
+  other two having since been retired — and PROMOTED + catalogued
   `:rf.error/ssr-ring-error-view-failed`. rf2-r8oiw7 then catalogued the rest:
   the resources clock-skew advisories, the routing `:can-leave` / navigate
   diagnostics, the machines `:after` timer + spawn-join diagnostics, the SSR
