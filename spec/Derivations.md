@@ -556,7 +556,7 @@ The subscription's exact policy twin — same whole-value function, materialized
 (rf/reg-resource :article/by-slug
   {:params-schema  [:map [:slug :string]]
    :data-schema    :app/article
-   :scope          :rf.scope/from-caller
+   :scope          {:from-db :app/session}
    :stale-after-ms 60000
    :gc-after-ms    300000}
   (fn [{:keys [slug]} _ctx]
@@ -571,7 +571,7 @@ The subscription's exact policy twin — same whole-value function, materialized
  :refinement  :resource-process              ;; the informative refinement
  :source-form {:kind :reg-resource :id :article/by-slug}
  :inputs      [[:param :slug]
-               [:scope :rf.scope/from-caller]]
+               [:scope {:from-db :app/session}]]
  :output      [:runtime [:rf.runtime/resources :entries]]
  :storage     :runtime-db                     ;; the LOCAL cache home
  :authority   {:kind :remote :system :server  ;; the source of truth is external
@@ -746,7 +746,7 @@ A resource's superkind is always **`:process`**; its informative refinement is *
 The axes that **vary** per resource are the declared **inputs**, the `:authority` transport, and (for a named-resolver scope) the `:scope-resolver` enrichment:
 
 - **`:output`** is `[:runtime [:rf.runtime/resources :entries]]` — the resource materializes its cache entries into the runtime-db partition (the concrete per-key entry address `[:runtime [:rf.runtime/resources :entries <scoped-key>]]` is a live-graph fact).
-- **`:inputs`** lower from the resource identity `[cache-scope resource-id canonical-params]` ([§Declared input](#declared-input)): `[:param :rf.params]` (the params, validated by the `:params-schema`) and `[:scope <policy>]` naming the registered scope policy. A `{:from-db <id>}` named-resolver scope appears as the **reference shape verbatim** (`[:scope {:from-db <id>}]`) — a genuinely *static* fact, with the resolver id and its declared `[:db <rf-path>]` inputs surfaced under `:scope-resolver` (the [named-resolver enrichment](#named-resolver-enrichment-ep-0014-issue-3-disposition)). An **inline fn** scope (`(route, ctx)` / fn-of-nothing) is reported as the opaque marker `[:scope :rf.scope/resolver]` — the fn is **never run** (the don't-execute rule). An explicit `:rf.scope/global` / `:rf.scope/from-caller` / literal data-value scope is reported verbatim.
+- **`:inputs`** lower from the resource identity `[cache-scope resource-id canonical-params]` ([§Declared input](#declared-input)): `[:param :rf.params]` (the params, validated by the `:params-schema`) and `[:scope <policy>]` naming the registered scope policy. A resource's `:scope` policy is EXACTLY `:rf.scope/global` or `{:from-db <id>}`, and **both are reported verbatim**. The `{:from-db <id>}` reference is a genuinely *static* fact — it is never resolved, and the resolver id plus its declared `[:db <rf-path>]` inputs surface under `:scope-resolver` (the [named-resolver enrichment](#named-resolver-enrichment-ep-0014-issue-3-disposition)), which is the don't-execute rule honoured rather than worked around.
 - **`:authority`** carries the `:transport` (defaulting to `:rf.http/managed`, the only initial-scope transport — [016](016-Resources.md)).
 
 The node additionally carries the `:selectors` read-fact ids, the `:commands` transport descriptors and their framework-internal reply targets (`:rf.resource.internal/succeeded` / `…/failed` — commands are **not** facts, [§Process](#process)), the opaque `:derive` `:request` body token (never serialized), the `:source-form` `{:kind :reg-resource :id <id>}`, and the `:source` coordinates / `:schema` (the `:data-schema`) / doc when the registration carried them.

@@ -111,7 +111,7 @@ Two more keys earn their place on real tables:
 
 !!! warning "Gotcha"
 
-    Once you go scoped (step 2's `:scope {:from-db :app/session}` list, or the session-scoped feed below), the same-key rule has a second half. A sub that **can't resolve a scope at all** (logged out; the resolver returns `nil`) fails loud with `:rf.error/resource-sub-unresolved-scope` — never a silent shared-cache read. A sub that resolves a *valid but wrong* scope reads `:idle` forever, but in dev `:rf.warning/resource-sub-scope-mismatch` names the active scope you probably meant. Either way the cure is one named resolver — registration, route, and sub all pointing at `{:from-db :app/session}`. ([Troubleshooting](../concepts.md#when-it-fails-loud--the-errors-and-warnings) is the full signal table; a global list sidesteps all of this, since `:rf.scope/global` resolves identically on both sides.)
+    Once you go scoped (step 2's `:scope {:from-db :app/session}` list, or the session-scoped feed below), the same-key rule has a second half. A sub that **can't resolve a scope at all** (logged out; the resolver returns `nil`) fails loud with `:rf.error/resource-sub-unresolved-scope` — never a silent shared-cache read. A sub that passes an explicit `:scope` override naming a *different* scope reads its own (empty) entry — `:idle` forever — so pass one only when you mean to read under another principal. Either way the cure is one named resolver, declared once at registration and inherited by route and sub alike. ([Troubleshooting](../concepts.md#when-it-fails-loud--the-errors-and-warnings) is the full signal table; a global list sidesteps all of this, since `:rf.scope/global` resolves identically on both sides.)
 
 ### 3. Page by navigating, not by fetching
 

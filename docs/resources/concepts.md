@@ -64,7 +64,7 @@ request fn in the metadata map is `:rf.error/resource-bad-spec`.
 | Metadata key | Role |
 |---|---|
 | `:params-schema` | **Required.** Malli schema of params — the read's identity |
-| `:scope` | **Required.** `:rf.scope/global`, `{:from-db resolver-id}`, or `:rf.scope/from-caller` |
+| `:scope` | **Required.** EXACTLY `:rf.scope/global` or `{:from-db resolver-id}` |
 | `:tags` | `(fn [params data] #{…})` — facts this data is about (for invalidation) |
 | `:stale-after-ms` | Freshness window; next ensure refetches after this |
 | `:gc-after-ms` | Lifetime after last owner leaves (default 5 min; `:never` to pin) |
@@ -180,7 +180,9 @@ Cache identity is a triple: `[scope resource-id canonical-params]`.
 - **`:rf.scope/global`** — same answer for every viewer (explicit claim).
 - **`{:from-db resolver-id}`** — viewer-relative; resolver pure over declared
   `:inputs`.
-- **`:rf.scope/from-caller`** — every ensure/sub must supply `:scope` or fail loud.
+
+Those two are the whole policy vocabulary. A use-site `:scope` — on an ensure
+payload or a sub query — is an **override**, never a required repetition.
 
 ```clojure
 (rf/reg-resource-scope :realworld/session
@@ -349,9 +351,8 @@ turns the same failures into assertions.
 | Symptom | Signal | Fix |
 |---|---|---|
 | Permanent `:idle` / skeleton | No cause fired | Route `:resources` or `[:rf.resource/ensure …]` |
-| `:rf.error/resource-missing-scope-policy` | Scope omitted on `reg-resource` | Add `:scope` (`:rf.scope/global` or a resolver) |
+| `:rf.error/resource-missing-scope-policy` | `:scope` omitted, or not one of the two shapes | Declare `:scope` as `:rf.scope/global` or `{:from-db <id>}` |
 | `:rf.error/resource-sub-unresolved-scope` | Scope resolver returned `nil` | Resolve only when logged in, or don't subscribe |
-| `:rf.warning/resource-sub-scope-mismatch` | Sub scope ≠ active ensure scope | One named resolver for register, route, and sub |
 | Invalidation refreshes nothing | Wrong scope on `:invalidates` | Name the matching scope per descriptor; watch the dev warning |
 | `:rf.error/resources-artefact-missing` | Forgot the require | `(:require [re-frame.resources])` at boot |
 

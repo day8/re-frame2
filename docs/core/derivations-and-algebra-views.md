@@ -254,7 +254,7 @@ reads the cache.
 {:id          :article/by-slug
  :kind        :process
  :refinement  :resource-process
- :inputs      [[:param :slug] [:scope :rf.scope/from-caller]]
+ :inputs      [[:param :slug] [:scope {:from-db :app/session}]]
  :output      [:runtime [:rf.runtime/resources :entries]]
  :storage     :runtime-db                     ;; the LOCAL cache lives here
  :authority   {:kind :remote :system :server  ;; the truth lives elsewhere

@@ -431,7 +431,7 @@
 ;;
 ;; The SINGLE shared validation path for a CONCRETE scope value — the value
 ;; a resolved scope actually carries into the cache key (a payload `:scope`,
-;; a route-resolver result, a fn-of-nothing result, a pure-data policy, or a
+;; a route-resolver result, a resolved `{:from-db …}` reference, or a
 ;; mutation invalidation default). Distinct from the registration-time scope
 ;; POLICY gate (`registry/valid-scope-policy?`), which validates the
 ;; declared policy slot. Every scope-bearing operation — event resolution,
