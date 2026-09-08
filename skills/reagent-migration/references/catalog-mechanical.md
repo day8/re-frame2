@@ -289,15 +289,16 @@ an author-written one. Pass children positionally.
 ;; after
 (defonce ^:private !root (atom nil))
 
+(defn- tree []                                                    ; written ONCE — see below
+  [h/frame-root {:id ::frame :initial-events [[:app/init]]}
+   [app {}]])
+
 (defn ^:export init! []
   (rf/init! reagent-adapter/adapter)                              ; still needed — see below
-  (reset! !root (h/mount! el {}
-                  [h/frame-root {:id ::frame :initial-events [[:app/init]]}
-                   [app {}]])))
+  (reset! !root (h/mount! el {} (tree))))
 
 (defn ^:dev/after-load reload! []
-  (h/render! @!root
-    [h/frame-root {:id ::frame} [app {}]]))
+  (h/render! @!root (tree)))
 ```
 
 Four things matter, and the first two are the ones a migration gets wrong:
@@ -328,13 +329,18 @@ Four things matter, and the first two are the ones a migration gets wrong:
   progress. If the app ends with no Reagent view at all, the choice reopens and
   the author gets told — MIG-24 §When no Reagent view remains.*
 - **`h/render!` is the hot-reload door, and it takes the WHOLE tree — boundary
-  head included.** It re-renders the root React already has, so the reloaded
-  view code meets its own DOM. The frame lives in the tree now, so a reload that
-  drops the head renders a root with no frame under it and every bare `h/sub` /
-  `h/dispatch` beneath loses what it resolved against; re-rendering the head is
-  free, because it ENSUREs and finds the frame live. Calling `h/mount!` again
-  would `createRoot` a second time and replace the tree, discarding every node
-  and scrap of component state.
+  head included, with the SAME options the mount gave it.** It re-renders the
+  root React already has, so the reloaded view code meets its own DOM. The frame
+  lives in the tree now, so a reload that drops the head renders a root with no
+  frame under it and every bare `h/sub` / `h/dispatch` beneath loses what it
+  resolved against; re-rendering the head is free, because it ENSUREs and finds
+  the frame live. Nor may the reload merely *trim* the head's options: a
+  committed `frame-root` scopes one frame for its lifetime and refuses
+  reconfiguration, so dropping `:initial-events` because they have already run
+  raises `:rf.error/frame-root-reconfigured`. Write the tree once, as a function
+  both doors call, and the question cannot arise. Calling `h/mount!` again would
+  `createRoot` a second time and replace the tree, discarding every node and
+  scrap of component state.
 - **`h/unmount!` is `mount!`'s inverse** and is idempotent. It leaves sibling
   roots, their frames and the container alone.
 

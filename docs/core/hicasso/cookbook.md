@@ -27,28 +27,31 @@ Everything below assumes a mounted root, so start here.
 
 (defonce !root (atom nil))
 
+(defn- app-tree
+  "The root tree, written ONCE so the boot and the reload hand `h/frame-root`
+   the SAME options."
+  []
+  [h/frame-root
+   {:id             :app/main
+    :initial-events [[:app/seed]
+                     [:rf.route/navigate {:to :route/home}]]}
+   [views/app {}]])
+
 (defn ^:dev/after-load reload!
   "Re-render the mounted root after a hot reload — the WHOLE tree `mount!` was
    handed, boundary head included."
   []
   (when-some [root @!root]
-    (h/render! root
-      [h/frame-root {:id :app/main} [views/app {}]])))
+    (h/render! root (app-tree))))
 
 (defn ^:export -main []
   (rf/init! uix-adapter/adapter)
   (reset! !root
-          (h/mount! (js/document.getElementById "app")
-                    {}
-                    [h/frame-root
-                     {:id             :app/main
-                      :initial-events [[:app/seed]
-                                       [:rf.route/navigate {:to :route/home}]]}
-                     [views/app {}]]))
+          (h/mount! (js/document.getElementById "app") {} (app-tree)))
   nil)
 ```
 
-Four things about this shape are load-bearing.
+Five things about this shape are load-bearing.
 
 **`rf/init!` comes first, and it is not optional.** Hicasso is a view layer, not
 a [substrate](../glossary.md#substrate): the reactive container app-db lives in
@@ -78,6 +81,14 @@ make the frame anywhere else.
 is the seeded one rather than an empty frame filled in a moment later: the ensure
 runs in a layout effect, and `h/mount!` renders inside `flushSync`, so the door
 returns with the seeded markup already on the page.
+
+**The reload hands `h/frame-root` the SAME options the boot did**, which is why
+the tree is a function rather than two literals. A committed `frame-root` scopes
+one frame for its lifetime and does not support reconfiguration, so re-rendering
+it with a different option map — dropping `:initial-events` because they have
+already run, most temptingly — is `:rf.error/frame-root-reconfigured`, not a
+silent no-op. Re-passing them costs nothing: they fire once per frame lifetime,
+so the ensure that finds the frame live re-records them without replaying them.
 
 Chapter: [Installation](00-installation.md).
 

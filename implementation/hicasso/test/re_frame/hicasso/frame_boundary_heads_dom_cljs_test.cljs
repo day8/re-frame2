@@ -47,6 +47,7 @@
 (def ^:private ensured ::ensured)
 (def ^:private scoped ::scoped)
 (def ^:private absent ::never-made)
+(def ^:private reloaded ::reloaded)
 
 ;; Registered ABOVE `use-fixtures`: the reset fixture captures its baseline
 ;; when the `use-fixtures` form is EVALUATED, so a registration below it is
@@ -99,8 +100,13 @@
 
 (defn- live? [frame-kw] (some? (rf.frame/frame-incarnation-token frame-kw)))
 
+(defn- node-at [handle sel] (.querySelector (:container handle) sel))
+
 (defn- text-at [handle sel]
-  (some-> (.querySelector (:container handle) sel) .-textContent))
+  (some-> (node-at handle sel) .-textContent))
+
+(defn- attr-at [handle sel a]
+  (some-> (node-at handle sel) (.getAttribute a)))
 
 (defn- detach! [handle]
   (when-some [c (:container handle)]
@@ -348,3 +354,95 @@
              (:rf.error/id (refusal #(call {:fx-overrides {}}))))
           "a misspelled or misplaced root option must be refused, not
            silently dropped")))))
+
+;; ---------------------------------------------------------------------------
+;; W7 — THE DOCUMENTED BOOT → RELOAD PAIR, and the trap on the other side of it
+;; ---------------------------------------------------------------------------
+;;
+;; Every reload example this package ships now writes the root tree ONCE, as a
+;; function both doors call, so `h/render!` hands `frame-root` the same options
+;; `h/mount!` did. That is not a stylistic preference: the guides used to boot
+;; with `:initial-events` and reload with `{:id …}` alone, on the reasonable-
+;; sounding ground that the seed had already run. `frame-root-opts` strips only
+;; `:children` / `:fallback`, and `frame-root-fc` compares the committed opts
+;; with the current opts on EVERY later render — so the trimmed reload is not a
+;; harmless omission, it is `:rf.error/frame-root-reconfigured`, and a reader
+;; copying the pair got a throw where the whole point of `render!` is to
+;; preserve the mounted tree.
+;;
+;; Both directions are witnessed here, because either alone reads as an
+;; accident: the repaired pair must go through, and the trimmed one must be the
+;; refusal that made the repair necessary. Neither could be seen by W2, which
+;; measures the ENSURE's option handoff at MOUNT time and never re-renders.
+
+(defn- reload-tree
+  "The documented boot tree, parameterised only by the view code that a hot
+  reload is what changes. The OPTIONS are fixed by construction, which is the
+  shape the guides now teach."
+  [tag]
+  [rf.hicasso/frame-root
+   {:id reloaded :initial-events [[::seed "boot"]]}
+   [panel {:tag tag}]])
+
+(deftest the-documented-boot-then-reload-pair-keeps-its-frame-and-its-state
+  (if-not (rf.hicasso.impl.mount/browser?)
+    (skip! ":node-test has no DOM")
+    (let [_ (bare!)
+          _ (is (false? (live? reloaded))
+                "premise: the frame this boot names must not exist yet, or the
+                 ENSURE below is green against somebody else's frame")
+          a (rf.hicasso/mount! (rf.hicasso.impl.mount/fresh-container!) {}
+              (reload-tree "boot"))
+          node (node-at a ".panel")]
+      (try
+        (testing "premise: the boot ensured its frame and the seed is painted"
+          (is (true? (live? reloaded)))
+          (is (= "boot" (text-at a ".label")))
+          (is (= "boot" (attr-at a ".panel" "data-tag"))))
+
+        ;; State that only the RUNNING application put there. A reload that
+        ;; replayed `:initial-events` would put "boot" back over it, so this is
+        ;; the reading that separates "reused" from "re-seeded".
+        (testing "premise: the application has moved on from its seed"
+          (rf.hicasso.impl.mount/dispatch! reloaded [::relabel "live"])
+          (is (= "live" (text-at a ".label"))))
+
+        (testing "the documented reload — the SAME options, new view code —
+                  goes through rather than raising
+                  `:rf.error/frame-root-reconfigured`"
+          (is (nil? (refusal #(rf.hicasso/render! a (reload-tree "reloaded"))))
+              "the repaired boot → reload pair was refused; a reader copying
+               the guide's own recipe would get a throw where `render!` is
+               supposed to preserve the mounted tree"))
+
+        (testing "the reloaded view code is on the page"
+          (is (= "reloaded" (attr-at a ".panel" "data-tag"))))
+
+        (testing "and it RECONCILED: the frame is the same one, its live state
+                  survived, and the very DOM node the boot produced is still
+                  the one on the page"
+          (is (true? (live? reloaded)))
+          (is (= "live" (text-at a ".label"))
+              "the reload replayed `:initial-events` over the frame's live
+               state instead of re-recording them")
+          (is (identical? node (node-at a ".panel"))
+              "the reload remounted instead of reconciling"))
+
+        (testing "THE TRAP, and the reason the guides write the tree once: a
+                  reload that TRIMS the head's options — dropping
+                  `:initial-events` because they have already run — is a
+                  reconfiguration of a committed boundary and is refused by
+                  name. Run last, because React takes the root down over a
+                  render-phase throw"
+          (is (= :rf.error/frame-root-reconfigured
+                 (:rf.error/id
+                   (refusal #(rf.hicasso/render! a [rf.hicasso/frame-root
+                                                    {:id reloaded}
+                                                    [panel {:tag "trimmed"}]]))))
+              "a committed frame-root accepted a different option map: the
+               silent-ignore this boundary exists to refuse"))
+
+        (finally
+          (rf.hicasso/unmount! a)
+          (detach! a)
+          (rf.hicasso.impl.collector/reset-runtime!))))))
