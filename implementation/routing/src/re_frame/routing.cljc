@@ -63,10 +63,12 @@
             [re-frame.routing.subs :as rf.routing.subs]
             [re-frame.routing.url-bound :as rf.routing.url-bound]
             [re-frame.routing.url-change :as rf.routing.url-change]
-            ;; The JVM facade provides convenience aliases for tooling. CLJS
-            ;; consumers require the tooling namespace directly, keeping it
-            ;; out of applications that load routing but attach no tool.
-            #?@(:clj  [[re-frame.routing.tooling :as rf.routing.tooling]])
+            ;; No require of `re-frame.routing.tooling` on EITHER runtime
+            ;; (rf2-kuky.86). The facade published JVM convenience aliases for
+            ;; the algebra views; those are retired, so every consumer — JVM
+            ;; and CLJS alike — requires the bundle-isolated tooling sibling
+            ;; directly, and `re-frame.derivation.graph` reaches it through
+            ;; `requiring-resolve` rather than through this facade.
             #?@(:cljs [[re-frame.views :as rf.views]])))
 
 ;; ---- public API re-exports ----------------------------------------------
@@ -120,13 +122,12 @@
 ;; slice path is `[:rf.runtime/routing :current]` (Conventions §Reserved
 ;; runtime-db keys).
 
-;; JVM tools get facade aliases for the static route algebra and a frame's
-;; live route-slice algebra. CLJS tools require `re-frame.routing.tooling`
-;; directly so production routing does not reach the tooling namespace.
-#?(:clj
-   (do
-     (def route-algebra-view       rf.routing.tooling/route-algebra-view)
-     (def route-slice-algebra-view rf.routing.tooling/route-slice-algebra-view)))
+;; rf2-kuky.86: no `route-algebra-view` / `route-slice-algebra-view` facade
+;; aliases. The static route algebra and a frame's live route-slice algebra
+;; ship NO public accessor (Derivations §Routes expose algebra views) — the
+;; bodies stay in the bundle-isolated `re-frame.routing.tooling`, which every
+;; consumer requires directly: Xray statically, `re-frame.derivation.graph`
+;; through `requiring-resolve` on the JVM.
 
 ;; URL-owner resolution
 (def url-owner-frame-id         rf.routing.nav-fx/url-owner-frame-id)

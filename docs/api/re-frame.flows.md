@@ -222,29 +222,7 @@ Read-only views over the per-frame flow registry. They never touch the registrat
   (flows/flow-meta {:frame :app :id :cart/subtotal})
   ```
 
-### `flow-algebra-view`
-
-- **Kind**: function (JVM)
-- **Signature**:
-  ```clojure
-  (flow-algebra-view)
-  (flow-algebra-view frame-id)
-  ```
-- **Description**: Return the static derivation-algebra view of every registered flow. Each flow is lowered into the normalized derivation-node shape, so a tool can show subscriptions, flows, resources, route facts, and machine selectors as one family.
-
-  Each node carries:
-
-  - the flow's `:id`
-  - `:kind` `:derivation`
-  - `:source-form` `{:kind :reg-flow :id flow-id}`
-  - the declared `:inputs`, each lowered to `[:db path]` or `[:runtime …rest]`
-  - `:output` `[:db <output-path>]`
-  - the fixed classifications: `:storage` `:app-db`, `:evaluation` `:after-event`, `:lifecycle` `:frame`, `:materialized?` `true`
-  - `:owner` `[:frame frame-id]`
-  - the opaque `:derive` token
-  - `:source` / `:schema` / `:doc` when present
-
-  The zero-arity form returns `{frame-id {flow-id node}}`. The one-arity form returns `{flow-id node}` for a single frame. This is a JVM convenience alias; CLJS consumers call `re-frame.flows.tooling/flow-algebra-view` directly.
+The static derivation-algebra view of every registered flow — which lowers each flow into the normalized derivation-node shape, so a tool can show subscriptions, flows, resources, route facts and machine selectors as one family — ships **no public accessor** (Derivations §Flows expose algebra views). It lives in `re-frame.flows.tooling` and every consumer names that namespace directly: Xray and the conformance fixtures statically, `re-frame.derivation.graph` through `requiring-resolve` on the JVM.
 
 ## Runtime and test-support internals
 

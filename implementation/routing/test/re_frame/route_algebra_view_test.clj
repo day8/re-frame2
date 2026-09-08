@@ -22,10 +22,11 @@
       transition / nav-token / owner).
 
   Slice-5 ships NO public accessor (EP-0014 issue-1 disposition): the views
-  live in the bundle-isolated `re-frame.routing.tooling` sibling, reached on
-  JVM through the `re-frame.routing/route-algebra-view` convenience alias, and
-  consumed by Xray + the conformance fixtures. There is no
-  `re-frame.core/route-algebra-view` public facade export.
+  live in the bundle-isolated `re-frame.routing.tooling` sibling and are
+  consumed by Xray + the conformance fixtures, which name that sibling
+  directly. There is no `re-frame.core/route-algebra-view` public facade
+  export and — since rf2-kuky.86 — no `re-frame.routing` JVM convenience alias
+  either; `re-frame.derivation.graph` reaches the views by `requiring-resolve`.
 
   ## Posture split (rf2-o5dbf)
 
@@ -114,12 +115,20 @@
     (is (nil? (rf.routing.tooling/route-algebra-view :route/ghost))
         "an unregistered route id projects to nil")))
 
-(deftest jvm-alias-mirrors-the-tooling-fn
-  (testing "the JVM `re-frame.routing/route-algebra-view` alias is the tooling fn"
-    (rf/reg-route :route/home {} "/")
-    (is (= (rf.routing.tooling/route-algebra-view)
-           (rf.routing/route-algebra-view))
-        "the JVM convenience alias projects identically to the tooling sibling")))
+(deftest facade-publishes-no-algebra-view-alias
+  ;; rf2-kuky.86 — the absence pin that replaced the JVM presence pin. The
+  ;; views ship NO public accessor (Derivations §Routes expose algebra views):
+  ;; the `defn`s stay in `re-frame.routing.tooling` and the facade re-exports
+  ;; neither, so `re-frame.derivation.graph` reaches them by `requiring-resolve`
+  ;; and CLJS tools by a direct `:require`.
+  (testing "`re-frame.routing` re-exports neither route algebra view"
+    (is (nil? (ns-resolve 're-frame.routing 'route-algebra-view))
+        "route-algebra-view is not a public name on the routing facade")
+    (is (nil? (ns-resolve 're-frame.routing 'route-slice-algebra-view))
+        "route-slice-algebra-view is not a public name on the routing facade"))
+  (testing "the tooling sibling still publishes both"
+    (is (some? (ns-resolve 're-frame.routing.tooling 'route-algebra-view)))
+    (is (some? (ns-resolve 're-frame.routing.tooling 'route-slice-algebra-view)))))
 
 ;; ---- a registered route exposes its fact-node view -----------------------
 

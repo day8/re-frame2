@@ -163,7 +163,9 @@ The URL ↔ route mapping is a prism. `match-url` reads a URL into route data. `
 
 ## Introspection and slice access
 
-This is the read-side surface over the route registry and the live route slice. The live readers expose the per-frame slice. The `*-algebra-view` helpers lower routes into the shared derivation/process-algebra node shape, so a tool can show subscriptions, flows, resources, route facts, and machine selectors as one family.
+This is the read-side surface over the route registry and the live route slice. The live readers expose the per-frame slice.
+
+Lowering routes into the shared derivation/process-algebra node shape — so a tool can show subscriptions, flows, resources, route facts and machine selectors as one family — is **not** part of it. The static route view and the live route-slice view ship **no public accessor** (Derivations §Routes expose algebra views): they live in `re-frame.routing.tooling` and every consumer names that namespace directly — Xray and the conformance fixtures statically, `re-frame.derivation.graph` through `requiring-resolve` on the JVM.
 
 "Which routes are registered, and what is route X's spec?" has **no routing-specific accessor** (rf2-kuky.31 retired `route-ids` / `route-meta`). It is the generic registrar query API, which every tool already speaks:
 
@@ -176,34 +178,6 @@ This is the read-side surface over the route registry and the live route slice. 
 ```
 
 The returned map carries the `:path` pattern plus whatever the registration declared, so every [reserved metadata key](#reserved-metadata-keys) reads back from it — `:params`, `:query`, `:query-defaults`, `:tags`, `:parent`, `:on-match`, **`:can-enter`**, `:can-leave`, `:scroll`, `:sensitive`, `:large`, and the cross-feature `:head` / `:resources`. (`:can-enter` and `:parent` are the two an auth guard and a branch-composition read back most.) It also carries the computed `:rf.route/rank` / `:rf.route/compiled` / coercion tables and the source coords. Unlike the resource / mutation / resource-scope kinds, a route registration carries its metadata at the **top level** — there is no inner-key projection step.
-
-### `route-algebra-view`
-
-- **Kind**: function (JVM convenience alias; CLJS callers use `re-frame.routing.tooling/route-algebra-view`)
-- **Signature**:
-  ```clojure
-  (route-algebra-view) → {route-id route-fact-node}
-  (route-algebra-view route-id) → route-fact-node or nil
-  ```
-- **Description**: The STATIC derivation/process-algebra view of every registered route. It is pure data over the `:route` registrar kind — no app-db, no runtime-db, no live slice. The zero-arity form returns the map for every route (`{}` when none). The one-arity form returns one node, or `nil`. JVM-runnable; consumed by Xray and the conformance fixtures. There is no `re-frame.core` facade export.
-
-  Each route lowers to a normalized node carrying:
-  - `:id` `:rf/route` — the route FACT identity (every route materializes the one route slice; the per-route registration id is under `:source-form`).
-  - `:kind` `:process`, `:refinement` `:route-fact`.
-  - `:source-form` `{:kind :reg-route :id <route-id>}`.
-  - `:inputs` — the route-transition inputs (`:rf.route/navigate` / `:rf.route/handle-url-change`).
-  - `:output` `[:runtime [:rf.runtime/routing :current]]`, `:storage` `:runtime-db`.
-  - `:evaluation` `:on-route`, `:lifecycle` `:frame`, `:materialized?` `true`.
-  - `:resource-edges` — only when the route declares `:resources`.
-
-### `route-slice-algebra-view`
-
-- **Kind**: function (JVM convenience alias; CLJS callers use `re-frame.routing.tooling/route-slice-algebra-view`)
-- **Signature**:
-  ```clojure
-  (route-slice-algebra-view frame-id) → route-fact-node or nil
-  ```
-- **Description**: The LIVE counterpart to `route-algebra-view`. It reads the route fact materialized in a frame's runtime-db at `[:rf.runtime/routing :current]` — the concrete matched route, with its params, query, transition state, and nav-token. Returns a single `:route-fact` node. Returns `nil` when the frame is missing or destroyed, or when no navigation has committed yet (so no route has been materialized). The node carries the same fixed classifications as the static node, plus `:route-id`, `:params`, `:query`, `:transition`, `:nav-token`, and `:owner` `[:route <route-id> <nav-token>]`. Runs on both CLJS and the JVM (a single runtime-db container deref).
 
 ### Reading the route and the pending-nav slot
 

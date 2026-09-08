@@ -8,7 +8,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. The :action and :justification columns are the facade-audit axes (spec/Conventions.md §Facade policy fields 4 and 3) — also curated, and present on :facade? true rows ONLY, which is why most rows carry neither. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 479,
+ :var-count 472,
  :tier-vocab
  [:front-porch
   :advanced
@@ -162,7 +162,6 @@
   {:namespace "re-frame.epoch", :var "register-epoch-listener!", :tier :implementation, :kind :fn, :owner "Tool-Pair", :status "v1 (dev-only; hook target for :epoch/register-epoch-listener!; the public door is rf/register-listener! :epoch)", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.epoch", :var "settle!", :tier :implementation, :kind :fn, :owner "Tool-Pair", :status "v1 (dev-only)", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.epoch", :var "unregister-epoch-listener!", :tier :implementation, :kind :fn, :owner "Tool-Pair", :status "v1 (dev-only; hook target for :epoch/unregister-epoch-listener!; the public door is rf/unregister-listener! :epoch)", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.flows", :var "flow-algebra-view", :tier :tooling, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.flows", :var "flow-meta", :tier :tooling, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.flows", :var "flows", :tier :tooling, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.flows", :var "flows-snapshot", :tier :tooling, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
@@ -212,8 +211,6 @@
   {:namespace "re-frame.machines", :var "after-schedule-fx", :tier :implementation, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "destroy-machine-fx", :tier :implementation, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "install-machine-runtime!", :tier :implementation, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.machines", :var "machine-algebra-view", :tier :tooling, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.machines", :var "machine-instance-algebra-view", :tier :tooling, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "machine-selector-targets", :tier :tooling, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "machine-selector?", :tier :tooling, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "machine-transition", :tier :advanced, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
@@ -240,8 +237,6 @@
   {:namespace "re-frame.resources", :var "reg-resource", :tier :advanced, :kind :fn, :owner "016", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.resources", :var "reg-resource-scope", :tier :advanced, :kind :fn, :owner "016", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.resources", :var "resolve-resource-scope", :tier :advanced, :kind :fn, :owner "016", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.resources", :var "resource-algebra-view", :tier :tooling, :kind :fn, :owner "016", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.resources", :var "resource-cache-algebra-view", :tier :tooling, :kind :fn, :owner "016", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.resources", :var "resource-state", :tier :advanced, :kind :fn, :owner "016", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.routing", :var "counter-snapshot", :tier :implementation, :kind :fn, :owner "012", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.routing", :var "frame-scroll-cache", :tier :implementation, :kind :fn, :owner "012", :status "v1", :facade? false, :runtime-verified? true}
@@ -255,9 +250,7 @@
   {:namespace "re-frame.routing", :var "reset-nav-counters!", :tier :implementation, :kind :fn, :owner "012", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.routing", :var "reset-scroll-cache!", :tier :implementation, :kind :fn, :owner "012", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.routing", :var "reset-url-claims!", :tier :implementation, :kind :fn, :owner "012", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.routing", :var "route-algebra-view", :tier :tooling, :kind :fn, :owner "012", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.routing", :var "route-link-render-ssr", :tier :implementation, :kind :fn, :owner "012", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.routing", :var "route-slice-algebra-view", :tier :tooling, :kind :fn, :owner "012", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.routing", :var "route-url", :tier :advanced, :kind :fn, :owner "012", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.routing", :var "routing-state-classification", :tier :implementation, :kind :var, :owner "012", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.routing", :var "save-scroll-position", :tier :implementation, :kind :fn, :owner "012", :status "v1", :facade? false, :runtime-verified? true}

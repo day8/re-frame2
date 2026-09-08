@@ -2649,11 +2649,10 @@
 #?(:clj
    (do
      (def sub-topology       rf.subs.tooling/sub-topology)
-     (def sub-cache-snapshot rf.subs.tooling/sub-cache-snapshot)
-     ;; EP-0014 slice-2: the derivation/process algebra views. The static
-     ;; view is JVM-runnable (registrar-derived, partition-agnostic); the
-     ;; live cache view is CLJS-only (returns nil on the JVM, like
-     ;; `sub-cache-snapshot`). Both live in the tooling sibling so
-     ;; production CLJS bundles DCE the bodies.
-     (def sub-algebra-view       rf.subs.tooling/sub-algebra-view)
-     (def sub-cache-algebra-view rf.subs.tooling/sub-cache-algebra-view)))
+     (def sub-cache-snapshot rf.subs.tooling/sub-cache-snapshot)))
+;; rf2-kuky.86: no `sub-algebra-view` / `sub-cache-algebra-view` facade
+;; aliases. The EP-0014 slice-2 derivation/process algebra views ship NO
+;; public accessor (Derivations §Subscriptions expose algebra views) — both
+;; live in `re-frame.subs.tooling` so production CLJS bundles DCE the bodies,
+;; and every consumer names that sibling directly (Xray and the conformance
+;; fixtures statically; `re-frame.derivation.graph` requires it in-core).

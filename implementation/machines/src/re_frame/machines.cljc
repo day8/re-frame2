@@ -182,25 +182,30 @@
 ;; Both inner-key projections are DOCUMENTED contracts (Spec 005 §Querying
 ;; machines, spec/API.md §Public registrar query API), not helpers.
 
-;; ---- derivation/process algebra views -------------------------------------
+;; ---- machine-selector recognizer + extractor ------------------------------
 ;;
-;; The derivation/process algebra view of registered machines
-;; (`machine-algebra-view`), their live instances / spawned actors
-;; (`machine-instance-algebra-view`), and the machine-selector recognizer
-;; (`machine-selector?`). A machine is the canonical `:process` member of the
-;; algebra (a derivation WITH state, lifecycle, and commands over time); its
-;; snapshot materializes into runtime-db, evaluated `:on-transition`.
+;; The machine-selector recognizer (`machine-selector?`) and the selector-target
+;; extractor (`machine-selector-targets`). A machine is the canonical `:process`
+;; member of the algebra (a derivation WITH state, lifecycle, and commands over
+;; time); its snapshot materializes into runtime-db, evaluated `:on-transition`.
+;; The algebra views over registered machines and over their live instances /
+;; spawned actors live in `re-frame.machines.tooling` and are reached there.
 ;;
-;; JVM convenience aliases: the bodies live in `re-frame.machines.tooling` so a
-;; CLJS app that loads the machines artefact but attaches no tool DCEs them (the
-;; CLJS facade never `:require`s the tooling sibling — the require above is
-;; `#?@(:clj ...)`-gated). CLJS consumers (Xray + conformance) call
-;; `re-frame.machines.tooling/<name>` directly. No `re-frame.core` facade
-;; export. Mirrors the `re-frame.flows/flow-algebra-view` JVM alias.
+;; rf2-kuky.86: no `machine-algebra-view` / `machine-instance-algebra-view`
+;; facade aliases. Both algebra views ship NO public accessor (Derivations
+;; §Machines expose algebra views) — every consumer names
+;; `re-frame.machines.tooling/<name>` directly (Xray and the conformance
+;; fixtures statically; `re-frame.derivation.graph` through
+;; `requiring-resolve` on the JVM).
+;;
+;; The selector recognizer and extractor KEEP their JVM convenience aliases:
+;; the bodies live in `re-frame.machines.tooling` so a CLJS app that loads the
+;; machines artefact but attaches no tool DCEs them (the CLJS facade never
+;; `:require`s the tooling sibling — the require above is `#?@(:clj ...)`-gated).
+;; CLJS consumers (Xray + conformance) call `re-frame.machines.tooling/<name>`
+;; directly. No `re-frame.core` facade export.
 #?(:clj
    (do
-     (def machine-algebra-view          rf.machines.tooling/machine-algebra-view)
-     (def machine-instance-algebra-view rf.machines.tooling/machine-instance-algebra-view)
      (def machine-selector?             rf.machines.tooling/machine-selector?)
      (def machine-selector-targets      rf.machines.tooling/machine-selector-targets)))
 

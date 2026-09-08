@@ -324,41 +324,9 @@ When a child spawns declaratively under a parent, the framework binds the child'
 
 ## Machine-tooling exports (JVM)
 
-The shipped machine-tooling exports are `re-frame.machines` aliases over `re-frame.machines.tooling`. The aliases are JVM-only; there is no `re-frame.core` facade export. CLJS tool consumers call `re-frame.machines.tooling/<name>` directly. The CLJS facade deliberately omits the tooling require, so an app that attaches no tool DCEs the tooling body. These exports render the machine *algebra view* that Xray and re-frame-pair navigate. There is **no** framework-level `machine->xstate-json`, `machine->mermaid`, or Stately bridge. Those exporters are owned by the separate post-v1 `day8/re-frame2-machines-viz` library, not the framework.
+The shipped machine-tooling exports are `re-frame.machines` aliases over `re-frame.machines.tooling`. The aliases are JVM-only; there is no `re-frame.core` facade export. CLJS tool consumers call `re-frame.machines.tooling/<name>` directly. The CLJS facade deliberately omits the tooling require, so an app that attaches no tool DCEs the tooling body. There is **no** framework-level `machine->xstate-json`, `machine->mermaid`, or Stately bridge. Those exporters are owned by the separate post-v1 `day8/re-frame2-machines-viz` library, not the framework.
 
-### `re-frame.machines/machine-algebra-view`
-
-- **Kind**: function (owned by `re-frame.machines`, JVM-only — not a `re-frame.core` facade export)
-- **Signature**:
-  ```clojure
-  (re-frame.machines/machine-algebra-view) → {machine-id node}
-  (re-frame.machines/machine-algebra-view machine-id) → node (or nil)
-  ```
-- **Description**: The static algebra view over a machine *definition*. This is the structure Xray's machine inspector and the docs/visualisation lane read. JVM-only. The zero-arity form returns `{machine-id node}` for every registered machine, or `{}` when none are registered. The one-arity form returns the single node for `machine-id`, or `nil` if it is not registered.
-- **Example**:
-  ```clojure
-  ;; The whole registry, keyed by machine-id — or one node (nil if unregistered).
-  (rf.machines/machine-algebra-view)
-  (rf.machines/machine-algebra-view :upload/main)
-  ```
-
-### `re-frame.machines/machine-instance-algebra-view`
-
-- **Kind**: function (owned by `re-frame.machines`, JVM-only — not a `re-frame.core` facade export)
-- **Signature**:
-  ```clojure
-  (re-frame.machines/machine-instance-algebra-view) → {actor-id node}
-  (re-frame.machines/machine-instance-algebra-view frame-id) → {actor-id node}
-  ```
-- **Description**: The algebra view for a live machine *instance*: definition plus current snapshot, so the view can highlight the active state. JVM-only. The zero-arity form reads the ambient current frame; the one-arity form names a `frame-id`. Returns:
-    - `{actor-id node}` — one node per live snapshot, covering singletons and spawned actors.
-    - `{}` — the frame has no live machines.
-    - `nil` — the frame is missing or destroyed, or this is a production build.
-- **Example**:
-  ```clojure
-  ;; Live nodes — one per machine snapshot in the frame (singletons + spawned actors).
-  (rf.machines/machine-instance-algebra-view :rf/default)
-  ```
+The machine *algebra views* Xray and re-frame-pair navigate are **not** among them. The static view over a machine definition and the live view over a machine instance ship **no public accessor** (Derivations §Machines expose algebra views): they live in `re-frame.machines.tooling` and every consumer names that namespace directly — Xray statically, `re-frame.derivation.graph` through `requiring-resolve` on the JVM.
 
 ### `re-frame.machines/machine-selector?`
 
