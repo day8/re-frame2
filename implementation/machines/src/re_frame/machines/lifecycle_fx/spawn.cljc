@@ -853,6 +853,113 @@
       :else
       (spawn-fx* frame-id args))))
 
+;; ---- generated-address collision (rf2-1sip) --------------------------------
+
+(defn- generated-address-collision?
+  "rf2-1sip — is this spawn's GENERATED `<type>#<n>` address already occupied by
+  a LIVE actor? True only when every clause below holds; the answer is `false`
+  on every ordinary spawn and costs one `runtime-db` read.
+
+  WHY A GENERATED COLLISION IS A DIFFERENT ANIMAL FROM AN OCCUPIED
+  `:fixed-actor-id`. rf2-dokz ruled that a spawn arriving at a fixed address a
+  live actor occupies REPLACES it cleanly and raises nothing: the author named
+  that address, and naming an address twice is a request for the actor there to
+  become the new one. NOBODY NAMES A GENERATED ADDRESS. `<type>#<n>` is minted
+  by a counter, and the counter can hand out a live actor's address because the
+  two allocators do not share a home — the declarative reducer's counter lives
+  IN THE SPAWNING PARENT'S SNAPSHOT (`:rf/spawn-counter`,
+  `transition/allocate-spawned-id`) while the address space it allocates into is
+  FRAME-GLOBAL. So a parent destroyed and respawned at the same address begins
+  counting from zero beside its own still-live orphans, and two parents spawning
+  the same child TYPE both mint `#1`. There is no author intent to honour, so
+  the replacement reading is unavailable and the write is pure data loss: the
+  occupant is not detached but GONE, with no `:rf.machine/destroyed`, no
+  `:exit`, and a `:rf.machine.spawn/spawned` naming an address already spawned.
+
+  CLAUSES, and each is load-bearing.
+
+  - A SUPPLIED `:fixed-actor-id` is excluded — that is rf2-dokz's replacement
+    path, ruled and delivered, and it is checked on `args` rather than on the
+    id's SPELLING because a fixed literal may itself end in `#<digits>`
+    (`join-child-record-from-state`'s `:work-generation` makes the same
+    distinction for the same reason).
+  - A PREPARED `:spawn-all` child is excluded. rf2-v4oqd's invariant is that an
+    ADMITTED child ALWAYS installs — the authoritative preflight is the sole
+    verdict, and a second per-child reject here would strand a live join naming
+    a child that never appears, which is the dead-join class rf2-ek435 closed.
+    The WITHIN-BATCH aliasing case is already rejected atomically by that
+    preflight (`spawn-all-address-collisions`); a prepared child colliding with
+    a live actor OUTSIDE its batch is left alone and belongs to the counter
+    re-homing, not here.
+  - A nil `spawned-id` is excluded: the cascade gate already refuses that spawn.
+
+  Occupancy is `lifecycle-fx.destroy/occupant-actor-live?` — the SAME probe the
+  replacement path consults, deliberately shared so the two can never disagree
+  about what occupied means. It is snapshot presence and nothing else (Spec 005
+  §Liveness is derived from runtime-db), so a registered-but-never-spawned TYPE
+  sitting at the keyword is not an occupant."
+  [frame-id args prepared spawned-id]
+  (boolean
+    (and (some? spawned-id)
+         (nil? prepared)
+         (not (contains? args :fixed-actor-id))
+         (rf.machines.lifecycle-fx.destroy/occupant-actor-live? frame-id spawned-id))))
+
+(defn- reject-generated-address-collision!
+  "rf2-1sip — REJECT a spawn whose GENERATED address is already held by a live
+  actor, and emit `:rf.error/machine-spawn-all-duplicate-id`. Returns nil, so
+  the caller's cascade gate suppresses the whole spawn — no snapshot, no
+  spawn-order entry, no `:rf.machine.spawn/spawned`, no `:start` dispatch —
+  exactly as the schema-reject and unregistered-TYPE paths do.
+
+  THE EXISTING CATEGORY, NOT A NEW ONE. `:rf.error/machine-spawn-all-duplicate-id`
+  is already the name for \"two distinct spawns resolve to one actor address and
+  one would silently overwrite the other\" (Spec 005 §Errors; its runtime
+  surfacing is `reject-address-collision!`, which names a fixed id colliding
+  with a generated `<type>#n` among the shapes it refuses). This is the same
+  failure with the batch boundary removed: the occupant is a live actor rather
+  than a sibling in the same invoke. A distinct id would give one failure two
+  names.
+
+  DIAGNOSTIC channel (Spec 009), matching `reject-address-collision!`: the
+  fail-closed reject itself runs in production — the spawn does not install
+  either way — while the observability trace rides the dev-only surface DCE'd
+  under `goog.DEBUG=false`. STRUCTURAL context ONLY: the machine TYPE, the
+  occupied address, the spawning parent and invoke path. Never the spawn `args`
+  / `:data`, which may hold application PII.
+
+  `:recovery` is `:no-recovery` — the runtime cannot pick a different address
+  without breaking the deterministic `<type>#<n>` sequencing
+  `machine-transition`'s purity contract rests on, and it must not destroy the
+  occupant, which Spec 005's *Teardown is explicit in v1* rule reserves to the
+  author. The `reason` therefore names both author-side escapes: a distinct
+  `:fixed-actor-id`, or destroying the occupant before spawning over it."
+  [frame-id args spawned-id]
+  (let [machine-id (:machine-id args)
+        parent-id  (:rf/parent-id args)
+        reason     (rf.error/human-message
+                     :rf.error/machine-spawn-all-duplicate-id
+                     (str "Cannot spawn machine " machine-id " at the generated "
+                          "actor address " spawned-id ": a LIVE actor already "
+                          "occupies it, and installing there would destroy that "
+                          "actor with no :exit, no teardown and no trace — so the "
+                          "spawn is rejected fail-closed. The generated "
+                          "<type>#<n> counter is per-spawning-snapshot while the "
+                          "address space is per-frame, so a respawned parent, or "
+                          "a second parent spawning the same machine TYPE, can "
+                          "re-mint an address that is still held. Give this spawn "
+                          "a distinct :fixed-actor-id, or destroy the occupant "
+                          "explicitly before spawning over it."))]
+    (rf.trace/emit-error! :rf.error/machine-spawn-all-duplicate-id
+                       {:machine-id machine-id
+                        :failing-id spawned-id
+                        :parent-id  parent-id
+                        :invoke-id  (:rf/invoke-id args)
+                        :frame      frame-id
+                        :recovery   :no-recovery
+                        :reason     reason})
+    nil))
+
 (defn- install-base-after-replacing-occupant!
   "rf2-dokz — the occupied-`:fixed-actor-id` step. Returns the `runtime-db`
   value `install-spawn!` must build its install on, or nil when the install must
@@ -871,9 +978,12 @@
   EXISTING `:reason :explicit` (see
   `lifecycle-fx.destroy/destroy-occupant-for-replacement!` for why it delegates
   and why the reason may not be a new enum member). Scoped to a SUPPLIED
-  `:fixed-actor-id`: a generated `<type>#<n>` address that collides with a live
-  actor is the separate reseeded-`:rf/spawn-counter` defect (rf2-1sip), not this
-  one, and is deliberately left alone.
+  `:fixed-actor-id`, and that scope is now the OTHER half of a two-way split
+  rather than an omission: a generated `<type>#<n>` address that collides with a
+  live actor is REJECTED instead (rf2-1sip —
+  `generated-address-collision?` / `reject-generated-address-collision!` above),
+  because nobody named that address so there is no replacement request to
+  honour. The caller picks exactly one of the two.
 
   (3) THE INSTALL BASE IS REBUILT FROM THE POST-TEARDOWN VALUE. This is the trap
   the fix exists to avoid: `install-spawn!`'s `install-fn` DISCARDS the swap's
@@ -1093,9 +1203,26 @@
     ;; purpose: the occupant's `:rf.machine/destroyed` is therefore observed
     ;; BEFORE the replacement's spawned traces, and a tool pairing lifecycle
     ;; events never sees one address spawned twice with no destroy between.
+    ;;
+    ;; rf2-1sip SPLITS that fourth condition in two on the SAME occupancy
+    ;; question, because occupancy means opposite things at the two kinds of
+    ;; address. At a SUPPLIED `:fixed-actor-id` it means REPLACE (rf2-dokz,
+    ;; above). At a GENERATED `<type>#<n>` it means REJECT: the counter is
+    ;; per-snapshot while the address space is per-frame, so a respawned parent
+    ;; — or a second parent of the same child TYPE — re-mints an address a live
+    ;; actor still holds, and installing there is the unannounced death rf2-dokz
+    ;; removed from the fixed path, reached with no author involvement at all.
+    ;; The reject returns nil and so suppresses the traces and the install
+    ;; together, exactly as an unobtainable install base does. It sits INSIDE
+    ;; the same `and`, after the validator verdict, so a schema-rejected spawn
+    ;; still reports only its own diagnostic.
     (when-let [rt-install (and (not rejected?) old-rt (continue?)
-                               (install-base-after-replacing-occupant!
-                                 frame-id args spawned-id prepared rt-after-alloc continue?))]
+                               (if (generated-address-collision?
+                                     frame-id args prepared spawned-id)
+                                 (reject-generated-address-collision!
+                                   frame-id args spawned-id)
+                                 (install-base-after-replacing-occupant!
+                                   frame-id args spawned-id prepared rt-after-alloc continue?)))]
       (rf.trace/emit! :rf.machine :rf.machine.spawn/spawned
                    {:frame      frame-id
                     ;; `:machine-id` is the spec-time registered TYPE (xor

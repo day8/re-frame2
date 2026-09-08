@@ -3030,10 +3030,10 @@ and the machine's registration — which the replacement and every sibling actor
 of that type resolve through — **survives** that teardown.
 
 Replacement stays **one verb at one address**. There is no `:replace?` opt-in
-key, no occupied-address error and no warning: an author who names an address
-they have already named has asked for the actor at that address to become the
-new one, and honouring that request means the old one is finished with. Two
-limits of the rule are deliberate:
+key, no error at an occupied **fixed** address and no warning: an author who
+names an address they have already named has asked for the actor at that address
+to become the new one, and honouring that request means the old one is finished
+with. Two limits of the rule are deliberate:
 
 - **The occupant's own descendants are NOT reaped.** They are ordinary actors
   at their own addresses and outlive their spawner exactly as they outlive an
@@ -3045,10 +3045,35 @@ limits of the rule are deliberate:
   unrelated spawn sites resolving to one address, and re-frame2 keeps no second
   registry to consult. What it guarantees is that neither case LEAKS.
 
+**Spawning onto an occupied GENERATED address is REJECTED, not replaced.** The
+rule above turns entirely on the author having NAMED the address. Nobody names a
+generated one: `<type>#<n>` is minted by a counter, and that counter is
+[per-spawning-snapshot](#reserved-snapshot-internal-keys) while the address space
+it allocates into is per-frame. The two disagree in ordinary programs — a parent
+destroyed and respawned at the same address begins counting from zero beside its
+own still-live orphans, and two parents spawning the same child type each mint
+`#1` — so a generated address can arrive at a live actor with no author
+involvement anywhere. There is no request to honour, and *Teardown is explicit in
+v1* reserves destroying the occupant to the author, so the spawn is **rejected
+fail-closed**: it installs no snapshot, records no spawn-order entry, emits no
+`:rf.machine.spawn/spawned` and dispatches no `:start`, and one
+`:rf.error/machine-spawn-all-duplicate-id` names the machine type, the occupied
+address and the spawning parent. That is the existing category rather than a new
+one — it already means "two distinct spawns resolve to one actor address and one
+would silently overwrite the other", including the fixed-versus-generated shape —
+and `:recovery` is `:no-recovery`: the runtime may not pick a different address
+without breaking the deterministic `<type>#<n>` sequencing, so the author gives
+the spawn a distinct `:fixed-actor-id` or destroys the occupant first. One case
+is deliberately outside the guard: an **admitted `:spawn-all` child** is never
+rejected here, because the invoke-level preflight is that child's sole verdict
+(a second per-child reject would strand a live join naming a child that never
+appears); within-batch aliasing is already rejected atomically by that preflight.
+
 Two neighbouring cases are unchanged. Ordinary re-entry — leaving the
 `:spawn`-bearing state, whose exit cascade destroys the child, then re-entering
 at an EMPTY address — installs a fresh incarnation with no occupant to tear
-down. And two children of one `:spawn-all` batch resolving to one literal
+down, and the parent's counter has advanced, so neither defence is load-bearing
+alone. And two children of one `:spawn-all` batch resolving to one literal
 address are still rejected outright with
 `:rf.error/machine-spawn-all-duplicate-id` rather than replaced: within a single
 batch there is no "previous occupant", only a malformed invoke.
@@ -3916,7 +3941,7 @@ A common partial-success idiom is to declare `:after` for the phase-level timeou
 `:spawn-all` introduces three new registration-time error categories on top of the existing `:rf.error/machine-*`:
 
 - `:rf.error/machine-spawn-all-bad-shape` — a child invoke-spec is missing `:id` or both `:machine-id` and `:definition`; or `:spawn-all` is not a vector; or the join-event slots are missing per the required-iff rules above.
-- `:rf.error/machine-spawn-all-duplicate-id` — two `:spawn-all` children collide on an id. At **registration** two child invoke-specs share a logical `:id` keyword (each `:id` must be unique inside the same `:spawn-all` block). The **same category** also surfaces at **spawn time** for resolved actor-address aliasing — see the invoke-level admission preflight below.
+- `:rf.error/machine-spawn-all-duplicate-id` — two spawns collide on one actor address. At **registration** two child invoke-specs share a logical `:id` keyword (each `:id` must be unique inside the same `:spawn-all` block). The **same category** also surfaces at **spawn time**, twice: for resolved actor-address aliasing *within* one `:spawn-all` batch — see the invoke-level admission preflight below — and, outside `:spawn-all` entirely, for a **single `:spawn` whose GENERATED `<type>#<n>` address is already held by a live actor**, per [§Declarative `:spawn`](#declarative-spawn). All three are one failure: two distinct spawns resolving to one address, where one would silently overwrite the other.
 - `:rf.error/machine-spawn-all-with-spawn` — a state node declares both `:spawn` and `:spawn-all`; the combination is rejected.
 
 **Invoke-level child admission — the atomic fail-closed reject.** The `:rf.machine/spawn-all-init` fx fires **FIRST** in the entry `:fx` vector, before every per-child `:rf.machine/spawn` fx, and its **preflight is the authoritative decision for every fail-closed child-admission condition**. It preflights the *prepared per-child spawn args* — the exact payloads the per-child fxs will run, so it sees each child's materialised `:data` and allocated id, and therefore its real verdict. If **any** child fails admission, the whole invoke is **rejected atomically**: instead of a live child-bearing join state, the fx seeds a **childless reject sentinel** (`{:rf/spawn-all-rejected? true}`, no `:children`) at the join slot. Three conditions gate admission — an unregistered TYPE, a spawn-time schema rejection, and resolved actor-address aliasing (the first two are disjoint: an unregistered type resolves to no spec, so it can never also be a schema reject):

@@ -793,9 +793,10 @@
 
 ;; ---- occupied-address replacement (rf2-dokz) -------------------------------
 
-(defn- occupant-actor-live?
+(defn occupant-actor-live?
   "Is `actor-id` OCCUPIED by a live spawned ACTOR, for the purpose of deciding
-  replacement? True iff the frame's LIVE `runtime-db` carries a snapshot there.
+  what a spawn arriving there means? True iff the frame's LIVE `runtime-db`
+  carries a snapshot there.
 
   DELIBERATELY NOT `actor-live?`, and that difference is the whole of this
   predicate. `actor-live?` is the shared silent-idempotent DESTROY probe
@@ -812,8 +813,17 @@
   is exactly this predicate.
 
   `actor-live?`'s spawn-order clause is not needed here either: it covers the
-  drain-time stale `old-db` window, and this predicate's only caller reads the
-  frame's LIVE `runtime-db`, which by definition has no such window."
+  drain-time stale `old-db` window, and both callers read the frame's LIVE
+  `runtime-db`, which by definition has no such window.
+
+  TWO CALLERS, ONE PROBE, OPPOSITE VERDICTS (rf2-1sip). Occupancy at a SUPPLIED
+  `:fixed-actor-id` means REPLACE — `destroy-occupant-for-replacement!` below.
+  Occupancy at a GENERATED `<type>#<n>` address means REJECT: nobody named that
+  address, so nobody asked for a replacement, and the runtime allocated it only
+  because its counter did not know the occupant existed. That is
+  `lifecycle-fx.spawn/generated-address-collision?`. The predicate is shared
+  deliberately — the two paths must never disagree about what \"occupied\"
+  means — and it is PUBLIC for that second caller alone."
   [frame-id actor-id]
   (snapshot-present? (rf.frame/frame-runtime-db-value frame-id) actor-id))
 
