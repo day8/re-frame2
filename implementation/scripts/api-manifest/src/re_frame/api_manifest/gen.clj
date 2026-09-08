@@ -261,7 +261,7 @@
 ;; judged most likely to hide a public authoring surface an application
 ;; requires directly. Fifty-one namespaces were unaccounted (routing 28,
 ;; resources 23) and ALL FIFTY-ONE classified internal: no new manifest row, no
-;; new documentation page, `:var-count` unchanged. The reason the two trees
+;; new documentation page, the row count unchanged. The reason the two trees
 ;; differ from hicasso is structural rather than lucky. Both are FAÇADE
 ;; artefacts — one enrolled door re-exporting what an app may call (27 rows for
 ;; routing, 21 for resources), with the siblings holding handler bodies,
@@ -942,7 +942,7 @@
    a duplicated `:cljs-only` entry, or a `:cljs-only` row colliding with a
    JVM-derived row, produced a manifest with two rows for one var (possibly
    with conflicting tier/kind/status/runtime metadata) and an inflated
-   `:var-count`. Downstream projections then either collapse the two rows to
+   row count. Downstream projections then either collapse the two rows to
    one (`xray-spec-check`'s strict `[namespace var]` SET, which cannot
    represent a duplicate at all) or tolerate multiple tiers — masking the
    contradiction. Detecting duplicates HERE, before write / `--check`, keeps
@@ -1055,7 +1055,7 @@
     ;; One-row-per-public-var invariant (rf2-nlnd9y.2). A duplicate
     ;; `[namespace var]` — within `:cljs-only`, or between a `:cljs-only`
     ;; row and a JVM-derived row — must FAIL generation / `--check`, never
-    ;; ship two rows for one var (which inflates :var-count and lets
+    ;; ship two rows for one var (which inflates the row count and lets
     ;; downstream projections silently overwrite or mask conflicting tiers).
     (when (seq dups)
       (throw (ex-info
@@ -1129,7 +1129,6 @@
                                "why most rows carry neither. "
                                "See that generator ns for the design.")
             :keystone     "rf2-3nbl5.2"
-            :var-count    (count rows)
             :tier-vocab   [:front-porch :advanced :tooling :adapter
                            :testing :internal-public :implementation
                            :deprecated]
@@ -1207,7 +1206,7 @@
     (spit @manifest-file (render-edn manifest))
     (println (format "Wrote %s (%d public vars)."
                      (.getPath ^java.io.File @manifest-file)
-                     (:var-count (:meta manifest))))
+                     (count (:vars manifest))))
     manifest))
 
 (defn check!
@@ -1228,7 +1227,7 @@
       ;; does not trip a spurious drift (the canonical committed file is LF).
       (= (render-edn generated) (str/replace (slurp @manifest-file) "\r\n" "\n"))
       (do (println (format "OK: spec/api-manifest.edn in sync (%d public vars)."
-                           (:var-count (:meta generated))))
+                           (count (:vars generated))))
           true)
 
       :else

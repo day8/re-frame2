@@ -11,7 +11,7 @@
   duplicated `:cljs-only` entry — or a `:cljs-only` row colliding with a
   JVM-derived row — produced two manifest rows for one var (possibly with
   conflicting tier/kind/status/runtime metadata) and an inflated
-  `:var-count`. Drift checks could still pass (committed + regenerated agree
+  row count. Drift checks could still pass (committed + regenerated agree
   on the duplicate), while downstream projections silently collapse the two
   rows to one (`xray-spec-check`'s strict `[namespace var]` SET, which cannot
   represent a duplicate at all) or tolerate multiple tiers — masking the
