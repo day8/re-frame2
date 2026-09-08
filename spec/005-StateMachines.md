@@ -2632,7 +2632,7 @@ There is no `:timeout-ms` slot on `:spawn` / `:spawn-all` (`:rf.error/spawn-time
 
 If machines are event handlers and actors are machines, then **a spawned actor is addressable as an event handler whose id is the actor's address** — but, per [§Liveness is derived from runtime-db](#liveness-is-derived-from-runtime-db), that handler is NOT a per-instance registrar entry. It is *resolved on demand* from the actor's snapshot. The mailbox / addressing semantics fall out of `dispatch` — no new primitive.
 
-> **Teardown is explicit in v1.** Every spawned actor ends its life at a named `[:rf.machine/destroy <actor-id>]` site — there is no implicit ownership cascade. Auto-cleanup via an opt-in `:owned-by` relation is a v1.1+ direction; per [§Resolved decisions §Auto-cleanup of orphaned actors](#auto-cleanup-of-orphaned-actors--explicit-rfmachinedestroy-for-v1-resolved). The one composed-with cascade is the `:rf.http/managed`-abort cascade per [§Cancellation cascade — in-flight `:rf.http/managed` aborts](#cancellation-cascade--in-flight-rfhttpmanaged-aborts), which fires off the explicit `:rf.machine/destroy`.
+> **Teardown is explicit in v1.** Every spawned actor ends its life at a named `[:rf.machine/destroy <actor-id>]` site — there is no implicit ownership cascade. Auto-cleanup via an opt-in `:owned-by` relation is a v1.1+ direction; per [§Resolved decisions §Auto-cleanup of orphaned actors](#auto-cleanup-of-orphaned-actors--explicit-rfmachinedestroy-for-v1-resolved). The one composed-with cascade is the `:rf.http/managed`-abort cascade per [§Cancellation cascade — in-flight `:rf.http/managed` aborts](#cancellation-cascade--in-flight-rfhttpmanaged-aborts), which fires off the explicit `:rf.machine/destroy`. **One narrow qualification:** a `:rf.machine/spawn` arriving at a `:fixed-actor-id` that a LIVE actor occupies destroys that occupant through the ordinary destroy path before installing the replacement (per [§Spec-spec keys](#spec-spec-keys)). That is still an explicit teardown at a named address — the author named it by spawning there — and it reaps NOTHING beyond the occupant itself: the occupant's own spawned children survive it exactly as they survive an explicit `[:rf.machine/destroy <actor-id>]`.
 
 <a id="liveness-is-derived-from-app-db"></a>
 
@@ -2990,6 +2990,44 @@ literal address are rejected (`:rf.error/machine-spawn-all-duplicate-id`). XStat
 actor system THROWS on a duplicate `systemId`; re-frame2 keeps no separate
 registry to collide with — the id is the only name, so nobody should re-add one
 to "restore parity".
+
+**Spawning onto an OCCUPIED fixed address destroys the occupant CLEANLY first.**
+A `:rf.machine/spawn` that arrives at a `:fixed-actor-id` a LIVE actor still
+occupies runs that occupant through the ORDINARY destroy path — the same one
+`[:rf.machine/destroy <actor-id>]` takes, under `:reason :explicit` — and only
+then installs the replacement, built on the POST-teardown `runtime-db`. So the
+occupant's `:exit` action runs, and the three framework-managed resource kinds
+release exactly as [§What auto-cancels on
+destroy](#what-auto-cancels-on-destroy--exactly-three-framework-managed-resource-kinds-divergence-from-xstate)
+promises: in-flight `:rf.http/managed` requests abort, armed `:after` timers
+cancel, and `[:machine <actor-id>]` resource owners release. The lifecycle
+pairing holds too — the occupant's `:rf.machine/destroyed` is emitted BEFORE the
+replacement's `:rf.machine.spawn/spawned`, so a tool pairing lifecycle events
+never sees one address spawned twice with no destroy between.
+
+Replacement stays **one verb at one address**. There is no `:replace?` opt-in
+key, no occupied-address error and no warning: an author who names an address
+they have already named has asked for the actor at that address to become the
+new one, and honouring that request means the old one is finished with. Two
+limits of the rule are deliberate:
+
+- **The occupant's own descendants are NOT reaped.** They are ordinary actors
+  at their own addresses and outlive their spawner exactly as they outlive an
+  explicit `[:rf.machine/destroy <actor-id>]` — per the *Teardown is explicit in
+  v1* rule under [§Spawning — dynamic actors](#spawning--dynamic-actors). The
+  occupant's `:exit` is where an author tears down what it owns.
+- **The runtime does not distinguish a deliberate re-spawn from an accidental
+  collision.** Only author intent separates "restart the singleton" from two
+  unrelated spawn sites resolving to one address, and re-frame2 keeps no second
+  registry to consult. What it guarantees is that neither case LEAKS.
+
+Two neighbouring cases are unchanged. Ordinary re-entry — leaving the
+`:spawn`-bearing state, whose exit cascade destroys the child, then re-entering
+at an EMPTY address — installs a fresh incarnation with no occupant to tear
+down. And two children of one `:spawn-all` batch resolving to one literal
+address are still rejected outright with
+`:rf.error/machine-spawn-all-duplicate-id` rather than replaced: within a single
+batch there is no "previous occupant", only a malformed invoke.
 
 > **Wall-clock timeouts: use the parent state's `:after` slot.** There is **no** `:timeout-ms` slot on `:spawn` / `:spawn-all` for "the whole spawned actor must terminate within N ms (spanning retries)." Use the canonical `:after` primitive on the parent state — `:after` is one mechanism, not two. Per [§Whichever fires first wins](#whichever-fires-first-wins), an `:after` firing on the parent state exits the state and the standard exit cascade destroys the in-flight `:spawn`d child. The migration recipe is mechanical: lift the `:timeout-ms` value into the `:spawn`-bearing state's `:after` map, with a transition that exits the state to a "timeout" target. See [MIGRATION §M-44](../migration/from-re-frame-v1/README.md#m-44-timeout-ms-removed-from-spawn--spawn-all--use-parent-states-after).
 
