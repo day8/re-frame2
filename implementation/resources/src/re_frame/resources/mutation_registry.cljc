@@ -336,23 +336,24 @@
   mutation-id)
 
 ;; ---- registry-side introspection -----------------------------------------
+;; ARTEFACT-INTERNAL (rf2-kuky.31), exactly as `resource-meta` is: no facade
+;; re-export, and no `mutation-ids` at all. Outside callers spell the
+;; projection in full —
+;;   (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id id}))
+;;   (keys (rf/registrations {:source :store :kind :mutation}))
 
 (defn mutation-meta
   "Return the registered mutation's spec map (`:request`, `:params-schema`,
   `:invalidates`, `:patches`, `:populates`, `:removes`, `:optimistic`,
   `:optimistic-tags`, `:on-conflict`, `:scope`, `:invalidate-timing`,
   `:transport`, `:doc`, source coords) for `mutation-id`, or nil if no
-  mutation is registered under that id. The introspection counterpart of
-  `resource-meta`. Per EP-0003 §Mutations / Xray."
+  mutation is registered under that id.
+
+  Artefact-internal — the `:rf/mutation` inner-key projection off the
+  generic registrar lookup, which is the public spelling. The
+  counterpart of `resource-meta`. Per EP-0003 §Mutations / Xray."
   [mutation-id]
   (:rf/mutation (rf.registrar/lookup mutation-kind mutation-id)))
-
-(defn mutation-ids
-  "Return a vector of every registered mutation id. The registry-side half
-  of the mutation introspection (the runtime-side per-frame instance table
-  lives in the subs / accessors). Per EP-0003 §Mutations / Xray."
-  []
-  (vec (rf.registrar/ids mutation-kind)))
 
 (defn require-mutation-spec!
   "Look the mutation spec up by `mutation-id`, throwing

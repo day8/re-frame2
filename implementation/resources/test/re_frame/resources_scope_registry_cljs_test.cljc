@@ -90,15 +90,15 @@
   (testing "reg-resource-scope writes a :resource-scope registrar entry"
     (is (= :realworld/session (rf.resources/reg-resource-scope :realworld/session session-meta session-resolve)))
     (is (contains? (rf.registrar/registrations :resource-scope) :realworld/session))
-    (is (= [:realworld/session] (rf.resources/scope-resolver-ids))))
+    (is (= [:realworld/session] (keys (rf/registrations {:source :store :kind :resource-scope})))))
   (testing "scope-resolver-meta reads the canonical spec back"
-    (let [m (rf.resources/scope-resolver-meta :realworld/session)]
+    (let [m (:rf/resource-scope (rf/handler-meta {:source :store :kind :resource-scope :id :realworld/session}))]
       (is (fn? (:resolve m)))
       (is (= {:username [:db [:auth :user :username]]} (:inputs m)))
       (is (false? (:whole-db? m)))))
   (testing "clear-resource-scope removes the registration"
     (rf/clear :resource-scope :realworld/session)
-    (is (nil? (rf.resources/scope-resolver-meta :realworld/session)))
+    (is (nil? (:rf/resource-scope (rf/handler-meta {:source :store :kind :resource-scope :id :realworld/session}))))
     (is (not (contains? (rf.registrar/registrations :resource-scope) :realworld/session)))))
 
 ;; ===========================================================================
@@ -218,7 +218,7 @@
                                   (fn [{:keys [db]} _ctx]
                                     (when-let [u (get-in db [:auth :user :username])]
                                       [:rf.scope/session {:username u}])))
-    (let [m (rf.resources/scope-resolver-meta :s/whole-db)]
+    (let [m (:rf/resource-scope (rf/handler-meta {:source :store :kind :resource-scope :id :s/whole-db}))]
       (is (true? (:whole-db? m)))
       (is (= {:db [:db []]} (:inputs m)))))
   (testing "it resolves against the whole db at use time and fails closed on nil"
@@ -232,10 +232,10 @@
                                   {:inputs {:db   [:db []]
                                             :user [:db [:auth :user]]}}
                                   (fn [_inputs _ctx] nil))
-    (is (true? (:whole-db? (rf.resources/scope-resolver-meta :s/mixed)))))
+    (is (true? (:whole-db? (:rf/resource-scope (rf/handler-meta {:source :store :kind :resource-scope :id :s/mixed}))))))
   (testing "a NARROW declaration derives :whole-db? false"
     (rf.resources/reg-resource-scope :s/narrow session-meta session-resolve)
-    (is (false? (:whole-db? (rf.resources/scope-resolver-meta :s/narrow)))))
+    (is (false? (:whole-db? (:rf/resource-scope (rf/handler-meta {:source :store :kind :resource-scope :id :s/narrow}))))))
   (testing "the DERIVED :whole-db? true rides the :rf.resource/scope-resolved
             trace row (the traced causal boundary, not the pure read)"
     (rf.resources/reg-resource-scope :s/whole-db-traced
@@ -247,7 +247,7 @@
                  (fn []
                    (rf.resources.scope-registry/resolve-scope*
                      :s/whole-db-traced
-                     (rf.resources/scope-resolver-meta :s/whole-db-traced)
+                     (:rf/resource-scope (rf/handler-meta {:source :store :kind :resource-scope :id :s/whole-db-traced}))
                      {:auth {:user {:username "jake"}}}
                      'rf/resolve-resource-scope)))
           row  (some (fn [ev] (when (= :s/whole-db-traced (:resource-id (:tags ev)))
@@ -272,7 +272,7 @@
           (rf.resources/reg-resource-scope :s/doc-only
                                         {:doc "Whole-db, documented."}
                                         (fn [_inputs _ctx] nil))))
-    (is (nil? (rf.resources/scope-resolver-meta :s/doc-only))))
+    (is (nil? (:rf/resource-scope (rf/handler-meta {:source :store :kind :resource-scope :id :s/doc-only})))))
   (testing "an EMPTY metadata map is the same error"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"invalid-resource-scope-spec"
@@ -290,7 +290,7 @@
        :clj  (is (thrown? Throwable
                           (apply rf.resources/reg-resource-scope
                                  [:s/two-arity (fn [_db _ctx] nil)]))))
-    (is (nil? (rf.resources/scope-resolver-meta :s/two-arity)))))
+    (is (nil? (:rf/resource-scope (rf/handler-meta {:source :store :kind :resource-scope :id :s/two-arity}))))))
 
 ;; ===========================================================================
 ;; 6. {:from-db id} reference resolution (use-time, nil fail-closed)
@@ -327,7 +327,7 @@
   (testing "a resolver carries no :output-sensitivity on its canonical spec
             (the propagation enum is gone — EP-0025)"
     (rf.resources/reg-resource-scope :s/default session-meta session-resolve)
-    (is (nil? (:output-sensitivity (rf.resources/scope-resolver-meta :s/default)))))
+    (is (nil? (:output-sensitivity (:rf/resource-scope (rf/handler-meta {:source :store :kind :resource-scope :id :s/default}))))))
   (testing "a present :rf.egress/output-sensitivity key is silently ignored, not
             stored, and registration does NOT throw (Spec 015 §No propagation:
             the key is gone and silently ignored if present)"
@@ -336,12 +336,12 @@
              (rf.resources/reg-resource-scope :s/claim
                                            (assoc session-meta :rf.egress/output-sensitivity claim)
                                            session-resolve)))
-      (is (nil? (:output-sensitivity (rf.resources/scope-resolver-meta :s/claim))))))
+      (is (nil? (:output-sensitivity (:rf/resource-scope (rf/handler-meta {:source :store :kind :resource-scope :id :s/claim})))))))
   (testing "a whole-db (root-path input) resolver carries no :output-sensitivity"
     (rf.resources/reg-resource-scope :s/whole-db-claim
                                   {:inputs {:db [:db []]}}
                                   (fn [_inputs _ctx] nil))
-    (is (nil? (:output-sensitivity (rf.resources/scope-resolver-meta :s/whole-db-claim)))))
+    (is (nil? (:output-sensitivity (:rf/resource-scope (rf/handler-meta {:source :store :kind :resource-scope :id :s/whole-db-claim}))))))
   (testing "a value that was a fail-closed enum typo is now silently ignored —
             no :rf.error/invalid-resource-scope-spec throw"
     (is (= :s/was-typo-claim
@@ -363,7 +363,7 @@
     (rf.resources/reg-resource-scope :s/three-slot
                                   {:doc "3-slot." :inputs {:username [:db [:auth :user :username]]}}
                                   session-resolve)
-    (let [m (rf.resources/scope-resolver-meta :s/three-slot)]
+    (let [m (:rf/resource-scope (rf/handler-meta {:source :store :kind :resource-scope :id :s/three-slot}))]
       (is (= {:username [:db [:auth :user :username]]} (:inputs m)))
       (is (identical? session-resolve (:resolve m)))
       (is (false? (:whole-db? m)))))

@@ -163,29 +163,19 @@ The URL ↔ route mapping is a prism. `match-url` reads a URL into route data. `
 
 ## Introspection and slice access
 
-This is the read-side surface over the route registry and the live route slice. The static accessors answer "which routes are registered, and what is route X's spec?". The live readers expose the per-frame slice. The `*-algebra-view` helpers lower routes into the shared derivation/process-algebra node shape, so a tool can show subscriptions, flows, resources, route facts, and machine selectors as one family.
+This is the read-side surface over the route registry and the live route slice. The live readers expose the per-frame slice. The `*-algebra-view` helpers lower routes into the shared derivation/process-algebra node shape, so a tool can show subscriptions, flows, resources, route facts, and machine selectors as one family.
 
-### `route-ids`
+"Which routes are registered, and what is route X's spec?" has **no routing-specific accessor** (rf2-kuky.31 retired `route-ids` / `route-meta`). It is the generic registrar query API, which every tool already speaks:
 
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (route-ids) → vector of route ids
-  ```
-- **Description**: Return a vector of every registered route id. This is the static-registry "enumerate" half of routing introspection; the live per-frame slice is read through the `:rf.route/*` subs instead. Mirrors the sibling accessors: `resource-ids` for resources, `machines` for machines.
-- **Example**:
-  ```clojure
-  (rf.routing/route-ids)  ;; => [:route/cart :user/show]
-  ```
+```clojure
+(keys (rf/registrations {:source :store :kind :route}))
+;; => (:route/cart :user/show)
 
-### `route-meta`
+(rf/handler-meta {:source :store :kind :route :id :route/cart})
+;; => the registered metadata map, or nil
+```
 
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (route-meta route-id) → metadata map or nil
-  ```
-- **Description**: Return the metadata map registered for `route-id`, or `nil` if no route is registered under that id. The map carries the `:path` pattern plus whatever the registration declared, so every [reserved metadata key](#reserved-metadata-keys) reads back from it — `:params`, `:query`, `:query-defaults`, `:tags`, `:parent`, `:on-match`, **`:can-enter`**, `:can-leave`, `:scroll`, `:sensitive`, `:large`, and the cross-feature `:head` / `:resources`. (`:can-enter` and `:parent` are the two an auth guard and a branch-composition read back most.) It also carries the computed `:rf.route/rank` / `:rf.route/compiled` / coercion tables and the source coords. Mirrors the sibling accessor `resource-meta` for resources. (Machines have no such accessor — a machine's spec reads through the generic `rf/handler-meta` + `:rf/machine` projection, rf2-kuky.31.)
+The returned map carries the `:path` pattern plus whatever the registration declared, so every [reserved metadata key](#reserved-metadata-keys) reads back from it — `:params`, `:query`, `:query-defaults`, `:tags`, `:parent`, `:on-match`, **`:can-enter`**, `:can-leave`, `:scroll`, `:sensitive`, `:large`, and the cross-feature `:head` / `:resources`. (`:can-enter` and `:parent` are the two an auth guard and a branch-composition read back most.) It also carries the computed `:rf.route/rank` / `:rf.route/compiled` / coercion tables and the source coords. Unlike the resource / mutation / resource-scope kinds, a route registration carries its metadata at the **top level** — there is no inner-key projection step.
 
 ### `route-algebra-view`
 

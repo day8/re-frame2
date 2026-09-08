@@ -60,16 +60,20 @@
     ;; rf2-kuky.80: no `rf.resources/clear-resource` NAME — the registrar
     ;; inverse is the one kind-keyed `(rf/clear :resource id)`.
     (is (fn? rf/clear))
-    (is (fn? rf.resources/resource-meta))))
+    ;; rf2-kuky.31: no `rf.resources/resource-meta` NAME either — the
+    ;; registered spec is the generic registrar read plus the documented
+    ;; `:rf/resource` inner-key projection (exercised below, and the
+    ;; facade-ABSENCE pin is smoke_test.clj's, where a var is resolvable).
+    (is (fn? rf.resources/resolve-resource-scope))))
 
 (deftest reg-resource-registers-under-resource-kind
   (testing "reg-resource writes a :resource-kind registrar entry"
     (rf.resources/reg-resource :test/article (valid-spec) valid-request)
     (is (contains? (rf.registrar/registrations :resource) :test/article))
-    (is (= :test/article (first (rf.resources/resource-ids))))
+    (is (= :test/article (first (keys (rf/registrations {:source :store :kind :resource})))))
     (testing "resource-meta reads the spec back"
-      (is (= "test resource" (:doc (rf.resources/resource-meta :test/article))))
-      (is (= :rf.scope/global (:scope (rf.resources/resource-meta :test/article)))))
+      (is (= "test resource" (:doc (:rf/resource (rf/handler-meta {:source :store :kind :resource :id :test/article})))))
+      (is (= :rf.scope/global (:scope (:rf/resource (rf/handler-meta {:source :store :kind :resource :id :test/article}))))))
     (testing "clear-resource removes the entry"
       (rf/clear :resource :test/article)
       (is (not (contains? (rf.registrar/registrations :resource) :test/article))))))
@@ -82,7 +86,7 @@
   ;; Never today's silent "any non-number becomes nil".
   (testing "absent :gc-after-ms normalizes to the finite framework default (300000ms)"
     (rf.resources/reg-resource :test/gc-absent (valid-spec) valid-request)
-    (is (= 300000 (:gc-after-ms (rf.resources/resource-meta :test/gc-absent))))
+    (is (= 300000 (:gc-after-ms (:rf/resource (rf/handler-meta {:source :store :kind :resource :id :test/gc-absent})))))
     (is (= 300000 rf.resources.registry/default-gc-after-ms)))
   (testing ":gc-after-ms :never is stored verbatim — the explicit, auditable
             opt-out for intentional unowned-entry pinning, distinct from an
@@ -90,12 +94,12 @@
     (rf.resources/reg-resource :test/gc-never
                              (assoc (valid-spec) :gc-after-ms :never)
                              valid-request)
-    (is (= :never (:gc-after-ms (rf.resources/resource-meta :test/gc-never)))))
+    (is (= :never (:gc-after-ms (:rf/resource (rf/handler-meta {:source :store :kind :resource :id :test/gc-never}))))))
   (testing "a positive :gc-after-ms is stored unchanged"
     (rf.resources/reg-resource :test/gc-positive
                              (assoc (valid-spec) :gc-after-ms 45000)
                              valid-request)
-    (is (= 45000 (:gc-after-ms (rf.resources/resource-meta :test/gc-positive)))))
+    (is (= 45000 (:gc-after-ms (:rf/resource (rf/handler-meta {:source :store :kind :resource :id :test/gc-positive}))))))
   (testing "a bad :gc-after-ms (zero, negative, a string, an explicit nil, or
             any keyword other than :never) throws :rf.error/resource-bad-spec
             rather than silently disarming GC"
@@ -196,7 +200,7 @@
             (str (pr-str bad) " names the offending resource in ex-data"))
         (is (= bad (:value d))
             (str (pr-str bad) " rides the :value ex-data slot"))
-        (is (nil? (rf.resources/resource-meta :test/nonfn-request))
+        (is (nil? (:rf/resource (rf/handler-meta {:source :store :kind :resource :id :test/nonfn-request})))
             (str "a rejected " (pr-str bad) " is NOT introspectable — the "
                  "rejection precedes registry mutation")))))
   (testing "OVER-REJECTION GUARD — every legitimate handler shape still
@@ -218,7 +222,7 @@
       (is (= :test/good-request
              (rf.resources/reg-resource :test/good-request (valid-spec) good))
           (str label " must still register — the gate must not reject working code"))
-      (is (some? (rf.resources/resource-meta :test/good-request))
+      (is (some? (:rf/resource (rf/handler-meta {:source :store :kind :resource :id :test/good-request})))
           (str label " is introspectable after registration"))
       (rf/clear :resource :test/good-request))
     (is (var? #'defn-request)
@@ -304,8 +308,12 @@
 (deftest public-api-hooks-published
   (testing "every public-API late-bind hook resolves"
     (doseq [k [:resources/reg-resource :resources/clear-resource
-               :resources/resource-meta :resources/resource-state]]
-      (is (some? (rf.late-bind/get-fn k)) (str k " should be published")))))
+               :resources/resource-state]]
+      (is (some? (rf.late-bind/get-fn k)) (str k " should be published"))))
+  (testing "and the retired per-kind meta hooks are NOT published (rf2-kuky.31)"
+    (doseq [k [:resources/resource-meta :resources/mutation-meta]]
+      (is (nil? (rf.late-bind/get-fn k))
+          (str k " was retired for the generic handler-meta projection")))))
 
 (deftest resource-subs-registered
   (testing "the passive :rf.resource/* sub family is registered"

@@ -120,7 +120,7 @@
              (fn [{:keys [username]} _] (when username [:rf.scope/session {:username username}]))))
         "a resolver with :rf.egress/output-sensitivity registers cleanly")
     (testing "the key is not stored on the canonical spec"
-      (is (nil? (:output-sensitivity (rf.resources.scope-registry/scope-resolver-meta :t/with-claim)))))
+      (is (nil? (:output-sensitivity (:rf/resource-scope (rf/handler-meta {:source :store :kind :resource-scope :id :t/with-claim}))))))
     (testing "even a previously-invalid enum value is ignored (no fail-closed throw)"
       (is (= :t/garbage-claim
              (rf/reg-resource-scope :t/garbage-claim
@@ -136,7 +136,7 @@
   (testing "a resource whose {:from-db} resolver reads a FRAME-SENSITIVE input
             does NOT inherit sensitive — its disposition is its OWN coarse claim
             (:serialize, since :t/feed declares neither :sensitive? nor :large?)"
-    (let [spec (rf/resource-meta :t/feed)]
+    (let [spec (:rf/resource (rf/handler-meta {:source :store :kind :resource :id :t/feed}))]
       (is (= :serialize (rf.resources.classification/whole-entry-disposition spec))
           "no propagation — the resource serializes despite the sensitive input"))))
 
@@ -148,7 +148,7 @@
        :sensitive?    true
        :params-schema [:map [:page :int]]}
       (fn [_ _] {:request {:method :get :url "/secret"}}))
-    (let [spec (rf/resource-meta :t/secret-feed)]
+    (let [spec (:rf/resource (rf/handler-meta {:source :store :kind :resource :id :t/secret-feed}))]
       (is (= :redact (rf.resources.classification/whole-entry-disposition spec))
           "the owner :sensitive? claim redacts (frame-blind)")))
   (testing "an owner :large? claim omits (frame-blind)"
@@ -157,7 +157,7 @@
        :large?        true
        :params-schema [:map [:page :int]]}
       (fn [_ _] {:request {:method :get :url "/big"}}))
-    (let [spec (rf/resource-meta :t/big-feed)]
+    (let [spec (:rf/resource (rf/handler-meta {:source :store :kind :resource :id :t/big-feed}))]
       (is (= :omit (rf.resources.classification/whole-entry-disposition spec))))))
 
 ;; ===========================================================================

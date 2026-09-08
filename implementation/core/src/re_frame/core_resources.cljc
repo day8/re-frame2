@@ -45,14 +45,10 @@
    :ex-data {:resource-id resource-id}}
   ([resource-id] :delegate))
 
-(defwrapper resource-meta
-  "Per Spec 016 §Introspection. Return the registered resource's spec map
-  (`:params-schema`, `:data-schema`, `:request`, `:scope`, `:transport`,
-  `:stale-after-ms`, `:gc-after-ms`, `:tags`, `:doc`, source coords) for
-  `resource-id`, or nil. Late-bound via `:resources/resource-meta`."
-  {:hook :resources/resource-meta :artefact resources-artefact :on-absent :throw
-   :ex-data {:resource-id resource-id}}
-  ([resource-id] :delegate))
+;; rf2-kuky.31: no `resource-meta` wrapper. Reading a resource's registered
+;; spec needs no artefact at all — it is the generic registrar read plus the
+;; documented `:rf/resource` inner-key projection:
+;;   (:rf/resource (rf/handler-meta {:source :store :kind :resource :id id}))
 
 (defwrapper resource-state
   "Per Spec 016 §Introspection. Return a resource instance's runtime
@@ -94,15 +90,8 @@
    :ex-data {:mutation-id mutation-id}}
   ([mutation-id] :delegate))
 
-(defwrapper mutation-meta
-  "Per Spec 016 §Deferred slices / EP-0003 §Mutations. Return the
-  registered mutation's spec map (`:request`, `:params-schema`,
-  `:invalidates`, `:patches`, `:populates`, `:scope`, `:invalidate-timing`,
-  `:transport`, `:doc`, source coords) for `mutation-id`, or nil.
-  Late-bound via `:resources/mutation-meta`."
-  {:hook :resources/mutation-meta :artefact resources-artefact :on-absent :throw
-   :ex-data {:mutation-id mutation-id}}
-  ([mutation-id] :delegate))
+;; rf2-kuky.31: no `mutation-meta` wrapper —
+;;   (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id id}))
 
 (defwrapper mutation-state
   "Per Spec 016 §Deferred slices / EP-0003 §Mutations. Return a mutation

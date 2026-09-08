@@ -218,11 +218,11 @@
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (testing "the registered spec is introspectable"
     (is (= (vec [:m/save]) (filter #{:m/save} (keys (rf/registrations {:source :store :kind :mutation})))))
-    (is (fn? (:request (rf/mutation-meta :m/save))))
-    (is (fn? (:invalidates (rf/mutation-meta :m/save)))))
+    (is (fn? (:request (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id :m/save})))))
+    (is (fn? (:invalidates (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id :m/save}))))))
   (testing "clear-mutation removes the registration"
     (rf/clear :mutation :m/save)
-    (is (nil? (rf/mutation-meta :m/save)))))
+    (is (nil? (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id :m/save}))))))
 
 (deftest reg-mutation-fail-closed
   (testing "rf2-wvh95f F1 — the request handler is the THIRD slot; a :request
@@ -292,7 +292,7 @@
             (str (pr-str bad) " names the offending mutation in ex-data"))
         (is (= bad (:value d))
             (str (pr-str bad) " rides the :value ex-data slot"))
-        (is (nil? (rf/mutation-meta :m/nonfn-request))
+        (is (nil? (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id :m/nonfn-request})))
             (str "a rejected " (pr-str bad) " is NOT introspectable — the "
                  "rejection precedes registry mutation")))))
   (testing "OVER-REJECTION GUARD — every legitimate handler shape still
@@ -308,7 +308,7 @@
       (is (= :m/good-request
              (rf/reg-mutation :m/good-request {:params-schema [:map]} good))
           (str label " must still register — the gate must not reject working code"))
-      (is (some? (rf/mutation-meta :m/good-request))
+      (is (some? (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id :m/good-request})))
           (str label " is introspectable after registration"))
       (rf/clear :mutation :m/good-request)))
   ;; The Var row above is the load-bearing one, and ONLY the JVM proves it:
@@ -350,12 +350,12 @@
   (testing "every value in the closed enum registers cleanly"
     (doseq [timing rf.resources.mutation-registry/invalidate-timings]
       (rf/reg-mutation :m/ok (save-article-spec {:invalidate-timing timing}) save-article-request)
-      (is (= timing (:invalidate-timing (rf/mutation-meta :m/ok)))
+      (is (= timing (:invalidate-timing (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id :m/ok}))))
           (str "valid timing " timing " registered"))
       (rf/clear :mutation :m/ok)))
   (testing "an OMITTED :invalidate-timing is valid (nil → :after-success at runtime)"
     (rf/reg-mutation :m/default (save-article-spec) save-article-request)
-    (is (nil? (:invalidate-timing (rf/mutation-meta :m/default))))
+    (is (nil? (:invalidate-timing (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id :m/default})))))
     (rf/clear :mutation :m/default)))
 
 (deftest execute-unregistered-refuses-and-names-the-id
@@ -1049,7 +1049,7 @@
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-non-edn-params"
           (rf.resources.mutation-registry/validate+canonicalize-params
-            :m/save (rf/mutation-meta :m/save) {:slug "w" :cb (fn [])}
+            :m/save (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id :m/save})) {:slug "w" :cb (fn [])}
             'test)))))
 
 ;; ===========================================================================

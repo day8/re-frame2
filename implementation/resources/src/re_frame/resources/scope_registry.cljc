@@ -400,21 +400,11 @@
   scope-id)
 
 ;; ---- registry-side introspection -----------------------------------------
-
-(defn scope-resolver-meta
-  "Return the registered resolver's canonical spec map (`:inputs`,
-  `:resolve`, `:whole-db?`, `:doc`) for `scope-id`, or nil if none is
-  registered. The introspection counterpart of `resource-meta` /
-  `mutation-meta`. Per Spec 016 §Named resource-scope resolvers."
-  [scope-id]
-  (:rf/resource-scope (rf.registrar/lookup scope-kind scope-id)))
-
-(defn scope-resolver-ids
-  "Return a vector of every registered resource-scope resolver id. Per
-  Spec 016 §Named resource-scope resolvers (the static resolver registry —
-  enumerable by tooling)."
-  []
-  (vec (rf.registrar/ids scope-kind)))
+;; No `scope-resolver-ids` / `scope-resolver-meta` accessors (rf2-kuky.31):
+;; the resolver registry is read through the generic registrar grammar plus
+;; the documented `:rf/resource-scope` inner-key projection —
+;;   (keys (rf/registrations {:source :store :kind :resource-scope}))
+;;   (:rf/resource-scope (rf/handler-meta {:source :store :kind :resource-scope :id id}))
 
 (defn require-scope-resolver!
   "Look the resolver spec up by `scope-id`, throwing
@@ -423,7 +413,7 @@
   names the call-site public surface. Returns the canonical spec map. Per
   Spec 016 §Named resource-scope resolvers."
   [scope-id where]
-  (or (scope-resolver-meta scope-id)
+  (or (:rf/resource-scope (rf.registrar/lookup scope-kind scope-id))
       (throw (registration-error
                :rf.error/resource-scope-not-registered
                where

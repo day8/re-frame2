@@ -550,10 +550,6 @@
     :producer-ns 're-frame.resources
     :design-bead "rf2-p10npe"
     :description "Remove a registered resource (registration-lifecycle, NOT data invalidation). Per Spec 016 §Registration."}
-   {:key         :resources/resource-meta
-    :producer-ns 're-frame.resources
-    :design-bead "rf2-p10npe"
-    :description "Return the registered resource's spec map for a resource id, or nil. Per Spec 016 §Introspection."}
    {:key         :resources/resource-state
     :producer-ns 're-frame.resources
     :design-bead "rf2-p10npe"
@@ -568,10 +564,6 @@
     :producer-ns 're-frame.resources
     :design-bead "rf2-dwme29"
     :description "Remove a registered mutation (registration-lifecycle, NOT a form-error reset; the causal runtime-instance reset is the [:rf.mutation/clear …] event). Per EP-0003 §Mutations."}
-   {:key         :resources/mutation-meta
-    :producer-ns 're-frame.resources
-    :design-bead "rf2-dwme29"
-    :description "Return the registered mutation's spec map for a mutation id, or nil. Per EP-0003 §Mutations."}
    {:key         :resources/mutation-state
     :producer-ns 're-frame.resources
     :design-bead "rf2-dwme29"

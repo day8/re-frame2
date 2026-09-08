@@ -472,8 +472,7 @@ The Resources artefact (`day8/re-frame2-resources`, post-v1 optional) ships decl
 | `reg-resource-scope` | M | `(reg-resource-scope scope-id metadata resolve-fn)` — register a pure named db-derived scope resolver in the canonical 3-slot grammar (rf2-bqstzr): the `:resolve` fn is the value slot, and `metadata` carries the declared `:inputs {name [:db <rf-path>]}` (plus optional `:doc`). `:inputs` is REQUIRED and there is ONE arity: the resolver's first arg is ALWAYS the resolved inputs map. Reading the whole db is spelled `{:inputs {:db [:db []]}}`, from which the tooling-marked explicit-cost `:whole-db?` is DERIVED. A `:resolve` inside the metadata map is rejected loudly. The `:resource-scope` registrar kind. | post-v1 lib (optional capability) | advanced | 016 | **Facade classification (EP-0016 D3):** a `re-frame.core` export of the optional Resources artefact, justified as the single scope-resolution currency reused by resource registration, route resources, event ensure, subscriptions, invalidation descriptors, exact targets, and `clear-scope`. `advanced` — an optional-artefact authoring surface, not front-porch. Per [016 §Named resource-scope resolvers](016-Resources.md#named-resource-scope-resolvers-reg-resource-scope). |
 | — | — | `(rf/clear :resource-scope scope-id)` — rowed in [§Clearing registrations](#clearing-registrations); there is no `clear-resource-scope` name (rf2-kuky.80). The registrar decrement counterpart of `reg-resource-scope` (per [Conventions §Tear-down verb axis](Conventions.md#tear-down-verb-axis--clear--vs-destroy-)). | — | — | 016 | |
 | `resolve-resource-scope` | Fn | `(resolve-resource-scope db scope-id)` — resolve a named scope resolver against a supplied db value; returns the canonical scope or `nil`. A **pure resolver helper**, not an effect (no app-state / dispatch side effects) and **no observability side effect** — it routes through the trace-free pure evaluator, so unlike the causal resolution sites it does **not** emit `:rf.resource/scope-resolved`. | post-v1 lib (optional capability) | advanced | 016 | **Facade classification (EP-0016 D3 / issue 7):** a `re-frame.core` export justified as the ergonomic helper for the logout/account-switch idiom — resolve the concrete old scope from the handler's coeffect db (no `:snapshot-db` payload, which would be an egress-bearing record under EP-0015). A plain function over the resolver registry; no new effect-API surface, no resolution-timing ambiguity. It routes through the trace-free pure evaluator, so — unlike the causal `{:from-db …}` / route-entry / mutation-settle resolution sites — it does **not** emit `:rf.resource/scope-resolved` (rf2-ru73k6 F3: a passive read advertised as pure has no observability side effect). Per [016 §`clear-scope` resolves the concrete scope from the coeffect db](016-Resources.md#clear-scope-resolves-the-concrete-scope-from-the-coeffect-db-not-a-snapshot). |
-| `resource-meta` | Fn | `(resource-meta resource-id)` — the registered resource's spec map (`:params-schema`, `:data-schema`, `:request`, `:scope`, …), or `nil` | v1 (optional capability) | advanced | 016 | |
-| `mutation-meta` | Fn | `(mutation-meta mutation-id)` — the registered mutation's spec map (`:request`, `:params-schema`, `:invalidates`, …), or `nil` | v1 (optional capability) | advanced | 016 | |
+| — | — | A registered resource's / mutation's spec map has **no per-kind accessor** (rf2-kuky.31): it is `(:rf/resource (rf/handler-meta {:source :store :kind :resource :id id}))` and `(:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id id}))` — the generic registrar query plus the documented inner-key projection, rowed in [§Public registrar query API](#public-registrar-query-api). | — | — | 016 | |
 | `resource-state` | Fn | `(resource-state {:resource … :scope … :params … :frame …})` — a resource instance's live runtime state (explicit frame target) | v1 (optional capability) | advanced | 016 | |
 | `mutation-state` | Fn | `(mutation-state {:instance … :frame …})` — a mutation instance's durable runtime row (`{:status :result :error …}`), or `nil` (explicit frame target) | v1 (optional capability) | advanced | 016 | |
 
@@ -539,6 +538,17 @@ For tooling, agents, story tools, 10x.
 > ```
 >
 > which is `nil` unless that `:event` registration is a machine. See [005 §Querying machines](005-StateMachines.md#querying-machines).
+>
+> The **complete set of inner keys** is one per registrar kind that nests a spec:
+>
+> | Kind | Inner key | Reads back |
+> |---|---|---|
+> | `:event` (with `:rf/machine? true`) | `:rf/machine` | the `reg-machine` spec |
+> | `:resource` | `:rf/resource` | the `reg-resource` spec |
+> | `:mutation` | `:rf/mutation` | the `reg-mutation` spec |
+> | `:resource-scope` | `:rf/resource-scope` | the `reg-resource-scope` spec |
+>
+> Every other kind — `:route` among them — carries its metadata at the TOP level of the registration, so `handler-meta` alone is the whole read. Enumeration is likewise generic: `(keys (rf/registrations {:source :store :kind :resource}))`, and so on for every kind.
 >
 > **No realm coordinate.** `(registrations {:realm r :kind k})` and friends do not exist, there is **no `re-frame.realm` namespace**, and frame resolution routes directly through the process registrar (`re-frame.registrar` / `re-frame.frame` / `re-frame.image`).
 

@@ -606,31 +606,14 @@
   nil)
 
 ;; ---- registry-side introspection -----------------------------------------
-;; The `<thing>-ids` + `<thing>-meta` enumerate pair every sibling registry
-;; carries (`resource-ids`/`resource-meta`; machines keep only `machines`,
-;; their per-id read being the generic `:rf/machine` projection) — the
-;; static-registry read a tool or AI inspector walks to answer "which routes
-;; are registered, and what is route X's spec?" without re-stating the
-;; `rf.registrar/registrations :route` walk at each call site.
-
-(defn route-ids
-  "Return a vector of every registered route id. The static-registry
-  enumerate half of the routing introspection pair (the live per-frame route
-  slice is read through the `:rf.route/*` subs). Mirrors the sibling
-  `resource-ids` / machines `machines` introspection accessors."
-  []
-  (vec (rf.registrar/ids :route)))
-
-(defn route-meta
-  "Return the registered route's metadata map (`:path` pattern, `:on-match`,
-  `:params`, `:query`, `:scroll`, `:can-leave`, the computed `:rf.route/rank`
-  / `:rf.route/compiled` / coercion tables, source coords) for `route-id`, or
-  nil if no route is registered under that id. Mirrors the sibling
-  `resource-meta` introspection accessors (machines have no per-id accessor
-  — rf2-kuky.31 retired theirs for the generic read). Per Spec
-  012 §Reserved route-metadata keys."
-  [route-id]
-  (rf.registrar/lookup :route route-id))
+;; There is no `route-ids` / `route-meta` pair (rf2-kuky.31). "Which routes
+;; are registered, and what is route X's spec?" is the generic registrar
+;; grammar every tool already speaks:
+;;   (keys (rf/registrations {:source :store :kind :route}))
+;;   (rf/handler-meta {:source :store :kind :route :id id})
+;; A per-kind alias is a second encoding of that grammar, and the routing
+;; registrar carries its metadata at the top level of the registration —
+;; there is no inner-key projection to remember either.
 
 ;; ---- match + coerce ------------------------------------------------------
 

@@ -407,9 +407,11 @@
   ;; sub plus this key. If the key were dropped the four rows above would
   ;; all go red, but they would go red saying "the navigation committed",
   ;; which reads like a routing bug rather than a missing declaration.
-  (let [meta* (rf.routing/route-meta rf.recipes.async-nav/editor-route)]
+  (let [meta* (rf/handler-meta {:source :store :kind :route
+                                :id     rf.recipes.async-nav/editor-route})]
     (is (= [::rf.recipes.async-nav/can-leave?] (:can-leave meta*))
         "the editor route declares the guard, naming the sub")
-    (is (nil? (:can-leave (rf.routing/route-meta rf.recipes.async-nav/list-route)))
+    (is (nil? (:can-leave (rf/handler-meta {:source :store :kind :route
+                                            :id     rf.recipes.async-nav/list-route})))
         "and the list does not — a guard on every route is a guard nobody
          reads")))
