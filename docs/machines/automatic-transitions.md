@@ -234,7 +234,7 @@ For recurring timers, re-enter the state. There is no separate recurring-timer p
 
 ## SSR
 
-On the server, `:after` does not run wall-clock timers. The server renders the current state. The client re-arms timers after hydration.
+On the server, `:after` does not run wall-clock timers. The server renders the current state. The client re-arms timers after hydration. Each re-armed timer gets its **full** delay, counted from the moment the client arms it — never the remainder of a countdown, because no countdown ever started on the server.
 
 Design SSR-visible states so they are meaningful without depending on a timer firing server-side.
 
