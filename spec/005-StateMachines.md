@@ -2732,8 +2732,12 @@ entry and destroys on exit, recording the child's id in the parent's own
 
 The `[:rf.machine/spawn …]` fx is what declarative `:spawn` desugars INTO
 (per [§Desugaring rules](#desugaring-rules)), and it is also the only way to
-spawn a child whose lifetime is **not** bound to a state — a worker that must
-outlive the state that started it, or a boot-time singleton.
+spawn a child whose lifetime is **not** bound to a state — a dynamically
+created worker that must outlive the state that started it.
+
+A boot-time singleton is **not** spawned. It is registered, its registered id
+IS its address, and the frame's `:initial-events` supply the eager
+`[:rf.machine/start]` kick — see [Pattern-Boot §1. A singleton — addressed by its registered id, NOT `:spawn`](Pattern-Boot.md#1-a-singleton--addressed-by-its-registered-id-not-spawn).
 
 ```clojure
 :action (fn [{[_ url] :event}]
