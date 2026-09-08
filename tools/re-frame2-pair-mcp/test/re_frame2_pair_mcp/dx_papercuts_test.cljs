@@ -148,9 +148,9 @@
     (is (re-find #"\[:user :id\]" form))
     (is (re-find #":results" form))
     (is (re-find #":elided-count" form))
-    ;; Elision-on emits the walker call; the per-iteration path `p` is
-    ;; the marker handle.
-    (is (re-find #"elide-wire-value raw-v" form))))
+    ;; The batch form projects each read through the door; the
+    ;; per-iteration path `p` is the marker handle.
+    (is (re-find #"project-egress raw-v" form))))
 
 (deftest get-path-rejects-path-and-paths-together
   ;; Mutual exclusion: supplying both is a structured usage error, not a

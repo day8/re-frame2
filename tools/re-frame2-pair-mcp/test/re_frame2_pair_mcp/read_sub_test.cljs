@@ -151,8 +151,8 @@
                          "routes through the runtime read-sub! fn")
                      (is (re-find #"\[:current-user\]" form)
                          "the query-v rides as an EDN literal — DATA")
-                     (is (str/includes? form "elide-wire-value")
-                         "the value is elided server-side by default"))
+                     (is (str/includes? form "project-egress")
+                         "the value is projected server-side by default"))
                    (let [edn (read-result-text r)]
                      (is (true? (:ok? edn)))
                      (is (= [:current-user] (:query-v edn)))

@@ -72,10 +72,14 @@
     (is (some? f))
     (is (mentions? f 'maybe-redact-derived)
         "ui-read must PATH-project the whole :content (not just :text)")
-    ;; A path-based elide over JUST the :text string is the wrong shape.
-    ;; Assert it is absent — ui-read must not call elide-wire-value on :text.
+    ;; A path-based projection over JUST the :text string is the wrong
+    ;; shape. Assert it is absent — ui-read must not project only :text.
+    ;; rf2-kuky.88 moved the door's name; the INTENT is unchanged, so
+    ;; both the retired and the current spelling are refused here.
+    (is (not (str/includes? s "(rf/project-egress (:text base)"))
+        "ui-read must NOT path-project only :text (the rf2-p9scds shape)")
     (is (not (str/includes? s "(rf/elide-wire-value (:text base)"))
-        "ui-read must NOT path-elide only :text (the rf2-p9scds shape)")
+        "and not through the retired walker spelling either")
     (is (mentions? f 'ambiguous-frame-error)
         "ui-read must fail closed on an ambiguous frame under the off-box gate")))
 

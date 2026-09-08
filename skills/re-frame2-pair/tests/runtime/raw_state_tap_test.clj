@@ -24,7 +24,8 @@
 (load-file (str (.getParent (java.io.File. *file*)) "/_support.clj"))
 
 (ns raw-state-tap-test
- (:require [clojure.test :refer [deftest is run-tests testing]]
+ (:require [clojure.string :as str]
+ [clojure.test :refer [deftest is run-tests testing]]
  [runtime-support :as rt]))
 
 ;; Shared locate+parse+walk scaffold lives in tests/runtime/_support.clj.
@@ -87,14 +88,19 @@
  raw-state-config-form)
  "{:allow-raw-state? true} literal seeds the atom")))
 
-(deftest maybe-elide-for-tap-routes-through-elide-wire-value
- (testing "maybe-elide-for-tap calls rf/elide-wire-value when the gate
- is OFF — the framework primitive that applies the same
- large/sensitive predicates the wire path uses"
+(deftest maybe-elide-for-tap-routes-through-project-egress
+ (testing "maybe-elide-for-tap calls rf/project-egress when the gate
+ is OFF — the ONE framework egress door, which applies the same
+ large/sensitive predicates the wire path uses (rf2-kuky.88)"
  (is (some? maybe-elide-form)
  "the defn form is present")
- (is (calls? 'rf/elide-wire-value maybe-elide-form)
- "(rf/elide-wire-value v opts) appears in the body")))
+ (is (calls? 'rf/project-egress maybe-elide-form)
+ "(rf/project-egress v opts) appears in the body")
+ (is (str/includes? (pr-str maybe-elide-form) ":rf.egress/local-redacted")
+ "and NAMES the on-box redacted boundary — the same all-false floor
+ the bare no-profile walk resolved to before")
+ (is (not (calls? 'rf/elide-wire-value maybe-elide-form))
+ "never the walker export directly")))
 
 (deftest app-db-reset-wraps-tap-payload-through-elide
  (testing "app-db-reset!'s tap> emission routes both :previous and

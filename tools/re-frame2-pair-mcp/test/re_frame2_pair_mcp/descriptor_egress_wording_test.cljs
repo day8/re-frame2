@@ -8,9 +8,11 @@
 
     - `get-path` / `snapshot` must NOT tell clients that `elision false`
       \"bypasses the walk and receives the raw value\". A bare
-      `:elision false` does NOT bypass (`elision/walk-required?` fails
-      CLOSED — the walker still runs, large passes but declared-sensitive
-      slots redact). The bypass wording would train clients/tests to treat
+      `:elision false` does NOT bypass: the rendered form always calls
+      `re-frame.core/project-egress`, and a bare `:elision false` keeps
+      the `:rf.egress/off-box-tool` boundary with only a large-inclusion
+      overlay — large passes, declared-sensitive slots still redact
+      (rf2-kuky.88). The bypass wording would train clients/tests to treat
       a direct read as a projection bypass rather than a profile/gate-
       controlled egress.
     - `snapshot` must NOT say the `:machines` slice \"passes through

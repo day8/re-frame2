@@ -575,7 +575,7 @@
         ;; :app-db egresses through elide-wire-value, whose elision
         ;; registry lives in runtime-db — the SAME hazard get-path was
         ;; excluded for (rf2-ww877w). No longer treated as sound.
-        ":include [:app-db] still egresses through elide-wire-value ⇒ ineligible")
+        ":include [:app-db] still egresses through project-egress ⇒ ineligible")
     (is (nil? (precheck/precheck-target
                 "snapshot" (args-js {:frames #js ["rf/default"]
                                      :include #js ["app-db" "machines"]})))
