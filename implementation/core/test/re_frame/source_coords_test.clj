@@ -325,8 +325,8 @@
   (testing "reg-app-schema stamps :ns / :line / :file"
     ;; Per rf2-0frdi / rf2-cq1ak the schemas artefact owns its own per-
     ;; frame side-table — app-db schemas are NOT a registrar kind.
-    ;; Source-coords introspection reads through `rf.schemas/app-schema-
-    ;; meta-at` which returns the full meta map (including the stamped
+    ;; Source-coords introspection reads through `rf.schemas/app-schema-meta`
+    ;; which returns the full meta map (including the stamped
     ;; coords) for the `(frame-id, path)` entry.
     (rf/reg-app-schema [:rf2-k84s/reg-app-schema-sample] :int)
     ;; rf2-d2841 — GUARDED WHOLESALE for the same reason as `reg-flow` above:
