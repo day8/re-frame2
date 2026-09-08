@@ -185,8 +185,8 @@
 (def adapter
   "The Reagent adapter map. Pass to `(rf/init! ...)` to install:
 
-      (require '[re-frame.adapter.reagent :as reagent])
-      (rf/init! reagent/adapter)
+      (require '[re-frame.adapter.reagent :as reagent-adapter])
+      (rf/init! reagent-adapter/adapter)
 
   Adapter installation is explicit; there is no default-adapter registry.
   `make-ratom-spine` and `make-ratom-adapter` own the logic shared with

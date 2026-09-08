@@ -49,7 +49,7 @@
             [re-frame.http.test-support]
             ;; SSR ships in its own artefact. Requiring it registers the
             ;; `:rf/hydrate` handler; `ssr.cljc` reaches the SSR helpers it
-            ;; leans on (`ssr/render-tree-hash`) through its own
+            ;; leans on (`rf.ssr/render-tree-hash`) through its own
             ;; `[re-frame.ssr :as rf.ssr]` require.
             [re-frame.ssr]
             [re-frame.adapter.reagent :as rf.adapter.reagent]

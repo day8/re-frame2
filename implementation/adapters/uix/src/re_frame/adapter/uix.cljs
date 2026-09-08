@@ -313,8 +313,8 @@
 (def adapter
   "The UIx adapter map. Pass to `(rf/init! ...)` to install:
 
-      (require '[re-frame.adapter.uix :as uix])
-      (rf/init! uix/adapter)
+      (require '[re-frame.adapter.uix :as uix-adapter])
+      (rf/init! uix-adapter/adapter)
 
   Adapter installation is explicit; there is no default-adapter registry.
   `spine/make-react-adapter` owns the shared React-hook routing and

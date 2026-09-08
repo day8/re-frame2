@@ -805,7 +805,7 @@
   Example (CLJS):
 
       (use-fixtures :each
-        (test-support/make-reset-runtime-fixture
+        (ts/make-reset-runtime-fixture
           {:adapter reagent-adapter/adapter}))
 
   Example with example-app collision avoidance — schemas tests want a
@@ -813,7 +813,7 @@
   registrations:
 
       (use-fixtures :each
-        (test-support/make-reset-runtime-fixture
+        (ts/make-reset-runtime-fixture
           {:adapter             reagent-adapter/adapter
            :clear-app-schemas?  true}))
 
@@ -821,7 +821,7 @@
   sharing its id vocabulary — the suite names its OWN app, never the rival):
 
       (use-fixtures :each
-        (test-support/make-reset-runtime-fixture
+        (ts/make-reset-runtime-fixture
           {:adapter reagent-adapter/adapter
            :app-ns  \"realworld-http.\"
            :init-fn init!}))
@@ -829,13 +829,13 @@
   Example (JVM, default plain-atom adapter):
 
       (use-fixtures :each
-        (test-support/make-reset-runtime-fixture
+        (ts/make-reset-runtime-fixture
           {:adapter plain-atom/adapter}))
 
   Example (CLJS, a suite with async tests — map-form):
 
       (use-fixtures :each
-        (test-support/make-reset-runtime-fixture
+        (ts/make-reset-runtime-fixture
           {:adapter plain-atom/adapter :async? true}))
 
       (deftest drains-in-async-body
@@ -853,7 +853,7 @@
   plain `:async? true`, because the shape is platform-decided for you:
 
       (use-fixtures :each
-        (test-support/make-reset-runtime-fixture
+        (ts/make-reset-runtime-fixture
           {:adapter plain-atom/adapter :async? true}))"
   ([] (make-reset-runtime-fixture {}))
   ([{:keys [adapter init-fn app-ns] :as opts}]
@@ -988,7 +988,7 @@
 ;; composition sugar.
 ;;
 ;; Per Spec 008 §Built-in test-runner namespace it lives under
-;; re-frame.test-support so users `(:require [re-frame.test-support :as t])`
+;; re-frame.test-support so users `(:require [re-frame.test-support :as ts])`
 ;; once and reach the full testing surface — including assert-path-equals —
 ;; without an additional require.
 
@@ -1058,7 +1058,7 @@
 ;;
 ;;                         (deftest something
 ;;                           (async done
-;;                             (-> (test-support/poll-until
+;;                             (-> (ts/poll-until
 ;;                                   #(some? (rf/app-db-value :rf/default)))
 ;;                                 (.then (fn [db] (is (...)) (done)))
 ;;                                 (.catch (fn [e] (is false (.-message e))
@@ -1153,7 +1153,7 @@
 
          (deftest drains
            (async done
-             (-> (test-support/poll-until
+             (-> (ts/poll-until
                    #(= 3 (:n (rf/app-db-value :rf/default)))
                    {:label \"counter reached 3\"})
                  (.then  (fn [_] (is (= 3 ...))))
