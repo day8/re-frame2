@@ -1,0 +1,59 @@
+;; Thrown-error where-sym baseline (rf2-z5lv) — regenerate with
+;;     python scripts/check_thrown_error_messages.py --write-where-sym-baseline
+;;
+;; A thrown error's `where-sym` names WHERE the failure happened so an
+;; author who reads the message can grep for it. `:sites` records the
+;; symbols that currently name nothing reachable, and how many sites
+;; each is allowed. A symbol NOT listed has a floor of zero, so a new
+;; dead door fails the gate. A listed floor ratchets DOWN only; the
+;; gate reports any symbol now below its floor so the number can be
+;; lowered, and reports one that has cleared entirely so the entry can
+;; be dropped. Recording a symbol is not a ruling that it must be
+;; fixed — each site needs reading before acting.
+;;
+;; `:min-where-syms` is a floor on the TOTAL quoted where-syms the scan
+;; observes. It is not an allowance: it is what stops this gate
+;; reporting a confident clean sweep after its extraction has gone
+;; blind. It ratchets the OTHER way — up only.
+{:min-where-syms 173
+
+ :sites
+ {
+  "re-frame.router/build-envelope"           2
+  "reagent2.impl.component/->react-element"  1
+  "rf-machines/make-machine-handler"         1
+  "rf-machines/reg-machine"                  1
+  "rf-machines/reg-machine*"                 2
+  "rf.http/classify-response-body"           1
+  "rf.http/decode-response-body"             2
+  "rf.http/json-parse"                       1
+  "rf.mutation/execute"                      1
+  "rf.resource/invalidate-tags"              4
+  "rf.ssr.head/emit"                         2
+  "rf.ssr.ring/import-fn"                    1
+  "rf.ssr/cookie->set-cookie-header"         5
+  "rf.ssr/emit"                              6
+  "rf.ssr/html-helpers"                      2
+  "rf.ssr/manifest-script"                   2
+  "rf.ssr/payload-policy"                    3
+  "rf.ssr/response"                          9
+  "rf.ssr/ssr-handler"                       7
+  "rf.ssr/stream-handler"                    2
+  "rf.ssr/streaming"                         1
+  "rf.ssr/trusted-shell"                     1
+  "rf/conformance-eval"                      6
+  "rf/invoke-handler"                        2
+  "rf/poll-until"                            1
+  "rf/reg-classification"                    1
+  "rf/register-handler"                      1
+  "rf/render"                                3
+  "rf/replace-container!"                    1
+  "rf/resolve-chain"                         1
+  "rf/resolve-interceptor-ref"               3
+  "rf/route-resource-plan"                   1
+  "rf/set-db"                                1
+  "rf/test-react-mount!"                     1
+  "rf/test-react-mount-child!"               1
+  "rf/test-react-trigger-update!"            1
+  "rf/test-react-unmount"                    1
+ }}
