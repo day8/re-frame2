@@ -243,8 +243,13 @@ Four of those defaults shape how your app degrades, so they're worth knowing by 
     while nothing owns the record, so wiring an `[:observability :errors]` sink — on the
     frame, or once for the process with `(rf/configure! {:observability …})` — takes
     ownership and they stop. A sink that wants to ignore rollbacks keys on
-    `:rollback? true`. None of this reaches production,
-    because the check itself does not.
+    `(get-in record [:tags :rollback?])`, not on `(:rollback? record)` — this is a
+    *non-event* record, so every category slot it carries (`:rollback?`, `:where`,
+    `:registered-path`, `:reason`, `:recovery`) rides the projected `:tags` tree, and
+    only `:error`, `:event-id`, `:frame` and `:time` sit at the top level beside the
+    stamped `:kind`. Read at the top level, `:rollback?` is `nil` and the filter never
+    fires. (The flat spelling is the implementation-tier envelope's, which no sink
+    receives.) None of this reaches production, because the check itself does not.
 
     **One arm of this category does survive a production build, and it is the one you
     would reach for.** An event handler registered with `{:schema … :boundary? true}`
@@ -263,7 +268,10 @@ Four of those defaults shape how your app degrades, so they're worth knowing by 
     What the production record omits is the payload — no event vector, no offending
     value, no `:explain`, not even the interpolated `:reason`. The nine slots it does
     carry (`:error`, `:where`, `:source`, `:event-id`, `:failing-id`, `:schema-id`,
-    `:frame`, `:recovery`, `:time`) are identifiers, and the omission is deliberately
+    `:frame`, `:recovery`, `:time`) are identifiers — and they reach a sink on the same
+    non-event terms as the rollback record above, so `:error`, `:event-id`, `:frame` and
+    `:time` are top-level while `:where`, `:source`, `:failing-id`, `:schema-id` and
+    `:recovery` read as `(get-in record [:tags …])`. The omission is deliberately
     stricter than redaction: the natural detail of a validation failure is the value
     that failed, and a boundary value is attacker-controlled or user-private by
     definition, so it may carry secrets under keys the declared schema never named —
