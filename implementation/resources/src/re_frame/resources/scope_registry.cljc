@@ -116,8 +116,9 @@
   Only `:db` ships — `[:db <rf-path>]` reads the path off the frame app-db.
   `:runtime` is RESERVED (`[:runtime <path>]`, route-derived scope) and is
   rejected fail-closed at registration until an in-repo consumer carrying a
-  principal in a path segment needs named-resolver scope at a non-route site
-  (sub / event ensure / invalidation). Per Spec 016 §The
+  principal in a path segment needs named-resolver scope at ANY site — a
+  route entry included, as well as a sub / event ensure / invalidation
+  (rf2-kuky.83). Per Spec 016 §The
   `{:inputs …}` metadata + resolver-fn grammar / §Route-derived scope is
   reserved."
   #{:db})
