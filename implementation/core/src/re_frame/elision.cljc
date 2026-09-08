@@ -85,12 +85,15 @@
 
   Unlike the egress opts maps, this one is NOT closed — `select-keys` drops
   an unrecognised key silently, so a caller left on the retired
-  `:rf.size/threshold-bytes` gets the DEFAULT rather than a throw. That is
-  fail-CLOSED in the only direction that matters here: every value a caller
-  would have configured and lost (a raised threshold, or `0` to disable
-  auto-detect) elides LESS than the 16384 default, so losing it can only
-  elide MORE. Closing this map is a separate question about `configure!`
-  generally, not about this rename."
+  `:rf.size/threshold-bytes` configures nothing rather than throwing: the
+  `merge` is a no-op, so whatever threshold is already in effect stays in
+  effect. What that costs is a DIAGNOSTIC, never an egress: this number is
+  read at exactly one place — the leaf arm that fires
+  `:rf.warning/large-value-unschema'd` — and an over-threshold unschema'd
+  value ships UNCHANGED at any threshold. Declared `:large` and
+  `:sensitive` paths elide and redact without consulting it, 0 included.
+  Closing this map is a separate question about `configure!` generally, not
+  about this rename."
   [opts]
   (when (map? opts)
     (swap! config merge (select-keys opts [:rf.egress/threshold-bytes])))
