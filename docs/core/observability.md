@@ -331,8 +331,9 @@ unregisters its own listeners by key with `(rf/unregister-listener! stream id)`.
 
 ### The `:epoch` stream: assembled runs, not raw events
 
-The same verb drives three more streams, distinguished by that leading keyword.
-`:epoch` is the one you'll reach for most after `:trace`: it delivers one
+The same verb drives one more stream, distinguished by that leading keyword.
+`:trace` and `:epoch` are the whole vocabulary, and `:epoch` is the one you'll
+reach for after `:trace`: it delivers one
 fully-assembled epoch record per run, *after* it settles, with `:db-before` /
 `:db-after` and the structured `:sub-runs` / `:renders` / `:effects` projection
 included — the right shape when you think in runs and don't want to re-fold the raw
@@ -384,9 +385,10 @@ second spelling for you to choose between. App and tool code alike attaches with
 `(rf/register-listener! :epoch …)`, which keeps every observation feed under one
 verb.)
 
-The remaining two streams — `:events` and `:errors` — are different in kind: they're
-the **always-on** integration hooks that survive into production. That's the whole
-story of what ships and what doesn't, so it gets its own section.
+`:trace` and `:epoch` are the whole vocabulary, and both are dev-only. Production
+observation is a different mechanism altogether — a **sink** declared on a frame's
+`:observability` policy, always-on and projected. That's the whole story of what
+ships and what doesn't, so it gets its own section.
 
 ## Production: the wire disappears — errors don't
 
@@ -521,26 +523,31 @@ A frame that declares the stream itself uses its own entries; a frame that says 
 inherits these. Records with **no resolvable frame** — a frameless failure, or one whose
 frame incarnation is already gone — land here too, projected under an explicitly nil
 governing frame, and a dead frame's id never resolves to a same-id successor's sink.
-And if what you wanted was the **raw** record, ask for it as a profile:
-`{:sink ::sentry :rf.egress/profile :rf.egress/local-raw}`.
+And if what you wanted was a **wider** projection — classified-sensitive paths in the
+clear, large values whole — ask for it as a profile:
+`{:sink ::sentry :rf.egress/profile :rf.egress/local-raw}`. A profile chooses
+projection *options*; it never chooses a different record.
 
 The substrate records below are what the runtime produces *before* projection. They are
 intentionally tight, because they cross into production where the rich dev tags don't
-exist, and they are **not** the shapes a sink receives under the off-box default:
-projection is a different record, not the same record with fields blanked out. On the
-sink route the dispatch result is spelled `:status` rather than `:outcome`, the
-`:event` args slot is dropped entirely under the off-box default, and every non-summary
-slot is lifted onto a `:tags` tree. Read the shapes here as the substrate's, and
-[report errors in production](how-to/report-errors-in-production.md) for the sink's:
+exist — and **no sink ever receives one, on any profile**. Projection builds a different
+record rather than blanking fields on this one, so `:rf.egress/local-raw` does not reach
+back past it: on the sink route the dispatch result is spelled `:status` rather than
+`:outcome`, a handled-event record carries no `:time` slot at all, the `:event` args slot
+is dropped under the off-box default and kept (still projected) under a trusted-local
+one, and every non-summary slot is lifted onto a `:tags` tree. These shapes are
+**implementation tier** — read them to understand the substrate, and
+[report errors in production](how-to/report-errors-in-production.md) for the shapes your
+sink actually sees:
 
 ```clojure
-;; :events — one record per processed event, after the run settles:
+;; re-frame.event-emit — one record per processed event, after the run settles:
 {:event [:user/login "alice"]  :event-id :user/login
  :frame :app  :time 1716800000000
  :outcome :ok                ;; :ok | :error | :rejected | :rolled-back | :flow-error
  :elapsed-ms 3}
 
-;; :errors — one record per catalogued production-reachable runtime failure:
+;; re-frame.error-emit — one record per catalogued production-reachable failure:
 {:error :rf.error/handler-exception
  :event [:user/login "alice"]  :event-id :user/login
  :frame :app  :time 1716800000000
@@ -557,7 +564,7 @@ run).
 
 Two of those five behave differently either side of the production gate, and they are
 easier to remember as a pair. `:rolled-back` has no producer in a release build: the
-`:events` stream survives the gate but `reg-app-schema` candidate validation does not, so
+handled-event substrate survives the gate but `reg-app-schema` candidate validation does not, so
 a dispatch whose `:db` violates a registered schema installs anyway and reports `:ok` —
 the outcome is quiet in production by construction, not because your schemas are holding.
 In *dev*, though, it is not quiet on either axis: the rejection also fans one
@@ -586,8 +593,8 @@ and its stack.)
 One thing not to read into the split: the raw `:exception`. It was tempting to take the
 old corpus-wide stream as "the one that keeps the throwable" — it wasn't. A sink keeps
 the throwable too under the default `:rf.egress/off-box-observability` profile; only
-`:rf.egress/public-error` drops it, and `:rf.egress/local-raw` hands you the untouched
-shape when that is what you want.
+`:rf.egress/public-error` drops it, and `:rf.egress/local-raw` widens the walk further
+still — sensitive and large kept — on the same projected `:rf.observe/error` record.
 
 Want timing in production, too? There's a third production-survivable surface besides
 the handled-event and error sinks: a Performance API channel, off by default, that brackets the
@@ -692,10 +699,10 @@ silenced one is visible again.
     {:db (update db :captured (fnil conj []) ev)}))
 ```
 
-One subtlety with a production reach: the always-on `:events` stream honours this flag
-too — a `:rf.trace/no-emit?` handler is dropped from the production event-emit record
-as well, on the principle that a tool's internal bookkeeping isn't user-domain signal.
-(The `:errors` stream is unaffected; a real error still surfaces.)
+One subtlety with a production reach: the always-on handled-event substrate honours this
+flag too — a `:rf.trace/no-emit?` handler is dropped from the production event-emit
+record as well, on the principle that a tool's internal bookkeeping isn't user-domain
+signal. (The error substrate is unaffected; a real error still surfaces.)
 
 **Silence a whole frame — `:rf.trace/frame-no-emit?` in the frame config.** An
 inspector renders its *own* UI in a dedicated frame, and that UI's subscriptions and

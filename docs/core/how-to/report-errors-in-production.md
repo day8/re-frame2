@@ -68,7 +68,7 @@ One trap to disarm before you go further. There's a *different* surface, `regist
 
 ??? info "From re-frame v1"
 
-    v1 had no always-on error wire — production monitoring meant wrapping `dispatch` yourself or hanging off `window.onerror`. Both halves of v2's substrate are new: the frame-owned `:observability` sink taught here, and the corpus-wide `:errors` listener stream in §8. Two of the listener streams (`:events`, `:errors`) are *designed* to survive elision; there's no bare-trace default and no compatibility alias, so an unknown stream [fails loud](../glossary.md#fail-loud-not-silent) with `:rf.error/unknown-listener-stream`.
+    v1 had no always-on error wire — production monitoring meant wrapping `dispatch` yourself or hanging off `window.onerror`. v2's substrate is new: the frame-owned `:observability` sink taught here, plus the process default of §1 that catches the records no frame owns (§8). Both are *designed* to survive elision. `register-listener!` is a separate, dev-only verb whose vocabulary is `:trace` and `:epoch` and nothing else — there is no bare-trace default and no compatibility alias, so an unknown stream [fails loud](../glossary.md#fail-loud-not-silent) with `:rf.error/unknown-listener-stream`.
 
 ??? info "Coming from Redux?"
 
@@ -287,9 +287,11 @@ Crash reporting is the error route's job. Its sibling, the **`:handled-events`**
         {:event-id (str event-id) :frame (str frame) :status (name status)}))))
 ```
 
-!!! warning "The slot is `:status` on a sink, `:outcome` on the raw substrate record"
+!!! warning "The slot is `:status` on a sink — on **every** profile"
 
-    Same value, two spellings, one per layer. A projected `:rf.observe/handled-event` record — the one your sink receives under the off-box default — carries the dispatch result under **`:status`**. The raw substrate record underneath it, which is what a `:rf.egress/local-raw` entry hands you, carries the identical keyword under **`:outcome`**. Destructuring `outcome` in a sink fn on the default profile binds `nil`, and `(name nil)` throws; there is no `:outcome` slot to read there.
+    Same value, two spellings, one per layer. The `:rf.observe/handled-event` record your sink receives carries the dispatch result under **`:status`**. The implementation-tier substrate record underneath it carries the identical keyword under **`:outcome`** — and no egress profile reaches down to hand you that record. `:rf.egress/profile` selects projection *options*, never a different record constructor: the runtime builds the `:rf.observe/handled-event` first and projects it afterwards. So `:rf.egress/local-raw` does not swap the spelling back; its one visible effect here is to keep the `:event` args slot that the off-box default omits. Destructuring `outcome` in a sink fn binds `nil` on every profile, and `(name nil)` throws.
+
+    There is no `:time` slot on a handled-event record either, on any profile — stamp your own clock. (`:time` *is* a summary slot on an `:rf.observe/error` record, which is where the two shapes part company.)
 
 The `:status` slot earns its keep, because it reports the dispatch result across **every** way a run can fail — so a dispatch that aborted is never mis-reported to your APM as a clean `:ok`. It takes one of five values:
 
@@ -326,4 +328,4 @@ Declare the default once and both are covered:
 (rf/configure! {:observability {:errors [{:sink ::sentry}]}})
 ```
 
-There is no other door. re-frame2 used to offer a corpus-wide listener stream beside the sink — one unprojected fan-out per process, delivered regardless of any frame's policy — and it is **retired**: a raw seat nobody's policy governs is fail-open by construction, and the two things it alone carried are the two above. If you want the untouched substrate shape rather than the projected one, ask for it as a profile: `{:sink ::sentry :rf.egress/profile :rf.egress/local-raw}`.
+There is no other door. re-frame2 used to offer a corpus-wide listener stream beside the sink — one unprojected fan-out per process, delivered regardless of any frame's policy — and it is **retired**: a raw seat nobody's policy governs is fail-open by construction, and the two things it alone carried are the two above. If you want a *wider* projection — classified-sensitive paths in the clear and large values whole, rather than redacted and elided — ask for it as a profile: `{:sink ::sentry :rf.egress/profile :rf.egress/local-raw}`. That is a trusted-local option set, not an escape hatch to the substrate envelope: what arrives is still a projected `:rf.observe/error`, with the same `:kind` and the same summary slots.

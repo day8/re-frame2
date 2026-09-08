@@ -577,7 +577,7 @@ Hyphenate **run-to-completion** consistently.
 
 ### **elide**
 
-Compile dev-only code out of production via one flag (`goog.DEBUG` or `-Dre-frame.debug`). Removes the dev trace surface, the [epoch](#epoch) buffer, and the *ordinary registration diagnostics* among the [schema](#schema) checks. What elides is settled by **what the check is for**, not by who declared the schema it reads: a check the framework relies on to keep a promise of its own — a `:boundary? true` handler's `:schema`, a recordable [coeffect](#coeffect)'s `:schema`, a declared route's shape — holds in every build, and those three all validate against a schema the programmer wrote. Always-on `:errors` and `:events` streams survive.
+Compile dev-only code out of production via one flag (`goog.DEBUG` or `-Dre-frame.debug`). Removes the dev trace surface, the [epoch](#epoch) buffer, and the *ordinary registration diagnostics* among the [schema](#schema) checks. What elides is settled by **what the check is for**, not by who declared the schema it reads: a check the framework relies on to keep a promise of its own — a `:boundary? true` handler's `:schema`, a recordable [coeffect](#coeffect)'s `:schema`, a declared route's shape — holds in every build, and those three all validate against a schema the programmer wrote. The always-on error and handled-event substrates behind the `:observability` sink routes survive.
 
 ```clojure
 ;; goog.DEBUG=false removes the dev trace surface and the schema
@@ -720,7 +720,7 @@ One immutable record on the [trace stream](#trace-stream): `:operation`, `:op-ty
 
 ### **listener**
 
-Callback registered with `register-listener!` on a named stream — `:trace`, `:epoch`, `:events`, or `:errors` — fired on each matching emit. One registration is a tooling integration. Listeners see data in the clear — [project](#project-egress) before sending off-box.
+Callback registered with `register-listener!` on a named stream — `:trace` or `:epoch`, the whole vocabulary — fired on each matching emit. Both streams are dev-only and [elide](#elide) out of a production build; production observation is an `:observability` sink instead. Listeners see data in the clear — [project](#project-egress) before sending off-box.
 
 ### **epoch**
 

@@ -156,7 +156,7 @@ Circle back to the React question this essay opened on — *"what changed this p
 
 Notes — two honest limits on the wire:
 
-1. The rich trace wire is production-[elided](../glossary.md#elide): the whole emit substrate sits behind a `goog.DEBUG` gate (the JVM mirror is `-Dre-frame.debug`) that the Closure compiler dead-code-eliminates in `:advanced` builds. What you ship to users keeps a separate, deliberately smaller channel — two always-on streams (`:events` and `:errors`) that survive elision — so production tells you *that* an event ran and *whether* it failed, without the rich per-stage detail (db snapshots, render args, derivation values) the dev trace carries. Build your monitoring on the always-on streams.
+1. The rich trace wire is production-[elided](../glossary.md#elide): the whole emit substrate sits behind a `goog.DEBUG` gate (the JVM mirror is `-Dre-frame.debug`) that the Closure compiler dead-code-eliminates in `:advanced` builds. What you ship to users keeps a separate, deliberately smaller channel — the always-on `:observability` sink routes for handled events and errors, which survive elision — so production tells you *that* an event ran and *whether* it failed, without the rich per-stage detail (db snapshots, render args, derivation values) the dev trace carries. Build your monitoring on the sink routes.
 2. Revertibility ends at the effect boundary. The framework can rewind its own state perfectly, but it cannot un-send an HTTP request. The world is compensated, never reversed.
 
 ## When not to use it
