@@ -257,7 +257,7 @@
         stale-incarnation
         (rf.error/throw-error!
           :rf.error/flow-eval-exception
-          'rf/run-flows-on-db
+          're-frame.flows/run-flows-on-db
           (if (= :derive phase)
             (str "a flow's :derive fn threw while recomputing flow "
                  (pr-str flow-id)
