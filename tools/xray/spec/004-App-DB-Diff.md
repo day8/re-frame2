@@ -516,7 +516,7 @@ labels; the underlying paths now live under the runtime-db partition's
 | `:rf/spawned` | `[:rf.runtime/machines :spawned]` | machine runtime | Declarative-`:spawn` / `:spawn-all` spawn registry — `<parent-id> → {<invoke-id> <slot>}` for the destroy-cascade walker. |
 | `:rf/route` | `[:rf.runtime/routing :current]` | routing runtime | The current route slice `{:route-id :params :query :transition :error}`. |
 | `:rf/pending-navigation` | `[:rf.runtime/routing :pending-navigation]` | routing runtime | Pending-navigation slot populated when a `:can-leave` guard rejects; cleared by `:rf.route/continue` / `:rf.route/cancel`. |
-| `:rf/elision` | `[:rf.runtime/elision]` | elision runtime | Wire-elision declaration registry — `{:declarations {<path> {:large? :hint :source}} :sensitive-declarations {<path> {:sensitive? :hint :source}}}`. Written by the EP-0025 commit-plane `:sensitive` / `:large` classification effects (a `reg-event` returns them alongside `:db`, installed by `re-frame.elision/apply-classification-effects` under `:source :effect`, Spec 015 §Data classification); also fed by `reg-flow` outputs (`:source :flow`) and subsystem projection-relative declarations (routing / machines). Consulted by `rf/elide-wire-value` at every wire-boundary emit. Durable app-db classification rides the commit-plane effects, NOT a schema-slot route — per [Spec 015 §Schemas describe shape](../../../spec/015-Data-Classification.md), a `reg-app-schema` `{:sensitive? true}` slot prop is no longer a nomination path into this registry (machine `[:schemas :data]` props and schema-validation-failure redaction are separate, schema-owned surfaces). |
+| `:rf/elision` | `[:rf.runtime/elision]` | elision runtime | Wire-elision declaration registry — `{:declarations {<path> {:large? :hint :source}} :sensitive-declarations {<path> {:sensitive? :hint :source}}}`. Written by the EP-0025 commit-plane `:sensitive` / `:large` classification effects (a `reg-event` returns them alongside `:db`, installed by `re-frame.elision/apply-classification-effects` under `:source :effect`, Spec 015 §Data classification); also fed by `reg-flow` outputs (`:source :flow`) and subsystem projection-relative declarations (routing / machines). Consulted by `rf/project-egress` at every wire-boundary emit. Durable app-db classification rides the commit-plane effects, NOT a schema-slot route — per [Spec 015 §Schemas describe shape](../../../spec/015-Data-Classification.md), a `reg-app-schema` `{:sensitive? true}` slot prop is no longer a nomination path into this registry (machine `[:schemas :data]` props and schema-validation-failure redaction are separate, schema-owned surfaces). |
 
 Conventions is the canonical home; this table is the panel-facing
 projection. The `runtime-areas` lookup in `app_db_diff_helpers.cljc`
@@ -703,7 +703,7 @@ the picker / focus selects). The contract — the shared seam
   and the inline `← was X` annotation never reconstructs the redacted
   content.
 - **Fail-closed.** The observed frame-id is **stamped verbatim** as the
-  `:frame` opt, whatever it is. `elide-wire-value` reads that opt by **key
+  `:frame` opt, whatever it is. `project-egress` reads that opt by **key
   presence**, so an unreachable observed frame (nil / destroyed /
   never-registered) takes the walker's **unresolvable-frame** redact-whole
   branch, redacting the entire value rather than shipping it raw under no

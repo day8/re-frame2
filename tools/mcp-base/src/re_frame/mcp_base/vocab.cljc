@@ -24,7 +24,7 @@
 
   `:rf.size/*` — size-elision markers (large-elided, threshold, opts).
                  Owned jointly with the framework's
-                 `rf/elide-wire-value` walker (Conventions §Reserved
+                 `rf/project-egress` walker (Conventions §Reserved
                  namespaces; Spec 009 §Size elision in traces). The
                  walker emits the marker; MCP servers re-emit it on
                  the wire.
@@ -154,7 +154,7 @@
 
 (def large-elided-key
   "Marker substituted for an over-threshold leaf (or a declared-large
-  registry-path) by the framework's `rf/elide-wire-value` walker.
+  registry-path) by the framework's `rf/project-egress` walker.
   Shape (per Spec 009 §Size elision in traces):
     `{:rf.size/large-elided {:bytes N :type \"...\"
                              :handle [:rf.elision/at <path>]}}`.
@@ -164,13 +164,13 @@
 
 (def redacted-sentinel
   "Literal value substituted **in-place** for a sensitive leaf by the
-  framework's `rf/elide-wire-value` walker and by the `redact-interceptor`
+  framework's `rf/project-egress` walker and by the `redact-interceptor`
   interceptor. Unlike `:rf.size/large-elided`, this is a **scalar
   sentinel** — there is no map payload, no `:handle`, no re-fetch
   affordance. The value is gone; the agent sees `:rf/redacted` and
   MUST NOT attempt to recover it.
 
-  Per spec/Tool-Pair.md §Direct-read privacy posture: `elide-wire-value`
+  Per spec/Tool-Pair.md §Direct-read privacy posture: `project-egress`
   is the single normative emission site for this sentinel (sensitive)
   and for `:rf.size/large-elided` (oversize). When both predicates
   match at a leaf the **sensitive drop wins** — the size marker is
@@ -186,7 +186,7 @@
   :rf.elision/at)
 
 (def include-large-opt
-  "The framework `rf/elide-wire-value` walker opt that controls
+  "The framework `rf/project-egress` walker opt that controls
   whether large leaves emit the marker (`false` ⇒ emit marker;
   `true` ⇒ pass through). MCP servers surface this as the high-level
   `:elision` boolean MCP arg; the underlying knob is this."

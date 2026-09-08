@@ -1,7 +1,7 @@
 # `elision` — wire-boundary `:rf.size/large-elided` walker
 
 > **Type:** Reference (`tools/mcp-base/spec/`)
-> Per [`../../../spec/009-Instrumentation.md` §Size elision in traces](../../../spec/009-Instrumentation.md), the framework's `rf/elide-wire-value` walker substitutes over-threshold leaves with a `{:rf.size/large-elided {…}}` marker before the payload leaves the runtime. Every MCP tool that returns a tree-typed payload surfaces a scalar count of those substitutions on its response envelope (the `:elided-large` slot — see [`vocab.md` §Envelope counter slots](vocab.md#envelope-counter-slots)). This namespace owns the **counter**, not the walker.
+> Per [`../../../spec/009-Instrumentation.md` §Size elision in traces](../../../spec/009-Instrumentation.md), the framework's `rf/project-egress` walker substitutes over-threshold leaves with a `{:rf.size/large-elided {…}}` marker before the payload leaves the runtime. Every MCP tool that returns a tree-typed payload surfaces a scalar count of those substitutions on its response envelope (the `:elided-large` slot — see [`vocab.md` §Envelope counter slots](vocab.md#envelope-counter-slots)). This namespace owns the **counter**, not the walker.
 
 This doc is one of thirteen per-namespace contracts indexed from [`README.md`](README.md). See also: [`vocab.md`](vocab.md), [`sensitive.md`](sensitive.md), [`egress.md`](egress.md), [`args.md`](args.md), [`diff-encode.md`](diff-encode.md), [`section-grouping.md`](section-grouping.md), [`dedup.md`](dedup.md), [`overflow.md`](overflow.md), [`cap.md`](cap.md), [`cursor.md`](cursor.md), [`envelope.md`](envelope.md), [`descriptor-manifest.md`](descriptor-manifest.md).
 
@@ -14,7 +14,7 @@ This doc is one of thirteen per-namespace contracts indexed from [`README.md`](R
 
 `elision` does NOT own:
 
-- The walker that *produces* the `:rf.size/large-elided` markers — that's `rf/elide-wire-value`, framework-side, in `day8/re-frame2` core. This ns is consumer-side, summarising what the framework already produced.
+- The walker that *produces* the `:rf.size/large-elided` markers — that's `rf/project-egress`, framework-side, in `day8/re-frame2` core. This ns is consumer-side, summarising what the framework already produced.
 - The `:rf.size/large-elided` marker shape itself — that's framework-owned per [`../../../spec/009-Instrumentation.md` §Size elision](../../../spec/009-Instrumentation.md).
 - The threshold knob (`:rf.size/threshold-bytes`) — that's a framework-side opt the consumer relays via the walker's option map; see [`vocab.md` §Marker catalogue (`:rf.size/*`)](vocab.md#marker-catalogue-rfsize).
 

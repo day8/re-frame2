@@ -65,7 +65,7 @@
    ;; dispatch-dry-run's :would-fire-effects[*].args are
    ;; RAW fx-handler arguments (HTTP request bodies, dispatched event
    ;; vectors, payment maps). They are NOT rooted at the frame's app-db,
-   ;; so the schema-path-keyed `elide-wire-value` walker cannot prove them
+   ;; so the schema-path-keyed `project-egress` walker cannot prove them
    ;; safe — the same leak class as an epoch record's :effects[].args,
    ;; which `projected-record` fails closed (EP-0015 §13). Off-box
    ;; egress therefore FAILS CLOSED: :args redacts to :rf/redacted by

@@ -53,7 +53,7 @@
   "Recurring fragment — every tool that surfaces a live `:app-db`
   slice or assertion accumulator accepts the cross-MCP
   `:include-sensitive` opt-in. Default false:
-  declared-sensitive paths land `:rf/redacted` via `elide-wire-value`,
+  declared-sensitive paths land `:rf/redacted` via `project-egress`,
   and assertion records stamped `:sensitive? true` are dropped via
   `strip-sensitive`. Pass true to forward the raw values; per the
   cross-MCP convention from `re-frame.mcp-base.sensitive`.

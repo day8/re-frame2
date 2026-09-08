@@ -283,7 +283,7 @@ the LLM-facing wire. Published builds ship with the gate off:
 - a caller's `:include-sensitive true` is overridden to `false`.
 - a caller's `:elision false` is overridden to `true`.
 - the preload runtime's `app-db-reset!` taps default-elide both
-  `:previous` and `:next` payloads through `re-frame.core/elide-wire-value`
+  `:previous` and `:next` payloads through `re-frame.core/project-egress`
   before any tap consumer sees them. The `configure-raw-state!` signal
   that flips the runtime into this posture is issued by every tool that
   taps / egresses app-db — the read surfaces, `dispatch-dry-run`, AND

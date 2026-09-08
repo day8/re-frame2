@@ -26,7 +26,7 @@ This namespace is the pure-data, framework-runtime-free mirror of the six-member
 `egress` does NOT own:
 
 - **The authoritative table.** `re-frame.projection/profile-size-opts` (`implementation/core`) is the single source of truth; this is a MIRROR pinned value-for-value to it by the conformance gate (below).
-- **Applying the floor.** This namespace only resolves a profile. Consumers pass the result to the appropriate framework boundary (`project-egress` or `elide-wire-value`), either in-process or through pair-mcp's eval form.
+- **Applying the floor.** This namespace only resolves a profile. Consumers pass the result to the appropriate framework boundary (`project-egress` or `project-egress`), either in-process or through pair-mcp's eval form.
 
 ## The six profiles (EP-0015 §10, CLOSED enum)
 

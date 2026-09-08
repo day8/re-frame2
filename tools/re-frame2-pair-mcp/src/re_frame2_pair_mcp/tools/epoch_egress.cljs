@@ -66,7 +66,7 @@
   defaults and handles all four payload-bearing slots
   (`:db-before`, `:db-after`, `:trigger-event`, `:trace-events`)
   including the `:trace-events` per-event re-root. Using it
-  directly (rather than a per-slot `elide-wire-value` hand-walk) keeps
+  directly (rather than a per-slot `project-egress` hand-walk) keeps
   the projection single-sourced in the framework and removes the
   \"one missed slot\" leak surface the core docstring warns about.
 

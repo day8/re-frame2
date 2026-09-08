@@ -141,7 +141,7 @@
 ;;
 ;; ## Why the egress runs inside `(rf/with-frame tf …)`
 ;;
-;; `egress-value` (→ `elide-wire-value`) resolves the frame-owned
+;; `egress-value` (→ `project-egress`) resolves the frame-owned
 ;; sensitive / large app-db declarations from `rf.frame/current-frame` when no
 ;; explicit `:frame` opt is passed. The snapshot reads the FOCUSED
 ;; frame's db (`tf`), which is NOT necessarily the frame the fx fires

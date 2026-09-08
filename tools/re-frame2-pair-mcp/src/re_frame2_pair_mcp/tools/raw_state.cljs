@@ -117,7 +117,7 @@
 ;;
 ;; The runtime exposes `configure-raw-state!` which sets a
 ;; per-runtime flag controlling whether `app-db-reset!` taps raw values or
-;; redacts via `elide-wire-value`. The MCP server pushes its boot-gate
+;; redacts via `project-egress`. The MCP server pushes its boot-gate
 ;; state into the runtime before every state-emitting eval — the
 ;; per-runtime flag resets to its permissive default on every page/runtime
 ;; reload, so the posture is re-signalled rather than cached as delivered.

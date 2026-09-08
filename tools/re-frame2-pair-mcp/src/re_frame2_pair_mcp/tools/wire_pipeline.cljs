@@ -33,7 +33,7 @@
   ## Indicator counting
 
   When the SERVER-SIDE eval form already counted markers (snapshot +
-  get-path, where `elide-wire-value` ran app-side and the count flows
+  get-path, where `project-egress` ran app-side and the count flows
   back via `:server-elided` on the opts map), the pipeline uses the
   pre-shipped count directly — the walker that inserted the marker is
   the only thing that needs to know about it. For these kinds, dedup
@@ -62,7 +62,7 @@
                        `:limit`.
   - `:scalar-value`  — the literal post-`get-in` value (`get-path`).
                        The eval form already ran
-                       `re-frame.core/elide-wire-value` server-side,
+                       `re-frame.core/project-egress` server-side,
                        so the pipeline here is just indicator-count;
                        the value passes through. The CALLER strips
                        the value off its envelope and re-assembles
@@ -201,7 +201,7 @@
 
 (defn- run-scalar-value
   "Minimal pipeline for the literal post-`get-in` value. The eval form
-  already ran `re-frame.core/elide-wire-value` server-side, so the
+  already ran `re-frame.core/project-egress` server-side, so the
   pipeline here is indicator-count only. The value passes through
   unchanged.
 

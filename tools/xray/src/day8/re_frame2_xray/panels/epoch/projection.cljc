@@ -2601,7 +2601,7 @@
   passed to THIS render, off the `:rf.view/render-args` trace slot
   (rf2-rpgq8). The value is ALREADY ELIDED at the substrate emit
   chokepoint (PRIVACY — `re-frame.classification/project-trace-event` routes it
-  through `elide-wire-value` against the frame's app-db elision
+  through `project-egress` against the frame's app-db elision
   registry before delivery, the identical treatment `:rf.event/db`
   gets); we consume the elided value as-is — NO re-elision.
 

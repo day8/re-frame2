@@ -249,7 +249,7 @@ record obeys the framework's path-level data-classification contract
 The rules:
 
 1. **Every value-bearing slot passes through
-   `re-frame.elision/elide-wire-value` before landing in `:assertions`.**
+   `re-frame.core/project-egress` before landing in `:assertions`.**
    Durable app-db classification is carried by the **commit-plane effects** per
    [spec/015 §Durable app-db — the four commit-plane effects](../../../spec/015-Data-Classification.md#durable-app-db--the-four-commit-plane-effects):
    a variant declares its sensitive / large paths from a handler body, as the
@@ -301,7 +301,7 @@ See also:
   [`015-Test-Coverage.md`](015-Test-Coverage.md) §Assertion vocabulary
   scenarios — exercised live by
   `assertion_redaction_cljs_test.cljs` (rf2-ee38b.3 wired the
-  evaluator → `elide-wire-value` projection; bd:rf2-shy6n).
+  evaluator → `project-egress` projection; bd:rf2-shy6n).
 
 ## Test-runner integration
 

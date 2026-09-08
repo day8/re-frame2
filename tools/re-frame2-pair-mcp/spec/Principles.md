@@ -203,7 +203,7 @@ The seven mechanisms in re-frame2-pair-mcp:
 5. **Structural dedup** (§"Structural dedup") — the
    `re-frame.mcp-base.dedup` substitution table + `{:rf.mcp/dedup-table ...}` wire shape.
 6. **Size-elision wire markers** (§"Size-elision wire markers") —
-   the framework's `elide-wire-value` walker substitutes
+   the framework's `project-egress` walker substitutes
    `{:rf.size/large-elided ...}` markers for declared-large
    slots.
 7. **Diff-encoded `:db-after`** (§"Diff-encoded `:db-after`") —
@@ -614,7 +614,7 @@ pipeline. The marker shape (`{:rf.size/large-elided {:path ...
 [:rf.elision/at ...]}}`) is reserved cross-server per
 [`spec/Conventions.md §Reserved namespaces`](../../../spec/Conventions.md#reserved-namespaces-framework-owned)
 and emitted by the same framework walker
-(`rf/elide-wire-value`) in every server. An agent that learned
+(`rf/project-egress`) in every server. An agent that learned
 the slot on a sibling server sees the same slot here.
 
 After diff-encoding
@@ -622,7 +622,7 @@ After diff-encoding
 pools repeated subtrees, a single large slot — say a 100KB
 uploaded PDF base64 on `[:user :uploaded-pdf]` — still rides
 the wire verbatim. The framework's size-elision walker
-(`re-frame.core/elide-wire-value`, rf2-v9tw2) substitutes
+(`re-frame.core/project-egress`, rf2-v9tw2) substitutes
 such slots with a marker carrying a fetch handle.
 
 **The transform**. Each frame's `:app-db` slice (in
@@ -658,7 +658,7 @@ the elided subtree via `get-path [:user :uploaded-pdf
 is a Node process that doesn't have direct access to the
 running re-frame frame; the registry is reachable only inside
 the eval form. The walker is the single normative emission
-site for the marker — per Spec API §`elide-wire-value`,
+site for the marker — per Spec API §`project-egress`,
 per-tool reimplementation is prohibited. So re-frame2-pair-mcp's
 snapshot and get-path tools include the walker call in the
 EDN form they send over nREPL.
@@ -800,7 +800,7 @@ so never serves a stale slice:
   no-`:db` handler.
 - `:app-db` (rf2-ajhwbm) LOOKED sound — it IS the frame db — but the
   resolved `:app-db` slice is walked through
-  `re-frame.core/elide-wire-value` before it crosses the wire, exactly
+  `re-frame.core/project-egress` before it crosses the wire, exactly
   like `get-path` below. A later elision declaration (or a
   sensitive/large classification flip) can re-shape the egress of an
   UNCHANGED app-db subtree while `(hash app-db)` stays constant — a
@@ -811,7 +811,7 @@ so never serves a stale slice:
 
 `get-path` is also NOT precheck-eligible (rf2-ww877w): although it
 reads an app-db subtree, its wire result is post-processed by
-`re-frame.core/elide-wire-value`, whose elision registry lives in the
+`re-frame.core/project-egress`, whose elision registry lives in the
 runtime-db partition (`[:rf.runtime/elision]`). A later elision
 declaration (or a sensitive/large classification flip) can re-shape
 the egress of an UNCHANGED subtree, which the `(hash app-db)` precheck

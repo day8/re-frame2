@@ -3,7 +3,7 @@
 
   Per spec/Tool-Pair.md §Direct-read privacy posture (lines 544-566):
   every pair-shaped tool surfacing live frame state MUST route the
-  value through `re-frame.core/elide-wire-value` (or the PATH-BASED
+  value through `re-frame.core/project-egress` (or the PATH-BASED
   derived-tree projection below) before the value crosses the wire
   egress.
 
@@ -106,7 +106,7 @@
   EP-0025 REMOVED the value-match (taint-by-equality) redaction that used to
   scrub the re-keyed copies — value-match is propagation/taint by another
   name, which a hygiene helper does not earn (§\"What is removed\"). The
-  derived-tree projection is PATH-BASED: `elide-wire-value` walks the tree
+  derived-tree projection is PATH-BASED: `project-egress` walks the tree
   against the frame's classification, redacting a value AT a classified path
   and leaving a RE-KEYED copy RAW (INTENDED FAIL-OPEN). A consumer that needs
   a re-keyed value redacted must classify its app-db PATH so the derived slot
@@ -248,14 +248,14 @@
 ;; collect live values at the declared paths and substitute any matching leaf
 ;; (§"What is removed": value-match is propagation/taint by another name). The
 ;; derived-tree projection is now PATH-BASED: each tree (or named slot) is
-;; walked through `elide-wire-value` against the frame's classification. A
+;; walked through `project-egress` against the frame's classification. A
 ;; value AT a classified path within the tree redacts; a value RE-KEYED to a
 ;; position the path cannot reach ships RAW (fail-open).
 ;;
 ;; The projection runs through the SINGLE public boundary
 ;; `re-frame.core/project-egress` — the
 ;; `:rf.observe/derived-tree` record kind, the path-based dual of
-;; `elide-wire-value`. story-mcp keeps only the ORCHESTRATION: build the
+;; `project-egress`. story-mcp keeps only the ORCHESTRATION: build the
 ;; derived-tree record (its `:source-db`), name the off-box egress profile,
 ;; apply the `:include-sensitive` opt-out.
 
@@ -266,7 +266,7 @@
   `:rf.observe/derived-tree` record's SINGLE-TREE form (`:slot-keys nil`).
 
   EP-0025 FAIL-OPEN: the value-match (taint-by-equality) engine is REMOVED. The
-  projection walks `tree` through `elide-wire-value` against `variant-id`'s
+  projection walks `tree` through `project-egress` against `variant-id`'s
   classification registry (frame- / commit-plane-effect- / flow-sourced
   declarations, unioned) on BOTH the `:sensitive` and `:large` axes. A value
   that occupies a CLASSIFIED app-db path WITHIN `tree` (a derived slot whose

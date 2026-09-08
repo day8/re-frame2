@@ -81,7 +81,7 @@
 (defn rt-call*
   "Build an IR node for a fully-qualified function call. The symbol /
   string is emitted verbatim (no `runtime-ns` prefix). Used for
-  `re-frame.core/elide-wire-value` and other cross-namespace calls
+  `re-frame.core/project-egress` and other cross-namespace calls
   inside an eval form."
   [qsym & args]
   [::call* qsym (vec args)])

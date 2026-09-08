@@ -18,7 +18,7 @@ This doc is one of thirteen per-namespace contracts indexed from [`README.md`](R
 `sensitive` does NOT own:
 
 - The framework-side `:sensitive?` registration-meta stamp — that's normative in [`../../../spec/009-Instrumentation.md` §Privacy / sensitive data in traces](../../../spec/009-Instrumentation.md).
-- The wire-elision walker itself (`rf/elide-wire-value` lives in `day8/re-frame2` core).
+- The wire-elision walker itself (`rf/project-egress` lives in `day8/re-frame2` core).
 - The runtime stamping logic (each registration's handler scope; see `re-frame.privacy/sensitive?`).
 
 ## Surface

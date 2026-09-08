@@ -782,7 +782,7 @@ sink (Tool-Pair §Privacy egress,
 It routes the value through Xray's single named panel-local safe-egress
 fn — `day8.re-frame2-xray.egress/egress-value` — BEFORE it reaches the
 sink. That fn is a thin wrapper over the framework's normative
-wire-elision walker (`re-frame.core/elide-wire-value`) with the off-box
+wire-elision walker (`re-frame.core/project-egress`) with the off-box
 defaults BAKED IN, so the shortest call is the safe one (rf2-rcogp):
 `:rf.size/include-sensitive?` and `:rf.size/include-large?` both default
 `false`, a frame-declared sensitive slot egresses as `:rf/redacted`, and
@@ -818,7 +818,7 @@ when no `:frame` is supplied, and for a panel affordance the ambient
 frame is the LIVE `:rf/xray` chrome frame — which resolves, so its
 normally-empty declaration registry applies and the value egresses RAW.
 Such an affordance must therefore forward `:frame` even when the picker
-has selected nothing: `elide-wire-value` validates the id against the
+has selected nothing: `project-egress` validates the id against the
 live registry, so an unselected picker and a host frame destroyed
 between render and click both take the walker's frameless arm and
 egress the whole-value `:rf/redacted` sentinel. `egress-value`

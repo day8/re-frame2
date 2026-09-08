@@ -53,7 +53,7 @@
 
   ## Fail-closed (the silent-leak this seam abolishes)
 
-  `rf/project-egress` delegates to `rf/elide-wire-value`, which reads its
+  `rf/project-egress` delegates to `rf/project-egress`, which reads its
   `:frame` opt by KEY PRESENCE — so an ABSENT `:frame` key falls through to
   the AMBIENT dynamically-bound frame, applying THAT frame's (possibly empty)
   policy and shipping value-bearing fields RAW under a borrowed scope. At a
