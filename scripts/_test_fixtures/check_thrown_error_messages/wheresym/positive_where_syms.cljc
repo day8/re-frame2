@@ -235,3 +235,54 @@
 (defn ghost-commas-as-sole-separator-in-the-slot []
   (throw (ex-info "hand-built payload [:rf.error/ghost-twenty]"
                   {:rf.error/id :rf.error/ghost-twenty,:where,'rf.fixture/ghost-comma-six,:reason "commas alone between the slot's key and its value"})))
+
+;; ---- (7) COMPOSED READER PREFIXES ----------------------------------------
+;;
+;; Audit #9511's residual. Each name below is defined in the oracle fixture
+;; behind a COMPOSED reader prefix and NOWHERE ELSE, so a walker that decides
+;; inertness from the single character before the `(` greens every one of them:
+;; `#_#?(...)` and `'#?(...)` reach that `(` after a `?`, and a stacked
+;; `#_#_ a b` has no prefix behind `b` at all.
+;;
+;; THE PREFIX IS THE ONLY THING DOING THE WORK in every one — strip it and the
+;; oracle form defines its var for real. Its live twin
+;; `rf.fixture/conditional-defined-public` sits in the negative fixture with a
+;; byte-identical body, pinned as OBSERVED; the PAIR is the assertion, because
+;; a resolving site is green when seen and green again when it has vanished.
+
+(defn ghost-in-a-discarded-conditional []
+  (rf.error/throw-error!
+    :rf.error/ghost-twentyone
+    'rf.fixture/ghost-discarded-conditional
+    "`#_` applied to `#?` discards the conditional, arms and all"))
+
+(defn ghost-in-a-quoted-conditional []
+  (rf.error/throw-error!
+    :rf.error/ghost-twentytwo
+    'rf.fixture/ghost-quoted-conditional
+    "a quoted reader-conditional is data once the reader has resolved it"))
+
+(defn ghost-in-a-syntax-quoted-conditional []
+  (rf.error/throw-error!
+    :rf.error/ghost-twentythree
+    'rf.fixture/ghost-syntax-quoted-conditional
+    "syntax-quote over a conditional is data too"))
+
+(defn ghost-in-a-discarded-splice []
+  (rf.error/throw-error!
+    :rf.error/ghost-twentyfour
+    'rf.fixture/ghost-discarded-splice
+    "`#_#?@(...)` is discarded whole, and top-level splicing interns nothing
+     in any case"))
+
+(defn ghost-first-of-a-stacked-discard []
+  (rf.error/throw-error!
+    :rf.error/ghost-twentyfive
+    'rf.fixture/ghost-stacked-first
+    "the FIRST form a stacked `#_#_` discards, which look-back already saw"))
+
+(defn ghost-second-of-a-stacked-discard []
+  (rf.error/throw-error!
+    :rf.error/ghost-twentysix
+    'rf.fixture/ghost-stacked-second
+    "the SECOND form, which look-back cannot reach in principle"))

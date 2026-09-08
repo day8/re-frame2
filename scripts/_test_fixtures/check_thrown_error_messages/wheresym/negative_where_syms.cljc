@@ -177,3 +177,17 @@
 (defn commas-as-sole-separator-in-the-slot-resolves []
   (throw (ex-info "hand-built payload [:rf.error/ok-twentyone]"
                   {:rf.error/id :rf.error/ok-twentyone,:where,'rf.fixture/known-public,:reason "commas alone around the slot"})))
+
+;; ---- a LIVE reader-conditional, the twin of the discarded one ------------
+;;
+;; The oracle fixture writes `#_#?(:clj (defn ghost-discarded-conditional ...))`
+;; and `#?(:clj (defn conditional-defined-public ...))` with the same body, so
+;; the PAIR isolates the prefix as the only cause of inertness. This half is
+;; pinned as OBSERVED at its line: green here is also what a detector that has
+;; gone blind to the whole site looks like.
+
+(defn conditional-defined-var-resolves []
+  (rf.error/throw-error!
+    :rf.error/ok-twentytwo
+    'rf.fixture/conditional-defined-public
+    "`#?(:clj (defn conditional-defined-public ...))` interns the var"))
