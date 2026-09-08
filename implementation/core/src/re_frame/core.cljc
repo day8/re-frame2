@@ -2412,14 +2412,14 @@
 ;; EP-0037 R1 fire-and-forget `:on-match` model — route readiness is the
 ;; resource projection, so routing registers no error listener.
 
-(def ^{:doc "Walk `v` and substitute the frame's declared sensitive or
-  large paths for wire egress (the durable declarations are classified by the
-  EP-0025 commit-plane classification effects — a `reg-event` returns
-  `:sensitive` / `:large` alongside `:db`, EP-0015 §8). Sensitive wins over
-  large when both declarations match. Sensitive paths become `:rf/redacted`;
-  large paths become `:rf.size/large-elided`. Per Spec 009 §Wire elision and
-  Security.md §Off-box egress."}
-  elide-wire-value                 rf.elision/elide-wire-value)
+;; rf2-kuky.90 (ruling rf2-kuky.9, option A): the `elide-wire-value` façade
+;; export is RETIRED. The path walker is a framework-internal mechanism, not a
+;; door — it reads no `:rf.egress/profile`, so every caller that reached it
+;; from outside the framework had to hand-assemble the `:rf.size/*` floor a
+;; named boundary already carries. `project-egress` below is now the ONLY
+;; projection door on the façade; it resolves the profile and delegates the
+;; per-slot walk to `re-frame.elision/elide-wire-value`, which stays public at
+;; its home namespace for the framework's own emit-time chokepoints.
 
 (def ^{:doc "Project a record or value for egress across a trust boundary
   (EP-0015 §10/§11). The public, record-level boundary primitive — the
@@ -2427,7 +2427,8 @@
   (`:rf.observe/handled-event` / `:rf.observe/error`) to a private per-kind
   projector, falling back to walking a kindless input as a tree-shaped
   value (the direct-read path); for every tree-shaped slot it delegates to
-  `elide-wire-value` against the frame's classification. `opts` carries
+  the internal `re-frame.elision/elide-wire-value` walker against the
+  frame's classification. `opts` carries
   `:rf.egress/profile` (the closed six-member enum), `:frame`, `:path`, and
   the advanced `:rf.size/*` overrides (which compose on top of the
   profile — the override wins). An unknown profile throws
@@ -2485,8 +2486,10 @@
 ;; EP disclaims. The ONLY derived-tree egress boundary is now `project-egress`
 ;; with a `:rf.observe/derived-tree` record, which PATH-walks the tree against
 ;; the frame's classification (a re-keyed value ships raw — intended fail-open).
-;; (KEPT on the façade: `elide-wire-value` — the path walker — and
-;; `project-egress` — the record-level boundary.)
+;; (KEPT on the façade: `project-egress` — the record-level boundary. The
+;; path walker was kept here too when EP-0025 landed; rf2-kuky.9 later ruled
+;; it off the façade and rf2-kuky.90 retired it — see the note above the
+;; `project-egress` export.)
 
 ;; rf2-kuky.72: the `group-by-event` / `domino-bucket` facade twins are
 ;; REMOVED. `re-frame.trace.projection` is the rostered home of both — the
@@ -2637,7 +2640,8 @@
 ;; normative projection helpers for off-box epoch egress.
 (def ^{:doc "Project an `:rf/epoch-record` for off-box egress — the
   single normative projection emission site for off-box epoch egress
-  (parallel to `elide-wire-value` for direct reads). Routes payload
+  (parallel to the internal `re-frame.elision/elide-wire-value` walker for
+  direct reads). Routes payload
   slots through wire-elision with off-box defaults; bookkeeping slots
   pass through unchanged. Tools that egress epoch records across a
   process boundary (Xray-MCP `watch-epochs`, recorders, forwarders)

@@ -131,6 +131,6 @@ lands in `implementation/out/testbeds/large-dispatcher/`.
 
 - [`spec/009-Instrumentation.md` §Size elision in traces](../../spec/009-Instrumentation.md) — the three-nomination-path contract this surface exercises.
 - [`spec/009-Instrumentation.md` §Wire marker — `:rf.size/large-elided`](../../spec/009-Instrumentation.md) — the marker shape consumers assert against.
-- [`spec/API.md` §`rf/elide-wire-value`](../../spec/API.md) — the wire-boundary walker (single normative emission site).
+- [`spec/API.md` §Size-elision wire-boundary walker](../../spec/API.md) — the wire-boundary walker (single normative emission site).
 - [`spec/Spec-Schemas.md` §`:rf/elision-marker`](../../spec/Spec-Schemas.md) — the per-field MUST-level requirements on the marker shape.
 - [`spec/Conventions.md` §Reserved namespaces](../../spec/Conventions.md) — the `:rf.size/*` and `:rf.elision/*` reserved-namespace rows.

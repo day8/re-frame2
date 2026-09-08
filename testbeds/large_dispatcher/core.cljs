@@ -3,7 +3,7 @@
   wire-elision threshold. A consumer (Xray, Story, re-frame2-pair-mcp)
   observes the runtime's wire-boundary walker substitute a value with
   the `:rf.size/large-elided` marker (per [spec/009 §Size elision in
-  traces] / [API.md §`rf/elide-wire-value`]).
+  traces] / [API.md §Size-elision wire-boundary walker]).
 
   Elision is classification-driven (EP-0025): the `:large` commit-plane
   classification effect (a `reg-event` returns it alongside `:db`) is the

@@ -1281,6 +1281,18 @@ run "conformance fixture EDN gate self-test" "python scripts/check_conformance_f
 run "conformance fixture EDN gate (rf2-x91a)" "python scripts/check_conformance_fixture_edn.py --verbose" \
   python "$spine_root/scripts/check_conformance_fixture_edn.py" --verbose
 
+# Egress-walker residue (rf2-kuky.90).  Always-on for the same reason as the
+# conformance-EDN gate above: the subject is `tools/*/src` + `skills/*/preload`
+# SOURCE, which is not an `.md` path and so never arms the documentation tier,
+# and the classifier routes those trees only to heavy lanes.  A stdlib call-site
+# scan over ~400 files costs milliseconds, so it runs on every diff, mirroring
+# its always-on step in the invariant job.
+run "egress-walker residue self-test" "python scripts/check_egress_walker_residue.py --self-test --verbose" \
+  python "$spine_root/scripts/check_egress_walker_residue.py" --self-test --verbose
+
+run "egress-walker residue (rf2-kuky.90)" "python scripts/check_egress_walker_residue.py --verbose" \
+  python "$spine_root/scripts/check_egress_walker_residue.py" --verbose
+
 # The last three are `verify-readme-links`', not the invariant job's.  Note that
 # CI runs `check_readme_links --ci` ALWAYS-ON while this spine runs it in the
 # documentation tier; only the self-test arm is added here, so the live scan

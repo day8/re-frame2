@@ -805,7 +805,7 @@
 ;;
 ;; The Pair MCP `read-sub` / `list-subscriptions :include-values` /
 ;; `snapshot :sub-cache` / Xray surfaces all route a route sub's value through
-;; `re-frame.core/elide-wire-value` server-side, naming the sub via `:query-v`.
+;; `re-frame.elision/elide-wire-value` server-side, naming the sub via `:query-v`.
 ;; This pins THAT path: the bare slice walked with `{:query-v [:rf/route]
 ;; :frame …}` redacts the :sensitive query, while the same call WITHOUT
 ;; `:query-v` (a non-route value) leaves it raw — proving the re-seed is the
@@ -817,7 +817,7 @@
             (the Pair MCP read-sub server-side call shape)"
     (nav-to-sensitive-oauth!)
     (let [slice   (route-slice)
-          elided  (rf/elide-wire-value slice {:query-v [:rf/route] :frame :rf/default})]
+          elided  (rf.elision/elide-wire-value slice {:query-v [:rf/route] :frame :rf/default})]
       (is (= rf.privacy/redacted-sentinel (get-in elided [:query :token]))
           "the route :sensitive query value redacts on the read-sub wire")
       (is (= :route/oauth (:route-id elided))
@@ -827,7 +827,7 @@
             load-bearing, and that NON-route values are untouched"
     (nav-to-sensitive-oauth!)
     (let [slice  (route-slice)
-          elided (rf/elide-wire-value slice {:frame :rf/default})]
+          elided (rf.elision/elide-wire-value slice {:frame :rf/default})]
       (is (= "secret123" (get-in elided [:query :token]))
           "no :query-v ⇒ no route re-seed ⇒ the bare slice walks at the root and rides raw"))))
 
@@ -838,13 +838,13 @@
                   "/oauth")
     (rf/dispatch-sync [:rf.route/handle-url-change "/oauth?token=secret123" {:rf.route/cause :link}])
     (let [query-map (get-in (route-slice) [:query])
-          elided    (rf/elide-wire-value query-map {:query-v [:rf.route/query] :frame :rf/default})]
+          elided    (rf.elision/elide-wire-value query-map {:query-v [:rf.route/query] :frame :rf/default})]
       (is (= rf.privacy/redacted-sentinel (:token elided))
           ":rf.route/query value redacts via the :query-v re-seed"))
     (rf/reg-route :route/upload {:sensitive [[:params :secret]]} "/upload/:secret")
     (rf/dispatch-sync [:rf.route/handle-url-change "/upload/topsecret" {:rf.route/cause :link}])
     (let [params-map (get-in (route-slice) [:params])
-          elided     (rf/elide-wire-value params-map {:query-v [:rf.route/params] :frame :rf/default})]
+          elided     (rf.elision/elide-wire-value params-map {:query-v [:rf.route/params] :frame :rf/default})]
       (is (= rf.privacy/redacted-sentinel (:secret elided))
           ":rf.route/params value redacts via the :query-v re-seed"))))
 
@@ -887,7 +887,7 @@
                       (fn [m qv entry]
                         (assoc m qv
                                (update entry :value
-                                       #(rf/elide-wire-value % {:query-v qv :frame :rf/default}))))
+                                       #(rf.elision/elide-wire-value % {:query-v qv :frame :rf/default}))))
                       {} sub-cache)]
       (is (= rf.privacy/redacted-sentinel
              (get-in walked [[:rf/route] :value :query :token]))

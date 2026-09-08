@@ -3010,7 +3010,7 @@ A frame owns two durable partitions held as one physical frame-state container (
    [:source     [:enum :effect :machine :resource :route :flow]]])
 
 (def Elision
-  ;; The wire-elision declaration registry. Consulted by `rf/elide-wire-value`
+  ;; The wire-elision declaration registry. Consulted by `re-frame.elision/elide-wire-value`
   ;; at every wire-boundary emit, and by the record projector. EP-0025: the
   ;; nomination path is the four commit-plane data-classification effects
   ;; (durable app-db, `:source :effect`), subsystem projection-relative
@@ -3529,7 +3529,7 @@ The normalized **algebra view** every declared fact / process lowers to — the 
   ;; STRUCTURED internal accessor, not Xray-private; the public accessor name
   ;; is deferred. :mode distinguishes the registration-derived static graph
   ;; from the frame-derived live graph. Payloads carry source coords + value
-  ;; summaries — egress-bearing, so they compose through rf/elide-wire-value
+  ;; summaries — egress-bearing, so they compose through re-frame.elision/elide-wire-value
   ;; before leaving the box (EP-0015). Redaction must not lose graph structure.
   [:map
    [:mode  [:enum :static :live]]
@@ -3590,7 +3590,7 @@ The canonical shape every managed *async* surface — HTTP ([014](014-HTTPReques
    [:rf.reply/stale-reason  {:optional true} [:maybe :keyword]]
    [:cancelled?    {:optional true} :boolean]               ;; required true for :status :cancelled — the intentional-cancellation marker
    [:rf.reply/cancel-reason {:optional true} [:maybe :keyword]]
-   [:trace         {:optional true} :any]                    ;; data-only trace summary (wire slots elided via rf/elide-wire-value)
+   [:trace         {:optional true} :any]                    ;; data-only trace summary (wire slots elided via re-frame.elision/elide-wire-value)
    [:meta          {:optional true} :any]])                  ;; effect-family data
 
 (def ReplyTarget
@@ -3628,7 +3628,7 @@ The canonical shape every managed *async* surface — HTTP ([014](014-HTTPReques
 > **Owner:** [009-Instrumentation §Wire marker — `:rf.size/large-elided`](009-Instrumentation.md#wire-marker--rfsizelarge-elided)
 > **Status:** v1-required
 
-The wire shape `rf/elide-wire-value` substitutes for an elided large value. Catalogued normatively at [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces) and threaded through every tool that walks tree-typed payloads (per [Tool-Pair.md](Tool-Pair.md)).
+The wire shape `re-frame.elision/elide-wire-value` substitutes for an elided large value. Catalogued normatively at [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces) and threaded through every tool that walks tree-typed payloads (per [Tool-Pair.md](Tool-Pair.md)).
 
 ```clojure
 (def ElisionMarkerBody
@@ -3650,7 +3650,7 @@ Per-field MUST-level requirements (catalogued at [009 §Wire marker — `:rf.siz
 
 - `:path` is **absolute** inside the snapshot slice — not relative to the elision site. An agent that asked for `:path [:user]` and got the marker back at `:uploaded-pdf` sees `:path [:user :uploaded-pdf]`.
 - `:handle` is an EDN vector (not a tagged literal). The default shape is `[:rf.elision/at <path>]`; markers riding inside a past-epoch payload (e.g. an `:rf.mcp/diff-from` patch's `:assoc` slot) carry the variant `[:rf.elision/at <path> :as-of-epoch <epoch-id>]` so `get-path` resolves against that epoch's `:db-after` snapshot rather than now's.
-- `:digest` is OPTIONAL and only present when the caller passed `:rf.size/include-digests? true` (per [API.md §`rf/elide-wire-value`](API.md#size-elision-wire-boundary-walker)). Default off because the digest forces a full walk of the elided value, which negates the cost-saving.
+- `:digest` is OPTIONAL and only present when the caller passed `:rf.size/include-digests? true` (per [API.md §Size-elision wire-boundary walker](API.md#size-elision-wire-boundary-walker)). Default off because the digest forces a full walk of the elided value, which negates the cost-saving.
 
 The reserved sentinel `:rf.elision/at` (under the `:rf.elision/*` namespace per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)) marks the handle as fetchable. Agents pattern-match on the leading `:rf.elision/at` keyword — no decoder needed.
 
@@ -3660,7 +3660,7 @@ The reserved sentinel `:rf.elision/at` (under the `:rf.elision/*` namespace per 
 > **Owner:** [015-Data-Classification §`project-egress`](015-Data-Classification.md#project-egress--the-record-level-boundary-primitive)
 > **Status:** v1-required
 
-The opts map `rf/project-egress` accepts (EP-0015 §10/§11). `project-egress` is the public, record-level egress boundary primitive; it dispatches on a record's `:kind` to a private per-kind projector and delegates every tree-shaped slot to `rf/elide-wire-value`. The opts carry the named `:rf.egress/profile` (the closed six-member `EgressProfile` enum above) plus the advanced `:rf.size/*` overrides `elide-wire-value` consumes — the profile resolves to a `:rf.size/*` opt-set, and an explicit `:rf.size/*` boolean **composes on top (the override wins)**. `:frame` / `:path` / `:query-v` / `:rf.size/threshold-bytes` / `:as-of-epoch` flow through to the walker.
+The opts map `rf/project-egress` accepts (EP-0015 §10/§11). `project-egress` is the public, record-level egress boundary primitive; it dispatches on a record's `:kind` to a private per-kind projector and delegates every tree-shaped slot to `re-frame.elision/elide-wire-value`. The opts carry the named `:rf.egress/profile` (the closed six-member `EgressProfile` enum above) plus the advanced `:rf.size/*` overrides `elide-wire-value` consumes — the profile resolves to a `:rf.size/*` opt-set, and an explicit `:rf.size/*` boolean **composes on top (the override wins)**. `:frame` / `:path` / `:query-v` / `:rf.size/threshold-bytes` / `:as-of-epoch` flow through to the walker.
 
 The map is **`{:closed true}`** (rf2-kuky.6): it is the walker's own closed key set plus the ONE key this layer owns, `:rf.egress/profile`. An unrecognised key raises `:rf.error/bad-egress-opts` naming it. Closing it is what makes the two doors read ONE vocabulary — open, a recognised policy key the reading door does not read vanished without a signal, in both directions.
 

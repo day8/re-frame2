@@ -6,7 +6,7 @@
   On a privacy surface a RECOGNISED policy key could vanish without a
   signal, in both directions:
 
-    1. `rf/elide-wire-value` never read `:rf.egress/profile` — profiles are
+    1. `re-frame.elision/elide-wire-value` never read `:rf.egress/profile` — profiles are
        resolved a layer up, in `re-frame.projection`. Three normative
        teaching sites nevertheless passed one to the walker, where it was
        silently dropped: the call READ as though it had named the off-box
@@ -79,7 +79,7 @@
           "ex-data NAMES the offending key")
       (is (= :pass-the-profile-to-project-egress (:recovery d))
           "the profile case carries its own recovery disposition")
-      (is (= 'rf/elide-wire-value (:where d))
+      (is (= 're-frame.elision/elide-wire-value (:where d))
           ":where names the door the caller actually called")
       (is (contains? (set (:accepted d)) :rf.size/include-sensitive?)
           "ex-data enumerates the ACCEPTED set so the caller needs no docs")

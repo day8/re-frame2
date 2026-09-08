@@ -215,18 +215,18 @@ Wherever a surface uses paths (the four effects, registration marks, subsystem d
 
 The framework — never the author, never a sink — projects a value or record under the owning frame's classification before it crosses a boundary. There is **one choke point**: `project-egress`, layered over the leaf-level `elide-wire-value` walker.
 
-### `elide-wire-value` — the low-level value walker
+### `re-frame.elision/elide-wire-value` — the framework-internal leaf walker
 
-`rf/elide-wire-value` is the single low-level walker for **tree-shaped values**. It takes a value and an opts map, walks the tree, and substitutes sentinels at slots the frame's classification (and the resolved profile) say to redact or elide:
+`re-frame.elision/elide-wire-value` is the single low-level walker for **tree-shaped values**. It is a framework-internal mechanism, **not a door**: it carries no `re-frame.core` re-export and no public-API manifest row (rf2-kuky.9 ruling A, executed by rf2-kuky.90), because it reads no `:rf.egress/profile` and so cannot be handed a named boundary. Apps, sinks and tools reach it through `project-egress`; the framework's own emit-time chokepoints call it directly at its `re-frame.elision` home. It takes a value and an opts map, walks the tree, and substitutes sentinels at slots the frame's classification (and the resolved profile) say to redact or elide:
 
 ```clojure
-(rf/elide-wire-value app-db-slice
+(re-frame.elision/elide-wire-value app-db-slice
   {:frame :app/main
    :path  [:auth]
    :rf.size/include-digests? true})
 ```
 
-It reads the per-frame registry by path: every classified leaf under a declared sensitive path becomes `:rf/redacted`; every classified leaf under a declared large path becomes the `:rf.size/large-elided` marker. The advanced override layer is the boolean flags under `:rf.size/*` (`:rf.size/include-sensitive?` / `:rf.size/include-large?` / `:rf.size/include-digests?`). `elide-wire-value` knows nothing about record shapes; it is the primitive `project-egress` delegates to, and sinks / tools should rarely call it directly.
+It reads the per-frame registry by path: every classified leaf under a declared sensitive path becomes `:rf/redacted`; every classified leaf under a declared large path becomes the `:rf.size/large-elided` marker. The advanced override layer is the boolean flags under `:rf.size/*` (`:rf.size/include-sensitive?` / `:rf.size/include-large?` / `:rf.size/include-digests?`). `elide-wire-value` knows nothing about record shapes; it is the primitive `project-egress` delegates to. Sinks and tools do not call it at all — `project-egress` with a named `:rf.egress/*` profile is the one door (the sample above is the framework's own internal call shape, shown so the delegation is legible).
 
 Its `opts` map is **closed**: `:frame`, `:path`, `:query-v`, `:as-of-epoch` and the four `:rf.size/*` overrides, and nothing else. A **`:rf.egress/profile` does not belong here** — a profile names a *boundary*, and `project-egress` is what resolves one (to exactly these `:rf.size/*` flags) before delegating down. Passing one to the walker raises `:rf.error/bad-egress-opts` naming the key, as does any other unrecognised key, including the unqualified `include-sensitive?` / `include-large?` spellings. Closing the map cannot widen egress — an unknown key was a silent no-op before it, and the silence was the defect.
 

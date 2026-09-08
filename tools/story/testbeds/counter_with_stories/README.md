@@ -77,10 +77,10 @@ README markets as a headline feature:
   testbed's `:rf/default` frame by the `:counter/classify-avatar-large`
   event (the EP-0025 commit-plane `:large` effect — durable app-db egress
   rides the effects, not a schema prop, not a frame annotation). Walking
-  app-db through `rf/elide-wire-value` substitutes the slot with a marker
+  app-db through `re-frame.elision/elide-wire-value` substitutes the slot with a marker
   map carrying `:reason :effect` (the commit-plane classification provenance).
 - **Walk app-db through elision** runs the live frame's app-db
-  through `rf/elide-wire-value` and logs the result. The
+  through `re-frame.elision/elide-wire-value` and logs the result. The
   `:user/avatar-pdf` slot shows up as the marker map; everything
   else passes through.
 

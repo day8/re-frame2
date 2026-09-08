@@ -212,7 +212,7 @@
         ;; names a BOUNDARY and belongs to `project-egress`, which resolves it
         ;; to the `:rf.size/*` opt-set below before delegating here. Spelt
         ;; directly, this IS what `:rf.egress/off-box-tool` resolves to.
-        (let [proj (rf/elide-wire-value inst {:frame :rf/default
+        (let [proj (rf.elision/elide-wire-value inst {:frame :rf/default
                                               :path [:rf.runtime/mutations k-id]
                                               :rf.size/include-digests? true})]
           (is (= rf.privacy/redacted-sentinel (get-in proj [:params :password]))

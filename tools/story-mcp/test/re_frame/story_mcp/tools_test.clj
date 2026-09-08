@@ -2518,7 +2518,7 @@
 ;;
 ;; Per spec/Tool-Pair.md §Direct-read privacy posture, every
 ;; pair-shaped tool that surfaces a live `:app-db` slice MUST route the
-;; value through `re-frame.core/elide-wire-value` before egress, with
+;; value through `re-frame.elision/elide-wire-value` before egress, with
 ;; off-box defaults (`:rf.size/include-sensitive?` and
 ;; `:rf.size/include-large?` both default false). The cross-MCP
 ;; `:include-sensitive` arg is the documented escape hatch.
@@ -2769,7 +2769,7 @@
         (let [frame-db (read-frame-db vid)
               bypass   ((requiring-resolve 're-frame.story-mcp.tools.egress/elide-app-db)
                         frame-db vid true)
-              walked   (rf/elide-wire-value frame-db
+              walked   (rf.elision/elide-wire-value frame-db
                                             {:frame                      vid
                                              :rf.size/include-sensitive? true
                                              :rf.size/include-large?     true})]

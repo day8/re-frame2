@@ -1487,10 +1487,9 @@
   ["re-frame.core" "projected-record"]           {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"
                                                  :action :keep
                                                  :justification "Facade re-export, optional artefact (Conventions Optional-artefact wrapper convention) -- but epoch is that convention's SILENT-DEGRADE exception, not its raising case. core_epoch.cljc gives this wrapper :on-absent :nil, so an absent day8/re-frame2-epoch artefact no-ops returning nil rather than raising; only the write surface replace-frame-state! raises :rf.error/epoch-artefact-missing (Tool-Pair Time-travel Artefact home; the 009 :rf.error/epoch-artefact-missing catalogue row; Conventions Adapter shipping convention Dependency direction). That degrade is only expressible from the ALWAYS-LOADED facade: moving the export to re-frame.epoch would turn a leftover dev-time call site into a hard require failure in a release build that omits the artefact, and would pull the artefact onto the production classpath against Conventions Bundle-isolation conformance. The surface is dev-tier, gated on interop/debug-enabled? and elided by Closure DCE under :advanced + goog.DEBUG=false (Tool-Pair Time-travel Production elision), so the facade row IS the optional-capability and release-DCE seam, not a convenience alias. The record projection of the same Tool-Pair epoch surface."}
-  ;; Size-elision / privacy wire surfaces — §009.
-  ["re-frame.core" "elide-wire-value"]                  {:tier :tooling  :owner "009" :status "v1"
-                                                        :action :keep
-                                                        :justification "API.md Tiering of cross-tool surfaces standing-classifies the trace and egress surfaces the pair-MCP servers consume -- naming elide-wire-value explicitly -- as tooling TIERED AT THEIR re-frame.core HOME ROW. That is a placement ruling already made against this exact name."}
+  ;; rf2-kuky.90 (ruling rf2-kuky.9 option A): the "elide-wire-value" facade
+  ;; re-export is RETIRED -- the path walker is a framework-internal mechanism
+  ;; behind the project-egress door, public only at its re-frame.elision home.
   ;; Record-level egress projection (EP-0015 §10/§11 — rf2-yjbr1w).
   ["re-frame.core" "project-egress"]                    {:tier :tooling  :owner "015" :status "v1"
                                                         :action :keep
@@ -1509,7 +1508,7 @@
                                                         :justification "The removal half of the observability sink registration, called by the same application code and so on the same door."}
   ["re-frame.core" "sensitive?"]                        {:tier :tooling  :owner "009" :status "v1"
                                                         :action :keep
-                                                        :justification "Named in the same API.md Tiering of cross-tool surfaces sentence as elide-wire-value and tiered at its re-frame.core home row by that standing classification. The re-frame.mcp-base.sensitive rows are a different surface (scrub-snapshot, sensitive-event?), not a door for this var."}
+                                                        :justification "Standing-classified by the API.md Tiering of cross-tool surfaces sentence and tiered at its re-frame.core home row. (That sentence also named elide-wire-value until rf2-kuky.90 retired that export; sensitive? is unaffected -- it IS a door, read by tools directly.) The re-frame.mcp-base.sensitive rows are a different surface (scrub-snapshot, sensitive-event?), not a door for this var."}
 
   ;; --- Individually-named extra-vars (generator `extra-vars`) ---
   ;; The two dev-gate Vars rowed in spec/API.md §Tracing whose home

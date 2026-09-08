@@ -1089,7 +1089,7 @@
 ;; One policy vocabulary, spelled the same way at every door. A RECOGNISED
 ;; policy key that the reading door does not read used to vanish without a
 ;; signal — `:rf.egress/profile` is resolved by `re-frame.projection`, never
-;; here, so `(rf/elide-wire-value v {:rf.egress/profile :rf.egress/off-box-tool})`
+;; here, so `(elide-wire-value v {:rf.egress/profile :rf.egress/off-box-tool})`
 ;; walked under the DEFAULT policy while reading as though it had named a
 ;; boundary. The map is closed instead: an unknown key is a loud
 ;; `:rf.error/bad-egress-opts`, which a closed map can only ever make SAFER
@@ -1234,7 +1234,7 @@
   ([v opts]
    ;; CLOSED opts (rf2-kuky.6) — FIRST, before the `:query-v` re-seed below
    ;; can synthesise a `:path`, so the keys graded are exactly the caller's.
-   (assert-egress-opts! 'rf/elide-wire-value walker-opt-keys opts)
+   (assert-egress-opts! 're-frame.elision/elide-wire-value walker-opt-keys opts)
    (let [;; rf2-mtzv5m — route-sub egress re-seeding. A direct-read off-box
          ;; surface (Pair MCP read-sub / list-subscriptions :include-values /
          ;; snapshot :sub-cache / Xray) walks a route read sub's BARE value but

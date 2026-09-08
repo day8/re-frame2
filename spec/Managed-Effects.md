@@ -55,7 +55,7 @@ Every issuance, intermediate transition, retry attempt, and terminal outcome emi
 
 ### 5. `:sensitive?` + `:large?` composition
 
-Every wire-bearing slot in a managed-effect trace passes through [`rf/elide-wire-value`](API.md#size-elision-wire-boundary-walker), the single shared walker that composes privacy elision (`:sensitive?` per [009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces)) and size elision (`:large?` per [009 §Size elision](009-Instrumentation.md#size-elision-in-traces)). Surfaces MUST NOT roll their own wire-boundary elision; the walker is the single point of truth. A slot carrying both `:sensitive? true` and `:large? true` redacts on sensitivity — the `:rf.size/large-elided` marker itself would leak `:path` / `:bytes` / `:digest` and is suppressed.
+Every wire-bearing slot in a managed-effect trace passes through [`re-frame.elision/elide-wire-value`](API.md#size-elision-wire-boundary-walker), the single shared walker that composes privacy elision (`:sensitive?` per [009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces)) and size elision (`:large?` per [009 §Size elision](009-Instrumentation.md#size-elision-in-traces)). Surfaces MUST NOT roll their own wire-boundary elision; the walker is the single point of truth. A slot carrying both `:sensitive? true` and `:large? true` redacts on sensitivity — the `:rf.size/large-elided` marker itself would leak `:path` / `:bytes` / `:digest` and is suppressed.
 
 ### 6. Built-in retry / abort / teardown semantics
 
@@ -231,7 +231,7 @@ Managed async replies are causal tokens ([EP-0010](../docs/EP/EP-0010-causal-wor
 
 ### Tracing
 
-Managed async families MUST emit trace rows from the reply-envelope facts, not from private callback facts: issuance/start (with `:work/id`, frame, owner/cause, target summary), retries/intermediate transitions, cancellation-requested (reason + whether a host handle existed), completion classified as one of the five statuses, stale suppression (carried/current correlation), and delivery-or-explicit-non-delivery. Every wire-bearing value (`:value`, `:error`, params, scopes, request bodies, route params) routes through the shared `rf/elide-wire-value` walker (property 5), never a family-private elider.
+Managed async families MUST emit trace rows from the reply-envelope facts, not from private callback facts: issuance/start (with `:work/id`, frame, owner/cause, target summary), retries/intermediate transitions, cancellation-requested (reason + whether a host handle existed), completion classified as one of the five statuses, stale suppression (carried/current correlation), and delivery-or-explicit-non-delivery. Every wire-bearing value (`:value`, `:error`, params, scopes, request bodies, route params) routes through the shared `re-frame.elision/elide-wire-value` walker (property 5), never a family-private elider.
 
 A reply summarized for a trace row **self-summarizes**: the egress frame whose classification governs the wire slots resolves from the reply's own carried `:rf.frame/id` stamp when the summary call supplies no explicit frame. A caller summarizing a carried reply outside frame scope therefore need not thread the identity back through opts — the carried stamp *is* the egress policy frame by default. An explicit frame still **wins** (a tool may reclassify under a different frame), and resolution still **fails closed**: if neither an explicit frame nor a carried `:rf.frame/id` names a live frame, the wire slots redact rather than ship under no policy (the same no-default-frame rule [Spec 015 §Direct reads and fail-closed frame resolution](015-Data-Classification.md#direct-reads-and-fail-closed-frame-resolution) pins — a frame stamp is policy-bearing only when it resolves to a live frame). This mirrors the record-level seed [Spec 015 §`project-egress`](015-Data-Classification.md#project-egress--the-record-level-boundary-primitive) applies, where a frame-bearing record seeds its egress frame from its own `:frame` slot.
 
@@ -288,7 +288,7 @@ A future surface — managed timers, managed IndexedDB transactions, managed bac
 2. Define a closed args-map shape with a registered schema in [Spec-Schemas](Spec-Schemas.md).
 3. Enumerate the failure taxonomy under `:rf.<surface>/*` in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue).
 4. Emit trace events at issuance, intermediate transitions (if any), retries, and terminal outcomes via the trace bus.
-5. Route every wire-bearing slot through `rf/elide-wire-value` at the trace-emit site.
+5. Route every wire-bearing slot through `re-frame.elision/elide-wire-value` at the trace-emit site.
 6. Ship retry / abort / teardown as data on the args map (not as caller code).
 7. Maintain a framework-private in-flight registry keyed by an addressable id; expose via the registrar query API.
 8. Honour the dispatching frame's `:fx-overrides`, `:interceptor-overrides`, and `:platforms` filters.
@@ -300,14 +300,14 @@ This inheritance claim — that a *brand-new* surface, one that did not co-evolv
 
 ## What this concept replaces
 
-Before naming this concept, each downstream Spec independently described its own slice of the shape. The risk was drift — two Specs answering "how do we elide a sensitive request body?" with subtly different mechanisms; a new Spec inventing a new failure-vocabulary scheme; each async family spelling its completion continuation differently. Naming the concept makes the contract a **single point of accretion**: future surfaces are graded against the same checklist, and the shared infrastructure (the trace bus, `rf/elide-wire-value`, the registrar's in-flight queries, the `:fx-overrides` seam, and the [uniform reply envelope](#the-uniform-reply-envelope)) is the single point of implementation for all of them.
+Before naming this concept, each downstream Spec independently described its own slice of the shape. The risk was drift — two Specs answering "how do we elide a sensitive request body?" with subtly different mechanisms; a new Spec inventing a new failure-vocabulary scheme; each async family spelling its completion continuation differently. Naming the concept makes the contract a **single point of accretion**: future surfaces are graded against the same checklist, and the shared infrastructure (the trace bus, `re-frame.elision/elide-wire-value`, the registrar's in-flight queries, the `:fx-overrides` seam, and the [uniform reply envelope](#the-uniform-reply-envelope)) is the single point of implementation for all of them.
 
 ## Cross-references
 
 - [Pattern-AsyncEffect](Pattern-AsyncEffect.md) — the underlying generic shape; managed effects specialise it with a fixed contract.
 - [009 §Error contract](009-Instrumentation.md#error-contract) — the structured-error shape every managed-effect failure conforms to.
-- [009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces) and [§Size elision](009-Instrumentation.md#size-elision-in-traces) — the single shared `rf/elide-wire-value` walker.
-- [API §`rf/elide-wire-value`](API.md#size-elision-wire-boundary-walker) — the wire-boundary walker public surface.
+- [009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces) and [§Size elision](009-Instrumentation.md#size-elision-in-traces) — the single shared `re-frame.elision/elide-wire-value` walker.
+- [API §Size-elision wire-boundary walker](API.md#size-elision-wire-boundary-walker) — the wire-boundary walker public surface.
 - [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) — the `:rf.<surface>/*` namespace policy new surfaces extend.
 - [Ownership](Ownership.md) — the contract-surface → owning-Spec map; consult before naming a new managed-effect surface.
 - [EP-0011](../docs/EP/EP-0011-uniform-async-reply-envelope.md) — the rationale record for property 9 / [the uniform reply envelope](#the-uniform-reply-envelope): why one envelope beats N effect-family callback vocabularies, the alternatives considered, and the cross-family motivation.

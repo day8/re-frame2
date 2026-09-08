@@ -149,7 +149,7 @@ Every listener body that walks a payload bounded by user input or by app-db size
                  :rf.size/include-sensitive? false
                  :rf.size/include-large?     false
                  :frame                      frame}
-        elided  (rf/elide-wire-value v opts)
+        elided  (re-frame.elision/elide-wire-value v opts)
         ;; Count :rf.size/large-elided markers and :rf/redacted sentinels in elided
         dropped (->> (tree-seq coll? seq elided)
                      (filter #(or (= :rf/redacted %)
@@ -291,7 +291,7 @@ This is the v2-canonical target for the **majority** of "observer (off-box egres
                         :rf.size/include-sensitive? false
                         :rf.size/include-large?     false
                         :frame                      frame}
-        elided         (rf/elide-wire-value floor-redacted opts)
+        elided         (re-frame.elision/elide-wire-value floor-redacted opts)
         dropped        (->> (tree-seq coll? seq elided)
                             (filter #(or (= :rf/redacted %)
                                          (and (map? %) (contains? % :rf.size/large-elided))))

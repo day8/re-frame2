@@ -13,6 +13,7 @@
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.elision :as rf.elision]
             [re-frame.frame :as rf.frame]
             [re-frame.privacy :as rf.privacy]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -40,7 +41,7 @@
     (rf/dispatch-sync [:auth/login])
     (is (= secret (get-in (rf.frame/frame-app-db-value :rf/default) [:auth :token]))
         "classification does not alter app-db")
-    (let [wire (rf/elide-wire-value (rf.frame/frame-app-db-value :rf/default))]
+    (let [wire (rf.elision/elide-wire-value (rf.frame/frame-app-db-value :rf/default))]
       (is (= rf.privacy/redacted-sentinel (get-in wire [:auth :token]))
           "the classified path projects :rf/redacted at egress")
       (is (not (contains-secret? wire))
@@ -57,7 +58,7 @@
                         (assoc-in [:ui :rendered-token] secret))
          :sensitive [[:auth :token]]}))
     (rf/dispatch-sync [:auth/login-and-copy])
-    (let [wire (rf/elide-wire-value (rf.frame/frame-app-db-value :rf/default))]
+    (let [wire (rf.elision/elide-wire-value (rf.frame/frame-app-db-value :rf/default))]
       (is (= rf.privacy/redacted-sentinel (get-in wire [:auth :token]))
           "the classified path is redacted")
       (is (= secret (get-in wire [:ui :rendered-token]))
@@ -72,7 +73,7 @@
       (fn [{:keys [db]} _]
         {:db (assoc-in db [:auth :token] secret)}))
     (rf/dispatch-sync [:auth/login-unclassified])
-    (let [wire (rf/elide-wire-value (rf.frame/frame-app-db-value :rf/default))]
+    (let [wire (rf.elision/elide-wire-value (rf.frame/frame-app-db-value :rf/default))]
       (is (= secret (get-in wire [:auth :token]))
           "the unclassified path ships raw — fail-open on omission")
       (is (contains-secret? wire)))))
