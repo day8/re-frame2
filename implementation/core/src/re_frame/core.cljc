@@ -587,7 +587,7 @@
        remote/external state. Per rf2-wvh95f F1 the canonical 3-slot grammar
        is `(reg-resource id metadata request-fn)`: the `:request` fetch fn is
        the third VALUE slot, and `metadata` carries the REQUIRED fail-closed
-       `:scope` policy (`:rf.scope/global` | resolver | `:rf.scope/from-caller`),
+       `:scope` policy (`:rf.scope/global` | `{:from-db <resource-scope-id>}`),
        `:params-schema`, and optional `:data-schema` / `:stale-after-ms` /
        `:gc-after-ms` / `:tags`. Captures source-coords (Spec 001) at this call
        site. Implementation ships in `day8/re-frame2-resources` (rf2-p10npe);

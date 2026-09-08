@@ -72,7 +72,14 @@
   (rf.routing/reset-counters!)
   (rf.resources.route/install-routing-integration!)
   (rf.fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
-  (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil)))
+  (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
+  ;; The caller-supplied cache scope, declared the canonical way (Spec 016
+  ;; §Every resource declares a scope policy): a NAMED RESOLVER over an app-db
+  ;; slot. This suite leaves the slot unwritten, so the reference resolves nil
+  ;; and a call that supplies no `:scope` of its own fails closed.
+  (rf/reg-resource-scope :t/caller-scope
+    {:inputs {:scope [:db [:t/scope]]}}
+    (fn [{:keys [scope]} _ctx] scope)))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
@@ -431,9 +438,9 @@
 ;; ===========================================================================
 
 (deftest params-planning-failure-surfaces-on-route-slice
-  ;; a :rf.scope/from-caller scope with no route resolver is a fail-closed
-  ;; planning error at route entry (no silent cache miss).
-  (rf/reg-resource :secret/doc (article-spec {:scope :rf.scope/from-caller}) article-spec-request)
+  ;; a {:from-db …} scope whose reference resolves nil, with no route resolver,
+  ;; is a fail-closed planning error at route entry (no silent cache miss).
+  (rf/reg-resource :secret/doc (article-spec {:scope {:from-db :t/caller-scope}}) article-spec-request)
   (rf/reg-route :route/secret
                 {:params    [:map [:slug :string]]
                  :resources [{:resource :secret/doc
@@ -583,7 +590,7 @@
 (deftest scope-resolved-from-ctx-uses-the-ctx-seam
   ;; The ctx seam is REAL: a :scope resolver reads (:current-session-scope ctx)
   ;; and the resolved scope is used as the cache scope (not a global fallback).
-  (rf/reg-resource :secret/doc (article-spec {:scope :rf.scope/from-caller}) article-spec-request)
+  (rf/reg-resource :secret/doc (article-spec {:scope {:from-db :t/caller-scope}}) article-spec-request)
   (let [plan (rf.resources.route/route-resource-plan
                {:id :route/secret :params {:slug "x"}
                 :resources [{:resource :secret/doc
@@ -602,7 +609,7 @@
 (deftest nil-ctx-fails-closed
   ;; A nil ctx (a routing↔resources seam bug) must throw — not silently
   ;; proceed with an empty ctx that a session-scope resolver would read as nil.
-  (rf/reg-resource :secret/doc (article-spec {:scope :rf.scope/from-caller}) article-spec-request)
+  (rf/reg-resource :secret/doc (article-spec {:scope {:from-db :t/caller-scope}}) article-spec-request)
   (testing "route-resource-plan throws on a nil ctx"
     (is (thrown? #?(:clj Throwable :cljs :default)
                  (rf.resources.route/route-resource-plan
@@ -667,7 +674,7 @@
 (deftest nil-scope-resolver-is-a-planning-error
   ;; A PRESENT :scope resolver returning nil must NOT silently fall through to
   ;; the spec policy / a global read — the scope is the leak boundary.
-  (rf/reg-resource :secret/doc (article-spec {:scope :rf.scope/from-caller}) article-spec-request)
+  (rf/reg-resource :secret/doc (article-spec {:scope {:from-db :t/caller-scope}}) article-spec-request)
   (rf/reg-route :route/secret
                 {:params    [:map [:slug :string]]
                  :resources [{:resource :secret/doc

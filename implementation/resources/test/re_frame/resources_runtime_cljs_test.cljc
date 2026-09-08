@@ -55,7 +55,6 @@
    [re-frame.http.managed]
    [re-frame.schemas]
    [re-frame.test-support :as rf.test-support]
-   [re-frame.trace.tooling :as rf.trace.tooling]
    #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
        :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
@@ -77,6 +76,13 @@
   ;; fx handlers are BINARY `(fn [ctx args] …)` (Spec 002 §binary
   ;; fx-handler signature) — capture the args (second arg).
   (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  ;; The caller-supplied cache scope, declared the canonical way (Spec 016
+  ;; §Every resource declares a scope policy): a NAMED RESOLVER over an app-db
+  ;; slot. This suite leaves the slot unwritten, so the reference resolves nil
+  ;; and a call that supplies no `:scope` of its own fails closed.
+  (rf/reg-resource-scope :t/caller-scope
+    {:inputs {:scope [:db [:t/scope]]}}
+    (fn [{:keys [scope]} _ctx] scope))
   (f))
 
 (use-fixtures :each
@@ -487,18 +493,19 @@
 ;; ===========================================================================
 
 (deftest scope-resolution-fail-closed
-  (rf/reg-resource :sr/from-caller (article-spec {:scope :rf.scope/from-caller}) article-spec-request)
-  (testing "from-caller with no payload scope is a loud use-time error
-            (Spec 016 §Scope resolution — no global fallthrough)"
+  (rf/reg-resource :sr/derived (article-spec {:scope {:from-db :t/caller-scope}}) article-spec-request)
+  (testing "a {:from-db …} policy whose reference resolves nil, with no payload
+            scope, is a loud use-time error (Spec 016 §Every resource declares
+            a scope policy — no global fallthrough)"
     (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"resource-scope-required-from-caller"
+          #?(:clj Throwable :cljs js/Error) #"resource-scope-unresolved-reference"
           (rf.resources.registry/resolve-scope-for-event
-            :sr/from-caller (rf.resources.registry/resource-meta :sr/from-caller)
-            {:payload-scope nil} 'test))))
-  (testing "from-caller WITH a payload scope resolves to that scope"
+            :sr/derived (rf.resources.registry/resource-meta :sr/derived)
+            {:payload-scope nil :db {}} 'test))))
+  (testing "a payload :scope OVERRIDES the spec policy and resolves to itself"
     (is (= {:user "u-1"}
            (rf.resources.registry/resolve-scope-for-event
-             :sr/from-caller (rf.resources.registry/resource-meta :sr/from-caller)
+             :sr/derived (rf.resources.registry/resource-meta :sr/derived)
              {:payload-scope {:user "u-1"}} 'test))))
   (testing "an explicit :rf.scope/global policy resolves to global (its
             declared policy, not a fallthrough)"
@@ -508,13 +515,13 @@
              :sr/global (rf.resources.registry/resource-meta :sr/global) {} 'test)))))
 
 (deftest sub-side-scope-fail-closed
-  (rf/reg-resource :ss/from-caller (article-spec {:scope :rf.scope/from-caller}) article-spec-request)
+  (rf/reg-resource :ss/derived (article-spec {:scope {:from-db :t/caller-scope}}) article-spec-request)
   (testing "a sub that cannot resolve a scope raises
             :rf.error/resource-sub-unresolved-scope (never a silent global
             read / :idle) — Spec 016 §Subscription-side scope resolution"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-sub-unresolved-scope"
-          (rf.resources.subs/resolve-scoped-key {:resource :ss/from-caller :params {:slug "x"}} {})))))
+          (rf.resources.subs/resolve-scoped-key {:resource :ss/derived :params {:slug "x"}} {})))))
 
 ;; ===========================================================================
 ;; 2b. The registration guard on the READ path (rf2-w67y)
@@ -973,7 +980,7 @@
       (is (nil? (get-in (runtime-db) (conj (rf.resources.state/owner-index-path) [:app :ro 1])))))))
 
 (deftest clear-scope-removes-scoped-entries
-  (rf/reg-resource :cs/article (article-spec {:scope :rf.scope/from-caller}) article-spec-request)
+  (rf/reg-resource :cs/article (article-spec {:scope {:from-db :t/caller-scope}}) article-spec-request)
   (let [scope-a {:user "a"}
         scope-b {:user "b"}
         ka (rf.resources.state/scoped-resource-key scope-a :cs/article {:slug "w"})
@@ -1152,7 +1159,7 @@
 ;; ===========================================================================
 
 (deftest reserved-scope-typo-rejected-at-concrete-boundaries
-  (rf/reg-resource :tp/article (article-spec {:scope :rf.scope/from-caller}) article-spec-request)
+  (rf/reg-resource :tp/article (article-spec {:scope {:from-db :t/caller-scope}}) article-spec-request)
   (let [spec (rf.resources.registry/resource-meta :tp/article)]
     (testing "rf2-pd7akw — a misspelled reserved :rf.scope/* keyword on an
               EVENT payload is rejected fail-closed (never a silent wrong
@@ -1167,12 +1174,6 @@
             #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
             (rf.resources.registry/resolve-scope-for-sub
               :tp/article spec :rf.scope/sesssion 'test {}))))
-    (testing "rf2-pd7akw — :rf.scope/from-caller reaching a CONCRETE boundary
-              as a payload value (not a policy) is a typo-class rejection"
-      (is (thrown-with-msg?
-            #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
-            (rf.resources.registry/resolve-scope-for-event
-              :tp/article spec {:payload-scope :rf.scope/from-caller} 'test))))
     (testing "an APP-namespaced keyword scope is a legitimate literal scope
               (only the framework-reserved namespace is fail-closed)"
       (is (= :my.app/tenant
@@ -1503,124 +1504,3 @@
           "stale/GC timer table cleared (timer cancelled)")
       (is (not (contains? @rf.resources.revalidate-listeners/listener-table :rf/default))
           "revalidation-listener side table cleared"))))
-
-;; ===========================================================================
-;; 20. Sub-side dev-warning for a session-scope subscription mismatch
-;;     (rf2-rsmiru) — the read-side complement of the Xray write-side
-;;     scope-mismatch lint. A `:rf.scope/from-caller` resource subscribed at
-;;     a scope with ZERO active owners while a DIFFERENT scope for the SAME
-;;     resource IS active is the silent-permanent-skeleton footgun; dev-mode
-;;     warns. DEV-only + production-elided (Closure DCE on debug-enabled?).
-;; ===========================================================================
-
-(defn- record-scope-mismatch-warnings!
-  "Run `body-fn` with a trace listener installed; return the vector of every
-  `:rf.warning/resource-sub-scope-mismatch` event emitted during it (in
-  capture order). The listener is unregistered in a `finally`."
-  [body-fn]
-  (let [seen (atom [])
-        k    ::scope-mismatch-recorder]
-    (rf.trace.tooling/register-listener!
-      k (fn [ev]
-          (when (= :rf.warning/resource-sub-scope-mismatch (:operation ev))
-            (swap! seen conj ev))))
-    (try (body-fn)
-         (finally (rf.trace.tooling/unregister-listener! k)))
-    @seen))
-
-(defn- load-under!
-  "Ensure + settle a `:sm/article` resource under `scope` with an active
-  owner so its entry is :loaded and ACTIVE (≥1 active owner)."
-  [scope owner]
-  (let [k (rf.resources.state/scoped-resource-key scope :sm/article {:slug "w"})]
-    (rf/dispatch-sync [:rf.resource/ensure {:resource :sm/article :scope scope
-                                            :params {:slug "w"} :owner owner}])
-    (let [wid (:current-work (entry k))]
-      (rf/dispatch-sync [:rf.resource.internal/succeeded
-                         {:resource/key k :work/id wid :generation 1
-                          :data {:title "W"}}]))
-    k))
-
-(deftest scope-mismatch-warning-fires-on-genuine-mismatch
-  (rf/reg-resource :sm/article (article-spec {:scope :rf.scope/from-caller}) article-spec-request)
-  (testing "rf2-rsmiru — a from-caller sub at a scope with ZERO active owners,
-            while a DIFFERENT scope for the same resource IS active, emits the
-            dev-only :rf.warning/resource-sub-scope-mismatch warning"
-    ;; scope A is ensured + active (a real route owner); the view mistakenly
-    ;; subscribes under scope B (no owner ever attached) — the footgun.
-    (load-under! {:user "a"} [:route :r 1])
-    (let [warns (record-scope-mismatch-warnings!
-                  (fn []
-                    (rf.resources.subs/state-sub-fn (runtime-db)
-                                       [:rf/resource
-                                        {:resource :sm/article :scope {:user "b"}
-                                         :params {:slug "w"}}])))]
-      (is (= 1 (count warns)) "exactly one warning fired")
-      (let [w (first warns)]
-        (is (= :rf.warning/resource-sub-scope-mismatch (:operation w)))
-        (is (= :sm/article  (-> w :tags :resource-id)))
-        (is (= {:user "b"}  (-> w :tags :sub-scope)) "the mismatched sub scope")
-        (is (= {:user "a"}  (-> w :tags :active-scope)) "the active scope it likely meant"))))
-  (testing "rf2-rsmiru — the warning is ONE-SHOT (a reactively re-running sub
-            warns once per genuine mismatch, never floods)"
-    (let [warns (record-scope-mismatch-warnings!
-                  (fn []
-                    (dotimes [_ 5]
-                      (rf.resources.subs/state-sub-fn (runtime-db)
-                                         [:rf/resource
-                                          {:resource :sm/article :scope {:user "b"}
-                                           :params {:slug "w"}}]))))]
-      (is (zero? (count warns)) "already-warned mismatch is not re-emitted")))
-  (testing "rf2-rsmiru — the sub STILL reads the documented :idle empty-state
-            projection (fail-closed is preserved; the warning is advisory)"
-    (is (= :idle (:status (rf.resources.subs/state-sub-fn (runtime-db)
-                                             [:rf/resource
-                                              {:resource :sm/article :scope {:user "b"}
-                                               :params {:slug "w"}}]))))))
-
-(deftest scope-mismatch-warning-does-not-fire-when-scopes-match
-  (rf/reg-resource :sm/article (article-spec {:scope :rf.scope/from-caller}) article-spec-request)
-  (testing "rf2-rsmiru — NO warning when the sub scope MATCHES the active
-            ensure scope (the correct, ergonomic case)"
-    (load-under! {:user "a"} [:route :r 1])
-    (let [warns (record-scope-mismatch-warnings!
-                  (fn []
-                    (rf.resources.subs/state-sub-fn (runtime-db)
-                                       [:rf/resource
-                                        {:resource :sm/article :scope {:user "a"}
-                                         :params {:slug "w"}}])))]
-      (is (zero? (count warns)) "matching scope reads the live entry — no warning")))
-  (testing "rf2-rsmiru — NO warning when only a SINGLE scope is active and the
-            sub reads it (a bare un-ensured resource is not a mismatch)"
-    ;; release the only owner so NO scope is active for the resource …
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:route :r 1]}])
-    (let [warns (record-scope-mismatch-warnings!
-                  (fn []
-                    ;; a sub under a never-ensured scope C: no DIFFERENT scope
-                    ;; is active, so this is an un-ensured resource (the empty
-                    ;; :idle projection), not a likely mismatch.
-                    (rf.resources.subs/state-sub-fn (runtime-db)
-                                       [:rf/resource
-                                        {:resource :sm/article :scope {:user "c"}
-                                         :params {:slug "w"}}])))]
-      (is (zero? (count warns))
-          "no OTHER active scope → not a mismatch (just an un-ensured read)"))))
-
-(deftest scope-mismatch-warning-does-not-fire-for-non-from-caller-policies
-  (testing "rf2-rsmiru — a :rf.scope/global resource never trips the heuristic
-            (global resolves the SAME scope sub-side and ensure-side, so a sub
-            cannot land on a different key than the ensure did)"
-    (rf/reg-resource :smg/article (article-spec) article-spec-request) ; :rf.scope/global
-    (let [k (rf.resources.state/scoped-resource-key :rf.scope/global :smg/article {:slug "w"})]
-      (rf/dispatch-sync [:rf.resource/ensure {:resource :smg/article :scope :rf.scope/global
-                                              :params {:slug "w"} :owner [:route :g 1]}])
-      (let [wid (:current-work (entry k))]
-        (rf/dispatch-sync [:rf.resource.internal/succeeded
-                           {:resource/key k :work/id wid :generation 1 :data {:title "W"}}])))
-    (let [warns (record-scope-mismatch-warnings!
-                  (fn []
-                    (rf.resources.subs/state-sub-fn (runtime-db)
-                                       [:rf/resource
-                                        {:resource :smg/article :scope :rf.scope/global
-                                         :params {:slug "w"}}])))]
-      (is (zero? (count warns)) "global-scope resources are out of scope for the heuristic"))))

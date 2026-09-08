@@ -912,8 +912,7 @@
    firing on every keystroke) emits the write-side scope-mismatch dev warning
    ONCE per genuine mismatch rather than flooding the trace. Host-side transient
    dev state (NOT runtime-db); cleared per-test by the resources reset hook
-   (`re-frame.resources.test-support`). Mirrors the sub-side
-   `re-frame.resources.subs/warned-scope-mismatch`."}
+   (`re-frame.resources.test-support`)."}
   warned-mutation-scope-mismatch
   (atom #{}))
 
@@ -921,8 +920,8 @@
   "Drop every recorded write-side scope-mismatch warning dedupe key (test
   isolation). Published through the resources reset hook so the shared CLJS
   reset-runtime fixture clears it per test — it is host-side transient dev
-  state, not runtime-db, so the runtime/frames reset does not touch it. Mirrors
-  `re-frame.resources.subs/reset-scope-mismatch-warnings!`. Returns nil."
+  state, not runtime-db, so the runtime/frames reset does not touch it.
+  Returns nil."
   []
   (reset! warned-mutation-scope-mismatch #{})
   nil)
@@ -1013,8 +1012,7 @@
   "Emit the dev-only write-side likely-scope-mismatch warning
   (`:rf.warning/mutation-scope-mismatch`, rf2-byl7bk.4) for each dispatched
   invalidation descriptor whose resolved scope matched NO cache entry while the
-  SAME tags DO match an entry in a DIFFERENT scope — the write-side complement
-  of the read-side `:rf.warning/resource-sub-scope-mismatch`, and the runtime
+  SAME tags DO match an entry in a DIFFERENT scope — the runtime
   tripwire for the mutation-scope footgun (Spec 016 §Mutation scope is two
   distinct scopes — Scope-match guidance).
 
@@ -1923,8 +1921,7 @@
         ;; DEV-ONLY write-side scope-mismatch tripwire (rf2-byl7bk.4) — for each
         ;; dispatched descriptor that matched NO entry in its resolved scope while
         ;; the same tags DO match an entry in a DIFFERENT scope, emit the loud
-        ;; `:rf.warning/mutation-scope-mismatch` diagnostic (the write-side
-        ;; complement of the sub-side `:rf.warning/resource-sub-scope-mismatch`).
+        ;; `:rf.warning/mutation-scope-mismatch` diagnostic.
         ;; Computed against `rdb3` (the post-cache-consequence settle-time
         ;; entries the dispatched invalidate-tags will themselves see).
         (maybe-warn-scope-mismatch!

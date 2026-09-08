@@ -183,21 +183,14 @@
   `[:scope <policy>]` input naming the registered scope policy.
 
   The DON'T-EXECUTE rule (Derivations §The don't-execute rule): static
-  inspection NEVER runs a scope/param resolver. A `{:from-db <id>}` named
-  resolver scope is reported as the reference shape (`[:scope {:from-db <id>}]`)
-  — a genuinely STATIC fact (the resolver id + its declared inputs surface
-  via `scope-resolver` enrichment) — while the params stay generic. A fn
-  resolver scope (an inline `(route, ctx)` / fn-of-nothing) is reported as
-  `[:scope :rf.scope/resolver]` (an opaque marker — the fn is never run);
-  an explicit `:rf.scope/global` / `:rf.scope/from-caller` / literal
-  data-value scope is reported verbatim."
+  inspection NEVER runs a scope/param resolver. Both policy shapes are
+  reported VERBATIM — an explicit `:rf.scope/global` claim, and a
+  `{:from-db <id>}` named-resolver reference (a genuinely STATIC fact: the
+  resolver id + its declared inputs surface via `scope-resolver`
+  enrichment) — while the params stay generic."
   [spec]
-  (let [scope (:scope spec)]
-    [[:param :rf.params]
-     [:scope (cond
-               (rf.resources.scope-registry/from-db-reference? scope) scope        ;; {:from-db <id>} — static reference
-               (fn? scope)                                :rf.scope/resolver
-               :else                                      scope)]]))
+  [[:param :rf.params]
+   [:scope (:scope spec)]])
 
 (defn- scope-resolver-enrichment
   "Named-resolver enrichment (Derivations §Named-resolver enrichment,
@@ -299,10 +292,10 @@
   - `:source-form` — `{:kind :reg-resource :id <resource-id>}`.
   - `:inputs`      — the declared inputs (Derivations §Declared input): the
                      params (`[:param :rf.params]`) and the scope policy
-                     (`[:scope <policy>]` — a `{:from-db <id>}` reference
-                     verbatim, `:rf.scope/resolver` for an inline fn (never
-                     run — the don't-execute rule), or an explicit / literal
-                     scope verbatim).
+                     (`[:scope <policy>]` — an explicit `:rf.scope/global`
+                     claim or a `{:from-db <id>}` reference, each verbatim;
+                     the reference is never resolved — the don't-execute
+                     rule).
   - `:scope-resolver` — present only for a `{:from-db <id>}` scope: the
                      resolver id + its declared `[:db <rf-path>]` inputs
                      (the named-resolver enrichment — static facts because

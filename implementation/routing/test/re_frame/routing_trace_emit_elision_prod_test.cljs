@@ -56,8 +56,7 @@
 ;; `:schema` check is ALWAYS-ON (it validates durable causal-token state in
 ;; prod as well as dev — Spec 009 `:rf.error/cofx-value-invalid` row) and
 ;; routes through the registered `set-schema-fns!` seam. Under the
-;; SHARED `:browser-test-prod-elision` bundle a SIBLING suite
-;; (`resources-scope-mismatch-elision-prod-test`) loads `re-frame.schemas`,
+;; SHARED `:browser-test-prod-elision` bundle `re-frame.schemas` is loaded,
 ;; installing the default Malli validator — but Malli's validation BODY is
 ;; production-elided (Closure DCE under `goog.DEBUG=false`, Spec 010
 ;; §Production builds: "the validator fn must be production-elidable"), so a
@@ -65,8 +64,7 @@
 ;; prod bundle. Disable the schema validator for this suite (a nil validator
 ;; is a documented no-op for the recordable check) so the generator runs and
 ;; the trace-elision contract under test is exercised cleanly. Snapshot +
-;; restore so the suite leaves no cross-test residue — identical to the
-;; resources prod-elision fixture (rf2-rsmiru).
+;; restore so the suite leaves no cross-test residue.
 (defn- disable-schema-validation-fixture [f]
   (let [snapshot (rf.schemas/schema-fns)]
     (rf.schemas/set-schema-fns! {:validate nil})

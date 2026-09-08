@@ -70,6 +70,13 @@
   ;; token the lower registered or it would miss the request (or, across
   ;; frames, resolve a sibling frame's colliding request).
   (rf.fx/reg-fx :rf.http/managed-abort (fn [_ctx request-id] (swap! aborts conj request-id) nil))
+  ;; The caller-supplied cache scope, declared the canonical way (Spec 016
+  ;; §Every resource declares a scope policy): a NAMED RESOLVER over an app-db
+  ;; slot. This suite leaves the slot unwritten, so the reference resolves nil
+  ;; and a call that supplies no `:scope` of its own fails closed.
+  (rf/reg-resource-scope :t/caller-scope
+    {:inputs {:scope [:db [:t/scope]]}}
+    (fn [{:keys [scope]} _ctx] scope))
   (f))
 
 (use-fixtures :each
@@ -477,7 +484,7 @@
 ;; ===========================================================================
 
 (deftest clear-scope-cancels-in-flight-rows
-  (rf/reg-resource :cs/article (article-spec {:scope :rf.scope/from-caller}) article-spec-request)
+  (rf/reg-resource :cs/article (article-spec {:scope {:from-db :t/caller-scope}}) article-spec-request)
   (let [scope-a {:user "a"}
         ka (rf.resources.state/scoped-resource-key scope-a :cs/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :cs/article :scope scope-a
@@ -511,7 +518,7 @@
   ;; framework-authority-meta (no :rf/time-ms cofx) so the row had NO
   ;; :completed-at — an epoch / tooling correlation gap for logout / tenant
   ;; switch cancellations.
-  (rf/reg-resource :cst/article (article-spec {:scope :rf.scope/from-caller}) article-spec-request)
+  (rf/reg-resource :cst/article (article-spec {:scope {:from-db :t/caller-scope}}) article-spec-request)
   (let [scope-a      {:user "a"}
         ka           (rf.resources.state/scoped-resource-key scope-a :cst/article {:slug "w"})
         completed-at 1781649764222]

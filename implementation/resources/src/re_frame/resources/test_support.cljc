@@ -69,19 +69,14 @@
   ;; likewise host-side transient state; detaches any installed window
   ;; listeners so a leftover listener cannot dispatch into a later test's frame.
   (rf.resources.revalidate-listeners/reset-cache!)
-  ;; Clear the host-side scope-mismatch dev-warning dedupe set;
-  ;; host-side transient dev state; clearing it lets each test observe the
-  ;; one-shot warning freshly without a prior test's emission masking it.
-  (rf.resources.subs/reset-scope-mismatch-warnings!)
   ;; Clear the framework-owned `:rf.resource/items` merge memo;
   ;; host-side transient derivation cache (the infinite-feed merged-list
   ;; projection), not runtime-db; cleared so a prior test's feed merge cannot
   ;; be served for a later test's `=`-equal page vector.
   (rf.resources.subs/reset-merge-memo!)
   ;; and the host-side WRITE-side scope-mismatch dev-warning dedupe set
-  ;; (rf2-byl7bk.4) — the mutation-settlement complement of the sub-side
-  ;; warning; likewise host-side transient dev state, cleared so each test
-  ;; observes the one-shot `:rf.warning/mutation-scope-mismatch` freshly.
+  ;; (rf2-byl7bk.4); likewise host-side transient dev state, cleared so each
+  ;; test observes the one-shot `:rf.warning/mutation-scope-mismatch` freshly.
   (rf.resources.mutation-events/reset-mutation-scope-mismatch-warnings!)
   ;; and the host-side settle-time SKIPPED-TARGET dev-warning dedupe set
   ;; (rf2-1vpbld) — the dedicated drop-and-warn tripwire for recoverable

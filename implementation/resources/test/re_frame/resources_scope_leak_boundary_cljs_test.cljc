@@ -33,9 +33,8 @@
        A's stale-cached data (the cross-user leak test).
     2. WRONG-but-valid scope — a sub that resolves a DIFFERENT valid scope than
        the owning ensure reads ITS OWN (empty) entry, never a silent shared
-       read of the other principal's data; under `:rf.scope/from-caller` the
-       mismatch is additionally DIAGNOSABLE (a dev `:rf.warning/resource-sub-
-       scope-mismatch`), and a nil-resolving reference FAILS CLOSED loudly.
+       read of the other principal's data, and a nil-resolving reference FAILS
+       CLOSED loudly.
     3. MIXED-scope invalidation — a clear-scope / scoped invalidation reaches
        EXACTLY the resolved scope's entries and no other principal's, so an
        invalidation can never cross the principal boundary without the
@@ -59,7 +58,6 @@
    [re-frame.schemas]
    [re-frame.http.managed]
    [re-frame.registrar :as rf.registrar]
-   [re-frame.trace.tooling :as rf.trace.tooling]
    [re-frame.test-support :as rf.test-support]
    #?(:clj  [re-frame.substrate.plain-atom :as substrate]
       :cljs [re-frame.adapter.reagent :as substrate])))
@@ -217,13 +215,13 @@
       (is (some? (entry (tenant-key "acme" 1)))
           "acme's entry is untouched — the wrong-scope read did not address it"))))
 
-(deftest from-caller-wrong-scope-is-diagnosable-not-silent
-  ;; The from-caller footgun: a route/event ensures under scope A; a view
-  ;; subscribes under a DIFFERENT scope. The sub reads :idle forever — correct
-  ;; (fail-closed: never a wrong-principal read) but, under :rf.scope/from-
-  ;; caller, additionally diagnosable via the dev scope-mismatch warning.
+(deftest wrong-scope-override-reads-its-own-empty-entry
+  ;; A route/event ensures under scope A; a view subscribes with an explicit
+  ;; `:scope` OVERRIDE naming a DIFFERENT scope. The sub reads its own (empty)
+  ;; entry — :idle forever, which is correct: fail-closed, never a
+  ;; wrong-principal read.
   (rf/reg-resource :t/notes
-    {:scope         :rf.scope/from-caller
+    {:scope         {:from-db :t/tenant}
      :params-schema [:map]}
     (fn [_p _ctx] {:request {:method :get :url "/notes"}}))
   ;; ensure + load acme's notes under acme's explicit scope (an ACTIVE owner)
@@ -236,33 +234,17 @@
     (rf/dispatch-sync [:rf.resource.internal/succeeded
                        {:resource/key ka :work/id (:current-work e)
                         :generation (:generation e) :data {:secret "acme-notes"}}]))
-  (testing "a from-caller sub at a DIFFERENT (wrong) scope than the active
-            ensure reads :idle (fail-closed) AND emits the dev-only
-            :rf.warning/resource-sub-scope-mismatch diagnostic — the silent
-            permanent-skeleton footgun is surfaced, never a wrong-principal read"
-    (let [seen (atom [])
-          k    ::mismatch-recorder
-          wrong-q {:resource :t/notes :params {}
-                   :scope [:rf.scope/tenant {:tenant-id "globex"}]}]
-      (rf.resources.subs/reset-scope-mismatch-warnings!)
-      (rf.trace.tooling/register-listener!
-        k (fn [ev] (when (= :rf.warning/resource-sub-scope-mismatch (:operation ev))
-                     (swap! seen conj ev))))
-      (try
-        (let [st (rf/subscribe [:rf/resource wrong-q])]
-          (is (= :idle (:status @st)) "wrong-scope read is idle (fail-closed)")
-          (is (nil? (:data @st)) "never acme's notes"))
-        (finally (rf.trace.tooling/unregister-listener! k)))
-      ;; the dev build fires the mismatch warning; production elides it. We
-      ;; assert it fired when present, and that the read was fail-closed
-      ;; regardless (the security property does not depend on the warning).
-      (when (seq @seen)
-        (let [w (first @seen)]
-          (is (= :rf.warning/resource-sub-scope-mismatch (:operation w)))
-          (is (= [:rf.scope/tenant {:tenant-id "globex"}] (:sub-scope (:tags w)))
-              "names the wrong subscribed scope")
-          (is (= [:rf.scope/tenant {:tenant-id "acme"}] (:active-scope (:tags w)))
-              "names the active scope the ensure used"))))))
+  (testing "a sub whose explicit :scope override names a DIFFERENT scope than
+            the active ensure reads :idle (fail-closed) — never a
+            wrong-principal read"
+    (let [wrong-q {:resource :t/notes :params {}
+                   :scope [:rf.scope/tenant {:tenant-id "globex"}]}
+          st      (rf/subscribe [:rf/resource wrong-q])]
+      (is (= :idle (:status @st)) "wrong-scope read is idle (fail-closed)")
+      (is (nil? (:data @st)) "never acme's notes")))
+  (testing "acme's own entry is untouched by the wrong-scope read"
+    (is (some? (entry (rf.resources.state/scoped-resource-key
+                        [:rf.scope/tenant {:tenant-id "acme"}] :t/notes {}))))))
 
 (deftest nil-resolving-sub-scope-fails-closed-loudly
   ;; A {:from-db} sub whose resolver yields nil (no logged-in viewer) raises

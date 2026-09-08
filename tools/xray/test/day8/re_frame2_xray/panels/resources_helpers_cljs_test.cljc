@@ -75,7 +75,7 @@
                   :request       (fn [_ _] {})}}
    :dashboard/summary
    {:rf/resource {:params-schema [:map [:user-id :string]]
-                  :scope         :rf.scope/from-caller
+                  :scope         {:from-db :app/session}
                   :request       (fn [_ _] {})}}})
 
 (def ^:private routes-map
@@ -238,7 +238,8 @@
             dash    (first (filter #(= :dashboard/summary (:resource-id %)) rows))]
         (is (= :global (get-in article [:scope :policy])))
         (is (get-in article [:scope :global?]))
-        (is (= :from-caller (get-in dash [:scope :policy])))
+        (is (= :resolver (get-in dash [:scope :policy])))
+        (is (= "named resolver :app/session" (get-in dash [:scope :label])))
         (is (not (get-in dash [:scope :global?])))))
     (testing "schemas summarized (never raw), policy/timestamps surfaced"
       (let [article (first (filter #(= :article/by-slug (:resource-id %)) rows))]

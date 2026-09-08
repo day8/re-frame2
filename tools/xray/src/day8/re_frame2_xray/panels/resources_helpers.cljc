@@ -379,16 +379,19 @@
 
 (defn- describe-scope-policy
   "A human description of a resource's `:scope` POLICY (not a resolved
-  scope value — the registry carries the policy). `:rf.scope/global` is
-  the audit-surface flag (Spec 016 §scope audit surface)."
+  scope value — the registry carries the policy). A policy is EXACTLY one
+  of two shapes (Spec 016 §Every resource declares a scope policy):
+  `:rf.scope/global` — the audit-surface flag (Spec 016 §scope audit
+  surface) — or a `{:from-db <id>}` NAMED RESOLVER reference, labelled by
+  the resolver id it names. Anything else never survives registration, so
+  it reads as MISSING here."
   [scope]
   (cond
-    (= scope :rf.scope/global)      {:policy :global      :label "global (explicit claim)" :global? true}
-    (= scope :rf.scope/from-caller) {:policy :from-caller :label "from caller"             :global? false}
-    (fn? scope)                     {:policy :resolver    :label "resolver (fn)"           :global? false}
-    (keyword? scope)                {:policy :resolver    :label (str "resolver " scope)   :global? false}
-    (some? scope)                   {:policy :resolver    :label "resolver (data)"         :global? false}
-    :else                           {:policy :missing     :label "MISSING"                 :global? false}))
+    (= scope :rf.scope/global) {:policy :global   :label "global (explicit claim)" :global? true}
+    (and (map? scope)
+         (contains? scope :from-db))
+    {:policy :resolver :label (str "named resolver " (:from-db scope)) :global? false}
+    :else                      {:policy :missing  :label "MISSING"                 :global? false}))
 
 (defn- request-summary
   "A one-line, render-safe summary of a resource's `:request` (a fn that

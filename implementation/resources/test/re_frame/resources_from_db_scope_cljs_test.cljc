@@ -134,9 +134,10 @@
 
 (deftest event-ensure-from-db-payload-reference
   (rf/dispatch-sync [:t/login "abel"])
-  ;; a from-caller resource read with an explicit {:from-db …} PAYLOAD scope
+  ;; a GLOBAL-policy resource read with an explicit {:from-db …} PAYLOAD scope
+  ;; — the payload reference OVERRIDES the declared policy (tier 1)
   (rf/reg-resource :t/notes
-    {:scope         :rf.scope/from-caller
+    {:scope         :rf.scope/global
      :params-schema [:map]}
     (fn [_p _ctx] {:request {:method :get :url "/notes"}}))
   (testing "a {:from-db …} payload :scope resolves against app-db at use time"
@@ -362,7 +363,7 @@
   ;; absent (no logged-in user), the row carries :resolved-nil? true + a nil
   ;; :scope (the use site interprets it — never an implicit global).
   (rf/reg-resource :t/notes
-    {:scope         :rf.scope/from-caller
+    {:scope         :rf.scope/global
      :params-schema [:map]}
     (fn [_p _ctx] {:request {:method :get :url "/notes"}}))
   (let [rows (record-scope-resolved!

@@ -53,6 +53,14 @@
 (defn- capturing-fixture [f]
   (rf.fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
   (rf.fx/reg-fx :rf.http/managed-abort (fn [_ctx _work-id] nil))
+  ;; The caller-supplied cache scope, declared the canonical way (Spec 016
+  ;; §Every resource declares a scope policy): a NAMED RESOLVER over an app-db
+  ;; slot. This suite's ensures pass an explicit `:scope` override, so the slot
+  ;; stays unwritten and a bare ensure fails closed — the "the caller must say"
+  ;; property the fixture wants, with no policy tier of its own.
+  (rf/reg-resource-scope :t/caller-scope
+    {:inputs {:scope [:db [:t/scope]]}}
+    (fn [{:keys [scope]} _ctx] scope))
   (f))
 
 (use-fixtures :each
@@ -73,7 +81,7 @@
 (defn- armed? [scoped-key kind] (contains? @rf.resources.timers/timer-table (tkey scoped-key kind)))
 
 (defn- article-spec [overrides]
-  (merge {:scope         :rf.scope/from-caller
+  (merge {:scope         {:from-db :t/caller-scope}
           :params-schema [:map [:slug :string]]}
          overrides))
 

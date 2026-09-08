@@ -694,7 +694,7 @@
   reserved policies (`:rf.scope/global` is a legitimate literal scope), an
   app-namespaced keyword, or a data-value (tuple / map / string). Any OTHER
   bare `:rf.scope/*` keyword is a typo and rejected."
-  #{:rf.scope/global :rf.scope/from-caller})
+  #{:rf.scope/global})
 
 (defn reserved-scope-typo?
   "True iff `scope` is a BARE keyword in the framework-reserved `:rf.scope/*`

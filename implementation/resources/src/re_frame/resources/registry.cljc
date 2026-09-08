@@ -55,63 +55,28 @@
   never a framework default."
   :rf.scope/global)
 
-(def ^:private from-caller-scope-policy
-  "Scope required from the use site. Per Spec 016 §Scope resolution:
-  every ensure/refetch/state call MUST supply `:scope`, or a route-
-  resource resolver MUST."
-  :rf.scope/from-caller)
-
-(defn- reserved-scope-namespace?
-  "True when `scope` is a bare keyword in the framework-reserved
-  `:rf.scope/*` namespace — i.e. a candidate for the closed scope-policy
-  enum. A non-keyword (a `[:rf.scope/session …]` tuple, a map, a string)
-  is NOT in the bare-keyword reserved slot. Reuses the shared
-  `rf.resources.state/reserved-scope-ns` constant (one source of truth for the reserved
-  namespace across the policy gate here and the concrete-scope gate in
-  `state`)."
-  [scope]
-  (and (keyword? scope) (= rf.resources.state/reserved-scope-ns (namespace scope))))
-
 (defn- valid-scope-policy?
-  "A scope policy is one of the reserved enum keywords
-  (`:rf.scope/global`, `:rf.scope/from-caller`), a resolver (a fn), or a
-  literal scope value (any non-keyword EDN data value, or an
-  app-namespaced keyword). Per Spec 016 §Scope resolution. `nil` /
-  missing is NOT valid — it is a loud registration error.
+  "A scope policy is EXACTLY one of two shapes (Spec 016 §Every resource
+  declares a scope policy): `:rf.scope/global` — the explicit, auditable
+  global claim — or a `{:from-db <id>}` named-resolver reference. `nil` /
+  missing is NOT valid, and neither is anything else.
 
-  FAIL-CLOSED reserved-namespace gate (rf2-y7lcqy): a bare keyword in the
-  framework-reserved `:rf.scope/*` namespace that is NOT one of the closed
-  enum is a TYPO (e.g. `:rf.scope/glabal`), and a typo in the framework
-  namespace is a registration error — it MUST NOT be silently accepted as
-  a literal scope (which would resolve to `[:rf.scope/glabal]`, a silent
-  wrong scope). App-namespaced keywords (`:my.app/whatever`) and
-  data-value scopes (`[:rf.scope/session {…}]`, maps, strings) remain
-  valid literal scopes.
+  FAIL-CLOSED (rf2-y7lcqy): the closed two-shape enum is what makes a typo
+  a registration error rather than a silent wrong scope — a
+  `:rf.scope/glabal` is simply not one of the two, so it can never be
+  accepted as a literal scope that would then resolve to
+  `[:rf.scope/glabal]`.
 
   NAMED-RESOLVER REFERENCE (EP-0016 D3 slice 3): a `{:from-db <id>}` map
-  is a valid policy — a DERIVED-scope reference resolved against db at use
-  time, NOT a literal scope value. It is recognised here so the resolver
-  id need not be registered yet at `reg-resource` time (the reference is
-  resolved at use time, the single use-time rule); registration-time the
-  reference shape is enough."
+  is a DERIVED-scope reference resolved against db at use time, NOT a
+  literal scope value. It is recognised here so the resolver id need not
+  be registered yet at `reg-resource` time (the reference is resolved at
+  use time, the single use-time rule); registration-time the reference
+  shape is enough."
   [scope]
-  (and (some? scope)
-       (cond
-         ;; the closed reserved enum
-         (= scope global-scope-policy)      true
-         (= scope from-caller-scope-policy) true
-         ;; a `{:from-db <id>}` named-resolver reference — a derived-scope
-         ;; policy resolved at use time, NOT a literal map scope.
-         (rf.resources.scope-registry/from-db-reference? scope) true
-         ;; a bare `:rf.scope/*` keyword outside the enum is a typo —
-         ;; reject (fail closed), do NOT accept as a literal scope.
-         (reserved-scope-namespace? scope)  false
-         ;; a fn resolver (route/spec/fn-of-nothing)
-         (fn? scope)                        true
-         ;; any other value — an app-namespaced keyword or a non-keyword
-         ;; data value — is a legitimate literal scope / data-value
-         ;; resolver.
-         :else                              true)))
+  (boolean
+    (or (= scope global-scope-policy)
+        (rf.resources.scope-registry/from-db-reference? scope))))
 
 (defn- registration-error
   "Build the canonical thrown-error shape (Spec 009 §The thrown-error
@@ -310,10 +275,12 @@
              :rf.error/resource-missing-scope-policy
              'rf/reg-resource
              (str "resource " resource-id " declares no valid :scope policy. "
-                  ":scope is REQUIRED (fail-closed) — one of :rf.scope/global "
-                  "(an explicit, auditable global claim), a resolver, or "
-                  ":rf.scope/from-caller. There is no implicit default; a "
-                  "user-scoped read must say so. Per Spec 016 §Scope resolution.")
+                  ":scope is REQUIRED (fail-closed) and is EXACTLY one of two "
+                  "shapes: :rf.scope/global (an explicit, auditable global "
+                  "claim) or {:from-db <resource-scope-id>} (a named resolver "
+                  "registered with rf/reg-resource-scope). There is no implicit "
+                  "default; a user-scoped read must say so. Per Spec 016 §Every "
+                  "resource declares a scope policy.")
              {:resource-id resource-id :scope (:scope spec)})))
   ;; `:params-schema` is REQUIRED — validates + canonicalizes params.
   (when-not (contains? spec :params-schema)
@@ -801,10 +768,9 @@
     1. `:scope` supplied on the event payload;
     2. (route-resource `:scope` resolver — supplied by the route slice,
        not this runtime slice; threaded in as `route-scope`);
-    3. the resource-spec `:scope` resolver, but ONLY when it resolves to a
-       concrete value without an event context — an explicit
-       `:rf.scope/global` claim, a `{:from-db …}` named-resolver reference,
-       or a pure-data / fn-of-nothing resolver.
+    3. the resource-spec `:scope` policy — an explicit `:rf.scope/global`
+       claim or a `{:from-db …}` named-resolver reference (the only two
+       shapes registration admits).
 
   A `{:from-db <id>}` reference at ANY tier (payload, route, or spec policy)
   is resolved against `db` at use time (EP-0016 D3 slice 3, the single
@@ -814,10 +780,7 @@
   a nil db (a legacy/direct test call) resolves references against `{}`.
 
   A `:rf.scope/global` policy resolves to `:rf.scope/global` ONLY because
-  that is its declared explicit policy. A `:rf.scope/from-caller` resource
-  reached with no payload `:scope` and no route resolver is a loud
-  use-time error (`:rf.error/resource-scope-required-from-caller`). Returns
-  the canonical scope."
+  that is its declared explicit policy. Returns the canonical scope."
   [resource-id spec {:keys [payload-scope route-scope db]} where]
   (let [policy (:scope spec)
         ;; resolve a {:from-db …} reference at the tier it appears (use-time)
@@ -842,23 +805,17 @@
       (canonical-scope! resource-id (resolve-ref policy) where)
       ;; 3b. explicit global claim — the resource's declared policy
       (= policy global-scope-policy) global-scope-policy
-      ;; 3c. from-caller with no payload/route scope — loud use-time error
-      (= policy from-caller-scope-policy)
+      ;; registration admits no third shape, so reaching here is a defective
+      ;; spec — fail closed rather than key the cache on nil.
+      :else
       (throw (registration-error
-               :rf.error/resource-scope-required-from-caller
+               :rf.error/resource-missing-scope-policy
                where
-               (str "resource " resource-id " declares :scope "
-                    ":rf.scope/from-caller — every ensure / refetch / state "
-                    "call MUST supply :scope on the payload (or a route "
-                    "resolver must). There is no silent global read. Per Spec "
-                    "016 §Scope resolution.")
-               {:resource-id resource-id}))
-      ;; 3d. a fn-of-nothing resolver (pure data resolvable without ctx)
-      (fn? policy)
-      (canonical-scope! resource-id (policy) where)
-      ;; 3e. a pure data-value resolver (a concrete scope value declared
-      ;; directly as the policy)
-      :else (canonical-scope! resource-id policy where))))
+               (str "resource " resource-id " carries an invalid :scope policy "
+                    (pr-str policy) ". A scope policy is EXACTLY :rf.scope/global "
+                    "or {:from-db <resource-scope-id>}. Per Spec 016 §Every "
+                    "resource declares a scope policy.")
+               {:resource-id resource-id :scope policy})))))
 
 (defn- sub-unresolved-reference!
   "A `{:from-db <id>}` reference at a SUBSCRIPTION site that resolves NIL
@@ -898,10 +855,9 @@
   `(route, ctx)` resolver. Resolution order:
 
     1. `:scope` supplied on the subscription payload;
-    2. the resource spec's `:scope` ONLY if a pure sub can evaluate it
-       without an event context — an explicit `:rf.scope/global` claim, a
-       `{:from-db …}` named-resolver reference, or a pure-data /
-       fn-of-nothing resolver.
+    2. the resource spec's `:scope` policy — an explicit `:rf.scope/global`
+       claim or a `{:from-db …}` named-resolver reference. Both shapes are
+       sub-resolvable, so a registered resource always has a policy tier.
 
   A `{:from-db <id>}` reference (on the payload OR as the spec policy) is
   resolved against `db` (the frame app-db value) at use time (EP-0016 D3
@@ -913,9 +869,8 @@
 
   A sub that CANNOT resolve a scope raises `:rf.error/resource-sub-
   unresolved-scope` (carrying the resource id + the unresolvable policy) —
-  NEVER a silent `[:rf.scope/global]` read and NEVER a silent `:idle`. A
-  `:rf.scope/from-caller` policy or a multi-arg `(route, ctx)` resolver is
-  not sub-resolvable. Returns the canonical scope.
+  NEVER a silent `[:rf.scope/global]` read and NEVER a silent `:idle`.
+  Returns the canonical scope.
 
   Every caller supplies the frame `db` explicitly (rf2-bwwk6l): a caller
   that resolves no `{:from-db …}` scope passes `{}`, where references resolve
@@ -938,33 +893,16 @@
                         (sub-unresolved-reference! resource-id policy db where)
                         where)
       (= policy global-scope-policy) global-scope-policy
-      ;; a fn resolver is sub-resolvable ONLY when it is a fn-of-nothing
-      ;; (a route (route, ctx) resolver needs an event context a pure sub
-      ;; lacks). We treat a 0-arg-callable fn as sub-resolvable; a fn that
-      ;; throws on 0-args is not sub-resolvable and falls to the loud error.
-      (fn? policy)
-      (let [resolved (try (policy) (catch #?(:clj Throwable :cljs :default) _ ::not-sub-resolvable))]
-        (if (= resolved ::not-sub-resolvable)
-          (throw (registration-error
-                   :rf.error/resource-sub-unresolved-scope
-                   where
-                   (str "resource " resource-id " has a scope policy that a "
-                        "pure subscription cannot resolve (a (route, ctx) "
-                        "resolver or :rf.scope/from-caller). Pass :scope on the "
-                        "subscription payload (the same scope the owning "
-                        "route/event ensured under), or re-declare the resource "
-                        "with a sub-resolvable scope policy. Per Spec 016 "
-                        "§Subscription-side scope resolution.")
-                   {:resource-id resource-id :policy :resolver}))
-          (canonical-scope! resource-id resolved where)))
-      (= policy from-caller-scope-policy)
+      ;; registration admits no third shape, so reaching here is a defective
+      ;; spec — fail closed rather than read a nil-scoped entry.
+      :else
       (throw (registration-error
                :rf.error/resource-sub-unresolved-scope
                where
-               (str "resource " resource-id " declares :scope "
-                    ":rf.scope/from-caller — a subscription MUST supply :scope "
-                    "on its payload. Per Spec 016 §Subscription-side scope "
-                    "resolution.")
-               {:resource-id resource-id :policy from-caller-scope-policy}))
-      ;; a pure data-value policy is sub-resolvable
-      :else (canonical-scope! resource-id policy where))))
+               (str "resource " resource-id " carries an invalid :scope policy "
+                    (pr-str policy) " that a subscription cannot resolve. A scope "
+                    "policy is EXACTLY :rf.scope/global or "
+                    "{:from-db <resource-scope-id>}; pass :scope on the "
+                    "subscription payload to override. Per Spec 016 "
+                    "§Subscription-side scope resolution.")
+               {:resource-id resource-id :policy policy})))))
