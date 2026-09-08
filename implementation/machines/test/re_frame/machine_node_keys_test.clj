@@ -138,6 +138,31 @@
                        :done {}}}))
         ":on-spawn on a :spawn-all child is rejected")))
 
+(deftest retired-system-id-spawn-key-rejected
+  (testing "the retired `:system-id` spawn-spec key is now an unknown BARE
+            key — the EXISTING closed-vocabulary diagnostic catches it on both
+            the single `:spawn` and a `:spawn-all` child. No new diagnostic id
+            was minted for the retirement (rf2-kuky.15 ruled A, delivered by
+            rf2-kuky.70): the address is the id, and `:fixed-actor-id` is the
+            one stable-name mechanism."
+    (is (= :rf.error/machine-unknown-spawn-key
+           (reg-error-id {:initial :idle
+                          :states {:idle {:spawn {:machine-id :child
+                                                  :system-id  :some-name}
+                                          :on {:go :done}}
+                                   :done {}}}))
+        ":system-id on a single :spawn is rejected")
+    (is (= :rf.error/machine-unknown-spawn-key
+           (reg-error-id
+             {:initial :idle
+              :states {:idle {:spawn-all {:children [{:id         :c1
+                                                      :machine-id :child
+                                                      :system-id  :some-name}]
+                                          :on-all-complete [:all]}
+                              :on {:go :done}}
+                       :done {}}}))
+        ":system-id on a :spawn-all child is rejected")))
+
 (deftest namespaced-spawn-key-passes
   (testing "a NAMESPACED key on a :spawn spec passes (the runtime itself stamps
             :rf/parent-id / :rf/invoke-id — namespaced, always allowed)"

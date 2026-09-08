@@ -458,15 +458,15 @@
             :before; an absent-before singleton gets the `added` sentinel
             (rf2-227cz)"
     (let [rt-before {:rf.runtime/routing {:current {:route-id :home}}}
-          rt-after  {:rf.runtime/routing  {:current {:route-id :cart}}
-                     :rf.runtime/machines {:spawned {:parent {:invoke :child}}}}
-          model  (h/current-state-sections {} rt-after
-                                           {:app {} :runtime rt-before})
+          rt-after  {:rf.runtime/routing {:current            {:route-id :cart}
+                                          :pending-navigation {:to :checkout}}}
+          model   (h/current-state-sections {} rt-after
+                                            {:app {} :runtime rt-before})
           route   (area-by model :rf/route)
-          spawned (area-by model :rf/spawned)]
+          pending (area-by model :rf/pending-navigation)]
       (is (= {:route-id :home} (:before route)) "route diffs old → new")
       (is (= {:route-id :cart} (:value route)))
-      (is (= h/added (:before spawned))
+      (is (= h/added (:before pending))
           "rf2-227cz — an area absent before-cascade → `added`
            (the slice appeared this epoch), not `no-diff`"))))
 

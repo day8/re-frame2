@@ -1380,8 +1380,17 @@
   beside `PrefetchBadAddressTags`, and its `:rf.error/replan-bad-request`
   catalogue row landed in spec/009 with a Tags cell naming every key the schema
   declares. One schema added, one row added, one pairing gained: this integer
-  moves by exactly one."
-  93)
+  moves by exactly one.
+
+  Lowered 93 -> 92 by rf2-kuky.70 (the `:system-id` family's deletion), and the
+  removal is in this same diff: `SystemIdCollisionTags` was DELETED from
+  spec/Spec-Schemas.md because its category `:rf.error/system-id-collision` had
+  exactly one emitter — `install-spawn!`'s rebind arm — and the emitter went
+  with the family (rf2-kuky.15 ruled A: the address IS the id, so there is no
+  separate name registry to collide with). The `:rf.error/system-id-collision`
+  catalogue row went too, so the pairing it held is gone. One schema deleted,
+  one row deleted, one pairing lost: this integer moves by exactly one."
+  92)
 
 (def ^:private tags-column-shrink-only-baseline
   "SHRINK-ONLY. The rows that still red when the arm is armed — pre-existing
