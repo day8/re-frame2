@@ -448,6 +448,27 @@ stream — and you register the concrete fn with `rf/register-observability-sink
     (sentry/capture record)))  ;; privacy classification — no scrubbing needed here
 ```
 
+Most apps declare that policy **once for the process** rather than on every frame —
+observability is a property of the deployment, not of any one frame:
+
+```clojure
+(rf/configure! {:observability {:errors [{:sink :my-app/sentry}]}})
+```
+
+A frame's own `:observability` then says only how *that* frame differs, and the two
+compose **per stream**: a frame declaring `:errors` still inherits the default's
+`:handled-events`, and `{:errors []}` — the stream named with no sinks — is how one
+frame opts out. Exactly one source is consulted per record, so a sink id in both fires
+once. What a frame inherits is the *sink list*, not the redaction authority: its
+records still project under its own classification.
+
+The process default is also the only seat that can reach a record with **no frame to
+ask** — an error raised with no frame in scope, a pre-frame SSR hydration parse, a
+teardown report from a frame already gone. Those arrive projected as though no frame
+vouched for them: the ids you triage on survive, the payload comes through
+`:rf/redacted`, and a dead frame's id rides along as a diagnostic that is never
+re-resolved into a same-id successor's sink.
+
 The `:rf.egress/profile` says *how far the data is allowed to travel* —
 `:rf.egress/off-box-observability` is the profile for a hosted back-end, and it
 governs how aggressively the runtime projects the record before your sink sees it. The
@@ -486,7 +507,7 @@ There is a second door onto the same two substrates, and it is a different *kind
 thing rather than a different flavour of the sink. `(rf/register-listener! :events …)`
 and `(rf/register-listener! :errors …)` are **independent corpus observation**: one
 fan-out per process, across every frame, delivered regardless of any frame's policy —
-including frameless records that no frame sink can reach — and always **unprojected**.
+including frameless records no frame sink can reach (though a **process default** does — see below) — and always **unprojected**.
 Reach for that seat when you genuinely need a single cross-frame hook, and accept that
 the trust boundary is then yours.
 
@@ -553,10 +574,10 @@ and its stack.)
 One thing not to read into the split: the raw `:exception`. It is tempting to take the
 corpus-wide stream as "the one that keeps the throwable" — it isn't. A sink keeps the
 throwable too under the default `:rf.egress/off-box-observability` profile; only
-`:rf.egress/public-error` drops it. What the corpus-wide seat alone carries is a
-frameless record, a record whose owning frame is already gone, and the
+`:rf.egress/public-error` drops it. What the corpus-wide seat alone carries is the
 producer-attribution slots (`:failing-id`, `:reason`, `:source-coord`) the sink route
-does not pass through.
+does not pass through — plus, only while no process default is declared, a frameless
+record and a record whose owning frame is already gone.
 
 Want timing in production, too? There's a third production-survivable surface besides
 `:events` and `:errors`: a Performance API channel, off by default, that brackets the

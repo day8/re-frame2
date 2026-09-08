@@ -18,6 +18,16 @@ The **normal** way an app ships event + error records to Datadog / Sentry / Hone
   (fn [record] (sentry/capture! record)))
 ```
 
+**Declare it once per process when the policy is a deployment property** — which it usually is. `(rf/configure! {:observability …})` takes the same grammar and every frame inherits it, so a multi-frame app stops restating its Sentry entry on every `make-frame`:
+
+```clojure
+(rf/configure! {:observability {:errors [{:sink :my-app.sinks/sentry}]}})
+```
+
+Precedence is **per stream**, read by key PRESENCE rather than truthiness: a frame declaring `:errors` uses its own entries for errors and still inherits the default's `:handled-events`; `{:errors []}` on a frame declares the stream with no sinks and is that frame's opt-out. Exactly one source is consulted per record per stream, so a sink id in both is invoked once. Inheritance moves the **sink list**, never the redaction authority — an inheriting frame's records still project under *its own* classification. `{:observability nil}` clears the default; a malformed policy throws `:rf.error/bad-frame-classification` (with `:where 'rf/configure!`) at the call rather than installing quietly.
+
+The process default is also the only thing that can reach a record with **no frame to ask**: an error raised with no frame in scope, a pre-frame SSR hydration parse, or a teardown report from an already-dissociated frame. Those go to the default alone, projected as though no frame vouched for them — summary ids intact, tree slots `:rf/redacted` — and a dead frame's id rides along as a diagnostic that is never re-resolved, so it cannot land in a same-id successor's sink.
+
 Both routes ride the **same two always-on substrates** that survive `goog.DEBUG=false` and `:advanced` — **parallel to** (not a fallback from) the dev-only trace bus, which DCEs in CLJS production builds. The frame `:observability` path is the projection-and-routing layer **on top of** those substrates; the listener APIs below (`register-listener!` on the `:events` / `:errors` streams) are the **advanced low-level hooks beneath** it. Either way the framework runs `elide-wire-value` against each record's `:event` vector before fan-out — neither sinks nor listeners re-walk for privacy / size. Egress composition: [`privacy-and-elision.md`](privacy-and-elision.md) §Choosing where observations go.
 
 ## The mental model: three channels, three production guarantees

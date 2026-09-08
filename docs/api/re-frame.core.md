@@ -787,13 +787,14 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
   - the `set-!` / `install-!` setters — adapter-pluggable hooks;
   - per-frame metadata — frame-scoped overrides.
 
-  The key vocabulary is closed-and-additive: existing keys cannot be renamed, and new keys are added by extending the table. Three keys ship:
+  The key vocabulary is closed-and-additive: existing keys cannot be renamed, and new keys are added by extending the table. Four keys ship:
 
   | Key | Opts | Default | Status | What it tunes |
   |---|---|---|---|---|
   | `:epoch-history` | `{:depth N :trace-events-keep N}` | `{:depth 50, :trace-events-keep 50}` | v1 (dev-only) | Per-frame epoch ring depth and trace-event retention cap per record. |
   | `:trace-buffer` | `{:events-retained N}` | `{:events-retained 50}` | v1 (dev-only) | The dev-only per-frame trace ring's event-slot count: one slot per event, regardless of how many trace events its run emitted. 0 disables retention (the surface stays live). |
   | `:elision` | `{:rf.size/threshold-bytes N}` | `{:rf.size/threshold-bytes 16384}` | v1 | The size threshold above which `elide-wire-value` emits the `:rf.warning/large-value-unschema'd` advisory for an *undeclared* large string. It is a warning signal, not a cap: the value is forwarded raw. Substituting the `:rf.size/large-elided` marker requires declaring the path `:large`. 0 disables runtime auto-detect. |
+  | `:observability` | `{:handled-events [<entry>…] :errors [<entry>…]}` | none declared | v1 | The **process default** for production observation sinks, in the same closed grammar a frame's `:observability` takes. Precedence is per stream: a frame declaring a stream uses its own entries for it, a frame omitting it inherits this default's, and `{:errors []}` on a frame is that frame's opt-out — exactly one source per record per stream. Inheritance moves the sink list, not the redaction authority. Records with no frame authority (frameless producers; a `:frame` that no longer resolves) reach this default alone, projected with the governing frame explicitly nil. Two departures from its neighbours, both deliberate: an explicit **`nil` clears** it, and it is validated **at the call** (`:rf.error/bad-frame-classification`, `:where 'rf/configure!`). |
 
   **An unrecognised top-level key applies nothing — and, if it is bare, says so.** The vocabulary above is closed and its keys are *bare*, so `{:epoch-histroy {:depth 100}}` is a typo of a real key rather than an extension point. A bare (or `rf`-namespaced) unknown key therefore emits `:rf.warning/unknown-configure-key` in dev builds, naming every offending key and the known set; the call still returns `nil` and still applies nothing (`:recovery :ignored` — observational, never a refusal), and the whole diagnostic is DCE'd out of production. A **user-namespaced** key (`:myapp/thing`) passes in silence, which is what lets a wrapper hand `configure!` a composed config value without filtering it first.
 
@@ -802,7 +803,8 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
   ```clojure
   (rf/configure! {:epoch-history {:depth 100}
                   :trace-buffer  {:events-retained 25}
-                  :elision       {:rf.size/threshold-bytes 8192}})
+                  :elision       {:rf.size/threshold-bytes 8192}
+                  :observability {:errors [{:sink :my-app.sinks/sentry}]}})
   ```
 
 ### `current-config`
@@ -817,6 +819,8 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
   **Process values only.** There are no per-frame effective values here: a frame carrying its own `:rf.trace/events-retained` metadata is not reflected, because this reads back exactly the slots `configure!` writes.
 
   **A subsystem's key is ABSENT when its OWN producer is unavailable** — not `nil`, and never a fabricated default. The two optional keys are **independent**, each read through its own late-bind hook: `:epoch-history` comes from the optional `day8/re-frame2-epoch` artefact, `:trace-buffer` from the dev-only trace-tooling sibling. A production bundle that DCEs the tooling ns therefore omits `:trace-buffer` *alone* — a loaded epoch artefact still reports `:epoch-history` beside it, and vice versa. `(get-in (rf/current-config) [:epoch-history :depth])` reads `nil` when the **epoch** artefact is absent, never merely because trace tooling is; that is the answer a health query wants — and the facade owns that branch, so callers do not resolve optional-artefact vars by symbol.
+
+  **`:observability` is absent-not-nil for a different reason, and the distinction is normative.** `re-frame.observability` is always loaded, so its key is absent when no process default has been *declared* — a statement about configuration, never about the build. It reports the declared policy **verbatim**: never any frame's effective policy, which is per-stream and resolved per record.
 
   The result is a key-by-key snapshot rather than a transactional one, and it is not promised to be wire-serialisable. A **user-namespaced** pass-through key `configure!` accepted in silence (`:myapp/thing`) is *not* reflected back: the vocabulary is closed, so only keys the runtime reads have live values to report.
 - **Example**:
