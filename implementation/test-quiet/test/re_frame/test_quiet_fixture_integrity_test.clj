@@ -15,11 +15,21 @@
   INVOKE it — and both cheap approximations of that are wrong in a different
   direction.  `ifn?` is too permissive: maps, sets, keywords and symbols are
   all `IFn` and every one of them treats the thunk as a KEY.  `fn?` is too
-  restrictive: a Var and a multimethod each invoke the thunk correctly while
-  carrying no `clojure.lang.Fn` marker, so `(use-fixtures :each #'lifecycle)`
-  — ordinary, idiomatic, and working — was refused with the false claim that
-  the namespace ran nothing.  Both directions are pinned below, and each is
-  pinned against `clojure.test/join-fixtures` FIRST.
+  restrictive: a Var, a multimethod and a `reify`d `IFn` each invoke the
+  thunk correctly while carrying no `clojure.lang.Fn` marker, so
+  `(use-fixtures :each #'lifecycle)` — ordinary, idiomatic, and working —
+  was refused with the false claim that the namespace ran nothing.  Both
+  directions are pinned below, and each is pinned against
+  `clojure.test/join-fixtures` FIRST.
+
+  WHY THE CALLABLE ROWS ARE NOT A LIST, AND MUST NOT BECOME ONE.  Two
+  earlier rounds repaired this rule by ADDING an accepted type — `fn?`, then
+  `fn?` or `MultiFn` or a Var resolving to one — and each list was refuted
+  by the next valid callable somebody wrote.  The population of things that
+  apply their argument is open; the population Clojure invokes as a LOOKUP
+  is closed, so the rule now subtracts the second from `ifn?`.  The
+  `reify` row below is therefore not a fourth entry on a list: it is the
+  witness that no list is being kept.
 
   EVERY TEST HERE PINS THE DEFECT BEFORE IT PINS THE GUARD.  The defect is
   pinned against `clojure.test/join-fixtures` itself — the function
@@ -57,6 +67,14 @@
   (fn [_t] :only))
 
 (defmethod multi-lifecycle :only [t] (t))
+
+(def ^:private reified-lifecycle
+  "A fixture that is nothing but the `IFn` contract — no `clojure.lang.Fn`
+  marker, no `MultiFn`, no Var.  It is the shape that refuted the round-two
+  repair (rf2-4yw1): a positive list of implementation classes cannot name
+  it, because any `reify`, `deftype` or `proxy` produces a fresh class."
+  (reify clojure.lang.IFn
+    (invoke [_ t] (t))))
 
 (defn- calls-thunk?
   "Whether `clojure.test/join-fixtures` — the chain `test-all-vars` builds —
@@ -142,13 +160,17 @@
 ;; The other direction: callable entries `fn?` does not recognise (rf2-4yw1).
 
 (deftest callable-fixtures-that-are-not-fn-are-not-offenders
-  (testing "THE DEFECT THIS TIME IS THE GUARD'S: `#'lifecycle` and a
-            `defmulti` fixture both RUN the test, and `fn?` says false of
-            both, so `fn?` cannot be the contract"
+  (testing "THE DEFECT THIS TIME IS THE GUARD'S: a Var, a `defmulti` and a
+            bare `reify`d `IFn` all RUN the test, and `fn?` says false of
+            every one of them, so `fn?` cannot be the contract — nor can any
+            longer list of classes, which is what the last row proves"
     (doseq [[label fixture] [["a Var referring to a function" #'lifecycle]
                              ["a multimethod"                 multi-lifecycle]
                              ["a Var referring to a multimethod"
-                              #'multi-lifecycle]]]
+                              #'multi-lifecycle]
+                             ["a custom IFn implementation"   reified-lifecycle]
+                             ["a Var referring to a custom IFn"
+                              #'reified-lifecycle]]]
       (is (false? (fn? fixture))
           (str label " is not `fn?` — which is why the guard refused it"))
       (is (true? (calls-thunk? fixture))
@@ -177,6 +199,36 @@
                 "accepting every Var would reopen the defect one level down")))
         (finally
           (remove-ns 'probe.var-to-map-holder))))))
+
+(defn- never-calls-thunk?
+  "Whether `join-fixtures` fails to run the thunk for `fixture` — either by
+  looking it up and discarding it (a map, set, keyword or symbol returns
+  nil) or by throwing on the lookup (a vector needs a numeric index).  The
+  two paths differ; the property the rule is about is the one they share."
+  [fixture]
+  (try
+    (not (calls-thunk? fixture))
+    (catch Throwable _ true)))
+
+(deftest every-lookup-value-is-refused-though-ifn?-is-true-of-each
+  (testing "THE TRAP that makes bare `ifn?` the wrong repair, and the reason
+            the rule subtracts a CLOSED set from it rather than widening to
+            it: each of these five is `IFn`, each is invoked as a LOOKUP, and
+            each must stay refused (rf2-4yw1)"
+    (doseq [[label fixture] [["a map"     {:before (fn []) :after (fn [])}]
+                             ["a set"     #{:before :after}]
+                             ["a vector"  [(fn [t] (t))]]
+                             ["a keyword" :before]
+                             ["a symbol"  'lifecycle]]]
+      (is (true? (ifn? fixture))
+          (str label " is `IFn`, so `ifn?` would admit it"))
+      (is (true? (never-calls-thunk? fixture))
+          (str label " nevertheless never runs the test thunk"))
+      (with-probe-ns 'probe.lookup-fixture-ns :clojure.test/each-fixtures
+        (list fixture)
+        (fn [ns-obj]
+          (is (= 1 (count (rf.test-quiet.runner/uncallable-fixtures [ns-obj])))
+              (str "and so the guard must keep refusing " label)))))))
 
 (deftest this-lane-is-itself-clean
   (testing "the shipped call — every namespace this JVM has loaded — and so
