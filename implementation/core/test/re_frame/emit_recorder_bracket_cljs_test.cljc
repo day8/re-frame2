@@ -102,10 +102,13 @@
           (is (= :rf.observe/error (:kind s))
               "the sink record is a canonical :rf.observe/error")
           (is (= :bracket/paired (:frame s)))
+          ;; It is the SAME failure seen twice, not two failures: both
+          ;; records name the same category.
+          (is (= (:error r) (:error s))
+              "both tiers report the same :rf.error/* category")
           ;; The shapes are genuinely different — the discriminator is the
-          ;; record's own top-level key set, not a redacted field.
-          (is (not (contains? s :error))
-              "the projected record is NOT the raw record with fields blanked")
+          ;; record's own top-level key set. `:kind` is the projected
+          ;; record's; the raw substrate record has never carried one.
           (is (not (contains? r :kind))
               "the raw record is NOT a projected record"))))))
 
@@ -177,9 +180,10 @@
                      (rf/dispatch-sync [:throwing/boom] {:frame :bracket/throwing})
                      (throw (ex-info "body blew up" {}))))
           "the body's exception propagates out of the bracket")
-      (is (= 1 (count @escaped)) "the record captured before the throw is kept")
+      ;; `escaped` holds the bracket's recording ATOM, so read through both.
+      (is (= 1 (count @@escaped)) "the record captured before the throw is kept")
       (rf/dispatch-sync [:throwing/boom] {:frame :bracket/throwing})
-      (is (= 1 (count @escaped))
+      (is (= 1 (count @@escaped))
           "the listener was still unregistered on the exceptional path"))))
 
 ;; ---------------------------------------------------------------------------
