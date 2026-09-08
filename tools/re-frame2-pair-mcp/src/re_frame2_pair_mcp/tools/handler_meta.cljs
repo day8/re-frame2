@@ -70,8 +70,8 @@
   `:reason :invalid-kind` envelope with the accepted-kinds hint
   (rf2-zhef). App-db schemas are NOT
   a registrar kind; their metadata lives in the schemas
-  artefact's per-frame side-table, surfaced via `rf/app-schemas {:frame f}`
-  / `rf/app-schema-meta {:frame f :path p}`. The twelve registrar kinds map directly to
+  artefact's per-frame side-table, surfaced via `re-frame.schemas/app-schemas {:frame f}`
+  / `re-frame.schemas/app-schema-meta {:frame f :path p}`. The twelve registrar kinds map directly to
   `rf/handler-meta`; `machine` routes through the runtime preload's
   `re-frame2-pair.runtime/machine-describe` door, which reads the
   `:rf/machine` registrar projection (Spec 005 §Querying machines —

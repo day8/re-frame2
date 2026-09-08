@@ -514,7 +514,7 @@ reference:
 | `(rf/registrations {:source :store :kind kind})` / `(rf/handler-meta {:source :store :kind kind :id id})` | Spec 001 | Registry-browser metadata. |
 | `(rf/frame-ids)` / `(rf/frame-meta id)` | Spec 002 | The frame picker. |
 | `(rf/registrations {:source :store :kind :event})` filtered on `:rf/machine?` | Spec 005 | The machine inspector dropdown — the machine-ids registered **globally** (every event handler whose registration metadata carries `:rf/machine? true`). There is no per-kind accessor (retired, rf2-kuky.31). The read takes no frame argument — only live machine snapshots are frame-scoped. |
-| `(rf/app-schemas {:frame f})` | Spec 010 | The schema-violation timeline rows. Answers `{path -> registration-metadata}`; `:frame` is required (rf2-kuky.84). |
+| `(re-frame.schemas/app-schemas {:frame f})` | Spec 010 | The schema-violation timeline rows. Answers `{path -> registration-metadata}`; `:frame` is required (rf2-kuky.84). |
 | `(rf.subs.tooling/sub-cache-snapshot frame-id)` (CLJS only) | Tool-Pair | The subscription graph. The `rf/sub-cache` facade alias was removed (rf2-80mmlf) — this is subscription TOOLING rather than an app-author front-porch read, so callers address the owning `re-frame.subs.tooling` namespace directly. |
 | `:rf.trace/dispatch-id` / `:rf.trace/parent-dispatch-id` (in `:tags`) | Spec 009 | The cascade lineage tags read by event-detail and trace surfaces (`:rf.*` single-root names per rf2-y4qpy). |
 | `:rf.event/origin` (in `:tags`) | Spec 009 | The colour-coding axis. |

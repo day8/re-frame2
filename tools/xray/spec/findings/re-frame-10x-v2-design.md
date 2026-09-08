@@ -160,7 +160,7 @@ A pinned-right panel: a chat input above a scrollable result area. The co-pilot 
 
 The co-pilot is **frame-aware** (knows which frame the human is looking at), **epoch-aware** (knows the scrubber position), and **registrar-aware** (can read every registration's `:doc`, `:spec`, source coords).
 
-Calls the user's chosen LLM via their own API key, configured in Settings → AI Provider. The system prompt is wired with `(rf/registrations {:source :store :kind ...})` / `(rf/handler-meta ...)` / `(rf/app-schemas-digest ...)` shape so the model inherits framework conventions without being told. Default provider: Claude; swappable to OpenAI / Gemini / local Ollama / custom via a provider abstraction.
+Calls the user's chosen LLM via their own API key, configured in Settings → AI Provider. The system prompt is wired with `(rf/registrations {:source :store :kind ...})` / `(rf/handler-meta ...)` / `(re-frame.schemas/app-schemas-digest {:frame f})` shape so the model inherits framework conventions without being told. Default provider: Claude; swappable to OpenAI / Gemini / local Ollama / custom via a provider abstraction.
 
 Open by default (per UX §12.2 lock). Toggled via `Ctrl+Shift+/`; user can close the rail and Xray remembers the choice across the session.
 

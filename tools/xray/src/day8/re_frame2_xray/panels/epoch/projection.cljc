@@ -2845,7 +2845,7 @@
       (some? decoded)
       (assoc :decoded decoded)
       ;; rf2-kuky.84 — the violation's OWN frame, stamped on EVERY row
-      ;; rather than only the hot-reload ones. `rf/app-schema-meta` now
+      ;; rather than only the hot-reload ones. `re-frame.schemas/app-schema-meta` now
       ;; REQUIRES an explicit `{:frame f}`, and the view's schema
       ;; source-coord link reads it off this slot; resolving ambiently
       ;; there would have resolved Xray's own `:rf/xray` frame, not the

@@ -68,7 +68,7 @@
 (defn scope-app-schemas-to-frame
   "Narrow a `{frame-id {path schema-meta}}` app-db-schema snapshot to a
   single `frame-id`. App-db schemas are genuinely per-frame (the
-  schemas registry is keyed by frame-id — see `rf/app-schemas`), so the
+  schemas registry is keyed by frame-id — see `re-frame.schemas/app-schemas`), so the
   L1 frame picker scopes the app-db-schema rows.
 
   A nil `frame-id` (no frame resolved yet) returns the snapshot
