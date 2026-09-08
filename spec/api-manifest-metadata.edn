@@ -1413,12 +1413,9 @@
   ;; in the fixture layer (re-frame.test-support resets the registries via the
   ;; lower-level trace.tooling / event-emit / error-emit clears directly),
   ;; not on the public facade.
-  ["re-frame.core" "group-by-event"]            {:tier :tooling :owner "009" :status "v1 (dev-only)"
-                                                :action :keep
-                                                :justification "A Spec 009 trace surface whose producing home, re-frame.trace.tooling, is internal plumbing rather than an enumerated public artefact namespace -- it carries no manifest rows, so there is no clearer door to move to and Conventions forbids inventing one to tidy the column. A trace-projection read a tool takes over the buffer it just read."}
-  ["re-frame.core" "domino-bucket"]         {:tier :tooling :owner "009" :status "v1 (dev-only)"
-                                            :action :keep
-                                            :justification "A Spec 009 trace surface whose producing home, re-frame.trace.tooling, is internal plumbing rather than an enumerated public artefact namespace -- it carries no manifest rows, so there is no clearer door to move to and Conventions forbids inventing one to tidy the column. The domino-classification read of the same Spec 009 projection family."}
+  ;; The event-bundle projection pair (group-by-event / domino-bucket) LEFT the
+  ;; facade under rf2-kuky.72 and is now rowed at its producing home — see the
+  ;; re-frame.trace.projection section below.
   ;; Epoch history re-exports (canonical home: re-frame.epoch) — §Tool-Pair.
   ;;
   ;; WHY THE SIX EPOCH JUSTIFICATIONS BELOW READ DIFFERENTLY FROM THEIR 31
@@ -2462,6 +2459,20 @@
   ["re-frame.story" "layout-debug-pseudo-id"]        {:tier :tooling :owner "007" :status "post-v1 lib"
                                                      :action :keep
                                                      :justification "The id of the built-in layout-debug pseudo-state decorator. Completes the layout-debug decorator id trio."}
+
+  ;; =========================================================================
+  ;; re-frame.trace.projection — the Spec 009 event-bundle projection.
+  ;; Its two public fns used to be rowed at `re-frame.core` facade twins whose
+  ;; justification read "the producing home, re-frame.trace.tooling, carries no
+  ;; manifest rows, so there is no clearer door to move to". That named the
+  ;; WRONG home: the producing home is re-frame.trace.projection, it is the
+  ;; namespace every tool already requires directly (Xray's self_noise.cljc
+  ;; composes it over the buffer it just read), and the facade twins had zero
+  ;; consumers. rf2-kuky.72 deleted the twins and enrolled the home, so these
+  ;; are ordinary home rows and carry no facade-audit axes.
+  ;; =========================================================================
+  ["re-frame.trace.projection" "group-by-event"]         {:tier :tooling :owner "009" :status "v1 (dev-only)"}
+  ["re-frame.trace.projection" "domino-bucket"]          {:tier :tooling :owner "009" :status "v1 (dev-only)"}
 
   ;; =========================================================================
   ;; re-frame.mcp-base.* — MCP support namespaces (day8/re-frame2-mcp-base).

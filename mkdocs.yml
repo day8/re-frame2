@@ -327,6 +327,7 @@ nav:
     - "re-frame.ssr.ring": api/re-frame.ssr.ring.md
     - "re-frame.epoch": api/re-frame.epoch.md
     - "re-frame.performance": api/re-frame.performance.md
+    - "re-frame.trace.projection": api/re-frame.trace.projection.md
     - "re-frame.adapter.reagent": api/re-frame.adapter.reagent.md
     - "re-frame.adapter.uix": api/re-frame.adapter.uix.md
     - "re-frame.hicasso": api/re-frame.hicasso.md
