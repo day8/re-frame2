@@ -340,7 +340,18 @@
                       :frame      frame-id
                       :event      origin-event
                       :sensitive? sensitive?}
-        ctx          (rf.http.middleware/run-interceptor-chain! frame-id ctx0)
+        ;; rf2-v3f6 — CAPTURE THE CHAIN HERE, before the `:before` walk is
+        ;; entered. This same vector drives the `:before` walk below, the
+        ;; `:after` walk at response time and every retry attempt, so a
+        ;; registration made mid-flight — including one made from INSIDE a
+        ;; `:before` running on the very next line — joins only requests
+        ;; that capture their chain afterwards. Capturing at the
+        ;; `:middleware-ctx` site below would already be too late: the
+        ;; `:before` walk has returned by then, so an interceptor it
+        ;; registered would be in the snapshot without having run its own
+        ;; `:before` (Spec 014 §Chain order and frame scope).
+        chain        (rf.http.middleware/capture-chain frame-id)
+        ctx          (rf.http.middleware/run-interceptor-chain! frame-id chain ctx0)
         ;; rf2-93bck — validate the required `:url` AFTER the `:before`
         ;; chain produces the final `:request` (a `:before` may legitimately
         ;; SET the url). Throws `:rf.error/http-bad-request` on a missing /
@@ -380,8 +391,14 @@
         ;; in the `:after`, which is what makes request-correlated
         ;; response handling (response-time telemetry, header-driven
         ;; auth refresh, …) expressible in a single interceptor.
+        ;; rf2-v3f6 — the captured chain rides the INTERNAL normalised ctx
+        ;; beside `:middleware-ctx`, never the middleware-ctx itself: that
+        ;; map is the user-visible `ctx` every `:after` receives and Spec
+        ;; 014's ctx table enumerates its keys, so a `:chain` slot there
+        ;; would leak a runtime internal into a public contract.
         normalised0  (assoc (normalise-args args-map' frame-ctx')
-                            :middleware-ctx ctx)
+                            :middleware-ctx    ctx
+                            :interceptor-chain chain)
         request-id   (:request-id normalised0)
         ;; rf2-azcmd3 — allocate this request's monotonic per-request-id
         ;; ISSUANCE number BEFORE superseding the prior in-flight request, so
