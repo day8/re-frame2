@@ -1354,7 +1354,7 @@ Process-level state mutation outside the registrar — installing or tearing dow
 
 ```clojure
 (rf.substrate.adapter/install-adapter! reagent-adapter/adapter)   ;; bang — installs runtime
-(schemas/set-schema-fns! {:validate my-validator-fn})             ;; bang — swaps a global
+(rf.schemas/set-schema-fns! {:validate my-validator-fn})          ;; bang — swaps a global
 ```
 
 ### 4. Dispatch and subscribe — **no bang**
@@ -1443,8 +1443,8 @@ The opts-map sub-keys mix two shapes: cross-surface policy slots use a namespace
 
 For substitution points where the consumer hands the framework a **specific implementation** (a function or component) that the framework will hold a strong reference to and call from arbitrary sites. The bang earns its keep because the surface mutates an implementation-defined process-level slot (per [§Naming](#naming-when-does-a-surface-carry-) bucket 3).
 
-- `(rf.substrate.adapter/install-adapter! reagent/adapter)` — install the reactive-substrate adapter (apps call `(rf/init! reagent/adapter)`; this is the owning-ns primitive beneath it)
-- `(schemas/set-schema-fns! {:validate malli.core/validate :explain malli.core/explain})` — swap the schema validator and explainer (on `re-frame.schemas`, not the `re-frame.core` front porch)
+- `(rf.substrate.adapter/install-adapter! reagent-adapter/adapter)` — install the reactive-substrate adapter (apps call `(rf/init! reagent-adapter/adapter)`; this is the owning-ns primitive beneath it)
+- `(rf.schemas/set-schema-fns! {:validate malli.core/validate :explain malli.core/explain})` — swap the schema validator and explainer (on `re-frame.schemas`, not the `re-frame.core` front porch)
 
 These are NOT folded under `configure` because keyword-keyed addressing loses the type information that the consumer needs to pass an actual fn/component reference: `configure` is for *data*, `set-!` is for *impls*.
 
