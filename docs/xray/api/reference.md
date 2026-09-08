@@ -27,7 +27,7 @@ The canonical facade. The day-to-day require for host integrations: mount contro
 | `configure!` | `(configure! opts)` → nil | Top-level config — re-exported from `config`. See [Configuration keys](config-keys.md). |
 | `set-auto-open!` | `(set-auto-open! bool)` → nil | Re-exported from `config`. Whether the preload auto-opens. |
 | `set-editor!` | `(set-editor! editor)` → nil | Re-exported from `config`. Sets the "Open in editor" preference. |
-| `set-show-sensitive!` | `(set-show-sensitive! bool)` → nil | Re-exported from `config`. Cross-tool `:rf.privacy/show-sensitive?` flag. |
+| `set-egress-profile!` | `(set-egress-profile! profile)` → nil | Re-exported from `config`. Xray's on-box `:rf.xray/egress-profile` privacy gate. |
 
 ## `day8.re-frame2-xray.config`
 
@@ -37,13 +37,13 @@ The full configuration surface. Reach here when you're flipping a knob the facad
 
 | Symbol | Signature | Intuition |
 | --- | --- | --- |
-| `configure!` | `(configure! opts)` → nil | Top-level config. Map keyed by `:rf.xray/*` and `:rf.privacy/*`. |
+| `configure!` | `(configure! opts)` → nil | Top-level config. Map keyed by `:rf.xray/*`. |
 | `set-editor!` | `(set-editor! editor)` → nil | Editor preference. `:vscode` (default) / `:cursor` / `:windsurf` / `:zed` / `:idea` / `{:custom <tpl>}`. |
 | `set-project-root!` | `(set-project-root! path)` → nil | On-disk root prepended to classpath-relative `:file` slots before editor URIs ship. |
 | `set-layout-host-selector!` | `(set-layout-host-selector! css-selector)` → nil | CSS selector for the auto-open path. Default `[data-rf-xray-host]`. |
 | `set-auto-open!` | `(set-auto-open! bool)` → nil | Whether the preload auto-opens on adapter readiness. Default `true`. |
 | `set-keybinding-enabled!` | `(set-keybinding-enabled! bool)` → nil | Whether `keybinding/attach!` installs the global listener. Default `true`. |
-| `set-show-sensitive!` | `(set-show-sensitive! bool)` → nil | Cross-tool `:rf.privacy/show-sensitive?` flag. Default `false`. |
+| `set-egress-profile!` | `(set-egress-profile! profile)` → nil | Xray's on-box `:rf.egress/*` privacy gate, per `(tool, frame)`. Default `:rf.egress/local-redacted`; `:rf.egress/local-raw` is the trusted-local opt-in. Narrowing back clears the trace buffer. |
 | `set-filter-seed!` | `(set-filter-seed! seed-map)` → nil | Host-supplied seed pill set applied to `:active-filters` as the boot baseline — reapplied on every load after the transient-filter reset, not a first-install-only value. Shape: `{:in [{...}] :out [{...}]}`. |
 | `set-filters-storage-key!` | `(set-filters-storage-key! key)` → nil | localStorage key the filter persistence layer uses. Default `"re-frame2.xray.filters.v1"`. |
 | `update-setting!` | `(update-setting! path value)` → nil | Set one Settings slot. `path` is a vector into the settings map. |
