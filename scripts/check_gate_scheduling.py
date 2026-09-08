@@ -236,29 +236,6 @@ DISPOSITIONS: dict[str, dict] = {
                "`^re-frame\\.testbed\\..+-cljs-test$` — again a strict subset "
                "of `cljs-test$`, so the scheduled consolidated lane runs them",
     },
-    # rf2-kuky.82 AMEND 2(c).  The one DECLARED HOLE in this file, and it is
-    # NOT `covered-by: test:cljs` even though its namespace does ride that
-    # lane.  `:node-test-xray-manual-epoch` selects the same single
-    # `-cljs-test$` namespace the consolidated build already runs, so on the
-    # rule the two siblings above use this would read as a strict subset —
-    # and that reading would be exactly wrong.  The teeth of this gate are
-    # the DEPENDENCY GRAPH, not the assertions: it proves `install.cljs`'s
-    # bare `[re-frame.epoch]` require is what loads the epoch producer on the
-    # manual `core/init!` startup path, and the consolidated bundle also
-    # loads `day8.re-frame2-xray.preload`, which carries the identical
-    # anchor.  So `test:cljs` runs the assertions and cannot fail them in
-    # either world.  Claiming cover here would be a premise that reads true
-    # and grades nothing — the class this checker exists to refuse.
-    "test:xray-manual-epoch": {
-        "kind": "unscheduled",
-        "bead": "rf2-zwgx",
-        "why": "the focused build landed with no CI home because "
-               "`.github/workflows/**` was fenced to a peer worker on the "
-               "tick that built it — the same fence that made "
-               "`test:hicasso-controlled` and `test:hicasso-hmr` declare "
-               "themselves here before rf2-ga8m / rf2-hic-015 gave them "
-               "jobs. rf2-zwgx owes the step and the deletion of this entry",
-    },
     "test:cljs-isolation": {
         "kind": "ci-runs-it-directly",
         "probe": "node scripts/check-per-ns-isolation.cjs",
@@ -302,20 +279,47 @@ DISPOSITIONS: dict[str, dict] = {
     # green — and a declared hole that outlives its gate's schedule is the
     # same class of lie as an undeclared one, told the other way round.
     #
-    # ONE DECLARED HOLE REMAINS — `test:xray-manual-epoch` (rf2-zwgx), the
-    # entry above.  This sentence has twice said the opposite while a hole sat
-    # beneath it, so read the SUMMARY LINE this script prints (`N of them
-    # known holes with beads`) rather than this comment: a checker asserting
-    # its own completeness in prose is the failure mode, not the check.
+    # `test:xray-manual-epoch` (rf2-zwgx, filed by rf2-kuky.82 AMEND 2(c)) was
+    # the last declared hole, and it is DELETED.  The manual-only
+    # epoch-delivery witness landed with no CI home because
+    # `.github/workflows/**` was fenced to a peer worker on the tick that
+    # built it — the same fence the two hicasso entries below hit — and
+    # rf2-zwgx landed the missing half: a step of test.yml's `cljs` job.
+    # No classifier arm and no job of its own, because every input that can
+    # change `:node-test-xray-manual-epoch`'s output
+    # (tools/xray/{src,test}/**.{cljs,cljc}, implementation/shadow-cljs.edn)
+    # already arms `cljs_node_test`, which is what lights that job.
     #
-    # `test:hicasso-hmr` (rf2-hic-015) was that entry, and it is DELETED.  The
-    # Hicasso HMR gate — the only surface in the repo that drives a REAL hot
-    # reload, 36 reloads and 105 checks per engine through `shadow-cljs watch`
-    # in Chromium, Firefox and WebKit — landed green under rf2-vsgq and ran
-    # nowhere, because rf2-vsgq's fence stopped at the browser test tree.  It
-    # declared itself here rather than go silently unrun.  rf2-hic-015 landed
-    # the missing half: the required `cljs-hicasso-hmr` job, its `hicasso_hmr`
-    # classifier arm, and the matching _changed-surfaces.test.cjs rows.
+    # WHAT THE rf2-zwgx ENTRY KNEW, kept because the choice of home rests on
+    # it: this gate is NOT `covered-by: test:cljs`, even though it does ride
+    # that lane.  `:node-test-xray-manual-epoch` selects the same single
+    # `-cljs-test$` namespace the consolidated build already runs, so on the
+    # rule the `test:security` / `test:testbed-support` siblings above use it
+    # would read as a strict subset — and that reading would be exactly wrong.
+    # The teeth are the DEPENDENCY GRAPH, not the assertions: the gate proves
+    # `install.cljs`'s bare `[re-frame.epoch]` require is what loads the epoch
+    # producer on the manual `core/init!` startup path, and the consolidated
+    # bundle also loads `day8.re-frame2-xray.preload`, which carries the
+    # identical anchor.  So `test:cljs` runs the assertions and cannot fail
+    # them in either world.  Claiming cover would have been a premise that
+    # reads true and grades nothing — the class this checker exists to refuse.
+    #
+    # DO NOT WRITE A COUNT HERE.  The sentence that stood at this spot twice
+    # said no holes remained while one sat beneath it, and then said ONE
+    # REMAINS until this deletion.  Read the SUMMARY LINE this script prints
+    # (`N of them known holes with beads`) rather than any prose here: a
+    # checker asserting its own completeness in prose is the failure mode, not
+    # the check.
+    #
+    # `test:hicasso-hmr` (rf2-hic-015) was the entry before that, and it is
+    # DELETED too.  The Hicasso HMR gate — the only surface in the repo that
+    # drives a REAL hot reload, 36 reloads and 105 checks per engine through
+    # `shadow-cljs watch` in Chromium, Firefox and WebKit — landed green under
+    # rf2-vsgq and ran nowhere, because rf2-vsgq's fence stopped at the browser
+    # test tree.  It declared itself here rather than go silently unrun.
+    # rf2-hic-015 landed the missing half: the required `cljs-hicasso-hmr` job,
+    # its `hicasso_hmr` classifier arm, and the matching
+    # _changed-surfaces.test.cjs rows.
     #
     # TWO THINGS THE DELETED ENTRY KNEW, kept because the job now depends on
     # both.  It needs a `shadow-cljs watch` and shadow's own `:dev-http` on

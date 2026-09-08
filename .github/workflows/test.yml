@@ -3269,6 +3269,38 @@ jobs:
       - name: Per-namespace test-isolation gate
         run: node scripts/check-per-ns-isolation.cjs
 
+      # THE MANUAL-ONLY EPOCH-DELIVERY WITNESS (rf2-zwgx, filed by
+      # rf2-kuky.82 AMEND 2(c)). Same family as the two isolation steps above
+      # — a claim about what a GRAPH loads, which the consolidated bundle
+      # cannot make. `:node-test-xray-manual-epoch` compiles ONE namespace
+      # whose require list reaches `re-frame.epoch` through
+      # `day8.re-frame2-xray.install` and nowhere else, then proves a manual
+      # `core/init!` alone receives a dispatched event's assembled epoch.
+      #
+      # Its ASSERTIONS already ride the consolidated bundle above (the
+      # namespace ends `-cljs-test`, so `:node-test`'s `cljs-test$` selects
+      # it). What runs ONLY here is the dependency-graph half: that bundle
+      # also loads `day8.re-frame2-xray.preload`, which carries the identical
+      # anchor, so the assertions pass whether or not `install.cljs` still
+      # spells its `[re-frame.epoch]` require. That is why the gate is not
+      # declared `covered-by: test:cljs` in scripts/check_gate_scheduling.py
+      # — a cover that reads true and grades nothing is the class that
+      # checker exists to refuse.
+      #
+      # A STEP IN THIS JOB RATHER THAN A JOB OF ITS OWN, for the reason the
+      # release build below gives at length. Every input that can change this
+      # build's output — tools/xray/{src,test}/**.{cljs,cljc} and
+      # implementation/shadow-cljs.edn — already arms `cljs_node_test`
+      # (measured against the classifier, not assumed), so it needs no
+      # classifier arm of its own and adds no condition to keep in sync. A
+      # dedicated job would pay a second JDK + Clojure CLI + `npm ci` +
+      # Maven-cache setup for one focused compile, and would add a required
+      # check to the rollup to buy nothing this step does not already buy.
+      # Cheap enough to sit here rather than last: one namespace and its
+      # closure, against the ~10-minute consolidated compile above.
+      - name: Xray manual-only epoch-delivery witness (graph isolation)
+        run: npm run test:xray-manual-epoch
+
       # Hicasso modules compile (rf2-2rtt6.73, rf2-okhdf, rf2-peorl; its own
       # script since rf2-6c12m.1). The ONE warnings-fatal compile of what no
       # other gate judges: the optional modules (motion / overlay / forms /
