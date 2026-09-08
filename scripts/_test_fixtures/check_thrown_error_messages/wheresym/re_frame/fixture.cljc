@@ -157,3 +157,42 @@
 
 #?(:clj  (defn conditional-defined-public [] nil)
    :cljs (defn conditional-defined-public [] nil))
+
+;; ---- SPLICING READER-CONDITIONALS: THE POSITION IS THE WHOLE RULE ---------
+;;
+;; Audit #9515's residual on the repair above, and it points the OTHER WAY.
+;; `#?@` means opposite things in the two places it can stand: at file top
+;; level there is no collection to splice into, so it is a reader ERROR and
+;; interns nothing; inside a collection it is ordinary legal Clojure. The
+;; composed-prefix repair consumed it in BOTH, so the legal splice below was
+;; discarded as though it were the illegal one and `splice-in-do-public` went
+;; MISSING from the derived set — a FALSE RED, where a where-sym naming a var
+;; that genuinely exists reds a correct PR. Every other case in this file
+;; tests green-should-be-red, which is exactly why none of them saw it.
+;;
+;; THE ENCLOSING COLLECTION IS THE ONLY THING MAKING THESE LEGAL, which is the
+;; adversarial property the composed-prefix cases have one direction along:
+;; strip the `do` from the first and what is left is a top-level `#?@` that
+;; interns nothing. So a repair that loses the top-level/inside-a-collection
+;; distinction cannot satisfy this file and the positive one at the same time.
+;;
+;; BOTH RUNTIMES WERE ASKED, AND THEY DISAGREE ON ONE ROW ON PURPOSE. JVM
+;; `load-file` + `ns-publics` interns the first two; a `:cljs`-feature reader
+;; oracle interns all three, and it is the ONLY one that sees
+;; `splice-cljs-only-public`. A JVM-only oracle would call that door dead —
+;; the same false red one runtime along, and the reason the derived set here
+;; is deliberately feature-agnostic.
+
+(do #?@(:clj  [(defn splice-in-do-public [] :live)]
+        :cljs [(defn splice-in-do-public [] :live)]))
+
+#?(:clj  (do #?@(:clj  [(defn splice-in-conditional-do-public [] :live)]))
+   :cljs (do #?@(:cljs [(defn splice-in-conditional-do-public [] :live)])))
+
+(do #?@(:cljs [(defn splice-cljs-only-public [] :live)]))
+
+;; The DISCARDED twin, body for body — `#_` neutralises the whole `do`, splice
+;; and all, so this name must stay absent however far the splice repair goes.
+
+#_(do #?@(:clj  [(defn ghost-splice-discarded [] nil)]
+          :cljs [(defn ghost-splice-discarded [] nil)]))

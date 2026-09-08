@@ -191,3 +191,35 @@
     :rf.error/ok-twentytwo
     'rf.fixture/conditional-defined-public
     "`#?(:clj (defn conditional-defined-public ...))` interns the var"))
+
+;; ---- LIVE SPLICING CONDITIONALS: the false-RED direction (audit #9515) ----
+;;
+;; `(do #?@(:clj [(defn ...)]))` is legal Clojure and interns its var, but the
+;; composed-prefix repair consumed `#?@` wherever it met one — including
+;; inside a `do` body, which `_public_names_defined_by` walks by re-entering
+;; the same walker. All three doors below went dead in the oracle, so these
+;; three correct calls reddened.
+;;
+;; PINNED AS OBSERVED, and here that matters more than anywhere else in this
+;; file: these are the sites a FALSE RED fires on, so the regression they
+;; guard is the gate REPORTING them. A findings assertion alone cannot
+;; separate "resolves" from "never seen", and the third one resolves only
+;; because the oracle is feature-agnostic — a `:cljs`-only door.
+
+(defn splice-in-do-var-resolves []
+  (rf.error/throw-error!
+    :rf.error/ok-twentythree
+    'rf.fixture/splice-in-do-public
+    "`(do #?@(:clj [(defn splice-in-do-public ...)]))` interns the var"))
+
+(defn splice-in-conditional-do-var-resolves []
+  (rf.error/throw-error!
+    :rf.error/ok-twentyfour
+    'rf.fixture/splice-in-conditional-do-public
+    "a splice inside a `do` inside a reader-conditional interns it too"))
+
+(defn splice-cljs-only-var-resolves []
+  (rf.error/throw-error!
+    :rf.error/ok-twentyfive
+    'rf.fixture/splice-cljs-only-public
+    "a :cljs-ONLY door: live under ClojureScript, invisible to a JVM oracle"))

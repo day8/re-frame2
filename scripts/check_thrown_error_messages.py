@@ -1274,7 +1274,9 @@ def _datum_end(text: str, i: int) -> int:
     return j if j > i else i + 1
 
 
-def _top_level_forms(masked: str) -> Iterable[str]:
+def _top_level_forms(
+    masked: str, *, at_reader_top_level: bool = True
+) -> Iterable[str]:
     """Every balanced top-level `( … )` form in comment-masked text, MINUS the
     ones the READER neutralises — see the prefix note above.
 
@@ -1283,6 +1285,12 @@ def _top_level_forms(masked: str) -> Iterable[str]:
     before, because this walker also serves `do` bodies and reader-conditional
     ARMS (`_public_names_defined_by`), where the leading `:clj` / `:cljs`
     keyword has to be walked past rather than parsed.
+
+    `at_reader_top_level` IS THE ONE THING THOSE TWO USES DO NOT SHARE, and it
+    governs exactly one construct: `#?@`. It is a reader error at file top
+    level and legal inside a collection, so the same text means different
+    things depending on which caller is walking it. Callers walking the inside
+    of a form pass False.
     """
     i = 0
     n = len(masked)
@@ -1299,11 +1307,26 @@ def _top_level_forms(masked: str) -> Iterable[str]:
             # is spelled: `'(defn …)`, `'#?(:clj (defn …))`, `` `#?(…) ``.
             i = _datum_end(masked, i)
             continue
-        if masked.startswith("#?@", i):
-            # Splicing is a reader ERROR at the top level, so it interns
-            # nothing; consume it rather than descending into its arms. Inside
-            # a collection it is legal, and that path is unchanged — the arms
-            # are reached through the enclosing form.
+        if at_reader_top_level and masked.startswith("#?@", i):
+            # SPLICING IS POSITIONAL, AND THE TWO POSITIONS ARE OPPOSITE.
+            # At TRUE file top level `#?@` is a reader ERROR — there is no
+            # collection to splice into — so it interns nothing and is
+            # consumed here. INSIDE a collection it is ordinary legal Clojure,
+            # and this walker also serves `do` bodies and reader-conditional
+            # arms, both of which ARE inside one. Those two callers pass
+            # `at_reader_top_level=False`, so `(do #?@(:clj [(defn foo …)]))`
+            # is descended and contributes `foo`.
+            #
+            # THE FIRST VERSION OF THIS BRANCH CONSUMED IT UNCONDITIONALLY
+            # (rf2-z5lv, audit #9515) and the comment claimed the collection
+            # path was "unchanged — the arms are reached through the enclosing
+            # form". It is not: `_public_names_defined_by` re-enters THIS
+            # function for a `do` body, so a legal splice was discarded as
+            # though it were an illegal file-top-level one and a real public
+            # var went missing from the oracle. That is a FALSE RED — a
+            # where-sym naming a var that genuinely exists reds a correct PR —
+            # and it is the opposite direction from every other case this
+            # walker guards, which is why the fixtures did not see it.
             i = _datum_end(masked, i)
             continue
         if c == "(":
@@ -1330,11 +1353,15 @@ def _public_names_defined_by(form: str) -> list[str]:
     # only argument is returned WITH it and matches no symbol pattern. That
     # is not hypothetical: it is what hid every `(import-fn …)` re-export.
     body = form[m.end():-1]
+    # BOTH RECURSIONS BELOW ARE INSIDE A COLLECTION, so both switch the walker
+    # out of reader-top-level mode: a reader-conditional's `(:clj … :cljs …)`
+    # arm list and a `(do …)` body are each a list the reader is part-way
+    # through, which is exactly where `#?@` is legal (see `_top_level_forms`).
     if _PLATFORM_KEYWORD_RE.match(raw_head):
-        return [n for f in _top_level_forms(form[1:-1])
+        return [n for f in _top_level_forms(form[1:-1], at_reader_top_level=False)
                 for n in _public_names_defined_by(f)]
     if head in _TRANSPARENT_DEF_WRAPPERS:
-        return [n for f in _top_level_forms(body)
+        return [n for f in _top_level_forms(body, at_reader_top_level=False)
                 for n in _public_names_defined_by(f)]
     if head == "import-fn":
         # `(import-fn <ns>/<name>)` interns `<name>` in THIS namespace.
@@ -2855,11 +2882,20 @@ def _run_where_sym_self_tests(verbose: bool = False) -> int:
     # the other direction: the oracle fixture writes it as a LIVE `#?(…)` with
     # a body identical to the discarded one, so an inert-set widened until it
     # swallows reader-conditionals costs this name and the exact set says so.
+    #
+    # The three `splice-…-public` names are audit #9515's residual and they
+    # are the only entries here that guard the FALSE-RED direction: each is
+    # defined by a LIVE `#?@` inside a collection, which the composed-prefix
+    # repair consumed as though it were an illegal top-level splice. A name
+    # MISSING from this set is the failure they pin, where every other entry
+    # pins a fictitious one being present.
     expected_publics = {
         "known-var", "known-public", "known-macro", "known-multi",
         "no-doc-public", "cljs-only-public", "clj-only-public",
         "Panel", "imported-fn", "do-defined-public",
         "conditional-defined-public",
+        "splice-in-do-public", "splice-in-conditional-do-public",
+        "splice-cljs-only-public",
     }
     got_publics = index.publics_of("re-frame.fixture")
     if got_publics != expected_publics:
@@ -2884,6 +2920,55 @@ def _run_where_sym_self_tests(verbose: bool = False) -> int:
     # never opened — here it would silently green every where-sym naming it.
     if index.publics_of("re-frame.nosuch") is not None:
         fail("an undefined namespace must answer None, not an empty public set")
+
+    # ---- `#?@` IS POSITIONAL, AND NO FIXTURE FILE CAN HOLD BOTH POSITIONS --
+    #
+    # A file-top-level `#?@` is a reader ERROR, so a fixture carrying one is
+    # unreadable by the very reader that corroborates the exact set above —
+    # the whole file interns nothing, `known-var` included. The two positions
+    # therefore cannot share a file, and the top-level half is asserted here
+    # over source text instead. The inside-a-collection half is asserted BOTH
+    # ways: here, and by the three `splice-…-public` names above.
+    #
+    # THESE ARE ADVERSARIAL AGAINST THE REPAIR ITSELF, which is what the file
+    # fixtures cannot be. Delete the `at_reader_top_level` flag and descend
+    # into every `#?@`, and every fixture file still passes — the live twins
+    # resolve, and the discarded twin stays inert because `#_` neutralises it
+    # regardless. Only the FIRST row below goes red.
+    position_cases: list[tuple[str, str, set[str]]] = [
+        ("a file-top-level splice interns nothing: there is no collection to "
+         "splice into, so the reader errors",
+         "#?@(:clj [(defn spliced [] nil)] :cljs [(defn spliced [] nil)])",
+         set()),
+        ("a splice inside a `do` body is ordinary legal Clojure",
+         "(do #?@(:clj [(defn spliced [] nil)] :cljs [(defn spliced [] nil)]))",
+         {"spliced"}),
+        ("... and inside a `do` inside a reader conditional, where the walker "
+         "re-enters itself twice",
+         "#?(:clj (do #?@(:clj [(defn spliced [] nil)])))",
+         {"spliced"}),
+        ("a DISCARDED `do` takes the splice with it",
+         "#_(do #?@(:clj [(defn spliced [] nil)]))",
+         set()),
+    ]
+    position_failures = 0
+    for why, source, expected in position_cases:
+        got = {n for f in _top_level_forms(source)
+               for n in _public_names_defined_by(f)}
+        if got != expected:
+            position_failures += 1
+            fail(
+                f"`#?@` position — {why}\n"
+                f"      source   {source}\n"
+                f"      expected {sorted(expected)}\n"
+                f"      got      {sorted(got)}"
+            )
+    if verbose and not position_failures:
+        sys.stderr.write(
+            f"where-sym self-test PASS: all {len(position_cases)} `#?@` "
+            "position case(s) — inert at file top level, live inside a "
+            "collection\n"
+        )
 
     # ---- the two fixture files, pinned by (line, kind, symbol) --------------
     cases: list[tuple[str, tuple[tuple[int, str, str], ...]]] = [
@@ -2950,6 +3035,12 @@ def _run_where_sym_self_tests(verbose: bool = False) -> int:
              "rf.fixture/ghost-discarded-splice"),
             (279, "where-sym-unresolvable", "rf.fixture/ghost-stacked-first"),
             (285, "where-sym-unresolvable", "rf.fixture/ghost-stacked-second"),
+            # (8) a DISCARDED `do` around a live-looking splice — audit
+            # #9515. Its three LIVE twins resolve in the negative fixture and
+            # are pinned OBSERVED there; this is the half that must FIRE, and
+            # the pair is what separates "the splice repair is positional"
+            # from "the walker descends into every `#?@` it meets".
+            (299, "where-sym-unresolvable", "rf.fixture/ghost-splice-discarded"),
         )),
         (_WHERE_SYM_NEGATIVE, ()),
     ]
@@ -2979,7 +3070,7 @@ def _run_where_sym_self_tests(verbose: bool = False) -> int:
     neg_path = _WHERE_SYM_FIXTURE_ROOT / _WHERE_SYM_NEGATIVE
     neg_text = neg_path.read_text(encoding="utf-8", errors="replace")
     neg_observed = _scan_where_syms(neg_path, neg_text, neg_text.splitlines())
-    if len(neg_observed) < 22:
+    if len(neg_observed) < 25:
         fail(
             f"the negative fixture observed only {len(neg_observed)} where-sym(s). "
             "A green there is only evidence while the sites are still being SEEN "
@@ -3008,6 +3099,18 @@ def _run_where_sym_self_tests(verbose: bool = False) -> int:
         # fixture's discarded one. Green here alone would also be what a
         # detector blind to the whole site looks like, so it is pinned SEEN.
         (190, "builder", "rf.fixture/conditional-defined-public"),
+        # THE THREE LIVE SPLICING TWINS — audit #9515, and the direction is
+        # reversed here. Everywhere else in this tuple an OBSERVED pin guards
+        # a site going UNSEEN; these three guard the gate REPORTING them,
+        # because each names a var a live `#?@` really does intern and the
+        # composed-prefix repair had stopped seeing. Green here alone would
+        # equally be what a detector blind to the whole site looks like, so
+        # they are pinned SEEN, and their discarded twin fires in the
+        # positive fixture. The third resolves ONLY because the oracle is
+        # feature-agnostic: it is a `:cljs`-only door, dead to a JVM oracle.
+        (210, "builder", "rf.fixture/splice-in-do-public"),
+        (216, "builder", "rf.fixture/splice-in-conditional-do-public"),
+        (222, "builder", "rf.fixture/splice-cljs-only-public"),
     )
     got_observations = {(w.line, w.source, w.symbol) for w in neg_observed}
     for pin in required_observations:
