@@ -44,7 +44,23 @@ Two moves. The **frame** says where its error records go; you register the concr
 
 The `:observability` map on the frame is a **policy**, not a callback: `:errors` lists the sink ids that receive this frame's error records, and each entry's `:rf.egress/profile` names the boundary the data is allowed to cross. That profile is what decides how much survives projection — §5 is where you choose it deliberately. `register-observability-sink!` binds the function to the id; it returns the `sink-id`, re-registering the same id replaces it, and a throwing sink is isolated from its siblings.
 
-Routing is **fail-closed**: a frame with no `:observability` policy routes *nothing*, and there is no `:rf/default` synthesised on your behalf, so you can't leak from a frame you never classified. Declaring the policy is not the same as routing, either — an entry naming a sink id you never registered routes nowhere, visibly and on purpose.
+Routing is **fail-closed**: with no policy in reach nothing routes, and there is no `:rf/default` synthesised on your behalf, so you can't leak from a frame you never classified. Declaring the policy is not the same as routing, either — an entry naming a sink id you never registered routes nowhere, visibly and on purpose.
+
+### Declare it once for the whole process
+
+Sentry is a property of the *deployment*, not of any one frame, and most apps have more than one frame. So the same policy can be declared once at boot and inherited:
+
+```clojure
+  ;; (a′) instead of restating it on every make-frame
+  (rf/configure! {:observability {:errors [{:sink :app.sinks/sentry
+                                            :rf.egress/profile :rf.egress/off-box-observability}]}})
+```
+
+A frame then only needs its own `:observability` when it *differs*. Inheritance is **per stream**: a frame that declares `:errors` uses its own entries for errors and still inherits the default's `:handled-events`, and `{:errors []}` — the stream named with no sinks — is how one frame opts out. Exactly one source is consulted per record, so a sink id in both fires once. What a frame inherits is the **sink list**, never the redaction authority: its records are still projected under *its* classification, so an admin frame that classifies more redacts more while sharing the same Sentry entry.
+
+This also closes a gap the frame key alone cannot. Some error records have **no frame to ask** — an error raised with no frame in scope, a server-side hydration parse that failed before any frame existed, a teardown report from a frame that is already gone. Those reach the process default and nothing else, projected as though no frame vouched for them: the ids you triage on survive, the payload comes through `:rf/redacted`. A dead frame's id rides along as a diagnostic, and is never re-resolved — if a new frame has since taken that id, the dead one's report does **not** land in its sink.
+
+Two things behave unlike the other `configure!` keys, both on purpose. `(rf/configure! {:observability nil})` **clears** the default — a deployment must be able to take a policy out without knowing what put it in. And the policy is checked *at the call*: a malformed one throws `:rf.error/bad-frame-classification` immediately rather than installing quietly and surfacing weeks later as a record that never arrived.
 
 That's a working bridge — but it's naive in three ways we'll fix in turn: it registers in dev too, it assumes every record carries an `:exception` (some don't), and it ships nothing useful about *what* the app was doing. The rest of this page is those three fixes.
 
@@ -125,7 +141,7 @@ So why can the `:exception` be absent? Most failures carry the host throwable, b
 - `:rf.error/frame-destroyed` — an operation targeted a frame whose lifecycle already ended (a callback fired after teardown).
 - `:rf.error/write-after-destroy` — a write to app-db was suppressed because the target frame was already gone (the write-path partner of `frame-destroyed`).
 - `:rf.error/override-fallthrough` — an [image](../glossary.md#image) (the sealed set of [registrations](../glossary.md#registration) a frame resolves against) resolved to no provider for an overridden id.
-- `:rf.error/no-frame-context` — a frame-scoped op (a `subscribe` / `dispatch` using the ambient 1-arity `rf/` forms) ran with **no frame in scope** — the classic "a plain Reagent function can't see its frame" footgun, or a native async callback whose continuation fired after the run had already unwound. This record is itself **frameless** (`:frame nil`), so no frame policy can route it and it never reaches a sink at all — §8 is the seat that sees it. ([Frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found) — and a callback that lost its frame is the price of breaking that rule; capture a [capture-frame](../glossary.md#capture-frame) before the async boundary to avoid it.)
+- `:rf.error/no-frame-context` — a frame-scoped op (a `subscribe` / `dispatch` using the ambient 1-arity `rf/` forms) ran with **no frame in scope** — the classic "a plain Reagent function can't see its frame" footgun, or a native async callback whose continuation fired after the run had already unwound. This record is itself **frameless** (`:frame nil`), so no *frame* policy can route it — a process default (§1) or §8's listener is the seat that sees it. ([Frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found) — and a callback that lost its frame is the price of breaking that rule; capture a [capture-frame](../glossary.md#capture-frame) before the async boundary to avoid it.)
 - `:rf.error/bad-frame-provider-arg` — a public [`frame-provider`](../glossary.md#frame-provider) got a non-nil `:frame` that was neither a frame id keyword nor a live frame value (a string, a number). Those two are the whole target grammar; this fails fast before the bad value reaches React context.
 - `:rf.error/machine-spawn-unregistered-type` — a runtime spawn of an unregistered [machine](../../machines/glossary.md#machine) (`:machine-id` with no inline `:definition`) was refused fail-closed. A structural-only record: `:machine-id`, `:frame`, `:reason`. (Machine *registration*-time rejections are dev-only and never reach this surface.)
 
@@ -202,7 +218,7 @@ Give it its own arm in front of the catch-all. (`case` dispatches on the value o
 
 !!! note "SSR categories ride the same union"
 
-    On the [server-side-rendering](../../ssr/glossary.md#ssr) tier, a handful of non-event categories arrive here too: `:rf.error/ssr-render-failed`, `:rf.error/ssr-streaming-writer-failed`, `:rf.error/malformed-hydration-payload`, `:rf.error/ssr-head-resolution-failed`, `:rf.error/sanitised-on-projection`, `:rf.error/ssr-ring-error-view-failed`, and `:rf.error/hydration-frame-id-mismatch`. They carry no `:event` / `:event-id`, each has its own flat keys (lifted onto `:tags` on the sink route, exactly as above), and some carry an `:exception` while others don't — one more reason the structural branch checks `:exception` presence rather than assuming it. The pre-frame hydration-parse path is *frameless*, so like `:rf.error/no-frame-context` it reaches §8's listener and never a sink.
+    On the [server-side-rendering](../../ssr/glossary.md#ssr) tier, a handful of non-event categories arrive here too: `:rf.error/ssr-render-failed`, `:rf.error/ssr-streaming-writer-failed`, `:rf.error/malformed-hydration-payload`, `:rf.error/ssr-head-resolution-failed`, `:rf.error/sanitised-on-projection`, `:rf.error/ssr-ring-error-view-failed`, and `:rf.error/hydration-frame-id-mismatch`. They carry no `:event` / `:event-id`, each has its own flat keys (lifted onto `:tags` on the sink route, exactly as above), and some carry an `:exception` while others don't — one more reason the structural branch checks `:exception` presence rather than assuming it. The pre-frame hydration-parse path is *frameless*, so like `:rf.error/no-frame-context` no frame policy can route it — a process default (§1) or §8's listener is where it lands.
 
 ## 5. Choose the profile — and know what survives elision
 
@@ -310,10 +326,10 @@ There is a second door, and it is a different *kind* of thing rather than a diff
     (audit/record! record)))
 ```
 
-Three things reach that seat and nothing else:
+Three things reach that seat and nothing else — though the first two only while you have declared **no process default** (§1):
 
-- **Frameless records.** A `:frame nil` record — `:rf.error/no-frame-context`, the pre-frame SSR hydration-parse path — has no owning frame to supply a policy, so no sink can ever route it.
-- **Records belonging to a frame that is already gone.** A known-dead-incarnation emission deliberately suppresses the sink route, so a dead frame's bare id can never resolve to a same-id successor's sink. The corpus fan-out still fires.
+- **Frameless records.** A `:frame nil` record — `:rf.error/no-frame-context`, the pre-frame SSR hydration-parse path — has no owning frame to supply a policy, so no *frame* sink can route it. A process default owns it, projected as though no frame vouched for it: ids intact, payload `:rf/redacted`.
+- **Records belonging to a frame that is already gone.** No frame's policy is consulted for these, so a dead frame's bare id can never resolve to a same-id successor's sink. A process default still delivers the record, keeping the dead id as a diagnostic; the corpus fan-out fires either way.
 - **Producer attribution.** `:failing-id`, the human `:reason` and the `:source-coord` definition site ride the corpus-wide record and are not carried on the sink route (§3's note).
 
 What is **not** on that list is the host `:exception`. It is tempting to read the corpus-wide door as "the one that keeps the throwable" — it isn't. The sink keeps the throwable too under the default profile; only `:rf.egress/public-error` drops it (§5). The discriminator is *independent corpus observation versus policy-selected projected delivery*, not the presence of a stack trace.

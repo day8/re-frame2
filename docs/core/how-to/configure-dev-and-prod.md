@@ -89,32 +89,34 @@ One term in the table below: a [**frame**](../glossary.md#frame) is one isolated
 
 | Lifetime | Surface | What lives there |
 |---|---|---|
-| Process-wide, the value is plain data | `(rf/configure! {key opts})` | `:epoch-history`, `:trace-buffer`, `:elision` |
+| Process-wide, the value is plain data | `(rf/configure! {key opts})` | `:epoch-history`, `:trace-buffer`, `:elision`, `:observability` |
 | Slot-level, the value is a swappable implementation | `set-…!` / `install-…!` | schema validator/explainer, substrate adapter |
 | One frame | frame config (`make-frame`) / `dispatch` opts | `:drain-depth`, `:observability`, `:fx-overrides` |
 
 ### The `configure!` bucket: process-wide data
 
-`configure!` takes a single nested map; its vocabulary is just three top-level keys, fixed-and-additive, shown here at their defaults:
+`configure!` takes a single nested map; its vocabulary is just four top-level keys, fixed-and-additive, shown here at their defaults:
 
 ```clojure
 (rf/configure!
   {:epoch-history {:depth 50}                       ;; how far time-travel rewinds
    :trace-buffer  {:events-retained 50}             ;; events held for dev tools
-   :elision       {:rf.size/threshold-bytes 16384}});; "too big for the wire"
+   :elision       {:rf.size/threshold-bytes 16384}   ;; "too big for the wire"
+   :observability nil})                             ;; production sinks; none by default
 ```
 
-A missing top-level key leaves that subsystem untouched, so you can pass just the one knob you want — `(rf/configure! {:trace-buffer {:events-retained 200}})` — or compose all three in one value. An unknown top-level key applies nothing, which is what lets a wrapper hand `configure!` a composed config without first filtering it.
+A missing top-level key leaves that subsystem untouched, so you can pass just the one knob you want — `(rf/configure! {:trace-buffer {:events-retained 200}})` — or compose all four in one value. An unknown top-level key applies nothing, which is what lets a wrapper hand `configure!` a composed config without first filtering it.
 
-Applying nothing is not the same as saying nothing, though. The three keys above are the whole closed vocabulary and they are *bare*, so a bare key the runtime doesn't recognise is almost always a typo of a real one — `{:epoch-histroy {:depth 100}}` silently tuning nothing is exactly the bug worth catching. In dev builds an unknown **bare** (or `rf`-namespaced) key emits `:rf.warning/unknown-configure-key`, naming what you typed and what the runtime reads. Your call still returns `nil` and still applies nothing — the warning is a signal, not a refusal — and it is compiled out of production entirely. A key under **your own namespace** (`:myapp/thing`) stays silent, so a wrapper composing its own config keys alongside re-frame2's is unaffected.
+Applying nothing is not the same as saying nothing, though. The four keys above are the whole closed vocabulary and they are *bare*, so a bare key the runtime doesn't recognise is almost always a typo of a real one — `{:epoch-histroy {:depth 100}}` silently tuning nothing is exactly the bug worth catching. In dev builds an unknown **bare** (or `rf`-namespaced) key emits `:rf.warning/unknown-configure-key`, naming what you typed and what the runtime reads. Your call still returns `nil` and still applies nothing — the warning is a signal, not a refusal — and it is compiled out of production entirely. A key under **your own namespace** (`:myapp/thing`) stays silent, so a wrapper composing its own config keys alongside re-frame2's is unaffected.
 
 One thing fails loud, though: the *argument* must be a map. `(rf/configure! [:trace-buffer …])` — a vector, say, because you mistyped — doesn't quietly do nothing; it throws. The applies-nothing behaviour is reserved for *unknown keys inside* a well-formed map; a malformed argument is a programming error and surfaces as one.
 
-The three keys, in detail:
+The four keys, in detail:
 
 - **`:epoch-history`** — depth of the per-frame *epoch ring* (a fixed-size circular buffer of recent [app-db](../glossary.md#app-db) states) that powers Xray's [time travel](../glossary.md#time-travel); `:depth 0` disables it. This one is dev-only: in production the ring elides whatever you set. It carries one more opt for the security-conscious deployment: `:trace-events-keep` (a non-negative integer) caps how many raw trace events each epoch record retains. There is no scrub hook — an epoch leaving the process is projected by `rf/projected-record`, and a forwarder that needs more than the framework's built-in [data classification](../glossary.md#data-classification) covers composes its own scrub over the projected value, `(-> record rf/projected-record my-scrub)`. That never touches the in-process ring, so it never affects `restore-epoch!` fidelity. ([Keep secrets and large things out of traces](keep-secrets-out-of-traces.md))
 - **`:trace-buffer`** — how many *events* (one dispatch each — one slot per event, regardless of how many trace events its run emitted) the dev trace ring retains; bump it for a bug spanning more user actions than the default 50. `:events-retained 0` disables retention while the surface stays live (listeners still fire; nothing is *kept*). Dev-only, same as `:epoch-history`.
 - **`:elision`** — the size threshold above which the walker flags an *undeclared* large value with the `:rf.warning/large-value-unschema'd` advisory on wire-bound surfaces. That advisory is a nudge, not a cap: the oversized value is still forwarded raw. Only values you *declared* large (or marked via a schema `:large?`) are replaced by the `:rf.size/large-elided` marker; `:rf.size/threshold-bytes 0` turns off the runtime size auto-detection warning entirely. The `:large` elision this key sits alongside is *not* dev-only — it shapes the always-on listener records your production monitors receive, so it matters in a release build too. ([Keep secrets and large things out of traces](keep-secrets-out-of-traces.md))
+- **`:observability`** — the **process default** for production observation sinks, in exactly the grammar a frame's `:observability` takes (below): `{:handled-events [<entry>…] :errors [<entry>…]}`. Declare your Sentry / Datadog policy once here instead of restating it on every `make-frame`. The odd one out in this table in three ways, all deliberate. It is the only key that is *not* dev-only — it is the production wiring. It is the only one a *bare `nil` clears*: `(rf/configure! {:observability nil})` removes the default, because a deployment must be able to take a policy out without knowing what put it in. And it is the only one **validated at the call**: a malformed policy throws `:rf.error/bad-frame-classification` there and then rather than installing quietly and surfacing as a record that never arrived. ([Report errors in production](report-errors-in-production.md))
 
 !!! note "Looking for `:sub-cache`?"
 
@@ -139,6 +141,8 @@ The per-frame bucket rides the frame config (two of its keys — `:fx-overrides`
 ```
 
 An `:observability` entry names a user- or library-owned `:sink` keyword (you register the sink; the framework routes pre-redacted records to it), with an optional `:rf.egress/profile`. The entry is a closed map — those two keys and no others; anything else fails loud at `make-frame`, and vendor configuration belongs in the sink fn you register, which closes over it. The two collections it accepts are `:handled-events` and `:errors` — the production read of the event-emit and error-emit streams, declared once on the frame rather than wired imperatively. ([Report errors in production](report-errors-in-production.md))
+
+Most apps do not need this key at all: declare the policy once with `(rf/configure! {:observability …})` above and every frame inherits it. Reach for the frame key when *this* frame differs. The two compose **per stream**, not per map — a frame declaring only `:errors` still inherits the default's `:handled-events`, so naming one stream never silently switches the other off. Declaring a stream as the empty vector (`{:errors []}`) is how a frame opts *out*: it names the stream and names no sink, which is a different statement from leaving the key off. Exactly one of the two is consulted per record, so a sink listed in both fires once rather than twice. What a frame inherits is the **sink list** — records are still projected under that frame's own classification, so an admin frame that classifies more redacts more even while sharing the default's Sentry entry.
 
 Its safety-relevant knob is `:drain-depth`, which comes up next in the guardrails.
 
