@@ -935,6 +935,24 @@ Xray's time-travel panel still renders an empty state when
 `(empty? (rf/epoch-history ...))` — but that reflects a target frame
 with **no epochs recorded yet**, not an absent artefact.
 
+**Where that guarantee is witnessed.** The claim above is about a
+DEPENDENCY GRAPH, so no test sharing a bundle with `preload.cljs` can
+grade it: the preload carries the identical bare require, and a delivery
+assertion beside it passes whether or not `install.cljs` still spells its
+own. The witness is therefore a namespace plus a build that selects only
+that namespace —
+`tools/xray/test/day8/re_frame2_xray/manual_epoch_delivery_cljs_test.cljs`
+under the `:node-test-xray-manual-epoch` build in
+`implementation/shadow-cljs.edn` (`npm run test:xray-manual-epoch`). Its
+require list reaches `re-frame.epoch` through `install.cljs` and nowhere
+else, and it asserts both halves of the paragraph above: that the
+producer reads as loaded through `(rf/features)` after requiring the
+manual facade alone, and that an `:epoch` listener registered through the
+facade after `core/init!` receives a dispatched event's assembled
+`:rf/epoch-record`. Delete the require and that build goes red; the
+always-on `:node-test` bundle, which runs the same namespace, stays
+green — which is precisely why the focused build exists.
+
 **Frame-destroy handling.** When the host frame whose drain
 produced an epoch is later destroyed (per
 [Spec 002 §Destroy](../../../spec/002-Frames.md)), the framework

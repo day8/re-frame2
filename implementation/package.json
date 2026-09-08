@@ -28,6 +28,7 @@
     "test:cljs-isolation": "node scripts/compile-node-test.cjs node-test out/node-test.js && node scripts/check-per-ns-isolation.cjs",
     "test:security": "node scripts/compile-node-test.cjs node-test-security out/node-test-security.js && node out/node-test-security.js",
     "test:testbed-support": "node scripts/compile-node-test.cjs node-test-testbed-support out/node-test-testbed-support.js && node out/node-test-testbed-support.js",
+    "test:xray-manual-epoch": "node scripts/compile-node-test.cjs node-test-xray-manual-epoch out/node-test-xray-manual-epoch.js && node out/node-test-xray-manual-epoch.js",
     "test:tools-machines-viz": "cd ../tools/machines-viz && clojure -M:cljs-test -m shadow.cljs.devtools.cli compile machines-viz-node-test && node ../../implementation/out/node-test-tools-machines-viz.js",
     "build:machines-viz-viewer": "shadow-cljs release machines-viz-viewer && node ../tools/machines-viz/scripts/stage-viewer-page.cjs",
     "build:hicasso-release": "shadow-cljs release hicasso-release && node hicasso/scripts/check_production_erasure.cjs --self-test && node hicasso/scripts/check_production_erasure.cjs && node hicasso/scripts/check_bundle_isolation.cjs --self-test && node hicasso/scripts/check_bundle_isolation.cjs",

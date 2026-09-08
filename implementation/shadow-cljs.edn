@@ -867,6 +867,40 @@
    :main      re-frame.test-quiet.shadow-node/main
    :compiler-options {:infer-externs false}}
 
+  ;; rf2-kuky.82 AMEND 2(c) — the MANUAL-ONLY Xray epoch-delivery witness.
+  ;; Same shape as the three focused `:node-test` siblings above; here the
+  ;; narrow `:ns-regexp` is not an ergonomic convenience but the WHOLE
+  ;; TEETH of the gate.
+  ;;
+  ;; `install.cljs` carries a bare `[re-frame.epoch]` require that loads the
+  ;; epoch PRODUCER on the manual `core/init!` startup path (which requires
+  ;; `install`, never `preload`). Without it `(rf/register-listener! :epoch …)`
+  ;; degrades to the silent no-op it correctly performs for a host that
+  ;; tolerates the artefact's absence, and Xray's Time-Travel panel sits
+  ;; empty on every manual boot with nothing reporting why.
+  ;;
+  ;; That claim can only be tested in a graph that has no OTHER route to the
+  ;; producer, and the always-on `:node-test` bundle has several — starting
+  ;; with `day8.re-frame2-xray.preload`, which carries the identical anchor
+  ;; and is required by `preload_decoupling_cljs_test`. So a delivery
+  ;; assertion in the aggregate bundle passes whether or not `install.cljs`
+  ;; still spells its require: it cannot tell the two worlds apart. This
+  ;; build selects ONE namespace, whose require list reaches
+  ;; `re-frame.epoch` through `install.cljs` and nowhere else.
+  ;;
+  ;; The witness namespace also ends in `-cljs-test`, so it rides the
+  ;; always-on `:node-test` build too and its ASSERTIONS are graded on every
+  ;; PR; only the graph-isolation half needs this id.
+  ;;
+  ;; Run by `npm run test:xray-manual-epoch`.
+  :node-test-xray-manual-epoch
+  {:target    :node-test
+   :output-to "out/node-test-xray-manual-epoch.js"
+   :ns-regexp "^day8\\.re-frame2-xray\\.manual-epoch-delivery-cljs-test$"
+   :main      re-frame.test-quiet.shadow-node/main
+   :compiler-options {:warnings      {:redef false}
+                      :infer-externs false}}
+
   ;; rf2-hic-008 — the Hicasso artefact's RELEASE build: the substrate
   ;; compiled the way a consumer ships it.
   ;;
