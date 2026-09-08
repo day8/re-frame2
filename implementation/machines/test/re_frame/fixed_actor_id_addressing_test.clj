@@ -455,3 +455,136 @@
             (is (= :cancelled (:rf.reply/status tags))
                 "the attempt was closed the reply-envelope way")))
         (finally (rf.trace.tooling/unregister-listener! ::occupied-join))))))
+
+;; ---------------------------------------------------------------------------
+;; (4) When the fixed address IS the machine type's own registration key
+;; ---------------------------------------------------------------------------
+;;
+;; A machine TYPE is an `:event` registration carrying `:rf/machine? true`
+;; (Spec 005 §Querying machines), so `{:machine-id :m/worker :fixed-actor-id
+;; :m/worker}` puts the actor's ADDRESS and the definition's REGISTRATION KEY on
+;; the same keyword. Nothing forbids that and nothing should: it is the obvious
+;; spelling for an app with one actor of a type.
+;;
+;; The two directions below are pinned separately because they fail for
+;; DIFFERENT reasons and a fix for either alone leaves the other broken.
+;;
+;;   (a) FIRST spawn — there is no actor at that address at all, only the
+;;       registered type. It must install untouched. It did not: the
+;;       replacement path's occupancy probe counted the TYPE's registrar entry
+;;       as a live occupant, so the very first spawn tore the freshly
+;;       registered definition down and installed an actor whose
+;;       `:rf/machine-type` no longer resolved.
+;;
+;;   (b) REPLACEMENT of a genuinely live actor there — the teardown must run
+;;       in full (this is rf2-dokz's whole point) while the shared DEFINITION
+;;       survives it, because the replacement resolves its own handler back
+;;       through exactly that key and so does every sibling actor of the type.
+
+(deftest first-spawn-at-an-address-equal-to-its-machine-type-is-not-a-replacement
+  (testing "rf2-dokz residual — direction (a). An uninstantiated registered TYPE
+            is NOT an occupant. The first spawn at a :fixed-actor-id equal to its
+            own :machine-id destroys nothing, keeps the definition registered,
+            and comes up FULLY BOOTSTRAPPED and addressable"
+    (let [exits  (atom 0)
+          traces (capture-traces ::selfnamed-first)]
+     (try
+      (rf/reg-machine :fai/selfnamed
+        {:initial :running
+         :data    {}
+         :actions {:touch (fn [{d :data}] {:data (assoc d :touched true)})}
+         :states  {:running {:exit (fn [_] (swap! exits inc) {})
+                             :on   {:touch {:action :touch}}}}})
+      (rf/reg-event :fai/install-selfnamed
+        (fn [_ _] {:fx [[:rf.machine/spawn {:machine-id     :fai/selfnamed
+                                            :fixed-actor-id :fai/selfnamed}]]}))
+      (is (:rf/machine? (rf/handler-meta {:source :store :kind :event :id :fai/selfnamed}))
+          "precondition: the TYPE is registered at exactly the keyword the spawn
+           will use as its address")
+      (is (nil? (snapshot :fai/selfnamed))
+          "precondition: NO actor is live there — the registration is a definition,
+           not an occupant")
+
+      (rf/dispatch-sync [:fai/install-selfnamed])
+
+      (is (zero? @exits)
+          "nothing was destroyed — a registered-but-unspawned type is not a live
+           occupant, so no teardown ran")
+      (is (:rf/machine? (rf/handler-meta {:source :store :kind :event :id :fai/selfnamed}))
+          "the machine DEFINITION is still registered — the ordinary destroy
+           pipeline's registrar cleanup did not run over it")
+      (is (some? (snapshot :fai/selfnamed))
+          "the actor installed at its own type's name")
+      (is (nil? (:rf/bootstrap-pending? (snapshot :fai/selfnamed)))
+          "and it BOOTSTRAPPED — a stranded actor keeps :rf/bootstrap-pending?
+           because its :rf/machine-type no longer resolves to anything")
+
+      (is (not (some #{:rf.machine/destroyed} (operations traces)))
+          "and NO :rf.machine/destroyed was emitted — the phantom teardown of a
+           type that never had an actor is exactly what the occupancy probe must
+           not do; a tool pairing lifecycle events would otherwise see one
+           address destroyed before it was ever spawned")
+
+      (rf/dispatch-sync [:fai/selfnamed [:touch]])
+      (is (true? (:touched (:data (snapshot :fai/selfnamed))))
+          "an ordinary dispatch reaches it — the handler re-materialises from the
+           snapshot's :rf/machine-type, which still names a registered type")
+      (finally (rf.trace.tooling/unregister-listener! ::selfnamed-first))))))
+
+(deftest replacing-a-live-actor-at-its-machine-types-own-name-keeps-the-definition
+  (testing "rf2-dokz residual — direction (b). Once an actor IS live at that
+            address the ordinary replacement teardown runs in full (its authored
+            :exit fires exactly once), but the shared machine DEFINITION survives
+            it: the replacement resolves through that key, and so does a SIBLING
+            actor of the same type at another address"
+    (let [exits (atom 0)]
+      (rf/reg-machine :fai/selfnamed2
+        {:initial :running
+         :data    {}
+         :actions {:touch (fn [{d :data}] {:data (assoc d :touched true)})}
+         :states  {:running {:exit (fn [_] (swap! exits inc) {})
+                             :on   {:touch {:action :touch}}}}})
+      (rf/reg-event :fai/install-selfnamed2
+        (fn [_ [_ payload]]
+          {:fx [[:rf.machine/spawn {:machine-id     :fai/selfnamed2
+                                    :fixed-actor-id :fai/selfnamed2
+                                    :data           {:payload payload}}]]}))
+      (rf/reg-event :fai/install-sibling2
+        (fn [_ _] {:fx [[:rf.machine/spawn {:machine-id     :fai/selfnamed2
+                                            :fixed-actor-id :fai/sibling2}]]}))
+
+      (rf/dispatch-sync [:fai/install-selfnamed2 :first])
+      (rf/dispatch-sync [:fai/install-sibling2])
+      (rf/dispatch-sync [:fai/selfnamed2 [:touch]])
+      (is (= :first (:payload (:data (snapshot :fai/selfnamed2))))
+          "precondition: a live actor OCCUPIES the type's own name")
+      (is (true? (:touched (:data (snapshot :fai/selfnamed2))))
+          "precondition: it is addressable")
+      (is (zero? @exits) "precondition: it is live — its :exit has not run")
+
+      (rf/dispatch-sync [:fai/install-selfnamed2 :second])
+
+      (is (= 1 @exits)
+          "THE TEARDOWN STILL RAN. The occupant's authored :exit fired exactly
+           once — narrowing the occupancy probe must not turn a genuine
+           replacement back into the silent overwrite rf2-dokz removed")
+      (is (:rf/machine? (rf/handler-meta {:source :store :kind :event :id :fai/selfnamed2}))
+          "and the shared machine DEFINITION SURVIVED that teardown — the
+           registrar entry at this address is a TYPE, not the occupant's own
+           per-instance entry")
+      (is (= :second (:payload (:data (snapshot :fai/selfnamed2))))
+          "the replacement installed at the address")
+      (is (nil? (:touched (:data (snapshot :fai/selfnamed2))))
+          "with FRESH :data — it is a new actor, not a patched old one")
+      (is (nil? (:rf/bootstrap-pending? (snapshot :fai/selfnamed2)))
+          "and it bootstrapped — its :rf/machine-type still resolves")
+
+      (rf/dispatch-sync [:fai/selfnamed2 [:touch]])
+      (is (true? (:touched (:data (snapshot :fai/selfnamed2))))
+          "an ordinary dispatch reaches the REPLACEMENT")
+
+      (rf/dispatch-sync [:fai/sibling2 [:touch]])
+      (is (true? (:touched (:data (snapshot :fai/sibling2))))
+          "and the SIBLING actor of the same type is untouched by the
+           replacement — deleting the shared registration would have taken its
+           definition too"))))

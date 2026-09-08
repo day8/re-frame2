@@ -165,6 +165,32 @@
            (and (some #(= actor-id %) (rf.machines.spawn-order/frame-order frame-id))
                 (snapshot-present? (rf.frame/frame-runtime-db-value frame-id) actor-id)))))
 
+(def ^:private ^:dynamic *definition-preserved-at*
+  "The ONE actor-id whose `:event` registrar entry step (8) of
+  `teardown-live-actor!` must NOT clear, or nil (the value everywhere except
+  inside `destroy-occupant-for-replacement!`'s delegated teardown).
+
+  WHY IT EXISTS. A machine TYPE is an `:event` registration carrying
+  `:rf/machine? true` (Spec 005 §Querying machines) — a DEFINITION shared by
+  every actor of that type, never an actor. When a `:fixed-actor-id` equals its
+  own registered `:machine-id`, the address the replacement installs at and the
+  key the definition is registered under are the SAME keyword, so step (8) —
+  which exists to clear a stale or externally installed PER-INSTANCE entry —
+  would delete the definition the replacement is about to resolve through, and
+  every sibling actor of that type with it.
+
+  WHY DYNAMIC. `destroy-occupant-for-replacement!` delegates to
+  `destroy-machine-fx` on purpose (it IS the ordinary destroy path, so it cannot
+  drift from it), and that fn's map grammar is a CLOSED discriminated union
+  (rf2-3phait) an option key would widen. The binding's extent is ONE teardown of
+  ONE address, and step (8) compares the id, so an `:exit` callback that destroys
+  a DIFFERENT actor within that extent still clears its entry exactly as before.
+
+  NOT a licence to preserve on the ordinary destroy path: `[:rf.machine/destroy
+  <id>]` against a singleton machine still clears that machine's registration,
+  which is the long-standing behaviour of destroying a singleton."
+  nil)
+
 (defn- teardown-live-actor!
   "The shared ordered teardown pipeline for a LIVE actor (the caller has
   already confirmed liveness). Both destroy entry-points — the per-actor
@@ -282,7 +308,13 @@
       ;; ownership here rather than reusing (6)'s precheck, so A's teardown
       ;; never clears B's just-registered handler (the ordinary-destroy
       ;; terminal-fence law, Spec 005 §Destroy is silent-idempotent).
-      (when (and db-swapped? (not (owner-gone?)))
+      ;; rf2-dokz residual — EXCEPT at the one address a replacement is
+      ;; preserving the machine DEFINITION at (see `*definition-preserved-at*`):
+      ;; there the entry is a shared TYPE rather than this actor's own, and
+      ;; clearing it would strand the replacement and every sibling actor of
+      ;; that type.
+      (when (and db-swapped? (not (owner-gone?))
+                 (not= actor-id *definition-preserved-at*))
         (rf.registrar/unregister! :event actor-id))
       ;; (9) release the actor's resource owners once it is gone, so
       ;; a `[:machine actor-id]`-owned resource does not outlive the actor and
@@ -761,6 +793,30 @@
 
 ;; ---- occupied-address replacement (rf2-dokz) -------------------------------
 
+(defn- occupant-actor-live?
+  "Is `actor-id` OCCUPIED by a live spawned ACTOR, for the purpose of deciding
+  replacement? True iff the frame's LIVE `runtime-db` carries a snapshot there.
+
+  DELIBERATELY NOT `actor-live?`, and that difference is the whole of this
+  predicate. `actor-live?` is the shared silent-idempotent DESTROY probe
+  (rf2-s2bsmw), and it also counts a bare registrar entry because
+  `[:rf.machine/destroy <id>]` must still recognise and clear a stale or
+  externally installed one. That disjunct answers \"is there anything here to
+  clean up?\" — the right question for destroy and the WRONG one here, where the
+  question is \"is a live ACTOR occupying this address?\". A registered but
+  never-spawned machine TYPE has an `:event` entry and no actor at all, so
+  `actor-live?` reported the type's own name occupied and the FIRST spawn at a
+  `:fixed-actor-id` equal to its `:machine-id` tore the freshly registered
+  definition down. Spec 005 §Liveness is derived from runtime-db makes a spawned
+  actor's liveness identical to its snapshot's presence and nothing else, which
+  is exactly this predicate.
+
+  `actor-live?`'s spawn-order clause is not needed here either: it covers the
+  drain-time stale `old-db` window, and this predicate's only caller reads the
+  frame's LIVE `runtime-db`, which by definition has no such window."
+  [frame-id actor-id]
+  (snapshot-present? (rf.frame/frame-runtime-db-value frame-id) actor-id))
+
 (defn destroy-occupant-for-replacement!
   "Tear a LIVE occupant of `actor-id` down through the ORDINARY destroy path so
   a `:rf.machine/spawn` arriving at an OCCUPIED `:fixed-actor-id` REPLACES it
@@ -791,15 +847,33 @@
   would SKIP both and leave a replaced join child's attempt uncancelled with its
   reply facts unemitted.
 
+  OCCUPANCY IS `occupant-actor-live?`, NEVER `actor-live?`. Only a live spawned
+  ACTOR is an occupant; an uninstantiated registered TYPE or plain event handler
+  sitting at the same keyword is not — see that predicate for why the shared
+  destroy probe cannot answer this question.
+
+  AND THE DEFINITION SURVIVES. When the address IS a registered machine's own
+  registration key, the teardown's registrar cleanup would delete that shared
+  DEFINITION — stranding the replacement, whose snapshot resolves its handler
+  back through exactly that key, and every sibling actor of the type with it.
+  Binding `*definition-preserved-at*` for the teardown's extent keeps it, and
+  keeps it WITHOUT re-registering afterwards: a re-registration would fire the
+  hot-reload hooks and a `:rf.registry/handler-cleared` +
+  `:rf.registry/handler-registered` pair for a definition that never changed, and
+  would open a fresh callback-bearing boundary between the teardown and the
+  install.
+
   Returns `true` when the address was occupied and the teardown ran, `false`
   when it was EMPTY. False is the overwhelmingly common answer — ordinary
   re-entry at a `:fixed-actor-id` arrives after the exit cascade has already
-  destroyed the previous incarnation — and one `actor-live?` read is its whole
-  cost. A `true` tells the caller its pre-teardown `runtime-db` snapshot is
-  STALE and the install must be rebuilt from the post-teardown value."
+  destroyed the previous incarnation — and one snapshot read is its whole cost.
+  A `true` tells the caller its pre-teardown `runtime-db` snapshot is STALE and
+  the install must be rebuilt from the post-teardown value."
   [frame-id actor-id]
   (boolean
-    (when (and actor-id
-               (actor-live? frame-id actor-id (rf.frame/frame-runtime-db-value frame-id)))
-      (destroy-machine-fx {:frame frame-id} actor-id)
+    (when (and actor-id (occupant-actor-live? frame-id actor-id))
+      (binding [*definition-preserved-at*
+                (when (rf.machines.lifecycle-fx.resolver/spec-from-registry actor-id)
+                  actor-id)]
+        (destroy-machine-fx {:frame frame-id} actor-id))
       true)))
