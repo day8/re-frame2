@@ -164,3 +164,16 @@
   (throw (ex-info "hand-built payload [:rf.error/ok-nineteen]"
                   {:rf.error/id :rf.error/ok-nineteen
                    :where       'rf.fixture/known-public})))
+
+;; ---- commas as the SOLE separator, naming live vars ----------------------
+;;
+;; The resolving twins of positive section (6). Pinned as OBSERVED, because
+;; the spelling they exercise is the one a green sabotage plant proved the
+;; earlier comma fixtures did not reach.
+
+(defn commas-as-sole-separator-resolves []
+  (rf.error/throw-error! :rf.error/ok-twenty,'rf.fixture/known-public,"no whitespace anywhere in the argument list"))
+
+(defn commas-as-sole-separator-in-the-slot-resolves []
+  (throw (ex-info "hand-built payload [:rf.error/ok-twentyone]"
+                  {:rf.error/id :rf.error/ok-twentyone,:where,'rf.fixture/known-public,:reason "commas alone around the slot"})))
