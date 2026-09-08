@@ -122,3 +122,45 @@
     'rf.fixture/known-public
     "the where-sym is the top-level one"
     {:extra {:sym 'rf.fixture/ghost-nested}}))
+
+;; ---- `do` IS transparent: the valid exit-0 control for the oracle repair --
+;;
+;; Audit #9501 removed `comment` from the transparent-wrapper set. `do` really
+;; does evaluate its body, so the `def` inside interns and this door is live.
+;; Green here is what says the repair cut only the inactive forms.
+
+(defn do-defined-var-resolves []
+  (rf.error/throw-error!
+    :rf.error/ok-fifteen
+    'rf.fixture/do-defined-public
+    "`(do (defn do-defined-public ...))` interns the var"))
+
+;; ---- commas are reader whitespace, and correct code uses them ------------
+;;
+;; The resolving twins of the positive fixture's comma sites. GREEN HERE IS
+;; ONLY HALF THE EVIDENCE — a detector blind to commas is green too, which is
+;; exactly how the defect shipped — so the self-test pins these as OBSERVED at
+;; their lines rather than merely unreported.
+
+(defn comma-tight-on-the-head-resolves []
+  (,rf.error/throw-error!
+    :rf.error/ok-sixteen
+    'rf.fixture/known-public
+    "a comma between the paren and the callee, naming a live var"))
+
+(defn comma-after-the-symbol-resolves []
+  (rf.error/throw-error!
+    :rf.error/ok-seventeen
+    'rf.fixture/known-public,
+    "a trailing comma on the quoted symbol, naming a live var"))
+
+(defn comma-in-the-where-slot-resolves []
+  (throw (ex-info "hand-built payload [:rf.error/ok-eighteen]"
+                  {:rf.error/id :rf.error/ok-eighteen,
+                   :where,      'rf.fixture/known-public,
+                   :reason      "commas around the slot's key and its value"})))
+
+(defn where-slot-as-last-entry-resolves []
+  (throw (ex-info "hand-built payload [:rf.error/ok-nineteen]"
+                  {:rf.error/id :rf.error/ok-nineteen
+                   :where       'rf.fixture/known-public})))
