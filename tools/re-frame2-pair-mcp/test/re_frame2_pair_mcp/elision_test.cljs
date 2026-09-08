@@ -205,7 +205,7 @@
         "bare :elision false MUST still project — no sensitive bypass")
     (is (re-find #":rf\.egress/profile :rf\.egress/off-box-tool" form)
         "the boundary stays the off-box tool wire, so sensitive slots redact")
-    (is (re-find #":rf\.size/include-large\? true" form)
+    (is (re-find #":rf\.egress/include-large\? true" form)
         ":elision false overlays include-large? true — large content passes")
     (is (re-find #"contains\? fmap :app-db" form))
     (is (re-find #"contains\? fmap :sub-cache" form))))
@@ -225,7 +225,7 @@
     (is (re-find #":frame fid" form))
     ;; No large-inclusion overlay, so the off-box-tool floor stands and
     ;; markers actually fire.
-    (is (not (re-find #":rf\.size/include-large\?" form)))
+    (is (not (re-find #":rf\.egress/include-large\?" form)))
     (is (re-find #":rf\.egress/profile :rf\.egress/off-box-tool" form))))
 
 (deftest snapshot-form-walks-both-app-db-and-sub-cache
@@ -418,7 +418,7 @@
         "bare :elision false MUST still project — no sensitive bypass")
     (is (re-find #":rf\.egress/profile :rf\.egress/off-box-tool" form)
         "the boundary stays the off-box tool wire, so a sensitive path redacts")
-    (is (re-find #":rf\.size/include-large\? true" form)
+    (is (re-find #":rf\.egress/include-large\? true" form)
         ":elision false overlays include-large? true — large content passes")))
 
 (deftest get-path-form-elision-on-wraps-value
@@ -437,7 +437,7 @@
     (is (re-find #"current-frame :rf/default" form))
     ;; No large-inclusion overlay, so the off-box-tool floor stands and
     ;; markers actually fire.
-    (is (not (re-find #":rf\.size/include-large\?" form)))
+    (is (not (re-find #":rf\.egress/include-large\?" form)))
     (is (re-find #":rf\.egress/profile :rf\.egress/off-box-tool" form))))
 
 (deftest get-path-form-defaults-to-current-frame
