@@ -987,7 +987,7 @@ Both forms return `machine-id` per the family-wide [`reg-*` return-value convent
 
 **Registration-metadata stamp.** Both forms record two keys on the registry slot's metadata map (per [001 §Metadata-map shape](001-Registration.md)):
 
-- `:rf/machine? true` — the discriminator. `(rf.machines/machines)` filters `(registrations :event)` by this flag (per [§Querying machines](#querying-machines)). User-written event handlers do not set this key.
+- `:rf/machine? true` — the discriminator. Machine enumeration filters the `:event` registrations by this flag (per [§Querying machines](#querying-machines)). User-written event handlers do not set this key.
 - `:rf/machine <spec>` — the spec map passed to `reg-machine`. `(:rf/machine (rf/handler-meta {:source :store :kind :event :id id}))` reads this back; tools that walk the transition table (visualisers, conformance harnesses, CP-5-time scaffolders) consume the spec via this key. When the macro path stamps source, each `:guards` / `:actions` entry carries its co-located `:source-coords` / `:source-code`, and each `:states`-tree map node (state-node / transition map) carries its own reference-site `:source-coords` directly inside this spec map.
 
 Source-coord stamping on the call site (`:ns` / `:line` / `:column` / `:file`) follows the standard rules from [001 §Source-coord stamping](001-Registration.md): the macro stamps; programmatic registration via `reg-machine*` does not. See [§Source-coord stamping](#source-coord-stamping) for the per-element index.
@@ -3959,17 +3959,20 @@ The handler dispatches `:got-data` (with the correlation id) when the response a
 
 ## Querying machines
 
-A machine *is* an event handler — that's the architectural commitment. But callers (tooling, AIs, conformance harnesses, post-v1 visualisers) routinely ask "what machines are registered?" and "what is machine `<id>`'s definition / metadata?" Forcing every caller to reimplement "scan `(registrations :event)`, filter by `:rf/machine? true`" is a tax with no upside.
+A machine *is* an event handler — that's the architectural commitment. But callers (tooling, AIs, conformance harnesses, post-v1 visualisers) routinely ask "what machines are registered?" and "what is machine `<id>`'s definition / metadata?"
 
-The framework therefore ships two thin lookup fns — **derived views over the existing event registry**, not a new registry kind:
+**Neither question has an accessor**, and that is the design rather than an omission (rf2-kuky.31). Both are **derived views over the existing event registry**, spelled in the one `{id meta}` registrar grammar every tool already speaks — `(rf/registrations …)` for the enumeration, `(rf/handler-meta …)` plus a documented inner-key projection for one machine's spec. A per-kind `machines` / `machine-meta` pair would be a second encoding of that grammar, which [Principles §Regularity over cleverness](Principles.md) names as a tax on tooling and generated code.
 
-These are **owned by `re-frame.machines`, not re-exported onto the `re-frame.core` façade** — the front-porch boundary keeps only the `reg-machine` / `defmachine` registration macros on `rf/`, and routes every non-registration query / introspection helper through its owning namespace ([API.md](API.md)). Require it under the conventional dotted alias, `[re-frame.machines :as rf.machines]`, per [Conventions §Require-alias dialect](Conventions.md#require-alias-dialect--a-framework-subsystem-namespace-is-aliased-rf); the `rf.machines/` spellings below assume exactly that alias.
+Both reads are on the `re-frame.core` façade already, so **no `re-frame.machines` require is needed to query machines** — the front-porch boundary keeps the `reg-machine` / `defmachine` registration macros on `rf/` and routes the non-registration helpers (`machine-transition`, `make-machine-handler`, `reg-machine*`) through their owning namespace ([API.md](API.md)), but the registrar query API is core.
 
 ```clojure
-(rf.machines/machines)
-;; → seq of registered machine TYPE-ids (singletons + spawnable types)
-;; Implementation: every event handler whose registration metadata
-;; carries :rf/machine? true.
+(into {} (filter (fn [[_ m]] (:rf/machine? m)))
+      (rf/registrations {:source :store :kind :event}))
+;; → {machine-id metadata} for every registered machine;
+;;   `keys` for the ids alone.
+;;
+;; The filter IS the lens: a machine is an :event registration whose
+;; metadata carries :rf/machine? true.
 ;;
 ;; NOTE: this enumerates registered TYPES — singleton
 ;; machines and the types a `:spawn` names — NOT live spawned INSTANCES.
@@ -3988,24 +3991,28 @@ These are **owned by `re-frame.machines`, not re-exported onto the `re-frame.cor
 
 ```
 
-Both are pure functions over the registry. Both are JVM-runnable (they touch only the central registry). Both are stable across hot-reload because they re-read on each call.
+Both are pure reads over the registry. Both are JVM-runnable (they touch only the central registry). Both are stable across hot-reload because they re-read on each call.
 
 Why a lens, not a registry kind:
 
-- **Architectural commitment preserved.** Machines remain *event handlers*. There is no `:machine` registry kind, no parallel substrate, no per-machine auto-registration. `(rf.machines/machines)` is a `filter` call, not a separate index.
+- **Architectural commitment preserved.** Machines remain *event handlers*. There is no `:machine` registry kind, no parallel substrate, no per-machine auto-registration. Enumeration is a `filter` call, not a separate index.
 - **`:rf/machine? true` metadata is the discriminator.** `make-machine-handler` carries this metadata onto the registration; `reg-event` records it as part of the standard metadata map (per [001 §Metadata-map shape](001-Registration.md)). User-written event handlers do not set this key.
-- **One-line implementation, and one of the two is not a function at all.** `(rf.machines/machines)` is `(registrations {:source :store :kind :event})` filtered on `:rf/machine?`. Reading ONE machine's spec has **no accessor**: it is the generic query plus the documented `:rf/machine` inner-key projection — `(:rf/machine (rf/handler-meta {:source :store :kind :event :id id}))` — because a per-kind `<kind>-meta` alias is a second encoding of a grammar every tool already speaks (rf2-kuky.31). Both reuse the public registrar query API ([API.md §Public registrar query API](API.md#public-registrar-query-api)).
+- **Neither read is a function of ours.** Enumeration is `(rf/registrations {:source :store :kind :event})` filtered on `:rf/machine?`; reading ONE machine's spec is `(:rf/machine (rf/handler-meta {:source :store :kind :event :id id}))` — the generic query plus the documented inner-key projection. Neither has a per-kind alias, because a `<kind>-ids` / `<kind>-meta` pair is a second encoding of a grammar every tool already speaks (rf2-kuky.31). Both reuse the public registrar query API ([API.md §Public registrar query API](API.md#public-registrar-query-api)).
 - **Discovery is a first-class operation.** Visualisers can iterate every live machine without knowing where else to look; conformance harnesses can enumerate the suite under test; AI agents can answer "show me the machines in this app."
 
 User-facing call sites:
 
 ```clojure
-(rf.machines/machines)
+(defn machine-ids []                       ; whatever the caller wants to call it
+  (keys (into {} (filter (fn [[_ m]] (:rf/machine? m)))
+              (rf/registrations {:source :store :kind :event}))))
+
+(machine-ids)
 ;; → (:auth.login/flow :checkout/flow :request/protocol ...)
 ;;   registered TYPES (incl. spawnable types like :request/protocol),
 ;;   NOT live instances like :request/protocol#42.
 
-(for [id (rf.machines/machines)]
+(for [id (machine-ids)]
   [id (:doc (:rf/machine (rf/handler-meta {:source :store :kind :event :id id})))])
 ;; → ([:auth.login/flow "Login flow: idle → submitting → ..."]
 ;;    [:checkout/flow "Checkout wizard."]
@@ -4611,7 +4618,7 @@ The v1 ship-list and the post-v1 follow-up are itemised below.
 - The `[:rf.machine/spawn ...]` and `[:rf.machine/destroy ...]` fx for dynamic actor lifecycle (canonical surface; the v1 public fns `spawn-machine` / `destroy-machine` are dropped per [MIGRATION.md §M-26](../migration/from-re-frame-v1/README.md#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces)).
 - The `:raise` reserved fx-id inside `:fx` (machine-internal); the `:rf.machine/spawn` and `:rf.machine/destroy` fx-ids registered globally for actor lifecycle.
 - `[:rf.runtime/machines :snapshots <id>]` as the reserved runtime-db storage scheme; `:rf/machine?` registration-metadata flag.
-- `(rf.machines/machines)` and the per-id `:rf/machine` registrar projection — discovery lens over the event registry per [§Querying machines](#querying-machines).
+- The `:rf/machine?` filter over `(rf/registrations {:source :store :kind :event})` and the per-id `:rf/machine` registrar projection — discovery lens over the event registry per [§Querying machines](#querying-machines); neither has a per-kind accessor.
 - The framework-registered `:rf/machine` parametric sub — the canonical `[:rf/machine <id>]` read surface.
 - Four-level drain semantics per [§Drain semantics](#drain-semantics) — including the gotchas listed in [§Drain semantics gotchas](#drain-semantics-gotchas).
 - The v1 transition-table grammar subset per [§Capability matrix](#capability-matrix) and [§Transition table grammar](#transition-table-grammar).

@@ -403,9 +403,11 @@
    {:key         :machines/machine-transition
     :producer-ns 're-frame.machines
     :description "Apply a transition to a machine instance."}
-   {:key         :machines/machines
-    :producer-ns 're-frame.machines
-    :description "Return all registered machine definitions (introspection)."}
+   ;; NOTE: there is no `:machines/machines` entry. The enumerate alias it
+   ;; published was retired (rf2-kuky.31) with the rest of the per-kind
+   ;; `<kind>-ids` family; nothing ever consulted the hook, and enumerating
+   ;; machines is a `filter` on `:rf/machine?` over the generic registrar
+   ;; query (Spec 005 §Querying machines).
    {:key         :machines/machine-meta
     :producer-ns 're-frame.machines
     :description "Return registration metadata for a named machine."}

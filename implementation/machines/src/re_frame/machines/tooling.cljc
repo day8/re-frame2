@@ -27,8 +27,8 @@
   read the flow registry, without touching the registrar. It reads:
     - the registered-machine spec map STRAIGHT OFF the `:event` registrar
       slot's `:rf/machine?` / `:rf/machine` stamp (Spec 005 §Querying
-      machines) — the SAME registrar read `re-frame.machines/machines` +
-      `resolver/spec-from-registry` performs. It reads the registrar directly (NOT through
+      machines) — the SAME registrar read the `:rf/machine?` filter +
+      `resolver/spec-from-registry` perform. It reads the registrar directly (NOT through
       the `re-frame.machines` facade) so the JVM alias on that facade can
       require THIS sibling without a load cycle (`machines` → `machines.tooling`
       → `machines` would not load) — mirroring how `flows.tooling` reads
@@ -115,8 +115,9 @@
 
 (defn- registered-machine-ids
   "Every registered machine-id — every `:event` registration whose metadata
-  carries `:rf/machine? true`. The same filter `re-frame.machines/machines`
-  performs, inlined to avoid the facade require (see `machine-spec`)."
+  carries `:rf/machine? true` — the `:rf/machine?` filter Spec 005 §Querying
+  machines documents, written against the registrar directly to avoid the
+  facade require (see `machine-spec`)."
   []
   (->> (rf.registrar/registrations :event)
        (keep (fn [[id m]] (when (:rf/machine? m) id)))))
@@ -246,10 +247,10 @@
   [Spec-Schemas §`:rf/derivation-node`]).
 
   Pure data over the machine registry — read through the public
-  `re-frame.machines/machines` + the `:rf/machine` registrar projection query API (Spec 005
+  `:rf/machine?` filter + the `:rf/machine` registrar projection query API (Spec 005
   §Querying machines), never touching the registrar write-path or the machine
-  registration signatures. The algebra-view companion to `machines`: where
-  `machines` returns the bare machine-id vector, this lowers every registered
+  registration signatures. The algebra-view companion to that filter: where
+  `registered-machine-ids` returns the bare machine-id seq, this lowers every registered
   machine into the normalized `:rf/derivation-node` shape the
   derivation/process algebra names, so a tool can show subscriptions, flows,
   resources, route facts, and machines as ONE family.

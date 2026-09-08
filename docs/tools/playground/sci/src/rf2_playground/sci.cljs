@@ -50,8 +50,7 @@
   of this ns so the machines artefact's late-bind hooks register at
   bundle init — that activates the `:machines/*` slots `re-frame.core-
   machines` reads on every call (`reg-machine*`, `make-machine-handler`,
-  `machine-transition`, `machines`, `machine-by-system-
-  id`), and registers the `:rf/machine` / `:rf.machine/has-tag?`
+  `machine-transition`), and registers the `:rf/machine` / `:rf.machine/has-tag?`
   framework subs + the `:rf.machine/spawn` / `:rf.machine/destroy` /
   `:rf.machine/spawn-all-init` / `:rf.machine/after-schedule` /
   `:rf.machine/after-cancel` / `:rf.machine/update-snapshot` fxs from
