@@ -394,6 +394,62 @@
             "message carries the trailing greppability token")
         ;; surface-specific slots preserved under :extra
         (is (= :bogus (:stream data)) ":stream preserved")
-        (is (= #{:trace :events :errors :epoch} (:valid data))
+        (is (= #{:trace :epoch} (:valid data))
             ":valid preserves the closed vocabulary")))))
+
+;; ---- the retired always-on streams (rf2-kuky.69) ---------------------------
+;;
+;; `:events` / `:errors` LEFT the public `register-listener!` vocabulary: they
+;; were a second, fail-open production door — unprojected, raw `:exception`, no
+;; frame policy, fanned across every frame — beside the projected door Spec 015
+;; calls normal. Independent corpus observation regardless of a frame's policy
+;; is WITHDRAWN as a public primitive; production observation is
+;; `register-observability-sink!` against a frame's `:observability` policy or
+;; the `(rf/configure! {:observability …})` process default. The substrates
+;; survive as the implementation-tier registries `re-frame.event-emit` /
+;; `re-frame.error-emit` (exercised directly all over this test tree).
+
+(deftest ^:requires-debug retired-always-on-streams-are-unknown-to-the-facade
+  (testing "rf2-kuky.69 — `:events` and `:errors` are no longer members of the
+            closed vocabulary, so both verbs refuse them exactly as they refuse
+            any other unknown stream, and the refusal names the TWO surviving
+            raw dev streams"
+    (doseq [stream  [:events :errors]
+            verb-fn [#(rf/register-listener! % ::k (fn [_]))
+                     #(rf/unregister-listener! % ::k)]]
+      (let [e    (try (verb-fn stream) nil
+                      (catch clojure.lang.ExceptionInfo ex ex))
+            data (ex-data e)]
+        (is (some? e)
+            (str stream " is refused by the facade"))
+        (is (= :rf.error/unknown-listener-stream (:rf.error/id data))
+            (str stream " throws the unknown-listener-stream category"))
+        (is (= stream (:stream data)) ":stream names the retired member")
+        (is (= #{:trace :epoch} (:valid data))
+            ":valid is the two-member raw dev vocabulary")
+        (is (not (contains? (:valid data) :events))
+            ":events is not in the vocabulary")
+        (is (not (contains? (:valid data) :errors))
+            ":errors is not in the vocabulary")))))
+
+(deftest ^:requires-debug surviving-streams-still-register
+  (testing "rf2-kuky.69 shrank the vocabulary; it did not disturb the two
+            members that remain. `:trace` registers and unregisters; `:epoch`
+            no-ops to nil when the optional artefact is absent (and returns its
+            id when present) rather than throwing."
+    (rf.trace.tooling/clear-listeners!)
+    (is (= ::still-here (rf/register-listener! :trace ::still-here (fn [_])))
+        ":trace registration returns its id")
+    (is (nil? (rf/unregister-listener! :trace ::still-here))
+        ":trace unregistration returns nil")
+    ;; `:epoch` returns its id when `day8/re-frame2-epoch` is on the
+    ;; classpath and degrades to nil when it is absent. Which of the two is
+    ;; the classpath's business, not this test's — what is pinned here is
+    ;; that `:epoch` is STILL A MEMBER, so it does not throw the way the two
+    ;; retired streams now do.
+    (is (not= ::threw
+              (try (rf/register-listener! :epoch ::ep (fn [_]))
+                   (catch clojure.lang.ExceptionInfo _ ::threw)))
+        ":epoch is still a member — it degrades or registers, it never throws")
+    (rf/unregister-listener! :epoch ::ep)))
 

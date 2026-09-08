@@ -79,6 +79,17 @@
     boilerplate that nine adapter test files used to carry (rf2-5r7eh
     audit + rf2-64iuw consolidation).
 
+  ### Always-on emit-recorder bracket (rf2-kuky.69)
+  - [[with-emit-recorder!]] — the sibling of [[with-trace-recorder!]] over
+    the two always-on substrates. `:errors` brackets
+    `re-frame.error-emit`, `:events` brackets `re-frame.event-emit`;
+    both are IMPLEMENTATION-tier registries with no public facade
+    spelling since rf2-kuky.69 retired the `register-listener!`
+    `:events` / `:errors` streams, and a test is one of the two
+    consumers that ruling kept them for. ONE bracket rather than a
+    hand-rolled register/unregister pair per file — the finding
+    rf2-64iuw recorded for the trace side.
+
   ### Deterministic-wait helpers (rf2-ka3n6 / rf2-fun38)
   - [[poll-until]] — bounded-deadline poll for `(pred)` to return
     truthy. JVM returns the truthy value synchronously (throws on
@@ -144,8 +155,12 @@
             [re-frame.trace.tooling :as rf.trace.tooling]
             ;; Clear the always-on event-emit listener registry on each
             ;; reset so a forwarder registered in one test doesn't see
-            ;; events fired by a sibling test.
+            ;; events fired by a sibling test. Both always-on registries are
+            ;; also what `with-emit-recorder!` brackets (rf2-kuky.69): they
+            ;; are IMPLEMENTATION tier — no public facade spelling — and a
+            ;; test is one of the two consumers the ruling kept them for.
             [re-frame.event-emit :as rf.event-emit]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             #?(:clj  [clojure.test :as ctest]
                :cljs [cljs.test :as ctest :include-macros true])))
@@ -1274,3 +1289,103 @@
             ~@body
             (finally
               (rf.trace.tooling/unregister-listener! listener-key#)))))))
+
+;; ---- always-on emit-recorder bracket (rf2-kuky.69) -------------------------
+;;
+;; The sibling of `with-trace-recorder!` above, over the two ALWAYS-ON
+;; substrates rather than the dev-only trace bus.
+;;
+;; rf2-kuky.69 retired `:events` / `:errors` from the public
+;; `register-listener!` vocabulary: they were a second, fail-open production
+;; door — unprojected, raw `:exception`, no frame policy, fanned across every
+;; frame — beside the projected door Spec 015 calls normal, and independent
+;; corpus observation regardless of a frame's policy is WITHDRAWN as a public
+;; primitive. `re-frame.event-emit` / `re-frame.error-emit` SURVIVE as
+;; implementation-tier registries for the framework's own synchronous-window
+;; capture sites and for TESTS. This bracket is the test half of that: ONE
+;; capture verb over both registries, so the tree does not grow a hand-rolled
+;; register/try/finally/unregister wrapper per file — which is exactly the
+;; divergence rf2-64iuw measured on the trace side.
+;;
+;; Macro lives in the `#?(:clj ...)` arm so CLJS test files reach it via
+;; `(:require-macros [re-frame.test-support :refer [with-emit-recorder!]])`.
+
+#?(:clj
+   (defmacro with-emit-recorder!
+     "Bracket `body` with a fresh always-on listener that accumulates
+     records into an atom bound to `recs-sym`. Registered before `body`
+     runs, unregistered in a `finally` on the way out — even if `body`
+     throws.
+
+     Shape:
+
+         (with-emit-recorder! [recs opts] body+)
+
+     `recs` is a symbol `let`-bound to the recording atom (a vector) for
+     `body`'s scope. `opts` is a map literal, keys evaluated at
+     macroexpansion:
+
+       :stream `:errors` (default) — brackets `re-frame.error-emit`,
+               one record per promoted `:rf.error/*`.
+               `:events` — brackets `re-frame.event-emit`, one record
+               per processed event.
+       :pred   1-arg fn `(fn [record] truthy?)` — only records for which
+               `(pred record)` is truthy are conj'd. Default: every
+               record accepted.
+       :key    listener key (any value). Default: a freshly-gensym'd
+               keyword unique to this expansion site, so two brackets in
+               one deftest do not collide in the registry.
+
+     Returns the value of `body`'s final form.
+
+     These are the framework's own registries, NOT a public app surface —
+     an application observes production records through a frame's
+     `:observability` sink or the `(rf/configure! {:observability …})`
+     process default, which deliver a PROJECTED record. A test brackets
+     the raw substrate on purpose: it wants the unprojected shape, inside
+     a window it owns.
+
+     Example — capture the error records one dispatch produces:
+
+         (with-emit-recorder! [errs]
+           (rf/dispatch-sync [:boom])
+           (is (= [:rf.error/handler-exception] (mapv :error @errs))))
+
+     Example — the event stream, filtered to one frame:
+
+         (with-emit-recorder! [seen {:stream :events
+                                     :pred   #(= :app/main (:frame %))}]
+           (rf/dispatch-sync [:tick])
+           (is (= 1 (count @seen))))"
+     {:arglists '([[recs-sym opts?] body+])}
+     [bindings & body]
+     (when-not (and (vector? bindings)
+                    (or (= 1 (count bindings))
+                        (= 2 (count bindings))))
+       (throw (ex-info "with-emit-recorder! expects [recs-sym] or [recs-sym opts-map]"
+                       {:bindings bindings})))
+     (let [recs-sym (first bindings)
+           opts     (or (second bindings) {})
+           {:keys [stream pred key]
+            :or   {stream :errors
+                   pred   `(constantly true)}} opts
+           _        (when-not (contains? #{:errors :events} stream)
+                      (throw (ex-info (str "with-emit-recorder! :stream must be "
+                                           ":errors or :events (the two always-on "
+                                           "substrates); got " (pr-str stream))
+                                      {:stream stream})))
+           [reg unreg] (case stream
+                         :errors [`rf.error-emit/register-error-listener!
+                                  `rf.error-emit/unregister-error-listener!]
+                         :events [`rf.event-emit/register-event-listener!
+                                  `rf.event-emit/unregister-event-listener!])
+           key-form (or key `(keyword (gensym "rf-emit-recorder-")))]
+       `(let [~recs-sym     (atom [])
+              listener-key# ~key-form]
+          (~reg listener-key#
+                (fn [record#] (when (~pred record#)
+                                (swap! ~recs-sym conj record#))))
+          (try
+            ~@body
+            (finally
+              (~unreg listener-key#)))))))
