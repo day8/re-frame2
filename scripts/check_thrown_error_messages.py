@@ -2803,6 +2803,14 @@ def _run_where_sym_self_tests(verbose: bool = False) -> int:
             # (5) the `:where` slot as the map's LAST entry — not a comma bug,
             # found by the control for one.
             (217, "where-sym-unresolvable", "rf.fixture/ghost-slot-last"),
+            # (6) COMMAS AS THE SOLE SEPARATOR. These two exist because a
+            # sabotage plant reverting `_is_clj_ws` came back GREEN over every
+            # case in (4): each of those writes a comma beside whitespace, and
+            # `_clj_strip` alone recovers that, so the splitter's own notion of
+            # reader whitespace went untested. The fixtures had the pattern's
+            # blind spot, which is the failure this gate's audit was about.
+            (233, "where-sym-unresolvable", "rf.fixture/ghost-comma-five"),
+            (236, "where-sym-unresolvable", "rf.fixture/ghost-comma-six"),
         )),
         (_WHERE_SYM_NEGATIVE, ()),
     ]
@@ -2832,7 +2840,7 @@ def _run_where_sym_self_tests(verbose: bool = False) -> int:
     neg_path = _WHERE_SYM_FIXTURE_ROOT / _WHERE_SYM_NEGATIVE
     neg_text = neg_path.read_text(encoding="utf-8", errors="replace")
     neg_observed = _scan_where_syms(neg_path, neg_text, neg_text.splitlines())
-    if len(neg_observed) < 19:
+    if len(neg_observed) < 21:
         fail(
             f"the negative fixture observed only {len(neg_observed)} where-sym(s). "
             "A green there is only evidence while the sites are still being SEEN "
@@ -2853,6 +2861,10 @@ def _run_where_sym_self_tests(verbose: bool = False) -> int:
         (152, "builder", "rf.fixture/known-public"),
         (158, "where-slot", "rf.fixture/known-public"),
         (164, "where-slot", "rf.fixture/known-public"),
+        # commas as the SOLE separator — the spelling a green sabotage plant
+        # proved the pair above could not reach.
+        (175, "builder", "rf.fixture/known-public"),
+        (178, "where-slot", "rf.fixture/known-public"),
     )
     got_observations = {(w.line, w.source, w.symbol) for w in neg_observed}
     for pin in required_observations:

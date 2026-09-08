@@ -217,3 +217,21 @@
   (throw (ex-info "hand-built payload [:rf.error/ghost-eighteen]"
                   {:rf.error/id :rf.error/ghost-eighteen
                    :where       'rf.fixture/ghost-slot-last})))
+
+;; ---- (6) COMMAS AS THE SOLE SEPARATOR ------------------------------------
+;;
+;; THIS SECTION EXISTS BECAUSE A SABOTAGE PLANT CAME BACK GREEN. Reverting
+;; `_is_clj_ws` to Python whitespace left every case in (4) still passing:
+;; each of those writes a comma BESIDE a space or a newline, and `_clj_strip`
+;; alone recovers those, so the splitter's own notion of reader whitespace was
+;; never under test. With commas as the ONLY separator there is no whitespace
+;; to fall back on — the whole call collapses into one argument and the
+;; where-sym vanishes. The fixtures had the blind spot the pattern had, which
+;; is the failure this gate's own audit was about.
+
+(defn ghost-commas-as-sole-separator []
+  (rf.error/throw-error! :rf.error/ghost-nineteen,'rf.fixture/ghost-comma-five,"no whitespace anywhere in the argument list"))
+
+(defn ghost-commas-as-sole-separator-in-the-slot []
+  (throw (ex-info "hand-built payload [:rf.error/ghost-twenty]"
+                  {:rf.error/id :rf.error/ghost-twenty,:where,'rf.fixture/ghost-comma-six,:reason "commas alone between the slot's key and its value"})))
