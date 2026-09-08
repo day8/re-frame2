@@ -306,9 +306,15 @@
 ;;   :tags       — the MACHINE-WIDE active-configuration tag union across
 ;;                 EVERY region (the coarse `stateIn` substitute; a sibling
 ;;                 region advertises a state-tag and any region's guard
-;;                 reads `(contains? (:tags ctx) :some/tag)`). It reflects
-;;                 the EVOLVING macrostep snapshot — a sibling region that
-;;                 transitioned earlier in the same macrostep is visible.
+;;                 reads `(contains? (:tags ctx) :some/tag)`). Like
+;;                 `:all-state` below, it reflects the FROZEN pre-broadcast
+;;                 snapshot at the start of the selection round — computed
+;;                 ONCE by `reduce-regions` and threaded unchanged, NOT
+;;                 rebuilt from the evolving states. A sibling region that
+;;                 transitions in the SAME round is NOT visible; its result
+;;                 lands on the next parent round, which is what makes
+;;                 enabled-set selection declaration-order-independent
+;;                 (Spec 005 §Cross-region coordination).
 ;;   :all-state  — the full region-name → active-state map (the PRECISE
 ;;                 `stateIn` equivalent; `(= :valid (:form (:all-state ctx)))`
 ;;                 reads a sibling region's discrete state value directly).
