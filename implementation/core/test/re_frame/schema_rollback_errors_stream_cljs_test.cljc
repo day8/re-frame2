@@ -69,6 +69,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.event-emit :as rf.event-emit]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
@@ -199,15 +200,15 @@
   [body-fn]
   (let [sequenced (atom [])
         events    (atom [])]
-    (rf/register-listener! :errors ::rec (fn [r] (swap! sequenced conj [:errors r])))
+    (rf.error-emit/register-error-listener! ::rec (fn [r] (swap! sequenced conj [:errors r])))
     (rf/register-listener! :trace  ::rec (fn [e] (swap! sequenced conj [:trace e])))
-    (rf/register-listener! :events ::rec (fn [r] (swap! events conj r)))
+    (rf.event-emit/register-event-listener! ::rec (fn [r] (swap! events conj r)))
     (try
       (body-fn)
       (finally
-        (rf/unregister-listener! :errors ::rec)
+        (rf.error-emit/unregister-error-listener! ::rec)
         (rf/unregister-listener! :trace  ::rec)
-        (rf/unregister-listener! :events ::rec)))
+        (rf.event-emit/unregister-event-listener! ::rec)))
     (let [seqd @sequenced]
       {:sequence seqd
        :errors   (mapv second (filter #(= :errors (first %)) seqd))

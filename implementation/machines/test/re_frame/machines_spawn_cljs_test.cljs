@@ -302,11 +302,11 @@
   category (the production-survivable axis). Always unregisters in a `finally`."
   [thunk]
   (let [seen (atom [])]
-    (rf/register-listener! :errors ::recorder (fn [r] (swap! seen conj r)))
+    (rf.error-emit/register-error-listener! ::recorder (fn [r] (swap! seen conj r)))
     (try
       (thunk)
       (filterv #(= :rf.error/machine-spawn-unregistered-type (:error %)) @seen)
-      (finally (rf/unregister-listener! :errors ::recorder)))))
+      (finally (rf.error-emit/unregister-error-listener! ::recorder)))))
 
 (defn- reject-trace-machine-ids
   "The `:machine-id` of every unregistered-type reject the dev TRACE axis fanned
@@ -501,7 +501,7 @@
           b-birth   (atom nil)]
       (rf/make-frame {:id frame-a})
       (let [token-a (rf.frame/frame-incarnation-token frame-a)]
-        (rf/register-listener! :errors ::rej
+        (rf.error-emit/register-error-listener! ::rej
           (fn [r]
             (when (= :rf.error/machine-spawn-unregistered-type (:error r))
               (swap! records conj r)
@@ -527,4 +527,4 @@
           (is (= @b-birth (rf.machines.test-support/runtime-db frame-a))
               "B's runtime-db is byte-identical to its birth value")
           (finally
-            (rf/unregister-listener! :errors ::rej)))))))
+            (rf.error-emit/unregister-error-listener! ::rej)))))))

@@ -814,7 +814,7 @@
 (deftest retired-name-error-fans-out-on-the-always-on-channel-before-throwing
   (testing "retired-form errors reach the always-on channel before they throw"
     (let [seen-errors (atom [])]
-      (rf/register-listener! :errors :evt-conf/removal-recorder
+      (rf.error-emit/register-error-listener! :evt-conf/removal-recorder
         (fn [error-record] (swap! seen-errors conj (:error error-record))))
       ;; The call throws; the listener must already have received the record.
       (is (= :rf.error/reg-event-db-removed
@@ -835,7 +835,7 @@
 (deftest handled-event-fans-out-on-the-always-on-events-channel
   (testing "a handled event emits one record on the always-on event channel"
     (let [seen-events (atom [])]
-      (rf/register-listener! :events :evt-conf/handled-recorder
+      (rf.event-emit/register-event-listener! :evt-conf/handled-recorder
         (fn [event-record] (swap! seen-events conj event-record)))
       (rf/make-frame {:id :evt-conf/events-main})
       (rf/reg-event :evt-conf/events-probe
@@ -853,7 +853,7 @@
             "a clean settle reports :ok on the always-on channel")
         (is (contains? event-record :elapsed-ms)
             "the tight record carries the wall-clock :elapsed-ms slot (Spec 009 §Record shape)"))
-      (rf/unregister-listener! :events :evt-conf/handled-recorder))))
+      (rf.event-emit/unregister-event-listener! :evt-conf/handled-recorder))))
 
 ;; JVM-only metadata check; the CLJS manifest gate owns compile-time publics.
 

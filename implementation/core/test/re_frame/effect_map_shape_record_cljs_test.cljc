@@ -57,6 +57,7 @@
             [clojure.set :as set]
             [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.event-emit :as rf.event-emit]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -102,9 +103,9 @@
   records are what an off-box shipper receives from a production build."
   [body-fn]
   (let [seen (atom [])]
-    (rf/register-listener! :errors ::rec (fn [r] (swap! seen conj r)))
+    (rf.error-emit/register-error-listener! ::rec (fn [r] (swap! seen conj r)))
     (try (body-fn)
-         (finally (rf/unregister-listener! :errors ::rec)))
+         (finally (rf.error-emit/unregister-error-listener! ::rec)))
     @seen))
 
 (defn- shape-records [records]
@@ -159,10 +160,10 @@
             always-on :events record is what an operator counts, and a
             silently-:ok refusal is the fail-open shape this bead exists to end"
     (let [seen (atom [])]
-      (rf/register-listener! :events ::outcome (fn [r] (swap! seen conj r)))
+      (rf.event-emit/register-event-listener! ::outcome (fn [r] (swap! seen conj r)))
       (rf/reg-event :bad/outcome (fn [_ _] {:db {:n 2} :legacy/dispatch [:x]}))
       (rf/dispatch-sync [:bad/outcome])
-      (rf/unregister-listener! :events ::outcome)
+      (rf.event-emit/unregister-event-listener! ::outcome)
       (is (= [:error] (mapv :outcome @seen))
           "the dispatch settles :error"))))
 

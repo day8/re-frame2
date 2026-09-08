@@ -60,7 +60,7 @@
             (Sentry / Honeybadger / Rollbar) still see every flow
             failure in production."
     (let [seen (atom [])]
-      (rf/register-listener! :errors
+      (rf.error-emit/register-error-listener!
         :prod/flow-recorder
         (fn [record] (swap! seen conj record)))
       (rf/reg-event :prod/flow-throw

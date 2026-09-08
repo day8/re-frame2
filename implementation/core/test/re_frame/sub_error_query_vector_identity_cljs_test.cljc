@@ -76,7 +76,7 @@
         sink-seen     (atom [])]
     (rf/register-observability-sink! :px0i9/sink
                                      (fn [record] (swap! sink-seen conj record)))
-    (rf/register-listener! :errors :px0i9/listener
+    (rf.error-emit/register-error-listener! :px0i9/listener
                            (fn [record] (swap! listener-seen conj record)))
     (rf/make-frame {:id :probe
                     :observability

@@ -55,6 +55,7 @@
   channel counted twice."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.interop :as rf.interop]
             [re-frame.ssr.ring.pipeline :as rf.ssr.ring.pipeline]
             [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]))
@@ -83,12 +84,12 @@
   bus). Returns the records fanned during `thunk`."
   [thunk]
   (let [records (atom [])]
-    (rf/register-listener! :errors ::status-rewrite-watch
+    (rf.error-emit/register-error-listener! ::status-rewrite-watch
       (fn [record] (swap! records conj record)))
     (try
       (thunk)
       (finally
-        (rf/unregister-listener! :errors ::status-rewrite-watch)))
+        (rf.error-emit/unregister-error-listener! ::status-rewrite-watch)))
     @records))
 
 (defn- collect-status-rewrite-records

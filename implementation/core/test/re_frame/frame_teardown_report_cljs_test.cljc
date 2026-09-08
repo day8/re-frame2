@@ -106,7 +106,7 @@
             always-on `:rf.error/frame-teardown-failed` record carrying N
             `:hook-failures` entries — NOT one record per failed hook."
     (let [seen (atom [])]
-      (rf/register-listener! :errors :test/recorder
+      (rf.error-emit/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
       (rf/make-frame {:id :teardown/n-failures :doc "three hooks will throw"})
       (with-hooks*
@@ -141,7 +141,7 @@
             `:rf.error/frame-teardown-failed` report (the report fn
             short-circuits on an empty :hook-failures vector)."
     (let [seen (atom [])]
-      (rf/register-listener! :errors :test/recorder
+      (rf.error-emit/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
       (rf/make-frame {:id :teardown/clean :doc "no hooks throw"})
       (rf/destroy-frame! :teardown/clean)
@@ -163,7 +163,7 @@
             `destroy-frame!`, yet the finally-shaped flush still emits the
             report with the two gathered entries."
     (let [seen (atom [])]
-      (rf/register-listener! :errors :test/recorder
+      (rf.error-emit/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
       (rf/make-frame {:id :teardown/abort :doc "aborts mid-teardown"})
       (with-hooks*
@@ -209,7 +209,7 @@
     (let [seen (atom [])]
       ;; Direct substrate exercise — the same fn frame.cljc reaches via
       ;; the :error-emit/dispatch-frame-teardown-report late-bind hook.
-      (rf/register-listener! :errors :test/recorder
+      (rf.error-emit/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
       (rf.error-emit/dispatch-frame-teardown-report!
         :prod/frame
@@ -225,7 +225,7 @@
   (testing "Per rf2-ini4wr: the report fn is a no-op on an empty
             :hook-failures vector (no failures, no always-on flood)."
     (let [seen (atom [])]
-      (rf/register-listener! :errors :test/recorder
+      (rf.error-emit/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
       (rf.error-emit/dispatch-frame-teardown-report! :prod/frame [] 1)
       (is (empty? @seen) "empty :hook-failures → no record fanned out"))))
@@ -240,7 +240,7 @@
             threw. The `:hook-failures` / `:hook` wire names are deliberately
             stable and span both kinds — this pins the prose, not the shape."
     (let [seen (atom [])]
-      (rf/register-listener! :errors :test/recorder
+      (rf.error-emit/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
       (rf.error-emit/dispatch-frame-teardown-report!
         :prod/frame
@@ -317,7 +317,7 @@
             channels)."
     (let [traces (atom [])
           reports (atom [])]
-      (rf/register-listener! :errors :test/recorder
+      (rf.error-emit/register-error-listener! :test/recorder
                                    (fn [record] (swap! reports conj record)))
       (rf/register-listener! :trace ::rec (fn [ev] (swap! traces conj ev)))
       (rf/make-frame {:id :teardown/both :doc "two hooks throw"})
@@ -371,7 +371,7 @@
             data in its ex-data — that is a SPEC question for 009, not pinned
             here; see the rf2-c80lom companion note.)"
     (let [seen (atom [])]
-      (rf/register-listener! :errors :test/recorder
+      (rf.error-emit/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
       (rf/make-frame {:id :teardown/no-raw :doc "two hooks throw"})
       (with-hooks*
@@ -413,10 +413,10 @@
             reaches the recorder. The report path shares the per-event axis's
             `(:fan-out registry)`, so the defensive fan-out holds for it too."
     (let [seen (atom [])]
-      (rf/register-listener! :errors :test/throws
+      (rf.error-emit/register-error-listener! :test/throws
                                    (fn [_record]
                                      (throw (ex-info "listener went boom" {}))))
-      (rf/register-listener! :errors :test/recorder
+      (rf.error-emit/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
       ;; Direct substrate exercise — the same fn frame.cljc reaches via the
       ;; :error-emit/dispatch-frame-teardown-report late-bind hook.
@@ -437,7 +437,7 @@
             hand-built two-same-key failure vector to document the
             accumulate-don't-dedup contract."
     (let [seen (atom [])]
-      (rf/register-listener! :errors :test/recorder
+      (rf.error-emit/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
       (rf.error-emit/dispatch-frame-teardown-report!
         :prod/frame
@@ -481,7 +481,7 @@
             that does NOT re-fire `:on-destroy`."
     (let [on-destroy-runs (atom 0)
           reports         (atom [])]
-      (rf/register-listener! :errors :test/recorder
+      (rf.error-emit/register-error-listener! :test/recorder
                                    (fn [record] (swap! reports conj record)))
       (rf/reg-event :teardown/count-on-destroy
                        (fn [{:keys [db]} _]
@@ -564,7 +564,7 @@
             `:on-destroy` (step 1) under a SHADOWED atom, so its failures do not
             land in A's accumulator and A's later failures do not land in B's."
     (let [seen (atom [])]
-      (rf/register-listener! :errors :test/recorder
+      (rf.error-emit/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
       ;; B: the inner frame, destroyed nested from A's :on-destroy.
       (rf/make-frame {:id :teardown/inner-B :doc "inner frame, destroyed nested"})

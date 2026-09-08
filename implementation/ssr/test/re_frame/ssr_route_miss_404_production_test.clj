@@ -50,6 +50,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
@@ -93,7 +94,7 @@
   bus). Returns the atom collecting every record it receives."
   [id]
   (let [seen (atom [])]
-    (rf/register-listener! :errors id (fn [record] (swap! seen conj record)))
+    (rf.error-emit/register-error-listener! id (fn [record] (swap! seen conj record)))
     seen))
 
 ;; ===========================================================================
@@ -167,7 +168,7 @@
     (let [seen (capture-always-on! ::one-record)
           f    (server-frame)]
       (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"] {:frame f})
-      (rf/unregister-listener! :errors ::one-record)
+      (rf.error-emit/unregister-error-listener! ::one-record)
       (is (= [:rf.error/no-such-handler] (mapv :error @seen))
           "exactly one always-on record, and it is the route-miss category"))))
 
@@ -180,7 +181,7 @@
     (let [seen (capture-always-on! ::shape)
           f    (server-frame)]
       (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"] {:frame f})
-      (rf/unregister-listener! :errors ::shape)
+      (rf.error-emit/unregister-error-listener! ::shape)
       (let [record (first @seen)]
         (is (= :rf.error/no-such-handler (:error record)))
         (is (= :route (:kind record))
@@ -207,7 +208,7 @@
     (let [seen (capture-always-on! ::redaction)
           f    (server-frame)]
       (rf/dispatch-sync [:rf.route/handle-url-change hostile-miss-url] {:frame f})
-      (rf/unregister-listener! :errors ::redaction)
+      (rf.error-emit/unregister-error-listener! ::redaction)
       (let [url (:url (first @seen))]
         (is (some? url) "the record names the requested URL")
         (is (not (str/includes? url "s3cr3t-query-value"))
@@ -233,7 +234,7 @@
     (let [seen (capture-always-on! ::closed-shape)
           f    (server-frame)]
       (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"] {:frame f})
-      (rf/unregister-listener! :errors ::closed-shape)
+      (rf.error-emit/unregister-error-listener! ::closed-shape)
       (is (= #{:error :kind :frame :time :recovery :url}
              (set (keys (first @seen))))
           "exactly the enumerated slots — no :db, no :params, no event
@@ -247,7 +248,7 @@
     (let [seen (capture-always-on! ::reason)
           f    (server-frame)]
       (rf/dispatch-sync [:rf.route/handle-url-change "/bad%ZZ-encoding"] {:frame f})
-      (rf/unregister-listener! :errors ::reason)
+      (rf.error-emit/unregister-error-listener! ::reason)
       (let [record (first @seen)]
         (is (= :rf.error/no-such-handler (:error record)))
         (is (= :malformed-url (:reason record))
@@ -376,7 +377,7 @@
           client-f (rf.frame/make-anon-frame-record! {:platform :client})]
       (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"]
                         {:frame client-f})
-      (rf/unregister-listener! :errors ::client)
+      (rf.error-emit/unregister-error-listener! ::client)
       (is (= [:rf.error/no-such-handler] (mapv :error @seen))
           "the always-on record still fans — a CLJS production build's error
            shipper sees the client-side route miss too")

@@ -96,6 +96,7 @@
   `(when dev-trace …)`. It is the shape the rest of this file now follows."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.fx :as rf.fx]
             [re-frame.interop :as rf.interop]
@@ -1154,7 +1155,7 @@
       ;; The :errors (always-on) corpus listener is a DIFFERENT observation
       ;; stream from the :trace bus the shared recorder brackets — it stays a
       ;; direct register/unregister (this test exercises that surface).
-      (rf/register-listener! :errors ::b5-corpus
+      (rf.error-emit/register-error-listener! ::b5-corpus
         (fn [record] (swap! corpus conj record)))
       (try
         (with-trace-recorder! [dev-traces]
@@ -1183,7 +1184,7 @@
                 (is (= :secret/other-frame (-> dev-trace :tags :payload-frame-id))
                     "the dev-trace tags carry the raw payload frame-id (the leak is off-box, not local)")))))
         (finally
-          (rf/unregister-listener! :errors ::b5-corpus))))))
+          (rf.error-emit/unregister-error-listener! ::b5-corpus))))))
 
 (deftest direct-dispatch-matching-frame-id-hydrates-normally
   (testing "rf2-nv3mua: a direct dispatch whose :rf/frame-id MATCHES the

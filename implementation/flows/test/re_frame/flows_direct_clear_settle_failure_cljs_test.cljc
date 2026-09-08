@@ -60,6 +60,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.error-emit :as rf.error-emit]
    [re-frame.flows :as rf.flows]
    [re-frame.test-support :as rf.test-support]
    #?(:clj  [re-frame.substrate.plain-atom :as substrate]
@@ -249,7 +250,7 @@
             event's abort — the fix narrows the drain's sentence to the drain,
             it does not retire it"
     (let [errors (atom [])]
-      (rf/register-listener! :errors ::error-recorder
+      (rf.error-emit/register-error-listener! ::error-recorder
                              (fn [record] (swap! errors conj record)))
       (rf/reg-event :seed (fn [_ _] {:db {:x 2}}))
       (rf/reg-event :bump (fn [{:keys [db]} _] {:db (assoc db :x 3)}))

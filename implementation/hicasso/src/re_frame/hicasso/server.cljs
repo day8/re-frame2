@@ -284,7 +284,7 @@
   saw, so nothing goes unreported."
   [listener-id]
   (let [!recorded (atom {:n 0 :first-record nil})]
-    (rf/register-listener! :errors listener-id
+    (rf.error-emit/register-error-listener! listener-id
                            (fn [record]
                              (swap! !recorded
                                     (fn [seen]
@@ -430,7 +430,7 @@
         ;; a destroy-time fault belongs to the process's logs, not to the
         ;; verdict on markup that has already been decided. THIS
         ;; invocation's key, so a nested render removes only its own.
-        (rf/unregister-listener! :errors listener)
+        (rf.error-emit/unregister-error-listener! listener)
         ;; The window before the frame — `destroy-frame!` may itself throw,
         ;; and the window must already be shut when it runs.
         (rf.hicasso.impl.roots/close-adoption-window! window)
@@ -527,7 +527,7 @@
         ;; a destroy-time fault belongs to the process's logs, not to the
         ;; verdict on markup that has already been decided. THIS
         ;; invocation's key, so a nested render removes only its own.
-        (rf/unregister-listener! :errors listener)
+        (rf.error-emit/unregister-error-listener! listener)
         ;; The window before the frame — `destroy-frame!` may itself throw,
         ;; and the window must already be shut when it runs.
         (rf.hicasso.impl.roots/close-adoption-window! window)

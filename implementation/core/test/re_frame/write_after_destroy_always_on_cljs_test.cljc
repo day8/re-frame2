@@ -80,7 +80,7 @@
             corpus-wide `register-error-listener!` substrate — the always-on
             axis that survives `goog.DEBUG=false` — NOT the DCE'd dev trace."
     (let [seen (atom [])]
-      (rf/register-listener! :errors :test/recorder
+      (rf.error-emit/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
       ;; The real production path: every frame :db write flows through this
       ;; choke point; a destroyed frame's container has gone nil.
@@ -113,12 +113,12 @@
     (let [traces (atom [])
           always (atom [])]
       (rf/register-listener! :trace  ::rec        (fn [ev]  (swap! traces conj ev)))
-      (rf/register-listener! :errors ::rec-errors (fn [rec] (swap! always conj rec)))
+      (rf.error-emit/register-error-listener! ::rec-errors (fn [rec] (swap! always conj rec)))
       (try
         (rf.substrate.adapter/replace-container! nil {:dropped :write})
         (finally
           (rf/unregister-listener! :trace  ::rec)
-          (rf/unregister-listener! :errors ::rec-errors)))
+          (rf.error-emit/unregister-error-listener! ::rec-errors)))
       ;; ALWAYS-ON WITNESS (rf2-d2841). This deftest's thesis is that the dev
       ;; trace is the COMPANION of the always-on record off ONE choke point,
       ;; so the companion claim needs the always-on half present in the same

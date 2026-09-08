@@ -612,7 +612,7 @@
   ;; `trace/emit-error!`), which Closure DCEs under `goog.DEBUG=false`, so a
   ;; production build shipped NOTHING when a runaway drain halted. This pins
   ;; the promotion: the halt ALSO fans a STRUCTURAL-ONLY record out through the
-  ;; ALWAYS-ON error-emit axis (`rf/register-listener! :errors`, surface #4 —
+  ;; ALWAYS-ON error-emit axis (`rf.error-emit/register-error-listener!`, surface #4 —
   ;; production-survivable, NOT gated on `rf.interop/debug-enabled?`), carrying
   ;; the CYCLE EVIDENCE (`:tail-event-ids`, the last K settled event-ids — the
   ;; repeating suffix IS the runaway cycle).
@@ -620,7 +620,7 @@
     (let [records (atom [])]
       ;; The ALWAYS-ON listener — NOT the dev `:trace` stream. This is the
       ;; surface that survives production.
-      (rf/register-listener! :errors ::depth-always-on
+      (rf.error-emit/register-error-listener! ::depth-always-on
                              (fn [rec] (swap! records conj rec)))
       (rf/make-frame {:id :drain.always-on/loop :drain-depth 6})
       ;; A two-event cycle: :ping → :pong → :ping → … so the tail ring shows a
@@ -628,7 +628,7 @@
       (rf/reg-event :ping (fn [_ _] {:fx [[:dispatch [:pong]]]}))
       (rf/reg-event :pong (fn [_ _] {:fx [[:dispatch [:ping]]]}))
       (rf/dispatch-sync [:ping] {:frame :drain.always-on/loop})
-      (rf/unregister-listener! :errors ::depth-always-on)
+      (rf.error-emit/unregister-error-listener! ::depth-always-on)
       (let [rec (some (fn [r]
                         (when (= :rf.error/drain-depth-exceeded (:error r)) r))
                       @records)]

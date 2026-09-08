@@ -105,9 +105,9 @@
   records are what an off-box shipper receives from a production build."
   [body-fn]
   (let [seen (atom [])]
-    (rf/register-listener! :errors ::rec (fn [r] (swap! seen conj r)))
+    (rf.error-emit/register-error-listener! ::rec (fn [r] (swap! seen conj r)))
     (try (body-fn)
-         (finally (rf/unregister-listener! :errors ::rec)))
+         (finally (rf.error-emit/unregister-error-listener! ::rec)))
     @seen))
 
 (defn- shape-records [records]

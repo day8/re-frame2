@@ -62,7 +62,7 @@
             programmatic registrations omit the slot rather than nil
             it; the macro-path test below sees it present)."
     (let [seen (atom [])]
-      (rf/register-listener! :errors
+      (rf.error-emit/register-error-listener!
         :test/recorder
         (fn [record] (swap! seen conj record)))
       (rf/reg-event :err/throw
@@ -142,7 +142,7 @@
                    ;; throwable itself otherwise, so a failure names it.
                    (try (rf/dispatch-sync event) ::returned
                         (catch #?(:clj Throwable :cljs :default) e e)))]
-    (rf/register-listener! :errors :test/recorder
+    (rf.error-emit/register-error-listener! :test/recorder
       (fn [record] (swap! seen conj record)))
 
     (testing "a throwing event handler — captured, not re-thrown"
@@ -174,11 +174,11 @@
             silently dropped — no recursive emit, no propagation to
             user code."
     (let [seen (atom [])]
-      (rf/register-listener! :errors
+      (rf.error-emit/register-error-listener!
         :test/throws
         (fn [_record]
           (throw (ex-info "listener went boom" {}))))
-      (rf/register-listener! :errors
+      (rf.error-emit/register-error-listener!
         :test/sibling
         (fn [record] (swap! seen conj record)))
       (rf/reg-event :err/throw2
@@ -196,17 +196,17 @@
             subsequent events. Re-registering under the same id
             reattaches it."
     (let [seen (atom [])]
-      (rf/register-listener! :errors
+      (rf.error-emit/register-error-listener!
         :test/recorder
         (fn [record] (swap! seen conj record)))
       (rf/reg-event :err/throw3 (fn [{:keys [db]} _] {:db (throw (ex-info "x" {}))}))
       (rf/dispatch-sync [:err/throw3])
       (is (= 1 (count @seen)) "listener fired before unregister")
-      (rf/unregister-listener! :errors :test/recorder)
+      (rf.error-emit/unregister-error-listener! :test/recorder)
       (rf/dispatch-sync [:err/throw3])
       (is (= 1 (count @seen)) "listener silent after unregister")
       ;; Re-register under the same id and dispatch again.
-      (rf/register-listener! :errors
+      (rf.error-emit/register-error-listener!
         :test/recorder
         (fn [record] (swap! seen conj record)))
       (rf/dispatch-sync [:err/throw3])
@@ -219,7 +219,7 @@
             `performance.now()` returns a float; the substrate
             rounds at the boundary so the contract holds."
     (let [seen (atom nil)]
-      (rf/register-listener! :errors
+      (rf.error-emit/register-error-listener!
         :test/recorder
         (fn [record] (reset! seen record)))
       (rf/reg-event :err/elapsed (fn [{:keys [db]} _] {:db (throw (ex-info "x" {}))}))
@@ -246,7 +246,7 @@
             walker only) so off-box error observability sees the
             event taxonomy."
     (let [seen (atom nil)]
-      (rf/register-listener! :errors
+      (rf.error-emit/register-error-listener!
         :test/recorder
         (fn [record] (reset! seen record)))
       (rf/reg-event :err/normal-throw
@@ -281,7 +281,7 @@
             `:rf.error/frame-destroyed` out through the always-on
             corpus-wide listener (axis 1)."
     (let [seen (atom [])]
-      (rf/register-listener! :errors :test/recorder
+      (rf.error-emit/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
       ;; dispatch into a frame that was never registered — recovers, emits.
       (is (nil? (rf/dispatch [:whatever] {:frame :gone/frame}))
@@ -313,7 +313,7 @@
             frame RECOVERS (no-op) AND fans `:rf.error/frame-destroyed`
             through the always-on listener."
     (let [seen (atom [])]
-      (rf/register-listener! :errors :test/recorder
+      (rf.error-emit/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
       (is (nil? (rf/dispatch-sync [:whatever] {:frame :gone/frame}))
           "dispatch-sync into an unknown frame returns nil (recovers)")
@@ -328,7 +328,7 @@
             subscribe arriving against a vanished frame — recovers
             safely while staying observable."
     (let [seen (atom [])]
-      (rf/register-listener! :errors :test/recorder
+      (rf.error-emit/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
       (is (nil? (rf/subscribe-once [:any-sub] {:frame :gone/frame}))
           "subscribe-once against an unknown frame returns nil (recovers)")
@@ -357,7 +357,7 @@
     (rf/make-frame {:id :doomed/frame :doc "to be destroyed"})
     (rf/destroy-frame! :doomed/frame)
     (let [seen (atom [])]
-      (rf/register-listener! :errors :test/recorder
+      (rf.error-emit/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
       (is (nil? (rf/dispatch [:x] {:frame :doomed/frame})))
       (is (nil? (rf/subscribe-once [:y] {:frame :doomed/frame})))
@@ -371,7 +371,7 @@
             always-on listener — a production-meaningful runtime error
             that was previously dev-trace-only."
     (let [seen (atom [])]
-      (rf/register-listener! :errors :test/recorder
+      (rf.error-emit/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
       ;; :rf/default exists (fixture) but :no/handler-here is unregistered.
       (rf/dispatch-sync [:no/handler-here])
@@ -386,7 +386,7 @@
             sub fans `:rf.error/no-such-sub` through the always-on
             listener (previously dev-trace-only)."
     (let [seen (atom [])]
-      (rf/register-listener! :errors :test/recorder
+      (rf.error-emit/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
       (is (nil? (rf/subscribe-once [:no/such-sub-here] {:frame :rf/default}))
           "subscribe-once to an unregistered sub recovers to nil")
@@ -404,7 +404,7 @@
             recover to nil with no always-on emission (the fail-open
             class rf2-vvwmi closed for the reactive path)."
     (let [seen (atom [])]
-      (rf/register-listener! :errors :test/recorder
+      (rf.error-emit/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
       (rf/reg-sub :kjf3m/throwing (fn [_db _q] (throw (ex-info "compute-boom" {}))))
       (is (nil? (rf/compute-sub [:kjf3m/throwing] {}))
@@ -437,7 +437,7 @@
             listener (previously dev-trace-only). The throw is recovered
             (the fx is skipped) and the cascade continues."
     (let [seen (atom [])]
-      (rf/register-listener! :errors :test/recorder
+      (rf.error-emit/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
       (rf/reg-fx :goum9x/throwing-fx
                  (fn [_ _] (throw (ex-info "fx-boom" {:cause :test}))))
@@ -459,7 +459,7 @@
             SIBLING fx in the same :fx vector still fire, and app-db is
             NOT rolled back."
     (let [fired (atom [])]
-      (rf/register-listener! :errors :test/recorder (fn [_] nil))
+      (rf.error-emit/register-error-listener! :test/recorder (fn [_] nil))
       (rf/reg-fx :goum9x/ok-a   (fn [_ _] (swap! fired conj :a)))
       (rf/reg-fx :goum9x/boom   (fn [_ _] (throw (ex-info "boom" {}))))
       (rf/reg-fx :goum9x/ok-b   (fn [_ _] (swap! fired conj :b)))
@@ -481,7 +481,7 @@
             The fx is dropped; the cascade continues.
             Per rf2-g0mep the record also NAMES the unknown fx-id."
     (let [seen (atom [])]
-      (rf/register-listener! :errors :test/recorder
+      (rf.error-emit/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
       (rf/reg-event :goum9x/run-unknown-fx
                        (fn [_ _] {:fx [[:goum9x/never-registered {:x 1}]]}))
@@ -511,7 +511,7 @@
             The runtime falls back to the registered fx."
     (let [seen  (atom [])
           fired (atom false)]
-      (rf/register-listener! :errors :test/recorder
+      (rf.error-emit/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
       (rf/reg-fx :goum9x/real-fx (fn [_ _] (reset! fired true)))
       (rf/reg-event :goum9x/run-bad-override
@@ -535,7 +535,7 @@
             EP-0017 §7 the dispatch is rejected (no-recovery) — typos die loudly
             rather than silently re-reading the host."
     (let [seen (atom [])]
-      (rf/register-listener! :errors :test/recorder
+      (rf.error-emit/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
       (rf/reg-event :goum9x/run-unknown-cofx
                        {:rf.cofx/requires [:goum9x/never-registered-cofx]}
@@ -569,7 +569,7 @@
             can tell WHICH interceptor failed in production, not just the
             category. `:reason` rides too."
     (let [seen (atom [])]
-      (rf/register-listener! :errors :test/recorder
+      (rf.error-emit/register-error-listener! :test/recorder
                              (fn [record] (swap! seen conj record)))
       (rf/reg-interceptor :n4x74b/boom-after
                           {:after (fn [_ctx] (throw (ex-info "after boom" {})))})
@@ -594,7 +594,7 @@
             :before throws is attributed to the interceptor id on the always-on
             record too (the same classification applies to both phases)."
     (let [seen (atom [])]
-      (rf/register-listener! :errors :test/recorder
+      (rf.error-emit/register-error-listener! :test/recorder
                              (fn [record] (swap! seen conj record)))
       (rf/reg-interceptor :n4x74b/boom-before
                           {:before (fn [_ctx] (throw (ex-info "before boom" {})))})
@@ -617,7 +617,7 @@
             so off-box shippers attribute the failing supplier — not just the
             category. `:reason` rides too."
     (let [seen (atom [])]
-      (rf/register-listener! :errors :test/recorder
+      (rf.error-emit/register-error-listener! :test/recorder
                              (fn [record] (swap! seen conj record)))
       (rf/reg-cofx :n4x74b/boom-cofx
         (fn [] (throw (ex-info "cofx supplier boom" {}))))
@@ -641,7 +641,7 @@
             record shape is unchanged (the lift is guarded on failing-id being
             DISTINCT from event-id)."
     (let [seen (atom [])]
-      (rf/register-listener! :errors :test/recorder
+      (rf.error-emit/register-error-listener! :test/recorder
                              (fn [record] (swap! seen conj record)))
       (rf/reg-event :n4x74b/handler-throws
                     (fn [{:keys [db]} _] {:db (throw (ex-info "handler boom" {}))}))
@@ -683,7 +683,7 @@
   every assertion built on this helper means the same thing in both postures."
   [category event]
   (let [seen (atom [])]
-    (rf/register-listener! :errors :test/recorder
+    (rf.error-emit/register-error-listener! :test/recorder
                            (fn [record] (swap! seen conj record)))
     (try (rf/dispatch-sync event)
          (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ nil))
@@ -761,7 +761,7 @@
             lookup) — the sub was registered via the public `reg-sub`
             macro path, so its coords ride the always-on registry."
     (let [seen (atom [])]
-      (rf/register-listener! :errors :test/recorder
+      (rf.error-emit/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
       ;; Parametric sub: input-fn (arity-1) THROWS at materialization.
       ;; Registered via the public macro so `[:sub …]` coords are captured.
@@ -792,7 +792,7 @@
             reactive call site supplies `query-id` in `:event-id` and the
             lookup is kind-aware."
     (let [seen (atom [])]
-      (rf/register-listener! :errors :test/recorder
+      (rf.error-emit/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
       ;; Layer-1 sub whose body throws on the reactive run.
       (rf/reg-sub :bxud9v/body-throws
@@ -853,7 +853,7 @@
   pins the one-record-per-runtime-error law across the arms."
   [op id]
   (let [seen (atom [])]
-    (rf/register-listener! :errors :xgkgx/recorder
+    (rf.error-emit/register-error-listener! :xgkgx/recorder
                            (fn [record] (swap! seen conj record)))
     (rf.error-emit/emit-error-both!
       :rf.error/frame-destroyed
@@ -975,7 +975,7 @@
       (let [seen (atom [])]
         (rf.source-coords/forget-error-coords!)
         (seed)
-        (rf/register-listener! :errors :xlvt/recorder
+        (rf.error-emit/register-error-listener! :xlvt/recorder
                                (fn [record] (swap! seen conj record)))
         (case op-key
           :dispatch      ((:dispatch h) [id])
@@ -1091,7 +1091,7 @@
           fired   (atom false)]
       (rf.source-coords/forget-error-coords!)
       (seed)
-      (rf/register-listener! :errors :a2x2w/recorder
+      (rf.error-emit/register-error-listener! :a2x2w/recorder
                              (fn [record] (swap! seen conj record)))
       (with-redefs [rf.frame/frame-incarnation-live?
                     (fn [id* token]
@@ -1186,7 +1186,7 @@
             stamps `:op :subscribe` because a query vector is IDENTITY (see
             `ordinary-subscribe-frame-destroyed-stamps-op-egresses-raw-resolves-sub-coord`)."
     (let [seen (atom [])]
-      (rf/register-listener! :errors :a2x2w/plain (fn [record] (swap! seen conj record)))
+      (rf.error-emit/register-error-listener! :a2x2w/plain (fn [record] (swap! seen conj record)))
       (rf/dispatch-sync [:a2x2w/nope] {:frame :a2x2w/gone-frame})
       (is (= 1 (count @seen)))
       (let [r (first @seen)]
@@ -1218,7 +1218,7 @@
     (rf.source-coords/remember-error-coords! :event :alk8a/collide xgkgx-event-coord)
     (rf.source-coords/remember-error-coords! :sub   :alk8a/collide xgkgx-sub-coord)
     (let [seen (atom [])]
-      (rf/register-listener! :errors :alk8a/recorder (fn [record] (swap! seen conj record)))
+      (rf.error-emit/register-error-listener! :alk8a/recorder (fn [record] (swap! seen conj record)))
       (is (nil? (rf/subscribe-once [:alk8a/collide] {:frame :alk8a/gone-frame}))
           "subscribe into a missing frame recovers to nil")
       (is (= 1 (count @seen)))
@@ -1241,7 +1241,7 @@
     (rf.source-coords/forget-error-coords!)
     (rf.source-coords/remember-error-coords! :event :alk8a/event-only xgkgx-event-coord)
     (let [seen (atom [])]
-      (rf/register-listener! :errors :alk8a/recorder2 (fn [record] (swap! seen conj record)))
+      (rf.error-emit/register-error-listener! :alk8a/recorder2 (fn [record] (swap! seen conj record)))
       (is (nil? (rf/subscribe-once [:alk8a/event-only] {:frame :alk8a/gone-frame})))
       (is (= 1 (count @seen)))
       (let [r (first @seen)]
@@ -1259,7 +1259,7 @@
             surface). Recovery is the framework's per-category typed
             default; there is no app-steering policy (rf2-hiqtk8)."
     (let [listener-saw (atom #{})]
-      (rf/register-listener! :errors :test/recorder
+      (rf.error-emit/register-error-listener! :test/recorder
                                    (fn [record] (swap! listener-saw conj (:error record))))
       ;; no-such-handler on :rf/default.
       (rf/dispatch-sync [:no/handler-here2])

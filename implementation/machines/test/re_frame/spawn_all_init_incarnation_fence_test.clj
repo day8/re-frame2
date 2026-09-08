@@ -127,7 +127,7 @@
                           (rf.frame/destroy-frame! frame-a)  ;; destroy A
                           (rf/make-frame {:id frame-a})    ;; publish same-id B
                           (reset! b-birth (rf.machines.test-support/runtime-db frame-a))))]
-    (rf/register-listener! :errors ::recorder
+    (rf.error-emit/register-error-listener! ::recorder
                            (fn [r]
                              (when (= :rf.error/machine-spawn-unregistered-type (:error r))
                                (swap! records conj r)
@@ -154,7 +154,7 @@
        :join-slot  (join-slot frame-a parent-id invoke-id)
        :started    (rf.machines.test-support/events-of :rf.machine.spawn-all/started)}
       (finally
-        (rf/unregister-listener! :errors ::recorder)
+        (rf.error-emit/unregister-error-listener! ::recorder)
         (rf.late-bind/set-fn! :schemas/validate-with-registered-fn orig-validate)))))
 
 (defn- assert-b-inert

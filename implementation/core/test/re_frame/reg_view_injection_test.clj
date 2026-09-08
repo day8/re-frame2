@@ -58,6 +58,7 @@
   The macro-expansion deftest was always posture-independent and is untouched."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.registrar :as rf.registrar]
@@ -215,7 +216,7 @@
       ;; ALWAYS-ON axis (rf2-d2841): `:rf.error/no-such-sub` is a PROMOTED
       ;; category — the miss fans a corpus-wide record that survives
       ;; -Dre-frame.debug=false.
-      (rf/register-listener! :errors ::err (fn [r] (swap! records conj r)))
+      (rf.error-emit/register-error-listener! ::err (fn [r] (swap! records conj r)))
       (try
         ;; EP-0002 (rf2-69r7ui): the reg-view handle captures
         ;; `(current-frame-id)` at render, which REQUIRES a scope. Render
@@ -255,7 +256,7 @@
               (is (= 're-frame.reg-view-injection-test (:ns cs))
                   "the subscribe call-site coord is the VIEW's definition-site ns"))))
         (finally
-          (rf/unregister-listener! :errors ::err)
+          (rf.error-emit/unregister-error-listener! ::err)
           (rf/unregister-listener! :trace ::rec))))))
 
 ;; ---- production-elision shape (dev coord vs slim prod coord) -------------

@@ -62,6 +62,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.error-listener :as rf.ssr.error-listener]
@@ -124,7 +125,7 @@
   bus). Returns the atom collecting every record it receives."
   [id]
   (let [seen (atom [])]
-    (rf/register-listener! :errors id (fn [record] (swap! seen conj record)))
+    (rf.error-emit/register-error-listener! id (fn [record] (swap! seen conj record)))
     seen))
 
 (defn- ingest!
@@ -137,7 +138,7 @@
         id   (keyword "rf2-qwydk" (str "cap-" (name (gensym "s"))))
         seen (capture-always-on! id)]
     (rf/dispatch-sync [:api/ingest payload] {:frame f})
-    (rf/unregister-listener! :errors id)
+    (rf.error-emit/unregister-error-listener! id)
     {:frame f :records @seen}))
 
 (defn- boundary-records [records]
@@ -327,7 +328,7 @@
     (let [seen     (capture-always-on! ::client)
           client-f (rf.frame/make-anon-frame-record! {:platform :client})]
       (rf/dispatch-sync [:api/ingest bad-payload] {:frame client-f})
-      (rf/unregister-listener! :errors ::client)
+      (rf.error-emit/unregister-error-listener! ::client)
       (is (= [:rf.error/schema-validation-failure] (mapv :error @seen))
           "the always-on record still fans")
       (is (= 200 (:status (rf.ssr/get-response client-f)))

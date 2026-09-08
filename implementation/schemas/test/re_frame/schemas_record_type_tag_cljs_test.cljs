@@ -26,6 +26,7 @@
   (:require [clojure.string :as str]
             [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.interop :as rf.interop]
             [re-frame.schemas :as rf.schemas]
             [re-frame.schemas.validate :as rf.schemas.validate]
@@ -132,14 +133,14 @@
             `got rf2-xpd8-secret-from-value`."
     (when rf.interop/debug-enabled?
       (let [records (atom [])]
-        (rf/register-listener! :errors ::rec (fn [r] (swap! records conj r)))
+        (rf.error-emit/register-error-listener! ::rec (fn [r] (swap! records conj r)))
         (try
           (rf/reg-app-schema [:tenant] [:map [:id :int]])
           (rf.schemas/validate-app-schema!
             {:tenant {:id (planted-constructor-obj)}}
             :tenant/set-bad)
           (finally
-            (rf/unregister-listener! :errors ::rec)))
+            (rf.error-emit/unregister-error-listener! ::rec)))
         (let [rejections (filterv
                            #(and (= :rf.error/schema-validation-failure (:error %))
                                  (= :app-db (:where %)))

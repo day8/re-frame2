@@ -270,10 +270,10 @@
                 :recovery — this category throws nothing, so without them the
                 record holds no message anywhere"
         (let [seen (atom [])]
-          (rf/register-listener! :errors :fu75/ladder
+          (rf.error-emit/register-error-listener! :fu75/ladder
                                  (fn [record] (swap! seen conj record)))
           (rf.frame/emit-no-frame-context! payload)
-          (rf/unregister-listener! :errors :fu75/ladder)
+          (rf.error-emit/unregister-error-listener! :fu75/ladder)
           (let [record (first @seen)]
             (is (= :rf.error/no-frame-context (:error record)))
             (is (= (:reason payload) (:reason record))
@@ -330,7 +330,7 @@
   (when (browser?)
     (register-refusal-handlers!)
     (let [seen (atom [])]
-      (rf/register-listener! :errors :fu75/owner
+      (rf.error-emit/register-error-listener! :fu75/owner
                             (fn [record] (swap! seen conj record)))
       (testing "the listener receives the record exactly once and the console
                 stays silent"
@@ -359,7 +359,7 @@
     (register-refusal-handlers!)
     (testing "a listener that IGNORES the category still owns the stream —
               ownership is the registration, not the handling"
-      (rf/register-listener! :errors :fu75/indifferent (fn [_record] nil))
+      (rf.error-emit/register-error-listener! :fu75/indifferent (fn [_record] nil))
       (let [{:keys [console]}
             (capture-console #(rf/dispatch-sync [:fu75.console/throws]))]
         (is (empty? console))))
@@ -368,7 +368,7 @@
               listener throw, and the fallback must not read that as
               nobody-owns-it"
       (rf.error-emit/clear-error-listeners!)
-      (rf/register-listener! :errors :fu75/broken
+      (rf.error-emit/register-error-listener! :fu75/broken
                             (fn [_record] (throw (ex-info "listener boom" {}))))
       (let [{:keys [console]}
             (capture-console #(rf/dispatch-sync [:fu75.console/throws]))]
@@ -377,10 +377,10 @@
 (deftest dropping-the-last-listener-resumes-the-fallback
   (when (browser?)
     (register-refusal-handlers!)
-    (rf/register-listener! :errors :fu75/owner (fn [_record] nil))
+    (rf.error-emit/register-error-listener! :fu75/owner (fn [_record] nil))
     (let [owned (capture-console #(rf/dispatch-sync [:fu75.console/throws]))]
       (is (empty? (:console owned)) "quiet while owned"))
-    (rf/unregister-listener! :errors :fu75/owner)
+    (rf.error-emit/unregister-error-listener! :fu75/owner)
     (let [unowned (capture-console #(rf/dispatch-sync [:fu75.console/throws]))]
       (is (= 1 (count (:console unowned)))
           "the registry is empty again, so the fallback resumes")
@@ -604,7 +604,7 @@
               rf2-fu75 ownership rule applies unchanged to this category"
       (rf.error-emit/clear-error-listeners!)
       (let [seen (atom [])]
-        (rf/register-listener! :errors :fu75/rollback-owner
+        (rf.error-emit/register-error-listener! :fu75/rollback-owner
                                (fn [r] (swap! seen conj r)))
         (let [{:keys [console]}
               (capture-console
@@ -615,7 +615,7 @@
               "the owner got both records")
           (is (empty? console)
               (str "and nothing printed; got " (pr-str console))))
-        (rf/unregister-listener! :errors :fu75/rollback-owner)))))
+        (rf.error-emit/unregister-error-listener! :fu75/rollback-owner)))))
 
 ;; ===========================================================================
 ;; THE OTHER THREE ROLLBACK ARMS — rf2-vkn8 (PR2)
@@ -690,7 +690,7 @@
     (testing "ANY listener owns the stream and the fallback goes quiet"
       (rf.error-emit/clear-error-listeners!)
       (let [seen (atom [])]
-        (rf/register-listener! :errors :fu75/machine-owner
+        (rf.error-emit/register-error-listener! :fu75/machine-owner
                                (fn [r] (swap! seen conj r)))
         (let [{:keys [console]}
               (capture-console
@@ -700,7 +700,7 @@
               "the owner got the record")
           (is (empty? console)
               (str "and nothing printed; got " (pr-str console))))
-        (rf/unregister-listener! :errors :fu75/machine-owner)))))
+        (rf.error-emit/unregister-error-listener! :fu75/machine-owner)))))
 
 (deftest unowned-malformed-schema-rollback-reaches-the-dev-console
   (when (and (browser?)
@@ -735,7 +735,7 @@
     (testing "ANY listener owns the stream and the fallback goes quiet"
       (rf.error-emit/clear-error-listeners!)
       (let [seen (atom [])]
-        (rf/register-listener! :errors :fu75/malformed-owner
+        (rf.error-emit/register-error-listener! :fu75/malformed-owner
                                (fn [r] (swap! seen conj r)))
         (let [{:keys [console]}
               (capture-console
@@ -744,7 +744,7 @@
           (is (= 1 (count (filter #(= :rf.error/malformed-schema (:error %)) @seen))))
           (is (empty? console)
               (str "and nothing printed; got " (pr-str console))))
-        (rf/unregister-listener! :errors :fu75/malformed-owner)))))
+        (rf.error-emit/unregister-error-listener! :fu75/malformed-owner)))))
 
 ;; ===========================================================================
 ;; HOST BOUNDARY — Node-targeted CLJS stays listener-only
@@ -766,7 +766,7 @@
     (testing "and the record still reaches an attached listener — the
               always-on axis is unchanged off-browser"
       (let [seen (atom [])]
-        (rf/register-listener! :errors :fu75/owner
+        (rf.error-emit/register-error-listener! :fu75/owner
                               (fn [record] (swap! seen conj record)))
         (rf/dispatch-sync [:fu75.console/throws])
         (is (= [:rf.error/handler-exception] (mapv :error @seen)))))
@@ -790,12 +790,12 @@
               (str "no console output off a DOM host; got " (pr-str console)))
           (is (zero? report-error)))
         (let [seen (atom [])]
-          (rf/register-listener! :errors :fu75/machine-owner
+          (rf.error-emit/register-error-listener! :fu75/machine-owner
                                  (fn [r] (swap! seen conj r)))
           (rf/dispatch-sync [vkn8-machine-id [:break]] {:frame :fu75.machine/frame})
           (is (= 1 (count (filter #(= :machine-data (:where %)) @seen)))
               "the always-on axis is unchanged off-browser")
-          (rf/unregister-listener! :errors :fu75/machine-owner)))
+          (rf.error-emit/unregister-error-listener! :fu75/machine-owner)))
 
       (when (some? (rf.late-bind/get-fn :schemas/validate-app-schema!))
         (register-malformed-rollback-app!)
@@ -808,8 +808,8 @@
               (str "no console output off a DOM host; got " (pr-str console)))
           (is (zero? report-error)))
         (let [seen (atom [])]
-          (rf/register-listener! :errors :fu75/malformed-owner
+          (rf.error-emit/register-error-listener! :fu75/malformed-owner
                                  (fn [r] (swap! seen conj r)))
           (rf/dispatch-sync [:fu75.malformed/write] {:frame :fu75.malformed/frame})
           (is (= 1 (count (filter #(= :rf.error/malformed-schema (:error %)) @seen))))
-          (rf/unregister-listener! :errors :fu75/malformed-owner))))))
+          (rf.error-emit/unregister-error-listener! :fu75/malformed-owner))))))

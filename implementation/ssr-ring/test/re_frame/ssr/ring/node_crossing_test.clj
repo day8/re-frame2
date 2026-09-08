@@ -35,6 +35,7 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.ssr.ring :as rf.ssr.ring]
             [re-frame.ssr.ring.node :as rf.ssr.ring.node]
             [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support])
@@ -207,7 +208,7 @@
   view of the crossing. Returns the atom."
   []
   (let [seen (atom [])]
-    (rf/register-listener! :errors ::crossing-recorder
+    (rf.error-emit/register-error-listener! ::crossing-recorder
                            (fn [record] (swap! seen conj record)))
     seen))
 
@@ -285,7 +286,7 @@
         (is (= 0 busy)) (is (= 0 waiting))))
 
     (is (empty? (render-failure-ids @seen)) "no render failure was projected")
-    (rf/unregister-listener! :errors ::crossing-recorder)))
+    (rf.error-emit/unregister-error-listener! ::crossing-recorder)))
 
 ;; ===========================================================================
 ;; (d) — the deadline arm, and the other distinct codes
@@ -330,7 +331,7 @@
         (is (= 0 busy)) (is (= 0 waiting))
         (is (= (inc (get before "replacements")) replacements)
             "exactly one isolate was terminated and replaced — the deadline was the sidecar's")))
-    (rf/unregister-listener! :errors ::crossing-recorder)))
+    (rf.error-emit/unregister-error-listener! ::crossing-recorder)))
 
 (deftest ^:crossing refusal-arm-a-key-the-entry-does-not-allowlist
   (register-app!)
@@ -355,7 +356,7 @@
       (is (= ":hidden" (get detail "key")) "…and its detail"))
     (let [{:strs [busy waiting]} (await-idle-isolates! url 2000)]
       (is (= 0 busy)) (is (= 0 waiting)))
-    (rf/unregister-listener! :errors ::crossing-recorder)))
+    (rf.error-emit/unregister-error-listener! ::crossing-recorder)))
 
 (deftest ^:crossing refusal-arm-build-identity-mismatch-is-refused-by-the-sidecar
   (register-app!)
@@ -370,7 +371,7 @@
       (is (= 409 status))
       (is (= ["rf.ssr-node" "build-identity-mismatch"]
              [(namespace refusal) (name refusal)])))
-    (rf/unregister-listener! :errors ::crossing-recorder)))
+    (rf.error-emit/unregister-error-listener! ::crossing-recorder)))
 
 (defn- closed-port
   "A loopback port nothing listens on: bind one, read it, release it."
@@ -390,7 +391,7 @@
     (let [{:keys [endpoint ex-class]} (render-failure-data @seen)]
       (is (str/starts-with? endpoint "http://127.0.0.1:"))
       (is (string? ex-class)))
-    (rf/unregister-listener! :errors ::crossing-recorder)))
+    (rf.error-emit/unregister-error-listener! ::crossing-recorder)))
 
 (defn- with-stub-sidecar
   "Run `f` with the URL of a JDK HttpServer answering every request with
@@ -425,7 +426,7 @@
         (is (= [:rf.error/ssr-node-build-skew] (render-failure-ids @seen)))
         (is (= {:expected "crossing-build-1" :serving "drifted-build-9"}
                (select-keys (render-failure-data @seen) [:expected :serving])))
-        (rf/unregister-listener! :errors ::crossing-recorder)))))
+        (rf.error-emit/unregister-error-listener! ::crossing-recorder)))))
 
 (deftest ^:crossing build-skew-arm-a-200-that-names-no-build-is-refused-on-the-jvm
   ;; The companion to the row above, and the one absence needs a row of its
@@ -451,7 +452,7 @@
           (is (= "crossing-build-1" (:expected data)) "the configured expectation")
           (is (contains? data :serving) "…and an honest missing-serving slot")
           (is (nil? (:serving data)) "…carrying nil, because the answer named none"))
-        (rf/unregister-listener! :errors ::crossing-recorder)))))
+        (rf.error-emit/unregister-error-listener! ::crossing-recorder)))))
 
 ;; ===========================================================================
 ;; The construction contract — no sidecar, runs in the default lane

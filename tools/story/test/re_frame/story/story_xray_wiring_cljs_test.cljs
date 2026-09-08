@@ -53,6 +53,7 @@
   Sub-second; node CLJS."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -116,11 +117,11 @@
   "Attach an always-on `:errors` listener collecting records into an atom."
   []
   (let [seen (atom [])]
-    (rf/register-listener! :errors error-capture-id (fn [r] (swap! seen conj r)))
+    (rf.error-emit/register-error-listener! error-capture-id (fn [r] (swap! seen conj r)))
     seen))
 
 (defn- frame-destroyed-records [seen]
-  (rf/unregister-listener! :errors error-capture-id)
+  (rf.error-emit/unregister-error-listener! error-capture-id)
   (filterv #(= :rf.error/frame-destroyed (:error %)) @seen))
 
 (defn- flush-xray-queue!

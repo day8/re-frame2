@@ -91,6 +91,7 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.cofx :as rf.cofx]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
@@ -116,10 +117,10 @@
   `error-emit/dispatch-on-error!` registry fans. NOT gated on
   `rf.interop/debug-enabled?` — this is axis 1, the channel that survives CLJS
   `:advanced` + `goog.DEBUG=false`. Tests must
-  `(rf/unregister-listener! :errors id)` to detach."
+  `(rf.error-emit/unregister-error-listener! id)` to detach."
   [id]
   (let [acc (atom [])]
-    (rf/register-listener! :errors id (fn [rec] (swap! acc conj rec)))
+    (rf.error-emit/register-error-listener! id (fn [rec] (swap! acc conj rec)))
     acc))
 
 (defn- errors-of
@@ -453,7 +454,7 @@
       (let [ex (try (rf/dispatch-sync [:cofx-test/needs-boundary]) nil
                     (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))]
         (rf/unregister-listener! :trace ::missing)
-        (rf/unregister-listener! :errors ::missing)
+        (rf.error-emit/unregister-error-listener! ::missing)
         (is (false? @fired?)
             "the handler never ran — missing-required halts the cascade")
         (is (some? ex)
@@ -497,7 +498,7 @@
       (let [ex (try (rf/dispatch-sync [:cofx-test/has-typo]) nil
                     (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))]
         (rf/unregister-listener! :trace ::typo)
-        (rf/unregister-listener! :errors ::typo)
+        (rf.error-emit/unregister-error-listener! ::typo)
         (is (= :rf.error/unregistered-cofx (:rf.error/id (ex-data ex)))
             "an unregistered (typo'd) id is :rf.error/unregistered-cofx, NOT missing-required")
         ;; ALWAYS-ON (rf2-d2841): the promoted half of the EP-0017 §7 SPLIT —
@@ -1136,7 +1137,7 @@
                         (catch #?(:clj clojure.lang.ExceptionInfo
                                   :cljs cljs.core/ExceptionInfo) e e))]
             (rf/unregister-listener! :trace ::bad-gen)
-            (rf/unregister-listener! :errors ::bad-gen)
+            (rf.error-emit/unregister-error-listener! ::bad-gen)
             (is (false? @fired?)
                 "the handler never ran — a schema-invalid generated value halts the cascade")
             (is (some? ex) "the dispatch threw rather than folding the bad value")
@@ -1196,7 +1197,7 @@
                     (catch #?(:clj clojure.lang.ExceptionInfo
                               :cljs cljs.core/ExceptionInfo) e e))]
         (rf/unregister-listener! :trace ::gen-non-edn)
-        (rf/unregister-listener! :errors ::gen-non-edn)
+        (rf.error-emit/unregister-error-listener! ::gen-non-edn)
         (is (= 1 @gen-calls) "the generator ran (the value is checked AFTER it mints)")
         (is (false? @fired?)
             "the handler never ran — a non-EDN generated value halts the cascade")

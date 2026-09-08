@@ -69,6 +69,7 @@
             [re-frame.bench.hicasso.front.dogfood :as rf.bench.hicasso.front.dogfood]
             [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
             [re-frame.core :as rf]
+            [re-frame.event-emit :as rf.event-emit]
             [re-frame.test-support :as rf.test-support]
             [uix.compiler.input]
             [uix.core :refer [$ defui]]
@@ -355,7 +356,7 @@
   (fresh!)
   (let [handle (mount-fn)
         log    (atom [])]
-    (rf/register-listener! :events ::intent-parity
+    (rf.event-emit/register-event-listener! ::intent-parity
                            (fn [record]
                              (when (= frame-id (:frame record))
                                (swap! log conj (:event record)))))
@@ -363,7 +364,7 @@
       (rf.bench.hicasso.arm1.dogfood-script/interaction-steps handle)
       (fn []
         (let [result {:intents @log :dom (rf.bench.hicasso.lane/canonical (:container handle))}]
-          (rf/unregister-listener! :events ::intent-parity)
+          (rf.event-emit/unregister-event-listener! ::intent-parity)
           (release-fn handle)
           (k result))))))
 

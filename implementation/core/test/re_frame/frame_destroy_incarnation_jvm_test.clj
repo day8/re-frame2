@@ -57,6 +57,7 @@
   (:require [clojure.set :as set]
             [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.event-emit :as rf.event-emit]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.epoch]
             [re-frame.epoch.state :as rf.epoch.state]
@@ -623,7 +624,7 @@
         (when (and (= id (get-in ev [:tags :frame]))
                    (= :rf.warning/teardown-hook-exception (:operation ev)))
           (swap! warnings conj ev))))
-    (rf/register-listener! :errors trace-key
+    (rf.error-emit/register-error-listener! trace-key
       (fn [r]
         (when (and (= :rf.error/frame-teardown-failed (:error r))
                    (= id (:frame r)))
@@ -649,7 +650,7 @@
         ;; re-enter the throwing wrapper.
         (rf.late-bind/set-fn! :epoch/on-frame-destroyed original-ep)
         (rf/unregister-listener! :trace trace-key)
-        (rf/unregister-listener! :errors trace-key)
+        (rf.error-emit/unregister-error-listener! trace-key)
         (when (rf.frame/frame id) (rf.frame/destroy-frame! id))))))
 
 (deftest terminal-teardown-hook-exception-crosses-successor-no-emit
@@ -869,7 +870,7 @@
         (when (and (= id (get-in ev [:tags :frame]))
                    (= :rf.warning/teardown-hook-exception (:operation ev)))
           (swap! warnings conj ev))))
-    (rf/register-listener! :errors ::ring-snap-warn
+    (rf.error-emit/register-error-listener! ::ring-snap-warn
       (fn [r]
         (when (and (= :rf.error/frame-teardown-failed (:error r))
                    (= id (:frame r)))
@@ -909,7 +910,7 @@
             "no residual event-bundle ring survives destroyed A either"))
       (finally
         (rf/unregister-listener! :trace ::ring-snap-warn)
-        (rf/unregister-listener! :errors ::ring-snap-warn)
+        (rf.error-emit/unregister-error-listener! ::ring-snap-warn)
         (when (rf.frame/frame id) (rf.frame/destroy-frame! id))
         (rf.late-bind/set-fn! :epoch/snapshot-frame-destroyed original-snap)))))
 
@@ -953,7 +954,7 @@
     (rf/register-listener! :epoch cb (fn [_] nil))
     (rf/dispatch-sync [:snap-fail/seed] {:frame id})
     (reset! a-token (rf.frame/frame-incarnation-token id))
-    (rf/register-listener! :errors cb
+    (rf.error-emit/register-error-listener! cb
       (fn [r] (when (= :rf.error/frame-teardown-failed (:error r))
                 (swap! reports conj r))))
     (rf/register-listener! :trace cb
@@ -1009,7 +1010,7 @@
         (rf.late-bind/set-fn! :epoch/snapshot-frame-destroyed original-snap)
         (rf.late-bind/set-fn! :epoch/on-frame-destroyed original-epoch)
         (rf/unregister-listener! :epoch cb)
-        (rf/unregister-listener! :errors cb)
+        (rf.error-emit/unregister-error-listener! cb)
         (rf/unregister-listener! :trace cb)
         (when (rf.frame/frame id) (rf.frame/destroy-frame! id))))))
 
@@ -1651,7 +1652,7 @@
       (fn [_ _]
         (rf.frame/destroy-frame! id)
         {}))
-    (rf/register-listener! :errors ::teardown-overlap-corpus
+    (rf.error-emit/register-error-listener! ::teardown-overlap-corpus
       (fn [record]
         (when (= :rf.error/frame-teardown-failed (:error record))
           (swap! corpus conj record))))
@@ -1752,7 +1753,7 @@
       (finally
         (.countDown release-a)
         (.countDown release-b)
-        (rf/unregister-listener! :errors ::teardown-overlap-corpus)
+        (rf.error-emit/unregister-error-listener! ::teardown-overlap-corpus)
         (rf/unregister-listener! :trace ::teardown-overlap-traces)
         (rf.late-bind/set-fn! :machines/teardown-on-frame-destroy! original-machines)
         (rf.late-bind/set-fn! :epoch/on-frame-destroyed original-epoch)
@@ -1880,11 +1881,11 @@
 
     (rf/make-frame {:id event-id})
     (rf/reg-event :destroy/event-fanout-event (fn [_ _] {}))
-    (rf/register-listener! :events ::event-destroyer
+    (rf.event-emit/register-event-listener! ::event-destroyer
       (fn [_]
         (rf.frame/destroy-frame! event-id)
         (throw (ex-info "event listener lost A" {}))))
-    (rf/register-listener! :events ::event-sibling
+    (rf.event-emit/register-event-listener! ::event-sibling
       (fn [_] (swap! event-sibling inc)))
     (try
       (rf.late-bind/set-fn! :observability/route-handled-event
@@ -1905,11 +1906,11 @@
         route-runs     (atom 0)
         original-route (rf.late-bind/get-fn :observability/route-error-record)]
     (rf/make-frame {:id id})
-    (rf/register-listener! :errors ::union-destroyer
+    (rf.error-emit/register-error-listener! ::union-destroyer
       (fn [_]
         (rf.frame/destroy-frame! id)
         (throw (ex-info "union listener lost A" {}))))
-    (rf/register-listener! :errors ::union-sibling
+    (rf.error-emit/register-error-listener! ::union-sibling
       (fn [_] (swap! sibling-runs inc)))
     (rf/reg-event :destroy/union-error-event
       (fn [_ _]
@@ -1966,7 +1967,7 @@
       ;; Listener #1 (destroyer) is registered FIRST so the small array-map
       ;; corpus registry fans it before the sibling: it destroys A, publishes
       ;; same-id B, and installs a sentinel into B's capture buffer.
-      (rf/register-listener! :errors ::depth-destroyer
+      (rf.error-emit/register-error-listener! ::depth-destroyer
         (fn [record]
           (when (= :rf.error/drain-depth-exceeded (:error record))
             (swap! depth-records conj record)
@@ -1974,7 +1975,7 @@
             (rf/make-frame {:id id})
             (reset! b-token (rf.frame/frame-incarnation-token id))
             (rf.epoch.state/buffer-event! id b-sentinel))))
-      (rf/register-listener! :errors ::depth-sibling
+      (rf.error-emit/register-error-listener! ::depth-sibling
         (fn [record]
           (when (= :rf.error/drain-depth-exceeded (:error record))
             (swap! sibling-runs inc))))
@@ -1999,8 +2000,8 @@
         (is (= [b-sentinel] (rf.epoch.state/buffer-for id))
             "A's halt commit never harvests B's capture buffer"))
       (finally
-        (rf/unregister-listener! :errors ::depth-destroyer)
-        (rf/unregister-listener! :errors ::depth-sibling)
+        (rf.error-emit/unregister-error-listener! ::depth-destroyer)
+        (rf.error-emit/unregister-error-listener! ::depth-sibling)
         (rf.error-emit/clear-error-listeners!)
         (rf.late-bind/set-fn! :observability/route-error-record original-route)
         (when (rf.frame/frame id) (rf.frame/destroy-frame! id))))))
@@ -2019,11 +2020,11 @@
       (fn [_ _] {:fx [[:dispatch [:drain.incarnation/live-loop]]]}))
     (rf/make-frame {:id id :drain-depth 4})
     (try
-      (rf/register-listener! :errors ::live-a
+      (rf.error-emit/register-error-listener! ::live-a
         (fn [record]
           (when (= :rf.error/drain-depth-exceeded (:error record))
             (swap! depth-records conj record))))
-      (rf/register-listener! :errors ::live-b
+      (rf.error-emit/register-error-listener! ::live-b
         (fn [record]
           (when (= :rf.error/drain-depth-exceeded (:error record))
             (swap! sibling-runs inc))))
@@ -2042,7 +2043,7 @@
         (is (some #(= :halted-depth (:outcome %)) (rf/epoch-history id))
             "A's terminal halted-depth record is committed into A's own history"))
       (finally
-        (rf/unregister-listener! :errors ::live-a)
-        (rf/unregister-listener! :errors ::live-b)
+        (rf.error-emit/unregister-error-listener! ::live-a)
+        (rf.error-emit/unregister-error-listener! ::live-b)
         (rf.error-emit/clear-error-listeners!)
         (when (rf.frame/frame id) (rf.frame/destroy-frame! id))))))

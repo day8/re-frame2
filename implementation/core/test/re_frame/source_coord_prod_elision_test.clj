@@ -46,6 +46,7 @@
   the gate."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.interop :as rf.interop]
             [re-frame.source-coords :as rf.source-coords]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -132,7 +133,7 @@
                        {:db (throw (ex-info "boom" {:cause :test}))}))
     (with-redefs [rf.interop/debug-enabled? false]
       (let [seen (atom nil)]
-        (rf/register-listener! :errors
+        (rf.error-emit/register-error-listener!
           :rf2-3un2g/recorder
           (fn [record] (reset! seen record)))
         (rf/dispatch-sync [:rf2-3un2g/prod-error-handler])
@@ -167,7 +168,7 @@
                 (fn [_cofx _]
                   (throw (ex-info "boom" {})))))
       (let [seen (atom nil)]
-        (rf/register-listener! :errors
+        (rf.error-emit/register-error-listener!
           :rf2-3un2g/programmatic-recorder
           (fn [record] (reset! seen record)))
         (rf/dispatch-sync [:rf2-3un2g/programmatic])

@@ -113,7 +113,7 @@
             DCE'd. This is the production-build counterpart of the dev-mode
             `frame-teardown-report-cljs-test` (a)/(c) legs."
     (let [seen (atom [])]
-      (rf/register-listener! :errors :prod/recorder
+      (rf.error-emit/register-error-listener! :prod/recorder
                                    (fn [record] (swap! seen conj record)))
       ;; ENGINE seat — this prod-elision suite must not root the image path
       ;; (see elision_probe.cljs; rf2-h1vqa4).
@@ -147,7 +147,7 @@
             always-on fan-out short-circuits on an empty :hook-failures
             vector (no per-destroy flood in a `goog.DEBUG=false` SSR host)."
     (let [seen (atom [])]
-      (rf/register-listener! :errors :prod/recorder
+      (rf.error-emit/register-error-listener! :prod/recorder
                                    (fn [record] (swap! seen conj record)))
       (rf.frame/upsert-frame! :prod.teardown/clean {:doc "no hooks throw"})
       (rf/destroy-frame! :prod.teardown/clean)
@@ -163,7 +163,7 @@
             Mirrors the dev-mode (b) leg under `:advanced` + `goog.DEBUG=
             false`."
     (let [seen (atom [])]
-      (rf/register-listener! :errors :prod/recorder
+      (rf.error-emit/register-error-listener! :prod/recorder
                                    (fn [record] (swap! seen conj record)))
       (rf.frame/upsert-frame! :prod.teardown/abort {:doc "aborts mid-teardown"})
       (with-hooks*
@@ -196,7 +196,7 @@
             counterpart of the dev-mode `write-after-destroy-always-on-cljs-
             test` (a)/(b) leg."
     (let [seen (atom [])]
-      (rf/register-listener! :errors :prod/recorder
+      (rf.error-emit/register-error-listener! :prod/recorder
                                    (fn [record] (swap! seen conj record)))
       ;; The real production path: every frame :db write flows through this
       ;; choke point; a destroyed frame's container has gone nil.
@@ -241,7 +241,7 @@
             production source of record for the handler throw itself) must
             survive."
     (let [seen (atom [])]
-      (rf/register-listener! :errors :prod/recorder
+      (rf.error-emit/register-error-listener! :prod/recorder
                                    (fn [record] (swap! seen conj record)))
       (rf/reg-event :prod.ondestroy/blow-up
                        (fn [{:keys [db]} _] {:db (throw (ex-info "intentional :on-destroy throw"
@@ -293,7 +293,7 @@
             that proves it survives elision."
     (let [seen     (atom [])
           original (rf.late-bind/get-fn :router/run-frame-destroy-event!)]
-      (rf/register-listener! :errors :prod/recorder
+      (rf.error-emit/register-error-listener! :prod/recorder
                                    (fn [record] (swap! seen conj record)))
       (rf.frame/upsert-frame! :prod.ondestroy/infra-fault {:on-destroy [:prod.ondestroy/never-reached]})
       (rf.late-bind/set-fn! :router/run-frame-destroy-event!

@@ -46,6 +46,7 @@
   the same stream DOES carry the category when the fence genuinely fires."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
             [re-frame.router :as rf.router]
@@ -173,11 +174,11 @@
       (rf/make-frame {:id :fh/sub-stale :doc "incarnation B (successor)"})
       (rf/dispatch-sync [:fh/seed :B-value] {:frame :fh/sub-stale})
       (let [errs (atom [])]
-        (rf/register-listener! :errors ::sub-stale (fn [rec] (swap! errs conj rec)))
+        (rf.error-emit/register-error-listener! ::sub-stale (fn [rec] (swap! errs conj rec)))
         ;; Before the fix this returned a reaction reading B's :B-value; the
         ;; fence makes it recover-but-emit and return nil.
         (let [result (subscribe [:fh/value])]
-          (rf/unregister-listener! :errors ::sub-stale)
+          (rf.error-emit/unregister-error-listener! ::sub-stale)
           (is (nil? result)
               "the superseded capture's subscribe returns nil — it did NOT
                resolve a reaction into successor B")
@@ -206,11 +207,11 @@
         (rf/destroy-frame! frame-a)
         (rf/make-frame {:id :fh/vpin :doc "incarnation B (successor)"})
         (let [errs (atom [])]
-          (rf/register-listener! :errors ::vpin (fn [rec] (swap! errs conj rec)))
+          (rf.error-emit/register-error-listener! ::vpin (fn [rec] (swap! errs conj rec)))
           ;; Before the fix the unpinned value-capture retargeted B and set
           ;; :mark; the carried-token pin makes it recover-but-emit.
           (dispatch-sync [:fh/mark :leaked])
-          (rf/unregister-listener! :errors ::vpin)
+          (rf.error-emit/unregister-error-listener! ::vpin)
           (is (nil? (:mark (rf/app-db-value :fh/vpin)))
               "the stale value-capture did NOT mutate the same-id successor B")
           (is (some #(= :rf.error/frame-destroyed (:error %)) @errs)
@@ -272,10 +273,10 @@
     (let [a-token (rf.frame/frame-incarnation-token :fh/race)
           {:keys [dispatch-sync]} (rf/capture-frame :fh/race) ;; pins A
           errs    (atom [])]
-      (rf/register-listener! :errors ::race (fn [rec] (swap! errs conj rec)))
+      (rf.error-emit/register-error-listener! ::race (fn [rec] (swap! errs conj rec)))
       (run-supersede-during-precheck
         :fh/race a-token #(dispatch-sync [:fh/mark]))
-      (rf/unregister-listener! :errors ::race)
+      (rf.error-emit/unregister-error-listener! ::race)
       (is (nil? (:marked-by (rf/app-db-value :fh/race)))
           "the stale capture did NOT mutate same-id successor B")
       (is (some #(= :rf.error/frame-destroyed (:error %)) @errs)
@@ -290,7 +291,7 @@
     (let [a-token (rf.frame/frame-incarnation-token :fh/race)
           {:keys [dispatch]} (rf/capture-frame :fh/race) ;; pins A
           errs    (atom [])]
-      (rf/register-listener! :errors ::race (fn [rec] (swap! errs conj rec)))
+      (rf.error-emit/register-error-listener! ::race (fn [rec] (swap! errs conj rec)))
       (run-supersede-during-precheck
         :fh/race a-token #(dispatch [:fh/mark]))
       ;; The fence short-circuits BEFORE enqueue/schedule, so nothing can drain
@@ -298,7 +299,7 @@
       ;; instant.
       (rf.test-support/poll-until (fn [] (some (fn [ev] (= :rf.error/frame-destroyed (:error ev))) @errs))
                                {:label "async fence emits frame-destroyed"})
-      (rf/unregister-listener! :errors ::race)
+      (rf.error-emit/unregister-error-listener! ::race)
       (is (nil? (:marked-by (rf/app-db-value :fh/race)))
           "the stale async dispatch enqueued nothing into successor B")
       (is (some #(= :rf.error/frame-destroyed (:error %)) @errs)
@@ -314,10 +315,10 @@
     (let [a-token (rf.frame/frame-incarnation-token :fh/race)
           {:keys [subscribe]} (rf/capture-frame :fh/race) ;; pins A
           errs    (atom [])
-          result  (do (rf/register-listener! :errors ::race (fn [rec] (swap! errs conj rec)))
+          result  (do (rf.error-emit/register-error-listener! ::race (fn [rec] (swap! errs conj rec)))
                       (run-supersede-during-precheck
                         :fh/race a-token #(subscribe [:fh/value])))]
-      (rf/unregister-listener! :errors ::race)
+      (rf.error-emit/unregister-error-listener! ::race)
       (is (nil? result)
           "the superseded subscribe returns nil — it did NOT resolve a reaction into B")
       (is (empty? @(:sub-cache (rf.frame/frame :fh/race)))
@@ -385,10 +386,10 @@
     (rf/dispatch-sync [:fh/seed :A-value] {:frame :fh/race})
     (let [{:keys [subscribe]} (rf/capture-frame :fh/race)   ;; pins A
           errs   (atom [])
-          _      (rf/register-listener! :errors ::pcb-miss (fn [rec] (swap! errs conj rec)))
+          _      (rf.error-emit/register-error-listener! ::pcb-miss (fn [rec] (swap! errs conj rec)))
           result (run-supersede-at-build :fh/race [:fh/value]
                    #(subscribe [:fh/value]))]
-      (rf/unregister-listener! :errors ::pcb-miss)
+      (rf.error-emit/unregister-error-listener! ::pcb-miss)
       (is (nil? result)
           "the post-comparison-superseded subscribe returns nil — it did NOT resolve into B")
       (is (= :B-value (:value (rf/app-db-value :fh/race)))
@@ -429,12 +430,12 @@
     (rf/dispatch-sync [:fh/seed :A-value] {:frame :fh/race})
     (let [{:keys [subscribe]} (rf/capture-frame :fh/race)   ;; pins A
           errs   (atom [])
-          _      (rf/register-listener! :errors ::pcb-rec (fn [rec] (swap! errs conj rec)))
+          _      (rf.error-emit/register-error-listener! ::pcb-rec (fn [rec] (swap! errs conj rec)))
           ;; Fire at the INPUT build ([:fh/value]) — AFTER the entry [:fh/derived]
           ;; build validated A and began resolving its inputs.
           _      (run-supersede-at-build :fh/race [:fh/value]
                    #(subscribe [:fh/derived]))]
-      (rf/unregister-listener! :errors ::pcb-rec)
+      (rf.error-emit/unregister-error-listener! ::pcb-rec)
       (is (= :B-value (:value (rf/app-db-value :fh/race)))
           "successor B's app-db is intact")
       (is (empty? @(:sub-cache (rf.frame/frame :fh/race)))
@@ -507,9 +508,9 @@
     (rf/make-frame {:id :fh/race :doc "incarnation A"})
     (let [{:keys [dispatch]} (rf/capture-frame :fh/race)   ;; pins A
           errs (atom [])]
-      (rf/register-listener! :errors ::a2x2w-async (fn [rec] (swap! errs conj rec)))
+      (rf.error-emit/register-error-listener! ::a2x2w-async (fn [rec] (swap! errs conj rec)))
       (run-supersede-at-enqueue :fh/race #(dispatch [:fh/mark]))
-      (rf/unregister-listener! :errors ::a2x2w-async)
+      (rf.error-emit/unregister-error-listener! ::a2x2w-async)
       (is (nil? (:marked-by (rf/app-db-value :fh/race)))
           "the post-token-match loss enqueued nothing into successor B")
       (is (= 1 (count (filter #(= :rf.error/frame-destroyed (:error %)) @errs)))
@@ -525,9 +526,9 @@
     (rf/make-frame {:id :fh/race :doc "incarnation A"})
     (let [{:keys [dispatch-sync]} (rf/capture-frame :fh/race)   ;; pins A
           errs (atom [])]
-      (rf/register-listener! :errors ::a2x2w-sync (fn [rec] (swap! errs conj rec)))
+      (rf.error-emit/register-error-listener! ::a2x2w-sync (fn [rec] (swap! errs conj rec)))
       (run-supersede-at-drain-block :fh/race #(dispatch-sync [:fh/mark]))
-      (rf/unregister-listener! :errors ::a2x2w-sync)
+      (rf.error-emit/unregister-error-listener! ::a2x2w-sync)
       (is (nil? (:marked-by (rf/app-db-value :fh/race)))
           "the post-token-match loss processed nothing into successor B")
       (is (= 1 (count (filter #(= :rf.error/frame-destroyed (:error %)) @errs)))
@@ -593,10 +594,10 @@
           target-token (rf.frame/frame-incarnation-token :audit/target)
           {:keys [dispatch]} (rf/capture-frame :audit/target)   ;; pins target A
           errs (atom [])]
-      (rf/register-listener! :errors ::iqfbg-async (fn [rec] (swap! errs conj rec)))
+      (rf.error-emit/register-error-listener! ::iqfbg-async (fn [rec] (swap! errs conj rec)))
       (rf.frame/call-with-event-owner-token :audit/owner owner-token
         (fn [] (run-owner-death-at-dispatch :audit/owner #(dispatch [:audit/touch]))))
-      (rf/unregister-listener! :errors ::iqfbg-async)
+      (rf.error-emit/unregister-error-listener! ::iqfbg-async)
       (is (nil? (rf.frame/frame :audit/owner))
           "precondition: the interpose actually destroyed the originating owner")
       (is (rf.frame/frame-incarnation-live? :audit/target target-token)
@@ -621,10 +622,10 @@
           target-token (rf.frame/frame-incarnation-token :audit/target)
           {:keys [dispatch-sync]} (rf/capture-frame :audit/target)   ;; pins target A
           errs (atom [])]
-      (rf/register-listener! :errors ::iqfbg-sync (fn [rec] (swap! errs conj rec)))
+      (rf.error-emit/register-error-listener! ::iqfbg-sync (fn [rec] (swap! errs conj rec)))
       (rf.frame/call-with-event-owner-token :audit/owner owner-token
         (fn [] (run-owner-death-at-dispatch :audit/owner #(dispatch-sync [:audit/touch]))))
-      (rf/unregister-listener! :errors ::iqfbg-sync)
+      (rf.error-emit/unregister-error-listener! ::iqfbg-sync)
       (is (nil? (rf.frame/frame :audit/owner))
           "precondition: the interpose actually destroyed the originating owner")
       (is (rf.frame/frame-incarnation-live? :audit/target target-token)

@@ -121,8 +121,11 @@
 ;;   * ONLY when NOTHING ROUTED THIS RECORD. That is TWO arms, and the
 ;;     fallback fires when neither holds (rf2-kuky.18):
 ;;
-;;       (a) a corpus-wide `:errors` listener is registered
-;;           (`rf/register-listener! :errors …` → [[register-error-listener!]]).
+;;       (a) a corpus-wide listener is registered on THIS registry
+;;           ([[register-error-listener!]]). Since rf2-kuky.69 that is an
+;;           IMPLEMENTATION-tier door — the framework's own synchronous-window
+;;           capture sites and tests — not an app-facing one; `:errors` left
+;;           the public `rf/register-listener!` vocabulary with that bead.
 ;;           Ownership is the REGISTRATION — even if that listener ignores
 ;;           this category or itself throws — because the listener registry
 ;;           is one undifferentiated corpus-wide door and the framework
@@ -150,8 +153,9 @@
 ;;     for a whole page, which is precisely the shape a fallback keyed on
 ;;     ownership should not reward.
 ;;
-;;     There is still NO suppression knob and no new API: the off-switch is
-;;     the listener or the frame sink policy an owning app already has, and
+;;     There is still NO suppression knob and no new API: the off-switch an
+;;     app has is the frame sink policy (or the `configure!` process default)
+;;     it already declares — arm (a) is the framework's own registry — and
 ;;     dropping the last of either resumes the fallback. Xray does NOT
 ;;     populate the listener registry (it rides the dev-only TRACE axis —
 ;;     `router` forwards to `rf.trace/emit-error!`), so a console line may

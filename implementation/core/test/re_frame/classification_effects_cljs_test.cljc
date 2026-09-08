@@ -57,6 +57,7 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.elision :as rf.elision]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
@@ -97,7 +98,7 @@
 ;; production posture off `:errors` rather than off the dev trace.
 (defn- record-errors! [listener-id]
   (let [a (atom [])]
-    (rf/register-listener! :errors listener-id (fn [rec] (swap! a conj rec)))
+    (rf.error-emit/register-error-listener! listener-id (fn [rec] (swap! a conj rec)))
     a))
 
 (defn- error-records [recorded category]
@@ -482,7 +483,7 @@
               "exactly one :rf.error/classification-effect-shape error was emitted")
           (is (= :sensitive (:offending-key (:tags (first errs))))
               "the diagnostic names the offending effect key")))
-      (rf/unregister-listener! :errors :bad-classify-errors)
+      (rf.error-emit/unregister-error-listener! :bad-classify-errors)
       (rf/unregister-listener! :trace :bad-classify-probe))
     ;; the :db commit did NOT happen — app-db is still at the pre-handler value
     (is (= 1 (:counter (rf.frame/frame-app-db-value :rf/default)))
@@ -506,7 +507,7 @@
       (when rf.interop/debug-enabled?
         (is (= 1 (count (error-events recorded :rf.error/classification-effect-shape)))
             "a non-sequential path entry fails loud (one error emitted)"))
-      (rf/unregister-listener! :errors :bad-entry-errors)
+      (rf.error-emit/unregister-error-listener! :bad-entry-errors)
       (rf/unregister-listener! :trace :bad-entry-probe))
     (is (= 1 (:n (rf.frame/frame-app-db-value :rf/default)))
         "no :db commit happened on the malformed-entry abort")))
@@ -553,7 +554,7 @@
             (str "exactly one classification-effect-shape error for " effect-key))
         (is (= effect-key (:offending-key (:tags (first errs))))
             (str "the diagnostic names " effect-key " as the offending key"))))
-    (rf/unregister-listener! :errors (keyword (namespace probe-id) (str (name probe-id) "-errors")))
+    (rf.error-emit/unregister-error-listener! (keyword (namespace probe-id) (str (name probe-id) "-errors")))
     (rf/unregister-listener! :trace probe-id))
   (is (= 1 (:n (rf.frame/frame-app-db-value :rf/default)))
       (str "no :db commit happened on the malformed " effect-key " abort")))
@@ -623,7 +624,7 @@
               "a non-segment path element fails loud as ONE classification-effect-shape error")
           (is (= :sensitive (:offending-key (:tags (first errs))))
               "the offending key is named")))
-      (rf/unregister-listener! :errors :bad-segment-errors)
+      (rf.error-emit/unregister-error-listener! :bad-segment-errors)
       (rf/unregister-listener! :trace :bad-segment-probe))
     (is (= 1 (:n (rf.frame/frame-app-db-value :rf/default)))
         "no :db commit happened on the non-segment-path abort")))

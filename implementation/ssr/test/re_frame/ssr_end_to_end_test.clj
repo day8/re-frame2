@@ -510,7 +510,7 @@
       (fn [ev]
         (when (= :rf.error/fx-handler-exception (:operation ev))
           (swap! traces conj ev))))
-    (rf/register-listener! :errors tag
+    (rf.error-emit/register-error-listener! tag
       (fn [r]
         (when (= :rf.error/fx-handler-exception (:error r))
           (swap! traces conj {:operation (:error r) :tags r}))))
@@ -519,7 +519,7 @@
       @traces
       (finally
         (rf/unregister-listener! :trace tag)
-        (rf/unregister-listener! :errors tag)))))
+        (rf.error-emit/unregister-error-listener! tag)))))
 
 (defn- expect-fx-error-keyword!
   "Assert that the `traces` collection (output of `capture-fx-traces!`)
@@ -860,14 +860,14 @@
         tag    (keyword "rf2-lwtlk" (str "err-cap-" (name (gensym "c"))))]
     (rf/register-listener! :trace tag
       (fn [ev] (when (= :error (:op-type ev)) (swap! events conj ev))))
-    (rf/register-listener! :errors tag
+    (rf.error-emit/register-error-listener! tag
       (fn [r] (swap! events conj (error-record->trace-event r))))
     (try
       (let [result (body-fn)]
         {:result result :events @events})
       (finally
         (rf/unregister-listener! :trace tag)
-        (rf/unregister-listener! :errors tag)))))
+        (rf.error-emit/unregister-error-listener! tag)))))
 
 (deftest ssr-default-error-projector-no-such-handler
   (testing "routing's :rf.error/no-such-handler → default projector → 404"
@@ -1751,13 +1751,13 @@
   [body-fn]
   (let [traces (atom [])
         tag    (keyword "rf2-lwtlk" (str "sr-cap-" (name (gensym "c"))))]
-    (rf/register-listener! :errors tag
+    (rf.error-emit/register-error-listener! tag
                            (fn [r]
                              (when (safe-redirect-error? (:error r))
                                (swap! traces conj {:operation (:error r)
                                                    :tags      r}))))
     (try (body-fn) @traces
-         (finally (rf/unregister-listener! :errors tag)))))
+         (finally (rf.error-emit/unregister-error-listener! tag)))))
 
 (defn- capture-safe-redirect-dev-traces!
   "The DEV-ONLY companion to [[capture-safe-redirect-traces!]], reading
@@ -2835,7 +2835,7 @@
     (rf/register-listener! :trace tag
       (fn [ev] (when (= :rf.error/schema-validation-failure (:operation ev))
                  (swap! dev conj ev))))
-    (rf/register-listener! :errors tag (fn [r] (swap! records conj r)))
+    (rf.error-emit/register-error-listener! tag (fn [r] (swap! records conj r)))
     (try
       (rf/dispatch-sync [ev-id] {:frame f})
       {:response   (get-response f)
@@ -2843,7 +2843,7 @@
        :records    @records}
       (finally
         (rf/unregister-listener! :trace tag)
-        (rf/unregister-listener! :errors tag)))))
+        (rf.error-emit/unregister-error-listener! tag)))))
 
 (deftest ssr-server-fx-args-schema-boundary
   ;; -------------------------------------------------------------------------
