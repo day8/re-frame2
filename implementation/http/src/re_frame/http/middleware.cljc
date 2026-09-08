@@ -310,6 +310,31 @@
   ([] @interceptors)
   ([frame-id] (get @interceptors frame-id)))
 
+(defn capture-chain
+  "rf2-v3f6 — snapshot `frame-id`'s interceptor chain for ONE request, at
+  ISSUE time. Returns the registration-order vector of function-bearing
+  slots; that same vector drives the request's `:before` walk, its
+  `:after` walk and every retry attempt.
+
+  Chain resolution is at issue time (Spec 014 §Chain order and frame
+  scope): registering, replacing or clearing an interceptor affects only
+  requests that capture their chain afterwards. Callers pass the captured
+  vector to `run-interceptor-chain!` / `run-after-chain!` — neither walker
+  consults the live registry, so there is no window in which a response
+  walks a chain its request never had.
+
+  An EMPTY capture is a real snapshot (the frame had no interceptors when
+  the request was issued), never a signal to fall back to the live
+  registry.
+
+  Snapshotting does not freeze the world: a captured fn can still read the
+  current app-db, deref an atom or call a redefined var. What is stable
+  across the two walks is chain MEMBERSHIP, ORDER and the stored function
+  values. The atom holds an immutable persistent value and updates install
+  a new one, so retaining the selected vector needs no copy and no lock."
+  [frame-id]
+  (or (get @interceptors frame-id) []))
+
 ;; rf2-jkake.9 — the `:before` (`run-interceptor-chain!`) and `:after`
 ;; (`run-after-chain!`) chains share one walk shape: reduce over the
 ;; per-frame chain, skip interceptors lacking the relevant slot, run the
@@ -392,9 +417,14 @@
     chain))
 
 (defn run-interceptor-chain!
-  "Walk the registration-order interceptor chain for `frame-id`, threading
+  "Walk the registration-order interceptor `chain` for `frame-id`, threading
   `ctx` through each `:before`. Returns the final ctx, or throws
   `:rf.error/http-interceptor-failed` if any `:before` throws.
+
+  `chain` is the caller's issue-time capture (`capture-chain`), NOT a live
+  registry read — rf2-v3f6. The same vector must drive this request's
+  `:after` walk, so a registration made from inside a `:before` joins only
+  LATER requests.
 
   Interceptors without a `:before` slot are transparent in the request
   chain (acc passes through unchanged).
@@ -406,9 +436,9 @@
   this gate, an `Authorization`-token-bearing query string (e.g.
   `?access_token=…`) leaked into traces whenever an interceptor
   threw — rf2-1jcpm (round-2 security audit finding 1)."
-  [frame-id ctx]
+  [frame-id chain ctx]
   (run-chain*
-    {:chain      (get @interceptors frame-id)
+    {:chain      chain
      :frame-id   frame-id
      :slot-key   :before
      ;; `:before` reads the URL from the threaded accumulator — the
@@ -432,10 +462,17 @@
     ctx))
 
 (defn run-after-chain!
-  "Per rf2-uheqq + Spec 014 §Middleware. Walk the per-frame interceptor
-  chain for `frame-id` in REVERSE registration order, threading
+  "Per rf2-uheqq + Spec 014 §Middleware. Walk this request's CAPTURED
+  interceptor `chain` in REVERSE registration order, threading
   `response` through each `:after`. Returns the (possibly-transformed)
   response map.
+
+  rf2-v3f6 — `chain` is the vector the request captured at ISSUE time
+  (`capture-chain`), carried forward by the transport alongside the
+  middleware-ctx. It is deliberately NOT a fresh registry read: the ctx
+  and the chain that consumes it are frozen together, so an `:after` only
+  ever runs for a request whose `:before` chain it was part of. An empty
+  captured chain is a real snapshot — there is no live-registry fallback.
 
   Each `:after` receives `(fn [ctx response] response')` — `ctx` is the
   middleware-ctx the `:before` chain produced for THIS request (carried
@@ -449,15 +486,20 @@
   to the caller via the same `:rf.error/http-interceptor-failed` shape
   the `:before` path uses, so a misbehaving response-side interceptor
   surfaces on the same trace event."
-  [frame-id middleware-ctx response]
+  [frame-id chain middleware-ctx response]
   (run-chain*
     {;; Reverse order — mirror of the event-interceptor onion (Spec 002).
-     :chain      (reverse (get @interceptors frame-id))
+     ;; rf2-v3f6 — reversed over the request's CAPTURED chain, never a
+     ;; response-time deref of the live registry.
+     :chain      (reverse chain)
      :frame-id   frame-id
      :slot-key   :after
      ;; `:after` always sees the fixed middleware-ctx the `:before` chain
      ;; produced (the response, not the ctx, is what threads through the
      ;; reduce), so the URL is read from that ctx rather than the acc.
+     ;; rf2-v3f6 — and it is the SAME captured chain that produced that
+     ;; ctx: both halves of the pairing are frozen at issue, so an
+     ;; `:after` is never handed a ctx its own `:before` never touched.
      :invoke     (fn [after acc] (after middleware-ctx acc))
      :url-of     (fn [_acc] (get-in middleware-ctx [:request :url]))
      ;; rf2-rznrz — the `:after` chain threads the RESPONSE through `acc`;
@@ -490,15 +532,21 @@
      path, which always produces a `:middleware-ctx` via
      `run-request-chain` and therefore always runs the `:after` chain.
 
-  `opts` carries `:frame`, `:middleware-ctx`, the three keys
-  `dispatch-reply-via-late-bind!` consumes (`:origin-event`,
+  `opts` carries `:frame`, `:middleware-ctx`, `:chain` (rf2-v3f6 — the
+  request's issue-time chain capture, which travels with the ctx), the
+  three keys `dispatch-reply-via-late-bind!` consumes (`:origin-event`,
   `:explicit-on`, `:kind`), and the EP-0010 `:completed-at` causal
   completion time threaded onto the reply dispatch's `:rf.cofx`
   (rf2-n1rh0f / rf2-alc1lf). No-op when the router is absent / the reply is silenced
-  (delegated to `dispatch-reply-via-late-bind!`)."
-  [{:keys [frame middleware-ctx origin-event explicit-on reply-payload kind completed-at]}]
+  (delegated to `dispatch-reply-via-late-bind!`).
+
+  rf2-v3f6 — the `:after` walk is still keyed off the presence of
+  `:middleware-ctx`, which is the synthetic-caller guard above; a caller
+  carrying a ctx carries its captured chain with it, and an EMPTY chain
+  runs no `:after` rather than falling back to the live registry."
+  [{:keys [frame middleware-ctx chain origin-event explicit-on reply-payload kind completed-at]}]
   (let [final-payload (if middleware-ctx
-                        (run-after-chain! frame middleware-ctx reply-payload)
+                        (run-after-chain! frame chain middleware-ctx reply-payload)
                         reply-payload)]
     (rf.http.encoding/dispatch-reply-via-late-bind!
       {:origin-event  origin-event

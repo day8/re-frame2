@@ -83,15 +83,23 @@
 
 ;; ---- TEST ISOLATION: await the RESPONSE, never just the request ------------
 ;;
-;; Every test below drives a REAL in-process HTTP round trip, and the reply
-;; tail (`middleware/run-after-then-dispatch!`) resolves the `:after` chain
-;; from the LIVE per-frame interceptor registry at RESPONSE time rather than
-;; from a chain captured when the request was issued (rf2-v3f6). A test that
-;; returns while its own response is still in flight therefore leaks that
-;; response into whichever test runs next: the leaked `:after` walk fires the
-;; NEXT test's interceptors and pollutes its observations. Test order is
-;; `ns-interns` hash order, so which pair collides moves whenever a test is
-;; added or deleted — the leak presents as an unrelated test flaking.
+;; Every test below drives a REAL in-process HTTP round trip. A test that
+;; returns while its own response is still in flight leaks that response into
+;; whichever test runs next — it tears its server down under a live request,
+;; and its reply lands during a neighbour's body. Test order is `ns-interns`
+;; hash order, so which pair collides moves whenever a test is added or
+;; deleted; the leak presents as an unrelated test flaking.
+;;
+;; rf2-v3f6 CLOSED THE WORST FORM OF THAT LEAK AT THE RUNTIME, and this
+;; comment used to describe it as live: the reply tail
+;; (`middleware/run-after-then-dispatch!`) once resolved the `:after` chain
+;; from the LIVE per-frame registry at RESPONSE time, so a leaked response
+;; walked whatever the NEXT test had registered — firing a neighbour's
+;; interceptors with a middleware-ctx they had never produced. The chain is
+;; now captured at issue and carried with the ctx, so a leaked response walks
+;; its OWN chain and cannot reach a neighbour's interceptors at all. The
+;; response-side wait STAYS: it is still what keeps `stop-server!` from
+;; running under a live request and a stray reply from landing mid-neighbour.
 ;;
 ;; Two request-side waits look sufficient and are NOT:
 ;;   * polling until the `:before` fns have fired — they run synchronously
@@ -1316,4 +1324,133 @@
               "status 401 rides on the failure map under :error")
           (is (true? (:auth-refresh-required reply))
               ":after attached :auth-refresh-required so a downstream handler can mint the refresh dispatch"))
+        (finally (stop-server! srv))))))
+
+;; ---- rf2-v3f6 — chain resolution is at ISSUE time --------------------------
+;;
+;; The two tests below are the LIVE-TRANSPORT arm of the rf2-v3f6 contract:
+;; a managed request captures its frame's interceptor chain immediately
+;; before running `:before`, and its response walks that same captured
+;; vector — through the real handler, the real transport, and the retry
+;; handoff. The host-symmetric (JVM + CLJS) arm, which pins the capture
+;; POINT and the empty-capture case on the canned seam, is
+;; `re-frame.http-interceptor-chain-capture-cljs-test`.
+;;
+;; Neither test depends on elapsed time. The first holds its response open
+;; on a latch the test itself releases; the second orders its registry
+;; mutation with the server's own attempt counter, so the mutation
+;; provably lands between attempt 1 and attempt 2.
+
+(deftest live-response-walks-its-issue-time-chain-rf2-v3f6
+  (testing "rf2-v3f6 — a response held open across a registry change walks
+            the chain its REQUEST was issued under: the cleared :after still
+            runs (holding the ctx its own :before stamped) and the newly
+            registered one does not run at all"
+    (let [arrived (java.util.concurrent.CountDownLatch. 1)
+          release (java.util.concurrent.CountDownLatch. 1)
+          log     (atom [])
+          {:keys [port] :as srv}
+          (start-server!
+            (fn [^HttpExchange ex]
+              (.countDown arrived)
+              ;; hold the response open until the test releases it — the
+              ;; request is genuinely outstanding, with no sleep anywhere
+              (.await release 10 java.util.concurrent.TimeUnit/SECONDS)
+              (write-response! ex 200 "application/json" "{\"ok\":true}")))]
+      (try
+        (rf/reg-http-interceptor :issue-time
+          {:before (fn [ctx] (assoc ctx ::mark :stamped))
+           :after  (fn [ctx resp]
+                     (swap! log conj [:issue-time (::mark ctx)])
+                     resp)})
+        (rf/reg-event :v3f6/load
+          (fn [{:keys [db]} [_ msg reply]]
+            (if reply
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:reply-to [:v3f6/load msg]
+                      :request  {:url (str "http://127.0.0.1:" port "/held")}
+                      :decode   :json}]]})))
+        (rf/dispatch-sync [:v3f6/load])
+        (is (.await arrived 10 java.util.concurrent.TimeUnit/SECONDS)
+            "control: the request reached the server, so its :before walk —
+             and therefore its chain capture — has already happened")
+
+        ;; The registry changes while the response is still on the wire.
+        (rf/clear :http-interceptor :issue-time)
+        (rf/reg-http-interceptor :registered-mid-flight
+          {:after (fn [ctx resp]
+                    (swap! log conj [:registered-mid-flight (::mark ctx)])
+                    resp)})
+        (is (= [:registered-mid-flight]
+               (mapv :id (rf.http.managed/interceptors-snapshot :rf/default)))
+            "control: the LIVE registry really did change while the response
+             was outstanding")
+
+        (.countDown release)
+        (await-reply! #(some? (:reply %)) 10000)
+        (is (= [[:issue-time :stamped]] @log)
+            "the response walked its ISSUE-TIME chain: :issue-time's :after ran
+             (holding the ctx its own :before stamped) even though the slot had
+             been cleared, and :registered-mid-flight never joined a request it
+             was not registered for")
+        (finally
+          (.countDown release)
+          (stop-server! srv))))))
+
+(deftest retry-attempts-keep-the-issue-time-chain-rf2-v3f6
+  (testing "rf2-v3f6 — the captured chain survives the retry handoff: a
+            registry change made BETWEEN attempt 1 and attempt 2 does not
+            reach the reply, and `:before` is not re-run per attempt"
+    (let [hits    (atom 0)
+          befores (atom 0)
+          log     (atom [])
+          {:keys [port] :as srv}
+          (start-server!
+            (fn [^HttpExchange ex]
+              (let [n (swap! hits inc)]
+                (when (= 1 n)
+                  ;; Ordered by the server, not by a clock: this runs while
+                  ;; attempt 1 is being answered, so it is strictly before
+                  ;; the retry is issued. Registration happens on the server
+                  ;; thread, which carries no ambient frame — name the frame.
+                  (rf/reg-http-interceptor :registered-mid-retry
+                    {:frame  :rf/default
+                     :after  (fn [ctx resp]
+                               (swap! log conj [:registered-mid-retry (::mark ctx)])
+                               resp)})
+                  (rf/clear :http-interceptor :issue-time {:frame :rf/default}))
+                (if (= 1 n)
+                  (write-response! ex 500 "application/json" "{\"err\":true}")
+                  (write-response! ex 200 "application/json" "{\"ok\":true}")))))]
+      (try
+        (rf/reg-http-interceptor :issue-time
+          {:before (fn [ctx] (swap! befores inc) (assoc ctx ::mark :stamped))
+           :after  (fn [ctx resp]
+                     (swap! log conj [:issue-time (::mark ctx)])
+                     resp)})
+        (rf/reg-event :v3f6/retry-load
+          (fn [{:keys [db]} [_ msg reply]]
+            (if reply
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:reply-to [:v3f6/retry-load msg]
+                      :request  {:url (str "http://127.0.0.1:" port "/retried")}
+                      :decode   :json
+                      :retry    {:on           #{:rf.http/http-5xx}
+                                 :max-attempts 2
+                                 :backoff      {:base-ms 5 :factor 1 :max-ms 10}}}]]})))
+        (rf/dispatch-sync [:v3f6/retry-load])
+        (let [db (await-reply! #(some? (:reply %)) 10000)]
+          (is (= :ok (get-in db [:reply :status]))
+              "the retry recovered on attempt 2")
+          (is (= 2 @hits) "control: the server really saw two attempts")
+          (is (= [:registered-mid-retry]
+                 (mapv :id (rf.http.managed/interceptors-snapshot :rf/default)))
+              "control: the registry really did change between the attempts")
+          (is (= 1 @befores)
+              ":before is walked once per REQUEST, not once per attempt")
+          (is (= [[:issue-time :stamped]] @log)
+              "the retried attempt's reply walked the chain captured at ISSUE —
+               the capture rides the ctx across the retry handoff"))
         (finally (stop-server! srv))))))

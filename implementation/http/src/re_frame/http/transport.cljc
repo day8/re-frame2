@@ -187,6 +187,13 @@
   what `build-reply-event` appends to the user's `:on-success` /
   `:on-failure` event vector.
 
+  rf2-v3f6 — the CHAIN is carried forward with the ctx, on the normalised
+  ctx's `:interceptor-chain` slot (also populated by `managed-handler`,
+  from a capture taken before the `:before` walk). The `:after` walk runs
+  that captured chain, so a registry change landing while the request was
+  in flight — or during a retry — cannot alter which interceptors see
+  this response.
+
   When no middleware-ctx is in scope (synthetic / test-path callers that
   build a ctx directly without going through `managed-handler`), the
   `:after` chain is skipped and the reply-payload passes through
@@ -206,7 +213,8 @@
   once-observable `:rf.error/http-reply-tail-failed` emit — never the
   transport-rejection classifier. Per Spec 014 §Failure mode."
   [{:keys [origin-event explicit-on-success explicit-on-failure
-           kind reply-payload frame middleware-ctx completed-at]
+           kind reply-payload frame middleware-ctx interceptor-chain
+           completed-at]
     :as   ctx}]
   (let [explicit (case kind
                    :success explicit-on-success
@@ -218,6 +226,12 @@
       (rf.http.middleware/run-after-then-dispatch!
         {:frame          frame
          :middleware-ctx middleware-ctx
+         ;; rf2-v3f6 — the chain this request captured at issue, carried on
+         ;; the normalised ctx beside `:middleware-ctx` and surviving the
+         ;; retry handoff (which only ever dissocs `:rf.http/retry-handoff`
+         ;; and `:handle`). The `:after` walk uses it instead of a
+         ;; response-time registry deref.
+         :chain          interceptor-chain
          :origin-event   origin-event
          :explicit-on    explicit
          :reply-payload  reply-payload
