@@ -32,11 +32,12 @@ Two contract facts, each pinned against the shipped spec:
     `:on-error` recovery policy that earlier drafts named was REMOVED (spec/002-
     Frames.md §make-frame config grammar; spec/API.md §Error-emit; spec/009-
     Instrumentation.md §`:on-error` recovery policy — REMOVED). Error
-    observability is the ONE stream-parameterised verb
-    `(register-listener! :errors id f)` (always-on) / `(register-listener! :trace
-    id f)` (dev-only) — the dev/prod axis is carried by the STREAM, not by two
-    different verbs, over the closed vocabulary `:trace` / `:events` / `:errors` /
-    `:epoch`. The stale claim this gate kills: "`reg-event-error-handler` moved
+    observability is the ONE production door: `register-observability-sink!`
+    against a frame's `:observability :errors` policy, or the same entry grammar
+    declared once with `(rf/configure! {:observability ...})`. Dev-only
+    observation is `(register-listener! :trace id f)`, whose closed vocabulary is
+    the two raw dev streams `:trace` / `:epoch` (rf2-kuky.69 retired the always-on
+    `:events` / `:errors` members). The stale claim this gate kills: "`reg-event-error-handler` moved
     / moves to a frame-level (per-frame) `:on-error` (recovery) policy".
 
   * **M-11 (Leave-as-is variant) — a component does NOT auto-pin to
@@ -759,11 +760,12 @@ def line_problems(line: str) -> list[str]:
             "frame-level / per-frame `:on-error` recovery policy — that policy "
             "was REMOVED (rf2-hiqtk8). There is no app-steering error-recovery "
             "policy; recovery is framework-owned (typed per-category default). "
-            "Observability is ONE stream-parameterised verb: "
-            "`(register-listener! :errors id f)` (always-on) / "
-            "`(register-listener! :trace id f)` (dev-only) — the dev/prod axis "
-            "is the STREAM, not two verbs, over the closed vocabulary "
-            "`:trace` / `:events` / `:errors` / `:epoch`. (The machine "
+            "Observability is ONE production door: "
+            "`register-observability-sink!` against a frame's `:observability "
+            ":errors` policy, or the `(rf/configure! {:observability ...})` "
+            "process default. Dev-only observation is "
+            "`(register-listener! :trace id f)`, over the closed two-member "
+            "vocabulary `:trace` / `:epoch`. (The machine "
             "`:spawn :on-error` "
             "transition and route `:on-error` lifecycle event are unrelated "
             "live surfaces, NOT frame-level recovery policies.)"
