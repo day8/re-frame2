@@ -412,7 +412,7 @@
   ;; Unlike every block above, this namespace IS JVM-loadable: it sits in the
   ;; generator's `jvm-namespaces`, where `ns-publics` returns its `#?(:clj …)`
   ;; arm — the three authoring macros, rowed under `:classification` below.
-  ;; What the JVM cannot see is the `#?(:cljs (do …))` arm: eleven runtime
+  ;; What the JVM cannot see is the `#?(:cljs (do …))` arm: the runtime
   ;; aliases that exist only under ClojureScript. So the rows land HERE, for
   ;; the reason this key exists — a row the JVM generator cannot introspect —
   ;; and the CLJS probe reconciles them against the live analyzer surface.
@@ -430,10 +430,14 @@
   ;; `error-boundary` and `portal` are value-`def`s bound to component objects
   ;; placed in hiccup rather than called, so they read `:var`; the rest are
   ;; `defn`s or explicit `fn`s. Owner splits on the contract that actually
-  ;; owns each door: the four root-lifecycle verbs are 004C's
-  ;; (§Roots-and-Mount names `re-frame.hicasso`'s `impl/mount.cljs` as its
-  ;; in-tree realisation), the rest are 006's, which carries Hicasso's row in
-  ;; the canonical substrate inventory.
+  ;; owns each door. The root-lifecycle trio — `client-root`, `render!`,
+  ;; `unmount!` — is 006's, whose §The client root states the MUST all four
+  ;; React view adapters answer and whose rows for
+  ;; `re-frame.adapter.reagent` and `re-frame.adapter.uix` carry the same
+  ;; three names under the same owner (rf2-kuky.59; it was 004C's while the
+  ;; door was Hicasso's own `mount!` / `hydrate!` pair). The frame-boundary
+  ;; heads are 002's, and the rest are 006's, which also carries Hicasso's
+  ;; row in the canonical substrate inventory.
   {:namespace "re-frame.hicasso" :var "as-component"   :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
   {:namespace "re-frame.hicasso" :var "as-element"     :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
   {:namespace "re-frame.hicasso" :var "error-boundary" :kind :var :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
@@ -446,14 +450,13 @@
   ;; whole surface sits behind that opt-in rather than on the core front porch.
   {:namespace "re-frame.hicasso" :var "frame-provider" :kind :var :facade? false :tier :advanced :owner "002"  :status "v1" :runtime-verified? true}
   {:namespace "re-frame.hicasso" :var "frame-root"     :kind :var :facade? false :tier :advanced :owner "002"  :status "v1" :runtime-verified? true}
-  {:namespace "re-frame.hicasso" :var "hydrate!"       :kind :fn  :facade? false :tier :advanced :owner "004C" :status "v1" :runtime-verified? true}
-  {:namespace "re-frame.hicasso" :var "mount!"         :kind :fn  :facade? false :tier :advanced :owner "004C" :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.hicasso" :var "client-root"    :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
   {:namespace "re-frame.hicasso" :var "portal"         :kind :var :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
   {:namespace "re-frame.hicasso" :var "reg-state"      :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
-  {:namespace "re-frame.hicasso" :var "render!"        :kind :fn  :facade? false :tier :advanced :owner "004C" :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.hicasso" :var "render!"        :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
   {:namespace "re-frame.hicasso" :var "route-link"     :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
   {:namespace "re-frame.hicasso" :var "sub"            :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
-  {:namespace "re-frame.hicasso" :var "unmount!"       :kind :fn  :facade? false :tier :advanced :owner "004C" :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.hicasso" :var "unmount!"       :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
 
   ;; ---- re-frame.hicasso.server — the third ssr-node crossing ns (rf2-3ne8) --
   ;;

@@ -75,7 +75,8 @@ the shipped alternatives and their coordinates are in
            '[re-frame.hicasso.substrate :as substrate])
 
   (rf/init! substrate/adapter)
-  (h/mount! [app] (js/document.getElementById "app"))
+  (h/render! app-root [h/frame-root {:id :app/main} [app]]
+             (js/document.getElementById "app"))
   ```
 
 ## See also

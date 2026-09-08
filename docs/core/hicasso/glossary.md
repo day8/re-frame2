@@ -726,42 +726,52 @@ Related: [Diagnostics](16-diagnostics.md).
 ## Lifecycle and delivery
 
 <a id="mount"></a>
-### `mount!`, `render!`, and `unmount!`
+### `client-root`, `render!`, and `unmount!`
 
-The Hicasso root lifecycle.
+The Hicasso root lifecycle — the same three names every React view adapter
+publishes ([Spec 006 §The client
+root](../../../spec/006-ReactiveSubstrate.md#the-client-root-adapter-owned-reusable)).
 
-`h/mount!` associates a DOM container with one root view and returns a root
-handle. Its config carries React-root options only; the **frame** is named in
-the tree, by `[h/frame-root {:id …}]` (ENSURE) or
-`[h/frame-provider {:frame …}]` (SCOPE). Initial events run in order before
-first paint.
+`h/client-root` allocates an inert, opaque handle. No DOM work, no React call,
+so it belongs under a `defonce` at namespace load.
 
-`h/render!` renders a new root element through the same handle — including the
-frame boundary, which rides every render rather than only the first.
+`h/render!` is the root door and the hot-reload door in one verb. Its FIRST
+call through a handle creates the React root at the node it is given; every
+later call updates that same root, so the DOM, the subscriptions and every
+scrap of component state survive. Its opts carry React-root options only —
+`:hydrate?` and `:identifier-prefix`, both read on the first call. The
+**frame** is named in the tree, by `[h/frame-root {:id …}]` (ENSURE) or
+`[h/frame-provider {:frame …}]` (SCOPE), and rides every render rather than
+only the first. Initial events run in order before first paint.
 
-`h/unmount!` tears the root down and is safe to call more than once. It destroys
-no frame: a frame outlives the boundary that ensured it.
+`h/unmount!` tears the root down and is safe to call more than once; a later
+`h/render!` through the handle mounts afresh. It destroys no frame: a frame
+outlives the boundary that ensured it.
 
 ```clojure
-(defonce root
-  (h/mount!
-   (js/document.getElementById "app")
-   {}
-   [h/frame-root {:id :rf/default :initial-events [[:app/init]]}
-    [app-shell {}]]))
+(defonce app-root (h/client-root))
+
+(defn ^:dev/after-load mount! []
+  (h/render! app-root
+             [h/frame-root {:id :rf/default :initial-events [[:app/init]]}
+              [app-shell {}]]
+             (js/document.getElementById "app")))
 ```
 
 Related: [Installation](00-installation.md).
 
 <a id="hydrate"></a>
-### `hydrate!`
+### `{:hydrate? true}`
 
-Two functions complete hydration, and neither creates the frame:
+Two calls complete hydration, and neither creates the frame:
 
 - `re-frame.ssr/hydrate!` installs the server payload into a client frame that
   must already exist (`rf/make-frame` made it);
-- `h/hydrate!` adopts existing server DOM for one Hicasso root, under an
+- `h/render!` with `{:hydrate? true}` on its FIRST call through a handle adopts
+  existing server DOM for one Hicasso root, under an
   `[h/frame-provider {:frame …}]` that SCOPEs the frame the payload landed in.
+  It is a first-call mode, not a verb: a later call through a live handle
+  updates the root it already owns and ignores the key.
 
 State hydration must run before DOM adoption. `frame-provider` catches the boot
 that never made the frame at all — it refuses an ABSENT frame rather than scoping

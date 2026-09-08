@@ -749,7 +749,7 @@
 ;; The one piece of frame config the three mounts share. The Reagent and UIx
 ;; entries merge it into their `frame-root` props alongside a
 ;; substrate-specific `:id` / `:doc`; the Hicasso entry merges it into the
-;; `rf/make-frame` call its root then joins, because `h/mount!`'s config carries
+;; `rf/make-frame` call its root then joins, because `h/render!`'s opts carry
 ;; no `:fx-overrides` key. Same map either way:
 ;;
 ;;   - `:fx-overrides` swaps in our fake backend: it points `:rf.http/managed` at

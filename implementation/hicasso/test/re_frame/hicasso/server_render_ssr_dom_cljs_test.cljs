@@ -776,7 +776,7 @@
             server-id      (id-in-html html)
             container      (rf.hicasso.roots-frames-support/stamp-server-nodes! (rf.hicasso.roots-frames-support/server-dom! html))
             watch          (rf.hicasso.roots-frames-support/watch-mismatches!)]
-        ;; State before DOM, the order `h/hydrate!`'s own docstring
+        ;; State before DOM, the order `h/render!`'s own docstring
         ;; teaches, so the first client render sees what the server
         ;; rendered from and the only thing left to disagree about is the
         ;; id.

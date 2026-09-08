@@ -35,8 +35,8 @@ amendment behind each cell is design history at
 | HS-07 | Reserved data vocabulary: `::h/value`, `::h/checked`, `::h/prevent`, `::h/revision` | Render — the `::h/revision`-on-an-uncontrolled-field refusal fires during the server render too |
 | HS-08 | Controlled DOM fields as a class | Render for the server half; per-control support is a client axis |
 | HS-09 | `h/error-boundary` | Render on the succeeding arm; a throwing child is not caught server-side and reaches the caller's `renderToString` |
-| HS-10 | `h/mount!` | No policy — a client lifecycle command, not a node of the tree |
-| HS-11 | `h/hydrate!` | Client-only — the adoption half of every Render row; adopts `re-frame.hicasso.server/render`'s bytes under a matching `:identifier-prefix` (`server-render-ssr-dom-cljs-test` §4, §4b) |
+| HS-10 | `h/render!` | No policy — a client lifecycle command, not a node of the tree |
+| HS-11 | `h/render!` `{:hydrate? true}` | Client-only — the adoption half of every Render row; adopts `re-frame.hicasso.server/render`'s bytes under a matching `:identifier-prefix` (`server-render-ssr-dom-cljs-test` §4, §4b) |
 | HS-12 | `h/render!` | No policy — a lifecycle command |
 | HS-13 | `h/unmount!` | No policy — a lifecycle command; idempotent, silent on a rootless handle |
 | HS-14 | Root and frame-provider element, including `identifierPrefix` | Render on bytes from `re-frame.hicasso.server/render` — `server-render-ssr-dom-cljs-test` §1, §2, §4, §4b and `identifier-prefix-ssr-dom-cljs-test`; hand-rolled `renderToString` bytes are outside the claim (§4b-3) |

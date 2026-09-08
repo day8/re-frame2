@@ -167,8 +167,8 @@ a second root.
 publishes the frame through one shared React context, and a Hicasso boundary
 reads that same context. A shell already mounted under `[rf/frame-root {:id
 ...}]` — or under `[rf/frame-provider {:frame ...}]` — therefore supplies the
-frame to any Hicasso subtree beneath it. A ported screen needs no `h/mount!`,
-no second frame, and no second React root.
+frame to any Hicasso subtree beneath it. A ported screen needs no
+`h/client-root`, no second frame, and no second React root.
 
 **Keep the adapter you have.** `(rf/init! reagent-adapter/adapter)` stays as it
 is: installing a Reagent, reagent-slim or UIx adapter under a Hicasso tree is
@@ -206,11 +206,13 @@ Minting the component inside a render would allocate a fresh element type on
 every pass and remount the subtree, which is `React.memo`'s own law rather than
 a Hicasso rule.
 
-`h/mount!` ([Installation](00-installation.md)) is the whole-application door.
-It is where the migration ends rather than where it starts: when the last
-screen is ported, the Reagent root gives way to one `h/mount!`, and the
-`frame-root` wrapper is respelled `h/frame-root` and stays exactly where it
-was.
+`h/client-root` + `h/render!` ([Installation](00-installation.md)) is the
+whole-application door. It is where the migration ends rather than where it
+starts: when the last screen is ported, the Reagent root gives way to one
+Hicasso client-root handle — the same three-name grammar
+(`client-root` / `render!` / `unmount!`) the Reagent adapter already
+publishes — and the `frame-root` wrapper is respelled `h/frame-root` and stays
+exactly where it was.
 
 ### Common translations
 

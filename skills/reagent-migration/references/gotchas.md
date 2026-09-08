@@ -204,16 +204,17 @@ the ref never fires, so the callback function is the only spelling — and
 only `:key`, so it stays in the props map as ordinary data with nothing to
 report it.
 
-## `h/frame-root` ensures the frame; `h/mount!` carries root options only
+## `h/frame-root` ensures the frame; `h/render!` carries root options only
 
-`(h/mount! container config hiccup)` takes a config map of **root options** —
-`:identifier-prefix` and nothing else — and refuses `:frame` or
-`:initial-events` by name. The frame is the tree's:
+`(h/render! handle hiccup container opts)` takes an opts map of **root
+options** — `:hydrate?` and `:identifier-prefix`, and nothing else — and
+refuses `:frame` or `:initial-events` by name. The frame is the tree's:
 `[h/frame-root {:id ::frame :initial-events [[:boot]]} [app {}]]` creates the
 frame if it is absent and seeds it before the first paint, or reuses an
 already-live one without replaying the seed. So the Reagent pair
-`(rdom/render [app] el)` + `(rf/dispatch-sync [:boot])` maps onto one mount with
-one boundary — with `rf/init!` before it, because frame construction raises
+`(rdom/render [app] el)` + `(rf/dispatch-sync [:boot])` maps onto one
+`h/render!` with one boundary — with `rf/init!` before it, because frame
+construction raises
 `:rf.error/no-adapter-installed` until a reactive adapter is installed.
 
 `h/frame-root` takes the WHOLE `rf/make-frame` option map, so a frame needing
@@ -230,8 +231,10 @@ and a Reagent adapter under a Hicasso tree resolves the *same* frame as the
 Hicasso subtree. Full rule: MIG-15 — plus MIG-24's closing section for the one
 case where the choice reopens, an app with no Reagent view left at all.
 
-For hot reload use `h/render!`, never a second `h/mount!` — the latter
-`createRoot`s again and replaces the whole tree.
+Hot reload is the SAME `h/render!` through the SAME handle: the first call
+creates the root, every later one updates it. Allocate the handle with
+`defonce` — a reload that hands back a fresh one `createRoot`s again and
+replaces the whole tree.
 
 ## Silent drops in a key map
 

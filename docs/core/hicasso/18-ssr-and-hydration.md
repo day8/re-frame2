@@ -134,6 +134,8 @@ has — install one with `rf/init!` before the first frame, per
             [app.subs]
             [app.events]))
 
+(defonce app-root (h/client-root))
+
 (defn ^:export run []
   ;; 1. Create the client frame both hydration steps name.
   (rf/make-frame {:id :app/main :platform :client})
@@ -142,18 +144,18 @@ has — install one with `rf/init!` before the first frame, per
   (ssr/hydrate! {:frame :app/main})
 
   ;; 3. Adopt the existing server DOM.
-  (h/hydrate!
-   (js/document.getElementById "app")
-   {:identifier-prefix "main"}
-   [h/frame-provider {:frame :app/main}
-    [views/page {}]]))
+  (h/render! app-root
+             [h/frame-provider {:frame :app/main}
+              [views/page {}]]
+             (js/document.getElementById "app")
+             {:hydrate? true :identifier-prefix "main"}))
 ```
 
 The three calls have different jobs:
 
 - `rf/make-frame` creates the frame. Neither hydration step does it for you:
-  `ssr/hydrate!` seeds a frame that already exists, and the tree
-  `h/hydrate!` adopts SCOPEs that frame with `h/frame-provider` rather than
+  `ssr/hydrate!` seeds a frame that already exists, and the tree the adopting
+  render takes SCOPEs that frame with `h/frame-provider` rather than
   ensuring it. **`h/frame-root` is the wrong verb here, and the reason is
   SHAPE** — its ENSURE is commit-owned, so its first render emits no descendant
   subtree and the children arrive on a second pass. An adopting root must render
@@ -167,8 +169,10 @@ The three calls have different jobs:
   `:rf.error/hydration-frame-id-mismatch`; omitting `:frame` raises
   `:rf.error/no-frame-context`, because the target is supplied rather than
   inferred.
-- `h/hydrate!` calls React's `hydrateRoot` on a container that already has
-  server markup.
+- `h/render!` with `{:hydrate? true}` calls React's `hydrateRoot` on a
+  container that already has server markup. It is a FIRST-CALL mode: every
+  later render through `app-root` updates the root it adopted, and the key is
+  ignored rather than hydrating twice.
 
 !!! warning "Seeding an absent frame is silent — the DOM step is not"
 
@@ -183,9 +187,9 @@ The three calls have different jobs:
 
 The frame comes first, then state, then the DOM.
 
-`h/hydrate!` has the same root lifecycle as `h/mount!`: it associates one
-container and one view, its config carries React-root options only, and it
-returns a handle accepted by `h/unmount!`.
+An adopting render has the same root lifecycle as a creating one: it is the
+same `h/render!` through the same kind of handle, its opts carry React-root
+options only, and `h/unmount!` takes the result down.
 
 Important root rules:
 
@@ -202,8 +206,9 @@ Important root rules:
 
 `ssr/hydrate!` returns the applied payload, or `nil` when the page carries no
 payload. A shared boot path branches on that: `nil` means nobody
-server-rendered this page, so `h/mount!` a fresh root under an
-`[h/frame-root {:id … :initial-events …}]` instead of adopting one — the ENSURE
+server-rendered this page, so `h/render!` WITHOUT `:hydrate?` builds a fresh
+root under an `[h/frame-root {:id … :initial-events …}]` instead of adopting
+one — the ENSURE
 branch, where the frame and its seed are the tree's. The client-only branch
 therefore needs no separate `rf/make-frame` at all; the SSR branch still does,
 because the payload has to land in a configured frame before the DOM is
@@ -277,22 +282,26 @@ A page can hydrate several roots against one frame and payload:
    ;; Don't: deliberate server/client divergence.
    [:p "Generated at " (js/Date.now)]])
 
+(defonce app-root (h/client-root))
+(defonce help-root (h/client-root))
+
 (defn ^:export run []
   (rf/make-frame {:id :app/main :platform :client})
 
   (ssr/hydrate! {:frame :app/main})
 
-  (h/hydrate!
-   (js/document.getElementById "app")
-   {:identifier-prefix "main"}
-   [h/frame-provider {:frame :app/main}
-    [views/page {}]])
+  ;; TWO roots, so TWO handles — one handle owns at most one root.
+  (h/render! app-root
+             [h/frame-provider {:frame :app/main}
+              [views/page {}]]
+             (js/document.getElementById "app")
+             {:hydrate? true :identifier-prefix "main"})
 
-  (h/hydrate!
-   (js/document.getElementById "help")
-   {:identifier-prefix "help"}
-   [h/frame-provider {:frame :app/main}
-    [views/help-panel {}]]))
+  (h/render! help-root
+             [h/frame-provider {:frame :app/main}
+              [views/help-panel {}]]
+             (js/document.getElementById "help")
+             {:hydrate? true :identifier-prefix "help"}))
 ```
 
 The timestamp differs between server and client. React repairs the help root
@@ -305,7 +314,7 @@ and reports a root-scoped mismatch:
  :error recoverable-error}
 ```
 
-The app root can still hydrate cleanly. Each `h/hydrate!` has its own
+The app root can still hydrate cleanly. Each adopting root has its own
 recoverable, caught, and uncaught error channels.
 
 Xray associates hydration complaints with the root, view source, and host
@@ -325,8 +334,8 @@ share belong in the snapshot or hydration payload.
 ## When not to use SSR
 
 A client-only application does not need the Node rendering service, payload
-allowlist, or snapshot plumbing. Boot it with `h/mount!` and an
-`[h/frame-root {:id … :initial-events …}]`.
+allowlist, or snapshot plumbing. Boot it with `h/render!` and no `:hydrate?`,
+under an `[h/frame-root {:id … :initial-events …}]`.
 
 Applications behind a login wall often gain little from rendering private,
 per-user HTML on a server fleet.
@@ -340,8 +349,8 @@ view rewrite.
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | `:rf.ssr/hydration-mismatch` names a root and view | Server and first client render differed, often because a body read a clock, random value, or browser global | Keep bodies deterministic; move platform work to client effects or host edges |
-| Every `useId` id in one root reports a mismatch | The root's `:identifier-prefix` differs from the server prefix | Use the same unique prefix in `server/render` and that root's `h/hydrate!` |
-| `h/hydrate!` throws `:rf.error/frame-provider-frame-absent` | The tree SCOPEs a frame nothing made — step 1 or step 2 was skipped | Create the frame and install the payload before adopting the DOM |
+| Every `useId` id in one root reports a mismatch | The root's `:identifier-prefix` differs from the server prefix | Use the same unique prefix in `server/render` and that root's adopting `h/render!` |
+| An adopting `h/render!` throws `:rf.error/frame-provider-frame-absent` | The tree SCOPEs a frame nothing made — step 1 or step 2 was skipped | Create the frame and install the payload before adopting the DOM |
 | Client-only widget shows a skeleton, then swaps to the live widget | The Client-only policy is working | Use a same-size fallback, or select Render only when the component is truly server-safe |
 | Declaration raises `:rf.error/hicasso-host-fallback-boundary-head` | The fallback contains a view or host head | Use plain deterministic Hiccup, or render the real component with `{:server :render}` |
 | Server render throws `window is not defined` under Render | The component is not server-safe | Return it to Client-only and provide a fallback |

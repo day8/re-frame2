@@ -35,7 +35,7 @@
   body sees, what it retains, what it refuses — and a crossing above
   the island would add a root boundary whose own entry and shell would
   sit in every count below. So each island element is handed to React
-  directly, under `mount/provider` (the same context `h/mount!`
+  directly, under `mount/provider` (the same context `h/render!`
   installs) or under nothing, and the crossing is measured where it
   costs something: the DOM lane."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -114,7 +114,7 @@
 
 (defn- render-under-frame!
   "Render `element` with the frame context installed — the same provider
-  `h/mount!` installs, reached through the runtime's own door rather than
+  `h/render!` installs, reached through the runtime's own door rather than
   through a hand-built context wrapper this suite would then be pinning
   instead of the product."
   [element]

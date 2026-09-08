@@ -17,7 +17,8 @@
 **The pipeline ships, so this is a decision rather than a hold.**
 `re-frame.hicasso.server` is Hicasso's optional server module and `render` is
 its product door; both halves of the client boot exist too —
-`re-frame.ssr/hydrate!` for state and `h/hydrate!` for the DOM. Read them at
+`re-frame.ssr/hydrate!` for state and `h/render!` with `{:hydrate? true}` for
+the DOM. Read them at
 `implementation/hicasso/src/re_frame/hicasso/server.cljs` and
 `implementation/ssr/src/re_frame/ssr.cljc`.
 
@@ -74,25 +75,29 @@ this migration, so do not silently switch a part-migrated app to another
 adapter (a Hicasso-only app may deliberately choose
 `re-frame.hicasso.substrate/adapter`, but that is its own decision). Skip the
 install in a cold client entry and the first `rf/make-frame` raises the same
-`:rf.error/no-adapter-installed`, so `ssr/hydrate!` and `h/hydrate!` never
-run.
+`:rf.error/no-adapter-installed`, so `ssr/hydrate!` and the adopting
+`h/render!` never run.
 
 ```clojure
+(defonce app-root (h/client-root))
+
 (defn ^:export run []
   (rf/init! reagent-adapter/adapter)                   ;; 0. boot — the app's existing adapter
   (rf/make-frame {:id :app/main :platform :client})    ;; 1. the frame
   (ssr/hydrate! {:frame :app/main})                    ;; 2. state
-  (h/hydrate! (js/document.getElementById "app")       ;; 3. DOM
-              {:identifier-prefix "main"}
-              [h/frame-provider {:frame :app/main}
-               [views/page {}]]))
+  (h/render! app-root                                  ;; 3. DOM
+             [h/frame-provider {:frame :app/main}
+              [views/page {}]]
+             (js/document.getElementById "app")
+             {:hydrate? true :identifier-prefix "main"}))
 ```
 
 - **The install is per process, not per load.** `rf/init!` is idempotent for the
   adapter it seated (a different adapter raises
   `:rf.error/adapter-already-installed`),
   `run` is the page's one boot entry, and a hot-reload pass re-renders through
-  the root handle (MIG-15's `h/render!` shape) rather than re-running `run` —
+  the same handle (MIG-15's `h/render!` shape, without `:hydrate?` — it is a
+  first-call mode and a live handle ignores it) rather than re-running `run`;
   the hydration/HMR path never re-runs `rf/init!`.
 - **`rf/make-frame` first of the three.** An adopting root takes its state from
   the payload, so its tree SCOPEs with `h/frame-provider` rather than ENSUREing
@@ -100,11 +105,12 @@ run.
   seed replacement state over what the server rendered from. Skip the
   `make-frame` and the `:rf/hydrate` dispatch is a silent no-op; the adoption
   is not, because `h/frame-provider` refuses a frame that is not live.
-- **`ssr/hydrate!` before `h/hydrate!`.** It reads the `__rf_payload` script,
-  replaces that frame's state and verifies, so the first client render sees the
-  state the server rendered from.
-- **`h/hydrate!` is `(node config view)`**, returns the handle `h/render!` and
-  `h/unmount!` take, and returns *before* adoption finishes.
+- **`ssr/hydrate!` before the adopting `h/render!`.** It reads the
+  `__rf_payload` script, replaces that frame's state and verifies, so the first
+  client render sees the state the server rendered from.
+- **The adopting call is `(h/render! handle view node {:hydrate? true …})`**,
+  answers nil, and returns *before* adoption finishes. Later renders through
+  that handle are ordinary synchronous updates.
 
 **Hand `:identifier-prefix` the same string on both sides.** React numbers
 `useId` per root and prefixes it with this option, so a root hydrated under a

@@ -53,18 +53,17 @@ and there is no routing key on the root door at all.
             [app.routes]                        ;; the reg-route table above
             [app.views :as views]))
 
-(defonce !root (atom nil))
+(defonce app-root (h/client-root))
 
 (defn ^:export init []
   (rf/init! substrate/adapter)
-  (reset! !root
-          (h/mount! (js/document.getElementById "app")
-                    {}
-                    [h/frame-root
-                     {:id             :app/main
-                      :url-bound?     true       ;; this frame owns the browser URL
-                      :initial-events [[:app/initialise]]}
-                     [views/app-root]]))
+  (h/render! app-root
+             [h/frame-root
+              {:id             :app/main
+               :url-bound?     true              ;; this frame owns the browser URL
+               :initial-events [[:app/initialise]]}
+              [views/app-root]]
+             (js/document.getElementById "app"))
   nil)
 ```
 
@@ -79,8 +78,8 @@ Three things in that shape are load-bearing:
   slice in one step. Without it `route-link` still renders and navigation still
   updates that frame's own route state — the address bar simply never moves, and
   a refresh loses the page.
-- **`:url-bound?` rides the frame boundary, not the root door.** `h/mount!`'s
-  config carries `:identifier-prefix` and REFUSES every other key —
+- **`:url-bound?` rides the frame boundary, not the root door.** `h/render!`'s
+  opts carry `:hydrate?` and `:identifier-prefix` and REFUSE every other key —
   `:url-bound?` is a frame option, so it goes on `h/frame-root` with the rest of
   the `rf/make-frame` map, beside the seed. One place names the frame and one
   place configures it: see [A frame that needs more than a

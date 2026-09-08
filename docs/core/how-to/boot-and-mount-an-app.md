@@ -27,7 +27,7 @@ app. Hot reload should re-render changed views without losing app-db.
     spelled the same way too: a Hicasso tree carries `[h/frame-root {:id …}]`
     exactly where a Reagent tree carries `[rf/frame-root {:id …}]`, over the
     same options and the same commit-owned ensure. Only the *root call* differs
-    — `(h/mount! node {} tree)` where Reagent has `render!` — and its config
+    — the same `client-root` / `render!` / `unmount!` trio Reagent has — and its opts
     carries React-root options only.
 
 ## The small shape

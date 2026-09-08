@@ -132,7 +132,8 @@ carry the old refusal across:
   behaviour change to raise with the author, not a hold. → M-tier.
 - **SSR-then-hydrate** (MIG-23). The whole pipeline shipped: `server/render` is
   the optional server module's product door, `re-frame.ssr/hydrate!` installs
-  the server's app-db, and `h/hydrate!` adopts the server DOM. What is left is
+  the server's app-db, and `h/render!` with `{:hydrate? true}` adopts the server
+  DOM. What is left is
   an infrastructure decision — the renderer is React's, running on Node — not a
   missing spelling. → D-tier.
 
