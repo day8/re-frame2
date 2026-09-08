@@ -27,6 +27,12 @@
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.machines.classification :as rf.machines.classification]
             [re-frame.machines.data-validation :as rf.machines.data-validation]
+            ;; rf2-dokz — the occupied-`:fixed-actor-id` replacement runs the
+            ;; occupant through the ORDINARY destroy path. Nothing under
+            ;; `lifecycle-fx.destroy`'s require graph reaches this ns (only the
+            ;; `re-frame.machines` aggregator requires it), so the edge is
+            ;; acyclic.
+            [re-frame.machines.lifecycle-fx.destroy :as rf.machines.lifecycle-fx.destroy]
             [re-frame.machines.lifecycle-fx.resolver :as rf.machines.lifecycle-fx.resolver]
             [re-frame.machines.parallel :as rf.machines.parallel]
             [re-frame.machines.paths :as rf.machines.paths]
@@ -441,12 +447,21 @@
   `initial-snap` (built once by the caller) is threaded in rather than
   re-built here.
 
-  `rt-after-alloc` is the post-id-allocation runtime-db computed by the
-  caller (see `spawn-fx`); `swap-runtime-db!`'s fn arg is discarded — the
-  merge is applied on top of `rt-after-alloc` so the caller's counter bump
-  survives. Under Spec 002's single-drainer invariant the discarded
-  re-read is value-equal to the snapshot the caller already had. Machine
-  snapshots are durable runtime-db state (EP-0001).
+  `rt-after-alloc` is the install base the caller computed (see `spawn-fx*`);
+  `swap-runtime-db!`'s fn arg is discarded — the merge is applied on top of
+  that base so the caller's counter bump survives. Under Spec 002's
+  single-drainer invariant the discarded re-read is value-equal to the snapshot
+  the caller already had. Machine snapshots are durable runtime-db state
+  (EP-0001).
+
+  rf2-dokz — DISCARDING `_rt` MAKES THE BASE'S CURRENCY THE CALLER'S PROBLEM,
+  and there is exactly one path on which the caller's first read is NOT current:
+  an occupied-`:fixed-actor-id` replacement writes to runtime-db (the occupant's
+  teardown) between that read and this swap. Handing the pre-teardown value in
+  would silently RESTORE the occupant's snapshot and undo the destroy. So
+  `spawn-fx*` rebuilds the base from the post-teardown runtime-db before calling
+  here (`install-base-after-replacing-occupant!`); this fn is unchanged and
+  simply installs whatever base it is given.
 
   `type-ref-fn` is a THUNK, not a value (rf2-zo5n9). The revertible TYPE
   reference a PREPARED `:spawn-all` child stamps is registrar-DERIVED —
@@ -757,7 +772,15 @@
       from runtime-db alone. The runtime stamps `:rf/self-id`
       (the spawned actor's own address) and, when applicable,
       `:rf/parent-id` + `:rf/invoke-id` into the actor's initial `:data`.
-      Re-spawn under the same id replaces — last-write-wins.
+      Re-spawn at an address a LIVE actor still occupies REPLACES that
+      actor, and replacement is a CLEAN destroy-then-install: rf2-dokz
+      runs the occupant through the ordinary `[:rf.machine/destroy
+      <actor-id>]` path first (`:reason :explicit`, join preparation
+      included), so its `:exit` runs and its timers / managed HTTP /
+      resource owners release, and only then installs the newcomer from
+      the post-teardown runtime-db. It is NOT last-write-wins over a live
+      snapshot. Independent CHILD lifetimes are not reaped — see Spec 005
+      §Spec-spec keys.
    3. If `:rf/parent-id` + `:rf/invoke-id` present (declarative `:spawn`
       desugar), bind the spawned id at
       `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]`.
@@ -829,6 +852,66 @@
 
       :else
       (spawn-fx* frame-id args))))
+
+(defn- install-base-after-replacing-occupant!
+  "rf2-dokz — the occupied-`:fixed-actor-id` step. Returns the `runtime-db`
+  value `install-spawn!` must build its install on, or nil when the install must
+  NOT proceed.
+
+  Three things happen here, in this order, and the order is the contract.
+
+  (1) NOTHING IS DISTURBED UNTIL THE INCOMING SPAWN IS KNOWN GOOD. The caller
+  has already resolved the spec, built `initial-snap` and run the
+  `[:schemas :data]` validator (`rejected?`), and gates this whole cascade on
+  that verdict — so a spawn that will be REJECTED never reaches here and leaves
+  the occupant intact. Replacement is not a licence to destroy on the way to
+  failing.
+
+  (2) THE OCCUPANT IS TORN DOWN THROUGH THE ORDINARY DESTROY PATH, under the
+  EXISTING `:reason :explicit` (see
+  `lifecycle-fx.destroy/destroy-occupant-for-replacement!` for why it delegates
+  and why the reason may not be a new enum member). Scoped to a SUPPLIED
+  `:fixed-actor-id`: a generated `<type>#<n>` address that collides with a live
+  actor is the separate reseeded-`:rf/spawn-counter` defect (rf2-1sip), not this
+  one, and is deliberately left alone.
+
+  (3) THE INSTALL BASE IS REBUILT FROM THE POST-TEARDOWN VALUE. This is the trap
+  the fix exists to avoid: `install-spawn!`'s `install-fn` DISCARDS the swap's
+  `_rt` argument and returns a value captured before it, so passing the caller's
+  pre-teardown `rt-after-alloc` would RESTORE every slot the teardown just
+  removed — the occupant's snapshot among them — and the destroy would be undone
+  by the very write it was meant to precede. Re-reading the frame's live
+  `runtime-db` here is the whole repair. The one delta `rt-after-alloc` carries
+  over `old-rt` that must survive the rebase is `drop-prepared-entry`, so it is
+  re-applied (it is a belt-and-braces no-op against a slot that is not a live
+  join). The spawn-counter bump is NOT re-applied and does not need to be: it is
+  taken only when `pre-allocated-actor-id` returned nil, and a `:fixed-actor-id`
+  spawn always has one.
+
+  Between this read and the swap sit only the `type-ref-fn` force, the
+  `(continue?)` rechecks and the two spawned traces — no `runtime-db` writer —
+  so the rebased base is as current at commit as the caller's own read is on the
+  untouched path (Spec 002 §Single drainer per frame).
+
+  RETURNS NIL WHEN THE TEARDOWN COST US THE FRAME. The occupant's authored
+  `:exit` is APPLICATION code running synchronously inside the teardown: it can
+  destroy this frame outright (the live `runtime-db` then reads nil) or destroy
+  incarnation A and publish a same-id B (`continue?` goes false — and note that
+  fence is a FRAME fence, so it is checked here explicitly rather than assumed
+  to cover same-address actor churn). Either way the replacement must not
+  install, and returning nil suppresses the spawned traces as well as the write.
+  On the untouched path `rt-after-alloc` is handed straight back, so a spawn at
+  an EMPTY address pays one `actor-live?` read and nothing else."
+  [frame-id args spawned-id prepared rt-after-alloc continue?]
+  (if-not (and (contains? args :fixed-actor-id)
+               (rf.machines.lifecycle-fx.destroy/destroy-occupant-for-replacement!
+                 frame-id spawned-id))
+    rt-after-alloc
+    (when (or (nil? continue?) (continue?))
+      (when-let [rt (rf.frame/frame-runtime-db-value frame-id)]
+        (if prepared
+          (drop-prepared-entry rt args spawned-id)
+          rt)))))
 
 (defn- spawn-fx*
   "The accepted-spawn body of `spawn-fx` — runs only after the
@@ -994,7 +1077,25 @@
     ;;       trace / dispatch tail may land on B.
     ;; A destroyed-frame or owner-lost spawn is a clean no-op — no trace, no
     ;; install, no dispatch — symmetric with the schema-reject path's atomicity.
-    (when (and (not rejected?) old-rt (continue?))
+    ;;
+    ;; rf2-dokz adds a FOURTH condition, and folds the three above into the same
+    ;; `and` so the short-circuit order is unchanged: the install base must be
+    ;; obtainable. `install-base-after-replacing-occupant!` runs LAST — after the
+    ;; validator verdict, so a rejected spawn never disturbs an occupant — and it
+    ;; tears a LIVE occupant of a supplied `:fixed-actor-id` down through the
+    ;; ORDINARY destroy path before returning the POST-teardown value the install
+    ;; must be built on. It returns nil when the occupant's authored `:exit` cost
+    ;; us the frame or the exact owner, which suppresses the spawned traces and
+    ;; the install together. On every other spawn it returns `rt-after-alloc`
+    ;; unchanged, so this reads exactly as it did before.
+    ;;
+    ;; The teardown sits AHEAD of the `:rf.machine.spawn/spawned` trace on
+    ;; purpose: the occupant's `:rf.machine/destroyed` is therefore observed
+    ;; BEFORE the replacement's spawned traces, and a tool pairing lifecycle
+    ;; events never sees one address spawned twice with no destroy between.
+    (when-let [rt-install (and (not rejected?) old-rt (continue?)
+                               (install-base-after-replacing-occupant!
+                                 frame-id args spawned-id prepared rt-after-alloc continue?))]
       (rf.trace/emit! :rf.machine :rf.machine.spawn/spawned
                    {:frame      frame-id
                     ;; `:machine-id` is the spec-time registered TYPE (xor
@@ -1032,7 +1133,7 @@
       ;; that. `continue?` is threaded into `install-spawn!` so the write is
       ;; rechecked against the exact incarnation immediately before it lands.
       (when (continue?)
-        (let [installed (install-spawn! frame-id rt-after-alloc spec'' spawned-id initial-snap
+        (let [installed (install-spawn! frame-id rt-install spec'' spawned-id initial-snap
                                         {:parent-id   parent-id
                                          :invoke-id   invoke-id
                                          :track?      track?

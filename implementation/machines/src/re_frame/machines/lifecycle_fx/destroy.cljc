@@ -758,3 +758,48 @@
 
       :else
       (rf.machines.lifecycle-fx.traces/emit-destroy-bad-arg! frame-id :unknown-shape args))))
+
+;; ---- occupied-address replacement (rf2-dokz) -------------------------------
+
+(defn destroy-occupant-for-replacement!
+  "Tear a LIVE occupant of `actor-id` down through the ORDINARY destroy path so
+  a `:rf.machine/spawn` arriving at an OCCUPIED `:fixed-actor-id` REPLACES it
+  cleanly instead of overwriting its snapshot. Called by
+  `lifecycle-fx.spawn/spawn-fx*` immediately before its install; see Spec 005
+  §Spec-spec keys §Spawning onto an OCCUPIED fixed address.
+
+  WHY IT DELEGATES rather than reaching for the pipeline directly. Spawn's old
+  behaviour was ONE unguarded `assoc-in` at the snapshot path, and because a
+  spawned actor's liveness IS that snapshot's presence (Spec 005 §Liveness is
+  derived from runtime-db) that single write was simultaneously the new actor's
+  BIRTH and the occupant's unannounced DEATH — so none of the nine ordered
+  teardown steps ran and all three of Spec 005 §What auto-cancels on destroy's
+  named guarantees were silently void (the occupant's authored `:exit` never
+  fired, its armed `:after` timers stayed armed on the host clock, its in-flight
+  `:rf.http/managed` requests kept flying, its `[:machine <actor-id>]` resource
+  owners kept polling). Routing through `destroy-machine-fx`'s KEYWORD branch —
+  rather than calling the private `teardown-live-actor!` — is deliberate: the
+  keyword form is what `[:rf.machine/destroy <actor-id>]` itself takes, so the
+  replacement gets `prepare-join-child-teardown!`'s join preparation, the fresh
+  `effect-fence`, and the `:rf.machine/destroyed` emit for free, and it cannot
+  drift from the ordinary path because it IS the ordinary path.
+
+  `:reason` is the EXISTING `:explicit`, never a new enum member: both
+  `prepare-join-child-teardown!`'s live-join-child cancellation (its
+  `cancel-current?` gate) and `traces/emit-destroyed!`'s cancelled-reply facts
+  (its `cancelled?` gate) test for exactly `:explicit`, so a bespoke reason
+  would SKIP both and leave a replaced join child's attempt uncancelled with its
+  reply facts unemitted.
+
+  Returns `true` when the address was occupied and the teardown ran, `false`
+  when it was EMPTY. False is the overwhelmingly common answer — ordinary
+  re-entry at a `:fixed-actor-id` arrives after the exit cascade has already
+  destroyed the previous incarnation — and one `actor-live?` read is its whole
+  cost. A `true` tells the caller its pre-teardown `runtime-db` snapshot is
+  STALE and the install must be rebuilt from the post-teardown value."
+  [frame-id actor-id]
+  (boolean
+    (when (and actor-id
+               (actor-live? frame-id actor-id (rf.frame/frame-runtime-db-value frame-id)))
+      (destroy-machine-fx {:frame frame-id} actor-id)
+      true)))
