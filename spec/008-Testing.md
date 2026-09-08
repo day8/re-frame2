@@ -38,17 +38,17 @@ A test that exercises events / subs / machines reaches `re-frame.test-support`. 
 Some test helpers are **per-adapter**. The React-based adapters (`re-frame.adapter.reagent`, `re-frame.adapter.uix`) each ship a `flush-views!` fn that wraps React's `act()` so tests dispatching against a mounted tree can settle pending React effects before reading the DOM. The function NAME is shared across adapters (substrate uniformity); the entry point is **per-adapter-require**, not centralised through `re-frame.test-support`:
 
 ```clojure
-(:require [re-frame.adapter.reagent :as reagent-adapter])
+(:require [re-frame.adapter.reagent :as rf.adapter.reagent])
 ;; ...
-(reagent-adapter/flush-views!)
+(rf.adapter.reagent/flush-views!)
 
 ;; The same name on the UIx adapter, from its own require:
-(:require [re-frame.adapter.uix :as uix-adapter])
+(:require [re-frame.adapter.uix :as rf.adapter.uix])
 ;; ...
-(uix-adapter/flush-views!)
+(rf.adapter.uix/flush-views!)
 ```
 
-This is intentional per [Spec 006 §Revertibility constraints — What an adapter MUST NOT do](006-ReactiveSubstrate.md#what-an-adapter-must-not-do): the adapter-dependency direction is `adapter → core`, never the reverse. `re-frame.test-support` ships in core and cannot reach into adapter namespaces without inverting the direction. Test code knows its adapter at compile time (the same require that boots the adapter at app boot, repeated in the test ns) — the `(reagent-adapter/flush-views!)` shape is structurally identical to how production code calls `(reagent-adapter/render ...)`.
+This is intentional per [Spec 006 §Revertibility constraints — What an adapter MUST NOT do](006-ReactiveSubstrate.md#what-an-adapter-must-not-do): the adapter-dependency direction is `adapter → core`, never the reverse. `re-frame.test-support` ships in core and cannot reach into adapter namespaces without inverting the direction. Test code knows its adapter at compile time (the same require that boots the adapter at app boot, repeated in the test ns) — the `(rf.adapter.reagent/flush-views!)` shape is structurally identical to how production code calls `(rf.adapter.reagent/render ...)`.
 
 The plain-atom adapter (JVM, SSR, headless) does NOT ship `flush-views!` — there is no React tree to settle. Tests targeting the plain-atom adapter use `dispatch-sync` (already drain-to-fixed-point) and read app-db / hiccup directly.
 

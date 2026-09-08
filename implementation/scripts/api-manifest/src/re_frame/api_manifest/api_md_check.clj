@@ -130,11 +130,17 @@
    aliases resolves to the EXACT manifest namespace named here — never by
    bare var name (the `adapter` / `flush-views!` / … vars are carried for
    every adapter namespace, so a bare match would not distinguish
-   them). The alias→namespace shape is regular (`<x>-adapter` ->
-   `re-frame.adapter.<x>`); it is spelled out so the contract is explicit
-   and a new adapter alias is an intentional one-line addition."
-  {"reagent-adapter" "re-frame.adapter.reagent"
-   "uix-adapter"     "re-frame.adapter.uix"})
+   them). spec/API.md teaches the Conventions require-alias dialect —
+   `rf.adapter.<x>` for `re-frame.adapter.<x>`, per spec/Conventions.md
+   §Require-alias dialect; the table is spelled out so the contract is
+   explicit and a new adapter alias is an intentional one-line addition."
+  {"rf.adapter.reagent" "re-frame.adapter.reagent"
+   "rf.adapter.uix"     "re-frame.adapter.uix"
+   ;; The pre-rf2-z5zy spellings. spec/ no longer teaches them (rf2-gbuh
+   ;; ruled them a defect, not an exemption), but they stay resolvable so a
+   ;; row carrying one is graded rather than silently unresolved.
+   "reagent-adapter"    "re-frame.adapter.reagent"
+   "uix-adapter"        "re-frame.adapter.uix"})
 
 (defn- parse-first-cell-ident
   "Split an API.md first-cell identifier into `[qualifier bare-var]`. For a
