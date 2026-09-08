@@ -1,5 +1,5 @@
 (ns re-frame.epoch-privacy-test
-  "Coverage for three epoch privacy surfaces:
+  "Coverage for four epoch privacy surfaces:
 
     1. The record-level :rf.epoch/sensitive? rollup — true when any
        captured trace event carries the :sensitive? stamp OR any
@@ -18,11 +18,18 @@
        egress off-box opt INTO projection at the wire boundary via
        projected-record.
 
+    4. The record-level :rf.epoch/redacted-modified-paths-count
+       integer — how many frame-declared sensitive app-db paths
+       changed value across the cascade. Computed in build-record from
+       the RAW dbs, so it survives the projection that replaces both
+       sides with the same :rf/redacted sentinel.
+
   Also covers retention caps and the JVM debug-disabled path."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
             [re-frame.epoch :as rf.epoch]
+            [re-frame.epoch.assembly :as rf.epoch.assembly]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -75,6 +82,19 @@
   [frame-id]
   (rf.frame/swap-runtime-db! frame-id
     (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))
+  nil)
+
+(defn- install-two-sensitive-paths-schema!
+  "Declare TWO sensitive paths against `frame-id` — `[:auth :password]`
+  and `[:auth :token]`. Same EP-0025 commit-plane write as
+  `install-sensitive-schema!`; the second path is what lets the
+  redacted-modified-paths counter be exercised with a discriminating
+  partial-modification control (one path changes, one does not).
+  Returns nil."
+  [frame-id]
+  (rf.frame/swap-runtime-db! frame-id
+    (fn [rt] (rf.elision/apply-classification-effects rt
+               {:sensitive [[:auth :password] [:auth :token]]})))
   nil)
 
 (defn- install-large-schema!
@@ -253,9 +273,13 @@
 ;; invariant has its authoritative pins in
 ;; `epoch_mcp_egress_conformance_test`
 ;; (`forwarder-projected-record-is-sensitive-idempotent` :255 +
-;; `forwarder-projected-record-is-large-idempotent` :305), with the
-;; redact×project composition cases in `epoch_redact_fn_projection_test`.
+;; `forwarder-projected-record-is-large-idempotent` :305).
 ;; Keep idempotency assertions there; do not duplicate them here (rf2-zymix).
+;; (The former `epoch_redact_fn_projection_test` carried the redact×project
+;; composition cases; the `:redact-fn` hook was retired outright on
+;; 2026-09-08 under rf2-kuky.7, so there is no such composition left to pin.
+;; Its RETAINED half — the redacted-modified-paths counter — moved here, to
+;; section 4 at the bottom of this file.)
 
 (deftest projected-record-redacts-sensitive-in-db-after
   (testing "frame-declared sensitive path in :db-after lands as
@@ -1099,3 +1123,221 @@
       (rf/dispatch-sync [:prod.priv/silent])
       (is (empty? (rf/epoch-history :rf/default))
           "ring stays empty — rollup never computed"))))
+
+;; ---- 4. :rf.epoch/redacted-modified-paths-count ----------------------------
+;;
+;; Per Spec-Schemas §`:rf/epoch-record` and Privacy.md §Epoch privacy posture:
+;; each assembled record carries an integer count of frame-declared sensitive
+;; app-db paths whose value differs between `:db-before` and `:db-after`.
+;; Computed inside `build-record` from the RAW dbs (the stored record is always
+;; raw), so it survives the projection that replaces BOTH sides with the same
+;; `:rf/redacted` sentinel — which is the whole point: a post-projection
+;; structural diff sees `:rf/redacted` = `:rf/redacted` and emits no row, and
+;; this counter is the only surviving signal that something classified moved.
+;;
+;; PROVENANCE (rf2-kuky.7): these six tests were written under rf2-dl3gx and
+;; lived in `epoch_redact_fn_projection_test`, whose OTHER half pinned the
+;; `:redact-fn` hook. That hook was retired outright on 2026-09-08 and the file
+;; went with it — but none of the six installs the hook, and the counter is
+;; explicitly RETAINED, so they move here rather than disappearing. Names are
+;; preserved (G1..G7) so the rf2-dl3gx coverage matrix still reads across.
+;;
+;;   G1. No sensitive paths declared                       -> 0.
+;;   G2. Sensitive path declared but value unchanged       -> 0.
+;;   G3. Sensitive path declared and value changed         -> 1; rollup true.
+;;   G4. Multiple sensitive paths, partial modification    -> the count.
+;;   G6. Projection passes the counter through unchanged.
+;;   G7. Halted record (nil :db-before / :db-after) edge.
+;;
+;; The G1/G2 zero cases are the DISCRIMINATING CONTROLS for G3/G4: without
+;; them a producer hard-wired to return a positive integer would pass.
+
+(deftest G1-no-sensitive-paths-yields-zero-count
+  (testing "with no frame-declared sensitive paths registered, the
+            counter is 0 (the empty-paths short-circuit)."
+    (rf/make-frame {:id :test/main})
+    (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    (rf/dispatch-sync [:inc]  {:frame :test/main})
+
+    (let [raw (last-record :test/main)]
+      (is (= {:n 1} (:db-after raw))
+          "CONTROL — the cascade really ran and really changed the db")
+      (is (= 0 (:rf.epoch/redacted-modified-paths-count raw))
+          "no declarations -> 0, regardless of how much the db changed"))))
+
+(deftest G2-sensitive-path-unchanged-yields-zero-count
+  (testing "a sensitive path is declared but its value did NOT change
+            across the cascade — the counter is 0. This is the control
+            that keeps G3 honest: a declaration alone is not enough."
+    (rf/make-frame {:id :test/main})
+    (install-sensitive-schema! :test/main)
+    (rf/reg-event :seed (fn [_ _]
+                          {:db {:auth   {:password "topsecret"}
+                                :public {:counter 0}}}))
+    (rf/reg-event :touch-public
+                  (fn [{:keys [db]} _] {:db (update-in db [:public :counter] inc)}))
+    (rf/dispatch-sync [:seed]         {:frame :test/main})
+    (rf/dispatch-sync [:touch-public] {:frame :test/main})
+
+    (let [raw (last-record :test/main)]
+      (is (= "topsecret" (get-in raw [:db-before :auth :password]))
+          "CONTROL — the declared path is populated on BOTH sides")
+      (is (= "topsecret" (get-in raw [:db-after :auth :password])))
+      (is (= 1 (get-in raw [:db-after :public :counter]))
+          "CONTROL — a NON-declared path did change, so the zero below is
+           about the declaration and not about an inert cascade")
+      (is (= 0 (:rf.epoch/redacted-modified-paths-count raw))
+          ":auth :password value identical pre/post — counter = 0"))))
+
+(deftest G3-sensitive-path-modified-yields-positive-count
+  (testing "a sensitive path's value changed across the cascade — the
+            counter is 1. The :rf.epoch/sensitive? rollup also reads true."
+    (rf/make-frame {:id :test/main})
+    (install-sensitive-schema! :test/main)
+    (rf/reg-event :login
+                  (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
+    (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
+
+    (let [raw (last-record :test/main)]
+      (is (= 1 (:rf.epoch/redacted-modified-paths-count raw))
+          ":auth :password mutated nil -> \"topsecret\" — count = 1")
+      (is (true? (:rf.epoch/sensitive? raw))
+          "rollup also true — both signals key on the same registry"))))
+
+(deftest G4-multiple-sensitive-paths-partial-modification
+  (testing "two sensitive paths declared; one changes, the other does
+            not — the counter is 1, not 2. This is the assertion that a
+            producer returning `(count declarations)` would fail."
+    (rf/make-frame {:id :test/main})
+    (install-two-sensitive-paths-schema! :test/main)
+    (rf/reg-event :seed
+                  (fn [_ _] {:db {:auth {:password "pw-1" :token "tk-1"}}}))
+    (rf/reg-event :rotate-token
+                  (fn [{:keys [db]} [_ tk]] {:db (assoc-in db [:auth :token] tk)}))
+    (rf/dispatch-sync [:seed]                    {:frame :test/main})
+    (rf/dispatch-sync [:rotate-token "tk-fresh"] {:frame :test/main})
+
+    (let [raw (last-record :test/main)]
+      (is (= "pw-1" (get-in raw [:db-after :auth :password]))
+          "CONTROL — the second declared path is present and UNCHANGED")
+      (is (= 1 (:rf.epoch/redacted-modified-paths-count raw))
+          ":token changed (count += 1); :password unchanged (filtered)")))
+
+  (testing "both declared paths change in the same cascade — counter is 2"
+    (rf/make-frame {:id :test/main})
+    (install-two-sensitive-paths-schema! :test/main)
+    (rf/reg-event :login-both
+                  (fn [{:keys [db]} [_ pw tk]]
+                    {:db (-> db
+                             (assoc-in [:auth :password] pw)
+                             (assoc-in [:auth :token]    tk))}))
+    (rf/dispatch-sync [:login-both "topsecret" "tok-xyz"] {:frame :test/main})
+
+    (let [raw (last-record :test/main)]
+      (is (= 2 (:rf.epoch/redacted-modified-paths-count raw))
+          "both :password and :token changed — count = 2"))))
+
+(deftest G6-projection-preserves-counter
+  (testing "projected-record passes :rf.epoch/redacted-modified-paths-count
+            through unchanged — the integer is structurally non-sensitive
+            bookkeeping, parallel to :rf.epoch/sensitive?. Without this the
+            counter would be computed and then thrown away at the one
+            boundary it exists to serve."
+    (rf/make-frame {:id :test/main})
+    (install-sensitive-schema! :test/main)
+    (rf/reg-event :login
+                  (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
+    (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
+
+    (let [raw       (last-record :test/main)
+          projected (rf.epoch/projected-record raw)]
+      (is (= 1 (:rf.epoch/redacted-modified-paths-count raw)))
+      (is (= :rf/redacted (get-in projected [:db-after :auth :password]))
+          "CONTROL — the projection really redacted the declared path, so
+           the counter below is the ONLY surviving signal that it moved")
+      (is (= 1 (:rf.epoch/redacted-modified-paths-count projected))
+          "projection preserves the counter verbatim")
+      (is (= (:rf.epoch/redacted-modified-paths-count raw)
+             (:rf.epoch/redacted-modified-paths-count
+               (rf.epoch/projected-record projected)))
+          "idempotent under a second projection pass"))))
+
+(deftest G7-counter-handles-nil-db-edge
+  (testing "halted-destroy records may carry nil :db-before or nil
+            :db-after (rf2-v0jwt). The producer handles the nil edge:
+            nil/non-nil at a declared path IS a change, nil/nil is not."
+    (rf/make-frame {:id :test/main})
+    (install-sensitive-schema! :test/main)
+    (is (= 0 (rf.epoch.assembly/redacted-modified-paths-count :test/main nil nil))
+        "nil -> nil at every path: 0 changes")
+    (is (= 1 (rf.epoch.assembly/redacted-modified-paths-count
+               :test/main nil {:auth {:password "x"}}))
+        "nil -> {:auth {:password \"x\"}}: 1 change at the sensitive path")
+    (is (= 1 (rf.epoch.assembly/redacted-modified-paths-count
+               :test/main {:auth {:password "x"}} nil))
+        "{:auth {:password \"x\"}} -> nil: 1 change at the sensitive path")
+    (is (= 0 (rf.epoch.assembly/redacted-modified-paths-count
+               :test/main
+               {:auth {:password "x"}}
+               {:auth {:password "x"}}))
+        "value-equal across the cascade: 0 changes")))
+
+;; ---- the retired :redact-fn sub-key is inert -------------------------------
+;;
+;; rf2-kuky.7 deleted the `(rf/configure! {:epoch-history {:redact-fn f}})`
+;; hook outright — no shim, no deprecation warning. `:redact-fn` is now an
+;; UNKNOWN sub-key of `:epoch-history`, and `configure!`'s dev-gated
+;; `:rf.warning/unknown-configure-key` diagnostic fires on TOP-LEVEL keys
+;; only, so an unknown sub-key is silently dropped like any other. This pins
+;; that posture from the caller's side: submitting it neither throws nor
+;; installs nor invokes.
+
+(deftest retired-redact-fn-sub-key-installs-and-invokes-nothing
+  (testing "submitting the retired :redact-fn sub-key is a silent drop:
+            configure! does not throw, no :redact-fn slot appears in the
+            live config, and the submitted fn is never called at any point
+            in record assembly or projection."
+    (rf/make-frame {:id :test/main})
+    (install-sensitive-schema! :test/main)
+
+    (is (= #{:depth :trace-events-keep}
+           (set (keys (:epoch-history (rf/current-config)))))
+        "RESET BASELINE — the fixture-reset config carries exactly the two
+         retained knobs; no :redact-fn slot survives the retirement")
+
+    (let [calls (atom 0)
+          scrub (fn [record] (swap! calls inc) (assoc record :db-after :rf/redacted))]
+      (rf/configure! {:epoch-history {:redact-fn         scrub
+                                      :trace-events-keep 3}})
+
+      (is (= 3 (:trace-events-keep (:epoch-history (rf/current-config))))
+          "DISCRIMINATING CONTROL — the SAME configure! call was processed and
+           its recognised sibling key landed, so the absence below is a DROP
+           of :redact-fn and not a no-op over the whole map")
+      (is (= #{:depth :trace-events-keep}
+             (set (keys (:epoch-history (rf/current-config)))))
+          "the retired key installed nothing — no :redact-fn slot appears")
+
+      (rf/reg-event :login
+                    (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
+      (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
+
+      (let [raw       (last-record :test/main)
+            projected (rf.epoch/projected-record raw)]
+        (is (some? raw)
+            "CONTROL — a record was actually assembled")
+        (is (= {:auth {:password "topsecret"}} (:db-after raw))
+            "CONTROL — storage stayed RAW; the retirement is projection-side")
+        (is (= :rf/redacted (get-in projected [:db-after :auth :password]))
+            "CONTROL — the projection really ran over a NONEMPTY record, so
+             the zero call-count below cannot be satisfied vacuously by an
+             unexercised projection")
+        (is (map? (:db-after projected))
+            "the fn's own whole-slot collapse never happened — :db-after is
+             still a walked map, not the scalar sentinel it would have
+             returned")
+        (is (zero? @calls)
+            "the submitted fn was never invoked — there is no hook left to
+             call it from")))))
