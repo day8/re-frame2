@@ -2252,7 +2252,7 @@ Per the listener-registration verb-shape unification, the trace and epoch listen
 
 The declarative child-actor key on a state node is renamed **`:invoke` → `:spawn`** (and **`:invoke-all` → `:spawn-all`** for the parallel-fanout-and-join sugar). v1 codebases that adopted the xstate-shaped `:invoke` slot trip this; the same slot for v1 → v2 migrators reads as `:spawn` on first encounter.
 
-The rename is a **deliberate divergence** from xstate vocabulary — see [005 §Deliberate name divergence — `:spawn`](../../spec/005-StateMachines.md#deliberate-name-divergence--spawn-not-invoke) for the rationale.  The convergence with xstate names is otherwise high (`:final?`, `:on-done`, `:guard`, `:action`, `:entry`, `:exit`, `:after`, `:always`, `:tags`, `:type :parallel`, `:regions`, `:system-id`); the rename targets the single most semantically-loaded surface where xstate-trained AI agents otherwise generate almost-correct code that misses re-frame2's per-feature spec nuances. The new name also **aligns the declarative key with the existing imperative fx-id** `:rf.machine/spawn`.
+The rename is a **deliberate divergence** from xstate vocabulary — see [005 §Deliberate name divergence — `:spawn`](../../spec/005-StateMachines.md#deliberate-name-divergence--spawn-not-invoke) for the rationale.  The convergence with xstate names is otherwise high (`:final?`, `:on-done`, `:guard`, `:action`, `:entry`, `:exit`, `:after`, `:always`, `:tags`, `:type :parallel`, `:regions`); the rename targets the single most semantically-loaded surface where xstate-trained AI agents otherwise generate almost-correct code that misses re-frame2's per-feature spec nuances. The new name also **aligns the declarative key with the existing imperative fx-id** `:rf.machine/spawn`.
 
 | v1 / v2-pre-rename | v2 post-rename | Surface |
 |---|---|---|
@@ -2834,7 +2834,7 @@ Two overloaded machine-identity names were split into distinct facts (rf2-0ggtr5
 | `:spawn-id` (InvokeSpec / spawn-fx arg) | `:fixed-actor-id` | explicit actor-address INPUT | the per-state-singleton "pin the actor's id instead of gensym" key under `:spawn` / `:spawn-all` and on `[:rf.machine/spawn …]` args |
 | `:rf/spawn-id` (reserved snapshot-internal `:data` key) | `:rf/invoke-id` | declarative invocation path | the absolute prefix-path of the `:spawn`-bearing state node, stamped on a spawned actor's `:data`; also the `[:rf.machine/spawn …]` / `[:rf.machine/destroy …]` / `[:rf.machine/after-* …]` runtime-stamped arg |
 | `:spawn-id` (public trace tag) | `:invoke-id` | declarative invocation path | on `:rf.machine.spawn/spawned`, `:rf.machine.lifecycle/spawned`, every `:rf.machine.spawn-all/*`, `:rf.machine.spawn/cancelled-on-join-resolution`, and `:rf.machine/destroyed` |
-| `:machine-id` (live-actor lifecycle trace tag) | `:actor-id` | live actor INSTANCE address | on `:rf.machine/transition`, `:rf.machine/snapshot-updated`, `:rf.machine/done`, `:rf.machine/system-id-bound` / `-released`, every `:rf.machine.timer/*`, `:rf.machine.lifecycle/destroyed`, the spawn-all rows, **and (rf2-yyvtk5) every other live-runtime trace/error**: `:rf.machine/guard-evaluated`, `:rf.machine/action-ran`, `:rf.machine.microstep/transition`, `:rf.machine.event/unhandled-no-op`, `:rf.machine.history/restored` / `-recorded`, `:rf.error/machine-action-exception`, `:rf.error/machine-action-wrote-db`, `:rf.error/machine-raise-depth-exceeded`, `:rf.error/machine-always-depth-exceeded`, `:rf.error/machine-after-watch-failed`, `:rf.warning/no-clock-configured` |
+| `:machine-id` (live-actor lifecycle trace tag) | `:actor-id` | live actor INSTANCE address | on `:rf.machine/transition`, `:rf.machine/snapshot-updated`, `:rf.machine/done`, every `:rf.machine.timer/*`, `:rf.machine.lifecycle/destroyed`, the spawn-all rows, **and (rf2-yyvtk5) every other live-runtime trace/error**: `:rf.machine/guard-evaluated`, `:rf.machine/action-ran`, `:rf.machine.microstep/transition`, `:rf.machine.event/unhandled-no-op`, `:rf.machine.history/restored` / `-recorded`, `:rf.error/machine-action-exception`, `:rf.error/machine-action-wrote-db`, `:rf.error/machine-raise-depth-exceeded`, `:rf.error/machine-always-depth-exceeded`, `:rf.error/machine-after-watch-failed`, `:rf.warning/no-clock-configured` |
 | `:sub-id` (machine `:after` dynamic-delay subscription trace tag) | `:rf.sub/id` (+ `:rf.sub/query-v`) | subscription identity | on `:rf.machine.timer/scheduled` / `-cancelled` / `-skipped-on-server` and the `:rf.error/machine-after-sub-threw` / `-after-watch-failed` errors (rf2-1b6uh5 — the canonical framework-wide subscription-trace spelling, not the bare `:sub-id`) |
 
 **`:machine-id` is RESERVED for the registered machine TYPE / singleton-registration id** — it stays unchanged wherever it genuinely names the type: the `:spawn` / `:spawn-all` InvokeSpec `:machine-id` (which registered machine to instantiate), the `:rf.machine.lifecycle/created` trace, the `:rf.machine.spawn/spawned` / `:rf.machine.lifecycle/spawned` `:machine-id` tag (the spec-time type), the **registration-time** `:rf.error/machine-*` validation diagnostics (unresolved-guard / unresolved-action / bad-*-form / grammar-not-in-v1 / state-not-in-definition / snapshot-version-mismatch / *-self-loop / compound-state-missing-initial / spawn-all-* / history-* — they name the registered TYPE being validated), and the `:rf.machine/started` BIRTH signal + `:rf.machine/event-received` (which address the type / singleton-registration id). Per rf2-yyvtk5 the **live-runtime** guard/action/microstep/no-op/history/error rows now address the running INSTANCE under `:actor-id` (see the table row above) — only the registration / type-naming rows keep `:machine-id`.
@@ -3092,35 +3092,6 @@ Per **M-8** (effect-map keys consolidated), the move from `:dispatch-n` to `:fx`
 This entry is preserved as a pointer for users searching for `:dispatch-n` migration; the actual rewrite is performed by the M-8 sweep, not separately by O-7.
 
 ---
-
-### O-9. Adopt `:system-id` named-machine addressing (Spec 005)
-
-re-frame v1 had no machine substrate, so v1 codebases threading actor ids through their own `:data` slots is the v2-equivalent baseline. Per [Spec 005 §Named addressing via `:system-id`](../../spec/005-StateMachines.md#named-addressing-via-system-id), a spawn whose args carry `:system-id` binds a name in the per-frame runtime-db `[:rf.runtime/machines :system-ids]` reverse index, lookable up via `(rf.machines/machine-by-system-id sid)` — a `re-frame.machines` helper, not a facade export, so it needs the [M-28](#m-28-state-machines-spec-005-ship-in-a-separate-artefact--day8re-frame2-machines) require and its `rf.machines` alias. Adoption is purely **opt-in**:
-
-- `:system-id` is an additive key on `[:rf.machine/spawn ...]` and on `:spawn` slots; existing spawns / invokes continue to work unchanged.
-- `[:rf.runtime/machines :system-ids]` is a runtime-managed reserved runtime-db slot (allocated lazily); user code that doesn't bind any `:system-id`s never sees the slot appear.
-- The lookup helper `(rf.machines/machine-by-system-id sid)` is published through the late-bind hook table (`:machines/machine-by-system-id`), so the surface is silent on builds that don't ship `day8/re-frame2-machines`.
-- **The action-side counterpart is an effect, not a function.** Sending to a named actor is the reserved fx tuple `[:rf.machine/dispatch-to-system [<system-id> <event-vector>]]`, registered by `re-frame.machines` at load; there is **no** `dispatch-to-system` var on any namespace, so don't reach for a `(dispatch-to-system sid event)` call under any prefix. Actions can't read app-db, which is why the fx form is how an action messages a named actor.
-
-If a codebase has any pattern of "spawn an actor and thread its id through a sibling's `:data` so the sibling can dispatch back," consider replacing the threading with a `:system-id` binding plus `(rf.machines/machine-by-system-id ...)` at the call site. The change is mechanical:
-
-```clojure
-;; before
-:action (fn [_ctx]
-          {:fx [[:rf.machine/spawn {:machine-id :notifier
-                                    :system-id  :notifier}]]})
-:action (fn [{:keys [data]}]
-          {:fx [[:dispatch [(:notifier-id data) [:notify "..."]]]]})
-
-;; after
-:action (fn [_ctx]
-          {:fx [[:rf.machine/spawn {:machine-id :notifier
-                                    :system-id  :notifier}]]})
-:action (fn [_ctx]
-          {:fx [[:rf.machine/dispatch-to-system [:notifier [:notify "..."]]]]})
-```
-
-Apply only when the threading-via-`:data` pattern shows up in code review or when adding new spawn sites — there's no migration pressure on existing call sites that already work.
 
 ### O-8. Adopt the standard routing surface (Spec 012)
 

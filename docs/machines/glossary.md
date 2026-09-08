@@ -297,10 +297,11 @@ A state-node key that starts several children and joins on their completion.
 
 See [Fan-out and join](actors.md#fan-out-and-join-with-spawn-all).
 
-### **system-id**
+### **fixed-actor-id**
 
-A stable role name bound to a spawned actor. Use it to message a child without
-threading its generated id.
+An explicit actor address the spawner chooses instead of an allocated
+`<prefix>#<n>` id. The address IS the id — dispatch to it like any other
+handler.
 
 See [Actors](actors.md).
 

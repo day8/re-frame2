@@ -513,7 +513,6 @@ labels; the underlying paths now live under the runtime-db partition's
 | Section label | Underlying path (runtime-db partition) | Owner | One-line role |
 |---|---|---|---|
 | `:rf/machines` | `[:rf.runtime/machines :snapshots]` | machine runtime | Per-frame map of `<machine-id> → :rf/machine-snapshot` — every active machine's snapshot. |
-| `:rf/system-ids` | `[:rf.runtime/machines :system-ids]` | machine runtime | Reverse index `<system-id> → <gensym'd-machine-id>` for `:system-id` named-machine addressing. |
 | `:rf/spawned` | `[:rf.runtime/machines :spawned]` | machine runtime | Declarative-`:spawn` / `:spawn-all` spawn registry — `<parent-id> → {<invoke-id> <slot>}` for the destroy-cascade walker. |
 | `:rf/route` | `[:rf.runtime/routing :current]` | routing runtime | The current route slice `{:route-id :params :query :transition :error}`. |
 | `:rf/pending-navigation` | `[:rf.runtime/routing :pending-navigation]` | routing runtime | Pending-navigation slot populated when a `:can-leave` guard rejects; cleared by `:rf.route/continue` / `:rf.route/cancel`. |
@@ -538,7 +537,7 @@ section are updated in lockstep.
 ┌─ [runtime] ───────────────────────────────────────┐
 │  :rf/machines            (3 active)               │
 │  :rf/route               :app/cart                │
-│  :rf/system-ids          (1 bound)                │
+│  :rf/spawned             (1 live)                 │
 └────────────────────────────────────────────────────┘
 ```
 

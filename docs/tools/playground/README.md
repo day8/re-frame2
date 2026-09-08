@@ -17,8 +17,8 @@ late-bind hook installs at bundle init and registers the
 `:rf.machine/spawn` / `:rf.machine/destroy` (and others) reserved fxs from
 its top-level forms. Those hook installs are what make the machine
 helpers live — `reg-machine*` / `make-machine-handler` /
-`machine-transition` / `machines` /
-`machine-by-system-id`. They sit on `re-frame.machines`, NOT on the
+`machine-transition` / `machines`. They sit on
+`re-frame.machines`, NOT on the
 `re-frame.core` façade: the front-porch shrink (rf2-wad2fl) left the
 façade's machine surface as the `reg-machine` / `defmachine` macros
 alone, and `reg-machine` is a JVM-only macro (per-element source-coord

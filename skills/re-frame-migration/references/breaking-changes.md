@@ -172,7 +172,6 @@ The author **must** ask for these. They are never auto-applied as part of a rout
 | Future-proof code that introspected Reagent-reaction subscription return types | **O-6** | Drop type checks; use `(rf/subscribe-once [...])` if you need the value outside a reactive context. |
 | `:dispatch-n` to `:fx` | O-7 | Absorbed into M-8 (no longer opt-in). |
 | Adopt the Spec 012 routing surface | **O-8** | If you have a third-party router (reitit/secretary/bidi), this is the move-to-`reg-route` rewrite. Pairs with M-14. |
-| Adopt `:system-id` named-machine addressing | **O-9** | Spec 005 addressing. Useful for multi-instance machines. |
 | Orient against Spec 000's `C-000.NN` contract clauses (implementor-facing) | O-10 | No user-code rewrite. |
 | Switch generated-machine-spec callers from `reg-machine` to `reg-machine*` | O-11 | Source-coord stamping. Codegen pipelines only. |
 | Introspect static sub-graph via `(rf/sub-topology)` | O-12 | Replaces ad-hoc walks of private sub state. |

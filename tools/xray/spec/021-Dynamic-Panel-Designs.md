@@ -964,7 +964,7 @@ by a 1px hairline. Section order, top → bottom:
 - **SPAWNED `<id>`** — `:rf/spawned` fans out the same way, one section per spawned instance.
 - **ROUTE** — `:rf/route` is a **single section** (singleton — the current-route slice; NOT
   fanned out).
-- **Other reserved singletons** — `SYSTEM-IDS` (`:rf/system-ids`), `PENDING-NAVIGATION`
+- **Other reserved singletons** — `PENDING-NAVIGATION`
   (`:rf/pending-navigation`), `ELISION` (`:rf/elision`) — one section each.
 
 Every reserved area renders **even when absent/empty** (empty-state placeholder) so the

@@ -140,7 +140,6 @@ Supply `:machine-id` or `:definition`, not both.
 | `:definition` | inline machine definition instead of a registered id |
 | `:data` | child's initial data — a map, or `(fn [{:keys [snapshot event]}] …)` evaluated on entry against the **post-action** snapshot |
 | `:id-prefix` | base for the allocated id (`:websocket/socket#0`); defaults to `:machine-id`. Ids are counters, never `gensym` |
-| `:system-id` | stable role name for lookup and messaging |
 | `:start` | first event sent to the newborn |
 | `:on-done` | data-fold when the child reaches a successful final state |
 | `:on-error` | transition when the child reaches an error final state or fails |
@@ -192,34 +191,32 @@ There is one messaging primitive: `dispatch` to the actor id.
 {:fx [[:dispatch [child-id [:worker/cancel]]]]}
 ```
 
-A parent gets the id from `:rf/spawned` or from a `:system-id`.
-A child gets the parent from `:rf/parent-id`. There is no separate *send* verb.
+A parent gets the id from `:rf/spawned`, or — when it chose the address —
+from its own `:data`. A child gets the parent from `:rf/parent-id`. There is no
+separate *send* verb.
 
-### `:system-id`
+### `:fixed-actor-id`
 
-Bind the actor to a role name when you want to address the role, not a generated
-instance id.
-
-```clojure
-:spawn {:machine-id :request/protocol
-        :system-id  :primary-request
-        :data       {:url "/api/user"}}
-```
-
-From an action (which cannot read app-db):
+Give the actor a well-known address when you want a stable name rather than an
+allocated instance id. The address IS the id: nothing else has to be bound, and
+nothing else has to be looked up.
 
 ```clojure
-{:fx [[:rf.machine/dispatch-to-system
-       [:primary-request [:request/cancel]]]]}
+:spawn {:machine-id     :request/protocol
+        :fixed-actor-id :primary-request
+        :data           {:url "/api/user"}}
 ```
 
-That fx is a no-op if the name is unbound. Outside an action, resolve the id
-and dispatch to it:
+From an action (which cannot read app-db) — the same `:dispatch` as anywhere
+else:
 
 ```clojure
-(when-let [actor (re-frame.machines/machine-by-system-id :primary-request)]
-  (rf/dispatch [actor [:request/cancel]]))
+{:fx [[:dispatch [:primary-request [:request/cancel]]]]}
 ```
+
+A re-entered `:fixed-actor-id` child is a NEW INCARNATION at the SAME address.
+An ordinary dispatch to that address reaches whichever incarnation currently
+owns it; the join and lifecycle machinery tells incarnations apart internally.
 
 ## Recording the spawned id
 
@@ -238,9 +235,9 @@ new id into the **parent's** `:data` under `:rf/spawned`, keyed by the
 The slot clears itself when the actor is destroyed. A later read returns `nil`,
 not a dead id.
 
-Use `:system-id` instead when you only need role-based messaging. The same id
-is also at `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` for reads
-*outside* a machine action.
+Use `:fixed-actor-id` instead when you want to choose the address yourself.
+The allocated id is also at `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]`
+for reads *outside* a machine action.
 
 ## When a child finishes
 
@@ -298,10 +295,10 @@ vector:
 
 ```clojure
 {:fx [[:rf.machine/spawn
-       {:machine-id :logger
-        :system-id  :logger
-        :data       {:buffer []}
-        :start      [:logger/connect]}]]}
+       {:machine-id     :logger
+        :fixed-actor-id :logger
+        :data           {:buffer []}
+        :start          [:logger/connect]}]]}
 
 {:fx [[:rf.machine/destroy actor-id]]}
 ```
@@ -468,7 +465,7 @@ N separate `:spawn`s, not a non-cancelling join.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Parent `:data` never gets the child id | the spawn was hand-emitted from an action's `:fx`, so it carries no declarative invoke-id to key `:rf/spawned` under | Give it a `:system-id` and resolve by name, or use a declarative `:spawn` |
+| Parent `:data` never gets the child id | the spawn was hand-emitted from an action's `:fx`, so it carries no declarative invoke-id to key `:rf/spawned` under | Choose an explicit `:fixed-actor-id`, store it in `:data`, or use a declarative `:spawn` |
 | No snapshot, no id; `:rf.error/machine-spawn-unregistered-type` | `:machine-id` is not registered and there is no `:definition` | Register the child type first |
 | Registration throws `:rf.error/spawn-timeout-ms-removed` | `:timeout-ms` on `:spawn` / `:spawn-all` | Use `:timeout` / `:on-timeout`, or `:after` on the parent state |
 | Registration throws `:rf.error/machine-spawn-all-bad-shape` on `:join` | `:join` was `{:n n}`, a predicate, or another non-enum | `:join` is only `:all` or `:any`. Quorum is `:after` / `:always` + `:done-guard` |

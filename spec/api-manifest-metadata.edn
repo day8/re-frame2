@@ -1079,10 +1079,11 @@
   ["re-frame.core" "dispatch-sync"]       {:tier :front-porch :owner "002" :status "v1 (preserved + extended)"
                                           :action :keep
                                           :justification "Front-porch: the synchronous sibling of dispatch, needed on the boot path and in every event test. It has to sit beside dispatch to be findable."}
-  ;; rf2-gkt25a / rf2-80mmlf / rf2-c6xkmn: the `dispatch-to-system` FN was
-  ;; DEMOTED off the `re-frame.core` facade, then DELETED entirely (rf2-c6xkmn:
-  ;; pre-alpha, zero in-repo consumers). The one named-addressing surface is
-  ;; the reserved `[:rf.machine/dispatch-to-system [system-id event]]` fx tuple.
+  ;; rf2-gkt25a / rf2-80mmlf / rf2-c6xkmn / rf2-kuky.70: the `dispatch-to-system`
+  ;; FN was DEMOTED off the `re-frame.core` facade, then DELETED (rf2-c6xkmn),
+  ;; and the `:rf.machine/dispatch-to-system` fx twin followed it under
+  ;; rf2-kuky.70 (option A on rf2-kuky.15). Both twins are gone; the address is
+  ;; the id, and `:fixed-actor-id` is the one stable-name mechanism.
   ["re-frame.core" "subscribe"]           {:tier :front-porch :owner "002" :status "v1 (preserved + extended)"
                                           :action :keep
                                           :justification "Front-porch: the read half of the app-authoring triple. Day-one vocabulary."}
@@ -1268,7 +1269,7 @@
                                            :action :keep
                                            :justification "The pure two-generation comparator that replaced the retired reload-images! verb's report-returning role (rf2-lxwpob); a caller reads frame-generation before and after a reload and diffs the two, so it belongs beside frame-generation on the same door."}
   ;; rf2-wad2fl: the machine QUERY / handler-build / pure-engine helpers
-  ;; (`machines`, `machine-meta`, `machine-by-system-id`, `machine-transition`,
+  ;; (`machines`, `machine-meta`, `machine-transition`,
   ;; `make-machine-handler`) are no longer façade exports — reach them through
   ;; `re-frame.machines` (already classified below). The `machine-has-tag?` /
   ;; `sub-machine` subscription-sugar fns were REMOVED (rf2-il99l3, reversing
@@ -1616,7 +1617,9 @@
   ;; `lifecycle-fx.resolver/spec-from-registry`; a single machine's spec is now
   ;; read through the generic registrar query plus the documented `:rf/machine`
   ;; inner-key projection, so no per-kind alias row is carried here.
-  ["re-frame.machines" "machine-by-system-id"]  {:tier :advanced :owner "005" :status "v1"}
+  ;; rf2-kuky.70: `machine-by-system-id` is RETIRED with the rest of the
+  ;; `:system-id` family (rf2-kuky.15 ruled A). The address IS the id, so
+  ;; there is no reverse index to look a name up in and no row to carry.
   ["re-frame.machines" "machine-transition"]    {:tier :advanced :owner "005" :status "v1"}
   ["re-frame.machines" "make-machine-handler"]  {:tier :advanced :owner "005" :status "v1"}
   ["re-frame.machines" "reg-machine*"]          {:tier :advanced :owner "005" :status "v1"}
@@ -1625,15 +1628,12 @@
   ["re-frame.machines" "destroy-machine-fx"]    {:tier :implementation :owner "005" :status "v1"}
   ["re-frame.machines" "after-schedule-fx"]     {:tier :implementation :owner "005" :status "v1"}
   ["re-frame.machines" "after-cancel-fx"]       {:tier :implementation :owner "005" :status "v1"}
-  ;; rf2-c6xkmn: the redundant `dispatch-to-system` call-site FN twin was
-  ;; DELETED (pre-alpha, zero in-repo consumers — a machine IS an event
-  ;; handler, so the everyday send is plain dispatch to the id you hold). The
-  ;; `:rf.machine/dispatch-to-system` fx (handler `dispatch-to-system-fx`) is
-  ;; PARKED IN PLACE as the single named-addressing escape and classified
-  ;; :advanced (parity): zero in-repo consumers, retained for XState v6
-  ;; actor-system parity (systemId addressing); the facade audit at API-freeze
-  ;; rules on its deletion with full information.
-  ["re-frame.machines" "dispatch-to-system-fx"] {:tier :advanced :owner "005" :status "v1"}
+  ;; rf2-c6xkmn / rf2-kuky.70: the redundant `dispatch-to-system` call-site FN
+  ;; twin was DELETED first; the `:rf.machine/dispatch-to-system` fx and its
+  ;; `dispatch-to-system-fx` handler followed under rf2-kuky.70, together with
+  ;; `machine-by-system-id` and the whole `:system-id` family. A machine IS an
+  ;; event handler, so the everyday send is plain dispatch to the id you hold,
+  ;; and `:fixed-actor-id` is the one stable-name mechanism.
   ["re-frame.machines" "validate-machine!"]     {:tier :implementation :owner "005" :status "v1"}
   ["re-frame.machines" "validate-machine-data!"] {:tier :implementation :owner "005" :status "v1"}
   ["re-frame.machines" "validate-spawn-data!"]  {:tier :implementation :owner "005" :status "v1"}

@@ -138,7 +138,7 @@ The capabilities below are partitioned by what every conformant implementation m
 | `re-frame-pair` runtime AI companion (Layer 2 of the AI surface) | encouraged | v1 deliverable | yes — host's REPL/inspector + protocol mapping | yes |
 | `re-frame-pair-improver` Claude skill (Layer 3 of the AI surface) | — | v1 deliverable | not host-specific | — |
 | **FSM-richness capability list** (per [§Hierarchical FSM substrate](#hierarchical-fsm-substrate-with-implementor-chosen-capabilities)) — implementor declares; conformance is graded against the claimed list | yes (declare a list) | flat-FSM + hierarchical compound + `:always` + `:after` + `:fsm/tags` + `:fsm/parallel-regions` + `:fsm/final-states` + `:fsm/history` | yes — host picks its claimed list from the matrix in [005 §Capability matrix](005-StateMachines.md#capability-matrix) | — |
-| **Actor-model capability list** (per [§Hierarchical FSM substrate](#hierarchical-fsm-substrate-with-implementor-chosen-capabilities)) — implementor declares; conformance is graded against the claimed list | yes (declare a list) | own-state + spawn/destroy + cross-actor `:fx` + declarative `:spawn` + spawn-and-join (`:spawn-all`) + `:system-id` | yes — host picks its claimed list | — |
+| **Actor-model capability list** (per [§Hierarchical FSM substrate](#hierarchical-fsm-substrate-with-implementor-chosen-capabilities)) — implementor declares; conformance is graded against the claimed list | yes (declare a list) | own-state + spawn/destroy + cross-actor `:fx` + declarative `:spawn` + spawn-and-join (`:spawn-all`) | yes — host picks its claimed list | — |
 | **Parallel regions** (FSM-richness) — `:type :parallel` with a `:regions` map; orthogonal axes of one feature sharing one `:data` blob | yes | yes (claimed as `:fsm/parallel-regions` per [005 §Capability matrix](005-StateMachines.md#capability-matrix)) | yes — host can claim or skip | — |
 | **History states** (FSM-richness) — `:type :history` pseudo-state under a compound's `:states`; shallow / deep / default-target; recorded in the revertible `:rf/history` snapshot slot | yes | yes (claimed as `:fsm/history` per [005 §Capability matrix](005-StateMachines.md#capability-matrix)) | yes — host can claim or skip | — |
 
@@ -352,7 +352,6 @@ The capability matrix and per-capability prose / schema / fixture coverage live 
 - Cross-actor send via `:fx` — ✓ specced.
 - **Declarative `:spawn`** (sugar over spawn) — runtime translates a state's `:spawn` into entry/exit actions that spawn / destroy a child actor. No new mechanics; pure sugar.
 - **Spawn-and-join via `:spawn-all`** — sugar over N parallel `:spawn`s with an `:all` / `:any` join condition; surviving siblings are unconditionally cancelled on join resolution. Per [005 §Spawn-and-join via `:spawn-all`](005-StateMachines.md#spawn-and-join-via-spawn-all).
-- **`:system-id` named-machine addressing** — per-frame reverse index from user-supplied `:system-id` to actor id; `(rf.machines/machine-by-system-id sid)` resolves. Per [005 §Named addressing via `:system-id`](005-StateMachines.md#named-addressing-via-system-id).
 
 **Actor-model — out of v1 scope (possibly never):**
 
