@@ -37,7 +37,11 @@
   "This application's frame. One root, one frame."
   ::frame)
 
-(defonce ^:private !root (atom nil))
+(defonce ^:private app-root
+  ;; `defonce`, because a reload re-evaluates this namespace and a plain
+  ;; `def` would replace the handle the reload exists to render through.
+  ;; Inert until the first render — no DOM work at allocation.
+  (rf.hicasso/client-root))
 
 (defn make-frame!
   "Make the application's frame, seeded.
@@ -49,21 +53,21 @@
   []
   (rf/make-frame {:id frame-id :initial-events [[::rf.hicasso.examples.typeahead.events/seed]]}))
 
-(defn ^:dev/after-load reload!
-  "Re-render the mounted root after a hot reload. React reconciles the new
-  tree against the one on the page, so the DOM, the subscriptions and
-  every scrap of component state survive it."
+(defn ^:dev/after-load mount!
+  "Render the application through its one client-root handle — the boot
+  path and the hot-reload hook, in one call. The FIRST call creates the
+  React root; every later one updates that same root, so the DOM, the
+  subscriptions and every scrap of component state survive a reload."
   []
-  (when-some [root @!root]
-    (rf.hicasso/render! root [rf.hicasso/frame-root {:id frame-id}
-                             [rf.hicasso.examples.typeahead.views/screen {}]])))
+  (rf.hicasso/render! app-root
+    [rf.hicasso/frame-root {:id frame-id}
+     [rf.hicasso.examples.typeahead.views/screen {}]]
+    (js/document.getElementById "app")))
 
 (defn ^:export -main
   "Start the application."
   []
   (rf/init! rf.adapter.uix/adapter)
   (make-frame!)
-  (reset! !root (rf.hicasso/mount! (js/document.getElementById "app") {}
-                          [rf.hicasso/frame-root {:id frame-id}
-                           [rf.hicasso.examples.typeahead.views/screen {}]]))
+  (mount!)
   nil)

@@ -1178,7 +1178,7 @@
     (fail! :rf.error/no-frame-context
            where
            (str "A Hicasso boundary rendered with no frame in scope. Mount the "
-                "tree under a frame boundary — `h/mount!` installs one.")
+                "tree under a frame boundary — `h/frame-root` installs one.")
            {})
     frame-kw))
 

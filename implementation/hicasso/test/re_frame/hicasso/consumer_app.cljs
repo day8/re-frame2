@@ -121,22 +121,26 @@
 ;; The mount, and the reload
 ;; ---------------------------------------------------------------------------
 
-(defonce ^:private !root
+(defonce ^:private app-root
   ;; `defonce`, because the reload re-evaluates this namespace and a plain
-  ;; `def` would replace the handle the reload exists to re-render.
-  (atom nil))
+  ;; `def` would replace the handle the reload exists to render through.
+  ;; Allocation is inert — no DOM work, no React call — which is what
+  ;; makes a load-time `defonce` the right home for it.
+  (rf.hicasso/client-root))
 
-(defn ^:dev/after-load reload!
-  "Re-render the mounted root after a hot reload — the whole hook, and
+(defn ^:dev/after-load mount!
+  "The boot render and the reload hook, in ONE call — the whole hook, and
   the shape to copy.
 
-  Nothing is torn down and nothing is remade: React reconciles the new
-  tree against the one on the page, so the DOM, the subscriptions and
-  every scrap of component state survive the reload and only the changed
-  view code is different."
+  The FIRST call through `app-root` creates the React root; every later
+  one updates that same root. So nothing is torn down and nothing is
+  remade: React reconciles the new tree against the one on the page, and
+  the DOM, the subscriptions and every scrap of component state survive
+  the reload with only the changed view code different."
   []
-  (when-some [root @!root]
-    (rf.hicasso/render! root [rf.hicasso/frame-root {:id frame-id} [app {}]])))
+  (rf.hicasso/render! app-root
+    [rf.hicasso/frame-root {:id frame-id} [app {}]]
+    (js/document.getElementById "app")))
 
 (defn ^:export -main
   "The `:hicasso-release` build's `:init-fn`, and the three lines that
@@ -151,13 +155,12 @@
   value is not `IWatchable`, and a moving subscription under it would
   notify nothing at all.
 
-  Then the frame, seeded; then the root, which is where a container, a
-  frame id and a hiccup tree meet. `h/mount!` returns a handle, and the
-  handle is what [[reload!]] re-renders — the one reason a mount-once
-  application keeps hold of it."
+  Then the frame, seeded; then [[mount!]], which is where a container, a
+  frame id and a hiccup tree meet. There is no root state to keep here:
+  the handle is a load-time `defonce` and the same call serves the boot
+  and every reload after it."
   []
   (rf/init! rf.adapter.uix/adapter)
   (rf/make-frame {:id frame-id :initial-events [[::seed]]})
-  (reset! !root (rf.hicasso/mount! (js/document.getElementById "app") {}
-                          [rf.hicasso/frame-root {:id frame-id} [app {}]]))
+  (mount!)
   nil)

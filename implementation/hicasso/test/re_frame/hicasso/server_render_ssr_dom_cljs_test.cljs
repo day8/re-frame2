@@ -603,10 +603,12 @@
             finishes       (atom 0)
             reports        (atom [])]
         (rf/make-frame {:id wire-frame :initial-events [[:rf/set-db snapshot]]})
-        (let [handle (rf.hicasso/hydrate! container
-                                 {:identifier-prefix "pfx-a-"}
+        (let [handle (rf.hicasso/client-root)
+              _      (rf.hicasso/render! handle
                                  [rf.hicasso/frame-provider {:frame wire-frame}
-                                  [id-page {}]])]
+                                  [id-page {}]]
+                                 container
+                                 {:hydrate? true :identifier-prefix "pfx-a-"})]
           (-> (rf.hicasso.roots-frames-support/adopted! handle)
               (.then (fn [shut?]
                        (is shut? "premise: the root really did adopt")
@@ -676,10 +678,12 @@
             ;; (`rf.ssr/hydrate!` in a real app), and the boundary in the
             ;; tree is what says so out loud.
             _              (rf/make-frame {:id wire-frame :initial-events [[:rf/set-db snapshot]]})
-            handle         (rf.hicasso/hydrate! container
-                                       {:identifier-prefix "pfx-a-"}
+            handle         (rf.hicasso/client-root)
+            _              (rf.hicasso/render! handle
                                        [rf.hicasso/frame-provider {:frame wire-frame}
-                                        [id-page {}]])]
+                                        [id-page {}]]
+                                       container
+                                       {:hydrate? true :identifier-prefix "pfx-a-"})]
         (-> (rf.hicasso.roots-frames-support/adopted! handle)
             (.then (fn [shut?]
                      (is shut? "the root's own adoption window shut")
@@ -690,11 +694,14 @@
                        (is (rf.hicasso.roots-frames-support/every-server-node? container ".page")))
                      (testing "and the framework reported no hydration mismatch"
                        (is (= [] ((:stop! watch)))))
-                     (testing "the handle is the one every other door takes"
-                       (is (some? (:root handle)))
-                       ;; And it names NO frame: the frame is the tree's, on
-                       ;; the `frame-provider` head this root adopts under.
-                       (is (nil? (:frame handle)))
+                     (testing "the handle is LIVE and opaque — it holds a Root
+                               and hands it back to nobody, and the frame is
+                               the tree's, on the `frame-provider` head this
+                               root adopts under"
+                       (is (some? @handle) "the handle holds no live root")
+                       (is (nil? (:root @handle))
+                           "the raw React Root must not be reachable through
+                            the handle")
                        (is (nil? (rf.hicasso/unmount! handle))))))
             ;; The unmount above is an ASSERTION about the door's answer,
             ;; not this row's teardown; the teardown is named again here
@@ -774,10 +781,12 @@
         ;; rendered from and the only thing left to disagree about is the
         ;; id.
         (rf/make-frame {:id wire-frame :initial-events [[:rf/set-db snapshot]]})
-        (let [handle (rf.hicasso/hydrate! container
-                                 {:identifier-prefix "pfx-a-"}
+        (let [handle (rf.hicasso/client-root)
+              _      (rf.hicasso/render! handle
                                  [rf.hicasso/frame-provider {:frame wire-frame}
-                                  [id-page {}]])]
+                                  [id-page {}]]
+                                 container
+                                 {:hydrate? true :identifier-prefix "pfx-a-"})]
           (-> (rf.hicasso.roots-frames-support/adopted! handle)
               (.then (fn [shut?]
                        (is shut? "the root's own adoption window shut")
@@ -832,10 +841,12 @@
             ;; React routes a hydration failure to `reportError`.
             capture   (rf.hicasso.roots-frames-support/open-console-capture! {:swallow-uncaught? true})]
         (rf/make-frame {:id wire-frame :initial-events [[:rf/set-db snapshot]]})
-        (let [handle (rf.hicasso/hydrate! container
-                                 {:identifier-prefix "pfx-a-"}
+        (let [handle (rf.hicasso/client-root)
+              _      (rf.hicasso/render! handle
                                  [rf.hicasso/frame-provider {:frame wire-frame}
-                                  [id-page {}]])]
+                                  [id-page {}]]
+                                 container
+                                 {:hydrate? true :identifier-prefix "pfx-a-"})]
           (-> (rf.hicasso.roots-frames-support/adopted! handle)
               (.then (fn [shut?]
                        ;; Closed HERE and not only in the settlement: the
@@ -956,10 +967,12 @@
                     is the egress projection working"
             (is (not (contains? db :secret)))))
 
-        (let [handle (rf.hicasso/hydrate! container
-                                 {:identifier-prefix "pfx-a-"}
+        (let [handle (rf.hicasso/client-root)
+              _      (rf.hicasso/render! handle
                                  [rf.hicasso/frame-provider {:frame wire-frame}
-                                  [id-page {}]])]
+                                  [id-page {}]]
+                                 container
+                                 {:hydrate? true :identifier-prefix "pfx-a-"})]
           (-> (rf.hicasso.roots-frames-support/adopted! handle)
               (.then (fn [shut?]
                        (is shut? "the root's own adoption window shut")

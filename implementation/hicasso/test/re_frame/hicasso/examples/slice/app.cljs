@@ -35,7 +35,7 @@
 
   For the reason any hot-reloadable application holds one: a plain `def`
   is re-evaluated by the reload, and the handle would be replaced by the
-  event it exists to survive. [[reload!]] re-renders the root React
+  event it exists to survive. [[mount!]] re-renders the root React
   already has, so the reloaded view code meets its own DOM; a second
   `h/mount!` would `createRoot` again and discard every node, subscription
   and scrap of component state."
@@ -52,7 +52,11 @@
   other's state."
   ::frame)
 
-(defonce ^:private !root (atom nil))
+(defonce ^:private app-root
+  ;; `defonce`, because a reload re-evaluates this namespace and a plain
+  ;; `def` would replace the handle the reload exists to render through.
+  ;; Inert until the first render — no DOM work at allocation.
+  (rf.hicasso/client-root))
 
 (defn make-frame!
   "Make the slice's frame, seeded and pointed at the feed.
@@ -67,22 +71,21 @@
                   :initial-events [[::rf.hicasso.examples.slice.events/seed]
                                    [:rf.route/navigate {:to rf.hicasso.examples.slice.routes/feed}]]}))
 
-(defn ^:dev/after-load reload!
-  "Re-render the mounted root after a hot reload. React reconciles the new
-  tree against the one on the page, so the DOM, the subscriptions and
-  every scrap of component state survive it and only the changed view
-  code is different."
+(defn ^:dev/after-load mount!
+  "Render the application through its one client-root handle — the boot
+  path and the hot-reload hook, in one call. The FIRST call creates the
+  React root; every later one updates that same root, so the DOM, the
+  subscriptions and every scrap of component state survive a reload."
   []
-  (when-some [root @!root]
-    (rf.hicasso/render! root [rf.hicasso/frame-root {:id frame-id}
-                             [rf.hicasso.examples.slice.views/app {}]])))
+  (rf.hicasso/render! app-root
+    [rf.hicasso/frame-root {:id frame-id}
+     [rf.hicasso.examples.slice.views/app {}]]
+    (js/document.getElementById "app")))
 
 (defn ^:export -main
   "Start the application."
   []
   (rf/init! rf.adapter.uix/adapter)
   (make-frame!)
-  (reset! !root (rf.hicasso/mount! (js/document.getElementById "app") {}
-                          [rf.hicasso/frame-root {:id frame-id}
-                           [rf.hicasso.examples.slice.views/app {}]]))
+  (mount!)
   nil)

@@ -25,21 +25,27 @@
   ([] (initial-events rf.hicasso.examples.ledger.events/default-total))
   ([total] [[::rf.hicasso.examples.ledger.events/seed {:total total}]]))
 
-(defonce ^:private !root (atom nil))
+(defonce ^:private app-root
+  ;; `defonce`, because a reload re-evaluates this namespace and a plain
+  ;; `def` would replace the handle the reload exists to render through.
+  ;; Inert until the first render — no DOM work at allocation.
+  (rf.hicasso/client-root))
 
-(defn ^:dev/after-load reload!
-  "Re-render the mounted root after a hot reload."
+(defn ^:dev/after-load mount!
+  "Render the application through its one client-root handle — the boot
+  path and the hot-reload hook, in one call. The FIRST call creates the
+  React root; every later one updates that same root, so the DOM, the
+  subscriptions and every scrap of component state survive a reload."
   []
-  (when-some [root @!root]
-    (rf.hicasso/render! root [rf.hicasso/frame-root {:id frame-id}
-                             [rf.hicasso.examples.ledger.views/ledger {}]])))
+  (rf.hicasso/render! app-root
+    [rf.hicasso/frame-root {:id frame-id}
+     [rf.hicasso.examples.ledger.views/ledger {}]]
+    (js/document.getElementById "app")))
 
 (defn ^:export -main
   "Mount the ten-thousand-row ledger on `#app`."
   []
   (rf/init! rf.adapter.uix/adapter)
   (rf/make-frame {:id frame-id :initial-events (initial-events)})
-  (reset! !root (rf.hicasso/mount! (js/document.getElementById "app") {}
-                          [rf.hicasso/frame-root {:id frame-id}
-                           [rf.hicasso.examples.ledger.views/ledger {}]]))
+  (mount!)
   nil)

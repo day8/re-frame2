@@ -382,7 +382,12 @@
    (js/Promise.
      (fn [resolve]
        (let [deadline (+ (js/Date.now) budget-ms)
-             window   (:adoption handle)]
+             ;; TWO handle shapes reach here, and both name the SAME window
+             ;; object. `impl.mount/hydrate-root!` answers the impl tier's
+             ;; handle map; `h/client-root` answers an opaque handle whose
+             ;; live-root map carries the window its first render minted.
+             ;; Neither is a second fact that could disagree with `tree`'s.
+             window   (:adoption (if (satisfies? IDeref handle) @handle handle))]
          (letfn [(tick []
                    (cond
                      (not (rf.hicasso.impl.roots/adopting? window))

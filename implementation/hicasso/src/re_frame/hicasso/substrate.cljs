@@ -76,6 +76,7 @@
   (:require ["react" :as react]
             [re-frame.adapter.context :as rf.adapter.context]
             [re-frame.frame :as rf.frame]
+            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
             [re-frame.substrate.spine :as rf.substrate.spine]
             [re-frame.views.frame-boundary :as rf.views.frame-boundary]))
 
@@ -111,7 +112,7 @@
 
   This is the LOWER-LEVEL contract slot rather than an authoring verb.
   Hicasso scopes a root's frame on the way in
-  (`re-frame.hicasso.impl.mount/provider`, from `h/mount!`), so a Hicasso
+  (`re-frame.hicasso.impl.mount/provider`, from `h/render!`), so a Hicasso
   application never writes this head; the slot exists because the contract has
   it, because core's own provider tier reaches for it, and because writing the
   same one context every React-shaped adapter reads is what lets a mixed
@@ -143,7 +144,8 @@
                '[re-frame.hicasso.substrate :as substrate])
 
       (rf/init! substrate/adapter)
-      (h/mount! [app] (js/document.getElementById \"app\"))
+      (h/render! app-root [h/frame-root {:id :app/main} [app]]
+                 (js/document.getElementById \"app\"))
 
   Installation is explicit and there is no default-adapter registry, so a
   Hicasso application that installs Reagent or UIx instead keeps working and
@@ -153,7 +155,34 @@
   wiring — the nine-key contract map, the five routed late-bind hooks, and the
   two chained installs (the warn-once clear and the SSR hiccup emitter). The
   frame-provider stays here because the spine carries no substrate's own
-  element machinery."
-  (rf.substrate.spine/make-react-adapter spine-fns
-                            {:kind           :rf.adapter/hicasso
-                             :frame-provider frame-provider}))
+  element machinery.
+
+  ## The client-root drain (rf2-kuky.59)
+
+  `dispose-adapter!` is the spine's with Hicasso's own root drain chained
+  in FRONT of it, so `rf/destroy-adapter!` releases every Root a
+  `h/client-root` handle still holds — Spec 006 §Adapter disposal
+  lifecycle MUST (2), and the reason `h/unmount!` can be idempotent
+  against the drain rather than in spite of it.
+
+  It is chained HERE rather than inside the spine because Hicasso's roots
+  are not the spine's: `h/render!` calls `createRoot` / `hydrateRoot`
+  through `re-frame.hicasso.impl.mount`, never through the substrate
+  contract's `render` slot, so the spine's own active-roots cell never
+  sees one. The wrap is applied to the map handed to `make-react-adapter`
+  and NOT to `spine-fns` itself, which stays exactly what the spine
+  produced for the shared conformance suite to assert about.
+
+  The spine's half runs in a `finally`, so a root whose host unmount
+  throws cannot leave the spine's sub-caches and emitter cell seated —
+  the teardown reaches its terminal state and the failure still
+  propagates, which is `dispose-active-roots-and-caches!`'s own rule one
+  level down."
+  (rf.substrate.spine/make-react-adapter
+    (update spine-fns :dispose-adapter!
+            (fn chain-root-drain [spine-dispose!]
+              (fn dispose-adapter! []
+                (try (rf.hicasso.impl.mount/drain-active-roots!)
+                     (finally (spine-dispose!))))))
+    {:kind           :rf.adapter/hicasso
+     :frame-provider frame-provider}))

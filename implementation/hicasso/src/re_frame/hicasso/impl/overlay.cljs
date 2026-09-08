@@ -454,7 +454,7 @@
              (str "This overlay carries :on-dismiss " (pr-str on-dismiss)
                   " but no frame is in scope, so the platform would be told "
                   "it may dismiss while nothing could route the dismissal. "
-                  "Mount the overlay under a frame — h/mount!, "
+                  "Mount the overlay under a frame — h/frame-root, "
                   "rf/frame-provider or frame-root — or drop :on-dismiss if "
                   "it should not be dismissable.")
              {:intent on-dismiss}))

@@ -1816,7 +1816,7 @@
 
   `frame-kw` is nil for a root whose TREE names its own frame, which is
   what `h/frame-root` and `h/frame-provider` are for and what a
-  `h/mount!` root does today: the boundary head binds `*frame*` for its
+  `h/render!` root does today: the boundary head binds `*frame*` for its
   own children (`lower-children-under`), so the root walk above it names
   nothing. A non-nil `frame-kw` is the impl tier's own witness-driving
   shape (`impl.mount/root!`), where the frame is the root handle's.
@@ -1921,7 +1921,7 @@
   The element is built by `vec->element` from `[head props]`, so the
   view keeps its memo wrapper, its reads, its teardown and its refusals;
   the frame is the surrounding React context's — the one
-  `re-frame.adapter.context/frame-context` that `h/mount!`,
+  `re-frame.adapter.context/frame-context` that `h/render!`,
   `rf/frame-provider` and `rf/frame-root` all write — so what is
   required is a frame from any React-shaped adapter, not a Hicasso root,
   and outside every frame the shell refuses with

@@ -272,7 +272,7 @@
                   " at :on-error, but no frame is in scope, so nothing could "
                   "dispatch it when the boundary caught — the region would "
                   "show its fallback and report nowhere. Mount the boundary "
-                  "under a frame — h/mount!, rf/frame-provider or frame-root "
+                  "under a frame — h/frame-root, h/frame-provider or rf/frame-provider "
                   "— or hand :on-error a FUNCTION, which is called with the "
                   "error and needs no frame.")
              {:position :on-error :intent on-error})))
