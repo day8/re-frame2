@@ -79,6 +79,11 @@
             [re-frame.elision :as rf.elision]
             [re-frame.epoch :as rf.epoch]
             [re-frame.frame :as rf.frame]
+            ;; rf2-kuky.92 §8 — the one-door arms bind the
+            ;; `:epoch/project-record` hook (guard G1) and read the core's own
+            ;; hook inventory (guard G2).
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.late-bind.directory :as rf.late-bind.directory]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
@@ -868,3 +873,266 @@
       (is (every? #(not (contains? % :trace-events)) (subvec bulk 0 (- n 5)))
           "older records dropped `:trace-events` — the retention bound holds
            through the egress projection too"))))
+
+;; ============================================================================
+;;  8. ONE DOOR — `:kind :rf/epoch-record` behind `rf/project-egress`
+;;     (rf2-kuky.92, stage 3a)
+;;
+;; Before the stamp there were TWO record doors dispatching on DIFFERENT
+;; discriminators: `rf/project-egress` on `:kind`, and `rf/projected-record`
+;; on an epoch record's SLOT SET. Handing an epoch record to the public door
+;; was therefore UNSAFE and nothing but the reader's knowledge prevented it —
+;; the door saw a kindless map, walked it whole from `:path []`, and a frame's
+;; `[:auth :password]` declaration could not match
+;; `[:db-after :auth :password]`, so the app-db slots shipped RAW.
+;;
+;; These arms pin the epoch artefact's half of the repair. The door's own
+;; half — kind recognition, frame resolution, guard G1's throw — is pinned in
+;; `re-frame.projection-cljs-test`. `rf/projected-record` still works and is
+;; unchanged; it retires under rf2-bv1p.
+;; ============================================================================
+
+(defn- with-epoch-project-record-hook
+  "Run `f` with the `:epoch/project-record` late-bind hook bound to `v`
+  (`nil` simulating an artefact-less runtime), restoring the previous value
+  afterwards even when `f` throws. Same mechanism as
+  `re-frame.epoch-late-bind-missing-cljs-test`'s `with-hook-as-nil`."
+  [v f]
+  (let [original (rf.late-bind/get-fn :epoch/project-record)]
+    (try
+      (rf.late-bind/set-fn! :epoch/project-record v)
+      (f)
+      (finally (rf.late-bind/set-fn! :epoch/project-record original)))))
+
+(defn- login-record!
+  "Make the classified frame, run one login cascade writing the secret at the
+  classified path and the control value at an unclassified sibling, and
+  return the RAW ring record."
+  []
+  (fresh-frame!)
+  (reg-login!)
+  (rf/dispatch-sync [:egress/login secret] {:frame frame-id})
+  (last-record))
+
+(deftest assembled-record-carries-the-kind-stamp
+  (testing "every assembled record carries the FIXED `:kind :rf/epoch-record`
+            discriminator (Spec-Schemas §`:rf/epoch-record`). It is a STAMP,
+            not a storage change — the raw ring record still carries the
+            unredacted value the replay path reads."
+    (let [raw (login-record!)]
+      (is (= :rf/epoch-record (:kind raw))
+          "the raw ring record is stamped")
+      (is (= secret (get-in raw [:db-after :auth :password]))
+          "CONTROL — storage is otherwise unchanged: the raw record still
+           carries the unredacted value, so the stamp cannot have been
+           mistaken for a projection")
+      (is (= :rf/epoch-record (:kind (rf.epoch/projected-record raw)))
+          "and the stamp survives projection as bookkeeping, so a consumer
+           can branch on the kind of a record it received off-box"))))
+
+(deftest project-egress-on-a-stamped-record-matches-the-epoch-door
+  (testing "the public door and the epoch door produce the SAME projection
+            for the same policy — one engine, reached two ways, so the pair
+            cannot drift while they coexist"
+    (let [raw  (login-record!)
+          opts {:rf.egress/profile :rf.egress/off-box-tool}]
+      (is (= (rf.epoch/projected-record raw opts)
+             (rf/project-egress raw opts))
+          "identical projections")
+      (let [proj (rf/project-egress raw opts)]
+        (is (= :rf/redacted (get-in proj [:db-after :auth :password]))
+            "and the door's projection redacts the classified leaf")
+        (is (= benign (get-in proj [:db-after :audit :note]))
+            "NEGATIVE CONTROL — the unclassified sibling rides RAW, so the
+             assertion above is not blanket redaction")
+        (is (not (contains-secret? proj))
+            "no secret bytes anywhere in the door's projected record")))))
+
+(deftest an-unstamped-record-through-the-door-is-the-leak-the-stamp-closes
+  (testing "THE VECTOR, pinned as a contrast: strip the `:kind` stamp and the
+            SAME record goes down the door's kindless VALUE path, where the
+            walk starts at `:path []`. The frame's `[:auth :password]`
+            declaration cannot match `[:db-after :auth :password]`, so the
+            declared-sensitive value ships RAW. This is what the stamp — and
+            guard G1 — exist to prevent."
+    (let [raw    (login-record!)
+          leaked (rf/project-egress (dissoc raw :kind)
+                                    {:rf.egress/profile :rf.egress/off-box-tool})]
+      (is (= secret (get-in leaked [:db-after :auth :password]))
+          "an UNSTAMPED epoch-shaped map leaks the classified value through
+           the public door")
+      (is (contains-secret? leaked)
+          "and the whole-record scan finds it, which is the wire a forwarder
+           would ship"))))
+
+;; ---- change 4: the explicit-frame override on a record ---------------------
+
+(deftest explicit-frame-override-beats-the-records-own-frame
+  (testing "an explicit `:frame` opt is the caller's deliberate
+            reclassification and WINS over the record's own `:frame` slot.
+            Projected under a frame that classifies nothing, the value the
+            record's own frame would have redacted rides RAW — which is what
+            proves the override actually reached the walk rather than being
+            dropped."
+    (let [raw (login-record!)]
+      (rf/make-frame {:id control-frame-id})
+      (is (= :rf/redacted
+             (get-in (rf/project-egress raw {:rf.egress/profile :rf.egress/off-box-tool})
+                     [:db-after :auth :password]))
+          "CONTROL — under the record's OWN frame the leaf redacts")
+      (is (= secret
+             (get-in (rf/project-egress raw {:rf.egress/profile :rf.egress/off-box-tool
+                                             :frame             control-frame-id})
+                     [:db-after :auth :password]))
+          "under the explicitly named frame — which declares nothing — the
+           same leaf rides raw, so the override governed the walk"))))
+
+(deftest explicit-nil-frame-on-a-record-fails-closed
+  (testing "an explicit `:frame nil` is PRESENT, not absent — the deliberate
+            statement that no frame governs — so it beats the record's own
+            slot and the projection FAILS CLOSED rather than borrowing it"
+    (let [raw  (login-record!)
+          proj (rf/project-egress raw {:rf.egress/profile :rf.egress/off-box-tool
+                                       :frame             nil})]
+      (is (= :rf/redacted (:db-after proj))
+          "with no frame from any of the three steps the whole payload slot
+           redacts to the sentinel — no `:rf/default` is synthesised")
+      (is (not (contains-secret? proj))
+          "and nothing of the secret survives anywhere in the record"))))
+
+;; ---- change 3: the policy axes stay independent ----------------------------
+
+(deftest shared-axes-lift-through-the-door-but-epoch-only-axes-do-not
+  (testing "pair-MCP's boundary is `off-box-tool` PLUS an explicit sensitive
+            override, and that combination must keep meaning what it means:
+            the two SHARED app-db axes lift, while the three epoch-only axes
+            — different keyspaces, not app-db values — stay fail-closed. It
+            is deliberately NOT `:rf.egress/local-raw`."
+    (let [raw  (login-record!)
+          proj (rf/project-egress raw {:rf.egress/profile          :rf.egress/off-box-tool
+                                       :rf.size/include-sensitive? true})]
+      (is (= secret (get-in proj [:db-after :auth :password]))
+          "the shared app-db sensitive axis lifts through the door")
+      (is (= [:egress/login :rf/redacted] (:trigger-event proj))
+          "but the event-args axis does NOT lift — trigger args stay redacted
+           behind their own `:include-event-args?` opt-in")
+      (is (= :rf/redacted (get-in proj [:frame-state-after :rf.db/runtime]))
+          "and the runtime-db partition stays redacted behind its own
+           `:include-runtime-db?` opt-in")
+      (is (every? #(= :rf/redacted (:args %))
+                  (filter #(contains? % :args) (:effects proj)))
+          "and every effect row's `:args` stays redacted behind
+           `:include-fx-args?`"))))
+
+(deftest an-epoch-only-axis-is-refused-at-the-door-not-silently-forwarded
+  (testing "the door's opts vocabulary is CLOSED and does not carry the
+            epoch-only axes, so passing one is a LOUD
+            `:rf.error/bad-egress-opts` naming the key. The failure mode this
+            forecloses is the opposite one: an epoch-only key forwarded into
+            the equally-closed walker map would throw THERE instead, on a
+            path that used to work."
+    (let [raw    (login-record!)
+          thrown (try (rf/project-egress raw {:rf.egress/profile :rf.egress/off-box-tool
+                                              :include-fx-args?  true})
+                      nil
+                      (catch #?(:clj clojure.lang.ExceptionInfo
+                                :cljs ExceptionInfo) e e))
+          data   (ex-data thrown)]
+      (is (some? thrown) "it throws")
+      (is (= :rf.error/bad-egress-opts (:rf.error/id data)))
+      (is (= 'rf/project-egress (:where data))
+          ":where names the DOOR — the key never reached the walker")
+      (is (contains? (set (:unknown-keys data)) :include-fx-args?)
+          "and the offending key is named")
+      (is (some? (rf.epoch/projected-record raw {:include-fx-args? true}))
+          "CONTROL — the axis is not gone: `rf/projected-record` still owns
+           the three epoch-only knobs and accepts this one"))))
+
+(deftest local-raw-profile-floor-is-honoured-not-overridden-to-false
+  (testing "the profile is the FLOOR and only the keys the caller ACTUALLY
+            supplied overlay it. The previous form forced the two shared axes
+            present-and-false on every call, which was invisible under the
+            five fail-closed profiles — whose floor is false anyway — and
+            silently defeated `:rf.egress/local-raw`, the ONE profile whose
+            floor opts sensitive and large back IN."
+    (let [raw (login-record!)]
+      (is (= :rf/redacted
+             (get-in (rf.epoch/projected-record
+                       raw {:rf.egress/profile :rf.egress/off-box-observability})
+                     [:db-after :auth :password]))
+          "CONTROL — a fail-closed profile still redacts, so the assertion
+           below cannot pass by the walker having stopped classifying")
+      (is (= secret
+             (get-in (rf.epoch/projected-record
+                       raw {:rf.egress/profile :rf.egress/local-raw})
+                     [:db-after :auth :password]))
+          "`local-raw`'s own floor opts sensitive back in with NO explicit
+           override from the caller")
+      (is (= secret
+             (get-in (rf/project-egress
+                       raw {:rf.egress/profile :rf.egress/local-raw})
+                     [:db-after :auth :password]))
+          "and the same holds through the public door")
+      (is (= :rf/redacted
+             (get-in (rf.epoch/projected-record
+                       raw {:rf.egress/profile          :rf.egress/local-raw
+                            :rf.size/include-sensitive? false})
+                     [:db-after :auth :password]))
+          "an EXPLICIT false still overlays the floor and wins — overriding
+           is what the caller's own key is for"))))
+
+;; ---- guards G1 and G2 ------------------------------------------------------
+
+(deftest guard-g1-absent-projector-yields-no-payload-at-all
+  (testing "GUARD G1: with the projector absent, the door throws BEFORE
+            returning anything — so there is no payload for a forwarder to
+            ship, redacted or otherwise. `rf/projected-record` is unaffected;
+            it hangs off its own hook."
+    (let [raw (login-record!)]
+      (with-epoch-project-record-hook nil
+        (fn []
+          (let [thrown (try (rf/project-egress raw {:rf.egress/profile :rf.egress/off-box-tool})
+                            nil
+                            (catch #?(:clj clojure.lang.ExceptionInfo
+                                      :cljs ExceptionInfo) e e))]
+            (is (some? thrown) "the door throws")
+            (is (= :rf.error/epoch-artefact-missing (:rf.error/id (ex-data thrown))))
+            (is (= :rf/epoch-record (:kind (ex-data thrown)))
+                "naming the kind it could not dispatch")
+            (is (not (contains-secret? (ex-data thrown)))
+                "and the thrown ex-data carries no record payload — the
+                 failure path leaks nothing either"))
+          (is (= :rf/redacted
+                 (get-in (rf.epoch/projected-record raw) [:db-after :auth :password]))
+              "CONTROL — the OTHER door is untouched by the flipped hook, so
+               the throw above is the door's dispatch and not a broken
+               fixture"))))))
+
+(deftest guard-g2-refuses-a-core-that-does-not-roster-the-hook
+  (testing "GUARD G2: `late-bind/set-fns!` validates no key at runtime, so a
+            NEW epoch artefact would register `:epoch/project-record` against
+            an OLD core in silence — and that core's door would read every
+            stamped record as a kindless value and bare-walk it. The artefact
+            therefore asserts the core's OWN hook inventory at load and
+            refuses to finish loading otherwise."
+    (is (nil? (rf.epoch/assert-core-dispatches-epoch-records!
+                (rf.late-bind.directory/hook-keys)))
+        "CONTROL — against the live core's roster the assertion passes, which
+         is also the assertion this namespace already ran at load")
+    (is (contains? (rf.late-bind.directory/hook-keys) :epoch/project-record)
+        "and that roster really does carry the key, so the control is not
+         vacuous")
+    (let [thrown (try (rf.epoch/assert-core-dispatches-epoch-records!
+                        (disj (rf.late-bind.directory/hook-keys)
+                              :epoch/project-record))
+                      nil
+                      (catch #?(:clj clojure.lang.ExceptionInfo
+                                :cljs ExceptionInfo) e e))
+          data   (ex-data thrown)]
+      (is (some? thrown) "a roster missing the key throws")
+      (is (= :rf.epoch/core-version-skew (:rf.epoch/load-refusal data))
+          "with a stable discriminator naming the skew")
+      (is (= :epoch/project-record (:hook data))
+          "and naming the hook the core failed to roster")
+      (is (str/includes? (ex-message thrown) ":epoch/project-record")
+          "the human message names it too"))))

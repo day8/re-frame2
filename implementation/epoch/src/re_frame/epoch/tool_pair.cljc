@@ -1419,27 +1419,57 @@
       (throw (rf.projection/unknown-egress-profile-ex 'epoch/projected-record profile)))
     profile))
 
+(def ^:private walker-overlay-keys
+  "The keys an epoch egress `opts` map may carry THROUGH to the closed
+  walker map `project-egress` grades. Every one is in
+  `re-frame.elision/walker-opt-keys`; `:frame` is absent because it is
+  threaded explicitly (the resolved frame, not the caller's), and `:path`
+  is absent because it is a BARE-VALUE offset — a record is projected
+  slot-by-slot, so an offset applied to each slot walk would be wrong.
+
+  Read as a SELECTION, never as a floor (rf2-kuky.92): `select-keys` keeps
+  only the keys the caller ACTUALLY supplied, so a key the caller omitted
+  stays omitted and the profile's own floor stands. The previous form
+  spelled two of them `(boolean …)`, which forced them PRESENT AND FALSE
+  on every call and so overrode the floor — invisible under the five
+  fail-closed profiles, whose floor is false anyway, but it silently
+  defeated `:rf.egress/local-raw`, the one profile whose floor opts
+  sensitive and large back IN."
+  [:rf.size/include-sensitive?
+   :rf.size/include-large?
+   :rf.size/include-digests?
+   :rf.size/threshold-bytes
+   :query-v
+   :as-of-epoch])
+
 (defn- egress-opts
-  "Build the `project-egress` opts map from a `projected-record` egress
-  opts map. The named `:rf.egress/profile`
-  selects the boundary (default `:rf.egress/off-box-observability`); MCP /
-  AI / tool consumers pass `:rf.egress/off-box-tool` to receive the
-  structural marker indicators / counters the tool profile enables. The
-  selected profile is the floor; the `:rf.size/include-sensitive?` /
-  `:rf.size/include-large?` opts default `false` (the off-box safe path)
-  and, when a trusted-local caller opts them back in, compose on top as
-  ADVANCED explicit `:rf.size/*` overrides (the override wins — see
-  `re-frame.projection/resolve-elision-opts`). ONE spelling for the two
+  "Build the `project-egress` opts map for ONE payload slot of an epoch
+  record, rooted at `frame-id`. The named `:rf.egress/profile` selects the
+  boundary (default `:rf.egress/off-box-observability`); MCP / AI / tool
+  consumers pass `:rf.egress/off-box-tool` to receive the structural marker
+  indicators / counters the tool profile enables.
+
+  The resolved profile is the FLOOR and the caller's explicit `:rf.size/*`
+  booleans OVERLAY it (the override wins — see
+  `re-frame.projection/resolve-elision-opts`). Only the keys the caller
+  supplied are overlaid (`walker-overlay-keys`). ONE spelling for the two
   shared axes: these were read here in the bare form, so the `:rf.size/*`
-  spelling every other door takes was silently dropped (rf2-kuky.6). The
-  record frame is stamped
-  so the frame's declared sensitive / large paths (keyed by absolute app-db
-  path) match the projected value."
-  [frame-id {:rf.size/keys [include-sensitive? include-large?] :rf.egress/keys [profile]}]
-  {:rf.egress/profile          (resolve-egress-profile profile)
-   :frame                      frame-id
-   :rf.size/include-sensitive? (boolean include-sensitive?)
-   :rf.size/include-large?     (boolean include-large?)})
+  spelling every other door takes was silently dropped (rf2-kuky.6).
+
+  The frame is threaded rather than re-read from the record, so an
+  explicit `:frame` override resolved at the door reaches the walk
+  (rf2-kuky.92). Stamping it is what makes the frame's declared sensitive /
+  large paths — keyed by absolute app-db path — match the projected value.
+
+  The epoch-only axes (`:include-fx-args?` / `:include-runtime-db?` /
+  `:include-event-args?`) are NEVER forwarded: the walker map is CLOSED
+  (rf2-kuky.6), so an epoch-only key reaching it throws
+  `:rf.error/bad-egress-opts` on a path that used to work. They are read
+  by the epoch-side helpers that own them and nowhere else."
+  [frame-id opts]
+  (assoc (select-keys opts walker-overlay-keys)
+         :rf.egress/profile (resolve-egress-profile (:rf.egress/profile opts))
+         :frame             frame-id))
 
 (defn- project-payload-slot
   "Project one payload slot through `project-egress` under the egress
@@ -2144,6 +2174,48 @@
     ;; the open schema admits `:rf/redacted` here.
     :else :rf/redacted))
 
+(defn- project-record-slots
+  "Project every present payload slot of `record` under `frame-id` and the
+  egress `opts`. THE projection engine — both doors reach the record's slot
+  knowledge through here and nowhere else, so the two cannot drift
+  (rf2-kuky.92).
+
+  `frame-id` is threaded rather than read from the record, which is what
+  lets `project-record` honour an explicit `:frame` override the door
+  resolved. Record bookkeeping slots (`:kind`, `:epoch-id`, `:frame`,
+  `:committed-at`, `:event-id`, `:outcome`, `:halt-reason`,
+  `:schema-digest`, the two `:rf.epoch/*` rollups) and every absent slot
+  pass through untouched; the raw ring is never mutated."
+  [record frame-id opts]
+  (cond-> record
+    ;; Whole-frame slots project app-db and redact runtime-db
+    ;; unless the corresponding trusted-local opts lift them.
+    (contains? record :frame-state-before)
+    (update :frame-state-before project-frame-state-slot frame-id opts)
+
+    (contains? record :frame-state-after)
+    (update :frame-state-after project-frame-state-slot frame-id opts)
+
+    (contains? record :db-before)
+    (update :db-before project-payload-slot frame-id opts)
+
+    (contains? record :db-after)
+    (update :db-after project-payload-slot frame-id opts)
+
+    ;; Trigger args are not app-db-rooted and fail closed.
+    (contains? record :trigger-event)
+    (update :trigger-event elide-trigger-event-slot opts)
+
+    (contains? record :trace-events)
+    (update :trace-events elide-trace-events-slot frame-id opts)
+
+    (contains? record :sub-runs)
+    (update :sub-runs elide-sub-runs-slot opts)
+
+    ;; Effect args are not app-db-rooted and fail closed.
+    (contains? record :effects)
+    (update :effects elide-effects-slot opts)))
+
 (defn projected-record
   "Internal projection engine for off-box epoch egress. The public contract
   lives on `re-frame.epoch/projected-record`.
@@ -2164,34 +2236,42 @@
   ([record opts]
    (rf.elision/assert-egress-opts! 'rf/projected-record projected-record-opt-keys opts)
    (when (map? record)
-     (let [frame-id (:frame record)
-           built-in-projected-record
-           (cond-> record
-             ;; Whole-frame slots project app-db and redact runtime-db
-             ;; unless the corresponding trusted-local opts lift them.
-             (contains? record :frame-state-before)
-             (update :frame-state-before project-frame-state-slot frame-id opts)
+     (project-record-slots record (:frame record) opts))))
 
-             (contains? record :frame-state-after)
-             (update :frame-state-after project-frame-state-slot frame-id opts)
+(defn project-record
+  "The PER-KIND projector `re-frame.projection/project-egress` dispatches a
+  `:kind :rf/epoch-record` record to, late-bound as `:epoch/project-record`
+  (rf2-kuky.92). It is the door's epoch ARM, not a second door: it is
+  reached only through `project-egress`, which has already graded `opts`
+  against its OWN closed vocabulary and resolved the frame.
 
-             (contains? record :db-before)
-             (update :db-before project-payload-slot frame-id opts)
+  `opts` is therefore `project-egress`'s vocabulary, not this namespace's,
+  and two things follow.
 
-             (contains? record :db-after)
-             (update :db-after project-payload-slot frame-id opts)
+  1. THE FRAME IS ALREADY RESOLVED. `project-egress` applies its
+     three-step, key-presence rule before dispatching — an explicit
+     `:frame` opt WINS (`nil` included, the deliberate statement that no
+     frame governs, which fails closed), else the record's own `:frame`
+     slot, else nothing is seeded. So the frame is read from `opts` when
+     the key is present and from the record only when it is not; the
+     record's own slot never wins back over an explicit override.
 
-             ;; Trigger args are not app-db-rooted and fail closed.
-             (contains? record :trigger-event)
-             (update :trigger-event elide-trigger-event-slot opts)
+  2. THE EPOCH-ONLY AXES ARE NOT DOOR VOCABULARY, so on this path
+     `:include-fx-args?` / `:include-runtime-db?` / `:include-event-args?`
+     are absent and stay FAIL-CLOSED — effect args redacted, the
+     runtime-db partition redacted, trigger/trace event args reduced to
+     their event ids. That is deliberate and it is what keeps
+     `{:rf.egress/profile :rf.egress/off-box-tool
+       :rf.size/include-sensitive? true}` meaning what it means: the two
+     shared app-db axes lift, the three different-keyspace axes do not
+     (it is NOT `:rf.egress/local-raw`). A caller that needs one of the
+     three reaches them through `re-frame.epoch/projected-record`.
 
-             (contains? record :trace-events)
-             (update :trace-events elide-trace-events-slot frame-id opts)
-
-             (contains? record :sub-runs)
-             (update :sub-runs elide-sub-runs-slot opts)
-
-             ;; Effect args are not app-db-rooted and fail closed.
-             (contains? record :effects)
-             (update :effects elide-effects-slot opts))]
-       built-in-projected-record))))
+  Non-map input returns nil, matching `projected-record`."
+  [record opts]
+  (when (map? record)
+    (project-record-slots record
+                          (if (contains? opts :frame)
+                            (:frame opts)
+                            (:frame record))
+                          opts)))

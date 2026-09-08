@@ -513,31 +513,57 @@
 
 ;; ---- dispatch ------------------------------------------------------------
 
+(def ^:private epoch-artefact
+  "Artefact info for the optional `day8/re-frame2-epoch` artefact, in the
+  shape `re-frame.late-bind/require-fn!` consumes. Mirrors
+  `re-frame.core-epoch/epoch-artefact` — core cannot require the epoch
+  namespace (bundle isolation), so the epoch arm of `project-egress`
+  resolves its projector through late-bind and reports an absent artefact
+  with the SAME canonical `:rf.error/epoch-artefact-missing` shape every
+  other epoch surface reports (rf2-kuky.92 guard G1)."
+  {:error-keyword :rf.error/epoch-artefact-missing
+   :maven         "day8/re-frame2-epoch"
+   :require-ns    "re-frame.epoch"})
+
 (def ^:private record-kinds
-  "The closed `:rf.observe/*` `:kind` vocabulary `project-egress` RECOGNISES
-  as a frame-bearing record. The `case` in `project-record-by-kind` below
+  "The closed `:kind` vocabulary `project-egress` RECOGNISES as a
+  frame-bearing RECORD. The `case` in `project-record-by-kind` below
   dispatches exactly these; this set is the same vocabulary as a value, so
   the frame-seeding guard can ask \"is this input a recognised record?\"
   without a loose shape test (rf2-kuky.5 — recognition by `:kind`, never by
-  \"it is a map that happens to carry a `:frame` key\")."
+  \"it is a map that happens to carry a `:frame` key\").
+
+  TWO NAMESPACES, one vocabulary (rf2-kuky.92). The three `:rf.observe/*`
+  kinds are things observed WITHIN a frame — a handled event, an error, a
+  derived tree — and their projectors live in THIS namespace.
+  `:rf/epoch-record` is a committed unit of causal history, owned by the
+  optional epoch artefact and normatively named by
+  [Spec-Schemas §`:rf/epoch-record`](../../../../../spec/Spec-Schemas.md#rfepoch-record);
+  its projector is LATE-BOUND (`:epoch/project-record`) because core may
+  not require the artefact. So this set is a roster of record KINDS, not
+  of one namespace's kinds."
   #{:rf.observe/handled-event
     :rf.observe/error
-    :rf.observe/derived-tree})
+    :rf.observe/derived-tree
+    :rf/epoch-record})
 
 (defn- recognised-record?
-  "Is `x` a recognised frame-bearing `:rf.observe/*` record? Anything else —
-  a bare app-db slice, a sub value, a kindless map — is a tree-shaped VALUE
-  and owns no frame."
+  "Is `x` a recognised frame-bearing record (`record-kinds`)? Anything
+  else — a bare app-db slice, a sub value, a kindless map — is a
+  tree-shaped VALUE and owns no frame."
   [x]
   (and (map? x) (contains? record-kinds (:kind x))))
 
 (defn- project-record-by-kind
-  "Dispatch a `:rf.observe/*` record to its private per-kind projector.
-  An unknown / kindless record is treated as a tree-shaped VALUE and walked
-  whole — the direct-read path (`app-db-value` / `sub-cache` / a bare
-  value at a `:path` offset, Spec 015 §Direct reads).
+  "Dispatch a recognised record to its per-kind projector. An unknown /
+  kindless record is treated as a tree-shaped VALUE and walked whole — the
+  direct-read path (`app-db-value` / `sub-cache` / a bare value at a
+  `:path` offset, Spec 015 §Direct reads).
 
-  The dispatched kinds are `record-kinds` — one vocabulary, two shapes."
+  The dispatched kinds are `record-kinds` — one vocabulary, two shapes.
+  The three `:rf.observe/*` projectors are private to this namespace;
+  `:rf/epoch-record`'s is LATE-BOUND, because the epoch artefact is
+  optional and core may not require it (rf2-kuky.92)."
   [record opts elision-opts]
   (case (and (map? record) (:kind record))
     :rf.observe/handled-event
@@ -548,6 +574,26 @@
 
     :rf.observe/derived-tree
     (project-derived-tree record (:frame opts) elision-opts)
+
+    ;; GUARD G1 (rf2-kuky.92) — a RECOGNISED kind whose projector is
+    ;; ABSENT throws; it NEVER falls through to the kindless walk below.
+    ;; That fall-through is the fail-open vector this arm exists to close:
+    ;; a bare walk of an epoch record starts at `:path []`, so a frame's
+    ;; `[:auth :token]` sensitive declaration cannot match
+    ;; `[:db-after :auth :token]` and the app-db slots ship RAW. Failing
+    ;; loud with the canonical `:rf.error/epoch-artefact-missing` shape is
+    ;; the only safe answer — `require-fn!` throws before this call can
+    ;; return any payload.
+    ;;
+    ;; `opts` is handed on with `:frame` ALREADY resolved by
+    ;; `project-egress`'s three-step rule, so an explicit override (`nil`
+    ;; included) reaches the projector and beats the record's own slot.
+    :rf/epoch-record
+    ((rf.late-bind/require-fn! :epoch/project-record
+                               'rf/project-egress
+                               epoch-artefact
+                               {:kind :rf/epoch-record})
+     record opts)
 
     ;; No `:kind` (or unknown kind) ⇒ treat the whole input as a
     ;; tree-shaped value and walk it. This is the direct-read / bare-value
@@ -562,11 +608,31 @@
 
   THE public, record-level boundary primitive (EP-0015 §10/§11). The
   required step before any off-box sink. It dispatches on a record's
-  `:kind` (the `:rf.observe/*` record kinds — handled-event, error,
-  derived-tree) to a PRIVATE per-kind projector, and falls back to walking a
-  kindless input as a tree-shaped VALUE (the direct-read path). For every
-  tree-shaped slot it DELEGATES to `elide-wire-value` against the frame's
-  classification — it does NOT reimplement the walker (EP-0015 §11).
+  `:kind` — the door names the BOUNDARY, and `:kind` names the RECORD KIND
+  — to a per-kind projector that is never itself public, and falls back to
+  walking a kindless input as a tree-shaped VALUE (the direct-read path).
+  For every tree-shaped slot it DELEGATES to `elide-wire-value` against the
+  frame's classification — it does NOT reimplement the walker (EP-0015 §11).
+
+  The recognised kinds (`record-kinds`) span TWO namespaces, deliberately
+  (rf2-kuky.92):
+
+    - `:rf.observe/handled-event`, `:rf.observe/error`,
+      `:rf.observe/derived-tree` — things observed WITHIN a frame; their
+      projectors are PRIVATE to this namespace;
+    - `:rf/epoch-record` — a committed unit of causal history
+      (Spec-Schemas §`:rf/epoch-record`), owned by the OPTIONAL
+      `day8/re-frame2-epoch` artefact. Core may not require that artefact
+      (bundle isolation), so its projector is LATE-BOUND under
+      `:epoch/project-record`. A recognised `:rf/epoch-record` whose
+      projector is absent raises `:rf.error/epoch-artefact-missing` naming
+      the kind — it is NEVER bare-walked, because a kindless walk of an
+      epoch record starts at `:path []` and no app-db classification can
+      match a `:db-after`-prefixed path, so the record's app-db slots would
+      ship RAW.
+
+  So `:kind` is a roster of record KINDS, not of one namespace's kinds; a
+  name outside `:rf.observe/*` is admitted on that basis, not by accident.
 
   A `:rf.observe/derived-tree` record (EP-0025 B4, rf2-ojp8pi) carries `:tree`
   (the derived value, or a map when `:slot-keys` names which map slots to walk)
@@ -612,10 +678,10 @@
     1. an explicit `:frame` key in `opts` WINS, `nil` included (override
        semantics — the caller's deliberate reclassification, and `nil` is
        the deliberate statement that no frame governs);
-    2. else a RECOGNISED `:rf.observe/*` record's own top-level `:frame`
-       slot, `nil` included — an `:rf.observe/*` record is FRAME-BEARING,
-       carrying the frame whose classification governs its tree-shaped
-       slots (the §`project-egress` example record carries
+    2. else a RECOGNISED record's own top-level `:frame` slot, `nil`
+       included — EVERY recognised kind is FRAME-BEARING, `:rf/epoch-record`
+       included, carrying the frame whose classification governs its
+       tree-shaped slots (the §`project-egress` example record carries
        `:frame :app/main` with opts supplying only `:rf.egress/profile`).
        This seed is what lets the record-owned-frame call shape walk every
        slot under the record's OWN frame: without it those slots would fall

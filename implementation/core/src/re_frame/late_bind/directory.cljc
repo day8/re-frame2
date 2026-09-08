@@ -793,7 +793,11 @@
    {:key         :epoch/projected-record
     :producer-ns 're-frame.epoch
     :design-bead "rf2-mrsck"
-    :description "Project an :rf/epoch-record for off-box egress: route :db-before / :db-after / :trigger-event / :trace-events through elide-wire-value with off-box defaults; bookkeeping and structured projections pass through. Per Security.md §Epoch privacy posture."}
+    :description "Project an :rf/epoch-record for off-box egress: route :db-before / :db-after / :trigger-event / :trace-events through elide-wire-value with off-box defaults; bookkeeping and structured projections pass through. Per Security.md §Epoch privacy posture. RETIRING (rf2-bv1p) — the door arm below is the replacement; both are published while the two doors coexist."}
+   {:key         :epoch/project-record
+    :producer-ns 're-frame.epoch
+    :design-bead "rf2-kuky.92"
+    :description "The PER-KIND projector re-frame.projection/project-egress dispatches a :kind :rf/epoch-record record to. Invoked as (f record opts) where opts is project-egress's OWN closed vocabulary with :frame ALREADY resolved by the door's three-step rule (explicit opt > the record's own :frame slot > carried scope), so the projector never re-reads (:frame record) behind an explicit override. Projects each payload slot (:frame-state-*, :db-*, :trigger-event, :trace-events, :sub-runs, :effects) under that frame and the named :rf.egress/profile; the epoch-only axes (:include-fx-args? / :include-runtime-db? / :include-event-args?) are not door vocabulary and stay fail-closed on this path. ABSENT ⇒ project-egress throws :rf.error/epoch-artefact-missing naming the kind rather than bare-walking the record as a kindless tree (rf2-kuky.92 guard G1)."}
 
    ;; ---- re-frame.event-emit (always-on event observability) ----------------
    {:key         :event-emit/dispatch-on-event

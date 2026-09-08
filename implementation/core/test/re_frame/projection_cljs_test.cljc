@@ -26,6 +26,9 @@
             [re-frame.elision :as rf.elision]
             [re-frame.error :as rf.error]
             [re-frame.frame :as rf.frame]
+            ;; rf2-kuky.92 — the `:rf/epoch-record` arms bind the
+            ;; `:epoch/project-record` hook explicitly (present and absent).
+            [re-frame.late-bind :as rf.late-bind]
             [re-frame.projection :as rf.projection]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
@@ -804,3 +807,131 @@
                     {:rf.size/include-sensitive? true})]
           (is (= tree out)
               "an explicit include-sensitive? true also ships the frameless tree raw"))))))
+
+;; ---------------------------------------------------------------------------
+;; `:rf/epoch-record` — the LATE-BOUND record kind (rf2-kuky.92).
+;;
+;; The door's roster of record kinds spans two namespaces. The three
+;; `:rf.observe/*` kinds are projected by private fns in `re-frame.projection`
+;; itself; `:rf/epoch-record` is owned by the OPTIONAL `day8/re-frame2-epoch`
+;; artefact, so its projector arrives through the `:epoch/project-record`
+;; late-bind hook. These arms pin the DOOR's half of that contract — that the
+;; kind is recognised, that the resolved frame reaches the projector, and
+;; (guard G1) that an ABSENT projector throws rather than falling through to
+;; the kindless walk. The epoch artefact's half is pinned in
+;; `re-frame.epoch-egress-redaction-cljs-test` §8.
+;;
+;; `re-frame.epoch` is a TEST-ONLY dep of core and sibling test namespaces
+;; load it, so the hook may or may not already be registered when this file
+;; runs. Both arms therefore BIND the hook explicitly rather than assuming
+;; either state — which is also what makes them deterministic under the
+;; artefact's own runner.
+;; ---------------------------------------------------------------------------
+
+(defn- with-epoch-projector
+  "Run `f` with the `:epoch/project-record` late-bind hook bound to `v`
+  (`nil` simulating an absent artefact), restoring the previous value
+  afterwards even when `f` throws."
+  [v f]
+  (let [original (rf.late-bind/get-fn :epoch/project-record)]
+    (try
+      (rf.late-bind/set-fn! :epoch/project-record v)
+      (f)
+      (finally (rf.late-bind/set-fn! :epoch/project-record original)))))
+
+(defn- epoch-record [frame-id]
+  {:kind     :rf/epoch-record
+   :epoch-id 1
+   :frame    frame-id
+   :db-after (sample-value)})
+
+(deftest epoch-record-is-a-recognised-kind
+  (testing "`:rf/epoch-record` joins the closed `:kind` roster, so the door
+            dispatches it to the late-bound projector instead of walking it
+            as a kindless value"
+    (let [fid  :projection-test/epoch-kind
+          seen (atom nil)]
+      (mk-frame! fid)
+      (with-epoch-projector
+        (fn [record opts] (reset! seen [record opts]) ::projected)
+        (fn []
+          (is (= ::projected
+                 (rf/project-egress (epoch-record fid)
+                                    {:rf.egress/profile :rf.egress/off-box-tool}))
+              "the door returns the late-bound projector's value verbatim")
+          (let [[record opts] @seen]
+            (is (= :rf/epoch-record (:kind record))
+                "the projector receives the record itself")
+            (is (= fid (:frame opts))
+                "and receives opts whose :frame the DOOR resolved — the
+                 record's own :frame slot seeded it, per step 2 of the
+                 three-step rule")
+            (is (= :rf.egress/off-box-tool (:rf.egress/profile opts))
+                "the named boundary rides through unresolved; the epoch
+                 projector resolves it once, per slot")))))))
+
+(deftest epoch-record-explicit-frame-override-reaches-the-projector
+  (testing "an explicit `:frame` opt WINS over the record's own slot, `nil`
+            included — the door resolves it before dispatching, so the
+            projector never re-reads the record's slot behind an override"
+    (let [fid  :projection-test/epoch-frame-override
+          seen (atom nil)]
+      (mk-frame! fid)
+      (with-epoch-projector
+        (fn [_record opts] (reset! seen opts) ::projected)
+        (fn []
+          (rf/project-egress (epoch-record fid)
+                             {:rf.egress/profile :rf.egress/off-box-tool
+                              :frame             :projection-test/other})
+          (is (= :projection-test/other (:frame @seen))
+              "the explicit override wins over the record's own :frame")
+          (rf/project-egress (epoch-record fid)
+                             {:rf.egress/profile :rf.egress/off-box-tool
+                              :frame             nil})
+          (is (contains? @seen :frame)
+              "an explicit nil is PRESENT, not absent — key presence, not
+               truthiness, is what decides")
+          (is (nil? (:frame @seen))
+              "and it is nil, so the projector's walk fails closed rather
+               than borrowing the record's frame"))))))
+
+(deftest guard-g1-absent-epoch-projector-throws-and-never-bare-walks
+  (testing "GUARD G1 (rf2-kuky.92): a RECOGNISED kind whose projector is
+            absent throws `:rf.error/epoch-artefact-missing` naming the kind,
+            BEFORE returning any payload. The kindless fall-through is the
+            fail-open vector this arm exists to close."
+    (let [fid    :projection-test/epoch-g1
+          record (epoch-record fid)]
+      (mk-frame! fid)
+      (with-epoch-projector nil
+        (fn []
+          (let [thrown (try (rf/project-egress
+                              record
+                              {:rf.egress/profile :rf.egress/off-box-tool})
+                            nil
+                            (catch #?(:clj clojure.lang.ExceptionInfo
+                                      :cljs ExceptionInfo) e e))
+                data   (ex-data thrown)]
+            (is (some? thrown) "it throws rather than returning a payload")
+            (is (= :rf.error/epoch-artefact-missing (:rf.error/id data))
+                "with the canonical absent-artefact discriminator every other
+                 epoch surface reports")
+            (is (= 'rf/project-egress (:where data))
+                ":where names the door, not an epoch-internal helper")
+            (is (= :rf/epoch-record (:kind data))
+                "and the ex-data names the KIND that could not be dispatched")
+            (is (rf.error/message-has-id-token? (ex-message thrown))
+                "the message carries the trailing greppability token"))
+          ;; THE VECTOR, pinned as a contrast so the assertion above cannot be
+          ;; mistaken for ceremony: strip the `:kind` stamp and the SAME map
+          ;; goes down the kindless path, where the walk starts at `:path []`.
+          ;; The frame's `[:auth :token]` declaration cannot match
+          ;; `[:db-after :auth :token]`, so the declared-sensitive value ships
+          ;; RAW. That is exactly what G1 refuses to do for a stamped record.
+          (let [leaked (rf/project-egress
+                         (dissoc record :kind)
+                         {:rf.egress/profile :rf.egress/off-box-tool})]
+            (is (= "super-secret-token" (get-in leaked [:db-after :auth :token]))
+                "CONTRAST: an UNSTAMPED epoch-shaped map is a kindless VALUE,
+                 bare-walked from :path [], and the declared-sensitive leaf
+                 ships RAW — the fail-open G1 exists to prevent")))))))

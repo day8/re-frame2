@@ -305,7 +305,17 @@
          ;; :rf.epoch/sensitive? rollup above).
          redacted-modified-path-count (redacted-modified-paths-count
                                         frame-id db-before db-after)]
-     (cond-> {:epoch-id           (rf.epoch.state/next-epoch-id)
+     (cond-> {;; The record's own DISCRIMINATOR (rf2-kuky.92). `rf/project-egress`
+              ;; dispatches RECORD KINDS on this slot, so the epoch arm resolves
+              ;; its per-kind projector through the late-bound
+              ;; `:epoch/project-record` hook rather than the door bare-walking
+              ;; the record as a kindless tree from `:path []` (which would ship
+              ;; `:db-*` slots RAW — a frame's `[:auth :token]` declaration never
+              ;; matches `[:db-after :auth :token]`). Fixed value, pinned by
+              ;; Spec-Schemas §`:rf/epoch-record`. It is a STAMP, not storage:
+              ;; the raw ring keeps exactly what it kept before, plus this slot.
+              :kind               :rf/epoch-record
+              :epoch-id           (rf.epoch.state/next-epoch-id)
               :frame              frame-id
               ;; Durable causal time is supplied from envelope construction;
               ;; assembly never re-reads the host clock.
