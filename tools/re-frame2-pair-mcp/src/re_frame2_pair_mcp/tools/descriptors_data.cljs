@@ -1766,7 +1766,7 @@
                      "schemas are NOT a registrar kind (rf2-cq1ak) — use "
                      "`rf/app-schemas` for schema enumeration. The `machine` "
                      "kind lists every event handler flagged `:rf/machine? "
-                     "true` via (re-frame.machines/machines); the other kinds lift the id "
+                     "true` — the preload's `re-frame2-pair.runtime/machines-list`, which filters that flag over the public `(rf/registrations {:source :store :kind :event})` read; the other kinds lift the id "
                      "vector off the registrar's per-kind map. The OPTIONAL "
                      ":frame arg (rf2-srobm0, EP-0023) enumerates only the ids "
                      "THAT frame's running image generation carries for the "
