@@ -24,13 +24,17 @@
   semantics are pinned by TEST rather than by a shared call, and this file
   is where.
 
-  ## Which adapter, and why it matters for one row
+  ## Which adapter, and why the teardown rows install more than one
 
-  `rf/destroy-adapter!` releases a Hicasso root because
-  `re-frame.hicasso.substrate/adapter` chains the package's own drain onto
-  the spine's `dispose-adapter!`. That row therefore installs the HICASSO
-  adapter; the others install UIx, as the rest of this package's suites do,
-  and the difference is stated at the row.
+  A Hicasso root is created by Hicasso's own door whatever adapter is
+  installed — `h/render!` never routes through the substrate contract's
+  `render` slot — so a Hicasso application may perfectly well install UIx
+  or Reagent. `rf/destroy-adapter!` reaches the package's root drain
+  through core's `:hicasso/drain-client-roots!` late-bind hook, which is
+  the PROCESS teardown boundary and therefore adapter-independent. W4
+  reads that guarantee with Hicasso's own adapter installed and W7 reads
+  it with UIx and with Reagent; the rest of the file installs UIx, as the
+  rest of this package's suites do.
 
   ## The readings
 
@@ -43,6 +47,7 @@
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [clojure.string :as str]
             ["react" :as react]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.hicasso :as rf.hicasso]
@@ -255,9 +260,9 @@
 ;;
 ;; The behaviour rf2-kuky.59 added rather than moved: before it, Hicasso's
 ;; `createRoot` sat outside every active-root set and `rf/destroy-adapter!`
-;; released no Hicasso root at all. It works because the HICASSO adapter chains
-;; the package's drain onto the spine's `dispose-adapter!` — so this row is the
-;; one in the file that installs that adapter, and it says so out loud.
+;; released no Hicasso root at all. This row reads the guarantee with HICASSO's
+;; own adapter installed — the composition an all-Hicasso application has — and
+;; W7 reads the same guarantee under UIx and under Reagent.
 ;;
 ;; `exactly once` is the half a count cannot show, so it is read the way Spec
 ;; 006 states the rule: the drain empties the active set, the handle's own
@@ -270,8 +275,8 @@
     (let [ca (rf.hicasso.impl.mount/fresh-container!)
           a  (rf.hicasso/client-root)]
       (try
-        ;; The fixture seated UIx; this row needs Hicasso's own adapter,
-        ;; because the drain is chained onto ITS `dispose-adapter!`.
+        ;; The fixture seated UIx; this row is the all-Hicasso composition,
+        ;; so it seats Hicasso's own adapter.
         (rf/destroy-adapter!)
         (rf/init! rf.hicasso.substrate/adapter)
         (fresh!)
@@ -440,3 +445,118 @@
           (detach! ca)
           (detach! cb)
           (rf.hicasso.impl.collector/reset-runtime!))))))
+
+;; ---------------------------------------------------------------------------
+;; W7 — `rf/destroy-adapter!` releases a Hicasso root under a NON-Hicasso adapter
+;; ---------------------------------------------------------------------------
+;;
+;; The composition W4 cannot cover, and the one the merged-PR audit of #9459
+;; named: `h/render!` reaches `createRoot` through
+;; `re-frame.hicasso.impl.mount` whatever adapter is installed, so a Hicasso
+;; root is the PACKAGE's rather than any adapter's. Hicasso over UIx or over
+;; Reagent is supported use, not malformed input — the migrated HMR testbed
+;; installs UIx, Story's own-root control installs Reagent, and the migration
+;; skill deliberately preserves an app's existing Reagent adapter.
+;;
+;; The defect this row pins: while the drain hung off the HICASSO adapter's
+;; own `dispose-adapter!`, `rf/destroy-adapter!` under any other adapter
+;; invoked that adapter's disposer alone, the Hicasso Root stayed mounted with
+;; its `:live?` closure still true, and a `render!` through the retained handle
+;; UPDATED that never-released Root instead of mounting afresh. The repair
+;; moves the drain to the process teardown boundary — core's
+;; `:hicasso/drain-client-roots!` late-bind hook, invoked by
+;; `re-frame.substrate.adapter/dispose-adapter!` before the installed
+;; adapter's own disposer — so the guarantee no longer carries an adapter
+;; qualifier, which is what the public `h/client-root` / `h/unmount!` docs
+;; already promise.
+;;
+;; The reading is NODE IDENTITY, for W2's reason: a leaked Root's update and a
+;; fresh Root's first render both paint the new tag, and only the identity of
+;; the `.panel` node separates them. `innerHTML` is read as well, because an
+;; unreleased Root leaves the container painted where a released one empties
+;; it.
+
+(defn- destroy-adapter-releases-hicasso-roots!
+  "W7's body for one non-Hicasso adapter. `label` names it in the failure
+  messages; `adapter` is the spec map to install.
+
+  Two handles, because the two claims cannot share one: `a` takes the
+  NO-INTERVENING-UNMOUNT path (destroy, re-init, render straight through the
+  retained handle), and `b` is left untouched so its own `h/unmount!` can
+  show the host unmount is reached exactly once per root whichever caller
+  gets there first."
+  [label adapter]
+  (let [ca (rf.hicasso.impl.mount/fresh-container!)
+        cb (rf.hicasso.impl.mount/fresh-container!)
+        a  (rf.hicasso/client-root)
+        b  (rf.hicasso/client-root)]
+    (try
+      ;; The fixture seated UIx; seat the adapter this pass is about.
+      (rf/destroy-adapter!)
+      (rf/init! adapter)
+      (fresh!)
+      (rf.hicasso/render! a [rf.hicasso/frame-root {:id frame-a} [panel {:tag "a"}]] ca)
+      (rf.hicasso/render! b [rf.hicasso/frame-root {:id frame-a} [panel {:tag "b"}]] cb)
+
+      (let [node-a (node-at ca ".panel")]
+        (testing (str "premise: " label " is the installed adapter, and two
+                       Hicasso roots are live and painted under it")
+          (is (= (:kind adapter) (:kind (rf/current-adapter)))
+              (str "this pass did not seat " label))
+          (is (some? node-a))
+          (is (= "alpha" (text-at ca ".label")))
+          (is (= "alpha" (text-at cb ".label"))))
+
+        (rf/destroy-adapter!)
+
+        (testing (str "adapter teardown released BOTH Hicasso roots with "
+                      label " installed: React emptied each container, and the
+                      caller's nodes are still in the document")
+          (is (= "" (.-innerHTML ca))
+              (str "`rf/destroy-adapter!` left a live Hicasso root mounted
+                    under " label " — the Hicasso root is the PACKAGE's, so
+                    the drain may not hang off one adapter's disposer"))
+          (is (= "" (.-innerHTML cb))
+              (str "the drain stopped at the first root under " label))
+          (is (true? (.-isConnected ca)))
+          (is (true? (.-isConnected cb))))
+
+        (rf/init! adapter)
+        (rf/make-frame {:id frame-a})
+        (rf/with-frame frame-a (rf/dispatch-sync [::seed "beta"]))
+
+        (testing "the retained handle mounts AFRESH with NO intervening
+                  `h/unmount!` — a leaked Root would have taken the update
+                  path and kept its own DOM"
+          (rf.hicasso/render! a [rf.hicasso/frame-root {:id frame-a} [panel {:tag "a2"}]] ca)
+          (is (= "a2" (.getAttribute (node-at ca ".panel") "data-tag")))
+          (is (not (identical? node-a (node-at ca ".panel")))
+              (str "the render after `rf/destroy-adapter!` UPDATED the root
+                    the teardown should have released under " label
+                   " — the same node came back, which only a surviving Root
+                     can produce"))
+          (is (= "beta" (text-at ca ".label"))
+              "the re-mounted root did not read its frame"))
+
+        (testing "and the untouched handle's own `unmount!` finds nothing left
+                  to do, so the host unmount is reached exactly ONCE per root
+                  whichever caller gets there first"
+          (is (nil? (rf.hicasso/unmount! b)))
+          (is (nil? @b))
+          (is (= "" (.-innerHTML cb)))))
+
+      (finally
+        (rf.hicasso/unmount! a)
+        (rf.hicasso/unmount! b)
+        (detach! ca)
+        (detach! cb)
+        (rf.hicasso.impl.collector/reset-runtime!)
+        ;; Hand the page back to the fixture's adapter, whatever this pass did.
+        (try (rf/destroy-adapter!) (catch :default _ nil))))))
+
+(deftest destroy-adapter-releases-hicasso-roots-under-uix-and-reagent
+  (if-not (rf.hicasso.impl.mount/browser?)
+    (skip! ":node-test has no DOM")
+    (do
+      (destroy-adapter-releases-hicasso-roots! "the UIx adapter" rf.adapter.uix/adapter)
+      (destroy-adapter-releases-hicasso-roots! "the Reagent adapter" rf.adapter.reagent/adapter))))

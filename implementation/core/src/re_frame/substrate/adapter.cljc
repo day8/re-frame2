@@ -224,6 +224,30 @@
         installed
         :else (recur)))))
 
+(defn- drain-hicasso-client-roots!
+  "Release every React Root `re-frame.hicasso`'s own client-root door still
+  holds, through the `:hicasso/drain-client-roots!` late-bind hook the
+  package publishes at `re-frame.hicasso.impl.mount`'s ns load. A no-op
+  when the day8/re-frame2-hicasso artefact is absent (unbound), and on
+  every JVM host.
+
+  Why this sits at the PROCESS teardown boundary rather than on an adapter
+  (rf2-kuky.59). A Hicasso root is the PACKAGE's, not any adapter's:
+  `h/render!` reaches `createRoot` / `hydrateRoot` through
+  `re-frame.hicasso.impl.mount` and never through the substrate contract's
+  `render` slot, so no adapter's own active-root set ever sees one. While
+  the drain hung off the Hicasso adapter's `dispose-adapter!` it was
+  reached only when Hicasso was ALSO the installed adapter — and Hicasso
+  over UIx or over Reagent is supported use, not malformed input. In that
+  composition `rf/destroy-adapter!` left the Root mounted with its `:live?`
+  closure still true, and a `render!` through the retained handle UPDATED
+  the leaked Root instead of mounting afresh, against what Spec 006 §The
+  client root's Teardown clause promises without an adapter qualifier."
+  []
+  (when-let [drain! (rf.late-bind/get-fn :hicasso/drain-client-roots!)]
+    (drain!))
+  nil)
+
 (defn dispose-adapter!
   "Tear down the installed adapter. Calls the adapter's :dispose-adapter!
   fn (if present), then ALWAYS clears the install slot and sets the disposed
@@ -235,12 +259,21 @@
   replacement installation. One failed host cleanup cannot leave the single-use
   install slot half seated. Calling dispose with no adapter installed leaves the
   breadcrumb untouched — it doesn't pretend a never-installed adapter was
-  disposed."
+  disposed.
+
+  Package-owned host roots go FIRST, in a `finally` over the adapter's own
+  cleanup — see `drain-hicasso-client-roots!`. The order is the one the
+  Hicasso adapter's own chain used: React unmounts run while the substrate
+  is still whole, and a throwing drain still cannot skip the adapter
+  disposer or the finalization below it."
   []
   (when-let [{:keys [adapter generation]} (claim-installed-for-dispose!)]
     (try
-      (when-let [f (:dispose-adapter! adapter)]
-        (f))
+      (try
+        (drain-hicasso-client-roots!)
+        (finally
+          (when-let [f (:dispose-adapter! adapter)]
+            (f))))
       (finally
         ;; Lifecycle finalization is process ownership, not adapter-owned
         ;; cleanup. It must happen even when the host teardown reports failure,
