@@ -1,5 +1,5 @@
 (ns re-frame.lifecycle-composed-corners-test
-  "Compose rare machine timer / join / final / system-id interleavings.
+  "Compose rare machine timer / join / final / replacement interleavings.
 
   Existing per-edge regression coverage (`timer_frame_scope_test`,
   `after_test`, `spawn_all_test`, `final_state_cljs_test`,
@@ -8,12 +8,12 @@
   combinations the audit body called out:
 
     - stale `:after` firing AFTER the frame was destroyed,
-    - stale `:after` firing AFTER the system-id was rebound to a new
-      actor,
+    - stale `:after` firing AFTER the actor was replaced by a fresh
+      incarnation,
     - `:spawn-all` child completion AFTER the parent frame was destroyed,
     - dynamic delay re-resolution after state exit (the timer-table
       entry is gone; the stale synthetic event is a no-op),
-    - composed leak audit across timer table + system-id reverse index
+    - composed leak audit across timer table
       + `[:rf.runtime/machines :spawned]` slot + spawn-order channel after `destroy-frame!`.
 
   JVM-only by design — synthetic
@@ -97,19 +97,18 @@
           (finally (unreg)))))))
 
 ;; ---------------------------------------------------------------------------
-;; 2. Stale :after firing AFTER system-id rebind
+;; 2. Stale :after firing AFTER the actor was replaced
 ;;
-;; Spawn actor A bound under :system-id :primary. Schedule its :after.
-;; Destroy actor A. Spawn actor B bound under the SAME :system-id —
-;; the reverse index now points at B. Fire the stale synthetic
-;; :after-elapsed keyed on A's id. A's handler is gone (unregistered
-;; at destroy), so the dispatch traces :rf.error/no-such-handler;
-;; actor B is NOT transitioned; the reverse index still points at B.
+;; Spawn actor A. Schedule its :after. Destroy actor A and spawn a fresh
+;; actor B from the same parent. Fire the stale synthetic :after-elapsed
+;; keyed on A's id. A's handler is gone (unregistered at destroy), so the
+;; dispatch traces :rf.error/no-such-handler and actor B is NOT
+;; transitioned.
 ;; ---------------------------------------------------------------------------
 
-(deftest stale-after-firing-after-system-id-rebind-traces-stale
+(deftest stale-after-firing-after-actor-replacement-traces-stale
   (testing "stale :after for a destroyed actor does NOT transition the
-            same-system-id replacement actor; A's handler is gone +
+            replacement actor; A's handler is gone +
             traces :rf.error/no-such-handler; B's snapshot is intact"
     (let [child  {:initial :running
                   :data    {}
@@ -122,30 +121,24 @@
                                {:action (fn [_]
                                   {:fx [[:rf.machine/spawn
                                          {:machine-id :corner.sid/child
-                                          :id-prefix  :corner.sid/child
-                                          :system-id  :corner/primary}]]})}
+                                          :id-prefix  :corner.sid/child}]]})}
                                :replace
                                {:action (fn [_]
                                   {:fx [[:rf.machine/destroy :corner.sid/child#1]
                                         [:rf.machine/spawn
                                          {:machine-id :corner.sid/child
-                                          :id-prefix  :corner.sid/child
-                                          :system-id  :corner/primary}]]})}}}}}]
+                                          :id-prefix  :corner.sid/child}]]})}}}}}]
       (rf/reg-machine :corner.sid/child child)
       (rf/reg-machine :corner.sid/parent parent)
       (rf/dispatch-sync [:corner.sid/parent [:spawn-bound]])
-      ;; Actor A is :corner.sid/child#1; system-id binds to it.
+      ;; Actor A is :corner.sid/child#1.
       (let [db (:rf.db/runtime (rf/frame-state-value :rf/default))]
-        (is (= :corner.sid/child#1 (get-in db [:rf.runtime/machines :system-ids :corner/primary]))
-            ":corner/primary reverse-index points at actor A (#1)")
         (is (some? (get-in db [:rf.runtime/machines :snapshots :corner.sid/child#1]))
             "actor A snapshot is live"))
 
-      ;; Replace: destroy A, spawn B under the same system-id.
+      ;; Replace: destroy A, spawn a fresh actor B.
       (rf/dispatch-sync [:corner.sid/parent [:replace]])
       (let [db (:rf.db/runtime (rf/frame-state-value :rf/default))]
-        (is (= :corner.sid/child#2 (get-in db [:rf.runtime/machines :system-ids :corner/primary]))
-            ":corner/primary now points at actor B (#2) — index rebinds cleanly")
         (is (nil? (get-in db [:rf.runtime/machines :snapshots :corner.sid/child#1]))
             "actor A snapshot is gone")
         (is (some? (get-in db [:rf.runtime/machines :snapshots :corner.sid/child#2]))
@@ -164,9 +157,7 @@
           ;; B's snapshot is untouched by the stale-firing-on-A event.
           (let [db (:rf.db/runtime (rf/frame-state-value :rf/default))]
             (is (= :running (:state (get-in db [:rf.runtime/machines :snapshots :corner.sid/child#2])))
-                "actor B's state is still :running — stale A-firing did NOT cross over")
-            (is (= :corner.sid/child#2 (get-in db [:rf.runtime/machines :system-ids :corner/primary]))
-                "reverse-index still points at B"))
+                "actor B's state is still :running — stale A-firing did NOT cross over"))
           (finally (unreg)))))))
 
 ;; ---------------------------------------------------------------------------
@@ -302,16 +293,16 @@
 ;; ---------------------------------------------------------------------------
 ;; 5. Composed leak audit after frame destroy
 ;;
-;; Build a frame holding: (a) an :after timer; (b) a spawned actor
-;; bound under :system-id; (c) a :spawn-all parent with a join slot.
+;; Build a frame holding: (a) an :after timer; (b) a spawned actor;
+;; (c) a :spawn-all parent with a join slot.
 ;; Destroy. Pin that EVERY per-frame bookkeeping slot in the machines
 ;; artefact is cleared in a single composed assertion — guards against
 ;; a future regression that fixes each leak in isolation while breaking
 ;; the destroy step list's ordering.
 ;; ---------------------------------------------------------------------------
 
-(deftest composed-timer-join-and-system-id-cleanup-on-frame-destroy
-  (testing "destroy-frame! clears timer table + [:rf.runtime/machines :system-ids] + [:rf.runtime/machines :spawned]
+(deftest composed-timer-join-and-actor-cleanup-on-frame-destroy
+  (testing "destroy-frame! clears timer table + [:rf.runtime/machines :spawned]
             + [:rf.runtime/machines :snapshots] + spawn-order in one cascade (spawned actors carry no registrar entry — rf2-a2sn1)"
     (rf/make-frame {:id :corner.leak/scoped :doc "leak-audit"})
 
@@ -324,7 +315,7 @@
       (rf/reg-machine :corner.leak/timer timer-m)
       (rf/dispatch-sync [:corner.leak/timer [:fetch]] {:frame :corner.leak/scoped}))
 
-    ;; --- (b) system-id-bound spawn ----------------------------------------
+    ;; --- (b) spawned actor -------------------------------------------------
     (let [child {:initial :running :data {} :states {:running {}}}
           boot  {:initial :idle
                  :data    {}
@@ -332,8 +323,7 @@
                  {:idle {:on {:go {:action (fn [_]
                                      {:fx [[:rf.machine/spawn
                                             {:machine-id :corner.leak/child
-                                             :id-prefix  :corner.leak/child
-                                             :system-id  :corner.leak/primary}]]})}}}}}]
+                                             :id-prefix  :corner.leak/child}]]})}}}}}]
       (rf/reg-machine :corner.leak/child child)
       (rf/reg-machine :corner.leak/boot  boot)
       (rf/dispatch-sync [:corner.leak/boot [:go]] {:frame :corner.leak/scoped}))
@@ -363,9 +353,6 @@
     (is (contains? @rf.machines.timer/after-timers :corner.leak/scoped)
         "precondition: timer table holds the :after entry for the frame")
     (let [db (:rf.db/runtime (rf/frame-state-value :corner.leak/scoped))]
-      (is (= :corner.leak/child#1
-             (get-in db [:rf.runtime/machines :system-ids :corner.leak/primary]))
-          "precondition: system-id reverse index points at the spawned actor")
       (is (map? (get-in db [:rf.runtime/machines :spawned :corner.leak/ia-parent [:hydrating]]))
           "precondition: invoke-all join slot is seeded")
       (is (some? (get-in db [:rf.runtime/machines :snapshots :corner.leak/child#1]))

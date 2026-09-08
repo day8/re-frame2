@@ -101,7 +101,6 @@
                          :data  {:retries 2
                                  :token   "secret-jwt-snapshot"
                                  :blob    "huge-blob-value"}}}
-    :system-ids {}
     :spawned    {}}})
 
 ;; ---- the leak regression (project-runtime-db) -----------------------------

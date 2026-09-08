@@ -5,8 +5,8 @@
   distinctions so a regression that re-conflates them fails loudly:
 
    1. **TYPE vs live actor INSTANCE**. The live-actor lifecycle
-      traces (`:rf.machine/transition`, `:rf.machine/done`,
-      `:rf.machine/system-id-bound` / `-released`, the `:rf.machine.timer/*`
+      traces (`:rf.machine/transition`, `:rf.machine/done`, the
+      `:rf.machine.timer/*`
       rows, `:rf.machine.lifecycle/destroyed`) carry the INSTANCE address
       under `:actor-id`, NOT `:machine-id`. `:machine-id` is reserved for the
       registered TYPE / singleton-registration id (it stays on the
@@ -40,7 +40,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest spawned-actor-lifecycle-traces-carry-actor-id-not-machine-id
-  (testing "rf2-ws5thu — transition/done/destroyed/system-id rows carry :actor-id (the instance), never :machine-id"
+  (testing "rf2-ws5thu — transition/done/destroyed rows carry :actor-id (the instance), never :machine-id"
     (let [child {:initial :running
                  :states  {:running {:on {:finish :done}}
                            :done    {:final? true}}}
@@ -49,7 +49,6 @@
                   {:idle {:on {:go :working}}
                    :working
                    {:spawn {:machine-id :idn/child
-                            :system-id  :idn/sys
                             :start      [:noop]}
                     :on    {:back :idle}}}}
           traces (atom [])]
@@ -63,14 +62,6 @@
         (is (= :idn/child#1 spawned-id)
             "the spawned instance id is <type>#<n>, distinct from the TYPE :idn/child")
 
-        ;; system-id-bound: carries :actor-id = the instance, NOT :machine-id.
-        (let [bound (first (ops @traces :rf.machine/system-id-bound))]
-          (is (some? bound) ":rf.machine/system-id-bound fired")
-          (is (= :idn/child#1 (:actor-id (:tags bound)))
-              "system-id-bound carries the live INSTANCE under :actor-id")
-          (is (not (contains? (:tags bound) :machine-id))
-              "system-id-bound does NOT carry :machine-id (reserved for the TYPE)"))
-
         ;; The instance's own transition trace addresses it by :actor-id.
         (reset! traces [])
         (rf/dispatch-sync [spawned-id [:finish]])  ;; → :done :final? → auto-destroy
@@ -81,7 +72,7 @@
           (is (not (contains? (:tags tr) :machine-id))
               "transition does NOT carry :machine-id"))
 
-        ;; done + destroyed + system-id-released all carry :actor-id = instance.
+        ;; done + destroyed both carry :actor-id = instance.
         (let [done (first (ops @traces :rf.machine/done))]
           (is (some? done) ":rf.machine/done fired on the :final? leaf")
           (is (= spawned-id (:actor-id (:tags done)))
@@ -90,11 +81,7 @@
         (let [destroyed (first (ops @traces :rf.machine/destroyed))]
           (is (some? destroyed) ":rf.machine/destroyed fired on auto-destroy")
           (is (= spawned-id (:actor-id (:tags destroyed)))
-              "destroyed carries the reaped actor INSTANCE under :actor-id"))
-        (let [released (first (ops @traces :rf.machine/system-id-released))]
-          (is (some? released) ":rf.machine/system-id-released fired")
-          (is (= spawned-id (:actor-id (:tags released)))
-              "system-id-released carries the live INSTANCE under :actor-id"))))))
+              "destroyed carries the reaped actor INSTANCE under :actor-id"))))))
 
 (deftest spawned-trace-keeps-machine-id-for-the-type
   (testing "rf2-ws5thu — the spawn observation rows keep :machine-id = the registered TYPE alongside :spawned-id = the instance"

@@ -9,7 +9,7 @@
   in-flight event and publish a same-id successor B before returning. The
   spawn cascade reads A's runtime-db ONCE (`old-rt`), derives an id allocation
   and initial snapshot from it, then runs the schema validator; every
-  subsequent framework action — the snapshot / system-id / spawn-slot install,
+  subsequent framework action — the snapshot / spawn-slot install,
   per-instance classification lowering, the spawn-order record, the two
   spawned traces, and the `:start` (or synthetic) dispatch — is A-derived
   tail. A bare-id `swap-runtime-db!` at install time resolves the CURRENT

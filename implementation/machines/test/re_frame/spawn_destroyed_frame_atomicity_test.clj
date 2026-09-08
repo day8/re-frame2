@@ -7,7 +7,7 @@
   `spawned-id` (the `:else` branch).
 
   The WHOLE accepted-spawn cascade — the `:rf.machine.spawn/spawned`
-  trace, the snapshot / system-id / spawn-slot install, and the `:start`
+  trace, the snapshot / spawn-slot install, and the `:start`
   (or synthetic) dispatch — is gated on `(and (not rejected?) old-rt)`, so
   a dead-frame spawn is a clean no-op: no trace, no install, no dispatch,
   nil returned. This keeps the spawn atomic — there is never a phantom

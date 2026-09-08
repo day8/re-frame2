@@ -16,14 +16,14 @@
   Five tails, each with a live-owner control (the fence is scoped to owner-loss
   only, never over-eager):
 
-    1. ORDINARY DESTROY terminal fence — the `:rf.machine/system-id-released`
+    1. ORDINARY DESTROY terminal fence — the `:rf.machine/destroyed`
        trace + `rf.registrar/unregister!` no longer share one precheck: a listener
        that publishes same-id B and registers B's handler survives A's unregister.
     2. SPAWN classification-lowering seam — a container-write loss DURING
        `lower-at-spawn!` fences the bare-id `rf.machines.spawn-order/record!` (A's ghost child
        must not land in B's spawn-order).
     3. FINALIZE classification-drop seam — a loss DURING `drop-at-destroy!` fences
-       the bare-id `rf.machines.spawn-order/forget!` + system-id release (B's spawn-order must
+       the bare-id `rf.machines.spawn-order/forget!` (B's spawn-order must
        survive; finalize returns inert).
     4. `destroy-single-actor!` success report — reports success ONLY when the
        teardown actually committed while authority stayed exact, so `:spawn-all`
@@ -62,7 +62,6 @@
 (def ^:private actor-type :rf2-rbxdxa/child)
 
 (defn- snapshot-path [id] [:rf.runtime/machines :snapshots id])
-(defn- system-id-path [sid] [:rf.runtime/machines :system-ids sid])
 
 (defn- actor-spec
   "A spawned-actor spec whose `:running` `:exit` fires `on-exit` (used to drive
@@ -75,28 +74,26 @@
 
 (defn- seed-actor!
   "Seed a live spawned actor `actor-id` into `frame-id`: snapshot (with the
-  spawned-actor `:rf/machine-type` discriminator), a `:system-id` reverse-index
-  binding, and a spawn-order entry. Registers the TYPE so the spec (+ its `:exit`
-  hook) resolves off the snapshot."
-  [frame-id actor-id sid on-exit]
+  spawned-actor `:rf/machine-type` discriminator) and a spawn-order entry.
+  Registers the TYPE so the spec (+ its `:exit` hook) resolves off the
+  snapshot."
+  [frame-id actor-id on-exit]
   (rf/reg-machine actor-type (actor-spec on-exit))
   (rf.frame/swap-runtime-db!
     frame-id
-    (fn [rt] (-> rt
-                 (assoc-in (snapshot-path actor-id)
-                           {:state           :running
-                            :data            {:rf/self-id actor-id}
-                            :rf/machine-type actor-type})
-                 (assoc-in (system-id-path sid) actor-id))))
+    (fn [rt] (assoc-in rt (snapshot-path actor-id)
+                       {:state           :running
+                        :data            {:rf/self-id actor-id}
+                        :rf/machine-type actor-type})))
   (rf.machines.spawn-order/record! frame-id actor-id))
 
 ;; ===========================================================================
-;; (1) ORDINARY DESTROY — the terminal fence: `:rf.machine/system-id-released`
+;; (1) ORDINARY DESTROY — the terminal fence: `:rf.machine/destroyed`
 ;;     trace + `rf.registrar/unregister!` must NOT share one precheck.
 ;; ===========================================================================
 
 (deftest ordinary-destroy-preserves-successor-registrar-handoff
-  (testing "a `:rf.machine/system-id-released` listener destroys A, publishes
+  (testing "a `:rf.machine/destroyed` listener destroys A, publishes
             same-id B and registers B's fresh event handler at `actor-id` ON THAT
             TRACE's stack: ownership is rechecked AFTER the trace, so A's
             `rf.registrar/unregister!` cannot clear B's just-registered handler.
@@ -105,15 +102,14 @@
     (rf.machines.spawn-order/reset-all!)
     (let [frame-a  :rf2-rbxdxa/released-frame
           actor-id (keyword "rf2-rbxdxa" "released#1")
-          sid      :rf2-rbxdxa/released-sid
           b-meta   {:fn (fn [db _] db) :rf/provenance :successor-B}
           fired?   (atom false)]
       (rf/make-frame {:id frame-a})
-      (seed-actor! frame-a actor-id sid nil)          ;; spawned actor: NO registrar entry
+      (seed-actor! frame-a actor-id nil)          ;; spawned actor: NO registrar entry
       (rf.trace.tooling/register-listener!
         ::released-handoff
         (fn [ev]
-          (when (and (= :rf.machine/system-id-released (:operation ev))
+          (when (and (= :rf.machine/destroyed (:operation ev))
                      (compare-and-set! fired? false true))
             (rf.frame/destroy-frame! frame-a)            ;; destroy A
             (rf/make-frame {:id frame-a})             ;; same-id B
@@ -123,7 +119,7 @@
         (let [token-a (rf.frame/frame-incarnation-token frame-a)]
           (rf.frame/call-with-event-owner-token frame-a token-a
             (fn [] (rf.machines.lifecycle-fx.destroy/destroy-machine-fx {:frame frame-a} actor-id))))
-        (is (true? @fired?) "the system-id-released listener ran (fence exercised)")
+        (is (true? @fired?) "the destroyed listener ran (fence exercised)")
         (is (= b-meta (rf.registrar/lookup :event actor-id))
             "successor B's event handler + provenance SURVIVED — A's unregister was fenced")
         (finally
@@ -136,10 +132,9 @@
             owner-loss only — a live destroy still unregisters."
     (rf.machines.spawn-order/reset-all!)
     (let [frame-a  :rf2-rbxdxa/live-unregister-frame
-          actor-id (keyword "rf2-rbxdxa" "live-unregister#1")
-          sid      :rf2-rbxdxa/live-unregister-sid]
+          actor-id (keyword "rf2-rbxdxa" "live-unregister#1")]
       (rf/make-frame {:id frame-a})
-      (seed-actor! frame-a actor-id sid nil)
+      (seed-actor! frame-a actor-id nil)
       ;; Install a registrar entry so there is something to clear.
       (rf.registrar/register! :event actor-id {:fn (fn [db _] db) :rf/provenance :A})
       (try
@@ -194,7 +189,6 @@
             (rf.frame/call-with-event-owner-token frame-a token-a
               (fn [] (rf.machines.lifecycle-fx.spawn/spawn-fx {:frame frame-a}
                                      {:machine-id actor-type
-                                      :system-id  :rf2-rbxdxa/spawn-class-sid
                                       :start      [:go]})))))
         (is (true? @fired?) "the classification-lowering loss ran (fence exercised)")
         (is (empty? (rf.machines.spawn-order/frame-order frame-a))
@@ -217,7 +211,6 @@
           (rf.frame/call-with-event-owner-token frame-a token-a
             (fn [] (rf.machines.lifecycle-fx.spawn/spawn-fx {:frame frame-a}
                                    {:machine-id actor-type
-                                    :system-id  :rf2-rbxdxa/spawn-class-live-sid
                                     :start      [:go]}))))
         (let [order (vec (rf.machines.spawn-order/frame-order frame-a))]
           (is (= 1 (count order))
@@ -229,7 +222,7 @@
 
 ;; ===========================================================================
 ;; (3) FINALIZE — the classification-drop seam: a loss DURING `drop-at-destroy!`
-;;     must fence the bare-id `rf.machines.spawn-order/forget!` + system-id release.
+;;     must fence the bare-id `rf.machines.spawn-order/forget!`.
 ;; ===========================================================================
 
 (defn- finishing-machine [frame-id]
@@ -241,29 +234,26 @@
 
 (defn- finishing-snapshot [] {:state :done :data {:result 42}})
 
-(defn- seed-finishing! [frame-id machine-id sid]
+(defn- seed-finishing! [frame-id machine-id]
   (rf.frame/swap-runtime-db!
     frame-id
-    (fn [rt] (-> rt
-                 (assoc-in (snapshot-path machine-id) (finishing-snapshot))
-                 (assoc-in (system-id-path sid) machine-id))))
+    (fn [rt] (assoc-in rt (snapshot-path machine-id) (finishing-snapshot))))
   (rf.machines.spawn-order/record! frame-id machine-id))
 
 (deftest finalize-classification-drop-loss-fences-spawn-order-forget
   (testing "a loss DURING the finalize `drop-at-destroy!` (destroy A + publish
             same-id B, re-seeding B's spawn-order entry): ownership is rechecked
-            AFTER the classification drop, so the bare-id `rf.machines.spawn-order/forget!` +
-            system-id release do NOT run against B, and finalize returns the inert
+            AFTER the classification drop, so the bare-id `rf.machines.spawn-order/forget!`
+            does NOT run against B, and finalize returns the inert
             outcome. Mutation tooth: the grouped precheck lets the forget erase B's
             freshly-recorded spawn-order entry."
     (rf.machines.spawn-order/reset-all!)
     (let [frame-a    :rf2-rbxdxa/finalize-class-frame
           machine-id :rf2-rbxdxa/finalize-class-machine
-          sid        :rf2-rbxdxa/finalize-class-sid
           fired?     (atom false)]
       (rf/reg-machine machine-id (finishing-machine frame-a))
       (rf/make-frame {:id frame-a})
-      (seed-finishing! frame-a machine-id sid)
+      (seed-finishing! frame-a machine-id)
       ;; `with-redefs` restores `drop-at-destroy!` automatically on body exit.
       ;; MULTI-arity stub matching the real `[3]`/`[4]` arities (see the spawn
       ;; fixture note): finalize.cljc calls the 4-arity, a direct `arity$4` invoke
@@ -298,11 +288,10 @@
             runtime-db. The recheck must not suppress the live teardown."
     (rf.machines.spawn-order/reset-all!)
     (let [frame-a    :rf2-rbxdxa/finalize-class-live-frame
-          machine-id :rf2-rbxdxa/finalize-class-live-machine
-          sid        :rf2-rbxdxa/finalize-class-live-sid]
+          machine-id :rf2-rbxdxa/finalize-class-live-machine]
       (rf/reg-machine machine-id (finishing-machine frame-a))
       (rf/make-frame {:id frame-a})
-      (seed-finishing! frame-a machine-id sid)
+      (seed-finishing! frame-a machine-id)
       (let [token-a (rf.frame/frame-incarnation-token frame-a)
             ret     (rf.frame/call-with-event-owner-token frame-a token-a
                       (fn []
@@ -313,9 +302,7 @@
         (is (empty? (rf.machines.spawn-order/frame-order frame-a))
             "the live finalize forgot the actor from spawn-order")
         (is (nil? (get-in (:rf.db/runtime ret) (snapshot-path machine-id)))
-            "the live finalize dissoc'd the actor's snapshot in the returned runtime-db")
-        (is (nil? (get-in (:rf.db/runtime ret) (system-id-path sid)))
-            "the live finalize released the :system-id binding")))))
+            "the live finalize dissoc'd the actor's snapshot in the returned runtime-db")))))
 
 ;; ===========================================================================
 ;; (4) `destroy-single-actor!` — success report only on a genuine teardown.
@@ -331,14 +318,13 @@
     (rf.machines.spawn-order/reset-all!)
     (let [frame-a  :rf2-rbxdxa/single-abort-frame
           actor-id (keyword "rf2-rbxdxa" "single-abort#1")
-          sid      :rf2-rbxdxa/single-abort-sid
           fired?   (atom false)]
       (rf/make-frame {:id frame-a})
       (let [destroy+B! (fn []
                          (when (compare-and-set! fired? false true)
                            (rf.frame/destroy-frame! frame-a)
                            (rf/make-frame {:id frame-a})))]
-        (seed-actor! frame-a actor-id sid destroy+B!)   ;; :exit fires destroy+B!
+        (seed-actor! frame-a actor-id destroy+B!)   ;; :exit fires destroy+B!
         (let [token-a (rf.frame/frame-incarnation-token frame-a)
               fence   {:owner-gone? (fn [] (not (rf.frame/event-continuation-live? frame-a token-a)))
                        :owner-token token-a}
@@ -355,10 +341,9 @@
             exactly once for a genuinely-torn-down child."
     (rf.machines.spawn-order/reset-all!)
     (let [frame-a  :rf2-rbxdxa/single-live-frame
-          actor-id (keyword "rf2-rbxdxa" "single-live#1")
-          sid      :rf2-rbxdxa/single-live-sid]
+          actor-id (keyword "rf2-rbxdxa" "single-live#1")]
       (rf/make-frame {:id frame-a})
-      (seed-actor! frame-a actor-id sid nil)
+      (seed-actor! frame-a actor-id nil)
       (let [token-a (rf.frame/frame-incarnation-token frame-a)
             fence   {:owner-gone? (fn [] (not (rf.frame/event-continuation-live? frame-a token-a)))
                      :owner-token token-a}

@@ -16,7 +16,6 @@
         `:parent-id`; `:rf.machine/destroyed` is enriched with `:reason`.
    D7 — Singleton symmetry — a non-spawned machine reaching `:final?`
         also auto-destroys.
-   D8 — `:system-id` reverse-index clears AFTER `:on-done` ran.
    D9 — Implemented now (not deferred).
    D10 — `:fsm/final-states` capability axis.
 
@@ -33,7 +32,6 @@
    ;; re-frame.core preserve the `rf/<name>` shape, but on CLJS the
    ;; tooling sibling must be referenced directly.
    [re-frame.trace.tooling :as rf.trace.tooling]
-   [re-frame.machines :as rf.machines]
    [re-frame.machines.test-support :as rf.machines.test-support]
    [re-frame.registrar :as rf.registrar]
    #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
@@ -193,15 +191,14 @@
         (is (nil? (-> (first dones) :tags :parent-id))
             ":parent-id is nil for singletons (D7)")))))
 
-;; ---- (f) [:rf.runtime/machines :system-ids ...] reverse-index clears at teardown -----
+;; ---- (f) the child's snapshot is gone by the time :on-done folds -----
 
-(deftest system-id-clears-at-child-teardown
-  (testing "D8: the [:rf.runtime/machines :system-ids <sid>] reverse-index entry
-            clears with the child's teardown, so the parent's :on-done fold —
-            which runs at the PARENT's boundary on the completion carrier, after
-            the child is gone — sees no binding. A binding that still resolved
-            would name a destroyed actor."
-    (let [on-done-saw-sid (atom nil)]
+(deftest child-snapshot-cleared-at-child-teardown
+  (testing "D8: the child's snapshot clears with its teardown, so the parent's
+            :on-done fold — which runs at the PARENT's boundary on the
+            completion carrier, after the child is gone — observes no live
+            child. A snapshot that still resolved would name a destroyed actor."
+    (let [on-done-saw-snapshot (atom :unset)]
       (rf/reg-machine :rf2-gn80/sid-child
         {:initial :running
          :data    {}
@@ -215,24 +212,22 @@
          :states
          {:working
           {:spawn {:machine-id :rf2-gn80/sid-child
-                    :system-id  :auth-actor
                     :on-done (fn [{d :data r :result}]
                                   ;; D8: by the time this fold runs the child
-                                  ;; has completed and been torn down, so the
-                                  ;; system-id binding is already released.
-                                  (reset! on-done-saw-sid
-                                          (rf.machines/machine-by-system-id :auth-actor))
+                                  ;; has completed and been torn down.
+                                  (reset! on-done-saw-snapshot
+                                          (snapshot :rf2-gn80/sid-child#1))
                                   (assoc d :result r))}}}})
       (rf/dispatch-sync [:rf2-gn80/sid-parent [:rf.machine.spawn/spawned]])
       (let [spawned-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                [:rf.runtime/machines :spawned :rf2-gn80/sid-parent [:working]])]
-        (is (= spawned-id (rf.machines/machine-by-system-id :auth-actor))
-            ":system-id is bound while the child is running")
+        (is (some? (snapshot spawned-id))
+            "the child's snapshot is live while it is running")
         (rf/dispatch-sync [spawned-id [:fin]])
-        (is (nil? @on-done-saw-sid)
-            ":on-done saw NO :system-id binding — the child was already torn down when its completion reached the parent (D8)")
-        (is (nil? (rf.machines/machine-by-system-id :auth-actor))
-            ":system-id binding is cleared (D8)")
+        (is (nil? @on-done-saw-snapshot)
+            ":on-done saw NO live child snapshot — the child was already torn down when its completion reached the parent (D8)")
+        (is (nil? (snapshot spawned-id))
+            "the child's snapshot is cleared (D8)")
         (is (= :sid-child/value (:result (:data (snapshot :rf2-gn80/sid-parent))))
             "the fold still ran and still received the child's :output-key value")))))
 

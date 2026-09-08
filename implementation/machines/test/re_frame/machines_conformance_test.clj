@@ -180,7 +180,6 @@
     :actor/spawn-destroy
     :actor/declarative-spawn
     :actor/spawn-and-join
-    :actor/system-id
     :actor/own-state
     ;; :core/* tags appear on a few machine fixtures alongside the FSM
     ;; capability they exercise (e.g. tags-round-trip-pr-str declares

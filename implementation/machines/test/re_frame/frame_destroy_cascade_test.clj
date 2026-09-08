@@ -10,9 +10,8 @@
     disposes / substrate releases / `:frame/destroyed` traces.
 
   The cascade runs the `:exit` actions, unregisters the spawned-actor
-  handlers, clears the `[:rf.runtime/machines :system-ids]` reverse index,
-  and enforces the reverse-creation ordering — alongside aborting in-flight
-  HTTP and emitting `:rf.machine.lifecycle/destroyed`.
+  handlers, and enforces the reverse-creation ordering — alongside aborting
+  in-flight HTTP and emitting `:rf.machine.lifecycle/destroyed`.
 
   These JVM-side tests run on the plain-atom substrate against the
   late-bound `:machines/teardown-on-frame-destroy!` hook that the
@@ -129,35 +128,6 @@
           "the singleton `:fc/child` machine handler stays globally registered")
       (is (some? (rf.registrar/lookup :event :fc/boot))
           "the singleton `:fc/boot` machine handler stays globally registered"))))
-
-;; ---- [:rf.runtime/machines :system-ids] reverse index is released -------
-
-(deftest frame-destroy-releases-system-id-reverse-index
-  (testing "destroy-frame! clears [:rf.runtime/machines :system-ids <sid>] for every system-id-bound spawned actor"
-    (rf/make-frame {:id :si/auth :doc "system-id reverse-index test frame"})
-    (let [child   {:initial :running :data {} :states {:running {}}}
-          parent  {:initial :idle
-                   :data    {}
-                   :states
-                   {:idle {:on {:bind {:action (fn [_]
-                                         {:fx [[:rf.machine/spawn
-                                                {:machine-id :si/child
-                                                 :id-prefix  :si/child
-                                                 :system-id  :session/primary}]]})}}}}}]
-      (rf/reg-machine :si/child child)
-      (rf/reg-machine :si/boot parent)
-      (rf/dispatch-sync [:si/boot [:bind]] {:frame :si/auth})
-      ;; The reverse index is bound before destroy.
-      (let [db (:rf.db/runtime (rf/frame-state-value :si/auth))]
-        (is (= :si/child#1 (get-in db [:rf.runtime/machines :system-ids :session/primary]))
-            "system-id was bound to the spawned actor before destroy"))
-      (rf/destroy-frame! :si/auth)
-      ;; Frame is gone — and the actor's handler was unregistered as
-      ;; part of the cascade.
-      (is (nil? (rf.frame/frame :si/auth))
-          "frame was destroyed")
-      (is (nil? (rf.registrar/lookup :event :si/child#1))
-          "the system-id-bound spawned actor was unregistered (its [:rf.runtime/machines :system-ids] entry was implicitly released as part of the unified teardown projection)"))))
 
 ;; ---- :rf.machine.lifecycle/destroyed trace contract ----------------------
 
@@ -308,8 +278,8 @@
 ;; PROCESS-SIDE (transient) `spawn-order` atom (Spec 002 §Durable vs
 ;; transient: the atom is runtime bookkeeping, not durable state). A restored
 ;; SPAWNED actor (snapshot carries `:rf/machine-type`) flows through the FULL
-;; `destroy-single-actor!` teardown — dissoc the snapshot, release the
-;; system-id reverse index, clear schema marks, cancel `:after` timers,
+;; `destroy-single-actor!` teardown — dissoc the snapshot, clear schema
+;; marks, cancel `:after` timers,
 ;; unregister a handler — in reverse-creation order read off the durable
 ;; `[:rf.runtime/machines :spawn-order]` vector, which rides the runtime-db
 ;; value through the round trip. (The straggler `run-singleton-exit-cascade!` path
@@ -394,36 +364,6 @@
                           (when (some? (:rf/machine-type snap)) id))
                         (runtime-snapshots :rs/auth)))
           "every restored spawned snapshot was dissoc'd (full teardown, not exit-only)"))))
-
-(deftest restored-spawned-snapshot-releases-system-id-index
-  (testing "destroy-frame! releases the system-id reverse index for a restored, spawn-order-less spawned actor"
-    (rf/make-frame {:id :rsi/auth :doc "restore system-id frame"})
-    (let [child  {:initial :running :data {} :states {:running {}}}
-          boot   {:initial :idle
-                  :data    {}
-                  :states
-                  {:idle {:on {:bind {:action (fn [_]
-                                        {:fx [[:rf.machine/spawn
-                                               {:machine-id :rsi/child
-                                                :id-prefix  :rsi/child
-                                                :system-id  :session/primary}]]})}}}}}]
-      (rf/reg-machine :rsi/child child)
-      (rf/reg-machine :rsi/boot boot)
-      (rf/dispatch-sync [:rsi/boot [:bind]] {:frame :rsi/auth})
-      (is (= :rsi/child#1
-             (get-in (:rf.db/runtime (rf/frame-state-value :rsi/auth))
-                     [:rf.runtime/machines :system-ids :session/primary]))
-          "system-id bound before restore")
-      ;; Restore: wipe the transient spawn-order; the durable snapshot +
-      ;; system-id reverse index survive.
-      (rf.machines.spawn-order/reset-all!)
-      (rf/destroy-frame! :rsi/auth)
-      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rsi/auth))
-                        [:rf.runtime/machines :system-ids :session/primary]))
-          "system-id reverse index released — only the full spawned teardown does this; the singleton straggler path leaves it bound")
-      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rsi/auth))
-                        [:rf.runtime/machines :snapshots :rsi/child#1]))
-          "restored spawned snapshot dissoc'd"))))
 
 (deftest restored-singleton-snapshot-keeps-singleton-straggler-path
   (testing "a restored SINGLETON snapshot (no :rf/machine-type) keeps the exit-only straggler path — handler survives, snapshot left for app-db release"

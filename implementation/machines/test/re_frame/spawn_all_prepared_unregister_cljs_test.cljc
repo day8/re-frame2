@@ -19,8 +19,8 @@
 
   THE MID-DRAIN MUTATOR THIS SUITE USES (rf2-wxy1c). These tests originally
   diverged the registrar from a TRACE LISTENER on
-  `:rf.machine.spawn-all/started` / `:rf.machine.spawn/spawned` /
-  `:rf.error/system-id-collision`. That instrument is gone: under the rf2-wxy1c
+  `:rf.machine.spawn-all/started` / `:rf.machine.spawn/spawned`.
+  That instrument is gone: under the rf2-wxy1c
   ruling trace listeners are OBSERVERS, not participants — internal drain-owned
   emits deliver at the POST-DRAIN boundary, so a listener body can no longer run
   between an admitted child's preparation and its install ON ANY PLATFORM. The
@@ -331,8 +331,8 @@
 ;; point before the runtime-db swap, so the rule decides against the registrar
 ;; as it stands at COMMIT. That placement stands unchanged. What no longer
 ;; exists is a way for APPLICATION code to act between `spawn-fx*`'s bindings
-;; and the write: the only callbacks there were the `:rf.machine.spawn/spawned`
-;; and `:rf.error/system-id-collision` traces, and under rf2-wxy1c those deliver
+;; and the write: the only callback there was the
+;; `:rf.machine.spawn/spawned` trace, and under rf2-wxy1c that delivers
 ;; post-drain. zo5n9's window is closed BY CONSTRUCTION rather than by late
 ;; selection, so it carries no separate red/green lever and the suites that used
 ;; to reach it through a listener are folded into the tests below.
@@ -435,32 +435,27 @@
         "no :rf.error/no-such-handler fired")))
 
 ;; ===========================================================================
-;; (7) The `install-spawn!` interior — two admitted children sharing a
-;;     `:system-id` make the second child's install fan the
-;;     `:rf.error/system-id-collision` trace and REBIND the name. That install
-;;     path is the tightest one the definition-lifetime rule has to hold on, so
+;; (7) The `install-spawn!` interior — the tightest path the
+;;     definition-lifetime rule has to hold on, so
 ;;     it is pinned here with the same non-listener mid-drain mutator: the
 ;;     rebound child's own validator diverges its TYPE, and its install must
 ;;     still land a pinned, resolvable definition.
 ;; ===========================================================================
 
-(deftest system-id-rebound-child-still-pins-its-prepared-definition
-  (testing "the colliding child's install — the one that rebinds a shared
-            :system-id — still cannot install a stale keyword: the rebound child
-            pins its prepared definition and bootstraps to :ready, and exactly
-            one collision trace fans for the invoke."
+(deftest second-child-install-still-pins-its-prepared-definition
+  (testing "the SECOND admitted child's install — the one running with a
+            sibling already installed — still cannot install a stale keyword:
+            it pins its prepared definition and bootstraps to :ready."
     (let [child-b (mutating-child booting-child
                                   #(rf.registrar/unregister! :event :sa/sys-b))]
       (rf/reg-machine :sa/sys-a booting-child)
       (rf/reg-machine :sa/sys-b child-b)
       (rf/reg-machine :sup/sys (parent-over
-                                 [{:id :a :machine-id :sa/sys-a :system-id :sys/shared}
-                                  {:id :b :machine-id :sa/sys-b :system-id :sys/shared}]))
+                                 [{:id :a :machine-id :sa/sys-a}
+                                  {:id :b :machine-id :sa/sys-b}]))
       (rf/dispatch-sync [:sup/sys [:start]])
       (let [slot  (join-slot :sup/sys)
             child (get (:children slot) :b)]
-        (is (= 1 (count (rf.machines.test-support/events-of :rf.error/system-id-collision)))
-            "the shared :system-id fanned exactly one collision trace (the second child's install)")
         (is (= child-b (type-ref-of child))
             "the rebound child pinned its prepared definition")
         (is (= :ready (rf.machines.test-support/machine-state child))

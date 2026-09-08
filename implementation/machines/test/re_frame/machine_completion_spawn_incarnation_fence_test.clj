@@ -16,7 +16,7 @@
       publishes same-id B was likewise unfenced.
     - Spawn: the accepted spawn cascade checked ownership ONCE (the schema-
       validator gate), then emitted the callback-bearing `:rf.machine.spawn/
-      spawned` (and `:rf.machine.lifecycle/spawned` / system-id-collision)
+      spawned` (and `:rf.machine.lifecycle/spawned`)
       traces before install / classification / spawn-order / dispatch. A trace
       LISTENER could replace A with B and the old cascade still committed
       framework-owned actions into B's name.

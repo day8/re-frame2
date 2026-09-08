@@ -557,7 +557,7 @@
   engine's `validation/known-spawn-spec-keys` (the retired `:timeout-ms` slot is
   excluded from the unknown-key scan so it never surfaces as an unknown key)."
   #{:machine-id :definition :data :id-prefix :on-done :on-error
-    :start :fixed-actor-id :system-id :timeout :on-timeout
+    :start :fixed-actor-id :timeout :on-timeout
     :id :source-coords :source-code})
 
 (def ^:private history-pseudo-keys
