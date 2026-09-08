@@ -26,7 +26,7 @@
        returns — never a silent nil.
     3. Subscribe + deref ONCE; a deref/computation throw returns
        `:reason :sub-error` (a structured error, not a bare nil).
-    4. ELIDE the value server-side through `re-frame.core/elide-wire-value`
+    4. PROJECT the value server-side through `re-frame.core/project-egress`
        (the privacy posture, exactly like `snapshot`'s `:sub-cache` slice
        and `get-path`) — declared-sensitive values redact to
        `:rf/redacted`, declared-large values elide to
@@ -93,31 +93,30 @@
 (defn- read-sub-form
   "Build the eval form: call the runtime `read-sub!` (validate → resolve
   frame → subscribe + deref once), then — on a hit — run the `:value`
-  through `re-frame.core/elide-wire-value` server-side before it crosses
+  through `re-frame.core/project-egress` server-side before it crosses
   the nREPL wire. The error envelopes (`:unknown-id` / `:ambiguous-frame`
   / `:sub-error` / `:not-a-sub-vector`) carry no `:value` slot, so the
-  elision walk fires only on `(:ok? res)`.
+  projection fires only on `(:ok? res)`.
 
-  `walk?` — whether the walker fires at all. NOT
-  `elision?`: a bare `:elision false` still walks (sensitive redacts,
-  large passes via `elision-opts`); only a deliberate full-raw opt-in
-  (`:elision false` AND `:include-sensitive true`) ships the value bare."
-  [query-v frame walk? frame-edn elision-opts]
+  rf2-kuky.88 — the door is called unconditionally and the profile named
+  in `egress-opts` decides the floor. A bare `:elision false` still
+  redacts sensitive (large passes via the overlay); only a deliberate
+  full-raw opt-in (`:elision false` AND `:include-sensitive true`) names
+  `:rf.egress/local-raw`, under which the projection is the identity."
+  [query-v frame frame-edn egress-opts]
   (let [read-call (if frame
                     (ef/rt-call 'read-sub! query-v frame)
                     (ef/rt-call 'read-sub! query-v))]
-    (if-not walk?
-      (ef/emit read-call)
-      (ef/emit
-        (ef/rt-let
-          ['res read-call]
-          (ef/rt-raw
-            (str "(if (:ok? res)"
-                 "  (update res :value"
-                 "    (fn [v] (re-frame.core/elide-wire-value v"
-                 "              (merge {:query-v (:query-v res) :frame " frame-edn "}"
-                 "                     " elision-opts "))))"
-                 "  res)")))))))
+    (ef/emit
+      (ef/rt-let
+        ['res read-call]
+        (ef/rt-raw
+          (str "(if (:ok? res)"
+               "  (update res :value"
+               "    (fn [v] (re-frame.core/project-egress v"
+               "              (merge {:query-v (:query-v res) :frame " frame-edn "}"
+               "                     " egress-opts "))))"
+               "  res)"))))))
 
 (defn read-sub-tool [conn raw-args]
   (let [build-id (wire/arg-build conn raw-args)
@@ -133,14 +132,16 @@
         incl?    (if (raw-state/raw-state-allowed?)
                    (args/parse-bool-arg raw-args :include-sensitive)
                    false)
-        ;; `elision-opts-edn` takes walker-aligned `include-large?` — MCP
+        ;; `egress-opts-edn` takes walker-aligned `include-large?` — MCP
         ;; `elision` true = emit markers = `:rf.size/include-large?` false.
-        elision-opts (elision/elision-opts-edn (not elision?) incl?)
-        ;; Fail-CLOSED: walk UNLESS the caller opted into
-        ;; both raw axes (`:elision false` AND `:include-sensitive true`).
-        ;; A bare `:elision false` still walks so a declared-sensitive sub
-        ;; value redacts to `:rf/redacted` while large content passes.
-        walk?        (elision/walk-required? (not elision?) incl?)
+        ;; Fail-CLOSED: the door is ALWAYS called (rf2-kuky.88) and the
+        ;; NAMED profile decides the floor. A bare `:elision false` stays
+        ;; on `:rf.egress/off-box-tool` with a large-inclusion overlay, so
+        ;; a declared-sensitive sub value still redacts to `:rf/redacted`
+        ;; while large content passes; only the deliberate both-axes
+        ;; opt-in names `:rf.egress/local-raw`, under which the projection
+        ;; is the identity.
+        egress-opts  (elision/egress-opts-edn (not elision?) incl?)
         frame-edn    (if frame
                        (pr-str frame)
                        (ef/emit (ef/rt-call 'current-frame)))
@@ -151,7 +152,7 @@
 
       :ok
       (let [query-v payload
-            form    (read-sub-form query-v frame walk? frame-edn elision-opts)]
+            form    (read-sub-form query-v frame frame-edn egress-opts)]
         (probe/eval-after-runtime-signalled!
           conn build-id form :read-sub-failed
           (fn [envelope]

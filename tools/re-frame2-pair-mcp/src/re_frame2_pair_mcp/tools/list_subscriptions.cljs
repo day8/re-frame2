@@ -60,7 +60,7 @@
   sub-cache source `snapshot`'s `:sub-cache` slice reads, and a sub
   whose value derives from a declared-sensitive app-db slot would
   otherwise ride off-box verbatim. The eval form wraps each entry's
-  `:value` through `re-frame.core/elide-wire-value` server-side — the
+  `:value` through `re-frame.core/project-egress` server-side — the
   SAME redaction `snapshot` applies to its `:sub-cache` slice — so a
   declared-sensitive value redacts to `:rf/redacted` and a declared-
   large value elides to `:rf.size/large-elided` when the
@@ -106,26 +106,28 @@
         frame-edn     (if frame
                         (pr-str frame)
                         (ef/emit (ef/rt-call 'current-frame)))
-        elision-opts  (elision/elision-opts-edn (not elision?) incl-sensitive?)
-        ;; Fail-CLOSED: walk UNLESS the caller opted into
-        ;; both raw axes (`:elision false` AND `:include-sensitive true`).
-        ;; A bare `:elision false` still walks so a declared-sensitive sub
-        ;; `:value` redacts to `:rf/redacted` while large content passes.
-        walk?         (elision/walk-required? (not elision?) incl-sensitive?)
+        ;; Fail-CLOSED: the door is ALWAYS called on a value-bearing read
+        ;; (rf2-kuky.88) and the NAMED profile decides the floor. A bare
+        ;; `:elision false` stays on `:rf.egress/off-box-tool` with a
+        ;; large-inclusion overlay, so a declared-sensitive sub `:value`
+        ;; still redacts to `:rf/redacted` while large content passes;
+        ;; only the deliberate both-axes opt-in names
+        ;; `:rf.egress/local-raw`, under which the projection is the
+        ;; identity.
+        egress-opts   (elision/egress-opts-edn (not elision?) incl-sensitive?)
         base-call     (ef/emit (ef/rt-call 'sub-cache-info opts))
-        ;; When values ride the wire AND the walker is
-        ;; required, map each `:subs` entry's `:value` through
-        ;; `elide-wire-value` server-side before the result ships. The
-        ;; query-vectors-only shape (`:include-values false`) carries no
-        ;; `:value` slots, so the wrap is skipped entirely there.
-        form     (if (and incl-vals? walk?)
+        ;; When values ride the wire, map each `:subs` entry's `:value`
+        ;; through `project-egress` server-side before the result ships.
+        ;; The query-vectors-only shape (`:include-values false`) carries
+        ;; no `:value` slots, so the wrap is skipped entirely there.
+        form     (if incl-vals?
                    (ef/emit
                      (ef/rt-let
                        ['res (ef/rt-raw base-call)]
                        (ef/rt-raw
                          (str "(if (and (map? res) (vector? (:subs res)))"
                               "  (update res :subs (fn [ss] (mapv "
-                              (elision/elide-sub-value-src frame-edn elision-opts)
+                              (elision/project-sub-value-src frame-edn egress-opts)
                               " ss)))"
                               "  res)"))))
                    base-call)]

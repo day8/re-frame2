@@ -71,21 +71,21 @@
   `:held? false` every tick (a no-predicate watch can only time out — the
   refusal is enforced at the tool boundary, so this is defensive).
 
-  `elision-opts` (the rendered `elision-opts-edn` walker
-  map) rides as the 3rd `sample-signals` arg so each sampled `:app-db` /
-  `:sub` value is elided for off-box egress (the `:sample` slot is what
+  `egress-opts` (the rendered `egress-opts-edn` map naming the
+  `:rf.egress/*` profile) rides as the 3rd `sample-signals` arg so each
+  sampled `:app-db` / `:sub` value is projected for off-box egress (the `:sample` slot is what
   the tool egresses on a hold AND the `:last-sample` on timeout). When no
   explicit `frame` is supplied the form resolves the operating frame via
   the runtime's `current-frame` so the 3-arity (which carries the elision
   opts) is always reached — the bare 1-arity would skip the redaction."
-  [signals frame pred-src elision-opts]
+  [signals frame pred-src egress-opts]
   (let [frame-src   (if frame
                       (ef/emit frame)
                       (ef/emit (ef/rt-call 'current-frame)))
         sample-call (ef/rt-call 'sample-signals
                                 signals
                                 (ef/rt-raw frame-src)
-                                (ef/rt-raw elision-opts))]
+                                (ef/rt-raw egress-opts))]
     (ef/emit
       (ef/rt-let
         ['r       sample-call
@@ -141,7 +141,7 @@
         incl?      (if (raw-state/raw-state-allowed?)
                      (args/parse-bool-arg raw-args :include-sensitive)
                      false)
-        elision-opts (elision/elision-opts-edn (not elision?) incl?)]
+        egress-opts (elision/egress-opts-edn (not elision?) incl?)]
     (cond
       ;; A bad `:timeout-ms` is a caller error worth telling the agent
       ;; about, not a value to silently paper over with the default.
@@ -165,7 +165,7 @@
                       "or {:signal 0 :changed true}. Without one it can only time out.")}))
 
       :else
-      (let [form (watch-form signals frame pred-src elision-opts)]
+      (let [form (watch-form signals frame pred-src egress-opts)]
         (-> (probe/ensure-runtime! conn build-id)
             ;; Flip the runtime's raw-state gate to the OFF
             ;; posture before the first poll (the raw-state tap gate)

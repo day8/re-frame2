@@ -35,7 +35,7 @@
 
   Post-eval shrink pipeline lives in
   `re-frame2-pair-mcp.tools.wire-pipeline`. The eval form ran
-  `re-frame.core/elide-wire-value` server-side already; the
+  `re-frame.core/project-egress` server-side already; the
   `:scalar-value` arm of `run-wire-pipeline` just counts the
   resulting `:rf.size/large-elided` markers."
   (:require [re-frame2-pair-mcp.tools.eval-form :as ef]
@@ -48,18 +48,24 @@
             [re-frame2-pair-mcp.tools.raw-state :as raw-state]
             [re-frame2-pair-mcp.tools.reserved-frame-guard :as guard]))
 
-(defn- elide-call-src
-  "CLJS source for `(elide-wire-value <value-sym> ...)` (or a verbatim
-  pass-through when elision is off). `value-sym` is the let-bound name
-  carrying the resolved value; `path-src` is the source for the `:path`
-  slot of the marker handle (a let-bound name or an EDN literal);
-  `frame-edn` / `elision-opts` are the merged walker opts."
-  [elision? value-sym path-src frame-edn elision-opts]
-  (if elision?
-    (str "(re-frame.core/elide-wire-value " value-sym
-         "  (merge {:path " path-src " :frame " frame-edn "}"
-         "         " elision-opts "))")
-    value-sym))
+(defn- project-call-src
+  "CLJS source for `(re-frame.core/project-egress <value-sym> ...)`.
+
+  `value-sym` is the let-bound name carrying the resolved value;
+  `path-src` is the source for the `:path` slot of the marker handle (a
+  let-bound name or an EDN literal); `frame-edn` / `egress-opts` are the
+  merged egress opts, the latter naming the `:rf.egress/*` profile.
+
+  rf2-kuky.88 — the door is called UNCONDITIONALLY. The former
+  `walk-required?` short-circuit skipped it under the deliberate full-raw
+  local opt-in; under `:rf.egress/local-raw` the projection is the
+  identity, so the only thing that short-circuit bought was one traversal,
+  and always calling the boundary is the safer shape on a privacy
+  surface."
+  [value-sym path-src frame-edn egress-opts]
+  (str "(re-frame.core/project-egress " value-sym
+       "  (merge {:path " path-src " :frame " frame-edn "}"
+       "         " egress-opts "))"))
 
 ;; The resolve-once-then-refuse wrapper this tool introduced (rf2-q17a)
 ;; now lives in `re-frame2-pair-mcp.tools.frame-resolve`, shared with
@@ -81,16 +87,14 @@
   still answers correctly. Elision + server-side marker count ride on
   the `:value` / `:elided-count` slots.
 
-  `walk?` — whether the per-slot walker fires at all. It
-  is NOT `elision?`: a bare `:elision false` still walks (sensitive
-  redacts, large passes); only a deliberate full-raw opt-in
-  (`:elision false` AND `:include-sensitive true`) skips it."
-  [snapshot-call path walk? frame-edn elision-opts]
-  (let [elide-call (elide-call-src walk? "v" "path" frame-edn elision-opts)
-        count-expr (if walk?
-                     (str "(count (filter #(and (map? %) (contains? % :rf.size/large-elided))"
-                          "               (tree-seq coll? seq elided-v)))")
-                     "0")]
+  rf2-kuky.88 — the door fires UNCONDITIONALLY; the profile named in
+  `egress-opts` decides what it does. Under `:rf.egress/local-raw` (the
+  deliberate full-raw opt-in) the projection is the identity, so the
+  marker count is naturally zero."
+  [snapshot-call path frame-edn egress-opts]
+  (let [elide-call (project-call-src "v" "path" frame-edn egress-opts)
+        count-expr (str "(count (filter #(and (map? %) (contains? % :rf.size/large-elided))"
+                        "               (tree-seq coll? seq elided-v)))")]
     (ef/emit
       (ef/rt-let
         ['db       snapshot-call
@@ -125,10 +129,10 @@
   order. The marker `:path` handle is the per-iteration path `p` so a
   drill-down via singular `get-path` lands on the right slot.
 
-  `walk?` — see `single-path-form`: the walker fires
-  unless the caller opted into full-raw egress."
-  [snapshot-call paths walk? frame-edn elision-opts]
-  (let [elide-call (elide-call-src walk? "raw-v" "p" frame-edn elision-opts)]
+  See `single-path-form`: the door fires unconditionally and the named
+  profile decides the floor (rf2-kuky.88)."
+  [snapshot-call paths frame-edn egress-opts]
+  (let [elide-call (project-call-src "raw-v" "p" frame-edn egress-opts)]
     (ef/emit
       (ef/rt-let
         ['db      snapshot-call
@@ -175,19 +179,19 @@
         incl?     (if (raw-state/raw-state-allowed?)
                     (args/parse-bool-arg raw-args :include-sensitive)
                     false)
-        ;; `elision-opts-edn` takes walker-aligned `include-large?`
+        ;; `egress-opts-edn` takes walker-aligned `include-large?`
         ;; polarity directly. MCP `elision` true = emit markers =
         ;; `:rf.size/include-large?` false; hence `(not elision?)`.
-        elision-opts  (elision/elision-opts-edn (not elision?) incl?)
-        ;; Fail-CLOSED: the walker runs UNLESS the caller opted into
-        ;; BOTH raw axes (`:elision false` ⇒ include-large? true AND
-        ;; `:include-sensitive true` ⇒ incl? true). A bare `:elision
-        ;; false` still walks — `elision-opts` overlays include-large?
-        ;; true so large passes, but include-sensitive? stays false so a
-        ;; frame-declared-sensitive slot still redacts to `:rf/redacted`.
-        ;; The `:elision` echo below still reports the caller's
+        ;; Fail-CLOSED: the rendered form always calls the door
+        ;; (rf2-kuky.88). A bare `:elision false` overlays
+        ;; `:rf.size/include-large? true` on the off-box-tool floor so
+        ;; large passes, while include-sensitive? stays at the profile's
+        ;; false so a frame-declared-sensitive slot still redacts to
+        ;; `:rf/redacted`. Only the deliberate BOTH-axes opt-in names
+        ;; `:rf.egress/local-raw`, under which the projection is the
+        ;; identity. The `:elision` echo below still reports the caller's
         ;; large-slot intent.
-        walk?         (elision/walk-required? (not elision?) incl?)
+        egress-opts   (elision/egress-opts-edn (not elision?) incl?)
         ;; ONE resolution, one truth: both forms read app-db through
         ;; the frame id `with-resolved-frame` binds, and hand that same
         ;; id to the walker. The former pair — `(snapshot)` for the read
@@ -272,7 +276,7 @@
         (run-eval
           (with-resolved-frame
             frame
-            (batch-paths-form snapshot-call paths walk? frame-edn elision-opts))
+            (batch-paths-form snapshot-call paths frame-edn egress-opts))
           :results
           ;; Mirror the singular arm and attach `:results` / `:elision`
           ;; only on a hit. An `:ambiguous-frame` refusal dressed with
@@ -297,7 +301,7 @@
       (run-eval
         (with-resolved-frame
           frame
-          (single-path-form snapshot-call path walk? frame-edn elision-opts))
+          (single-path-form snapshot-call path frame-edn egress-opts))
         (fn [envelope] (when (:ok? envelope) (:value envelope)))
         (fn [envelope' value]
           (let [ok? (:ok? envelope')]

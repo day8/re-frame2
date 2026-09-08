@@ -65,8 +65,13 @@
   `pipeline-exception-event?` is the ONE projection predicate every
   capture site consults — any of the three operations targeting the
   frame is a captured failure (spec/009 §Error contract)."
-  (:require [re-frame.elision :as rf.elision]
-            [re-frame.privacy :as rf.privacy]
+  (:require [re-frame.privacy    :as rf.privacy]
+            ;; The egress DOOR's home namespace (rf2-kuky.88). Reached
+            ;; here rather than through the `re-frame.core` facade
+            ;; because `re-frame.projection` requires only framework
+            ;; leaves, which keeps this ns at the leaf of the cycle graph
+            ;; — the same reason the walker was reached this way before.
+            [re-frame.projection :as rf.projection]
             ;; The canonical RAW trace-event frame reader
             ;; (`re-frame.trace/trace-event-frame`) — read the raw event's
             ;; frame through it, not a hand-rolled `[:tags :frame]` walk.
@@ -101,13 +106,23 @@
        (= frame-id (rf.trace/trace-event-frame ev))))
 
 (defn- elide-ex-data
-  "Project an `ex-data` map through `re-frame.elision/elide-wire-value`
+  "Project an `ex-data` map through `re-frame.projection/project-egress`
   keyed on `frame-id`, so author-keyed slots sourced from path-marked
   app-db paths record `:rf/redacted` rather than the raw value
-  (spec/002 §Error projection §Privacy). Record-don't-throw, but
+  (spec/002 §Error projection §Privacy).
+
+  Named boundary (rf2-kuky.88): `:rf.egress/local-redacted` — Story is
+  on-box, and that profile's `:rf.size/*` floor is exactly the all-false
+  floor the bare no-profile walk resolved to before, so the projection is
+  byte-identical. The door is reached through its HOME namespace
+  (`re-frame.projection`) rather than the `re-frame.core` facade, for the
+  same reason the walker was: `re-frame.projection` requires only
+  framework leaves, so this ns stays at the leaf of the cycle graph.
+
+  Record-don't-throw, but
   FAIL CLOSED (rf2-kuky.6): an elision error yields the
   `:rf/redacted` sentinel, never the raw `data`. This catch used to
-  return `data` — harmless while the walker could not reject an opts
+  return `data` — harmless while the door could not reject an opts
   map, and a LEAK the moment it could: once the egress opts map is
   closed, a stale or misspelled key here becomes a throw, and a throw
   that returns `data` ships the unprojected `ex-data`. Redaction
@@ -127,7 +142,8 @@
   (if (or (nil? data) (nil? frame-id))
     data
     (try
-      (rf.elision/elide-wire-value data {:frame frame-id})
+      (rf.projection/project-egress data {:frame             frame-id
+                                          :rf.egress/profile :rf.egress/local-redacted})
       (catch #?(:clj Throwable :cljs :default) _ rf.privacy/redacted-sentinel))))
 
 (defn throwable->error-map

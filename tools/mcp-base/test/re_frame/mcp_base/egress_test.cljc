@@ -14,11 +14,18 @@
 
   The per-server permission GATE (`--allow-sensitive-reads` + per-call
   `:include-sensitive`) stays an INTEGRATION test in each consumer; only
-  the pure posture→profile mapping is owned here."
+  the pure posture→profile mapping is owned here.
+
+  rf2-kuky.88 dropped the end-to-end posture→profile→`:rf.size/*` floor
+  test along with the pure-data mirror it read. mcp-base no longer
+  resolves a profile — every tool-side egress NAMES one and
+  `re-frame.core/project-egress` resolves it app-side — so the floors are
+  the framework's to pin, and `implementation/core` pins them. What
+  mcp-base still owns, and what stays pinned here, is that the mapping
+  returns a member of the closed enum."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
-            [re-frame.mcp-base.egress :as rf.mcp-base.egress]
-            [re-frame.mcp-base.vocab :as rf.mcp-base.vocab]))
+            [re-frame.mcp-base.egress :as rf.mcp-base.egress]))
 
 ;; ---------------------------------------------------------------------------
 ;; mcp-tool-profile — the pure two-value posture→profile mapping.
@@ -40,19 +47,3 @@
   ;; table can never leave this mapping pointing at a phantom profile.
   (is (contains? rf.mcp-base.egress/profiles (rf.mcp-base.egress/mcp-tool-profile false)))
   (is (contains? rf.mcp-base.egress/profiles (rf.mcp-base.egress/mcp-tool-profile true))))
-
-(deftest mcp-tool-profile-resolves-to-the-documented-floors
-  ;; End-to-end posture → profile → `:rf.size/*` floor, so mcp-base owns
-  ;; BOTH values' resolved semantics (not just the profile keyword).
-  (testing "off-box default (false): sensitive redacts, large elides, digests on"
-    (let [floor (rf.mcp-base.egress/profile-size-opts (rf.mcp-base.egress/mcp-tool-profile false))]
-      (is (false? (get floor rf.mcp-base.vocab/include-sensitive-opt)) "sensitive redacts off-box")
-      (is (false? (get floor rf.mcp-base.vocab/include-large-opt)) "large elides under off-box-tool floor")
-      (is (true?  (get floor rf.mcp-base.vocab/include-digests-opt))
-          "off-box-tool carries structural digests (§10 structural indicators)")))
-  (testing "trusted-local opt-in (true): sensitive AND large pass through"
-    (let [floor (rf.mcp-base.egress/profile-size-opts (rf.mcp-base.egress/mcp-tool-profile true))]
-      (is (true?  (get floor rf.mcp-base.vocab/include-sensitive-opt)) "sensitive passes raw (operator opt-in)")
-      (is (true?  (get floor rf.mcp-base.vocab/include-large-opt)) "local-raw includes large too")
-      (is (false? (get floor rf.mcp-base.vocab/include-digests-opt))
-          "local-raw ships the raw value, no structural digest"))))

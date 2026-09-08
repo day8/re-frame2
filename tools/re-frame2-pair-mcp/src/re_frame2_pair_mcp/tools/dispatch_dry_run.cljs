@@ -37,7 +37,7 @@
   keyspaces:
 
     - `:db-state-after-simulation` (the would-be app-db) is run
-      through `re-frame.core/elide-wire-value` SERVER-SIDE (app-side,
+      through `re-frame.core/project-egress` SERVER-SIDE (app-side,
       where the `[:rf.runtime/elision]` runtime-db registry is
       reachable) before the EDN crosses the wire. Large slots collapse
       to `:rf.size/large-elided` markers; declared-sensitive slots
@@ -150,7 +150,7 @@
   Each recorded fx call's `:args` is the RAW fx-handler argument — an
   HTTP request body, a dispatched event vector, a payment map. These are
   NOT rooted at the frame's app-db, so the schema-path-keyed
-  `elide-wire-value` walker CANNOT prove them safe. This is the same leak
+  `project-egress` path walk CANNOT prove them safe. This is the same leak
   class as an epoch record's `:effects[*].args`, which `projected-record`
   already fails closed off-box (`elide-effect-row`,
   `:include-fx-args? false`). Consistency wins: off-box egress FAILS
@@ -186,7 +186,7 @@
 
 (defn- elide-envelope-src
   "CLJS source for a fn that walks the runtime envelope's app-db-rooted
-  egress slot through `re-frame.core/elide-wire-value`:
+  egress slot through `re-frame.core/project-egress`:
 
     - `:db-state-after-simulation` — the would-be app-db verbatim.
 
@@ -211,15 +211,15 @@
   through untouched.
 
   `frame-edn` is the source for the `:frame` opt (a quoted keyword or
-  a runtime `current-frame` call) so the walker resolves the right
-  `[:rf.runtime/elision]` runtime-db registry; `elision-opts` is the rendered
-  `elision-opts-edn` map threading the `--allow-sensitive-reads` gate
-  through `:rf.size/include-sensitive?`."
-  [frame-edn elision-opts]
+  a runtime `current-frame` call) so the door resolves the right
+  `[:rf.runtime/elision]` runtime-db registry; `egress-opts` is the rendered
+  `egress-opts-edn` map naming the `:rf.egress/*` profile the
+  `--allow-sensitive-reads` gate resolved to."
+  [frame-edn egress-opts]
   (str "(fn [env]"
        "  (if (and (map? env) (:ok? env))"
-       "    (let [opts (merge {:frame " frame-edn "} " elision-opts ")"
-       "          f    (fn [v] (re-frame.core/elide-wire-value v opts))"
+       "    (let [opts (merge {:frame " frame-edn "} " egress-opts ")"
+       "          f    (fn [v] (re-frame.core/project-egress v opts))"
        "          env  (if (contains? env :db-state-after-simulation)"
        "                 (update env :db-state-after-simulation f) env)]"
        "      env)"
@@ -262,7 +262,7 @@
                        (args/parse-bool-arg raw-args :include-sensitive)
                        false)
         ;; :would-fire-effects[*].args are RAW fx-handler
-        ;; arguments NOT rooted at app-db, so `elide-wire-value` cannot
+        ;; arguments NOT rooted at app-db, so `project-egress` cannot
         ;; prove them safe (same leak class as an epoch record's
         ;; :effects[*].args). Off-box egress FAILS CLOSED: :args redacts to
         ;; :rf/redacted by default, matching `projected-record`. The
@@ -272,19 +272,20 @@
         incl-fx-args? (if (raw-state/raw-state-allowed?)
                         (args/parse-bool-arg raw-args :include-fx-args)
                         false)
-        ;; `elision-opts-edn` takes the walker-aligned `include-large?`
+        ;; `egress-opts-edn` takes the walker-aligned `include-large?`
         ;; polarity directly. MCP `elision` true = emit markers =
         ;; `:rf.size/include-large?` false; hence `(not elision?)`.
-        elision-opts (elision/elision-opts-edn (not elision?) incl?)
-        ;; Fail-CLOSED: the size walker over the app-db-rooted
-        ;; `:db-state-after-simulation` slot runs UNLESS the caller opted
-        ;; into BOTH raw axes (`:elision false` AND `:include-sensitive
-        ;; true`). A bare `:elision false` still walks so a declared-
-        ;; sensitive db slot redacts to `:rf/redacted` while large content
-        ;; passes — a gate-ON `:elision false` must not leak sensitive db
-        ;; state off-box. (The fx-args fail-close at stage 1 is
-        ;; independent and unaffected.)
-        walk?        (elision/walk-required? (not elision?) incl?)
+        ;; Fail-CLOSED: the app-db-rooted `:db-state-after-simulation`
+        ;; slot ALWAYS routes through the door (rf2-kuky.88) and the NAMED
+        ;; profile decides the floor. A bare `:elision false` stays on
+        ;; `:rf.egress/off-box-tool` with a large-inclusion overlay, so a
+        ;; declared-sensitive db slot still redacts to `:rf/redacted`
+        ;; while large content passes — a gate-ON `:elision false` must
+        ;; not leak sensitive db state off-box. Only the deliberate
+        ;; both-axes opt-in names `:rf.egress/local-raw`, under which the
+        ;; projection is the identity. (The fx-args fail-close at stage 1
+        ;; is independent and unaffected.)
+        egress-opts  (elision/egress-opts-edn (not elision?) incl?)
         frame-edn    (if frame
                        (pr-str frame)
                        (ef/emit (ef/rt-call 'current-frame)))
@@ -343,29 +344,26 @@
             ;;      `:include-fx-args true`). This runs on BOTH the
             ;;      elision-on and elision-off paths — turning the size
             ;;      walker off must NOT re-leak the unprovable fx args.
-            ;;   2. size-elision walk (when `elision?`) — the
+            ;;   2. egress projection (ALWAYS — rf2-kuky.88) — the
             ;;      app-db-rooted `:db-state-after-simulation` slot runs
-            ;;      through `re-frame.core/elide-wire-value`; the marker
-            ;;      count piggybacks on the same round-trip so the client
-            ;;      doesn't re-walk. When elision is OFF (operator opted in
-            ;;      via --allow-sensitive-reads + :elision false) the db slot
-            ;;      rides raw — but stage 1 still fail-closes the fx args.
+            ;;      through `re-frame.core/project-egress` under the NAMED
+            ;;      profile; the marker count piggybacks on the same
+            ;;      round-trip so the client doesn't re-walk. The full-raw
+            ;;      opt-in (--allow-sensitive-reads + :elision false +
+            ;;      :include-sensitive true) names `:rf.egress/local-raw`,
+            ;;      under which the projection is the identity and the
+            ;;      count is naturally zero — but stage 1 still
+            ;;      fail-closes the fx args.
             redact-src   (redact-fx-args-src (not incl-fx-args?))
-            form (if walk?
-                   (ef/emit
-                     (ef/rt-let
-                       ['env      (ef/rt-call 'dispatch-dry-run event-form opts-form)
-                        'redacted (ef/rt-raw (str "(" redact-src " env)"))
-                        'walked   (ef/rt-raw (str "(" (elide-envelope-src frame-edn elision-opts) " redacted)"))]
-                       (ef/rt-raw
-                         (str "{:value walked"
-                              " :elided-count (count (filter #(and (map? %) (contains? % :rf.size/large-elided))"
-                              "                              (tree-seq coll? seq walked)))}"))))
-                   (ef/emit
-                     (ef/rt-let
-                       ['env      (ef/rt-call 'dispatch-dry-run event-form opts-form)
-                        'redacted (ef/rt-raw (str "(" redact-src " env)"))]
-                       (ef/rt-raw "{:value redacted :elided-count 0}"))))]
+            form (ef/emit
+                   (ef/rt-let
+                     ['env      (ef/rt-call 'dispatch-dry-run event-form opts-form)
+                      'redacted (ef/rt-raw (str "(" redact-src " env)"))
+                      'walked   (ef/rt-raw (str "(" (elide-envelope-src frame-edn egress-opts) " redacted)"))]
+                     (ef/rt-raw
+                       (str "{:value walked"
+                            " :elided-count (count (filter #(and (map? %) (contains? % :rf.size/large-elided))"
+                            "                              (tree-seq coll? seq walked)))}"))))]
         (probe/eval-after-runtime-signalled!
           conn build-id form :dispatch-dry-run-failed
           (fn [resp]

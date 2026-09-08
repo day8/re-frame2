@@ -71,7 +71,6 @@
     dispatched into the frame). So the set is eight ids, only seven of
     which are registered."
   (:require [re-frame.core                :as rf]
-            [re-frame.elision             :as rf.elision]
             [re-frame.interop             :as rf.interop]
             [re-frame.privacy             :as rf.privacy]
             [re-frame.subs                :as rf.subs]
@@ -405,14 +404,22 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- redact-at
-  "Project `v` through `rf.elision/elide-wire-value` as if it lives at
+  "Project `v` through `rf/project-egress` as if it lives at
   `path` in `frame-id`'s app-db, so sensitive sub-paths (or a sensitive
-  root path) substitute `:rf/redacted`. A nil frame-id walks under no
-  frame, which is the walker's own fail-closed arm.
+  root path) substitute `:rf/redacted`. A nil frame-id projects under no
+  frame, which is the door's own fail-closed arm.
+
+  Named boundary (rf2-kuky.88): `:rf.egress/local-redacted`. Story is
+  ON-BOX — an assertion record is read by the local runner and the local
+  Story MCP surface, not shipped to a hosted sink — and that profile's
+  `:rf.size/*` floor (sensitive redact, large elide, no digests) is
+  EXACTLY the floor the bare no-profile walk resolved to before, so the
+  projection is byte-identical. Naming it replaces a hand-rolled default
+  with the boundary the ruling asks every egress site to state.
 
   Record-don't-throw, but FAIL CLOSED (rf2-kuky.6): an elision error
   yields the `:rf/redacted` sentinel, never `v`. This catch used to
-  return the raw value — harmless while the walker could not reject an
+  return the raw value — harmless while the door could not reject an
   opts map, and a LEAK the moment it could: once the egress opts map is
   closed, a stale or misspelled key here becomes a throw, and a throw
   that returns `v` ships the unprojected value to the very record the
@@ -420,8 +427,9 @@
   the assertion — it just cannot be the thing that opens the door."
   [frame-id path v]
   (try
-    (rf.elision/elide-wire-value v (cond-> {:path (vec path)}
-                                  frame-id (assoc :frame frame-id)))
+    (rf/project-egress v (cond-> {:path              (vec path)
+                                  :rf.egress/profile :rf.egress/local-redacted}
+                           frame-id (assoc :frame frame-id)))
     (catch #?(:clj Throwable :cljs :default) _ rf.privacy/redacted-sentinel)))
 
 (defn- sentinel-expected?
