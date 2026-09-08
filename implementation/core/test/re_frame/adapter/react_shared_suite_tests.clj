@@ -242,10 +242,10 @@
     :fn   'assert-http-canned-success-on-success}
    {:test 'http-silenced-reply
     :fn   'assert-http-silenced-reply}
-   {:test 'http-with-managed-request-stubs
-    :fn   'assert-http-with-managed-request-stubs}
-   {:test 'http-with-managed-request-stubs-failure
-    :fn   'assert-http-with-managed-request-stubs-failure}
+   {:test 'http-with-request-stubs
+    :fn   'assert-http-with-request-stubs}
+   {:test 'http-with-request-stubs-failure
+    :fn   'assert-http-with-request-stubs-failure}
    {:test 'http-multi-frame-reply-isolation
     :fn   'assert-http-multi-frame-reply-isolation}
 

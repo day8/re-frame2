@@ -250,15 +250,16 @@ The pure transition fn — `(re-frame.machines/machine-transition machine snapsh
 For `:rf.http/managed`, install per-call stubs around the body:
 
 ```clojure
-(rf/with-managed-request-stubs
+(http-test-support/with-request-stubs
   ;; :reply is a MAP — {:ok <value>} for success, {:failure {:kind ...}} for
   ;; failure. The runtime branches on (contains? reply :ok) / (:failure);
   ;; a bare keyword like :reply :ok matches nothing and falls through to the
   ;; "no stub matched" transport failure.
   {[:get "/api/items"] {:reply {:ok {:items [...]}}}
    [:post "/api/cart"] {:reply {:failure {:kind :rf.http/http-5xx :status 500}}}}
-  (rf/dispatch-sync [:cart/fetch])
-  (ts/assert-path-equals [:cart :status] :ready))
+  (fn []
+    (rf/dispatch-sync [:cart/fetch])
+    (ts/assert-path-equals [:cart :status] :ready)))
 ```
 
 For arbitrary fx, override the registered handler from inside the test — the fixture rolls the registration back on the way out:

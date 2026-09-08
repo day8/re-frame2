@@ -12,38 +12,12 @@
    :maven         "day8/re-frame2-http"
    :require-ns    "re-frame.http.managed"})
 
-;; rf2-lwmgw — the stub family's hooks publish from
-;; `re-frame.http.test-support` (single discoverable home for HTTP
-;; test surfaces). Tests requiring `re-frame.http.managed` alone (the
-;; production surface) will see these defwrappers raise
-;; `:rf.error/http-artefact-missing` because the hook is unpublished
-;; until `re-frame.http.test-support` is required too. The artefact
-;; record points at the prod namespace as the load anchor; the
-;; require-ns hint in the error message includes the test-support
-;; namespace below.
-
-(def ^:private http-test-support-artefact
-  {:error-keyword :rf.error/http-artefact-missing
-   :maven         "day8/re-frame2-http"
-   :require-ns    "re-frame.http.test-support"})
-
-;; The raw `install-managed-request-stubs!` / `uninstall-managed-request-stubs!`
-;; pair is NOT re-exported from `re-frame.core` (rf2-ntwwyt — test-support
-;; infrastructure, not app-facing core surface). Tests reach it directly through
-;; the home namespace `re-frame.http.test-support`, so there is no core wrapper
-;; (and no `:http/install-managed-request-stubs!` / `:http/uninstall-managed-
-;; request-stubs!` late-bind hook) for it. The ergonomic `with-managed-request-
-;; stubs` macro keeps its `with-managed-request-stubs*` façade plumbing below.
-
-(defwrapper with-managed-request-stubs*
-  "Function form: bind the `:rf.http/managed → :rf.test/managed-http-scope-stub`
-  stub override plus the scope's route map (on a dynamic var) for the thunk's
-  dynamic extent, then run thunk. Both bindings unwind on exit; the wrapper
-  performs no registrar mutation. Late-bound via
-  `:http/with-managed-request-stubs*` (published from
-  `re-frame.http.test-support` per rf2-lwmgw)."
-  {:hook :http/with-managed-request-stubs* :artefact http-test-support-artefact :on-absent :throw}
-  ([stubs thunk] :delegate))
+;; rf2-kuky.13 — the whole stub family (`with-request-stubs` and the raw
+;; `install-managed-request-stubs!` / `uninstall-managed-request-stubs!` pair)
+;; is NOT re-exported from `re-frame.core`: it is test-support infrastructure,
+;; not app-facing core surface. Tests reach all three directly through the home
+;; namespace `re-frame.http.test-support`, so there is no core wrapper and no
+;; late-bind hook for any of them.
 
 ;; ---- Spec 014 §Middleware — per-frame request interceptors (rf2-6y3q) -----
 

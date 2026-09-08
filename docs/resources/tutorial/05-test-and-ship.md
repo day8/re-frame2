@@ -41,7 +41,7 @@ Then the test namespace. One fixture resets the whole runtime — registrar, fra
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.managed]                        ;; the production HTTP fx
-            [re-frame.http.test-support]                   ;; canned stubs — test-only
+            [re-frame.http.test-support :as http-test-support]  ;; canned stubs — test-only
             [re-frame.substrate.plain-atom :as plain-atom] ;; the headless JVM substrate
             [re-frame.test-support :as ts]
             [conduit.auth]))                               ;; Part 3's registrations load here
@@ -130,13 +130,14 @@ So you'll drive a real dispatch through a real [frame](../../core/glossary.md#fr
 (deftest cold-boot-with-saved-token-lands-authed
   ;; :preset :test is one of make-frame's config keys — see the bullets below.
   (rf/with-new-frame [f (rf/make-frame {:preset :test})]
-    (rf/with-managed-request-stubs
+    (http-test-support/with-request-stubs
       {[:get "https://api.realworld.io/api/user"]          ;; the URL Part 3's restore requests
        {:reply {:ok {:user {:username "ada"
                             :email    "ada@example.com"
                             :token    "jwt-fixture"}}}}}
-      (rf/dispatch-sync [:auth/initialise]
-                        {:rf.cofx {:auth.session/token "jwt-fixture"}}))
+      (fn []
+        (rf/dispatch-sync [:auth/initialise]
+                          {:rf.cofx {:auth.session/token "jwt-fixture"}})))
     (is (= :authed (rf/compute-sub [:auth/state] (rf/frame-state-value f))))
     (is (= "ada"   (get-in (rf/app-db-value f) [:auth :user :username])))))
 ```
@@ -145,7 +146,7 @@ Four things do the work — those four edges. Each redirects a *value at a bound
 
 - **`with-new-frame`** gives the test its own isolated frame — created for the body, destroyed on the way out, success or exception. `{:preset :test}` declares intent and bundles two deterministic defaults: it redirects the `:rf.http/managed` fx to its canned-success stub, so a request you forgot to stub can never escape to the wire; and it sets a **strict mint policy**, so a handler that declares a generated [coeffect](../../core/glossary.md#coeffect) (a fresh id, say) but isn't *supplied* one fails loud with `:rf.error/missing-required-cofx` rather than quietly minting a value that won't match production. (`:rf/time-ms` is always stamped, so it never trips this — the strict failure is reserved for *declared-but-absent, generator-backed* facts. A test that genuinely wants a fresh value per run opts back in with `{:rf.cofx/mint-policy :explicit-live}`.)
 - **`{:rf.cofx {…}}` on the dispatch** supplies the declared fact, overriding the registered supplier for this one dispatch. That is not a hole in the machinery, it is the machinery: the fact is *declared*, so a value supplied as data is indistinguishable from one the supplier produced, and the test never re-registers anything or reaches for `localStorage`. Under `{:preset :test}`'s strict mint policy, forgetting the key doesn't silently fall through to a live read either — it fails loud with `:rf.error/missing-required-cofx`.
-- **`with-managed-request-stubs`** routes `:rf.http/managed` by method + URL for the body's extent and synthesizes a real reply envelope. The exact request data your machine's action produced arrives at the stub, and the reply re-enters through the same `:on-success` path a live response would.
+- **`with-request-stubs`** routes `:rf.http/managed` by method + URL for the thunk's extent and synthesizes a real reply envelope. The exact request data your machine's action produced arrives at the stub, and the reply re-enters through the same `:on-success` path a live response would.
 - **`dispatch-sync` drains to fixed point.** The whole pipeline run settles before the call returns — the machine transition, the stubbed request, the reply event, the session write. The assertions on the next lines read fully-committed state. No `act()`, no awaiting, no sleeps, no flake.
 
 The unhappy path — the one your users will actually hit — is the same shape with a failure reply:
@@ -153,11 +154,12 @@ The unhappy path — the one your users will actually hit — is the same shape 
 ```clojure
 (deftest wrong-password-shows-the-error
   (rf/with-new-frame [f (rf/make-frame {:preset :test})]
-    (rf/with-managed-request-stubs
+    (http-test-support/with-request-stubs
       {[:post "https://api.realworld.io/api/users/login"]
        {:reply {:failure {:kind :rf.http/http-4xx :status 422}}}}
-      (rf/dispatch-sync [:auth/flow [:auth/login {:email    "ada@example.com"
-                                                  :password "wrong"}]]))
+      (fn []
+        (rf/dispatch-sync [:auth/flow [:auth/login {:email    "ada@example.com"
+                                                    :password "wrong"}]])))
     (is (= :error (rf/compute-sub [:auth/state] (rf/frame-state-value f))))
     (is (some?    (rf/compute-sub [:auth/error] (rf/frame-state-value f))))))
 ```
@@ -166,7 +168,7 @@ The unhappy path — the one your users will actually hit — is the same shape 
 
 ??? note "Going deeper — edges, not mocks"
 
-    Each of those four moves redirects a *value at a boundary* rather than substituting a *mechanism*. `with-managed-request-stubs` is an `:fx-override` — it swaps where one effect-id resolves, leaving the request data and reply path identical. The same `:fx-overrides` map can ride a single dispatch — `(rf/dispatch-sync event {:fx-overrides {…}})` — when one test needs to redirect a different effect; per-call wins over per-frame. And `{:rf.cofx {…}}` doesn't fake the cofx system, it *is* the production stamping surface. Supplied values always win; the runtime fills only what's missing. Forget a declared provided fact and you get a loud `:rf.error/missing-required-cofx`, never a silent `nil`. [Test a pipeline run](../../core/testing/pipeline-runs.md) walks each of these edges as a focused recipe.
+    Each of those four moves redirects a *value at a boundary* rather than substituting a *mechanism*. `with-request-stubs` is an `:fx-override` — it swaps where one effect-id resolves, leaving the request data and reply path identical. The same `:fx-overrides` map can ride a single dispatch — `(rf/dispatch-sync event {:fx-overrides {…}})` — when one test needs to redirect a different effect; per-call wins over per-frame. And `{:rf.cofx {…}}` doesn't fake the cofx system, it *is* the production stamping surface. Supplied values always win; the runtime fills only what's missing. Forget a declared provided fact and you get a loud `:rf.error/missing-required-cofx`, never a silent `nil`. [Test a pipeline run](../../core/testing/pipeline-runs.md) walks each of these edges as a focused recipe.
 
 !!! warning "Gotcha — client-only effects skip on the server"
 

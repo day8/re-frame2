@@ -184,8 +184,7 @@
                                     image
                                     dispatch dispatch-sync subscribe
                                     with-frame with-new-frame
-                                    with-fx-overrides
-                                    with-managed-request-stubs]])))
+                                    with-fx-overrides]])))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -1547,16 +1546,6 @@
      `(binding [re-frame.router/*fx-overrides* ~overrides-map]
         ~@body)))
 
-#?(:clj
-   (defmacro with-managed-request-stubs
-     "Bind the `:rf.http/managed` stub override plus the scope's route map for
-     the body's dynamic extent, run body (bindings unwind on exit; no registrar
-     mutation). `stubs` is `{[method url] {:reply <:ok|:failure>}}`.
-     Implementation ships in `day8/re-frame2-http` (rf2-5kpd). Per Spec 014
-     §Testing."
-     [stubs & body]
-     `(re-frame.core/with-managed-request-stubs* ~stubs (fn [] ~@body))))
-
 ;; ---- view ergonomics (CLJS only) -----------------------------------------
 ;;
 ;; The frame-boundary components (rf2-nyea0r split) — the SCOPE-only
@@ -2657,19 +2646,12 @@
 
 ;; ---- Spec 014 — :rf.http/managed -----------------------------------------
 ;;
-;; The raw `install-managed-request-stubs!` / `uninstall-managed-request-stubs!`
-;; pair is NO LONGER a `re-frame.core` façade export (rf2-ntwwyt — test-support
-;; infrastructure, not app-facing core surface). Reach the pair through its
-;; home namespace `re-frame.http.test-support` (require it from your test ns).
-;; The ergonomic `with-managed-request-stubs` macro stays on the façade.
-
-(def ^{:doc "Fn-form: bind the `:rf.http/managed` stub override plus the scope's
-  route map for `thunk`'s dynamic extent, run `thunk` (bindings unwind on exit;
-  no registrar mutation). The plumbing the `with-managed-request-stubs` macro
-  routes through. Implementation ships in `day8/re-frame2-http` under
-  `re-frame.http.test-support` (rf2-lwmgw). Per Spec 014 §Testing. Late-bound
-  via `:http/with-managed-request-stubs*`."}
-  with-managed-request-stubs*      rf.core-http/with-managed-request-stubs*)
+;; The scoped-stub helper `with-request-stubs` and the raw
+;; `install-managed-request-stubs!` / `uninstall-managed-request-stubs!` pair
+;; are NOT `re-frame.core` façade exports (rf2-ntwwyt, rf2-kuky.13 —
+;; test-support infrastructure, not app-facing core surface). Reach all three
+;; through their home namespace `re-frame.http.test-support` (require it from
+;; your test ns).
 
 ;; reg-http-interceptor is a macro (per the defreg-macro form above) so
 ;; source-coords are captured at the call site like every other reg-*.

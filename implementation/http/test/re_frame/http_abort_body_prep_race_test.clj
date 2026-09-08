@@ -38,7 +38,7 @@
   unable to complete until that call has published its future.
 
   All tests stub `transport-jvm/jvm-fetch` (the host-transport seam the
-  bug escapes through — the `with-managed-request-stubs` layer overrides
+  bug escapes through — the `with-request-stubs` layer overrides
   the whole `:rf.http/managed` fx and so sits ABOVE the lifecycle under
   test) and use latches / promises / thread-state observation, never
   timing sleeps."

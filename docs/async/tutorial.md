@@ -189,24 +189,26 @@ The request goes out as data and the reply comes back as data, so a test needs n
 (ns app.article-test
   (:require [clojure.test :refer [deftest is]]
             [re-frame.core :as rf]
-            [re-frame.http.test-support]   ;; test-only: canned replies + stubs
+            [re-frame.http.test-support :as http-test-support]   ;; test-only: canned replies + stubs
             [app.article]))                ;; loads the registrations
 
 (deftest article-loads
   (rf/with-new-frame [f (rf/make-frame {})]
-    (rf/with-managed-request-stubs
+    (http-test-support/with-request-stubs
       {[:get "/api/articles/intro"]
        {:reply {:ok {:slug "intro" :title "Welcome" :body "…"}}}}
-      (rf/dispatch-sync [:article/load "intro"])
-      (is (= :loaded (get-in (rf/app-db-value f) [:article :status]))))))
+      (fn []
+        (rf/dispatch-sync [:article/load "intro"])
+        (is (= :loaded (get-in (rf/app-db-value f) [:article :status])))))))
 
 (deftest article-load-fails
   (rf/with-new-frame [f (rf/make-frame {})]
-    (rf/with-managed-request-stubs
+    (http-test-support/with-request-stubs
       {[:get "/api/articles/intro"]
        {:reply {:failure {:kind :rf.http/http-5xx :status 503}}}}
-      (rf/dispatch-sync [:article/load "intro"])
-      (is (= :error (get-in (rf/app-db-value f) [:article :status]))))))
+      (fn []
+        (rf/dispatch-sync [:article/load "intro"])
+        (is (= :error (get-in (rf/app-db-value f) [:article :status])))))))
 ```
 
 The stubbed reply has the exact envelope a live request produces, so both tests cover the full chain — request out, reply in, handler folds the result — and run on the JVM in about a millisecond. [Test a pipeline run](../core/testing/pipeline-runs.md) is the full recipe.
@@ -224,7 +226,7 @@ The stubbed reply has the exact envelope a live request produces, so both tests 
 | Receive | `:on-success` / `:on-failure` (or `:reply-to`) | Ordinary events; reply map **appended** |
 | Failures | `(:kind error)` closed set | Branch with `case`, never message strings |
 | Race | `:request-id` | Same id supersedes / suppresses stale |
-| Test | `with-managed-request-stubs` | `re-frame.http.test-support` + canned envelope |
+| Test | `with-request-stubs` | `re-frame.http.test-support` + canned envelope |
 
 Full catalogue (`:decode`, `:accept`, `:retry`, abort, verb helpers):
 [Managed HTTP](http.md). Production auth + secrets:

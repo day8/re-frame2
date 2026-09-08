@@ -1,10 +1,10 @@
 (ns re-frame.http.test-support
   "Test-only support for the managed-HTTP artefact (Spec 014).
 
-  This namespace owns the scoped stubbing helpers, raw install/uninstall
-  functions, canned success/failure effects, and the late-bind hook used by
-  `re-frame.core/with-managed-request-stubs`. The raw install/uninstall pair
-  is called directly through this namespace and is not a core facade export.
+  This namespace owns the scoped stubbing helper `with-request-stubs`, the
+  raw install/uninstall functions, and the canned success/failure effects.
+  All of them are called directly through this namespace; none is a
+  `re-frame.core` facade export.
 
   Requiring this namespace is the test-effect registration gate. Production
   and SSR code must not require it; the production effects and middleware
@@ -377,10 +377,10 @@
            (with-after-ms :rf.http/managed-canned-failure
                           canned-failure-handler))
 
-;; ---- with-managed-request-stubs ------------------------------------------
+;; ---- with-request-stubs ---------------------------------------------------
 ;;
-;; Per rf2-lwmgw the stub macros / fns live HERE alongside the canned-stub
-;; fx registrations. The previous split (macros in `re-frame.http.managed`,
+;; Per rf2-lwmgw the stub fns live HERE alongside the canned-stub fx
+;; registrations. The previous split (macros in `re-frame.http.managed`,
 ;; gate-only namespace here) misleadingly named this ns for a role it did
 ;; not own.
 
@@ -480,8 +480,8 @@
   NOTE: this lower-level fn only REGISTERS the stub fx; it does not route
   `:rf.http/managed` through it. To route, either dispatch with
   `:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}`, or — far
-  more usually — wrap the test body via `with-managed-request-stubs` /
-  `with-managed-request-stubs*`, which bind the
+  more usually — wrap the test body via `with-request-stubs`, which binds
+  the
   `:rf.http/managed → :rf.test/managed-http-scope-stub` override (a stable
   target registered at ns-load, NOT a per-scope fx) plus the scope's route
   map on a dynamic var, for the body's dynamic extent — so plain
@@ -497,7 +497,7 @@
   [stubs]
   (swap! stub-fx-handler-stack conj (rf.registrar/handler :fx stub-fx-id))
   (rf.fx/reg-fx stub-fx-id
-             {:doc "with-managed-request-stubs synthesised stub"}
+             {:doc "with-request-stubs synthesised stub"}
              (fn [frame-ctx args-map]
                (stub-handler stubs frame-ctx args-map)))
   stub-fx-id)
@@ -516,7 +516,7 @@
   (let [[prior] (peek-and-pop! stub-fx-handler-stack)]
     (if prior
       (rf.fx/reg-fx stub-fx-id
-                 {:doc "with-managed-request-stubs synthesised stub"}
+                 {:doc "with-request-stubs synthesised stub"}
                  prior)
       (rf.registrar/unregister! :fx stub-fx-id)))
   nil)
@@ -526,7 +526,7 @@
 ;; SEALED image generation of every frame created after this ns is required.
 ;;
 ;; The prior design (rf2-vn8qjv) minted a fresh `:rf.test/managed-http-stub-<n>`
-;; fx-id per invocation and registered it INSIDE `with-managed-request-stubs*`.
+;; fx-id per invocation and registered it INSIDE `with-request-stubs`.
 ;; That registration happened AFTER a pre-created frame had already sealed its
 ;; image generation: `make-frame {}` resolves + seals a generation at
 ;; construction, and a no-id/direct frame is deliberately EXCLUDED from `reg-*`
@@ -537,7 +537,7 @@
 ;; registrar): the redirect fell through (`:rf.error/override-fallthrough`) and
 ;; the REAL `:rf.http/managed` transport ran. The exact tutorial nesting
 ;; `(with-new-frame [f (make-frame {})]
-;;    (with-managed-request-stubs … (dispatch-sync …)))`
+;;    (with-request-stubs … (fn [] (dispatch-sync …)))))`
 ;; therefore escaped to the wire.
 ;;
 ;; The fix keeps ONE stable override target registered at load time — the same
@@ -555,9 +555,9 @@
 
 (def ^:private ^:dynamic *scope-stubs*
   "The route map (`{[method url] {:reply …}}`) the load-time scope-stub fx
-  (`scope-stub-fx-id`) consults for the current `with-managed-request-stubs*`
+  (`scope-stub-fx-id`) consults for the current `with-request-stubs`
   dynamic extent, or `::no-scope` outside any scope (rf2-bxc8kf). Bound —
-  SHADOWED for nesting — by `with-managed-request-stubs*`; read by the
+  SHADOWED for nesting — by `with-request-stubs`; read by the
   `scope-stub-fx-id` handler. The override that routes to `scope-stub-fx-id` is
   only ever bound ALONGSIDE this var, so `::no-scope` at fire time is a wiring
   error (the internal target reached without the wrapper) — the handler fails
@@ -565,7 +565,7 @@
   ::no-scope)
 
 (def ^:private scope-stub-fx-id
-  "The STABLE `with-managed-request-stubs*` override target (rf2-bxc8kf).
+  "The STABLE `with-request-stubs` override target (rf2-bxc8kf).
   Registered at ns-load (below), so it is resolvable through the SEALED image
   generation of a frame created before the scope was entered. Lives under the
   reserved test-runner-internal `:rf.test/*` fx-stub family (Conventions
@@ -580,7 +580,7 @@
 ;; `stub-handler` (which runs the `:before` chain, keys the match off the
 ;; post-`:before` url, and emits through the `:after` chain).
 (rf.fx/reg-fx scope-stub-fx-id
-           {:doc "with-managed-request-stubs (scoped) synthesised stub — reads the
+           {:doc "with-request-stubs (scoped) synthesised stub — reads the
                   current scope's route map from `*scope-stubs*` (rf2-bxc8kf).
                   Registered at load time so a pre-created SEALED frame can
                   resolve it as an `:fx-overrides` redirect target."}
@@ -588,19 +588,18 @@
              (when (= *scope-stubs* ::no-scope)
                (throw (ex-info
                         (str "`:rf.test/managed-http-scope-stub` fired outside a "
-                             "`with-managed-request-stubs` scope — this internal fx "
+                             "`with-request-stubs` scope — this internal fx "
                              "id is the wrapper's override target and must not be "
                              "used as an `:fx-overrides` value directly. Wrap the "
-                             "dispatch in `with-managed-request-stubs` / "
-                             "`with-managed-request-stubs*` (or use the stable "
+                             "dispatch in `with-request-stubs` (or use the stable "
                              "`:rf.http/managed-test-stub` id with "
                              "`install-managed-request-stubs!`).")
                         {:rf.fx/id scope-stub-fx-id})))
              (stub-handler *scope-stubs* frame-ctx args-map)))
 
-(defn with-managed-request-stubs*
-  "Function form: install stubs, route `:rf.http/managed` through them for
-  the dynamic extent of `thunk`, run `thunk`. Test-time helper.
+(defn with-request-stubs
+  "Install stubs, route `:rf.http/managed` through them for the dynamic
+  extent of `thunk`, run `thunk`. Test-time helper.
 
   `stubs` is `{[method url] {:reply <:ok|:failure>}}`. The wrapper binds the
   route map onto the dynamic var `*scope-stubs*` and binds the lexical-scope
@@ -609,7 +608,7 @@
   for the thunk's dynamic extent. `scope-stub-fx-id` is registered at ns-load
   (rf2-bxc8kf), so it is resolvable through the SEALED image generation of a
   frame created BEFORE the scope was entered — the exact tutorial nesting
-  `(with-new-frame [f (make-frame {})] (with-managed-request-stubs … …))` routes
+  `(with-new-frame [f (make-frame {})] (with-request-stubs … (fn [] …)))` routes
   through the stub instead of escaping to the real transport. Every
   `dispatch-sync` inside the body auto-routes by `:request :method` +
   `:request :url` with NO per-call `:fx-overrides` — matching the documented
@@ -618,7 +617,7 @@
   per-call opt (per-call > lexical > per-frame).
 
   Nesting composes: the stable override target reads the current scope's route
-  map from `*scope-stubs*`, and an inner `with-managed-request-stubs*` SHADOWS
+  map from `*scope-stubs*`, and an inner `with-request-stubs` SHADOWS
   that binding for its dynamic extent, restoring the outer scope's route map on
   exit. So an inner-scope dispatch keys off the inner route map; after the inner
   scope exits, an outer-scope dispatch keys off the outer route map again — no
@@ -632,31 +631,7 @@
                                              {:rf.http/managed scope-stub-fx-id})]
     (thunk)))
 
-#?(:clj
-   (defmacro with-managed-request-stubs
-     "Test-time helper. `stubs` is `{[method url] {:reply <:ok|:failure>}}`.
-     Installs a per-call fx-override on `:rf.http/managed` that consults
-     the stub map, synthesises the configured reply, and runs `body`.
-     Every `dispatch-sync` in the body auto-routes by method + URL — no
-     manual `:fx-overrides` needed (the helper installs the override for
-     the body's dynamic extent).
-
-     Per Spec 014 §Testing."
-     [stubs & body]
-     `(with-managed-request-stubs* ~stubs (fn [] ~@body))))
-
-;; ---- late-bind hook publication ------------------------------------------
-;;
-;; The `re-frame.core` `with-managed-request-stubs` macro (and its
-;; `with-managed-request-stubs*` plumbing) resolves through the late-bind
-;; hook table — see `re-frame.core-http`. Publishing the hook from THIS
-;; namespace (per rf2-lwmgw) means `with-managed-request-stubs*` raises
-;; `:rf.error/http-artefact-missing` until a test opts in by `:require`-ing
-;; `re-frame.http.test-support` — symmetric with the canned-stub fx ids'
-;; registration gate above.
-;;
-;; The raw `install-managed-request-stubs!` / `uninstall-managed-request-stubs!`
-;; pair is NOT a `re-frame.core` façade export (rf2-ntwwyt), so it publishes no
-;; late-bind hook — tests call these two defns directly from this namespace.
-
-(rf.late-bind/set-fn! :http/with-managed-request-stubs*      with-managed-request-stubs*)
+;; `with-request-stubs`, like the raw `install-managed-request-stubs!` /
+;; `uninstall-managed-request-stubs!` pair, is NOT a `re-frame.core` façade
+;; export, so it publishes no late-bind hook — tests call all three defns
+;; directly from this namespace.

@@ -77,12 +77,11 @@ The public composition model is `image → frame → event stream`; there is **n
 
 ## HTTP — `day8/re-frame2-http`
 
-Production fx surface: `re-frame.http.managed`. Test surfaces (canned-stub fxs + `with-managed-request-stubs` family): `re-frame.http.test-support` — the test machinery consolidates into one namespace; tests `:require` it explicitly.
+Production fx surface: `re-frame.http.managed`. Test surfaces (canned-stub fxs + the `with-request-stubs` helper): `re-frame.http.test-support` — the test machinery consolidates into one namespace; tests `:require` it explicitly. None of it is on the `rf/` facade.
 
 | Surface | Shape |
 |---|---|
-| `rf/with-managed-request-stubs` | macro: `(stubs & body)` — needs `re-frame.http.test-support` in require closure |
-| `rf/with-managed-request-stubs*` | fn: `(stubs thunk)` — needs `re-frame.http.test-support` |
+| `http-test-support/with-request-stubs` | fn: `(stubs thunk)` — reached through `re-frame.http.test-support`, never `rf/` |
 | `http-test-support/install-managed-request-stubs!` / `uninstall-managed-request-stubs!` | per-call fx-overrides — **not** on the `rf/` façade; call through `re-frame.http.test-support` |
 | `(rf/clear :http-interceptor id)` | `(:http-interceptor id)` / `(:http-interceptor id {:frame target})` — production surface, `re-frame.http.managed`. There is **no** `rf/clear-http-interceptor` name: `:http-interceptor` is one of the kinds the one registrar inverse dispatches (full contract on the `rf/clear` row below, including the fail-closed `{:frame target}` opts map and its `:rf.error/registrar-clear-bad-request`). Kind-and-id arity clears in the carried scope (under no scope raises `:rf.error/no-frame-context`, never synthesises `:rf/default`). Frame-first `(frame id)` is the artefact-internal `clear-http-interceptor*` seam, **not** a public arity |
 

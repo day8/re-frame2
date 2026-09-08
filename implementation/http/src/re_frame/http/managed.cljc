@@ -16,10 +16,10 @@
 
   ## Test support
 
-  The stubbing macros and the canned-stub fxs live in
-  `re-frame.http.test-support`. A test reaching for `with-managed-request-stubs`
-  / `install-managed-request-stubs!` / `uninstall-managed-request-stubs!` /
-  `with-managed-request-stubs*` — or the canned effect ids via
+  The stubbing helpers and the canned-stub fxs live in
+  `re-frame.http.test-support`. A test reaching for `with-request-stubs`
+  / `install-managed-request-stubs!` / `uninstall-managed-request-stubs!`
+  — or the canned effect ids via
   `:fx-overrides` — requires `re-frame.http.test-support`. Production and SSR
   code must not require that namespace.
 
@@ -67,11 +67,9 @@
   artefact (`day8/re-frame2`). The core artefact's `re-frame.core`
   re-exports look entry points up through `re-frame.late-bind`. Loading this
   namespace publishes the middleware and registry hooks and registers the
-  production effects. The scoped-stub hook is published only by
-  `re-frame.http.test-support`; calling
-  `rf/with-managed-request-stubs*` without requiring `re-frame.http.test-support`
-  raises `:rf.error/http-artefact-missing`. The raw install/uninstall pair is
-  available only from the test-support namespace.
+  production effects. The scoped-stub helper `with-request-stubs` and the
+  raw install/uninstall pair are available only from
+  `re-frame.http.test-support`, which a test must require directly.
 
   Apps that don't issue any managed-HTTP requests don't drag the
   in-flight request registry, the Fetch / HttpClient transport
@@ -224,10 +222,9 @@
 ;; points through the late-bind hook registry; consumers look the fns
 ;; up at call time.
 ;;
-;; The stub-family late-bind hook (`:http/with-managed-request-stubs*`)
-;; publishes from `re-frame.http.test-support`, so stub helpers and canned
-;; effects share one require gate. Raw install/uninstall helpers publish no
-;; hook and are called directly from that namespace.
+;; The stub family publishes no late-bind hook at all — `with-request-stubs`
+;; and the raw install/uninstall helpers are called directly from
+;; `re-frame.http.test-support`, which is also the canned effects' require gate.
 
 (rf.late-bind/set-fn! :http/abort-in-flight!                 rf.http.registry/abort-in-flight!)
 (rf.late-bind/set-fn! :http/abort-on-actor-destroy           abort-on-actor-destroy)

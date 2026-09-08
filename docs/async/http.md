@@ -364,7 +364,7 @@ The builder returns an args map, so it composes everywhere the args map is accep
 
 ## Testing without a network
 
-Tests need no network: the canned-stub fxs (`:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`) and the `with-managed-request-stubs` route-stubbing macro — all registered by requiring the sibling `re-frame.http.test-support` namespace — synthesize replies with the exact envelope a live request produces. The [tutorial's test step](tutorial.md) shows the pattern; [Test a pipeline run](../core/testing/pipeline-runs.md) is the full recipe; [Managed HTTP](../api/re-frame.http.md) documents every stub surface.
+Tests need no network: the canned-stub fxs (`:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`) and the `with-request-stubs` route-stubbing helper — all reached by requiring the sibling `re-frame.http.test-support` namespace — synthesize replies with the exact envelope a live request produces. The [tutorial's test step](tutorial.md) shows the pattern; [Test a pipeline run](../core/testing/pipeline-runs.md) is the full recipe; [Managed HTTP](../api/re-frame.http.md) documents every stub surface.
 
 ## A complete request loop
 

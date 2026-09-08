@@ -104,7 +104,7 @@
             ;; rf2-cdmle — canned-stub fxs gate on explicit test-support
             ;; require; the http-managed suite uses :fx-overrides into
             ;; both fx ids.
-            [re-frame.http.test-support]
+            [re-frame.http.test-support :as rf.http.test-support]
             [re-frame.views :as rf.views]
             [re-frame.epoch]
             [re-frame.adapter.context :as rf.adapter.context]
@@ -2160,17 +2160,17 @@
                         {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
       (is (= 1 @seen) "no reply was dispatched when :on-success is nil"))))
 
-(defn assert-http-with-managed-request-stubs
-  "with-managed-request-stubs* installs a per-call fx."
+(defn assert-http-with-request-stubs
+  "with-request-stubs installs a per-call fx."
   [{:keys [name]}]
-  (testing (str name " — with-managed-request-stubs* installs a per-call fx")
+  (testing (str name " — with-request-stubs installs a per-call fx")
     (rf/reg-event :articles/list
       (fn [_ [_ msg reply]]
         (if reply
           {:db {:result reply}}
           {:fx [[:rf.http/managed {:request {:method :get :url "/articles"} :decode :json
                                    :reply-to [:articles/list msg]}]]})))
-    (rf/with-managed-request-stubs*
+    (rf.http.test-support/with-request-stubs
       {[:get "/articles"] {:reply {:ok [:hello :world]}}}
       (fn []
         ;; Documented wrapper form — NO manual :fx-overrides. The wrapper
@@ -2182,22 +2182,22 @@
           (is (= :ok (get-in db [:result :status])))
           (is (= [:hello :world] (get-in db [:result :value]))))))))
 
-(defn assert-http-with-managed-request-stubs-failure
-  "with-managed-request-stubs* synthesises a failure reply for
+(defn assert-http-with-request-stubs-failure
+  "with-request-stubs synthesises a failure reply for
   {:reply {:failure ...}}."
   [{:keys [name]}]
-  (testing (str name " — with-managed-request-stubs* failure mapping")
+  (testing (str name " — with-request-stubs failure mapping")
     (rf/reg-event :articles/list
       (fn [_ [_ msg reply]]
         (if reply
           {:db {:result reply}}
           {:fx [[:rf.http/managed {:request {:method :get :url "/articles"} :decode :json
                                    :reply-to [:articles/list msg]}]]})))
-    (rf/with-managed-request-stubs*
+    (rf.http.test-support/with-request-stubs
       {[:get "/articles"] {:reply {:failure {:kind :rf.http/http-4xx :status 404}}}}
       (fn []
         ;; Documented wrapper form — NO manual :fx-overrides (see
-        ;; assert-http-with-managed-request-stubs; rf2-rzqan / rf2-vn8qjv).
+        ;; assert-http-with-request-stubs; rf2-rzqan / rf2-vn8qjv).
         (rf/dispatch-sync [:articles/list])
         (let [db (rf/app-db-value :rf/default)]
           (is (= :error (get-in db [:result :status])))

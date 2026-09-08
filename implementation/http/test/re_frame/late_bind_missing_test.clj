@@ -19,24 +19,19 @@
   Per Spec 002 §The late-bind seam, rf2-5kpd (http split), and the
   prose at the call sites in `re-frame.core`.
 
-  Per rf2-lwmgw the `:http/with-managed-request-stubs*` late-bind hook
-  publishes from `re-frame.http.test-support` (alongside the stub macros
-  themselves) — this ns requires `re-frame.http.test-support` so the hook
-  resolves, and the `with-hook-as-nil` helper still flips it to nil to
-  simulate the absent-artefact state. The raw install/uninstall pair is no
-  longer a `re-frame.core` façade export (rf2-ntwwyt) and carries no hook /
-  throw contract, so it is not exercised here."
+  The stub family — `with-request-stubs` and the raw install/uninstall
+  pair — is NOT a `re-frame.core` façade export (rf2-ntwwyt, rf2-kuky.13)
+  and carries no hook / throw contract, so it is not exercised here.
+  `reg-http-interceptor` is the http artefact's re-export that does."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.core :as rf]
             [re-frame.late-bind :as rf.late-bind]
             ;; Loading http-managed registers its production late-bind
-            ;; hooks (middleware, registry). The stub-family hooks
-            ;; publish from `re-frame.http.test-support` per rf2-lwmgw.
-            ;; The `with-hook-as-nil` helper below re-establishes the
-            ;; absent state by flipping the hook value at runtime;
-            ;; restoration in `finally` keeps cross-test isolation intact.
-            [re-frame.http.managed]
-            [re-frame.http.test-support]))
+            ;; hooks (middleware, registry). The `with-hook-as-nil`
+            ;; helper below re-establishes the absent state by flipping
+            ;; the hook value at runtime; restoration in `finally` keeps
+            ;; cross-test isolation intact.
+            [re-frame.http.managed]))
 
 (defn- with-hook-as-nil
   "Run `f` with the named late-bind hook set to nil. Restores the
@@ -49,21 +44,21 @@
       (finally
         (rf.late-bind/set-fn! hook-key original)))))
 
-;; The raw install/uninstall pair is no longer a `re-frame.core` façade
-;; export (rf2-ntwwyt) — it carries no late-bind hook and no missing-artefact
-;; throw contract; tests call `re-frame.http.test-support/install-managed-
-;; request-stubs!` / `uninstall-managed-request-stubs!` directly. Only the
-;; `with-managed-request-stubs*` façade plumbing retains the throw contract.
+;; The stub family (`with-request-stubs` plus the raw install/uninstall pair)
+;; is not a `re-frame.core` façade export (rf2-ntwwyt, rf2-kuky.13) — it
+;; carries no late-bind hook and no missing-artefact throw contract; tests
+;; call all three directly on `re-frame.http.test-support`. The per-frame
+;; interceptor re-exports are what retain the contract.
 
-(deftest with-managed-request-stubs-fn-raises-when-http-artefact-missing
-  (testing "rf/with-managed-request-stubs* (fn form) raises :rf.error/http-artefact-missing when the :http/with-managed-request-stubs* hook is nil"
-    (with-hook-as-nil :http/with-managed-request-stubs*
+(deftest reg-http-interceptor-raises-when-http-artefact-missing
+  (testing "rf/reg-http-interceptor raises :rf.error/http-artefact-missing when the :http/reg-http-interceptor hook is nil"
+    (with-hook-as-nil :http/reg-http-interceptor
       (fn []
-        (let [thrown (try (rf/with-managed-request-stubs* {} (fn [] :unused))
+        (let [thrown (try (rf/reg-http-interceptor ::probe {:before identity})
                           nil
                           (catch clojure.lang.ExceptionInfo e e))]
           (is (some? thrown)
-              "with-managed-request-stubs* throws when the http artefact is absent")
+              "reg-http-interceptor throws when the http artefact is absent")
           ;; rf2-vvixub — message is the human :reason + trailing
           ;; [:rf.error/<id>] token; assert the token + canonical :rf.error/id,
           ;; not exact keyword-equality.
@@ -72,7 +67,7 @@
           (is (= :rf.error/http-artefact-missing (:rf.error/id (ex-data thrown)))
               "ex-data carries the canonical :rf.error/id discriminator")
           (let [data (ex-data thrown)]
-            (is (= 'rf/with-managed-request-stubs* (:where data))
-                "ex-data carries :where = 'rf/with-managed-request-stubs*")
+            (is (= 'rf/reg-http-interceptor (:where data))
+                "ex-data carries :where = 'rf/reg-http-interceptor")
             (is (= :no-recovery (:recovery data))
                 "ex-data carries :recovery = :no-recovery")))))))

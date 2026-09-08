@@ -145,7 +145,7 @@
             [re-frame.machines]
             [re-frame.resources]
             [re-frame.http.managed]
-            ;; The stub-registration gate for `rf/with-managed-request-stubs`
+            ;; The stub-registration gate for `with-request-stubs`
             ;; (below) — a route-map-consulting :rf.http/managed override that
             ;; drives the full login/register success cascade synchronously.
             [re-frame.http.test-support]
@@ -222,7 +222,7 @@
 ;; A SECOND local stub, this one REPLYING — for the item 4/6/7 cascade tests
 ;; below, which need to observe the redesigned success path
 ;; (:auth/session-established) end to end. Note what this is NOT:
-;; `re-frame.http.test-support`'s generic `with-managed-request-stubs` (a
+;; `re-frame.http.test-support`'s generic `with-request-stubs` (a
 ;; framework test helper with no idea what shape any one app's request body
 ;; takes, so it declares no `:sensitive` of its own) would be the wrong tool
 ;; here — routing through it would make the TEST HARNESS itself the leak,

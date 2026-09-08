@@ -180,7 +180,7 @@
     (rf/reg-event :editor/saved (fn [{:keys [db]} _] {:db (assoc db :saved? true)}))
 
     ;; Trigger the save with the canned-success stub installed via
-    ;; with-managed-request-stubs to drive a deterministic reply path.
+    ;; with-request-stubs to drive a deterministic reply path.
     ;; We do NOT want the reply to actually land (so we can observe the
     ;; in-flight slot mid-pending), so we capture the dispatch and
     ;; assert the snapshot BEFORE the reply runs by NOT installing the
