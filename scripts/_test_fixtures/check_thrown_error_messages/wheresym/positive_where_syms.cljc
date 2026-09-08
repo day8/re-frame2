@@ -124,3 +124,96 @@
     "`defmethod` EXTENDS a multimethod; it defines no var, so this name is not
      public in the fixture namespace. Drop the `defmethod` carve-out from
      `_public_names_defined_by` and this site goes green."))
+
+;; ---- (3) A WHERE-SYM NAMING A VAR THAT EXISTS ONLY IN AN INACTIVE FORM ----
+;;
+;; Audit #9501. The oracle fixture defines each of these names inside a
+;; `comment`, a `#_` discard, a quote, a syntax-quote or a discard nested in a
+;; live `do` — and nowhere else. So if the oracle goes generous again, these
+;; five go GREEN and the gate is back to blessing doors that are not there.
+;;
+;; A subset control against the manifest cannot catch that: it detects public
+;; names MISSING from the derived set, never EXTRA fictitious ones.
+
+(defn ghost-in-a-comment-form []
+  (rf.error/throw-error!
+    :rf.error/ghost-nine
+    'rf.fixture/ghost-in-comment
+    "`(comment ...)` evaluates to nil and interns nothing"))
+
+(defn ghost-in-a-reader-discard []
+  (rf.error/throw-error!
+    :rf.error/ghost-ten
+    'rf.fixture/ghost-discarded
+    "`#_` discards the form the reader has just read"))
+
+(defn ghost-in-a-quoted-form []
+  (rf.error/throw-error!
+    :rf.error/ghost-eleven
+    'rf.fixture/ghost-quoted
+    "a quoted `(defn ...)` is a LIST, not a definition"))
+
+(defn ghost-in-a-syntax-quoted-form []
+  (rf.error/throw-error!
+    :rf.error/ghost-twelve
+    'rf.fixture/ghost-syntax-quoted
+    "a syntax-quoted `(defn ...)` resolves its symbols at read time and still
+     defines nothing"))
+
+(defn ghost-discarded-inside-a-live-do []
+  (rf.error/throw-error!
+    :rf.error/ghost-thirteen
+    'rf.fixture/ghost-discarded-inside-do
+    "the walk DOES descend into `do`, and must carry the reader prefixes down
+     with it. Its sibling `do-defined-public` resolves; this one is discarded."))
+
+;; ---- (4) COMMAS, WHICH ARE READER WHITESPACE -----------------------------
+;;
+;; Audit #9501, and the same class as (1): a reader-equivalent formatting the
+;; detector could not see. JVM execution of the three spellings captured
+;; IDENTICAL builder arguments, so this is valid source rather than
+;; obfuscation. Every site here fires on its SYMBOL AND LINE, and its
+;; resolving twin sits in the negative fixture — because a total count cannot
+;; tell `found the right ones` from `traded a real hit for a false positive`.
+;; `:min-where-syms` sat at 173 against 193 observed, so twenty calls could
+;; have gone quiet underneath it without a sound.
+
+(defn ghost-comma-tight-on-the-head []
+  (,rf.error/throw-error!
+    :rf.error/ghost-fourteen
+    'rf.fixture/ghost-comma-one
+    "a comma between the paren and the callee"))
+
+(defn ghost-comma-after-the-symbol []
+  (rf.error/throw-error!
+    :rf.error/ghost-fifteen
+    'rf.fixture/ghost-comma-two,
+    "a trailing comma on the quoted symbol"))
+
+(defn ghost-comma-everywhere []
+  (, rf.error/throw-error!,
+    :rf.error/ghost-sixteen,
+    'rf.fixture/ghost-comma-three,
+    "a comma in every reader-whitespace position at once"))
+
+(defn ghost-comma-in-the-where-slot []
+  (throw (ex-info "hand-built payload [:rf.error/ghost-seventeen]"
+                  {:rf.error/id :rf.error/ghost-seventeen,
+                   :where,      'rf.fixture/ghost-comma-four,
+                   :reason      "commas around the slot's key and its value"})))
+
+;; ---- (5) THE `:where` SLOT AS THE MAP'S LAST ENTRY ------------------------
+;;
+;; NOT a comma bug, and found by the control for one: `{... :where 'ns/sym}`
+;; vanished exactly as `{... :where, 'ns/sym}` did, while BOTH non-final
+;; spellings resolved. The argument splitter ran past the map's own `}` into
+;; depth -1 and handed the matcher `'ns/sym}`, which is no symbol at all. The
+;; slot fixture in (1c) above cannot catch it — it writes `:reason` AFTER
+;; `:where`, which is the shape the splitter already handled, and a fixture
+;; that only writes the shape its pattern handles is how both this gate and
+;; its sibling shipped blind.
+
+(defn ghost-where-slot-as-last-entry []
+  (throw (ex-info "hand-built payload [:rf.error/ghost-eighteen]"
+                  {:rf.error/id :rf.error/ghost-eighteen
+                   :where       'rf.fixture/ghost-slot-last})))

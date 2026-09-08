@@ -142,7 +142,15 @@ job rather than a fix's.
     DOCUMENTED publics only — measured on trunk, `re-frame.core` has 71 rows
     against 82 JVM publics, and the `^:no-doc` façade stubs `reset-frame!` /
     `reload-images!` carry none. The manifest is used instead as the
-    INDEPENDENT CONTROL on the derived oracle (`oracle_problems`).
+    INDEPENDENT CONTROL on the derived oracle (`oracle_problems`) — in ONE
+    direction: a subset test catches the parser going blind, never the parser
+    inventing a public. The exact-set assertion in the self-test owns that
+    half, and it is what `(comment (defn ghost …))` got past.
+  * IT READS ONLY THE FORMS THAT ARE ACTUALLY EVALUATED. `(comment …)` interns
+    nothing, `#_` discards, and a quoted form is data; each once contributed a
+    fictitious public, so a where-sym naming a var that exists only inside one
+    resolved as a live door. `(do (defn …))` is the wrapper that really is
+    transparent and still counts.
   * IT ASSERTS ABOUT BOTH RUNTIMES. The public set is read from source across
     both reader-conditional arms, because `rf/frame-provider` and
     `rf/frame-root` are `#?(:cljs (def …))` façade exports that a JVM-only
@@ -419,15 +427,53 @@ def _message_is_conformant(form: str) -> bool:
     )
 
 
+# --------------------------------------------------------------------------
+# READER WHITESPACE — a comma is whitespace, and forgetting it fails OPEN
+# --------------------------------------------------------------------------
+#
+# `,` is WHITESPACE to the Clojure reader, so `(throw-error! :id 'ns/sym "r")`,
+# `(,throw-error! :id 'ns/sym "r")` and `(throw-error! :id 'ns/sym, "r")` are
+# the same three arguments — proved by JVM execution of all three spellings
+# capturing IDENTICAL builder arguments (audit #9501). Python's `str.isspace()`
+# and `\s` say otherwise, and the gap fails in the expensive direction: a comma
+# anywhere the reader ignores it made a real where-sym VANISH and the gate exit
+# 0 having observed only the sites it could still see.
+#
+# Nothing announces that. The population floor cannot catch it either —
+# `:min-where-syms` was 173 against 193 observed, so twenty calls could go
+# quiet before it noticed a thing. That is why the fixtures pin the SYMBOL AND
+# LINE of each comma spelling rather than a total (the lesson PR #9496 landed
+# on the sibling gate in this directory, which this one had not inherited).
+#
+# One notion, used everywhere a form boundary is found: the `[\s,]` class for
+# the patterns, `_is_clj_ws` / `_clj_strip` for the hand-written scanners.
+# `_QUOTED_SYM_RE` needs no comma of its own precisely BECAUSE every argument
+# reaching it has come through `_split_first_arg`, which strips reader
+# whitespace from both ends.
+_CLJ_WS = r"[\s,]"
+_CLJ_WS_EDGE_RE = re.compile(r"\A[\s,]+|[\s,]+\Z")
+
+
+def _is_clj_ws(c: str) -> bool:
+    """Is `c` whitespace to the Clojure reader? A comma is."""
+    return c.isspace() or c == ","
+
+
+def _clj_strip(s: str) -> str:
+    """`str.strip()`, but over READER whitespace — commas included."""
+    return _CLJ_WS_EDGE_RE.sub("", s)
+
+
 def _split_first_arg(body: str) -> tuple[str, str]:
     """Split a balanced `ex-info` BODY (text after `ex-info` and its
     whitespace, up to but excluding the closing paren) into its FIRST argument
     (the message form) and the remainder (the ex-data + any extra).
 
-    Returns `(first_arg, rest)` with both stripped. Whitespace/quote/bracket
-    aware so a `(str …)` / map / nested form is taken as one unit. A `;`
-    comment cannot appear (the caller passes comment-masked text)."""
-    body = body.lstrip()
+    Returns `(first_arg, rest)` with both stripped of READER whitespace, which
+    includes commas — see `_clj_strip`. Whitespace/quote/bracket aware so a
+    `(str …)` / map / nested form is taken as one unit. A `;` comment cannot
+    appear (the caller passes comment-masked text)."""
+    body = _clj_strip(body)
     if not body:
         return "", ""
     i = 0
@@ -458,17 +504,29 @@ def _split_first_arg(body: str) -> tuple[str, str]:
             i += 1
             continue
         if c in ")]}":
+            # A CLOSER AT DEPTH 0 ENDS THE ARGUMENT. The docstring's "balanced
+            # body" is the contract for most callers, but the `:where`-slot
+            # reader hands us the TAIL of an enclosing map, so the argument can
+            # end at that map's `}` rather than at whitespace. Running past it
+            # into depth -1 made the LAST entry of an ex-data map unreadable:
+            # `{… :where 'ns/sym}` yielded `'ns/sym}`, which matches no symbol
+            # pattern, so a real where-sym vanished and the gate exited 0.
+            # Found by the control for the comma defect, and it is NOT the same
+            # bug — `{… :where 'ns/sym}` and `{… :where, 'ns/sym}` both vanished
+            # while both non-final spellings resolved.
+            if depth == 0:
+                break
             depth -= 1
             i += 1
             continue
-        if c.isspace():
+        if _is_clj_ws(c):
             if started and depth == 0:
                 break
             i += 1
             continue
         started = True
         i += 1
-    return body[:i].strip(), body[i:].strip()
+    return _clj_strip(body[:i]), _clj_strip(body[i:])
 
 
 def _extract_ex_info_form(text: str, open_paren_idx: int) -> str | None:
@@ -671,7 +729,7 @@ def _split_forms(body: str) -> list[str]:
     """Every top-level form in `body`, in order — `_split_first_arg` applied
     until the body is consumed."""
     forms: list[str] = []
-    rest = body.strip()
+    rest = _clj_strip(body)
     while rest:
         first, rest = _split_first_arg(rest)
         if not first:
@@ -929,7 +987,9 @@ class Finding(NamedTuple):
 # rows apiece. A manifest-only oracle therefore reports non-resolving sites that
 # resolve. The manifest is used here for something it IS authoritative about:
 # see `_manifest_rows` and `oracle_problems` below, where it is the independent
-# second instrument that catches this one going blind.
+# second instrument that catches this one going BLIND — and only blind. Being a
+# subset test it cannot see the oracle going GENEROUS, which is the direction
+# that turns a dead door green; the self-test's exact-set assertion owns that.
 #
 # WHICH RUNTIME. The public set is read from SOURCE, across BOTH reader-
 # conditional arms, so a name public under `:clj` OR `:cljs` resolves. That is a
@@ -970,8 +1030,13 @@ _WHERE_SYM_FORMS: tuple[str, ...] = (
 # two-call sample: the `\b` form read 0, this one read 2. A trailing negative
 # lookahead over the symbol-constituent class is the correct guard.
 _SYM_TAIL = r"(?![\w*+!?<>=-])"
+# `[\s,]*`, NOT `\s*`: a comma is reader whitespace, so `(,throw-error! …)`
+# is the same call. `\s*` there made a real where-sym vanish — see the
+# READER WHITESPACE section above. `_extract_call_body` and the self-test's
+# `_crosses_call_head` build the same head pattern and carry the same class;
+# all three must agree, or a site is matched here and dropped there.
 _WHERE_CALL_RE = re.compile(
-    r"\(\s*(?:[\w.*+!?<>=-]+/)?("
+    r"\(" + _CLJ_WS + r"*(?:[\w.*+!?<>=-]+/)?("
     + "|".join(re.escape(f) for f in _WHERE_SYM_FORMS)
     + r")" + _SYM_TAIL
 )
@@ -1037,17 +1102,29 @@ def _is_framework_family(qualifier: str, namespace: str) -> bool:
 #
 #   * the parse going BLIND fails CLOSED and loudly: publics vanish, so
 #     where-syms that used to resolve stop resolving and the gate reds naming
-#     each one. There is no silent-zero direction here.
-#   * the parse going TOO GENEROUS is the dangerous direction, and
-#     `oracle_problems` below is the guard: `spec/api-manifest.edn` is generated
-#     from live `ns-publics` by a different tool on a different runtime, so
-#     every rowed var MUST appear in the derived set. It is a strict subset
-#     (the manifest drops `^:no-doc`), which is exactly what makes it usable as
-#     a floor. Measured on trunk: 472 rows across 48 namespaces, all present.
-#     That control has already earned its place — it caught this parser missing
+#     each one. There is no silent-zero direction here. `oracle_problems` below
+#     is the guard for it: `spec/api-manifest.edn` is generated from live
+#     `ns-publics` by a different tool on a different runtime, so every rowed
+#     var MUST appear in the derived set. It is a strict subset (the manifest
+#     drops `^:no-doc`), which is exactly what makes it usable as a floor.
+#     Measured on trunk: 472 rows across 48 namespaces, all present. That
+#     control has already earned its place — it caught this parser missing
 #     `(import-fn …)` re-exports in `re-frame.ssr.ring` and `(rf/reg-view Panel
 #     …)` component vars across eleven Xray namespaces, both of which would
 #     otherwise have produced confident, well-formed FALSE findings.
+#   * the parse going TOO GENEROUS is the dangerous direction, AND NOTHING
+#     ABOVE GUARDS IT. This comment used to claim the manifest did, and that
+#     claim is what audit #9501 refuted: a SUBSET test detects public names
+#     MISSING from the derived set and is structurally blind to EXTRA
+#     fictitious ones. It is the wrong-direction instrument, and saying so
+#     matters more than the defect it missed, because a stated guard is a
+#     reason not to look for a real one.
+#     What guards this direction is the exact-set assertion in
+#     `_run_where_sym_self_tests`, over an oracle fixture that defines names
+#     inside a `comment`, a `#_` discard, a quote and a syntax-quote and
+#     nowhere else. `comment` shipped in `_TRANSPARENT_DEF_WRAPPERS` beside
+#     `do` and the walk descended through the reader prefixes, so all four
+#     were read as live publics — every one a dead door the gate blessed.
 #
 # THE RULE, NOT A ROSTER: a top-level form whose head — after any namespace
 # qualifier — begins `def` defines its first non-metadata symbol argument.
@@ -1062,21 +1139,59 @@ def _is_framework_family(qualifier: str, namespace: str) -> bool:
 # `def`; the manifest control above is what says when a third one appears.
 _EXTRA_DEF_HEADS = frozenset({"reg-view", "import-fn"})
 
-_FORM_HEAD_TOKEN_RE = re.compile(r"\(\s*(:?[A-Za-z0-9_.*+!?<>=&$%|'/-]+)")
+_FORM_HEAD_TOKEN_RE = re.compile(
+    r"\(" + _CLJ_WS + r"*(:?[A-Za-z0-9_.*+!?<>=&$%|'/-]+)"
+)
 _PRIVATE_META_RE = re.compile(r"\^\s*(?::private\b|\{[^{}]*:private\s+true)")
-# A reader-conditional arm head (`#?(:clj …)`) and the two transparent wrappers
-# a top-level def hides behind. `#?(:cljs (def frame-root …))` is how the façade
+# A reader-conditional arm head (`#?(:clj …)`) and the ONE transparent wrapper a
+# top-level def hides behind. `#?(:cljs (def frame-root …))` is how the façade
 # ships its two CLJS-only exports, so a scan that does not descend here reports
 # them as dead doors — the exact false red this section exists to avoid.
 _PLATFORM_KEYWORD_RE = re.compile(r"^:(clj|cljs|cljr|default)$")
-_TRANSPARENT_DEF_WRAPPERS = frozenset({"do", "comment"})
+# `comment` SHIPPED HERE BESIDE `do` AND IT IS NOT A TRANSPARENT WRAPPER
+# (audit #9501). `(comment …)` evaluates to nil and interns nothing, so a
+# `(comment (defn ghost …))` contributed `ghost` to the public set and a
+# where-sym naming a var that exists only inside a comment resolved as a live
+# door. `do` is the real one — it evaluates its body, so the `def` inside
+# really does intern — and removing `comment` must not cost it, which is what
+# the fixture's `(do (defn do-defined-public …))` control pins.
+_TRANSPARENT_DEF_WRAPPERS = frozenset({"do"})
 _NS_FORM_RE = re.compile(
     r"\(\s*ns\s+(?:\^\{[^{}]*\}\s+|\^[\w:.-]+\s+)*(" + _CLJ_SYM + r")"
 )
 
 
+def _reader_inert_at(masked: str, open_idx: int) -> bool:
+    """Is the form opening at `open_idx` neutralised by a READER PREFIX?
+
+    THE SAME FALSE-GREEN AS `comment`, REACHED THROUGH THE READER RATHER THAN
+    THROUGH A HEAD SYMBOL. `#_(defn ghost …)` is discarded and `'(defn ghost
+    …)` / `` `(defn ghost …) `` are data, so none of the three defines
+    anything — but each is a balanced `( … )` form, and a walk that only looks
+    at what is INSIDE the parens sees `defn` and calls `ghost` public.
+
+    THIS IS THE DANGEROUS DIRECTION AND THE MANIFEST CONTROL CANNOT REACH IT:
+    `oracle_problems` is a SUBSET test, so it detects public names the parser
+    has stopped seeing, never fictitious ones it has started inventing.
+
+    Look-BACK rather than a forward prefix stack, because the caller has
+    already walked to this `(` at depth 0 — so the characters behind it are
+    top-level text and nothing else. `\\'` is the CHARACTER quote, not a quote
+    prefix, which is the same reader trap that once swallowed half a file.
+    """
+    j = open_idx - 1
+    while j >= 0 and _is_clj_ws(masked[j]):
+        j -= 1
+    if j < 0:
+        return False
+    if masked[j] in "'`":
+        return not (j > 0 and masked[j - 1] == "\\")
+    return masked[j] == "_" and j > 0 and masked[j - 1] == "#"
+
+
 def _top_level_forms(masked: str) -> Iterable[str]:
-    """Every balanced top-level `( … )` form in comment-masked text."""
+    """Every balanced top-level `( … )` form in comment-masked text, MINUS the
+    ones a reader prefix makes inert (see `_reader_inert_at`)."""
     i = 0
     n = len(masked)
     while i < n:
@@ -1084,7 +1199,8 @@ def _top_level_forms(masked: str) -> Iterable[str]:
             end = _balanced_extent(masked, i)
             if end is None:
                 return
-            yield masked[i:end]
+            if not _reader_inert_at(masked, i):
+                yield masked[i:end]
             i = end
         else:
             i += 1
@@ -1256,6 +1372,14 @@ def oracle_problems(index: PublicVarIndex, rows: dict[str, set[str]]) -> list[st
     set means the parser has stopped seeing a whole shape of definition. That is
     the failure that would otherwise arrive as confident FALSE findings, so it
     is an rc=2 'this instrument is not usable', never a finding.
+
+    IT GUARDS ONE DIRECTION ONLY, and the header comment above used to say
+    otherwise. Being a SUBSET test, it detects public names MISSING from the
+    derived set; an EXTRA fictitious one — a name the parser invents, which is
+    how a where-sym pointing at a var that exists only inside a `(comment …)`
+    came to resolve — adds no row and contradicts nothing here. Nothing in this
+    function can see that. `_run_where_sym_self_tests`' exact-set assertion is
+    what does.
     """
     problems: list[str] = []
     for namespace in sorted(rows):
@@ -1358,7 +1482,9 @@ def _extract_call_body(text: str, open_paren_idx: int, head: str) -> str | None:
     depth = 0
     in_string = False
     start_body = None
-    head_re = re.compile(r"\(\s*(?:[\w.*+!?<>=-]+/)?" + re.escape(head) + _SYM_TAIL)
+    head_re = re.compile(
+        r"\(" + _CLJ_WS + r"*(?:[\w.*+!?<>=-]+/)?" + re.escape(head) + _SYM_TAIL
+    )
     while i < n:
         c = text[i]
         if in_string:
@@ -2570,7 +2696,8 @@ def _fixture_where_sym_index() -> PublicVarIndex:
 def _crosses_call_head(text: str, head: str) -> bool:
     """Does `text` contain a `(<head> …)` call, optionally namespace-qualified?"""
     return bool(re.search(
-        r"\(\s*(?:[\w.*+!?<>=-]+/)?" + re.escape(head) + _SYM_TAIL, text
+        r"\(" + _CLJ_WS + r"*(?:[\w.*+!?<>=-]+/)?" + re.escape(head) + _SYM_TAIL,
+        text,
     ))
 
 
@@ -2596,12 +2723,22 @@ def _run_where_sym_self_tests(verbose: bool = False) -> int:
     # `^:no-doc` is the manifest-oracle refutation, the two platform arms are
     # the runtime question, and `Panel` / `imported-fn` are the two
     # var-defining macros that do not begin `def` — both of which this parser
-    # missed until the manifest control caught them. The absences matter as
-    # much: three privacy spellings and a `defmethod`.
+    # missed until the manifest control caught them. `do-defined-public` is the
+    # valid exit-0 control for the audit-#9501 repair: dropping `comment` from
+    # `_TRANSPARENT_DEF_WRAPPERS` must not cost the wrapper that really is
+    # transparent.
+    #
+    # THE ABSENCES ARE HALF THE ASSERTION, and this is the only place that can
+    # make them: three privacy spellings, a `defmethod`, and the four inactive
+    # forms (`comment`, `#_`, `'`, `` ` ``) plus the discard nested in the live
+    # `do`. The manifest control cannot stand in for it — `oracle_problems` is
+    # a SUBSET test, so it catches public names the parser has stopped seeing
+    # and is blind to fictitious ones it has started inventing, which is
+    # exactly the direction `comment` failed in.
     expected_publics = {
         "known-var", "known-public", "known-macro", "known-multi",
         "no-doc-public", "cljs-only-public", "clj-only-public",
-        "Panel", "imported-fn",
+        "Panel", "imported-fn", "do-defined-public",
     }
     got_publics = index.publics_of("re-frame.fixture")
     if got_publics != expected_publics:
@@ -2647,6 +2784,25 @@ def _run_where_sym_self_tests(verbose: bool = False) -> int:
             (109, "where-sym-unresolvable", "rf.fixture/private-var"),
             (115, "where-sym-unresolvable", "rf.fixture/private-meta-var"),
             (121, "where-sym-unresolvable", "rf.fixture/foreign-multi"),
+            # (3) a var that exists only inside an INACTIVE form. Each name is
+            # defined in the oracle fixture and NOWHERE ELSE, so a generous
+            # oracle greens exactly these five (audit #9501).
+            (139, "where-sym-unresolvable", "rf.fixture/ghost-in-comment"),
+            (145, "where-sym-unresolvable", "rf.fixture/ghost-discarded"),
+            (151, "where-sym-unresolvable", "rf.fixture/ghost-quoted"),
+            (157, "where-sym-unresolvable", "rf.fixture/ghost-syntax-quoted"),
+            (164, "where-sym-unresolvable",
+             "rf.fixture/ghost-discarded-inside-do"),
+            # (4) commas, which are reader whitespace. The twins of these four
+            # resolve in the negative fixture; the PAIR is the assertion,
+            # because either half alone is green under a blind detector.
+            (182, "where-sym-unresolvable", "rf.fixture/ghost-comma-one"),
+            (188, "where-sym-unresolvable", "rf.fixture/ghost-comma-two"),
+            (194, "where-sym-unresolvable", "rf.fixture/ghost-comma-three"),
+            (200, "where-sym-unresolvable", "rf.fixture/ghost-comma-four"),
+            # (5) the `:where` slot as the map's LAST entry — not a comma bug,
+            # found by the control for one.
+            (217, "where-sym-unresolvable", "rf.fixture/ghost-slot-last"),
         )),
         (_WHERE_SYM_NEGATIVE, ()),
     ]
@@ -2676,12 +2832,41 @@ def _run_where_sym_self_tests(verbose: bool = False) -> int:
     neg_path = _WHERE_SYM_FIXTURE_ROOT / _WHERE_SYM_NEGATIVE
     neg_text = neg_path.read_text(encoding="utf-8", errors="replace")
     neg_observed = _scan_where_syms(neg_path, neg_text, neg_text.splitlines())
-    if len(neg_observed) < 14:
+    if len(neg_observed) < 19:
         fail(
             f"the negative fixture observed only {len(neg_observed)} where-sym(s). "
             "A green there is only evidence while the sites are still being SEEN "
             "— zero findings over zero observations is what a dead scan looks like."
         )
+
+    # THE COUNT ABOVE IS NOT THE ASSERTION FOR THE READER-EQUIVALENT SITES, and
+    # this is the whole lesson of audit #9501. A resolving site is GREEN when it
+    # is seen and green again when it has VANISHED, so the pair (fires in the
+    # positive fixture, resolves here) proves nothing unless this half is pinned
+    # as OBSERVED. Pinned by LINE, not by count: a count cannot separate "found
+    # the right ones" from "traded a real hit for a false positive", which is
+    # why `:min-where-syms` at 173 against 193 observed could not have caught a
+    # single lost call.
+    required_observations = (
+        (133, "builder", "rf.fixture/do-defined-public"),
+        (146, "builder", "rf.fixture/known-public"),
+        (152, "builder", "rf.fixture/known-public"),
+        (158, "where-slot", "rf.fixture/known-public"),
+        (164, "where-slot", "rf.fixture/known-public"),
+    )
+    got_observations = {(w.line, w.source, w.symbol) for w in neg_observed}
+    for pin in required_observations:
+        if pin not in got_observations:
+            fail(
+                f"{_WHERE_SYM_NEGATIVE}: no where-sym observed at {pin}. This is "
+                "a RESOLVING site written in a reader-equivalent spelling (a "
+                "comma where the reader ignores one, a `:where` slot ending its "
+                "map, a var interned by a live `do`). Its twin in "
+                f"{_WHERE_SYM_POSITIVE} fires; if this one is not even SEEN, the "
+                "detector has gone blind to the spelling and both halves report "
+                "green."
+            )
+
     neg_symbols = {w.symbol for w in neg_observed}
     for ghost in ("rf.fixture/ghost-in-a-docstring", "rf.fixture/ghost-in-a-comment",
                   "rf.fixture/ghost-nested", "rf.fixture/ghost-not-a-framework-error"):

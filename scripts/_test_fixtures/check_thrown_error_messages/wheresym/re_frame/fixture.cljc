@@ -81,3 +81,36 @@
 (defmethod known-multi :a [_] :a)
 
 (defmethod foreign-multi :b [_] :b)
+
+;; ---- INACTIVE DEFINITIONS: must NOT be reachable (audit #9501) ------------
+;;
+;; `comment` shipped in `_TRANSPARENT_DEF_WRAPPERS` beside `do`, and
+;; `_top_level_forms` walked straight through `#_` and `'`. None of the four
+;; forms below interns anything — `(comment ...)` evaluates to nil, `#_`
+;; discards, and a quoted or syntax-quoted list is data — yet each contributed
+;; its name to the derived public set, so a where-sym naming a var that exists
+;; only inside one resolved as a live door.
+;;
+;; THE MANIFEST CONTROL CANNOT REACH THIS. `oracle_problems` is a SUBSET test:
+;; it detects public names MISSING from the derived set, never EXTRA fictitious
+;; ones. Only the exact-set assertion in the self-test does.
+
+(comment
+  (defn ghost-in-comment [] nil))
+
+#_(defn ghost-discarded [] nil)
+
+'(defn ghost-quoted [] nil)
+
+`(defn ghost-syntax-quoted [] nil)
+
+;; ---- LIVE `do`: THE VALID EXIT-0 CONTROL FOR THAT REPAIR ------------------
+;;
+;; `do` IS transparent — it evaluates its body, so the `def` inside really does
+;; intern, and `rf/frame-root`-style exports depend on the walk descending.
+;; Dropping `comment` must not cost this, and the walk must carry the reader
+;; prefixes DOWN with it: the discarded sibling below is defined nowhere else.
+
+(do
+  (defn do-defined-public [] nil)
+  #_(defn ghost-discarded-inside-do [] nil))
