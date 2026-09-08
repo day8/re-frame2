@@ -904,8 +904,16 @@
 (defn- machine-spec [machine-id]
   (:rf/machine (rf/handler-meta {:source :store :kind :event :id machine-id})))
 
+;; Every registered machine-id, read through the same generic registrar query
+;; filtered on the `:rf/machine?` discriminator. There is no per-kind
+;; `machines` accessor (retired, rf2-kuky.31) — this filter IS the contract
+;; (Spec 005 §Querying machines).
+(defn- machine-ids []
+  (keys (into {} (filter (fn [[_ m]] (:rf/machine? m)))
+              (rf/registrations {:source :store :kind :event}))))
+
 (deftest machines-introspection
-  (testing "(rf.machines/machines) returns only ids whose registration was via reg-machine"
+  (testing "the :rf/machine? filter over the generic read returns only ids registered via reg-machine"
     (let [tiny-spec   {:initial :idle
                        :data    {:n 0}
                        :doc     "A tiny test machine."
@@ -918,16 +926,16 @@
                                  :on  {:on {:flip :off}}}}]
       (rf/reg-machine :test/tiny  tiny-spec)
       (rf/reg-machine :test/other other-spec)
-      ;; A regular event-handler must NOT show up in (rf.machines/machines).
+      ;; A regular event-handler must NOT show up under the :rf/machine? filter.
       (rf/reg-event :test/regular (fn [{:keys [db]} _] {:db db}))
 
-      (let [ids (set (rf.machines/machines))]
+      (let [ids (set (machine-ids))]
         (is (contains? ids :test/tiny)
-            "(rf.machines/machines) lists machines registered via reg-machine")
+            "the :rf/machine? filter lists machines registered via reg-machine")
         (is (contains? ids :test/other)
-            "(rf.machines/machines) lists every reg-machine id")
+            "the :rf/machine? filter lists every reg-machine id")
         (is (not (contains? ids :test/regular))
-            "(rf.machines/machines) excludes plain event handlers"))
+            "the :rf/machine? filter excludes plain event handlers"))
 
       ;; A single machine's SPEC is read through the generic registrar query
       ;; plus the `:rf/machine` inner-key projection — the documented contract

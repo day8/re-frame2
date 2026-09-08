@@ -7,7 +7,7 @@ This file is intentionally **kept separate** from Construction-Prompts.md so tha
 
 ## Registration — `reg-machine` and `reg-machine*`
 
-Two equivalent surfaces register a machine; CP-5-generated scaffolds default to **`reg-machine`** (the macro). Both register the same thing — an event handler whose body interprets the transition table — and both stamp the registry slot with `:rf/machine? true` and `:rf/machine <spec>` so that `(rf.machines/machines)` and the per-id `:rf/machine` registrar projection see the registration (per [005 §Querying machines](005-StateMachines.md#querying-machines)).
+Two equivalent surfaces register a machine; CP-5-generated scaffolds default to **`reg-machine`** (the macro). Both register the same thing — an event handler whose body interprets the transition table — and both stamp the registry slot with `:rf/machine? true` and `:rf/machine <spec>` so that the `:rf/machine?` registrar filter and the per-id `:rf/machine` registrar projection see the registration (per [005 §Querying machines](005-StateMachines.md#querying-machines)).
 
 ```clojure
 ;; Standard form — the macro (preferred).
@@ -79,7 +79,7 @@ For the third case (compound predicate), prefer naming the compound — `:eligib
 
 ## v1 grammar subset
 
-v1 ships the **machine-as-event-handler foundation** — `make-machine-handler`, `machine-transition`, the `[:rf.machine/spawn ...]` and `[:rf.machine/destroy ...]` lifecycle fx, the reserved fx-id `:raise` (machine-internal), the `[:rf.runtime/machines :snapshots <id>]` runtime-db storage scheme, four-level drain, machine-scoped `:guards` / `:actions` declaration with registration-time validation, and the discovery lens (`(rf.machines/machines)` plus the per-id `:rf/machine` registrar projection).
+v1 ships the **machine-as-event-handler foundation** — `make-machine-handler`, `machine-transition`, the `[:rf.machine/spawn ...]` and `[:rf.machine/destroy ...]` lifecycle fx, the reserved fx-id `:raise` (machine-internal), the `[:rf.runtime/machines :snapshots <id>]` runtime-db storage scheme, four-level drain, machine-scoped `:guards` / `:actions` declaration with registration-time validation, and the discovery lens (the `:rf/machine?` filter over `(rf/registrations {:source :store :kind :event})` plus the per-id `:rf/machine` registrar projection).
 
 The grammar this foundation interprets (per [005 §Capability matrix](005-StateMachines.md#capability-matrix)):
 
@@ -172,7 +172,7 @@ The media-player example uses two genuinely independent regions (audio and video
 What this gives:
 
 - **Atomicity.** Run-to-completion drain at the frame level means `:media/play` runs both `:media/audio [:media/play]` and `:media/video [:media/play]` to completion before any other event sees state. From outside the frame, the two regions advance together.
-- **Inspection.** `(rf.machines/machines)` enumerates both regions; `@(rf/subscribe [:rf/machine :media/audio])` and `@(rf/subscribe [:rf/machine :media/video])` are independent reads. Tooling treats them as the two separate things they are, not as nested keys inside a parallel-region snapshot.
+- **Inspection.** The `:rf/machine?` filter over the `:event` registrations enumerates both regions; `@(rf/subscribe [:rf/machine :media/audio])` and `@(rf/subscribe [:rf/machine :media/video])` are independent reads. Tooling treats them as the two separate things they are, not as nested keys inside a parallel-region snapshot.
 - **Undo.** Each region's snapshot lives at its own `[:rf.runtime/machines :snapshots <id>]` key in runtime-db; reverting the frame-state rolls both back together.
 - **Composability.** A view caring only about audio subscribes to `:media/audio`; video-only views ignore audio entirely. Parallel-region snapshots in xstate force consumers to subscribe to the umbrella machine and project — extra ceremony for the same outcome.
 - **Discoverability.** Each region has a name (`:media/audio`) and a registry entry. xstate's regions live anonymously inside the parent machine's transition table.

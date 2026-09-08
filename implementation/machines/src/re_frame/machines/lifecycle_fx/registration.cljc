@@ -1364,9 +1364,10 @@
 
   Per Spec 005 §Querying machines, the registration metadata is stamped
   with `:rf/machine? true` and `:rf/machine` (the spec map).
-  `(rf.machines/machines)` filters the `:event` registry by `:rf/machine?`;
-  the `:rf/machine` registrar projection reads the spec back out via the standard
-  registrar query API.
+  Enumeration filters the `:event` registry by `:rf/machine?`; the
+  `:rf/machine` registrar projection reads the spec back out. Both go
+  through the standard registrar query API — there is no per-kind
+  `machines` / `machine-meta` accessor (retired, rf2-kuky.31).
 
   Per Spec 001 §Source-coordinate capture, the call-site `:ns` /
   `:line` / `:file` carried by `re-frame.source-coords/*pending-coords*`

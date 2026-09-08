@@ -49,6 +49,12 @@
 (defn- machine-spec [machine-id]
   (:rf/machine (rf/handler-meta {:source :store :kind :event :id machine-id})))
 
+;; Helper: every registered machine-id — the same generic read filtered on the
+;; `:rf/machine?` discriminator. No per-kind `machines` accessor (rf2-kuky.31).
+(defn- machine-ids []
+  (keys (into {} (filter (fn [[_ m]] (:rf/machine? m)))
+              (rf/registrations {:source :store :kind :event}))))
+
 ;; Helper: read a co-located element entry's source-coords off a
 ;; registered machine. `slot` is :guards / :actions.
 (defn- element-coords [machine-id slot id]
@@ -433,8 +439,8 @@
     (rf.machines/reg-machine* :rf2-8bp3/plain
                      {:initial :a :states {:a {}}})
     (is (= :rf2-8bp3/plain
-           (some #{:rf2-8bp3/plain} (rf.machines/machines)))
-        "plain-fn registration shows up in (rf.machines/machines) like macro registrations")
+           (some #{:rf2-8bp3/plain} (machine-ids)))
+        "plain-fn registration shows up under the :rf/machine? filter like macro registrations")
     (is (= {:initial :a :states {:a {}}}
            (machine-spec :rf2-8bp3/plain))
         "spec round-trips verbatim")))

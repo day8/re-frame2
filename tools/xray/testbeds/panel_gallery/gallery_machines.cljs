@@ -6,7 +6,8 @@
   (rf2-2tkza Phase 1 + rf2-v869p Phase 2; spec/003-Machine-Inspector).
   The panel reads:
 
-    - `:rf.xray/registered-machines`  — defaults to `(rf.machines/machines)`;
+    - `:rf.xray/registered-machines`  — defaults to the `:rf/machine?` filter
+                                         over the generic registrar read;
                                          test override slot exists.
     - `:rf.xray/machine-snapshots`    — defaults to target-frame's
                                          `[:rf.runtime/machines

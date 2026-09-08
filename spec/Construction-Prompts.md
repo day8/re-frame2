@@ -357,7 +357,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 **Pre-flight checks:**
 
 1. **Choose a machine id.** Convention: `:feature.flow/machine` or `:feature/flow`. Examples: `:auth.login/flow`, `:checkout/flow`, `:video-player/flow`.
-2. **Verify the id is unused.** `(rf/registrations {:source :store :kind :event})` — the machine reuses the `:event` registry kind. (No matching `:sub` registration is needed: machines are read through the framework-registered parametric sub `:rf/machine`; see "Where state lives" below.) `(rf.machines/machines)` enumerates already-registered machines specifically.
+2. **Verify the id is unused.** `(rf/registrations {:source :store :kind :event})` — the machine reuses the `:event` registry kind. (No matching `:sub` registration is needed: machines are read through the framework-registered parametric sub `:rf/machine`; see "Where state lives" below.) Filtering that read on `:rf/machine?` — `(into {} (filter (fn [[_ m]] (:rf/machine? m))) (rf/registrations {:source :store :kind :event}))` — enumerates already-registered machines specifically.
 3. **List the states.** Discrete, named (`:idle`, `:submitting`, `:authed`, `:error-shown`).
 4. **List the inputs (sub-events) that move between states.** Each input triggers exactly one transition.
 5. **Identify guards and actions; default to naming them in `:guards` / `:actions`.** Each guard `(fn [{:keys [data event]}] boolean)` and each action `(fn [{:keys [data event]}] {:data {...} :fx [...]})` is a key in the machine's `:guards` / `:actions` map (referenced from transitions by keyword). Per every machine callback receives a single context-map argument with `:data`, `:event`, `:state`, `:meta`. **Inline only when the body is a single non-branching expression.**
@@ -609,7 +609,7 @@ For projections, compose against `:rf/machine` by declaring it under `:inputs`:
 - Level-1 headless test passes via `machine-transition` (no event dispatch needed).
 - If the machine has terminal states, they're marked `:meta {:terminal? true}`.
 - Trace events on `:rf.machine/transition` are visible in 10x / re-frame-pair.
-- `(rf.machines/machines)` includes the new id; `(:rf/machine (rf/handler-meta {:source :store :kind :event :id <id>}))` returns its registered spec (which includes the `:guards` / `:actions` maps).
+- The `:rf/machine?` filter over `(rf/registrations {:source :store :kind :event})` includes the new id; `(:rf/machine (rf/handler-meta {:source :store :kind :event :id <id>}))` returns its registered spec (which includes the `:guards` / `:actions` maps).
 
 ### CP-6. Scaffold a feature
 

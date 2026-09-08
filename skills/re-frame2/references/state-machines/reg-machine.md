@@ -186,7 +186,7 @@ To validate the flow's **outer** event vector, pass the optional metadata MIDDLE
 ## Querying registered machines
 
 - `(rf/handler-meta {:source :store :kind :event :id :my/feature})` — registration metadata, including `:rf/machine? true`, `:rf/machine` (the spec map), `:ns` / `:line` / `:file`.
-- `(re-frame.machines/machines)` — every registered machine-id.
+- `(keys (into {} (filter (fn [[_ m]] (:rf/machine? m))) (rf/registrations {:source :store :kind :event})))` — every registered machine-id. (No `machines` accessor: the generic registrar query plus the `:rf/machine?` discriminator.)
 - `(:rf/machine (rf/handler-meta {:source :store :kind :event :id :my/feature}))` — the spec map back. (No `machine-meta` accessor: the generic registrar query plus the documented inner-key projection.)
 
 ## Common gotchas
