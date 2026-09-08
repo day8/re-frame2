@@ -242,14 +242,14 @@
   so the digest hook resolves a TARGET frame; absence is
   `:rf.error/no-frame-context`, NEVER a synthesised `:rf/default`. Story
   computes snapshot identity for a specific variant, so the variant frame
-  IS the explicit target: pass `target-frame-id` (the variant id) through
-  the hook's keyword-frame-id arity. The digest is computed against THAT
+  IS the explicit target: pass `target-frame-id` (the variant id) as the
+  hook's REQUIRED `{:frame …}` opt. The digest is computed against THAT
   frame's registered app-db schema set (the stable empty-set digest when
   the variant frame holds none / is not yet allocated — the digest still
   participates in the hash and stays stable across runs)."
   [target-frame-id]
   (when-let [f (rf.late-bind/get-fn :schemas/app-schemas-digest)]
-    (f target-frame-id)))
+    (f {:frame target-frame-id})))
 
 (defn- effective-tags-slice
   "Return `variant-id`'s EFFECTIVE tag set via the shared

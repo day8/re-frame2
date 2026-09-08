@@ -65,13 +65,13 @@
   ever written to either registrar slot, querying one throws
   `:rf.error/registrar-kind-not-queryable` at the framework
   (rf2-kuky.30), and flows / frames are read through their own doors
-  (`re-frame.flows/flows-snapshot` / `flow-meta-at`; `rf/frame-ids` /
+  (`re-frame.flows/flows` / `flow-meta` / `flows-snapshot`; `rf/frame-ids` /
   `rf/frame-meta`). Asking for either gets the ordinary
   `:reason :invalid-kind` envelope with the accepted-kinds hint
   (rf2-zhef). App-db schemas are NOT
   a registrar kind; their metadata lives in the schemas
-  artefact's per-frame side-table, surfaced via `rf/app-schemas` /
-  `rf/app-schema-meta-at`. The twelve registrar kinds map directly to
+  artefact's per-frame side-table, surfaced via `rf/app-schemas {:frame f}`
+  / `rf/app-schema-meta {:frame f :path p}`. The twelve registrar kinds map directly to
   `rf/handler-meta`; `machine` routes through the runtime preload's
   `re-frame2-pair.runtime/machine-describe` door, which reads the
   `:rf/machine` registrar projection (Spec 005 §Querying machines —
@@ -181,7 +181,7 @@
   `:flow` and `:frame` are absent for a THIRD reason, and it is the one
   worth spelling out (rf2-zhef). `re-frame.registrar/kinds` RESERVES both
   slots, but nothing is ever written to either: flows live in
-  `re-frame.flows` (`flows-snapshot` / `flow-meta-at`) and frames in
+  `re-frame.flows` (`flows` / `flow-meta` / `flows-snapshot`) and frames in
   `rf/frame-ids` / `rf/frame-meta`. rf2-kuky.30 made querying them LOUD at
   the framework — `(rf/registrations {:source :store :kind :flow})` throws
   `:rf.error/registrar-kind-not-queryable`, whose message names the real

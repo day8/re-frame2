@@ -78,5 +78,5 @@
   []
   (rf.schemas/set-schema-fns! {:validate nil})
   (rf.schemas/reg-app-schema [:probe] [:int])
-  (rf.schemas/app-schemas)
-  (rf.schemas/app-schemas-digest))
+  (update-vals (rf.schemas/app-schemas {:frame :rf/default}) :schema)
+  (rf.schemas/app-schemas-digest {:frame :rf/default}))

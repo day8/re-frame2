@@ -41,8 +41,11 @@
 (def ^:no-doc last-inputs-snapshot rf.flows.registry/last-inputs-snapshot)
 
 ;; Flow metadata is frame-scoped and therefore cannot use the frame-blind
-;; registrar metadata slot.
-(def flow-meta-at       rf.flows.registry/flow-meta-at)
+;; registrar metadata slot. Both per-frame reads take one opts MAP with a
+;; REQUIRED `:frame` (rf2-kuky.84) — no ambient default, no trailing
+;; frame-target sniffing.
+(def flows              rf.flows.registry/flows)
+(def flow-meta          rf.flows.registry/flow-meta)
 
 (def reg-flow           rf.flows.registry/reg-flow)
 ;; rf2-kuky.80: no public `clear-flow` re-export here — the registrar inverse

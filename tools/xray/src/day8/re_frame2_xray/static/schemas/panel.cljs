@@ -25,9 +25,9 @@
 
     - app-db schemas — assembled from the public `re-frame.schemas`
       façade: `rf/frame-ids` enumerates the live frames, then per
-      frame `rf.schemas/app-schemas` lists the registered paths and
-      `rf.schemas/app-schema-meta-at` returns each path's full meta map
-      (`:schema` Malli EDN, `:doc`, `:file`/`:line`/`:ns` source
+      frame ONE `rf.schemas/app-schemas {:frame f}` read returns that
+      frame's whole `{path → schema-meta}` map (`:schema` Malli EDN,
+      `:doc`, `:file`/`:line`/`:ns` source
       coords). This yields the `{frame-id {path schema-meta}}` shape
       the per-frame projection consumes — without reaching the private
       `re-frame.schemas.storage/schemas-by-frame` atom.
@@ -284,24 +284,18 @@
   / `re-frame.core` surfaces (Tool-Pair.md §public APIs) — never the
   private `re-frame.schemas.storage/schemas-by-frame` atom.
 
-  For each live frame (`rf/frame-ids`), `rf.schemas/app-schemas` enumerates
-  the registered `{path → schema}` and `rf.schemas/app-schema-meta-at`
-  returns each path's full meta map (`:schema`, `:doc`, `:file` /
-  `:line` / `:ns` source coords). Frames with no app-db schemas are
-  dropped so the snapshot mirrors the storage atom's shape (absent
-  rather than empty-mapped). Returns `{}` when the schemas artefact is
-  not on the classpath (`app-schemas` then yields `{}` per frame)."
+  For each live frame (`rf/frame-ids`), ONE `(rf.schemas/app-schemas
+  {:frame frame-id})` read returns that frame's whole `{path →
+  schema-meta}` map — `:schema`, `:doc`, `:file` / `:line` / `:ns` source
+  coords. Since rf2-kuky.84 `app-schemas` answers the metadata directly, so
+  the per-path second read this used to make is gone. Frames with no app-db
+  schemas are dropped so the snapshot mirrors the storage atom's shape
+  (absent rather than empty-mapped). Returns `{}` when the schemas artefact
+  is not on the classpath (`app-schemas` then yields `{}` per frame)."
   []
   (reduce
     (fn [acc frame-id]
-      (let [paths (keys (rf.schemas/app-schemas frame-id))
-            by-path (reduce
-                      (fn [m path]
-                        (if-let [meta (rf.schemas/app-schema-meta-at path frame-id)]
-                          (assoc m path meta)
-                          m))
-                      {}
-                      paths)]
+      (let [by-path (rf.schemas/app-schemas {:frame frame-id})]
         (if (seq by-path)
           (assoc acc frame-id by-path)
           acc)))
@@ -381,8 +375,8 @@
 
   ;; Assembles the three input registries from public surfaces once per
   ;; re-fire: app-db schemas via the `re-frame.schemas` façade
-  ;; (`rf/frame-ids` + `rf.schemas/app-schemas` + `rf.schemas/app-schema-meta-
-  ;; at`) and event / sub specs via `(rf/registrations {:source :store :kind <kind>})`.
+  ;; (`rf/frame-ids` + one `rf.schemas/app-schemas {:frame f}` read per
+  ;; frame) and event / sub specs via `(rf/registrations {:source :store :kind <kind>})`.
   ;; Declares the trace buffer in its `:inputs` so the sub is reactive
   ;; against the same "something changed" pulse the other Static-mode
   ;; subs ride.

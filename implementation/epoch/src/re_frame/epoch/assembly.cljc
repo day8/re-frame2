@@ -101,7 +101,7 @@
    (when (continue?)
      (when-let [schema-digest-fn (rf.late-bind/get-fn :schemas/app-schemas-digest)]
        (try
-         (schema-digest-fn frame-id)
+         (schema-digest-fn {:frame frame-id})
          (catch #?(:clj Throwable :cljs :default) _
            ;; Optional diagnostic enrichment retains nil-on-failure. The
            ;; caller's post-callback exact check decides whether even that nil

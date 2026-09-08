@@ -349,31 +349,28 @@
 ;; ---- app-schemas (rf2-vvsh) ----------------------------------------------
 
 (deftest app-schemas-returns-registered-schema-map
-  (testing "app-schemas returns {path schema} for every reg-app-schema declaration"
-    (is (= {} (rf.schemas/app-schemas))
+  (testing "app-schemas returns {path → registration-metadata} for every
+            reg-app-schema declaration"
+    (is (= {} (rf.schemas/app-schemas {:frame :rf/default}))
         "fresh registry: no schemas registered")
     (rf/reg-app-schema [:user]  [:map [:id :uuid]])
     (rf/reg-app-schema [:todos] [:vector :string])
-    (let [m (rf.schemas/app-schemas)]
+    (let [m (rf.schemas/app-schemas {:frame :rf/default})]
       (is (= 2 (count m)))
-      (is (= [:map [:id :uuid]]   (get m [:user])))
-      (is (= [:vector :string]    (get m [:todos]))))
-    (is (= [:map [:id :uuid]] (rf.schemas/app-schema-at [:user]))
-        "app-schema-at agrees with app-schemas for individual paths"))
-  (testing "keyword-arity is sugar over the opts-map arity"
-    ;; Per Spec 010 §Schemas as a tooling and agent surface: the
-    ;; (app-schemas frame-id) form is sugar for (app-schemas {:frame ...}).
-    ;; In v1 the registry is process-global so both arities return the
-    ;; same map; the keyword/opts-map arities must not throw.
-    (let [bare    (rf.schemas/app-schemas :rf/default)
-          opts    (rf.schemas/app-schemas {:frame :rf/default})
-          no-args (rf.schemas/app-schemas)]
-      (is (map? bare))
-      (is (= bare opts))
-      (is (= bare no-args))))
-  (testing "app-schemas rejects garbage input with a structured error"
-    (is (thrown? clojure.lang.ExceptionInfo
-                 (rf.schemas/app-schemas "not-a-keyword-or-map")))))
+      (is (= [:map [:id :uuid]]   (:schema (get m [:user]))))
+      (is (= [:vector :string]    (:schema (get m [:todos])))))
+    (is (= [:map [:id :uuid]] (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path [:user]})))
+        "app-schema-meta agrees with app-schemas for individual paths"))
+  (testing "rf2-kuky.84 — :frame is REQUIRED; the keyword sugar, the bare
+            frame value and the no-arg ambient form are all refused with the
+            catalogued :rf.error/no-frame-context"
+    (doseq [f [#(rf.schemas/app-schemas :rf/default)
+               #(rf.schemas/app-schemas nil)
+               #(rf.schemas/app-schemas {})
+               #(rf.schemas/app-schemas "not-a-keyword-or-map")]]
+      (is (= :rf.error/no-frame-context
+             (try (f) nil
+                  (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))))))
 
 ;; ---- subscription topology: glitch-freedom (JVM) -------------------------
 ;;
@@ -1103,7 +1100,7 @@
     ;; `{frame-id {flow-id flow-map}}`), the single source of truth. The
     ;; `:flow` registrar kind stays RESERVED-but-empty (like `:http-
     ;; interceptor`); introspection of registered flows goes through
-    ;; `rf.flows/flow-meta-at` / `rf.flows/flows-snapshot`, asserted in the flows
+    ;; `rf.flows/flow-meta` / `rf.flows/flows-snapshot`, asserted in the flows
     ;; artefact's own tests. The fixture's ambient `(with-frame :rf/default …)`
     ;; scope resolves the frame this registers against.
     (rf/reg-flow :rf2-o1bp/flow1 {:inputs [] :output-path [:rf2-o1bp/flow-output]} (fn [_inputs] :computed))
@@ -1126,7 +1123,7 @@
     ;; per-frame side-table (`rf.schemas/schemas-by-frame`). There is NO
     ;; `:app-schema` registrar kind. Introspection of registered app-db
     ;; schemas goes through `rf.schemas/app-schemas` /
-    ;; `rf.schemas/app-schema-meta-at`, asserted in the schemas artefact's
+    ;; `rf.schemas/app-schema-meta`, asserted in the schemas artefact's
     ;; own tests.
     (rf/reg-app-schema [:rf2-o1bp/path] :any)
 
@@ -1160,12 +1157,12 @@
         ;; elsewhere); it THROWS, naming the owning read.
         (is (thrown? clojure.lang.ExceptionInfo (ids-of :flow))
             "querying the reserved-empty :flow slot throws rather than answering {}")
-        (is (some? (rf.flows/flow-meta-at :rf2-o1bp/flow1))
-            "the flow IS introspectable via rf.flows/flow-meta-at (the per-frame store)")
+        (is (some? (rf.flows/flow-meta {:frame :rf/default :id :rf2-o1bp/flow1}))
+            "the flow IS introspectable via rf.flows/flow-meta (the per-frame store)")
         (is (contains? ep-ids :rf2-o1bp/err1))
         ;; Per rf2-cq1ak `:app-schema` is NOT a registrar kind — no
         ;; assertion here. App-db schema introspection goes through
-        ;; `rf.schemas/app-schemas` (returns `{path → schema}`).
+        ;; `rf.schemas/app-schemas` (returns `{path → registration-metadata}`).
         (is (not (rf.registrar/valid-kind? :app-schema))
             ":app-schema is NOT a registrar kind (rf2-cq1ak)")))
 
@@ -1198,13 +1195,13 @@
             ":route metadata carries :path"))
       ;; Flows carry :output-path and :inputs. Per rf2-en00bk they are NOT in
       ;; the registrar; the per-frame store is the single source of truth, read
-      ;; via `rf.flows/flow-meta-at`. Per rf2-kuky.30 a `:flow` query THROWS
+      ;; via `rf.flows/flow-meta`. Per rf2-kuky.30 a `:flow` query THROWS
       ;; and names that door, rather than answering the nil which reads as
       ;; "no such flow".
       (is (thrown? clojure.lang.ExceptionInfo
             (rf/handler-meta {:source :store :kind :flow :id :rf2-o1bp/flow1}))
           "a :flow query throws :rf.error/registrar-kind-not-queryable (rf2-kuky.30)")
-      (let [m (rf.flows/flow-meta-at :rf2-o1bp/flow1)]
+      (let [m (rf.flows/flow-meta {:frame :rf/default :id :rf2-o1bp/flow1})]
         (is (= [:rf2-o1bp/flow-output] (:output-path m)))
         (is (= [] (:inputs m))))
       ;; Unknown id → nil.

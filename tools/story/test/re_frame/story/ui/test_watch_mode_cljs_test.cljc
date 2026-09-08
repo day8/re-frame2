@@ -389,11 +389,11 @@
          (try
            ;; Schema generation 1.
            (rf.late-bind/set-fn! :schemas/app-schemas-digest
-                              (fn [_frame-id] "sha256:0000000000000001"))
+                              (fn [_opts] "sha256:0000000000000001"))
            (let [h1 (get (rf.story.ui.watch/compute-testable-content-hashes) :story.x/a)]
              ;; Schema hot-reload — digest moves, Story side-table untouched.
              (rf.late-bind/set-fn! :schemas/app-schemas-digest
-                                (fn [_frame-id] "sha256:0000000000000002"))
+                                (fn [_opts] "sha256:0000000000000002"))
              (let [h2 (get (rf.story.ui.watch/compute-testable-content-hashes) :story.x/a)]
                (is (some? h1) "the first compute must hash the variant")
                (is (not= h1 h2)

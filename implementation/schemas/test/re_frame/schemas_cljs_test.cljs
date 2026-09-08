@@ -319,7 +319,7 @@
             canonical wire form."
     (rf/reg-app-schema [:user]  [:map [:id :uuid]])
     (rf/reg-app-schema [:todos] [:vector :string])
-    (let [d (rf.schemas/app-schemas-digest)]
+    (let [d (rf.schemas/app-schemas-digest {:frame :rf/default})]
       (is (string? d)
           "digest returns a string")
       (is (re-matches #"sha256:[0-9a-f]{16}" d)
@@ -328,7 +328,7 @@
       ;; — produces the well-defined empty-set digest.
       (rf/make-frame {:id :test/empty-cljs})
       (is (= "sha256:e3b0c44298fc1c14"
-             (rf.schemas/app-schemas-digest :test/empty-cljs))
+             (rf.schemas/app-schemas-digest {:frame :test/empty-cljs}))
           "empty-set digest is byte-identical with the JVM path"))))
 
 ;; ---- rf2-froe — the validator-install seam under CLJS ---------------------

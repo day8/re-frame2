@@ -818,7 +818,7 @@ sections that read top-to-bottom as the developer scans.
    - `wrote <write-path>` + after-value (via `inspector/inspect`)
    - `read <input-path-1> <input-path-2> …` — input paths recovered
      from the per-frame flows store via
-     `(re-frame.flows/flow-meta-at flow-id {:frame frame-id})` (the
+     `(re-frame.flows/flow-meta {:frame frame-id :id flow-id})` (the
      `(rf/handler-meta {:source :store :kind :flow :id id})` replacement after framework rf2-en00bk
      made the flows atom the sole store and emptied the registrar `:flow`
      slot; the flow's frame rides the `:rf.flow/computed` trace's `:frame`
@@ -887,7 +887,7 @@ sections that read top-to-bottom as the developer scans.
   default; no '(none)' placeholder).
 - **Flow cleared mid-session** — FLOWS section still renders the row
   (the firing happened); the read-paths line renders the absent
-  placeholder since `(re-frame.flows/flow-meta-at flow-id {:frame frame-id})`
+  placeholder since `(re-frame.flows/flow-meta {:frame frame-id :id flow-id})`
   returns nil.
 - **Handler threw** — §6 + §7 + §8 are all absent (handler never
   returned, so the flow transform never ran, the db never committed,

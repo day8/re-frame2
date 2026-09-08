@@ -104,12 +104,12 @@
   (testing "destroying the only frame that owned a flow id drops its per-frame entry (rf2-en00bk: no registrar slot to prune)"
     (rf/make-frame {:id :fc/scratch :doc "scratch frame"})
     (rf/reg-flow :sole-area {:frame :fc/scratch :inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* (or w 0) (or h 0))))
-    (is (some? (rf.flows/flow-meta-at :sole-area {:frame :fc/scratch}))
+    (is (some? (rf.flows/flow-meta {:frame :fc/scratch :id :sole-area}))
         "precondition: the per-frame store carries the flow")
     (is (nil? (rf.registrar/lookup :flow :sole-area))
         "the :flow registrar slot is RESERVED-but-empty even while the flow is live")
     (rf.frame/destroy-frame! :fc/scratch)
-    (is (nil? (rf.flows/flow-meta-at :sole-area {:frame :fc/scratch}))
+    (is (nil? (rf.flows/flow-meta {:frame :fc/scratch :id :sole-area}))
         "post-destroy: the per-frame entry is gone — no leaked entry")
     (is (nil? (rf.registrar/lookup :flow :sole-area))
         "registrar slot stays empty (rf2-en00bk)")))
@@ -126,9 +126,9 @@
       (rf/reg-flow :shared {:frame :fc/b :inputs [[:w] [:h]] :output-path [:rect :area]} f-b)
       ;; Destroy :fc/a. :fc/b still holds :shared with its OWN divergent body.
       (rf.frame/destroy-frame! :fc/a)
-      (is (nil? (rf.flows/flow-meta-at :shared {:frame :fc/a}))
+      (is (nil? (rf.flows/flow-meta {:frame :fc/a :id :shared}))
           ":fc/a's entry is gone")
-      (is (= f-b (:derive (rf.flows/flow-meta-at :shared {:frame :fc/b})))
+      (is (= f-b (:derive (rf.flows/flow-meta {:frame :fc/b :id :shared})))
           ":fc/b's entry is intact and authoritative IN PLACE — no realignment needed (rf2-en00bk)")
       (is (nil? (rf.registrar/lookup :flow :shared))
           "registrar :flow slot stays empty throughout (rf2-en00bk)"))))
@@ -140,7 +140,7 @@
     (rf/reg-flow :shared {:frame :fc/b :inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] h))
     ;; Destroy :fc/a — it never registered :shared.
     (rf.frame/destroy-frame! :fc/a)
-    (is (some? (rf.flows/flow-meta-at :shared {:frame :fc/b}))
+    (is (some? (rf.flows/flow-meta {:frame :fc/b :id :shared}))
         ":fc/b's entry survives — destroying :fc/a could not touch it")))
 
 ;; ---- SSR-style per-request frame churn stays bounded --------------------
@@ -176,7 +176,7 @@
         "the new frame has no inherited flow-registry slot")
     (is (not (contains? (get (rf.flows/last-inputs-snapshot) :area) :fc/scratch))
         "the new frame has no inherited last-inputs row")
-    (is (nil? (rf.flows/flow-meta-at :area {:frame :fc/scratch}))
+    (is (nil? (rf.flows/flow-meta {:frame :fc/scratch :id :area}))
         "the new frame has no inherited per-frame flow entry")
     (is (nil? (rf.registrar/lookup :flow :area))
         "registrar :flow slot is RESERVED-but-empty throughout (rf2-en00bk)")))

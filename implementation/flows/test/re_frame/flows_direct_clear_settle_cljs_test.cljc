@@ -300,10 +300,10 @@
       (is (= :flow (:kind data))
           "ex-data names the kind"))
 
-    (is (some? (rf.flows/flow-meta-at :probe/a))
+    (is (some? (rf.flows/flow-meta {:frame :rf/default :id :probe/a}))
         "ZERO RESIDUE — the AMBIENT frame's flow is still registered; this is
          the assertion the tolerant destructure failed")
-    (is (some? (rf.flows/flow-meta-at :probe/a {:frame :probe/named}))
+    (is (some? (rf.flows/flow-meta {:frame :probe/named :id :probe/a}))
         "ZERO RESIDUE — the named frame's flow is still registered")
     (is (= {:x 2 :a 2} (rf/app-db-value :rf/default))
         "the ambient frame's output path was not vacated")
@@ -314,7 +314,7 @@
             only that frame — the positive control for the refusal above"
     (is (= :probe/a (rf/clear :flow :probe/a {:frame :probe/named}))
         "a well-formed opts map clears and returns the id")
-    (is (nil? (rf.flows/flow-meta-at :probe/a {:frame :probe/named}))
+    (is (nil? (rf.flows/flow-meta {:frame :probe/named :id :probe/a}))
         "the named frame's flow is gone")
-    (is (some? (rf.flows/flow-meta-at :probe/a))
+    (is (some? (rf.flows/flow-meta {:frame :rf/default :id :probe/a}))
         "the ambient frame's flow is untouched")))

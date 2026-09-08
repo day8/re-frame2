@@ -110,9 +110,9 @@
   (into {}
         (map (fn [[ns-name path]]
                [ns-name {:on-default
-                         (rf.schemas/app-schema-at path {:frame :rf/default})
+                         (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path path}))
                          :on-unrelated
-                         (rf.schemas/app-schema-at path {:frame :test/never-registered})}]))
+                         (:schema (rf.schemas/app-schema-meta {:frame :test/never-registered :path path}))}]))
         example-app-schema-paths))
 
 (deftest example-ns-load-schemas-bound-to-rf-default-not-an-ambient-pin
@@ -159,7 +159,7 @@
            failure mode the examples' explicit-frame ns-load registration
            avoids")
       ;; The bad call must NOT have landed an entry anywhere.
-      (is (nil? (rf.schemas/app-schema-at [:regression/bare] {:frame :rf/default}))
+      (is (nil? (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path [:regression/bare]})))
           "the rejected registration left no entry on :rf/default"))))
 
 ;; ============================================================================

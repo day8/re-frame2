@@ -891,13 +891,13 @@
             registers against (current-frame), which is :rf/default outside
             (with-frame ...)."
     (rf/reg-app-schema [:user] [:map [:id :uuid]])
-    (is (= [:map [:id :uuid]] (rf.schemas/app-schema-at [:user]))
+    (is (= [:map [:id :uuid]] (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path [:user]})))
         "schema is visible from the active frame's lookup")
-    (is (= [:map [:id :uuid]] (rf.schemas/app-schema-at [:user] :rf/default))
+    (is (= [:map [:id :uuid]] (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path [:user]})))
         "schema is visible from explicit :rf/default lookup")
-    (is (= {[:user] [:map [:id :uuid]]} (rf.schemas/app-schemas))
+    (is (= {[:user] [:map [:id :uuid]]} (update-vals (rf.schemas/app-schemas {:frame :rf/default}) :schema))
         "app-schemas returns the active frame's schema set")
-    (is (= {[:user] [:map [:id :uuid]]} (rf.schemas/app-schemas :rf/default))
+    (is (= {[:user] [:map [:id :uuid]]} (update-vals (rf.schemas/app-schemas {:frame :rf/default}) :schema))
         "app-schemas with explicit :rf/default returns the same map")))
 
 (deftest reg-app-schema-explicit-frame-opt-isolates-schemas
@@ -906,12 +906,13 @@
     (rf/make-frame {:id :test/story})
     (rf/reg-app-schema [:user] {:frame :rf/default} [:map [:id :uuid]])
     (rf/reg-app-schema [:user] {:frame :test/story} [:map [:nick :string]])
-    (is (= [:map [:id :uuid]]   (rf.schemas/app-schema-at [:user] :rf/default))
+    (is (= [:map [:id :uuid]]   (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path [:user]})))
         "default frame keeps its own schema at [:user]")
-    (is (= [:map [:nick :string]] (rf.schemas/app-schema-at [:user] :test/story))
+    (is (= [:map [:nick :string]] (:schema (rf.schemas/app-schema-meta {:frame :test/story :path [:user]})))
         "story frame has its own (different) schema at [:user]")
-    (is (= {[:user] [:map [:id :uuid]]}     (rf.schemas/app-schemas :rf/default)))
-    (is (= {[:user] [:map [:nick :string]]} (rf.schemas/app-schemas {:frame :test/story})))))
+    (is (= {[:user] [:map [:id :uuid]]}     (update-vals (rf.schemas/app-schemas {:frame :rf/default}) :schema)))
+    (is (= {[:user] [:map [:nick :string]]}
+           (update-vals (rf.schemas/app-schemas {:frame :test/story}) :schema)))))
 
 (deftest sibling-frame-schemas-do-not-fire-on-each-others-dispatches
   (testing "Per Spec 010 §Per-frame schemas — validate-app-schema! only walks the
@@ -944,14 +945,22 @@
         (is (= :test/main (-> violations first :tags :frame))
             ":frame tag carries the failing frame's id")))))
 
-(deftest app-schemas-with-keyword-and-opts-arities-agree
-  (testing "(app-schemas frame-id) is documented as sugar for
-            (app-schemas {:frame frame-id}); both must return the same map."
+(deftest app-schemas-answers-registration-metadata
+  (testing "rf2-kuky.84 — (app-schemas {:frame f}) answers
+            {path → registration-metadata}, the same {id → meta} shape
+            rf/registrations answers. The schema alone is the :schema
+            projection. The keyword-sugar arity is gone."
     (rf/make-frame {:id :test/k})
     (rf/reg-app-schema [:k] {:frame :test/k} [:int])
-    (is (= (rf.schemas/app-schemas :test/k)
-           (rf.schemas/app-schemas {:frame :test/k}))
-        "keyword form == opts-map form")))
+    (let [m (rf.schemas/app-schemas {:frame :test/k})]
+      (is (= #{[:k]} (set (keys m))))
+      (is (= [:int] (:schema (get m [:k]))))
+      (is (= [:k]   (:path (get m [:k])))
+          "the value is the full registration meta, not the bare schema"))
+    (is (= :rf.error/no-frame-context
+           (try (rf.schemas/app-schemas :test/k) nil
+                (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
+        "the keyword-sugar arity is refused")))
 
 ;; ---- rf2-0z1z — app-schemas-digest --------------------------------------
 
@@ -959,7 +968,7 @@
   (testing "Per Spec 010 §Digest algorithm — the digest is the literal
             prefix \"sha256:\" followed by 16 lowercase hex characters."
     (rf/reg-app-schema [:user] [:map [:id :uuid]])
-    (let [d (rf.schemas/app-schemas-digest)]
+    (let [d (rf.schemas/app-schemas-digest {:frame :rf/default})]
       (is (string? d))
       (is (re-matches #"sha256:[0-9a-f]{16}" d)
           "digest is exactly \"sha256:\" + 16 lowercase hex chars"))))
@@ -969,21 +978,21 @@
             set produces the same digest (cross-runtime byte-stable)."
     (rf/reg-app-schema [:user]  [:map [:id :uuid]])
     (rf/reg-app-schema [:todos] [:vector :string])
-    (let [d1 (rf.schemas/app-schemas-digest)]
+    (let [d1 (rf.schemas/app-schemas-digest {:frame :rf/default})]
       ;; Re-register the SAME schemas — last-write-wins, but the map is
       ;; structurally identical, so the digest must not move.
       (rf/reg-app-schema [:todos] [:vector :string])
       (rf/reg-app-schema [:user]  [:map [:id :uuid]])
-      (is (= d1 (rf.schemas/app-schemas-digest))
+      (is (= d1 (rf.schemas/app-schemas-digest {:frame :rf/default}))
           "byte-identical schema set → byte-identical digest"))))
 
 (deftest app-schemas-digest-changes-on-schema-change
   (testing "A schema-set change perturbs the digest. Two different schema
             sets must produce distinct digests."
     (rf/reg-app-schema [:user] [:map [:id :uuid]])
-    (let [before (rf.schemas/app-schemas-digest)]
+    (let [before (rf.schemas/app-schemas-digest {:frame :rf/default})]
       (rf/reg-app-schema [:user] [:map [:id :string]])
-      (is (not= before (rf.schemas/app-schemas-digest))
+      (is (not= before (rf.schemas/app-schemas-digest {:frame :rf/default}))
           "tightening / changing a schema flips the digest"))))
 
 (deftest app-schemas-digest-frame-isolated
@@ -995,11 +1004,11 @@
     (rf/make-frame {:id :test/b})
     (rf/reg-app-schema [:user] {:frame :test/a} [:map [:id :uuid]])
     ;; :test/b has no schemas registered.
-    (let [da (rf.schemas/app-schemas-digest :test/a)
-          db (rf.schemas/app-schemas-digest :test/b)]
+    (let [da (rf.schemas/app-schemas-digest {:frame :test/a})
+          db (rf.schemas/app-schemas-digest {:frame :test/b})]
       (is (not= da db)
           "frames with different schema sets have different digests")
-      (is (= db (rf.schemas/app-schemas-digest :test/b))
+      (is (= db (rf.schemas/app-schemas-digest {:frame :test/b}))
           "the empty-schema digest is stable across calls")
       (is (= db (rf.schemas/app-schemas-digest {:frame :test/b}))
           "keyword-sugar arity equals opts-map arity"))))
@@ -1010,7 +1019,7 @@
             same string."
     (rf/make-frame {:id :test/d})
     (rf/reg-app-schema [:k] {:frame :test/d} [:int])
-    (is (= (rf.schemas/app-schemas-digest :test/d)
+    (is (= (rf.schemas/app-schemas-digest {:frame :test/d})
            (rf.schemas/app-schemas-digest {:frame :test/d}))
         "keyword form == opts-map form")))
 
@@ -1019,7 +1028,7 @@
             the empty string, prefixed). Hosts with no schemas registered
             still get a usable digest, not nil."
     (rf/make-frame {:id :test/empty})
-    (let [d (rf.schemas/app-schemas-digest :test/empty)]
+    (let [d (rf.schemas/app-schemas-digest {:frame :test/empty})]
       (is (string? d))
       (is (re-matches #"sha256:[0-9a-f]{16}" d))
       ;; rf2-rbbmt dedup D3 — the empty-set digest literal is single-
@@ -1039,8 +1048,8 @@
     (rf/reg-app-schema [:todos] {:frame :test/o1} [:vector :string])
     (rf/reg-app-schema [:todos] {:frame :test/o2} [:vector :string])
     (rf/reg-app-schema [:user]  {:frame :test/o2} [:map [:id :uuid]])
-    (is (= (rf.schemas/app-schemas-digest :test/o1)
-           (rf.schemas/app-schemas-digest :test/o2))
+    (is (= (rf.schemas/app-schemas-digest {:frame :test/o1})
+           (rf.schemas/app-schemas-digest {:frame :test/o2}))
         "same schema set, different registration order → same digest")))
 
 ;; ---- rf2-froe — the validator-install seam --------------------------------
@@ -1324,9 +1333,9 @@
             different schema languages produce different digests by
             construction'."
     (rf/reg-app-schema [:n] :int)
-    (let [default-digest (rf.schemas/app-schemas-digest)]
+    (let [default-digest (rf.schemas/app-schemas-digest {:frame :rf/default})]
       (rf.schemas/set-schema-fns! {:print (fn [_] "::CUSTOM-PORT::")})
-      (let [custom-digest (rf.schemas/app-schemas-digest)]
+      (let [custom-digest (rf.schemas/app-schemas-digest {:frame :rf/default})]
         (is (re-matches #"^sha256:[0-9a-f]{16}$" custom-digest)
             "digest is still the wire-form '\"sha256:\" + 16-hex'")
         (is (not= default-digest custom-digest)
@@ -1454,7 +1463,7 @@
         (is (= v-fn @rf.schemas.validator/validator-fn) "bundle validator restored")
         (is (= "::COMPOSED::" (rf.schemas.validator/run-printer :int))
             "bundle printer restored on the hot path")
-        (is (= [:int] (rf.schemas/app-schema-at [:n]))
+        (is (= [:int] (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path [:n]})))
             "registry schema restored — the two pairs compose")))))
 
 ;; ---- rf2-kuky.39 — the validator port as a value --------------------------
@@ -2016,10 +2025,10 @@
        [:auth :token]           [:string]
        [:cart]                  [:map [:items [:vector :string]]]
        [:cart :items]           [:vector :string]})
-    (is (= [:map [:user :string]]      (rf.schemas/app-schema-at [:auth])))
-    (is (= [:string]                   (rf.schemas/app-schema-at [:auth :token])))
-    (is (= [:map [:items [:vector :string]]] (rf.schemas/app-schema-at [:cart])))
-    (is (= [:vector :string]           (rf.schemas/app-schema-at [:cart :items])))))
+    (is (= [:map [:user :string]]      (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path [:auth]}))))
+    (is (= [:string]                   (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path [:auth :token]}))))
+    (is (= [:map [:items [:vector :string]]] (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path [:cart]}))))
+    (is (= [:vector :string]           (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path [:cart :items]}))))))
 
 (deftest reg-app-schemas-returns-paths-registered
   (testing "rf/reg-app-schemas returns the vector of paths"
@@ -2039,17 +2048,17 @@
        [:cart] [:map [:items :any]]}
       {:frame :tenant/a})
     (is (= [:map [:user :string]]
-           (rf.schemas/app-schema-at [:auth] {:frame :tenant/a})))
+           (:schema (rf.schemas/app-schema-meta {:frame :tenant/a :path [:auth]}))))
     (is (= [:map [:items :any]]
-           (rf.schemas/app-schema-at [:cart] {:frame :tenant/a})))
-    (is (nil? (rf.schemas/app-schema-at [:auth]))
+           (:schema (rf.schemas/app-schema-meta {:frame :tenant/a :path [:cart]}))))
+    (is (nil? (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path [:auth]})))
         "the default frame did NOT receive any of the entries")))
 
 (deftest reg-app-schemas-empty-map-no-op
   (testing "rf/reg-app-schemas on an empty map is a no-op and returns an empty vector"
     (let [paths (rf/reg-app-schemas {})]
       (is (= [] paths))
-      (is (= {} (rf.schemas/app-schemas))
+      (is (= {} (update-vals (rf.schemas/app-schemas {:frame :rf/default}) :schema))
           "no schemas registered on the active frame"))))
 
 ;; ---- rf2-naihn1 #2 — bulk-input false-green --------------------------------
@@ -2122,7 +2131,7 @@
   ;; empty map is a map, so it passes the new shape gate and returns [].
   (testing "rf/reg-app-schemas {} remains the documented no-op returning []"
     (is (= [] (rf/reg-app-schemas {})))
-    (is (= {} (rf.schemas/app-schemas)))))
+    (is (= {} (update-vals (rf.schemas/app-schemas {:frame :rf/default}) :schema)))))
 
 ;; ---- rf2-ieu0i — :schema canonical ---------------------------------------
 ;;

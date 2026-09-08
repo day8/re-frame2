@@ -373,12 +373,12 @@
                                             :initial-events [[:rf/server-init]]}))
           final-db        (rf/app-db-value f)]
       ;; 1. The schema is bound to the PER-REQUEST frame — explicitly.
-      (is (= articles-schema (rf.schemas/app-schema-at [:articles] {:frame fid}))
+      (is (= articles-schema (:schema (rf.schemas/app-schema-meta {:frame fid :path [:articles]})))
           "the :articles schema is registered against the per-request server frame")
       ;; 2. …and NOT on :rf/default (the masking-default frame). The fixture
       ;; pins :rf/default as ambient scope but the example never registered
       ;; the SSR schema there — per-request scoping, not a default floor.
-      (is (nil? (rf.schemas/app-schema-at [:articles] {:frame :rf/default}))
+      (is (nil? (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path [:articles]})))
           "the SSR :articles schema is NOT bound to :rf/default — it is
            per-request frame-scoped (the rf2-9wc2ed contract)")
       ;; 3. The server-init commit landed two valid articles…

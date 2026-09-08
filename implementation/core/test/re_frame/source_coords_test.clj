@@ -296,9 +296,9 @@
   (testing "reg-flow stamps :ns / :line / :file"
     ;; Per rf2-en00bk the flows artefact owns its own per-frame store — there
     ;; is no registrar `:flow` slot. Source-coords introspection reads through
-    ;; `rf.flows/flow-meta-at`, which returns the per-frame flow-map (including
+    ;; `rf.flows/flow-meta`, which returns the per-frame flow-map (including
     ;; the source-coords stamped into the store at reg-flow) — the flows
-    ;; analogue of `rf.schemas/app-schema-meta-at` (rf2-0frdi).
+    ;; analogue of `rf.schemas/app-schema-meta` (rf2-0frdi).
     (rf/reg-flow :rf2-k84s/reg-flow-sample {:inputs [[:source]] :output-path [:dest]} (fn [v] v))
     ;; rf2-d2841 — GUARDED WHOLESALE, and the reason is a real gap: the flows
     ;; artefact stores its coords in its own per-frame map, never through
@@ -306,7 +306,8 @@
     ;; never called for a flow and the always-on parallel registry has no
     ;; entry to witness. Only the dev-side `merge-coords` sink exists.
     (when rf.interop/debug-enabled?
-      (assert-coords (rf.flows/flow-meta-at :rf2-k84s/reg-flow-sample)
+      (assert-coords (rf.flows/flow-meta {:frame :rf/default
+                                          :id    :rf2-k84s/reg-flow-sample})
                      :flow :rf2-k84s/reg-flow-sample))))
 
 (deftest source-coords-on-reg-route
@@ -333,7 +334,7 @@
     ;; not the registrar, so nothing populates the always-on error-coord
     ;; registry for them.
     (when rf.interop/debug-enabled?
-      (assert-coords (rf.schemas/app-schema-meta-at [:rf2-k84s/reg-app-schema-sample])
+      (assert-coords (rf.schemas/app-schema-meta {:frame :rf/default :path [:rf2-k84s/reg-app-schema-sample]})
                      "app-schema" [:rf2-k84s/reg-app-schema-sample]))))
 
 (deftest source-coords-on-reg-error-projector

@@ -8,9 +8,9 @@
   Owns:
     - `schemas-by-frame` atom (the authoritative store).
     - `reg-app-schema` / `reg-app-schemas` registration entry points.
-    - `app-schema-at` / `app-schemas` query entry points.
-    - `app-schema-meta-at` — meta-introspection (source-coords, etc.)
-      consumed by pair-tools and source-coord tests.
+    - `app-schemas` / `app-schema-meta` query entry points — one opts MAP
+      with a REQUIRED `:frame`, answering registration METADATA
+      (source-coords, `:path`, `:schema`, `:frame`).
     - `frame-schema-entries` cross-artefact seam consumed by
       `re-frame.elision` / `re-frame.epoch` via the late-bind table.
     - `snapshot-schemas-by-frame` / `restore-schemas-by-frame!` /
@@ -294,18 +294,40 @@
        :extra    {:received path->schema
                   :expected "a {path -> schema} map (possibly empty)"}})))
 
-(defn coerce->frame-id
-  "Resolve a frame-id from the `opts-or-frame-id` argument the read
-  surface accepts: coerce through `coerce-opts` (keyword sugar / opts
-  map / throw on bad shape), then `resolve-frame` (`:frame` override or
-  the carried-invariant scope frame; raises `:rf.error/no-frame-context`
-  outside any scope per EP-0002). The query entry points (`app-schema-at` /
-  `app-schema-meta-at` / `app-schemas` / `app-schemas-digest`) use the
-  opts ONLY to name a frame, so they collapse the coerce+resolve pair
-  through this helper. The `reg-*` entry points keep the two-step form so
-  they can read further keys off the coerced opts map."
-  [opts-or-frame-id]
-  (resolve-frame (coerce-opts opts-or-frame-id)))
+(defn read-frame-id
+  "Resolve the REQUIRED `:frame` target of a side-table READ's opts map.
+
+  ONE FRAME SPELLING (rf2-kuky.84). Every schema read entry point
+  (`app-schemas` / `app-schema-meta` / `app-schemas-digest`) takes a single
+  opts MAP whose `:frame` names the frame, accepting the same target shapes
+  `rf/registrations` accepts — a frame-id keyword or a frame value. There is
+  deliberately NO ambient default and no trailing frame-target sniffing: a
+  live frame value is itself a map, so a type-sniffing trailing argument
+  cannot be read locally (Spec Principles §Name over place). A frameless or
+  non-map call raises the catalogued `:rf.error/no-frame-context`.
+
+  No liveness or image resolution happens here — the side table is keyed by
+  frame id, so a read of a frame holding no schemas answers `{}` / `nil`
+  rather than throwing. Story computes a variant frame's identity BEFORE that
+  frame is allocated and depends on that.
+
+  The `reg-*` WRITE entry points keep their own `coerce-opts` sugar: that is
+  a Spec 010 registration contract, not a read."
+  [opts where-sym]
+  (let [target (when (map? opts) (:frame opts))]
+    (if (some? target)
+      (resolve-frame {:frame target})
+      (let [payload (rf.frame/no-frame-context-payload
+                      :app-schema-introspection
+                      {:where    where-sym
+                       :reason   (str where-sym " requires an explicit frame: pass "
+                                      "{:frame <frame-id-or-frame-value>}. Side-table "
+                                      "reads never fall back to an ambient frame, and "
+                                      "the frame target is never a bare positional "
+                                      "argument. Got " (pr-str opts) ".")
+                       :recovery :supply-frame})]
+        (rf.frame/emit-no-frame-context! payload)
+        (throw (rf.error/ex-info-from-data payload))))))
 
 ;; ---- validator-unavailable warning ----------------------------------------
 ;; The default validator deliberately soft-passes when its Malli hook is
@@ -537,8 +559,8 @@
 
   DEVELOPMENT-BUILD ASSERTION. That rejection is dev-only. A production
   build (`:advanced` with `goog.DEBUG` false, or `-Dre-frame.debug=false`
-  on the JVM) still performs this registration — `app-schema-at` and
-  `app-schemas` keep answering, so tools and agents can introspect the
+  on the JVM) still performs this registration — `app-schemas` and
+  `app-schema-meta` keep answering, so tools and agents can introspect the
   shape — but the candidate validator is elided, so nothing checks it.
   A candidate that violates this schema installs silently: no rejection,
   no rollback, no trace. Your app-db schemas do not run in production
@@ -648,75 +670,55 @@
                (reg-app-schema path schema)))
            path->schema))))
 
-(defn app-schema-at
-  "Look up the registered schema for a path in a frame, or nil.
+(defn ^:no-doc frame-schema-entries
+  "Cross-artefact seam — consumed by `re-frame.elision`, `re-frame.epoch` and
+  the validation hot path via the `:schemas/frame-schema-entries` late-bind
+  hook. Returns the `{path → schema-meta}` map for a frame, or `{}`.
 
-  Arities:
-    (app-schema-at path)         ;; carried-invariant scope frame (EP-0002)
-    (app-schema-at path opts)    ;; opts map; :frame names the frame
-                                 ;; (keyword sugar also accepted)
-
-  Per Spec 010 §Schemas as a tooling and agent surface."
-  ([path] (app-schema-at path {}))
-  ([path opts-or-frame-id]
-   ;; Lookup uses the same canonical concrete path identity as registration.
-   (let [frame-id (coerce->frame-id opts-or-frame-id)
-         path     (rf.path/normalize-concrete path)]
-     (when-let [registration-metadata (get-in @schemas-by-frame [frame-id path])]
-       (:schema registration-metadata)))))
-
-(defn app-schema-meta-at
-  "Return the registration metadata map for a path in a frame, or nil.
-
-  Unlike `app-schema-at` (which returns just the `:schema` value), this
-  returns the full meta map stamped at `reg-app-schema` — including
-  source-coords (`:ns` / `:line` / `:file`), `:path`, `:schema`, and
-  `:frame`. Used by pair-tools, 10x panels, and source-coord tests that
-  need to introspect where a schema was registered.
-
-  This is the canonical read surface for app-db schema metadata. App-db
-  schemas are not a registrar kind;
-  the per-frame side-table is the single source of truth.
-
-  Arities:
-    (app-schema-meta-at path)         ;; carried-invariant scope frame (EP-0002)
-    (app-schema-meta-at path opts)    ;; opts map; :frame names the frame
-                                      ;; (keyword sugar also accepted)"
-  ([path] (app-schema-meta-at path {}))
-  ([path opts-or-frame-id]
-   ;; Lookup uses the same canonical concrete path identity as registration.
-   (let [frame-id (coerce->frame-id opts-or-frame-id)
-         path     (rf.path/normalize-concrete path)]
-     (get-in @schemas-by-frame [frame-id path]))))
-
-(defn app-schemas
-  "Return every registered `app-schema-at` declaration for a frame as a
-  `{path → schema}` map. Pair tools and 10x panels read this to
-  introspect what schemas apply in a given frame.
-
-  Arities:
-
-    (app-schemas)              ;; sugar for (app-schemas {})
-    (app-schemas frame-id)     ;; sugar for (app-schemas {:frame frame-id})
-    (app-schemas opts)         ;; opts is a map; supports {:frame ...}
-                               ;; and is the place future opts will land
-
-  Per Spec 010 §Per-frame schemas the result is the schema set
-  registered against the named frame (active frame when none is
-  given). Schemas registered against a different frame do not appear."
-  ([] (app-schemas {}))
-  ([opts-or-frame-id]
-   (let [frame-id (coerce->frame-id opts-or-frame-id)]
-     (reduce-kv (fn [acc path m] (assoc acc path (:schema m)))
-                {}
-                (get @schemas-by-frame frame-id {})))))
-
-(defn frame-schema-entries
-  "Cross-artefact seam — consumed by `re-frame.elision` and
-  `re-frame.epoch` via the `:schemas/frame-schema-entries` late-bind
-  hook. Returns the `{path → schema-meta}` map for a frame, or `{}`."
+  Takes a resolved frame-id KEYWORD, not an opts map: it is the private twin
+  of the public `app-schemas`, which is the same fact behind the one
+  `{:frame f}` spelling (rf2-kuky.84 deleted the public var of this name)."
   [frame-id]
   (get @schemas-by-frame frame-id {}))
+
+(defn app-schemas
+  "Return every app-db schema registration for a frame as a
+  `{path → registration-metadata}` map, or `{}`.
+
+  `(app-schemas {:frame f})`. `:frame` is REQUIRED and accepts a frame-id
+  keyword or a frame value (`rf/make-frame`'s return token); a frameless or
+  non-map call raises `:rf.error/no-frame-context`.
+
+  Each value is the full meta map stamped at `reg-app-schema` — `:path`,
+  `:schema`, `:frame`, and the source-coords `:ns` / `:line` / `:file` — the
+  same `{id → meta}` shape the registrar grammar's `rf/registrations`
+  answers. Project `:schema` when only the schema values are wanted:
+  `(update-vals (app-schemas {:frame f}) :schema)`.
+
+  Per Spec 010 §Per-frame schemas the result is the schema set registered
+  against the NAMED frame; schemas registered against a different frame do
+  not appear."
+  [opts]
+  (frame-schema-entries (read-frame-id opts 'rf/app-schemas)))
+
+(defn app-schema-meta
+  "Return one path's registration metadata map in a frame, or nil.
+
+  `(app-schema-meta {:frame f :path p})`. Both keys are REQUIRED; `:frame`
+  accepts a frame-id keyword or a frame value. The value is the full meta map
+  stamped at `reg-app-schema` — source-coords (`:ns` / `:line` / `:file`),
+  `:path`, `:schema` and `:frame` — so the registered schema itself is
+  `(:schema (app-schema-meta {:frame f :path p}))`.
+
+  This is the canonical single-path read surface for app-db schema metadata:
+  pair tools, 10x panels and source-coord tests use it to introspect where a
+  schema was registered. App-db schemas are not a registrar kind; the
+  per-frame side table is the single source of truth. Per Spec 010 §Schemas
+  as a tooling and agent surface."
+  [{:keys [path] :as opts}]
+  ;; Lookup uses the same canonical concrete path identity as registration.
+  (get-in @schemas-by-frame [(read-frame-id opts 'rf/app-schema-meta)
+                             (rf.path/normalize-concrete path)]))
 
 ;; ---- hot-reload semantics ------------------------------------------------
 ;;

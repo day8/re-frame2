@@ -595,10 +595,13 @@
 
 (defn schemas
   "All registered app-schemas for the operating frame.
-   Map of `path → schema`. (re-frame.schemas/app-schemas frame-id)"
+   Map of `path → schema` — the MCP WIRE contract, which is the tool's and
+   not the library's. `(rf.schemas/app-schemas {:frame f})` answers
+   `path → registration-metadata` since rf2-kuky.84, so the preload
+   projects `:schema` here rather than widening the wire."
   ([] (schemas (current-frame)))
   ([frame-id]
-   (rf.schemas/app-schemas frame-id)))
+   (update-vals (rf.schemas/app-schemas {:frame frame-id}) :schema)))
 
 ;; ---------------------------------------------------------------------------
 ;; Registrar introspection

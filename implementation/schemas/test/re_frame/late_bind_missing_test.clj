@@ -22,8 +22,8 @@
   Note (rf2-wad2fl — front-porch shrink): only the `reg-app-schema` /
   `reg-app-schemas` registration MACROS remain on the `re-frame.core`
   façade (source-coord capture), so only their missing-artefact contract
-  is tested here. The introspection surfaces (`app-schema-at`,
-  `app-schemas`, `app-schemas-digest`) and the validator-install seams
+  is tested here. The introspection surfaces (`app-schemas`,
+  `app-schema-meta`, `app-schemas-digest`) and the validator-install seams
   (`set-schema-*`) were demoted off the façade — they are reached through
   `re-frame.schemas` now (requiring it means the artefact is present, so
   the façade artefact-missing/safe-default contract no longer applies)."
@@ -79,8 +79,8 @@
             (is (string? (:reason data))
                 "ex-data carries :reason as a string")))))))
 
-;; rf2-wad2fl: the read-only schema-introspection surfaces (`app-schema-at`
-;; / `app-schemas` / `app-schemas-digest`) are no longer façade exports —
+;; rf2-wad2fl: the read-only schema-introspection surfaces (`app-schemas`
+;; / `app-schema-meta` / `app-schemas-digest`) are no longer façade exports —
 ;; their previous facade-wrapper safe-default-when-absent behaviour was a
 ;; property of the `re-frame.core-schemas` wrappers, which are removed. A
 ;; consumer now reaches them via `re-frame.schemas` (artefact present by

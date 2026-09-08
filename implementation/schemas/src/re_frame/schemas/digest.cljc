@@ -146,15 +146,20 @@
   produces a stable, well-defined digest (the SHA-256 of the empty
   string — the lines list collapses to a single empty concatenation).
 
-  Arities:
-    (app-schemas-digest)              ;; sugar for (app-schemas-digest {})
-    (app-schemas-digest frame-id)     ;; keyword sugar
-    (app-schemas-digest opts)         ;; opts map; supports {:frame ...}
+  `(app-schemas-digest {:frame f})`. `:frame` is REQUIRED and accepts a
+  frame-id keyword or a frame value; a frameless or non-map call raises
+  `:rf.error/no-frame-context` (rf2-kuky.84 — one frame spelling on the
+  side-table read lane).
+
+  The digest is computed over the `{path → schema}` projection of
+  `app-schemas`, so its BYTES are unchanged by that fn now answering
+  registration metadata.
 
   Uses include the SSR hydration handshake (Spec 011 §The :rf/hydrate
   event), the epoch-restore schema-mismatch trace (Tool-Pair §Time-
   travel), and pair-tool drift detection."
-  ([] (app-schemas-digest {}))
-  ([opts-or-frame-id]
-   (let [frame-id (rf.schemas.storage/coerce->frame-id opts-or-frame-id)]
-     (compute-digest (rf.schemas.storage/app-schemas {:frame frame-id})))))
+  [opts]
+  (-> (rf.schemas.storage/read-frame-id opts 'rf/app-schemas-digest)
+      (rf.schemas.storage/frame-schema-entries)
+      (update-vals :schema)
+      (compute-digest)))
