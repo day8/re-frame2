@@ -29,8 +29,9 @@
     - leaving the bracket ENDS capture — a failure after the body is not
       recorded;
     - the `:events` arm brackets the event substrate, and `:pred` filters;
-    - the retired public spelling is gone: `(rf/register-listener! :errors …)`
-      throws, and the thrown vocabulary names the two raw dev streams.
+    - the retired public spelling is gone: the facade refuses both retired
+      stream keywords, and the thrown vocabulary names the two raw dev
+      streams that remain.
 
   Dual-runtime `*_cljs_test.cljc`: the shadow-cljs `:node-test`
   (`npm run test:cljs`) AND the JVM `clojure -M:test` runner both pick it up.
@@ -237,8 +238,8 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-public-facade-no-longer-offers-the-always-on-streams
-  (testing "rf2-kuky.69 — `(rf/register-listener! :errors …)` and its
-            `:events` sibling throw `:rf.error/unknown-listener-stream`,
+  (testing "rf2-kuky.69 — the facade refuses both retired stream keywords
+            with `:rf.error/unknown-listener-stream`,
             and the refusal's `:valid` slot names the TWO raw dev streams
             that remain. This is the retirement itself, asserted from the
             public surface."
