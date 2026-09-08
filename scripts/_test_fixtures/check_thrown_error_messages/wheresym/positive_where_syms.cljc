@@ -286,3 +286,17 @@
     :rf.error/ghost-twentysix
     'rf.fixture/ghost-stacked-second
     "the SECOND form, which look-back cannot reach in principle"))
+
+;; ---- (8) A DISCARDED `do` AROUND A LIVE-LOOKING SPLICE -------------------
+;;
+;; Audit #9515. The three live splicing twins in the negative fixture resolve
+;; and are pinned OBSERVED there; this is the half that must FIRE. Its oracle
+;; form is byte-identical to the first of those three but for the leading
+;; `#_`, so the discard is the only thing making it inert — a repair that
+;; descends into every `#?@` it meets greens this line.
+
+(defn ghost-in-a-discarded-splicing-do []
+  (rf.error/throw-error!
+    :rf.error/ghost-twentyseven
+    'rf.fixture/ghost-splice-discarded
+    "`#_` swallows the whole `do`, splice and all"))
