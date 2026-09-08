@@ -47,6 +47,7 @@
   production HTTP host: the response contract is `re-frame.ssr.ring`'s."
   (:require [re-frame.core :as rf]
             [re-frame.error :as rf.error]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
             [re-frame.hicasso.impl.roots :as rf.hicasso.impl.roots]
             [re-frame.ssr.constants :as rf.ssr.constants]
@@ -253,11 +254,21 @@
                 :record   record}}))
 
 (defn- watch-recovered-errors!
-  "Register a listener on the always-on ERROR-EMIT stream under
+  "Register a listener on the always-on ERROR-EMIT registry under
   `listener-id` for the extent of one render, and return the atom it
   fills.
 
-  The always-on stream, not `re-frame.ssr`'s per-frame buffer, and the
+  `re-frame.error-emit` is the framework's own IMPLEMENTATION-tier
+  registry, not an app-facing door: rf2-kuky.69 retired `:errors` from the
+  public `rf/register-listener!` vocabulary, and this is one of the
+  framework capture sites the ruling kept it for. An APP that wants the
+  same records off-box declares a sink — a frame's `:observability` policy,
+  or `(rf/configure! {:observability …})` for the process default — and
+  gets the projected `:rf.observe/error` shape rather than this raw one.
+  This door wants the raw record inside a synchronous window it owns, so it
+  reads the registry directly.
+
+  The always-on registry, not `re-frame.ssr`'s per-frame buffer, and the
   choice is measured rather than stylistic. That buffer is keyed by frame,
   and it is filled only for records that CARRY a routable server frame —
   while Hicasso's render reads its subscriptions through the pure
@@ -271,25 +282,26 @@
   rendered markup. `refuse-recovered-render-error!` sets out the other two
   conditions the buffer imposes, either of which drops the same record.
 
-  The stream is what survives production hardening (`goog.DEBUG=false`),
+  The registry is what survives production hardening (`goog.DEBUG=false`),
   which is the posture Spec 011 mandates SSR run in, so this reads the
   same in a release bundle as it does under test. Scoping it to the render
   window is what makes an unattributed record safe to act on: a render is
   one synchronous call, so anything arriving inside the window came from
   the render.
 
-  Registering ANY `:errors` listener takes corpus-wide ownership and
+  Registering ANY error-emit listener takes corpus-wide ownership and
   quiets `re-frame.error-emit`'s unowned-error dev console fallback. That
   is a window one synchronous render wide, and the door re-raises what it
   saw, so nothing goes unreported."
   [listener-id]
   (let [!recorded (atom {:n 0 :first-record nil})]
-    (rf.error-emit/register-error-listener! listener-id
-                           (fn [record]
-                             (swap! !recorded
-                                    (fn [seen]
-                                      {:n            (inc (:n seen))
-                                       :first-record (or (:first-record seen) record)}))))
+    (rf.error-emit/register-error-listener!
+      listener-id
+      (fn [record]
+        (swap! !recorded
+               (fn [seen]
+                 {:n            (inc (:n seen))
+                  :first-record (or (:first-record seen) record)}))))
     !recorded))
 
 (defn render

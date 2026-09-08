@@ -37,12 +37,15 @@
      propagate (the schema describes shape only).
 
   4. **Always-on `event-emit` listener** — the demo registers a
-     console-logger via `register-listener!` (the `:events`
-     channel). The
-     listener receives one record per processed event and
-     demonstrates the production-survivable substrate the chapter-22
-     Datadog recipe pivots around: the listener fires under `:advanced`
-     + `goog.DEBUG=false` where the trace surface is DCE'd.
+     console-logger directly on `re-frame.event-emit`, the substrate's
+     own implementation-tier registry, because what it exists to show is
+     the RAW record the wire walker acts on. The listener receives one
+     record per processed event and fires under `:advanced` +
+     `goog.DEBUG=false` where the trace surface is DCE'd. It is NOT the
+     production observability door: since rf2-kuky.69 that is
+     `rf/register-observability-sink!` against a frame's `:observability`
+     policy, or the `(rf/configure! {:observability …})` process default,
+     which deliver the PROJECTED `:rf.observe/*` record.
 
   ## What to look for in the running app
 
@@ -200,26 +203,27 @@
   (fn [db _] (or (:user/uploads db) 0)))
 
 ;; ============================================================================
-;; ALWAYS-ON EVENT-EMIT LISTENER  (Spec 009 §Event-emit listener)
+;; ALWAYS-ON EVENT-EMIT REGISTRY  (Spec 009 §Event-emit listener)
 ;; ============================================================================
 ;;
-;; The chapter-22 production observability recipe is:
+;; The production observability recipe is a SINK, not a listener:
 ;;
-;;   (when (and (= "production" (:env config))
-;;              (not ^boolean re-frame.interop/debug-enabled?)
-;;              (:api-key config))
-;;     (rf.event-emit/register-event-listener!
-;;       :my-app/datadog
-;;       (fn [record] (ship-to-datadog record))))
+;;   (rf/register-observability-sink! :my-app/datadog
+;;     (fn [record] (ship-to-datadog record)))
+;;   (rf/configure! {:observability {:handled-events [{:sink :my-app/datadog}]}})
 ;;
-;; This demo registers a console-logger flavour at boot — UNGATED
-;; — so visitors can see the listener fire and observe the wire
-;; walker's frame-driven substitution (declared-large app-db slots
-;; become markers; unschema'd inline payloads ride through raw). The
-;; substrate is the same one
-;; Datadog / Honeycomb / Sentry attach to in production — but in
-;; production you AND the listener with `goog.DEBUG=false` per the
-;; recipe above so dev-laptop traffic never leaks.
+;; That door delivers the PROJECTED `:rf.observe/handled-event` record
+;; under the owning frame's classification and the entry's egress
+;; profile, and it is the ONLY production observation door (rf2-kuky.69).
+;;
+;; This demo is about the RAW record instead — what the wire walker itself
+;; substitutes into, one layer under projection — so it registers a
+;; console-logger on `re-frame.event-emit` directly, at boot and UNGATED,
+;; and visitors can watch the frame-driven substitution (declared-large
+;; app-db slots become markers; unschema'd inline payloads ride through
+;; raw). `re-frame.event-emit` is IMPLEMENTATION tier: the framework's own
+;; fan-out, kept for the framework's capture sites, for tests, and for a
+;; demo like this one. An app reaches the same records through the sink.
 
 (def listener-id ::elision-demo)
 

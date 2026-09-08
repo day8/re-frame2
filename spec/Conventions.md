@@ -1336,12 +1336,12 @@ The bang (`!`) suffix on a public surface marks **process-level state mutation t
 
 The caller hands a fn to a global hook the framework will invoke from arbitrary call sites. This is **not** a registrar-shaped operation — the listener table is a process-level mutable slot the surface mutates directly — so the bang earns its keep.
 
-- `register-listener!`, `unregister-listener!` (the epoch listener is the `:epoch` stream of this verb)
+- `register-listener!`, `unregister-listener!` (the raw dev streams `:trace` / `:epoch`; the epoch listener is the `:epoch` stream of this verb)
 - `register-observability-sink!`, `unregister-observability-sink!` (runtime sink/listener installation — NOT a declarative `reg-*` registrar entry)
 
 ```clojure
-(rf/register-listener!   :events ::audit (fn [event] ...))  ;; bang — hooks a global
-(rf/unregister-listener! :events ::audit)
+(rf/register-listener!   :trace ::audit (fn [trace-event] ...))  ;; bang — hooks a global
+(rf/unregister-listener! :trace ::audit)
 ```
 
 ### 3. Adapter / platform installation — **bang**
