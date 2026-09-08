@@ -55,8 +55,8 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest rt-call*-emits-verbatim
-  (is (= "(re-frame.core/elide-wire-value db)"
-         (ef/emit (ef/rt-call* 're-frame.core/elide-wire-value
+  (is (= "(re-frame.core/project-egress db)"
+         (ef/emit (ef/rt-call* 're-frame.core/project-egress
                                (ef/rt-raw "db"))))))
 
 ;; ---------------------------------------------------------------------------
@@ -141,8 +141,8 @@
 (deftest rt-call*-symbol-qsym-emits-fully-qualified
   ;; Symbol qsyms emit via `(str sym)` — the namespace prefix is
   ;; included verbatim.
-  (is (= "(re-frame.core/elide-wire-value)"
-         (ef/emit (ef/rt-call* 're-frame.core/elide-wire-value)))))
+  (is (= "(re-frame.core/project-egress)"
+         (ef/emit (ef/rt-call* 're-frame.core/project-egress)))))
 
 (deftest rt-call*-bare-symbol-emits-verbatim
   ;; A bare symbol (no namespace) emits as just the name. The precheck
@@ -243,8 +243,8 @@
 (deftest rt-quote-leaves-internal-raw-composition-alone
   ;; The escape hatch the internal sites depend on is untouched: an
   ;; `rt-raw` node built by the emitter itself still inlines verbatim.
-  (is (= "(re-frame.core/elide-wire-value db)"
-         (ef/emit (ef/rt-call* 're-frame.core/elide-wire-value
+  (is (= "(re-frame.core/project-egress db)"
+         (ef/emit (ef/rt-call* 're-frame.core/project-egress
                                (ef/rt-raw "db")))))
   (is (= "(re-frame2-pair.runtime/foo [1 bar])"
          (ef/emit (ef/rt-call 'foo [1 (ef/rt-raw "bar")])))))

@@ -78,7 +78,7 @@
 ;; Note on elision integration coverage:
 ;;
 ;; Eval-form composition for the snapshot tool (walking BOTH `:app-db`
-;; and `:sub-cache` through `re-frame.core/elide-wire-value`, threading
+;; and `:sub-cache` through `re-frame.core/project-egress`, threading
 ;; `:include-sensitive` into the walker's opt) is pinned in
 ;; `re-frame2-pair-mcp.elision-test` via the production `build-snapshot-form`
 ;; mirror — see `snapshot-form-walks-both-app-db-and-sub-cache` and

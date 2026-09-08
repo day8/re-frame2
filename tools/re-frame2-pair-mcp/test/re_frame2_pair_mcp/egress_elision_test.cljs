@@ -19,20 +19,20 @@
     - `list-subscriptions :include-values` ships each sub's current
       `:value` (deref) — a value over a declared-sensitive app-db slot
       must not leak. A sub-cache value is NOT an epoch record, so its
-      egress routes through the same `re-frame.core/elide-wire-value`
+      egress routes through the same `re-frame.core/project-egress`
       walker `snapshot`'s `:sub-cache` slice uses (the two read the same
       reactive cache source).
 
   ## What these tests pin
 
   The redaction runs SERVER-SIDE inside the eval form the tool ships
-  over nREPL — `projected-record` / `elide-wire-value` read the live
+  over nREPL — `projected-record` / `project-egress` read the live
   `[:rf.runtime/elision]` runtime-db registry, which only exists app-side. A unit
   test can't run them (no live app), so these tests assert the
   FORM-LEVEL contract: with the `--allow-sensitive-reads` gate OFF (the
   published-build default), the epoch eval forms map the egress page
   through `re-frame.core/projected-record`, and the list-subscriptions
-  eval form wraps each sub `:value` through `re-frame.core/elide-wire-value`
+  eval form wraps each sub `:value` through `re-frame.core/project-egress`
   with `:rf.size/include-sensitive? false`; with the gate ON and
   `:include-sensitive true`, the records ship raw (no projection) and the
   sub-value walker threads `:rf.size/include-sensitive? true`.
@@ -278,7 +278,7 @@
    :subs  [{:query-v ["auth-token"] :value "raw-from-runtime" :ref-count 1}]})
 
 (deftest list-subscriptions-gate-off-elides-values
-  (testing "gate OFF + include-values: the slice form wraps each sub :value through elide-wire-value, redacting"
+  (testing "gate OFF + include-values: the slice form projects each sub :value through project-egress, redacting"
     (async done
       (raw-state/set-allow-raw-state! false)
       (let [forms (atom [])]
@@ -286,12 +286,12 @@
               (fn [] (ls/list-subscriptions-tool nil (tu/args->js {:include-values true}))))
             (.then (fn [_]
                      (let [form (slice-form forms)]
-                       (is (str/includes? form "re-frame.core/elide-wire-value")
-                           "gate-off + include-values MUST route each sub :value through the walker")
+                       (is (str/includes? form "re-frame.core/project-egress")
+                           "gate-off + include-values MUST route each sub :value through the door")
                        (is (str/includes? form ":value")
                            "the per-sub :value slot is the elision target")
-                       (is (str/includes? form ":rf.size/include-sensitive? false")
-                           "gate-off forces include-sensitive? false ⇒ sensitive sub values redact")
+                       (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
+                           "gate-off names the off-box tool boundary ⇒ sensitive sub values redact")
                        (done)))))))))
 
 (deftest list-subscriptions-no-include-values-no-elision-wrap
@@ -303,8 +303,8 @@
               (fn [] (ls/list-subscriptions-tool nil (tu/args->js {}))))
             (.then (fn [_]
                      (let [form (slice-form forms)]
-                       (is (not (str/includes? form "re-frame.core/elide-wire-value"))
-                           "no values egress ⇒ no elision wrap (the cheap what's-subscribed read)")
+                       (is (not (str/includes? form "re-frame.core/project-egress"))
+                           "no values egress ⇒ no projection wrap (the cheap what's-subscribed read)")
                        (is (str/includes? form "sub-cache-info")
                            "still routes through the reactive sub-cache reader")
                        (done)))))))))
@@ -319,8 +319,8 @@
                        nil (tu/args->js {:include-values true :include-sensitive true}))))
             (.then (fn [_]
                      (let [form (slice-form forms)]
-                       (is (str/includes? form ":rf.size/include-sensitive? true")
-                           "gate-on + include-sensitive true ⇒ declared-sensitive sub values pass raw")
+                       (is (str/includes? form ":rf.egress/profile :rf.egress/local-raw")
+                           "gate-on + include-sensitive true ⇒ the trusted-local boundary, so sub values pass raw")
                        (done)))))))))
 
 (deftest list-subscriptions-gate-on-elision-false-still-redacts-sensitive
@@ -339,19 +339,20 @@
                        nil (tu/args->js {:include-values true :elision false}))))
             (.then (fn [_]
                      (let [form (slice-form forms)]
-                       (is (str/includes? form "re-frame.core/elide-wire-value")
-                           "bare :elision false MUST still walk — no sensitive bypass")
-                       (is (str/includes? form ":rf.size/include-sensitive? false")
-                           "sensitive sub values redact (the caller didn't opt in)")
+                       (is (str/includes? form "re-frame.core/project-egress")
+                           "bare :elision false MUST still project — no sensitive bypass")
+                       (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
+                           "the boundary stays off-box-tool, so sensitive sub values redact")
                        (is (str/includes? form ":rf.size/include-large? true")
                            ":elision false overlays include-large? true — large content passes")
                        (done)))))))))
 
-(deftest list-subscriptions-gate-on-full-raw-opt-in-ships-bare
-  ;; The ONLY combination that skips the walker is the deliberate
-  ;; full-raw local opt-in: `:elision false` AND `:include-sensitive true`
-  ;; (the operator's `:rf.egress/local-raw` act).
-  (testing "gate ON + include-values + elision false + include-sensitive true: full-raw opt-in skips the walker"
+(deftest list-subscriptions-gate-on-full-raw-opt-in-names-local-raw
+  ;; rf2-kuky.88 — the deliberate full-raw local opt-in (`:elision false`
+  ;; AND `:include-sensitive true`) NAMES `:rf.egress/local-raw` rather
+  ;; than skipping the door. Under that boundary the projection is the
+  ;; identity, so the values still ship raw — but the call is there.
+  (testing "gate ON + include-values + elision false + include-sensitive true: names the trusted-local boundary"
     (async done
       (raw-state/set-allow-raw-state! true)
       (let [forms (atom [])]
@@ -360,8 +361,10 @@
                        nil (tu/args->js {:include-values true :elision false :include-sensitive true}))))
             (.then (fn [_]
                      (let [form (slice-form forms)]
-                       (is (not (str/includes? form "re-frame.core/elide-wire-value"))
-                           "full-raw opt-in (elision false + include-sensitive true) ships raw")
+                       (is (str/includes? form "re-frame.core/project-egress")
+                           "the door is called even under the full-raw opt-in")
+                       (is (str/includes? form ":rf.egress/profile :rf.egress/local-raw")
+                           "full-raw opt-in (elision false + include-sensitive true) names local-raw")
                        (done)))))))))
 
 ;; ===========================================================================
@@ -511,18 +514,18 @@
                            "elision false (incl? still false) MUST still project :epochs")
                        (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
                            "rf2-nmjcll — :epochs still projects under the off-box-tool boundary with elision off")
-                       (is (str/includes? form "re-frame.core/elide-wire-value")
-                           "bare :elision false MUST still walk :app-db/:sub-cache — no sensitive bypass")
-                       (is (str/includes? form ":rf.size/include-sensitive? false")
-                           "sensitive :app-db/:sub-cache slots redact (caller didn't opt in)")
+                       (is (str/includes? form "re-frame.core/project-egress")
+                           "bare :elision false MUST still project :app-db/:sub-cache — no sensitive bypass")
                        (is (str/includes? form ":rf.size/include-large? true")
                            ":elision false overlays include-large? true — large content passes")
                        (done)))))))))
 
-(deftest snapshot-full-raw-opt-in-skips-slice-walker
-  (testing "gate ON + elision false + include-sensitive true: full-raw opt-in skips the :app-db/:sub-cache walker"
-    ;; The ONLY combination that skips the per-slot walker is the
-    ;; deliberate full-raw local opt-in.
+(deftest snapshot-full-raw-opt-in-names-local-raw-for-the-slices
+  (testing "gate ON + elision false + include-sensitive true: the slices name :rf.egress/local-raw"
+    ;; rf2-kuky.88 — the deliberate full-raw local opt-in NAMES the
+    ;; trusted-local boundary rather than skipping the door. Under
+    ;; local-raw the projection is the identity, so the slices still ship
+    ;; raw; the difference is that the boundary is stated.
     (async done
       (raw-state/set-allow-raw-state! true)
       (let [forms (atom [])]
@@ -534,8 +537,10 @@
                                                            :include-sensitive true}))))
             (.then (fn [_]
                      (let [form (slice-form forms)]
-                       (is (not (str/includes? form "re-frame.core/elide-wire-value"))
-                           "full-raw opt-in (elision false + include-sensitive true) ships :app-db/:sub-cache raw")
+                       (is (str/includes? form "re-frame.core/project-egress")
+                           "the door is called even under the full-raw opt-in")
+                       (is (str/includes? form ":rf.egress/profile :rf.egress/local-raw")
+                           "full-raw opt-in (elision false + include-sensitive true) names local-raw")
                        (done)))))))))
 
 ;; ===========================================================================
@@ -544,7 +549,7 @@
 ;;
 ;; record (read back via read-recording) and watch-until sample {:app-db
 ;; [path]} / {:sub [query-v]} signals and ship the SAMPLED VALUES back to
-;; the model. Each routes the value through elide-wire-value behind a
+;; the model. Each routes the value through project-egress behind a
 ;; raw-state gate, so a declared-sensitive slot redacts off-box under the
 ;; gate-OFF default. They thread an elision-opts map (gate + per-call
 ;; posture) into the runtime sampler via :elide-opts (record) / the 3rd
@@ -568,12 +573,12 @@
                        (is (some? form) "the tool shipped a start-recording! form")
                        (is (str/includes? form ":elide-opts")
                            "gate-off MUST thread :elide-opts so the sampler redacts off-box egress")
-                       (is (str/includes? form ":rf.size/include-sensitive? false")
-                           "gate-off forces include-sensitive? false ⇒ sensitive samples redact")
+                       (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
+                           "gate-off names the off-box tool boundary ⇒ sensitive samples redact")
                        (done)))))))))
 
 (deftest record-gate-on-include-sensitive-passes-raw
-  (testing "gate ON + include-sensitive true: :elide-opts threads include-sensitive? true (raw samples)"
+  (testing "gate ON + include-sensitive true: :elide-opts names :rf.egress/local-raw (raw samples)"
     (async done
       (raw-state/set-allow-raw-state! true)
       (let [forms (atom [])]
@@ -583,12 +588,12 @@
                                                            :include-sensitive true}))))
             (.then (fn [_]
                      (let [form (slice-form forms)]
-                       (is (str/includes? form ":rf.size/include-sensitive? true")
-                           "gate-on + include-sensitive true ⇒ declared-sensitive samples pass raw")
+                       (is (str/includes? form ":rf.egress/profile :rf.egress/local-raw")
+                           "gate-on + include-sensitive true ⇒ the trusted-local boundary, so samples pass raw")
                        (done)))))))))
 
 (deftest watch-until-gate-off-threads-elision-opts
-  (testing "gate OFF (default): the poll form threads elision-opts into sample-signals, include-sensitive? false"
+  (testing "gate OFF (default): the poll form threads the named boundary into sample-signals"
     (async done
       (raw-state/set-allow-raw-state! false)
       (let [forms (atom [])]
@@ -601,12 +606,12 @@
                        (is (some? form) "the tool shipped a poll form")
                        (is (str/includes? form "re-frame2-pair.runtime/sample-signals")
                            "the poll samples server-side")
-                       (is (str/includes? form ":rf.size/include-sensitive? false")
-                           "gate-off forces include-sensitive? false ⇒ sensitive :sample values redact")
+                       (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
+                           "gate-off names the off-box tool boundary ⇒ sensitive :sample values redact")
                        (done)))))))))
 
 (deftest watch-until-gate-on-include-sensitive-passes-raw
-  (testing "gate ON + include-sensitive true: the poll form threads include-sensitive? true (raw :sample)"
+  (testing "gate ON + include-sensitive true: the poll form names :rf.egress/local-raw (raw :sample)"
     (async done
       (raw-state/set-allow-raw-state! true)
       (let [forms (atom [])]
@@ -617,8 +622,8 @@
                                          :include-sensitive true}))))
             (.then (fn [_]
                      (let [form (slice-form forms)]
-                       (is (str/includes? form ":rf.size/include-sensitive? true")
-                           "gate-on + include-sensitive true ⇒ declared-sensitive :sample values pass raw")
+                       (is (str/includes? form ":rf.egress/profile :rf.egress/local-raw")
+                           "gate-on + include-sensitive true ⇒ the trusted-local boundary, so :sample values pass raw")
                        (done)))))))))
 
 ;; ===========================================================================
@@ -674,29 +679,27 @@
       (is (not (contains? opts :include-runtime-db?))
           "include-sensitive never lifts the runtime-db partition (orthogonal)"))))
 
-(deftest off-box-tool-floor-redacts-sensitive-and-carries-digests
-  ;; The behavioural pin: WHAT the named off-box-tool boundary buys at the
-  ;; wire. Resolved through the shared cross-MCP mirror (the same source the
-  ;; direct-read surfaces use), the off-box-tool profile keeps a
-  ;; declared-sensitive app-db slot REDACTED off-box (it does NOT ship raw)
-  ;; AND turns the structural digests ON — the contract the prior
-  ;; observability-default epoch egress silently dropped.
-  (testing "rf2-nmjcll — off-box-tool: sensitive stays redacted (fail-closed) + digests on"
-    (let [floor (rf.mcp-base.egress/profile-size-opts :rf.egress/off-box-tool)]
-      (is (false? (:rf.size/include-sensitive? floor))
-          "off-box-tool fails closed on sensitive — a declared-sensitive epoch field redacts off-box, NOT shipped raw")
-      (is (false? (:rf.size/include-large? floor))
-          "off-box-tool elides large slots off-box")
-      (is (true? (:rf.size/include-digests? floor))
-          "off-box-tool turns structural digests ON — the indicator the prior observability default omitted")
-      ;; The difference the fix makes, spelled out: off-box-tool == the
-      ;; observability default PLUS the digests the tool wire needs.
-      (let [obs (rf.mcp-base.egress/profile-size-opts :rf.egress/off-box-observability)]
-        (is (false? (:rf.size/include-digests? obs))
-            "the projected-record default (off-box-observability) OMITS digests — the gap rf2-nmjcll closes")
-        (is (= (dissoc floor :rf.size/include-digests?)
-               (dissoc obs :rf.size/include-digests?))
-            "off-box-tool and the observability default share the redact/elide floor; digests are the only delta")))))
+(deftest off-box-tool-is-the-name-both-epoch-paths-choose
+  ;; rf2-kuky.88 — this used to pin WHAT the off-box-tool floor resolves
+  ;; to, by reading `mcp-base`'s pure-data mirror of the framework table.
+  ;; That mirror is gone: nothing tool-side resolves a profile any more,
+  ;; and this Node test build cannot load `re-frame.projection` (that is
+  ;; the whole reason the mirror existed). The FLOOR is therefore pinned
+  ;; where the table lives — `implementation/core` — and what stays
+  ;; pinned HERE is the half this suite can actually see: that the epoch
+  ;; egress names `:rf.egress/off-box-tool`, a member of the closed enum,
+  ;; on BOTH postures, rather than falling to `projected-record`'s
+  ;; `:rf.egress/off-box-observability` default.
+  (testing "rf2-nmjcll — the epoch wire names off-box-tool, not the observability default"
+    (doseq [incl? [false true]]
+      (let [opts (parse-opts incl?)]
+        (is (= :rf.egress/off-box-tool (:rf.egress/profile opts))
+            "the pair-MCP epoch wire is always the TOOL boundary")
+        (is (contains? rf.mcp-base.egress/profiles (:rf.egress/profile opts))
+            "and it is a member of the closed enum the framework door accepts"))))
+  (testing "the observability default is a DIFFERENT name, so choosing it would be visible here"
+    (is (contains? rf.mcp-base.egress/profiles :rf.egress/off-box-observability))
+    (is (not= :rf.egress/off-box-tool :rf.egress/off-box-observability))))
 
 (deftest project-page-src-threads-off-box-tool-on-both-paths
   (testing "rf2-nmjcll — project-page-src emits the off-box-tool profile in the page fn literal (both paths)"

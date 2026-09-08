@@ -321,16 +321,18 @@
                                                       :include-sensitive true})))))
           (.then (fn [r]
                    (let [form (dispatch-form forms)]
-                     (is (str/includes? form "re-frame.core/elide-wire-value")
-                         "gate OFF forces the elision walker even when caller passed :elision false")
+                     (is (str/includes? form "re-frame.core/project-egress")
+                         "gate OFF forces the projection even when caller passed :elision false")
                      (is (str/includes? form ":db-state-after-simulation")
                          "the would-be db slot is walked")
                      (is (str/includes? form ":would-fire-effects")
                          "the fx args slot is walked")
-                     (is (str/includes? form ":rf.size/include-sensitive? false")
-                         "gate OFF forces sensitive slots to redact even when caller passed :include-sensitive true")
-                     (is (str/includes? form ":rf.size/include-large? false")
-                         "gate OFF emits markers (no large pass-through)"))
+                     (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
+                         "gate OFF names the off-box tool boundary even when caller passed :include-sensitive true")
+                     (is (not (str/includes? form ":rf.egress/local-raw"))
+                         "the dropped opt-in never reaches the trusted-local boundary")
+                     (is (not (str/includes? form ":rf.size/include-large? true"))
+                         "gate OFF emits markers (no large pass-through overlay)"))
                    ;; the envelope echoes the effective elision state
                    (let [edn (read-result-text r)]
                      (is (true? (:elision edn)) "effective elision is true under gate OFF"))
@@ -375,20 +377,21 @@
                                                       :elision false})))))
           (.then (fn [r]
                    (let [form (dispatch-form forms)]
-                     (is (str/includes? form "re-frame.core/elide-wire-value")
-                         "bare :elision false MUST still walk the db slot — no sensitive bypass")
-                     (is (str/includes? form ":rf.size/include-sensitive? false")
-                         "sensitive db slot redacts (caller didn't opt in)")
+                     (is (str/includes? form "re-frame.core/project-egress")
+                         "bare :elision false MUST still project the db slot — no sensitive bypass")
+                     (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
+                         "the boundary stays off-box-tool, so the sensitive db slot redacts")
                      (is (str/includes? form ":rf.size/include-large? true")
                          ":elision false overlays include-large? true — large content passes"))
                    (let [edn (read-result-text r)]
                      (is (false? (:elision edn)) "the echo reports the caller's large-slot intent"))
                    (done)))))))
 
-(deftest gate-on-full-raw-opt-in-skips-walker
-  ;; The deliberate full-raw local opt-in (`:elision false` AND
-  ;; `:include-sensitive true`) is the ONLY combination that ships the db
-  ;; slot raw with no walker wrap.
+(deftest gate-on-full-raw-opt-in-names-local-raw
+  ;; rf2-kuky.88 — the deliberate full-raw local opt-in (`:elision false`
+  ;; AND `:include-sensitive true`) NAMES `:rf.egress/local-raw`, under
+  ;; which the projection is the identity, so the db slot still ships
+  ;; raw. The door is called either way.
   (async done
     (let [forms (atom [])]
       (-> (with-raw-gate! true
@@ -401,15 +404,18 @@
                                                       :include-sensitive true})))))
           (.then (fn [r]
                    (let [form (dispatch-form forms)]
-                     (is (not (str/includes? form "elide-wire-value"))
-                         "full-raw opt-in (elision false + include-sensitive true) ships raw — no walker wrap"))
+                     (is (str/includes? form "re-frame.core/project-egress")
+                         "the door is called even under the full-raw opt-in")
+                     (is (str/includes? form ":rf.egress/profile :rf.egress/local-raw")
+                         "full-raw opt-in (elision false + include-sensitive true) names local-raw"))
                    (let [edn (read-result-text r)]
                      (is (false? (:elision edn)) "effective elision is false"))
                    (done)))))))
 
 (deftest gate-on-honours-include-sensitive
-  ;; With --allow-sensitive-reads + :include-sensitive true, the walker
-  ;; still runs (elision default true) but passes sensitive slots through.
+  ;; With --allow-sensitive-reads + :include-sensitive true, the door
+  ;; still runs (elision default true) under the trusted-local boundary,
+  ;; which passes sensitive slots through.
   (async done
     (let [forms (atom [])]
       (-> (with-raw-gate! true
@@ -421,8 +427,8 @@
                                                       :include-sensitive true})))))
           (.then (fn [_]
                    (let [form (dispatch-form forms)]
-                     (is (str/includes? form ":rf.size/include-sensitive? true")
-                         "gate ON honours the caller's :include-sensitive true"))
+                     (is (str/includes? form ":rf.egress/profile :rf.egress/local-raw")
+                         "gate ON honours the caller's :include-sensitive true by naming local-raw"))
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
@@ -459,8 +465,8 @@
                          "the fx-args fail-close touches :would-fire-effects")
                      (is (str/includes? form ":args :rf/redacted")
                          "gate OFF forces fx args to :rf/redacted even when caller passed :include-fx-args true")
-                     (is (str/includes? form "re-frame.core/elide-wire-value")
-                         "the app-db slot still rides the size-elision walker"))
+                     (is (str/includes? form "re-frame.core/project-egress")
+                         "the app-db slot still rides the egress door"))
                    (done)))))))
 
 (deftest gate-on-default-still-redacts-fx-args

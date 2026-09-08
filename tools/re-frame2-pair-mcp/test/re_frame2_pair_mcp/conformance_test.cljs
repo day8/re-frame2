@@ -807,7 +807,7 @@
    ;; (touching :would-fire-effects), and must signal the raw-state tap
    ;; posture (configure-raw-state!) before the dispatch.
    {:fixture/id    :dispatch-dry-run/gate-off-redacts-egress
-    :fixture/doc   "dispatch-dry-run with --allow-sensitive-reads OFF (default): the form runs :db-state-after-simulation through elide-wire-value with :rf.size/include-sensitive? false, and FAILS CLOSED the :would-fire-effects[*].args to :rf/redacted (rf2-z7roa + rf2-6to9xj)."
+    :fixture/doc   "dispatch-dry-run with --allow-sensitive-reads OFF (default): the form runs :db-state-after-simulation through project-egress under the :rf.egress/off-box-tool boundary, and FAILS CLOSED the :would-fire-effects[*].args to :rf/redacted (rf2-z7roa + rf2-6to9xj)."
     :fixture/tool  "dispatch-dry-run"
     :fixture/allow-raw-state? false
     :fixture/args  {:event "[:auth/login]"
@@ -824,11 +824,10 @@
                                    :elided-count 0}]
      [:default                    nil]]
     :fixture/eval-form-must-contain
-    ["re-frame.core/elide-wire-value"
+    ["re-frame.core/project-egress"
      ":db-state-after-simulation"
      ":would-fire-effects"
-     ":rf.size/include-sensitive? false"
-     ":rf.size/include-large? false"
+     ":rf.egress/profile :rf.egress/off-box-tool"
      "configure-raw-state!"
      ":allow-raw-state? false"]
     :fixture/expect
@@ -840,7 +839,7 @@
    ;; `:db-state-after-simulation` slot: large content passes
    ;; (`include-large? true`) but a declared-sensitive db slot redacts.
    {:fixture/id    :dispatch-dry-run/gate-on-bare-elision-false-still-walks
-    :fixture/doc   "dispatch-dry-run ON + :elision false (no sensitive opt-in) ⇒ form STILL runs :db-state-after-simulation through elide-wire-value with :rf.size/include-sensitive? false, :rf.size/include-large? true (rf2-t55hxg.13)."
+    :fixture/doc   "dispatch-dry-run ON + :elision false (no sensitive opt-in) ⇒ form STILL runs :db-state-after-simulation through project-egress under :rf.egress/off-box-tool with a :rf.size/include-large? true overlay (rf2-t55hxg.13)."
     :fixture/tool  "dispatch-dry-run"
     :fixture/allow-raw-state? true
     :fixture/args  {:event "[:cart/checkout]" :elision false}
@@ -851,19 +850,21 @@
                                    :elided-count 0}]
      [:default                    nil]]
     :fixture/eval-form-must-contain
-    ["re-frame.core/elide-wire-value"
-     ":rf.size/include-sensitive? false"
+    ["re-frame.core/project-egress"
+     ":rf.egress/profile :rf.egress/off-box-tool"
      ":rf.size/include-large? true"]
     :fixture/expect
     {:isError? false
      :edn-submap {:ok? true :elision false}}}
 
    ;; The deliberate full-raw opt-in (`:elision false` AND
-   ;; `:include-sensitive true`) is the ONLY combination that skips the db
-   ;; walker. With `:include-fx-args` unset the fx args still fail closed,
-   ;; so the form still touches `:would-fire-effects`.
+   ;; `:include-sensitive true`) NAMES `:rf.egress/local-raw`, under which
+   ;; the projection is the identity so the db slot ships raw (rf2-kuky.88
+   ;; — the door is still called). With `:include-fx-args` unset the fx
+   ;; args still fail closed, so the form still touches
+   ;; `:would-fire-effects`.
    {:fixture/id    :dispatch-dry-run/gate-on-full-raw-opt-out
-    :fixture/doc   "dispatch-dry-run ON + :elision false + :include-sensitive true ships the raw simulation details — NO walker wrap for the db slot (rf2-z7roa / rf2-t55hxg.13)."
+    :fixture/doc   "dispatch-dry-run ON + :elision false + :include-sensitive true ships the raw simulation details — the db slot names :rf.egress/local-raw, under which the projection is the identity (rf2-z7roa / rf2-t55hxg.13 / rf2-kuky.88)."
     :fixture/tool  "dispatch-dry-run"
     :fixture/allow-raw-state? true
     :fixture/args  {:event "[:cart/checkout]" :elision false :include-sensitive true}
@@ -873,6 +874,9 @@
      ["dispatch-dry-run"          {:value {:ok? true :dry-run? true :db-state-after-simulation {:user {:token "raw"}}}
                                    :elided-count 0}]
      [:default                    nil]]
+    :fixture/eval-form-must-contain
+    ["re-frame.core/project-egress"
+     ":rf.egress/profile :rf.egress/local-raw"]
     :fixture/eval-form-must-not-contain
     ["elide-wire-value"]
     :fixture/expect
@@ -1494,7 +1498,7 @@
    ;; walker-option keyword `:rf.size/include-sensitive?` retains it
    ;; (internal framework key, not on the wire).
    {:fixture/id    :raw-state/snapshot-gated-default-forces-redact
-    :fixture/doc   "Gate OFF + caller passes :include-sensitive true ⇒ form must carry :rf.size/include-sensitive? false."
+    :fixture/doc   "Gate OFF + caller passes :include-sensitive true ⇒ the dropped opt-in leaves the form on the :rf.egress/off-box-tool boundary with no large overlay."
     :fixture/tool  "snapshot"
     :fixture/allow-raw-state? false
     :fixture/args  {:frames "all" :include-sensitive true}
@@ -1503,13 +1507,15 @@
      [:default                    {:value {:rf/default {:app-db {:k :v}}}
                                    :elided-count 0}]]
     :fixture/eval-form-must-contain
-    [":rf.size/include-sensitive? false"
-     ":rf.size/include-large? false"]
+    [":rf.egress/profile :rf.egress/off-box-tool"]
+    :fixture/eval-form-must-not-contain
+    [":rf.egress/local-raw"
+     ":rf.size/include-large? true"]
     :fixture/expect
     {:isError? false}}
 
    {:fixture/id    :raw-state/snapshot-opt-in-honours-arg
-    :fixture/doc   "Gate ON + caller passes :include-sensitive true ⇒ form must carry :rf.size/include-sensitive? true."
+    :fixture/doc   "Gate ON + caller passes :include-sensitive true ⇒ form must name the trusted-local :rf.egress/local-raw boundary."
     :fixture/tool  "snapshot"
     :fixture/allow-raw-state? true
     :fixture/args  {:frames "all" :include-sensitive true}
@@ -1518,12 +1524,12 @@
      [:default                    {:value {:rf/default {:app-db {:k :v}}}
                                    :elided-count 0}]]
     :fixture/eval-form-must-contain
-    [":rf.size/include-sensitive? true"]
+    [":rf.egress/profile :rf.egress/local-raw"]
     :fixture/expect
     {:isError? false}}
 
    {:fixture/id    :raw-state/snapshot-gated-default-forces-elision
-    :fixture/doc   "Gate OFF + caller passes :elision false ⇒ form must still walk via elide-wire-value."
+    :fixture/doc   "Gate OFF + caller passes :elision false ⇒ form must still project via project-egress."
     :fixture/tool  "snapshot"
     :fixture/allow-raw-state? false
     :fixture/args  {:frames "all" :elision false}
@@ -1532,7 +1538,7 @@
      [:default                    {:value {:rf/default {:app-db {:k :v}}}
                                    :elided-count 0}]]
     :fixture/eval-form-must-contain
-    ["re-frame.core/elide-wire-value"]
+    ["re-frame.core/project-egress"]
     :fixture/expect
     {:isError? false}}
 
@@ -1541,7 +1547,7 @@
    ;; declared-sensitive `:app-db` / `:sub-cache` slot redacts to
    ;; `:rf/redacted`.
    {:fixture/id    :raw-state/snapshot-bare-elision-false-still-walks
-    :fixture/doc   "Gate ON + :elision false (no sensitive opt-in) ⇒ form must STILL call elide-wire-value with include-sensitive? false (sensitive redacts, large passes)."
+    :fixture/doc   "Gate ON + :elision false (no sensitive opt-in) ⇒ form must STILL call project-egress under :rf.egress/off-box-tool (sensitive redacts, large passes via the overlay)."
     :fixture/tool  "snapshot"
     :fixture/allow-raw-state? true
     :fixture/args  {:frames "all" :elision false}
@@ -1550,17 +1556,18 @@
      [:default                    {:value {:rf/default {:app-db {:k :v}}}
                                    :elided-count 0}]]
     :fixture/eval-form-must-contain
-    ["re-frame.core/elide-wire-value"
-     ":rf.size/include-sensitive? false"
+    ["re-frame.core/project-egress"
+     ":rf.egress/profile :rf.egress/off-box-tool"
      ":rf.size/include-large? true"]
     :fixture/expect
     {:isError? false}}
 
-   ;; The ONLY combination that skips the walker is the deliberate
-   ;; full-raw local opt-in: `:elision false` AND `:include-sensitive true`
-   ;; (the operator's `:rf.egress/local-raw` act).
-   {:fixture/id    :raw-state/snapshot-full-raw-opt-in-skips-walker
-    :fixture/doc   "Gate ON + :elision false + :include-sensitive true ⇒ full-raw opt-in, form must NOT call elide-wire-value over the slices."
+   ;; The deliberate full-raw local opt-in (`:elision false` AND
+   ;; `:include-sensitive true`) NAMES `:rf.egress/local-raw` — the door
+   ;; is still called, and under that boundary the projection is the
+   ;; identity so the slices ship raw (rf2-kuky.88).
+   {:fixture/id    :raw-state/snapshot-full-raw-opt-in-names-local-raw
+    :fixture/doc   "Gate ON + :elision false + :include-sensitive true ⇒ full-raw opt-in; the form names :rf.egress/local-raw and never the walker export."
     :fixture/tool  "snapshot"
     :fixture/allow-raw-state? true
     :fixture/args  {:frames "all" :elision false :include-sensitive true}
@@ -1568,13 +1575,16 @@
     [["__re_frame2_pair_runtime"  true]
      [:default                    {:value {:rf/default {:app-db {:k :v}}}
                                    :elided-count 0}]]
+    :fixture/eval-form-must-contain
+    ["re-frame.core/project-egress"
+     ":rf.egress/profile :rf.egress/local-raw"]
     :fixture/eval-form-must-not-contain
     ["re-frame.core/elide-wire-value"]
     :fixture/expect
     {:isError? false}}
 
    {:fixture/id    :raw-state/get-path-gated-default-forces-redact
-    :fixture/doc   "get-path: gate OFF + caller passes :include-sensitive true ⇒ form must carry :rf.size/include-sensitive? false."
+    :fixture/doc   "get-path: gate OFF + caller passes :include-sensitive true ⇒ the dropped opt-in leaves the form on the :rf.egress/off-box-tool boundary with no large overlay."
     :fixture/tool  "get-path"
     :fixture/allow-raw-state? false
     :fixture/args  {:path "[:user :token]" :include-sensitive true}
@@ -1583,13 +1593,15 @@
      [:default                    {:ok? true :exists? true :path [:user :token]
                                    :value :rf/redacted :elided-count 1}]]
     :fixture/eval-form-must-contain
-    [":rf.size/include-sensitive? false"
-     ":rf.size/include-large? false"]
+    [":rf.egress/profile :rf.egress/off-box-tool"]
+    :fixture/eval-form-must-not-contain
+    [":rf.egress/local-raw"
+     ":rf.size/include-large? true"]
     :fixture/expect
     {:isError? false}}
 
    {:fixture/id    :raw-state/get-path-opt-in-honours-arg
-    :fixture/doc   "get-path: gate ON + caller passes :include-sensitive true ⇒ form must carry :rf.size/include-sensitive? true."
+    :fixture/doc   "get-path: gate ON + caller passes :include-sensitive true ⇒ form must name the trusted-local :rf.egress/local-raw boundary."
     :fixture/tool  "get-path"
     :fixture/allow-raw-state? true
     :fixture/args  {:path "[:user :token]" :include-sensitive true}
@@ -1598,7 +1610,7 @@
      [:default                    {:ok? true :exists? true :path [:user :token]
                                    :value "raw" :elided-count 0}]]
     :fixture/eval-form-must-contain
-    [":rf.size/include-sensitive? true"]
+    [":rf.egress/profile :rf.egress/local-raw"]
     :fixture/expect
     {:isError? false}}
 

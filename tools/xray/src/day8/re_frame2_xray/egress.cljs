@@ -99,4 +99,4 @@
        (contains? opts :rf.size/include-sensitive?)
        (assoc :rf.size/include-sensitive? (:rf.size/include-sensitive? opts))
        (contains? opts :rf.size/include-large?)
-       (assoc :rf.size/include-large? (:rf.size/include-large? opts)))))
+       (assoc :rf.size/include-large? (:rf.size/include-large? opts))))))
