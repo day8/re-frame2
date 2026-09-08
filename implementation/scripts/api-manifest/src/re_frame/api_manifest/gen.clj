@@ -141,6 +141,15 @@
     ;; here returns the macros, and the CLJS probe reconciles the aliases
     ;; against these same `:classification` rows (rf2-phm7g).
     re-frame.hicasso
+    ;; The event-bundle projection surface (rf2-kuky.72). Its two public fns
+    ;; — `group-by-event` and `domino-bucket` — used to be rowed at their
+    ;; `re-frame.core` facade twins on the justification that the producing
+    ;; home carried no manifest rows. That justification named the wrong home
+    ;; (`re-frame.trace.tooling`) and is what this enrolment retires: the
+    ;; twins are deleted and the projection namespace IS the door tools
+    ;; already require directly. `empty-event-bundle` and `absorb` carry
+    ;; `^:no-doc` and stay out; everything else in the namespace is private.
+    re-frame.trace.projection
     ;; Tool artefacts with JVM-loadable public surfaces.
     re-frame.story
     ;; MCP support namespaces — the tooling trace/egress surfaces the

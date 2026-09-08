@@ -750,10 +750,10 @@ The two listener APIs are independent: tools may register either, both, or neith
 
 The grouping fn is **`group-by-event`**, and its per-run output record is an **event bundle** — one record per **pipeline run** (one dequeued event; the `event-*` noun family, per [Conventions §The `event-*` noun family](Conventions.md#the-event--noun-family) and [Conventions §Event-pipeline vocabulary](Conventions.md#event-pipeline-vocabulary--the-terms-one-event-traverses)).
 
-The raw trace stream is event-at-a-time; pair-shaped UIs (the Story trace panel, the Xray Epoch panel, re-frame2-pair's `cascade-of`) all want the **per-run slice** of the stream — one record per **pipeline run** (one dequeued event) with the event vector, handler emit, fx-map emit, effects, sub-runs, and renders already split into named slots. (First-contact mnemonic: the run's per-event half is the "six dominoes".) The framework ships that projection as a pure-data function in `re-frame.trace.projection`, re-exported from `re-frame.core`:
+The raw trace stream is event-at-a-time; pair-shaped UIs (the Story trace panel, the Xray Epoch panel, re-frame2-pair's `cascade-of`) all want the **per-run slice** of the stream — one record per **pipeline run** (one dequeued event) with the event vector, handler emit, fx-map emit, effects, sub-runs, and renders already split into named slots. (First-contact mnemonic: the run's per-event half is the "six dominoes".) The framework ships that projection as a pure-data function in `re-frame.trace.projection` — the namespace a tool requires directly; there is no `re-frame.core` re-export:
 
 ```clojure
-(rf/group-by-event trace-events)
+(re-frame.trace.projection/group-by-event trace-events)
 ;; -> [{:dispatch-id        <id-or-:ungrouped>
 ;;      :parent-dispatch-id <id or nil>      ;; causal-parent link from
 ;;                                           ;;   :rf.trace/parent-dispatch-id
@@ -796,7 +796,7 @@ The slot order above is the projection's emit order. Each slot's wire-shape and 
 
 (The event-bundle slot names above — `:dispatch-id`, `:parent-dispatch-id`, `:frame`, `:event`, `:dispatched`, `:handler`, … — are the projection's own output shape, distinct from the trace `:tags` keys it groups by.) Events without a `:rf.trace/dispatch-id` tag (registry-time emits, frame lifecycle, REPL evals outside a drain) collect under the projection's `:dispatch-id :ungrouped` slot. The returned vector is sorted by the lowest `:id` in each run so consumers render runs in emission order. The projection is **pure data** — JVM and CLJS run the same code; tools wiring up post-mortem renders against `(rf/trace-buffer frame-id)` get the same output shape as live consumers reading from a `register-listener!` listener.
 
-`(rf/domino-bucket trace-event)` is the underlying classifier — returns one of `#{:event :handler :fx :effect :sub :render :other}`. Tools that want custom rollups can call it directly per event and skip `group-by-event`.
+`(re-frame.trace.projection/domino-bucket trace-event)` is the underlying classifier — returns one of `#{:event :handler :fx :effect :sub :render :other}`. Tools that want custom rollups can call it directly per event and skip `group-by-event`.
 
 Per (per-event correlation) the projection is robust against errors, fx, sub-runs, and renders that fire *inside* an event's run even though they aren't `:rf.event/dispatched` — every such event carries `:tags :rf.trace/dispatch-id` so they group into that event's bundle automatically.
 

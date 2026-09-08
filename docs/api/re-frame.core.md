@@ -957,31 +957,9 @@ There is deliberately **no** facade `clear-listeners!` verb. Dropping every list
   (rf/clear-trace-buffer!)             ;; empty every ring; retention policy stays put
   ```
 
-### `group-by-event`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (group-by-event events) → vector of event records
-  ```
-- **Description**: A pure data projection. It turns a list of trace events into per-event records `{:dispatch-id :parent-dispatch-id :frame :event :dispatched :handler :fx :effects :subs :renders :other}` — one record per `[frame dispatch-id]` pipeline run, sorted by emission order. JVM-runnable.
-- **Example**:
-  ```clojure
-  (rf/group-by-event (rf/trace-buffer :app/main {:flat true}))
-  ```
-
-### `domino-bucket`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (domino-bucket trace-event) → #{:event :handler :fx :effect :sub :render :other}
-  ```
-- **Description**: Classify a raw trace event into the pipeline-stage slot used by `group-by-event`. Pure. (The "domino" name is the first-contact mnemonic for those stages.)
-- **Example**:
-  ```clojure
-  (rf/domino-bucket {:op-type :rf.view :operation :rf.view/render})  ;; => :render
-  ```
+The event-bundle projection — `group-by-event` and `domino-bucket` — is **not** on
+the facade. Both live in [`re-frame.trace.projection`](re-frame.trace.projection.md),
+which a tool requires directly.
 
 ### `elide-wire-value`
 

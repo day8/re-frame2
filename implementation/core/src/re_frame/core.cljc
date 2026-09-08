@@ -51,7 +51,6 @@
             [re-frame.trace :as rf.trace
              #?@(:cljs [:include-macros true])]
             [re-frame.trace.tooling :as rf.trace.tooling]
-            [re-frame.trace.projection :as rf.trace.projection]
             ;; JVM-only autoload for the focused-event-only cascade-DAG
             ;; aggregator (rf2-931pm). CLJS deliberately omits the
             ;; require so Closure DCE keeps the aggregator + per-fn
@@ -2488,20 +2487,12 @@
 ;; (KEPT on the façade: `elide-wire-value` — the path walker — and
 ;; `project-egress` — the record-level boundary.)
 
-(def ^{:doc "Project a sequence of raw trace events into one event-bundle
-  record per `:dispatch-id` (one dequeued event / pipeline run). Pure data
-  — JVM and CLJS. Used by `re-frame-10x`, Xray, and other tools that
-  present event-level views over the raw event stream. Per Spec 009
-  §Trace projection."}
-  group-by-event  rf.trace.projection/group-by-event)
-
-(def ^{:doc "Classify a trace event into one of the domino buckets —
-  one of `#{:event :handler :fx :effect :sub :render :other}`. `:other`
-  covers every event that isn't part of the six-domino cascade (errors,
-  warnings, machine transitions, frame lifecycle, flows). The
-  classification is total. Pure fn used by trace projections and
-  event-bundle views. Per Spec 009 §Trace projection."}
-  domino-bucket   rf.trace.projection/domino-bucket)
+;; rf2-kuky.72: the `group-by-event` / `domino-bucket` facade twins are
+;; REMOVED. `re-frame.trace.projection` is the rostered home of both — the
+;; namespace tools already require directly (Xray's `self_noise.cljc`
+;; composes `re-frame.trace.projection/group-by-event` over the buffer it just
+;; read) — so the facade re-exports taught a second spelling for a surface
+;; with zero facade consumers. Per Spec 009 §Event-bundle projection.
 
 ;; ---- epoch history (Tool-Pair §Time-travel) ------------------------------
 
