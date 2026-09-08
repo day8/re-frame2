@@ -1,0 +1,182 @@
+;; Conformance fixture: cross-spec/machine-after-hydration-rearm
+;;
+;; Cross-Spec Interaction #4/#5 (Machines x SSR) -- the CLIENT half of the
+;; hydration handoff. `cross-spec-machines-under-ssr.edn` pins the SERVER
+;; half (`:after` no-ops during the render); this fixture pins what the
+;; client owes when that render's payload arrives.
+;;
+;; Specs that meet: [011-SSR §`:after` is no-op under SSR](../../011-SSR.md#after-is-no-op-under-ssr)
+;;                  -- bullet 3 is the normative rule and this fixture is its
+;;                  executable form;
+;;                  [005-StateMachines §SSR mode](../../005-StateMachines.md#ssr-mode)
+;;                  -- points at that rule and gives the reason.
+;;
+;; THE RULED CONTRACT, quoted from 011 bullet 3. On successful hydration the
+;; client installs the snapshot and then reconciles each ACTIVE `:after`
+;; declaration in it to exactly ONE armed timer. Three things are normative:
+;;
+;;   DURATION  -- each timer is armed for its FULL client-resolved delay,
+;;                measured from the moment the client seam arms it: not from
+;;                the server render, and not from when the page became
+;;                interactive. No remainder is computed and none is
+;;                subtracted, because there is no remainder to compute --
+;;                `:after` never armed on the server, so there is no running
+;;                countdown to resume and nothing durable records a schedule
+;;                instant.
+;;   EPOCH     -- the hydrated snapshot's `:rf/after-epoch` is RETAINED,
+;;                never bumped. Hydration re-establishes host work for a
+;;                visit that already happened; it is not a fresh state entry.
+;;   NO REPLAY -- no `:entry`, `:action`, `:raise`, `:spawn` or `:always`
+;;                runs, and no snapshot is written. The server already ran
+;;                the entry cascade for this configuration exactly once.
+;;
+;; WHICH HOST SEAM PERFORMS THE ARM IS UNSPECIFIED, and this fixture does not
+;; pin one. It dispatches `:rf/hydrate` with a server-produced payload and
+;; grades only what 011 makes normative: the emitted schedule's delay and
+;; epoch, the snapshot the client is left holding, and the absence of a
+;; replayed entry. A port whose hydration arms through some other seam
+;; conforms so long as those observables match.
+;;
+;; SCENARIO. A server rendered a page whose machine sits in `:waiting`, an
+;; `:after`-bearing state with a 5000ms declaration. Per the server-half
+;; fixture no timer was armed during that render, so the payload carries the
+;; snapshot and its `:after` epoch and nothing else about the timer. Its
+;; `:data` records `:entries 1` -- the server ran `:waiting`'s entry action
+;; exactly once, on the way in.
+;;
+;; WHAT EACH ASSERTION DISCRIMINATES:
+;;   * `:delay 5000` on the `/scheduled` trace -- a host that computed a
+;;     remainder (from `:rf/ssr-rendered-at`, a header, or a client clock
+;;     read) would arm something smaller, and a host that treated a past-due
+;;     timer as fire-immediately would arm 0 or fire at once.
+;;   * `:epoch 1` on that trace, and `:rf/after-epoch {[:waiting] 1}` in the
+;;     final snapshot -- a host that treated hydration as a state ENTRY would
+;;     bump to 2, stranding the very snapshot it just restored.
+;;   * `:entries 1` in the final snapshot -- a host that re-fired the entry
+;;     cascade to start scheduling would read 2.
+;;   * `:state :waiting` -- nothing transitions before the interval elapses.
+;;   * the Mode B call -- the retained epoch is the OPERATIVE one: an elapsed
+;;     event carrying it drives the declared transition to `:timeout`.
+;;
+;; NOT EXERCISED HERE, deliberately. Epoch restore is the mirror image and
+;; stays cancel-only (005 §Epoch-based stale detection, `:reason
+;; :on-restore`); resuming a wall-clock deadline into a rewound past would be
+;; wrong. `:rf/ssr-rendered-at` is optional diagnostic metadata the payload
+;; builder does not populate, and nothing subtracts it.
+;;
+;; Per rf2-bmqv, split out of the rf2-ry7x ruling.
+
+{:fixture/id           :cross-spec/machine-after-hydration-rearm
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :fsm/delayed-after :ssr/hydration :core/event-handler :core/trace}
+ :fixture/doc          "The CLIENT half of the SSR :after hydration handoff. From a server-produced payload carrying an :after-bearing snapshot, hydration arms exactly ONE timer per ACTIVE declaration, for the FULL client-resolved delay measured from the client arm; the hydrated epoch is RETAINED, not bumped; no :entry / :action / :raise / :spawn / :always is replayed; nothing transitions before the interval elapses, and the retained epoch is the one an elapsed event must carry to drive the declared transition."
+
+ :fixture/registry
+ {:machine-action
+  {:waiting/note-entry {:doc "Counts entries to :waiting. The server ran it once; hydration must not run it again."}}
+
+  :machine
+  {:auth/probe
+   ;; A flat machine whose :waiting state declares a 5000ms :after. Under
+   ;; :platform :server (the sibling fixture) entering :waiting arms
+   ;; nothing; the snapshot below is what that render leaves behind.
+   {:initial :idle
+    :data    {:entries 0}
+    :actions {:note-entry :waiting/note-entry}
+    :states  {:idle    {:on {:probe :waiting}}
+              :waiting {:entry :note-entry
+                        :after {5000 :timeout}}
+              :timeout {}}}}}
+
+ :fixture/handlers
+ {:machine-action
+  ;; Increments on every entry to :waiting. The payload seeds :entries 1
+  ;; (the server's one entry); a replayed cascade would read 2.
+  {:waiting/note-entry [[:update [:entries] [:fn :inc]]]}}
+
+ ;; No `:rf/hydrate` handler body: the fixture deliberately drives the
+ ;; runtime's OWN hydrate path, so the re-arm is the host's seam and not
+ ;; the fixture's stand-in for one.
+ ;;
+ ;; `:platform :client` is LOAD-BEARING, not boilerplate. Arming is a
+ ;; CLIENT act: a hydrate resolving to `:server` -- an isomorphic
+ ;; loopback, or a JVM harness whose host platform marker is not
+ ;; `:client` -- arms nothing at all, which is the correct behaviour and
+ ;; the reason the sibling server-half fixture sees no timer. A port
+ ;; whose harness leaves the platform unresolved will observe an empty
+ ;; `:fx` and no `/scheduled` row; that is a harness fact, not a
+ ;; conformance failure.
+ :fixture/frame-config {:initial-events [] :platform :client}
+
+ :fixture/dispatches
+ [[:rf/hydrate {:rf/version     "1.0"
+                :rf/frame-id    :rf/default
+                :rf/app-db      {:page :dashboard}
+                :rf/runtime-db  {:rf.runtime/machines
+                                 {:snapshots
+                                  {:auth/probe
+                                   {:state :waiting
+                                    :data  {:entries        1
+                                            :rf/after-epoch {[:waiting] 1}}}}}}
+                :rf/render-hash "h1"}]]
+
+ :fixture/expect
+ {:final-app-db {:page :dashboard}
+
+  ;; The hydrated snapshot is left EXACTLY as the server settled it: same
+  ;; state, same epoch, same entry count. Hydration writes no snapshot.
+  :final-runtime-db
+  {:rf.runtime/machines
+   {:snapshots
+    {:auth/probe
+     {:state :waiting
+      :data  {:entries        1
+              :rf/after-epoch {[:waiting] 1}}}}}}
+
+  ;; The load-bearing trace contract. The hydrate event runs with
+  ;; :source :ssr-hydration (Spec 011 §The :rf/hydrate event), and the
+  ;; re-arm emits the ORDINARY :rf.machine.timer/scheduled row -- the same
+  ;; shape a state entry emits, so the existing scheduled -> fired /
+  ;; cancelled pairing on (actor-id, state, epoch) holds for a hydrated
+  ;; timer exactly as for an entered one.
+  ;;
+  ;; :delay 5000 is the FULL declared delay and :epoch 1 is the payload's
+  ;; own epoch. A remainder rule would show a smaller delay; an
+  ;; entry-replay would show epoch 2 and a :rf.machine/transition row.
+  :trace-emissions
+  [{:operation :rf.event/run-start
+    :source    :ssr-hydration
+    :tags      {:rf.trace/event-id :rf/hydrate}}
+   {:operation :rf.machine.timer/scheduled
+    :tags      {:actor-id     :auth/probe
+                :state        :waiting
+                :delay        5000
+                :epoch        1
+                :delay-source :literal}}]}
+
+ ;; Mode B tail (pure, run AFTER the dispatches): the RETAINED epoch is the
+ ;; operative one. An elapsed event carrying epoch 1 -- the epoch the
+ ;; re-armed timer was given above -- drives the declared transition; exiting
+ ;; :waiting bumps its per-path epoch to 2 and releases the host handle.
+ :fixture/calls
+ [{:call       :machine-transition
+   :definition {:initial :idle
+                :data    {:entries 0}
+                :actions {:note-entry :waiting/note-entry}
+                :states  {:idle    {:on {:probe :waiting}}
+                          :waiting {:entry :note-entry
+                                    :after {5000 :timeout}}
+                          :timeout {}}}
+   :snapshot   {:state :waiting
+                :data  {:entries 1 :rf/after-epoch {[:waiting] 1}}}
+   :event      [::after-elapsed 5000 1 [:waiting]]
+   :expect-next-snapshot {:state :timeout
+                          :data  {:entries 1 :rf/after-epoch {[:waiting] 2}}}
+   :expect-effects [[:rf.machine/after-cancel
+                     {:rf/parent-id :rf/transition-pure
+                      :rf/invoke-id [:waiting]}]]
+   :expect-trace
+   [{:operation :rf.machine.timer/fired
+     :tags      {:state :waiting :delay 5000 :epoch 1 :fired? true}}
+    {:operation :rf.machine/transition
+     :tags      {:from :waiting :to :timeout}}]}]}
