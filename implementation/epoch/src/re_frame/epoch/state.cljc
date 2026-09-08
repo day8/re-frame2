@@ -45,7 +45,7 @@
 
 (defn non-neg-int?
   "True for non-negative integer values; nil and non-numeric values
-  fail. Mirrors the validation `re-frame.trace/configure-trace-buffer!`
+  fail. Mirrors the validation `re-frame.trace.tooling/configure-trace-buffer!`
   applies at its own config boundary."
   [x]
   (and (integer? x) (not (neg? x))))
