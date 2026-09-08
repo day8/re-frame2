@@ -4,12 +4,12 @@
 
   EP-0015 graduates the named-egress model: an off-box MCP surface
   chooses *which boundary is this?* — a named `:rf.egress/*` profile —
-  and the framework resolves the profile to its `:rf.size/*` floor.
+  and the framework resolves the profile to its `:rf.egress/*` floor.
 
   ## What this gate guards, and what it no longer needs to
 
   It used to guard TWO copies of one contract, because `mcp-base` carried
-  a pure-data MIRROR of the framework's profile→`:rf.size/*` table so the
+  a pure-data MIRROR of the framework's profile→`:rf.egress/*` table so the
   MCP servers could resolve a profile server-side without pulling the
   framework runtime graph into their bundles. rf2-kuky.88 deleted that
   mirror: every tool-side egress now NAMES a profile and

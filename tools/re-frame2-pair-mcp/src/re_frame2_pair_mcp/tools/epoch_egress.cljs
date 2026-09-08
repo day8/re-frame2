@@ -72,7 +72,7 @@
     per-call `:include-sensitive true` cannot talk an operator who did
     not pass `--allow-sensitive-reads` into shipping raw state.
   - Gate ON + caller opts in (`include-sensitive true`) — `incl?` is
-    true, so `:rf.size/include-sensitive? true` is composed OVER that
+    true, so `:rf.egress/include-sensitive? true` is composed OVER that
     same profile floor. The record STILL crosses `project-egress`; the
     operator's deliberate opt-in lifts the app-db sensitive axis and
     nothing else. There is no posture on which a record ships
@@ -87,7 +87,7 @@
   projector falls back to when none is named. Both share the
   redact/elide floor (sensitive → `:rf/redacted`, large →
   `:rf.size/large-elided`); off-box-tool additionally carries the
-  `:rf.size/include-digests?` structural indicators a tool needs to reason
+  `:rf.egress/include-digests?` structural indicators a tool needs to reason
   about an elided slot's shape. `egress-opts-edn` names the profile
   unconditionally, so the off-box wire always ships the tool marker, never
   the less-informative hosted-observability one.
@@ -95,7 +95,7 @@
   `project-egress` is the framework's single record-level egress door —
   on a stamped `:rf/epoch-record` it dispatches to the late-bound
   `:epoch/project-record` per-kind projector, which carries hard
-  `:rf.size/include-sensitive? false` / `:rf.size/include-large? false`
+  `:rf.egress/include-sensitive? false` / `:rf.egress/include-large? false`
   defaults and handles all four payload-bearing slots
   (`:db-before`, `:db-after`, `:trigger-event`, `:trace-events`)
   including the `:trace-events` per-event re-root. Handing it the WHOLE
@@ -108,32 +108,32 @@
 
   The `--allow-sensitive-reads` boot gate + per-call `:include-sensitive
   true` opt-in does NOT disable the projection. It is threaded as the
-  `:rf.size/include-sensitive? true` egress opt INTO `project-egress` (composed OVER
+  `:rf.egress/include-sensitive? true` egress opt INTO `project-egress` (composed OVER
   the `:rf.egress/off-box-tool` profile floor), lifting ONLY
   the app-db sensitive axis. The other independent projection axes stay at
   their fail-closed defaults regardless of `:include-sensitive`:
 
   - `:effects[*].args` (payload-bearing fx-handler input) stay
     `:rf/redacted` — they are a different keyspace from app-db sensitive
-    values, governed by the orthogonal `:include-fx-args?` opt
+    values, governed by the orthogonal `:rf.egress/include-fx-args?` opt
     (Security.md §Off-box egress).
   - the `:rf.db/runtime` frame-state partition stays `:rf/redacted` —
-    governed by the orthogonal `:include-runtime-db?` opt.
+    governed by the orthogonal `:rf.egress/include-runtime-db?` opt.
   - app-db `:large?` slots stay `:rf.size/large-elided` — governed by the
-    independent `:rf.size/include-large?` opt.
+    independent `:rf.egress/include-large?` opt.
 
   `:include-sensitive` lifts only the app-db sensitive axis — it is NOT a
   full raw epoch bypass. The app-db sensitive axis is independent of every
   other axis, so the raw fx-args / runtime-db partition never ship merely
   because sensitive app-db values were requested.
   This holds Security.md §98-108 (off-box epoch egress MUST route through
-  the record-level door; `:include-fx-args?` is orthogonal to app-db
-  `:rf.size/include-sensitive?` / `:rf.size/include-large?`) and the EP-0015
+  the record-level door; `:rf.egress/include-fx-args?` is orthogonal to app-db
+  `:rf.egress/include-sensitive?` / `:rf.egress/include-large?`) and the EP-0015
   record-projection contract. There is no
   app-db-`:include-sensitive`-implied raw escape hatch; a deliberate
   full-raw epoch read is the explicit per-axis opts on `project-egress`
-  (the three epoch-only axes `:include-fx-args?` /
-  `:include-runtime-db?` / `:include-event-args?` are door vocabulary
+  (the three epoch-only axes `:rf.egress/include-fx-args?` /
+  `:rf.egress/include-runtime-db?` / `:rf.egress/include-event-args?` are door vocabulary
   since rf2-bv1p), not a side effect of asking for sensitive app-db
   values.")
 
@@ -146,11 +146,11 @@
   Pair-MCP is an OFF-BOX TOOL WIRE — epoch records cross to an external
   agent — so per Tool-Pair.md §Named-egress profile adoption (EP-0015 §10)
   the egress MUST name the `:rf.egress/off-box-tool` boundary, NOT a
-  hand-rolled `:rf.size/*` combination and NOT the unnamed default. With
+  hand-rolled `:rf.egress/*` combination and NOT the unnamed default. With
   no `:rf.egress/profile` opt the epoch projector resolves
   `:rf.egress/off-box-observability` (epoch/tool_pair.cljc
   §resolve-egress-profile) — same redact/elide floor,
-  but it OMITS the `:rf.size/include-digests?` structural indicators a tool
+  but it OMITS the `:rf.egress/include-digests?` structural indicators a tool
   needs to reason about an elided slot's shape. The off-box-tool profile
   turns digests ON. Both boundaries fail-closed identically on the
   sensitive / large redaction axes (projection.cljc §profile->size-opts);
@@ -167,20 +167,20 @@
   `incl?` is the resolved `:include-sensitive` opt-in (the
   `--allow-sensitive-reads` boot gate AND the per-call arg — see each
   tool's `incl?` derivation). When true it adds the unqualified
-  `:rf.size/include-sensitive? true` ADVANCED override on TOP of the profile floor
+  `:rf.egress/include-sensitive? true` ADVANCED override on TOP of the profile floor
   — lifting ONLY the app-db sensitive axis through the projection (the
   override composes over the off-box-tool floor per
   projection.cljc §resolve-elision-opts; the off-box-tool boundary is still
   named). When false it emits just the bare profile map.
 
-  Deliberately threads ONLY `:rf.size/include-sensitive?` beyond the profile. The
-  orthogonal `:include-fx-args?` / `:include-runtime-db?` / `:rf.size/include-large?`
+  Deliberately threads ONLY `:rf.egress/include-sensitive?` beyond the profile. The
+  orthogonal `:rf.egress/include-fx-args?` / `:rf.egress/include-runtime-db?` / `:rf.egress/include-large?`
   axes stay at their fail-closed off-box-tool floor — `:include-sensitive`
   alone never lifts fx-args, the runtime-db partition, or large-slot
   elision (Security.md §Off-box egress)."
   [incl?]
   (if incl?
-    "{:rf.egress/profile :rf.egress/off-box-tool :rf.size/include-sensitive? true}"
+    "{:rf.egress/profile :rf.egress/off-box-tool :rf.egress/include-sensitive? true}"
     "{:rf.egress/profile :rf.egress/off-box-tool}"))
 
 (def unstamped-epoch-record-error-id
@@ -288,7 +288,7 @@
   projection now governs the guard with it.
 
   `incl?` (the resolved `:include-sensitive` opt-in) is threaded as the
-  `{:rf.size/include-sensitive? true}` egress opt INTO `project-egress` — NOT as a
+  `{:rf.egress/include-sensitive? true}` egress opt INTO `project-egress` — NOT as a
   projection bypass. It lifts ONLY the app-db sensitive axis;
   fx-args / runtime-db / large slots stay at their fail-closed defaults.
   There is no `:include-sensitive`-implied raw escape hatch — the epoch
@@ -350,7 +350,7 @@
 
   `incl?` (the resolved `:include-sensitive` opt-in — the
   `--allow-sensitive-reads` boot gate AND the per-call arg) is threaded as
-  the `:rf.size/include-sensitive? true` egress opt INTO `project-egress`,
+  the `:rf.egress/include-sensitive? true` egress opt INTO `project-egress`,
   composed OVER the off-box-tool floor, lifting ONLY the app-db sensitive
   axis. The orthogonal fx-args / runtime-db / large axes stay at their
   fail-closed off-box-tool defaults regardless of `:include-sensitive`

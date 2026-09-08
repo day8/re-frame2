@@ -982,7 +982,7 @@
                                                                      "items in the :traces / :epochs slices AND (b) seeing "
                                                                      "the raw value at declared-sensitive paths in the "
                                                                      ":app-db / :sub-cache slices (the walker's "
-                                                                     "`:rf.size/include-sensitive?` opt). Default false.")}
+                                                                     "`:rf.egress/include-sensitive?` opt). Default false.")}
                               :build   {:type "string" :description "shadow-cljs build id (default: app)"}}
                  :additionalProperties false}})
 
@@ -1048,7 +1048,7 @@
                               :elision knobs/elision-property
                               :include-sensitive {:type "boolean"
                                                    :description (str "Opt in to seeing the raw value at declared-sensitive "
-                                                                     "paths (the walker's `:rf.size/include-sensitive?` opt). "
+                                                                     "paths (the walker's `:rf.egress/include-sensitive?` opt). "
                                                                      "Default false ⇒ sensitive paths return the `:rf/redacted` "
                                                                      "sentinel.")}
                               :build   {:type "string"}}
@@ -1109,7 +1109,7 @@
                               :include-sensitive {:type "boolean"
                                                    :description (str "Opt in to seeing the raw value when it derives from a "
                                                                      "declared-sensitive app-db slot (the walker's "
-                                                                     "`:rf.size/include-sensitive?` opt). Default false ⇒ "
+                                                                     "`:rf.egress/include-sensitive?` opt). Default false ⇒ "
                                                                      "sensitive values return the `:rf/redacted` sentinel. "
                                                                      "Honoured only when the server was launched with "
                                                                      "--allow-sensitive-reads.")}
@@ -1639,7 +1639,7 @@
                                                :description "When true, each entry carries :value (current deref), :ref-count, :input-kind (:db/:static/:parametric), and :realized-inputs (the realized input query-vectors for the concrete query-v — rf2-e3acps) alongside :query-v. Default false (query-vectors only — the cheap 'what's subscribed' read). Each :value is run through the size-elision walker server-side before egress (rf2-f1ose): a value over a declared-sensitive app-db slot redacts to :rf/redacted, a declared-large value elides to :rf.size/large-elided, when the --allow-sensitive-reads gate is OFF. :realized-inputs are query-vectors (not values), so they ride raw."}
                               :elision        knobs/elision-property
                               :include-sensitive {:type "boolean"
-                                                   :description "Opt declared-sensitive sub `:value`s back in to raw egress (the walker's `:rf.size/include-sensitive?` opt). Default false; honoured only when the server was launched with --allow-sensitive-reads (rf2-f1ose)."}
+                                                   :description "Opt declared-sensitive sub `:value`s back in to raw egress (the walker's `:rf.egress/include-sensitive?` opt). Default false; honoured only when the server was launched with --allow-sensitive-reads (rf2-f1ose)."}
                               :build          {:type "string"}}
                  :additionalProperties false}})
 

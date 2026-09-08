@@ -78,8 +78,8 @@
                      :completed-at 1781078400456}
           out (rf.reply/trace-summary reply-map
                 {:frame :reply/framed
-                 :rf.size/include-sensitive? false
-                 :rf.size/include-large?     false})]
+                 :rf.egress/include-sensitive? false
+                 :rf.egress/include-large?     false})]
       (is (rf.security.gen/redacted? (get-in out [:value :token])) ":value sensitive leaf redacted")
       (is (rf.security.gen/large-marker? (get-in out [:value :doc])) ":value large leaf elided")
       (is (= 7 (get-in out [:value :public])) "unmarked sibling rides through")
@@ -146,7 +146,7 @@
       (let [out (rf.reply/trace-summary {:status :ok :value {:token sentinel}
                                       :rf.reply/work-id [:rf.work/http :z 3]
                                       :rf.reply/work-status :completed}
-                  {:rf.size/include-sensitive? true})]
+                  {:rf.egress/include-sensitive? true})]
         (is (= sentinel (get-in out [:value :token]))
             "explicit include-sensitive? true is the deliberate frameless opt-out")))))
 

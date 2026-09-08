@@ -24,10 +24,10 @@
   (is (= :rf.size/large-elided        rf.mcp-base.vocab/large-elided-key))
   (is (= :rf/redacted                 rf.mcp-base.vocab/redacted-sentinel))
   (is (= :rf.elision/at               rf.mcp-base.vocab/elision-handle-key))
-  (is (= :rf.size/include-large?      rf.mcp-base.vocab/include-large-opt))
-  (is (= :rf.size/include-sensitive?  rf.mcp-base.vocab/include-sensitive-opt))
-  (is (= :rf.size/include-digests?    rf.mcp-base.vocab/include-digests-opt))
-  (is (= :rf.size/threshold-bytes     rf.mcp-base.vocab/threshold-bytes-opt)))
+  (is (= :rf.egress/include-large?      rf.mcp-base.vocab/include-large-opt))
+  (is (= :rf.egress/include-sensitive?  rf.mcp-base.vocab/include-sensitive-opt))
+  (is (= :rf.egress/include-digests?    rf.mcp-base.vocab/include-digests-opt))
+  (is (= :rf.egress/threshold-bytes     rf.mcp-base.vocab/threshold-bytes-opt)))
 
 (deftest envelope-indicator-slots-pinned
   ;; Cross-MCP indicator-field vocabulary per Conventions §Cross-MCP

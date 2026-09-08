@@ -16,7 +16,7 @@ This doc is one of thirteen per-namespace contracts indexed from [`README.md`](R
 
 - The walker that *produces* the `:rf.size/large-elided` markers — that's `rf/project-egress`, framework-side, in `day8/re-frame2` core. This ns is consumer-side, summarising what the framework already produced.
 - The `:rf.size/large-elided` marker shape itself — that's framework-owned per [`../../../spec/009-Instrumentation.md` §Size elision](../../../spec/009-Instrumentation.md).
-- The threshold knob (`:rf.size/threshold-bytes`) — that's a framework-side opt the consumer relays via the walker's option map; see [`vocab.md` §Marker catalogue (`:rf.size/*`)](vocab.md#marker-catalogue-rfsize).
+- The threshold knob (`:rf.egress/threshold-bytes`) — that's a framework-side opt the consumer relays via the walker's option map; see [`vocab.md` §Marker catalogue (`:rf.size/*`)](vocab.md#marker-catalogue-rfsize).
 
 ## Surface
 

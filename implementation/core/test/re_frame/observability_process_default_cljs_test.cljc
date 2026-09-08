@@ -262,7 +262,7 @@
       (rf/configure! {:observability {:errors [{:sink :test.sinks/sentry}]}})
       (rf/make-frame {:id :obs.default/cleared})
       ;; An unrelated configure! call must NOT disturb the default.
-      (rf/configure! {:elision {:rf.size/threshold-bytes 8192}})
+      (rf/configure! {:elision {:rf.egress/threshold-bytes 8192}})
       (rf.error-emit/dispatch-error-record!
         {:error :rf.error/test-union :frame :obs.default/cleared :time 1})
       (is (= 1 (count @seen))

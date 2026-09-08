@@ -793,17 +793,17 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
   |---|---|---|---|---|
   | `:epoch-history` | `{:depth N :trace-events-keep N}` | `{:depth 50, :trace-events-keep 50}` | v1 (dev-only) | Per-frame epoch ring depth and trace-event retention cap per record. |
   | `:trace-buffer` | `{:events-retained N}` | `{:events-retained 50}` | v1 (dev-only) | The dev-only per-frame trace ring's event-slot count: one slot per event, regardless of how many trace events its run emitted. 0 disables retention (the surface stays live). |
-  | `:elision` | `{:rf.size/threshold-bytes N}` | `{:rf.size/threshold-bytes 16384}` | v1 | The size threshold above which the internal `re-frame.elision/elide-wire-value` walker emits the `:rf.warning/large-value-unschema'd` advisory for an *undeclared* large string. It is a warning signal, not a cap: the value is forwarded raw. Substituting the `:rf.size/large-elided` marker requires declaring the path `:large`. 0 disables runtime auto-detect. |
+  | `:elision` | `{:rf.egress/threshold-bytes N}` | `{:rf.egress/threshold-bytes 16384}` | v1 | The size threshold above which the internal `re-frame.elision/elide-wire-value` walker emits the `:rf.warning/large-value-unschema'd` advisory for an *undeclared* large string. It is a warning signal, not a cap: the value is forwarded raw. Substituting the `:rf.size/large-elided` marker requires declaring the path `:large`. 0 disables runtime auto-detect. |
   | `:observability` | `{:handled-events [<entry>…] :errors [<entry>…]}` | none declared | v1 | The **process default** for production observation sinks, in the same closed grammar a frame's `:observability` takes. Precedence is per stream: a frame declaring a stream uses its own entries for it, a frame omitting it inherits this default's, and `{:errors []}` on a frame is that frame's opt-out — exactly one source per record per stream. Inheritance moves the sink list, not the redaction authority. Records with no frame authority (frameless producers; a `:frame` that no longer resolves) reach this default alone, projected with the governing frame explicitly nil. Two departures from its neighbours, both deliberate: an explicit **`nil` clears** it, and it is validated **at the call** (`:rf.error/bad-frame-classification`, `:where 'rf/configure!`). |
 
   **An unrecognised top-level key applies nothing — and, if it is bare, says so.** The vocabulary above is closed and its keys are *bare*, so `{:epoch-histroy {:depth 100}}` is a typo of a real key rather than an extension point. A bare (or `rf`-namespaced) unknown key therefore emits `:rf.warning/unknown-configure-key` in dev builds, naming every offending key and the known set; the call still returns `nil` and still applies nothing (`:recovery :ignored` — observational, never a refusal), and the whole diagnostic is DCE'd out of production. A **user-namespaced** key (`:myapp/thing`) passes in silence, which is what lets a wrapper hand `configure!` a composed config value without filtering it first.
 
-  There is **no `:sub-cache` knob**: sub-cache disposal happens synchronously when the derefer count hits 0. SSR error-projection policy (`:public-error-id`, `:dev-error-detail?`) is **not** a `configure!` key; it is per-frame metadata on the frame's `:ssr` map. Framework-owned semantic sub-keys use a namespaced keyword (`:rf.size/threshold-bytes`); ergonomic per-knob sub-keys are unqualified (`:depth`, `:trace-events-keep`).
+  There is **no `:sub-cache` knob**: sub-cache disposal happens synchronously when the derefer count hits 0. SSR error-projection policy (`:public-error-id`, `:dev-error-detail?`) is **not** a `configure!` key; it is per-frame metadata on the frame's `:ssr` map. Framework-owned semantic sub-keys use a namespaced keyword (`:rf.egress/threshold-bytes`); ergonomic per-knob sub-keys are unqualified (`:depth`, `:trace-events-keep`).
 - **Example**:
   ```clojure
   (rf/configure! {:epoch-history {:depth 100}
                   :trace-buffer  {:events-retained 25}
-                  :elision       {:rf.size/threshold-bytes 8192}
+                  :elision       {:rf.egress/threshold-bytes 8192}
                   :observability {:errors [{:sink :my-app.sinks/sentry}]}})
   ```
 
@@ -830,7 +830,7 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
   (rf/current-config)
   ;; => {:epoch-history {:depth 100 :trace-events-keep 50}
   ;;     :trace-buffer  {:events-retained 50}
-  ;;     :elision       {:rf.size/threshold-bytes 16384}}
+  ;;     :elision       {:rf.egress/threshold-bytes 16384}}
 
   (get-in (rf/current-config) [:epoch-history :depth])   ;; => 100
   ```
@@ -970,8 +970,8 @@ which a tool requires directly.
   ```
 - **Description**: The public, record-level boundary primitive — **the required step before any off-box sink**, and **the only one**: there is no second record-level egress door. It dispatches on a record's `:kind` to a per-kind projector that is never itself public (the door names the *boundary*; `:kind` names the *record kind*), and falls back to walking a kindless input as a tree-shaped value. Each tree-shaped slot is delegated to the internal `re-frame.elision/elide-wire-value` walker against the frame's classification.
   - Recognised kinds: `:rf.observe/handled-event`, `:rf.observe/error`, `:rf.observe/derived-tree`, and `:rf/epoch-record`. The epoch projector is late-bound into the optional `day8/re-frame2-epoch` artefact; with the artefact absent the call throws `:rf.error/epoch-artefact-missing` naming the kind rather than bare-walking the record (a bare walk would ship its app-db slots raw).
-  - `opts` is a **closed** twelve-key map: `:rf.egress/profile` (the closed six-member enum), `:frame`, `:path`, `:query-v`, `:as-of-epoch`, the four `:rf.size/*` overrides, and the three **epoch-only** axes `:include-fx-args?` / `:include-runtime-db?` / `:include-event-args?`. An unrecognised key throws `:rf.error/bad-egress-opts` naming it.
-  - The three epoch-only axes are trusted-local opt-ins over keyspaces only an `:rf/epoch-record` has — effect `:args`, the `:rf.db/runtime` frame-state partition, and trigger / trace event args. Each defaults false and lifts **only** its own boundary: `:rf.size/include-sensitive? true` never implies any of them. On any other kind they are accepted and inert.
+  - `opts` is a **closed** twelve-key map: `:rf.egress/profile` (the closed six-member enum), `:frame`, `:path`, `:query-v`, `:as-of-epoch`, the four `:rf.egress/*` overrides, and the three **epoch-only** axes `:rf.egress/include-fx-args?` / `:rf.egress/include-runtime-db?` / `:rf.egress/include-event-args?`. An unrecognised key throws `:rf.error/bad-egress-opts` naming it.
+  - The three epoch-only axes are trusted-local opt-ins over keyspaces only an `:rf/epoch-record` has — effect `:args`, the `:rf.db/runtime` frame-state partition, and trigger / trace event args. Each defaults false and lifts **only** its own boundary: `:rf.egress/include-sensitive? true` never implies any of them. On any other kind they are accepted and inert.
   - Frame ownership resolves by key **presence**, in three steps: an explicit `:frame` key in `opts` wins (`nil` included); else a recognised record's own `:frame` slot (`nil` included — every recognised kind is frame-bearing); else the carried scope. A record is recognised by its `:kind`, so a bare value carrying a `:frame` key is a value and seeds nothing.
   - An unknown profile throws `:rf.error/unknown-egress-profile`.
   - Projecting a whole epoch ring is ordinary composition — `(mapv #(rf/project-egress % opts) (rf/epoch-history frame-id))`. The ring and its listeners always deliver the **raw** record, so projection never affects `restore-epoch!` fidelity. See [re-frame.epoch.md](re-frame.epoch.md).

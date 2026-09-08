@@ -12,7 +12,7 @@
   (every `:rf.size/large-elided` marker's `:bytes` slot, which Spec-Schemas
   §`:rf/elision-marker` types as the `pr-str` byte count and 009 §Size elision
   makes a per-field MUST) and it is READ as a threshold (against
-  `:rf.size/threshold-bytes`, deciding whether an undeclared string leaf fires
+  `:rf.egress/threshold-bytes`, deciding whether an undeclared string leaf fires
   `:rf.warning/large-value-unschema'd`). So the same app-db leaf could warn on
   the JVM and pass silently in the browser, and a CLJS marker under-reported
   its payload by up to 3x — 4x on astral.
@@ -168,7 +168,7 @@
           "the wire marker an off-box agent reads publishes BYTES on both hosts"))))
 
 ;; ---------------------------------------------------------------------------
-;; The ENFORCED half: the `:rf.size/threshold-bytes` comparison.
+;; The ENFORCED half: the `:rf.egress/threshold-bytes` comparison.
 ;;
 ;; NOTE what is and is not being proven. Per Privacy.md the threshold is
 ;; ADVISORY, NOT A CAP, and 009's error-catalogue row records the recovery as
@@ -198,7 +198,7 @@
     (rf.elision/clear-warning-cache!)
     (let [traces (collect-traces! ::over)
           out    (rf.elision/elide-wire-value {:user {:bio em-dash-40}}
-                                      {:rf.size/threshold-bytes 50})]
+                                      {:rf.egress/threshold-bytes 50})]
       ;; ALWAYS-ON. Advisory, not a cap: the value returns verbatim whether or
       ;; not it warned. A correction that started ELIDING here would be the
       ;; actual defect.
@@ -217,7 +217,7 @@
     (rf.elision/clear-warning-cache!)
     (let [traces (collect-traces! ::astral)
           out    (rf.elision/elide-wire-value {:user {:bio astral-20}}
-                                      {:rf.size/threshold-bytes 50})]
+                                      {:rf.egress/threshold-bytes 50})]
       (is (= astral-20 (get-in out [:user :bio])))
       (when rf.interop/debug-enabled?
         (let [warnings (unschema'd-warnings traces)]
@@ -231,7 +231,7 @@
     (rf.elision/clear-warning-cache!)
     (let [traces (collect-traces! ::under)
           out    (rf.elision/elide-wire-value {:user {:bio ascii-40}}
-                                      {:rf.size/threshold-bytes 50})]
+                                      {:rf.egress/threshold-bytes 50})]
       (is (= ascii-40 (get-in out [:user :bio])))
       (when rf.interop/debug-enabled?
         (is (= [] (unschema'd-warnings traces))
@@ -244,7 +244,7 @@
     (rf.elision/clear-warning-cache!)
     (let [traces (collect-traces! ::zero)
           out    (rf.elision/elide-wire-value {:user {:bio em-dash-40}}
-                                      {:rf.size/threshold-bytes 0})]
+                                      {:rf.egress/threshold-bytes 0})]
       (is (= em-dash-40 (get-in out [:user :bio])))
       (when rf.interop/debug-enabled?
         (is (= [] (unschema'd-warnings traces))))

@@ -157,7 +157,7 @@ Xray's on-box sensitive-event gate is a **named egress profile**, resolved per `
 - **Description**: Replace Xray's on-box `:rf.egress/*` profile. `:rf.egress/local-redacted` (the default) makes the trace collector drop `:sensitive? true` events before any buffer push and bump the suppressed-events counter, so the shell can surface a `[● REDACTED N]` indicator. `:rf.egress/local-raw` is the trusted-local operator opt-in: every event flows through unchanged. `nil` resets to the default; an unknown keyword is rejected by `configure!` (the enum is closed). Re-exported from `core`.
 - **Narrowing is retroactive**: moving from `:rf.egress/local-raw` back to a redacting profile clears the trace buffer, so a reveal is not a one-way trapdoor. Widening and same-class transitions do not clear.
 
-The single normative emission site for `:sensitive?` redaction is the framework's `project-egress` (see [framework API instrumentation §The wire-boundary walker](../../api/re-frame.core.md)). Xray's gate just decides whether the redacted-out events reach the buffer at all — the "is this suppressed?" decision derives from the profile's `:rf.size/include-sensitive?` resolution through the framework projection table, never a re-implemented policy.
+The single normative emission site for `:sensitive?` redaction is the framework's `project-egress` (see [framework API instrumentation §The wire-boundary walker](../../api/re-frame.core.md)). Xray's gate just decides whether the redacted-out events reach the buffer at all — the "is this suppressed?" decision derives from the profile's `:rf.egress/include-sensitive?` resolution through the framework projection table, never a re-implemented policy.
 
 ## Settings cluster
 

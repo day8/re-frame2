@@ -58,12 +58,12 @@
         ;; app-side, where the registry is reachable. When elision is
         ;; disabled the eval form skips the walk entirely (a value
         ;; pass-through is cheaper than walking with
-        ;; `:rf.size/include-large? true`).
+        ;; `:rf.egress/include-large? true`).
         ;;
         ;; The Tool-Pair §`Direct-read privacy posture
         ;; for sub-cache and get-path` contract: BOTH the `:app-db` and
         ;; `:sub-cache` direct-read surfaces MUST honour
-        ;; `:rf.size/include-sensitive?` (default false ⇒ sensitive
+        ;; `:rf.egress/include-sensitive?` (default false ⇒ sensitive
         ;; slots redact). The `include-sensitive` MCP arg threads into
         ;; the walker's opt of the same shape via
         ;; `egress-opts-edn`'s two-arity form. Off-box defaults apply.
@@ -80,7 +80,7 @@
         ;; the post-dedup client count.
         ;; `egress-opts-edn` takes the walker-aligned
         ;; `include-large?` polarity directly (no in-helper inversion).
-        ;; MCP arg `elision` true = emit markers = `:rf.size/include-large?` false,
+        ;; MCP arg `elision` true = emit markers = `:rf.egress/include-large?` false,
         ;; hence the local `(not elision?)`.
         ;;
         ;; Fail-CLOSED: the `:app-db` / `:sub-cache` slices ALWAYS route
@@ -89,7 +89,7 @@
         ;; `:include-sensitive` at its default must NOT ship raw
         ;; `:app-db` / `:sub-cache` slices — a frame-declared-sensitive
         ;; slot would leak off-box — so that caller stays on
-        ;; `:rf.egress/off-box-tool` with a `:rf.size/include-large? true`
+        ;; `:rf.egress/off-box-tool` with a `:rf.egress/include-large? true`
         ;; overlay (large passes, sensitive redacts to `:rf/redacted`).
         ;; Only the deliberate BOTH-axes opt-in names
         ;; `:rf.egress/local-raw`, under which the projection is the
@@ -117,7 +117,7 @@
         ;; whenever the slice expanded to `:full`. The `:epochs` slice
         ;; ALWAYS projects — same posture trace-window / watch-epochs use.
         ;; `incl?` (the sensitive opt-in) does NOT bypass the projection:
-        ;; it threads `{:rf.size/include-sensitive? true}` INTO `project-egress`
+        ;; it threads `{:rf.egress/include-sensitive? true}` INTO `project-egress`
         ;; (app-db sensitive axis only), so the orthogonal fx-args /
         ;; runtime-db / large axes stay fail-closed. An epoch record
         ;; never crosses the wire as a raw

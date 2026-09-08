@@ -128,7 +128,7 @@
                :rf/default
                2000
                ;; the rendered elision-opts walker map.
-               "{:rf.size/include-large? false :rf.size/include-sensitive? false}")]
+               "{:rf.egress/include-large? false :rf.egress/include-sensitive? false}")]
     (testing "calls the runtime start-recording! with the signals + stop"
       (is (str/includes? form "re-frame2-pair.runtime/start-recording!"))
       (is (str/includes? form ":signals"))
@@ -141,16 +141,16 @@
       (is (not (str/includes? form ":pred {")) "the data :pred key must not ride verbatim"))
     (testing "the elision-opts ride as :elide-opts (rf2-8fin7.2)"
       (is (str/includes? form ":elide-opts"))
-      (is (str/includes? form ":rf.size/include-sensitive? false")))))
+      (is (str/includes? form ":rf.egress/include-sensitive? false")))))
 
 (deftest record-and-watch-forms-are-read-only
   ;; READ-ONLY by construction — neither form may carry an app-mutation
   ;; host-form. The whole point of the recorder is observation.
   (let [rec-form   (#'record/start-recording-form [{:focus true}] {:ms 1000} nil nil
-                                                   "{:rf.size/include-large? false :rf.size/include-sensitive? false}")
+                                                   "{:rf.egress/include-large? false :rf.egress/include-sensitive? false}")
         watch-form (watch-until/watch-form [{:app-db [:x]}] :rf/default
                                            (record/pred-source {:signal 0 :equals 1})
-                                           "{:rf.size/include-large? false :rf.size/include-sensitive? false}")]
+                                           "{:rf.egress/include-large? false :rf.egress/include-sensitive? false}")]
     (doseq [form [rec-form watch-form]
             mutator ["pair-dispatch" "replace-app-db" "app-db-reset"
                      ".setAttribute" ".dispatchEvent" ".innerHTML"
@@ -397,7 +397,7 @@
   (let [form (watch-until/watch-form
                [{:app-db [:x]}] :rf/default
                (record/pred-source {:signal 0 :equals 1})
-               "{:rf.size/include-large? false :rf.size/include-sensitive? false}")]
+               "{:rf.egress/include-large? false :rf.egress/include-sensitive? false}")]
     (is (str/includes? form "re-frame2-pair.runtime/sample-signals"))
     (is (str/includes? form ":held?"))
     (is (str/includes? form ":sample"))))

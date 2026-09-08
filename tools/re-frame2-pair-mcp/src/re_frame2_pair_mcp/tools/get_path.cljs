@@ -167,7 +167,7 @@
                     (args/parse-bool-arg raw-args :elision)
                     true)
         ;; `:include-sensitive` threads into the walker's
-        ;; `:rf.size/include-sensitive?` opt. Off-box default per
+        ;; `:rf.egress/include-sensitive?` opt. Off-box default per
         ;; Tool-Pair §`Direct-read privacy posture for sub-cache and
         ;; get-path`: declared-sensitive slots redact unless the caller
         ;; opts in explicitly. The shared `parse-bool-arg` table
@@ -181,10 +181,10 @@
                     false)
         ;; `egress-opts-edn` takes walker-aligned `include-large?`
         ;; polarity directly. MCP `elision` true = emit markers =
-        ;; `:rf.size/include-large?` false; hence `(not elision?)`.
+        ;; `:rf.egress/include-large?` false; hence `(not elision?)`.
         ;; Fail-CLOSED: the rendered form always calls the door
         ;; (rf2-kuky.88). A bare `:elision false` overlays
-        ;; `:rf.size/include-large? true` on the off-box-tool floor so
+        ;; `:rf.egress/include-large? true` on the off-box-tool floor so
         ;; large passes, while include-sensitive? stays at the profile's
         ;; false so a frame-declared-sensitive slot still redacts to
         ;; `:rf/redacted`. Only the deliberate BOTH-axes opt-in names

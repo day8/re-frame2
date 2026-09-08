@@ -86,7 +86,7 @@
         ;; The `--allow-sensitive-reads` boot gate forces
         ;; `:elision true` + `:include-sensitive false` when OFF (the
         ;; default), mirroring snapshot / get-path. `incl-sensitive?`
-        ;; threads into the walker's `:rf.size/include-sensitive?` opt;
+        ;; threads into the walker's `:rf.egress/include-sensitive?` opt;
         ;; `elision?` decides whether the server-side `:value` walk fires
         ;; at all (a verbatim pass-through is only reachable when the
         ;; operator opted in via `--allow-sensitive-reads` AND passed

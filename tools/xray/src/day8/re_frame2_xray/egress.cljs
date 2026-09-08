@@ -36,10 +36,10 @@
   framework's egress door with the off-box BOUNDARY baked in.
 
   Named boundary (rf2-kuky.88): `:rf.egress/off-box-observability`. That
-  is the profile whose `:rf.size/*` floor is the one this fn used to
+  is the profile whose `:rf.egress/*` floor is the one this fn used to
   hand-roll — sensitive redacts, large elides, NO structural digests — so
   the migration is output-identical. It is deliberately NOT
-  `:rf.egress/off-box-tool`, which turns `:rf.size/include-digests?` ON;
+  `:rf.egress/off-box-tool`, which turns `:rf.egress/include-digests?` ON;
   whether an Xray clipboard payload should carry digests is a separate
   policy question owned by rf2-elrh, not a side effect of naming a
   boundary. A frame-declared sensitive slot egresses as `:rf/redacted`
@@ -48,9 +48,9 @@
   redacted, size-elided projection, and any future affordance inherits
   that.
 
-  A caller MAY still overlay an explicit `:rf.size/*` inclusion; per
+  A caller MAY still overlay an explicit `:rf.egress/*` inclusion; per
   EP-0015 §10 the explicit key wins over the profile floor. The opts are
-  read in the `:rf.size/*` spelling — the ONE egress vocabulary
+  read in the `:rf.egress/*` spelling — the ONE egress vocabulary
   (rf2-kuky.6).
 
   Optional `:path` — the ABSOLUTE app-db path the value sits at. The
@@ -92,11 +92,11 @@
        ;; explicit nil means "no governing frame" and takes its
        ;; fail-closed arm instead of falling through to the ambient frame.
        (contains? opts :frame) (assoc :frame (:frame opts))
-       ;; EP-0015 §10 — an explicit `:rf.size/*` inclusion the caller
+       ;; EP-0015 §10 — an explicit `:rf.egress/*` inclusion the caller
        ;; passes OVERLAYS the profile floor (the override wins). Absent,
        ;; the profile's own false stands, which is the floor this fn
        ;; hand-rolled before rf2-kuky.88.
-       (contains? opts :rf.size/include-sensitive?)
-       (assoc :rf.size/include-sensitive? (:rf.size/include-sensitive? opts))
-       (contains? opts :rf.size/include-large?)
-       (assoc :rf.size/include-large? (:rf.size/include-large? opts))))))
+       (contains? opts :rf.egress/include-sensitive?)
+       (assoc :rf.egress/include-sensitive? (:rf.egress/include-sensitive? opts))
+       (contains? opts :rf.egress/include-large?)
+       (assoc :rf.egress/include-large? (:rf.egress/include-large? opts))))))

@@ -53,14 +53,14 @@
 
   The same `:include-sensitive` flag that gates trace / epoch
   forwarding (spec/009 §Privacy) also gates whether the walker treats
-  declared-sensitive slots as pass-through (`:rf.size/include-sensitive?
+  declared-sensitive slots as pass-through (`:rf.egress/include-sensitive?
   true`) or substitutes them with the `:rf/redacted` sentinel
-  (`:rf.size/include-sensitive? false`, the default). Off-box default
+  (`:rf.egress/include-sensitive? false`, the default). Off-box default
   per Tool-Pair §`Direct-read privacy posture for sub-cache and
   get-path`: sensitive slots are dropped unless the caller opts in
   explicitly. The MCP wire-key has no trailing `?` (Anthropic's
   tool-input-schema regex rejects `?`); the
-  walker-option keyword `:rf.size/include-sensitive?` is a namespaced
+  walker-option keyword `:rf.egress/include-sensitive?` is a namespaced
   framework key (not on the wire) and retains the predicate `?`.
 
   ## Named `:rf.egress/*` profiles (EP-0015 §10)
@@ -69,7 +69,7 @@
   `read-sub` / `list-subscriptions` / `record` / `watch-until`) are an
   off-box **tool wire** — they hand live frame state to an LLM/MCP
   client. Per EP-0015 §10 the *named* boundary is the choice an egress
-  surface makes, not a hand-rolled combination of `:rf.size/*` booleans.
+  surface makes, not a hand-rolled combination of `:rf.egress/*` booleans.
   This MCP server's wire is the graduating consumer of
   `:rf.egress/off-box-tool`; the trusted-local `--allow-sensitive-reads`
   opt-in is the graduating consumer of `:rf.egress/local-raw`.
@@ -79,7 +79,7 @@
   `re-frame.core/project-egress` with an `:rf.egress/profile` chosen by
   the shared cross-MCP posture mapping
   `re-frame.mcp-base.egress/mcp-tool-profile`, and `project-egress`
-  resolves that NAME to the framework's own §10 `:rf.size/*` floor inside
+  resolves that NAME to the framework's own §10 `:rf.egress/*` floor inside
   the app runtime, where the framework graph is already loaded. That is
   what keeps the resolution table out of the Node bundle WITHOUT a second
   copy of it: the server ships a keyword, not a policy.
@@ -88,7 +88,7 @@
   `:rf.egress/local-raw` opts both inclusions back in (the operator's
   deliberate raw read). The `:elision` MCP arg composes ON TOP as the
   EP-0015 §10 explicit override (a caller that turns elision off overlays
-  `:rf.size/include-large? true`, keeping large content even under
+  `:rf.egress/include-large? true`, keeping large content even under
   off-box-tool's floor)."
   (:require [re-frame.mcp-base.vocab :as rf.mcp-base.vocab]
             [re-frame.mcp-base.egress :as rf.mcp-base.egress]))
@@ -99,7 +99,7 @@
 ;; The MCP posture (the `--allow-sensitive-reads` gate + the per-call
 ;; `:include-sensitive` opt-in, already collapsed to a single boolean
 ;; `include-sensitive?` at each tool call site) selects the named
-;; boundary profile; the framework resolves it to the `:rf.size/*`
+;; boundary profile; the framework resolves it to the `:rf.egress/*`
 ;; floor. This server is the off-box-tool / local-raw graduating
 ;; consumer — it expresses "which boundary is this", not "which booleans".
 ;; ---------------------------------------------------------------------------
@@ -115,7 +115,7 @@
   `re-frame.mcp-base.egress/mcp-tool-profile` (called here only AFTER this
   server's `--allow-sensitive-reads` gate + per-call opt-in). The NAME is
   what rides the wire; `re-frame.core/project-egress` resolves it to the
-  framework's own §10 `:rf.size/*` floor inside the app runtime. This
+  framework's own §10 `:rf.egress/*` floor inside the app runtime. This
   server neither carries nor consults a resolution table — that mirror was
   deleted with this bead, because a server that names a boundary has no
   reason to resolve one, and the mirror was a second place the §10 table
@@ -123,13 +123,13 @@
 
   The `:elision` MCP arg composes on top as the EP-0015 §10 explicit
   override: when `include-large?` is true it overlays
-  `:rf.size/include-large? true`, so a caller turning elision off keeps
+  `:rf.egress/include-large? true`, so a caller turning elision off keeps
   large content even under the off-box-tool floor. The override wins over
   the profile (projection.cljc §`resolve-elision-opts`).
 
   Knobs:
 
-  - `include-large?`      — when true, overlay `:rf.size/include-large?
+  - `include-large?`      — when true, overlay `:rf.egress/include-large?
                             true` so the walk passes large slots through
                             unmodified; when false (the default for
                             elision-enabled call sites) the profile floor
@@ -144,7 +144,7 @@
 
   Polarity note. The MCP arg `elision` is the *operator-facing* on/off
   switch (true = redact/elide = emit markers). The walker opt
-  `:rf.size/include-large?` is the *walker-facing* pass-through switch
+  `:rf.egress/include-large?` is the *walker-facing* pass-through switch
   (true = no marker). The two are inverse views of the same Boolean; call
   sites compute `(not elision?)` once and pass `include-large?` in
   directly.

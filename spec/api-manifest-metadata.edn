@@ -1494,8 +1494,9 @@
   ;; which is what "the door names the BOUNDARY, not a record kind" already
   ;; said. The three trusted-local axes that door owned
   ;; (:include-fx-args? / :include-runtime-db? / :include-event-args?) moved
-  ;; onto project-egress-opt-keys rather than retiring with it; rf2-kuky.93
-  ;; renames all six axes together.
+  ;; onto project-egress-opt-keys rather than retiring with it. rf2-kuky.93
+  ;; has since renamed all six axes together, to :rf.egress/*; the bare
+  ;; spellings above are the ones that moved at the time.
   ;; rf2-kuky.90 (ruling rf2-kuky.9 option A): the "elide-wire-value" facade
   ;; re-export is RETIRED -- the path walker is a framework-internal mechanism
   ;; behind the project-egress door, public only at its re-frame.elision home.

@@ -173,8 +173,8 @@
   constants — in the vocab ns. The vocab ns is the cross-MCP single
   source of truth; a rename here breaks every server in lockstep —
   which is the right invariant. These are the NAMESPACED framework
-  walker-opt forms (`:rf.size/include-large?` /
-  `:rf.size/include-sensitive?`) — internal framework keys, NOT wire
+  walker-opt forms (`:rf.egress/include-large?` /
+  `:rf.egress/include-sensitive?`) — internal framework keys, NOT wire
   keys, so they retain the predicate `?` and are DEF'd here
   (`include-large-opt` / `include-sensitive-opt`).
 
@@ -187,8 +187,8 @@
   satisfied by prose. Its cross-server wire parity is enforced with
   teeth by Gate 1 (`canonical-slot-literal-appears-in-every-contracted-server`,
   token-boundary matched)."
-  #{":rf.size/include-large?"
-    ":rf.size/include-sensitive?"})
+  #{":rf.egress/include-large?"
+    ":rf.egress/include-sensitive?"})
 
 ;; ---------------------------------------------------------------------------
 ;; Argument-role schema gate. Each role pins a Malli shape — a
@@ -384,7 +384,7 @@
 ;; The size-elision opt-out has a single live emitter: re-frame2-pair-mcp's
 ;; `:elision` spelling. With only re-frame2-pair-mcp + story-mcp as MCP
 ;; servers, there is no second emitter for an `:include-large?` vs
-;; `:elision` divergence. The canonical `:rf.size/include-large?` form
+;; `:elision` divergence. The canonical `:rf.egress/include-large?` form
 ;; remains reserved in `mcp-base/vocab.cljc` for any future MCP server
 ;; adoption — add a divergence pin (data + assertion) when a second
 ;; server lands on either spelling so the cross-server choice surfaces

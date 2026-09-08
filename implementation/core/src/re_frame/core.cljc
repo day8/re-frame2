@@ -2415,7 +2415,7 @@
 ;; rf2-kuky.90 (ruling rf2-kuky.9, option A): the `elide-wire-value` façade
 ;; export is RETIRED. The path walker is a framework-internal mechanism, not a
 ;; door — it reads no `:rf.egress/profile`, so every caller that reached it
-;; from outside the framework had to hand-assemble the `:rf.size/*` floor a
+;; from outside the framework had to hand-assemble the `:rf.egress/*` floor a
 ;; named boundary already carries. `project-egress` below is now the ONLY
 ;; projection door on the façade; it resolves the profile and delegates the
 ;; per-slot walk to `re-frame.elision/elide-wire-value`, which stays public at
@@ -2430,7 +2430,7 @@
   the internal `re-frame.elision/elide-wire-value` walker against the
   frame's classification. `opts` carries
   `:rf.egress/profile` (the closed six-member enum), `:frame`, `:path`, and
-  the advanced `:rf.size/*` overrides (which compose on top of the
+  the advanced `:rf.egress/*` overrides (which compose on top of the
   profile — the override wins). An unknown profile throws
   `:rf.error/unknown-egress-profile`. Fail-closed: projects a tree slot
   only when the frame is known; no `:rf/default` synthesis. Per Spec 015
@@ -2711,7 +2711,7 @@
                                                     frame that did not set its own
                                                     `:rf.trace/events-retained` metadata.
                                                     Per Spec 009 §Per-frame trace rings.
-    :elision       {:rf.size/threshold-bytes N}     wire-elision size threshold
+    :elision       {:rf.egress/threshold-bytes N}     wire-elision size threshold
                                                     (default 16384; 0 disables runtime
                                                     auto-detect — only declared / schema
                                                     entries elide)
@@ -2725,7 +2725,7 @@
 
       (configure! {:epoch-history {:depth 100}
                    :trace-buffer  {:events-retained 25}
-                   :elision       {:rf.size/threshold-bytes 8192}
+                   :elision       {:rf.egress/threshold-bytes 8192}
                    :observability {:errors [{:sink :app/sentry}]}})
 
   `:observability` DECLARES PRODUCTION OBSERVATION ONCE PER PROCESS
@@ -2890,7 +2890,7 @@
       (current-config)
       ;; => {:epoch-history {:depth 100 :trace-events-keep 50}
       ;;     :trace-buffer  {:events-retained 50}
-      ;;     :elision       {:rf.size/threshold-bytes 16384}}
+      ;;     :elision       {:rf.egress/threshold-bytes 16384}}
 
       (get-in (current-config) [:epoch-history :depth])   ;; => 100
 

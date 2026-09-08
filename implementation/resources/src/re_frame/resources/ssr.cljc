@@ -391,7 +391,7 @@
 
   So the enumerable token is gone from the sensitive class rather than made
   stronger. Preserving JOINS is not a reason to emit one — that is the trade
-  rf2-hzcv8 settles — and the trusted-local `:rf.size/include-sensitive?` opt-in
+  rf2-hzcv8 settles — and the trusted-local `:rf.egress/include-sensitive?` opt-in
   remains the only lift to raw content. `:omit` is a SIZE claim, not a privacy
   claim, so a content-derived token is permitted there and is kept, now derived
   from canonical bytes.

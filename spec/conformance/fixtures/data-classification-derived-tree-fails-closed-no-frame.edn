@@ -21,7 +21,7 @@
 ;; projection with `*current-frame*` bound to nil, so the call site is genuinely
 ;; frameless. The record carries `:frame nil`, so `project-egress`'s frame-seed
 ;; finds nothing and the derived-tree projector delegates to `elide-wire-value`'s
-;; fail-closed path. The off-box-tool profile floors `:rf.size/include-sensitive?
+;; fail-closed path. The off-box-tool profile floors `:rf.egress/include-sensitive?
 ;; false`, so the whole tree fails closed.
 ;;
 ;; Mirrors the unit-level `re-frame.projection-cljs-test/derived-tree-nil-frame-

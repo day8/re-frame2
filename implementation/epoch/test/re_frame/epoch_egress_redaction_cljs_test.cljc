@@ -38,7 +38,7 @@
        `(mapv project-egress (epoch-history …))`), including the
        whole-structure \"no secret bytes anywhere\" scan and double-projection
        idempotence;
-    4. axis orthogonality — `:rf.size/include-sensitive?` must not lift the fx-args,
+    4. axis orthogonality — `:rf.egress/include-sensitive?` must not lift the fx-args,
        runtime-db partition, or large axes (the rf2-m9duxl / rf2-5w06uu
        Xray + Pair-MCP bypass leaks, both CLJS-side bugs);
     5. `:trigger-event` event-args fail-closed (rf2-nm611o);
@@ -379,14 +379,14 @@
       ;; NEGATIVE CONTROL on the new tag path: the trusted-local opt-in lifts it,
       ;; proving the elision is driven by the classification rather than by some
       ;; unrelated truncation on the way out.
-      (let [lifted (rf/project-egress raw {:rf.size/include-large? true})]
+      (let [lifted (rf/project-egress raw {:rf.egress/include-large? true})]
         (is (= payload-size (count (get-in (->> (:trace-events lifted)
                                                (filter #(= :rf.sub/run (:operation %)))
                                                (filter #(= :egress/big
                                                            (get-in % [:tags :rf.sub/id])))
                                                first)
                                           [:tags :rf.sub/value])))
-            "NEGATIVE CONTROL — `:rf.size/include-large? true` DOES return the raw value
+            "NEGATIVE CONTROL — `:rf.egress/include-large? true` DOES return the raw value
              to the trace tag, so the default elision is classification-driven")))))
 
 (deftest nil-and-non-map-input-projects-fail-closed-without-throwing
@@ -454,7 +454,7 @@
 
 (deftest facade-threads-egress-opts-through-late-bind
   (testing "the consumers pass an opts map through the facade
-            (`{:rf.size/include-sensitive? …}`, `:rf.egress/profile`). The 2-arity
+            (`{:rf.egress/include-sensitive? …}`, `:rf.egress/profile`). The 2-arity
             must thread it — a dropped opts map would silently downgrade a
             trusted-local read, or worse, silently ignore a fail-closed
             profile choice."
@@ -462,7 +462,7 @@
     (reg-login!)
     (rf/dispatch-sync [:egress/login secret] {:frame frame-id})
     (let [raw (last-record)]
-      (is (= secret (get-in (rf/project-egress raw {:rf.size/include-sensitive? true})
+      (is (= secret (get-in (rf/project-egress raw {:rf.egress/include-sensitive? true})
                             [:db-after :auth :password]))
           "the opts map reaches the artefact through the facade")
       (is (= :rf/redacted (get-in (rf/project-egress raw {})
@@ -576,9 +576,9 @@
 (deftest include-sensitive-keeps-fx-args-redacted
   (testing "rf2-m9duxl was a CLJS bug: the Pair-MCP epoch tools treated an
             operator's `:include-sensitive true` as a FULL raw-epoch bypass,
-            shipping raw fx args off-box. `{:rf.size/include-sensitive? true}` lifts
+            shipping raw fx args off-box. `{:rf.egress/include-sensitive? true}` lifts
             the APP-DB sensitive axis ONLY; `:effects[*].args` is a different
-            keyspace governed by `:include-fx-args?`."
+            keyspace governed by `:rf.egress/include-fx-args?`."
     (fresh-frame!)
     (rf/reg-fx :egress/login-fx (fn [_ _] nil))
     (rf/reg-event :egress/do-login
@@ -588,10 +588,10 @@
     (rf/dispatch-sync [:egress/do-login {:password secret :token "tok-abc"}]
                       {:frame frame-id})
     (let [raw    (last-record)
-          proj   (rf/project-egress raw {:rf.size/include-sensitive? true})
+          proj   (rf/project-egress raw {:rf.egress/include-sensitive? true})
           fx-row (some #(when (= :egress/login-fx (:fx-id %)) %) (:effects proj))]
       (is (= secret (get-in proj [:db-after :auth :password]))
-          "`:rf.size/include-sensitive? true` reveals the app-db sensitive leaf
+          "`:rf.egress/include-sensitive? true` reveals the app-db sensitive leaf
            (which also proves the opt-in is threaded at all)")
       (is (some? fx-row) "fixture: the cascade produced a payload-bearing fx row")
       (is (= :rf/redacted (:args fx-row))
@@ -607,7 +607,7 @@
             values used to walk the RAW record, lifting the orthogonal
             `:rf.db/runtime` partition (machine snapshots, route slice, SSR
             metadata) off-box as a side effect. The partition stays
-            `:rf/redacted` unless `:include-runtime-db? true` is passed."
+            `:rf/redacted` unless `:rf.egress/include-runtime-db? true` is passed."
     (fresh-frame!)
     (rf/reg-event :egress/seed-both
       (fn [{rt :rf.db/runtime} _]
@@ -617,26 +617,26 @@
                                   {:state :live})}))
     (rf/dispatch-sync [:egress/seed-both] {:frame frame-id})
     (let [raw  (last-record)
-          proj (rf/project-egress raw {:rf.size/include-sensitive? true})]
+          proj (rf/project-egress raw {:rf.egress/include-sensitive? true})]
       (is (= {:state :live}
              (get-in raw [:frame-state-after :rf.db/runtime
                           :rf.runtime/machines :snapshots :m/x]))
           "fixture: the raw record carries a populated runtime-db partition")
       (is (= secret (get-in proj [:frame-state-after :rf.db/app :auth :password]))
-          "`:rf.size/include-sensitive? true` reveals the app-db partition's leaf")
+          "`:rf.egress/include-sensitive? true` reveals the app-db partition's leaf")
       (is (= :rf/redacted (get-in proj [:frame-state-after :rf.db/runtime]))
           "the `:rf.db/runtime` partition STAYS redacted under
            include-sensitive alone")
       (is (not= :rf/redacted
-                (get-in (rf/project-egress raw {:rf.size/include-sensitive?  true
-                                                     :include-runtime-db? true})
+                (get-in (rf/project-egress raw {:rf.egress/include-sensitive?  true
+                                                     :rf.egress/include-runtime-db? true})
                         [:frame-state-after :rf.db/runtime]))
-          "NEGATIVE CONTROL — the explicit `:include-runtime-db? true` opt DOES
+          "NEGATIVE CONTROL — the explicit `:rf.egress/include-runtime-db? true` opt DOES
            lift it, proving the axis is independently governed and the
            assertion above is not passing because the partition is empty"))))
 
 (deftest include-sensitive-keeps-large-elision-independent
-  (testing "`:rf.size/include-sensitive?` and `:rf.size/include-large?` are independent axes:
+  (testing "`:rf.egress/include-sensitive?` and `:rf.egress/include-large?` are independent axes:
             asking for sensitive values must not pull a bulk payload onto the
             wire (the token-budget claim), and vice versa."
     (fresh-frame!)
@@ -647,17 +647,17 @@
                     (assoc-in [:blob :payload] p))}))
     (rf/dispatch-sync [:egress/both secret (big-string payload-size)] {:frame frame-id})
     (let [raw (last-record)]
-      (let [proj (rf/project-egress raw {:rf.size/include-sensitive? true})]
+      (let [proj (rf/project-egress raw {:rf.egress/include-sensitive? true})]
         (is (= secret (get-in proj [:db-after :auth :password])))
         (is (rf.elision/marker? (get-in proj [:db-after :blob :payload]))
             "large stays elided under the sensitive opt-in")
         (is (zero? (count-leaves-at-least payload-size proj))
             "and no raw payload bytes egress anywhere in the record"))
-      (let [proj (rf/project-egress raw {:rf.size/include-large? true})]
+      (let [proj (rf/project-egress raw {:rf.egress/include-large? true})]
         (is (= :rf/redacted (get-in proj [:db-after :auth :password]))
             "sensitive stays redacted under the large opt-in")
         (is (not (rf.elision/marker? (get-in proj [:db-after :blob :payload])))
-            "NEGATIVE CONTROL — `:rf.size/include-large? true` DOES lift the slot")
+            "NEGATIVE CONTROL — `:rf.egress/include-large? true` DOES lift the slot")
         (is (pos? (count-leaves-at-least payload-size proj))
             "and the raw payload bytes ARE present, so the elision
              assertions above are not vacuous")))))
@@ -696,20 +696,20 @@
       (is (not (contains-secret? (:trigger-event proj)))))))
 
 (deftest include-event-args-is-orthogonal-to-app-db-axes
-  (testing "`:include-event-args?` reveals the raw trigger-event args YET is
+  (testing "`:rf.egress/include-event-args?` reveals the raw trigger-event args YET is
             orthogonal to the app-db sensitive axis, and vice versa. Two
             opt-ins, two keyspaces; neither implies the other."
     (fresh-frame!)
     (reg-login!)
     (rf/dispatch-sync [:egress/login secret] {:frame frame-id})
     (let [raw (last-record)]
-      (let [proj (rf/project-egress raw {:include-event-args? true})]
+      (let [proj (rf/project-egress raw {:rf.egress/include-event-args? true})]
         (is (= [:egress/login secret] (:trigger-event proj))
             "NEGATIVE CONTROL — the opt-in reveals the raw args, so the
              fail-closed assertions above are testing redaction")
         (is (= :rf/redacted (get-in proj [:db-after :auth :password]))
             "the app-db sensitive leaf stays redacted"))
-      (let [proj (rf/project-egress raw {:rf.size/include-sensitive? true})]
+      (let [proj (rf/project-egress raw {:rf.egress/include-sensitive? true})]
         (is (= secret (get-in proj [:db-after :auth :password])))
         (is (= [:egress/login :rf/redacted] (:trigger-event proj))
             "the event args stay redacted under the app-db opt-in")))))
@@ -794,8 +794,8 @@
           "NEGATIVE CONTROL — the unprojected record DOES carry the token")
       (is (= body (:value (:tags (first (:trace-events
                                           (rf/project-egress
-                                            omit {:rf.size/include-sensitive? true}))))))
-          "and the trusted-local `:rf.size/include-sensitive?` opt-in lifts the
+                                            omit {:rf.egress/include-sensitive? true}))))))
+          "and the trusted-local `:rf.egress/include-sensitive?` opt-in lifts the
            omission, proving the assertion is about the disposition stamp"))))
 
 ;; ============================================================================
@@ -1031,19 +1031,19 @@
             is deliberately NOT `:rf.egress/local-raw`."
     (let [raw  (login-record!)
           proj (rf/project-egress raw {:rf.egress/profile          :rf.egress/off-box-tool
-                                       :rf.size/include-sensitive? true})]
+                                       :rf.egress/include-sensitive? true})]
       (is (= secret (get-in proj [:db-after :auth :password]))
           "the shared app-db sensitive axis lifts through the door")
       (is (= [:egress/login :rf/redacted] (:trigger-event proj))
           "but the event-args axis does NOT lift — trigger args stay redacted
-           behind their own `:include-event-args?` opt-in")
+           behind their own `:rf.egress/include-event-args?` opt-in")
       (is (= :rf/redacted (get-in proj [:frame-state-after :rf.db/runtime]))
           "and the runtime-db partition stays redacted behind its own
-           `:include-runtime-db?` opt-in")
+           `:rf.egress/include-runtime-db?` opt-in")
       (is (every? #(= :rf/redacted (:args %))
                   (filter #(contains? % :args) (:effects proj)))
           "and every effect row's `:args` stays redacted behind
-           `:include-fx-args?`"))))
+           `:rf.egress/include-fx-args?`"))))
 
 (deftest an-epoch-only-axis-is-door-vocabulary-and-never-reaches-the-walker
   (testing "rf2-bv1p — the three epoch-only axes moved ONTO the door when
@@ -1058,17 +1058,17 @@
             strand three live engine branches behind no reachable caller."
     (let [raw   (login-record!)
           tight (rf/project-egress raw {:rf.egress/profile :rf.egress/off-box-tool})
-          ;; `:include-runtime-db?` is the axis chosen here because THIS
+          ;; `:rf.egress/include-runtime-db?` is the axis chosen here because THIS
           ;; record is guaranteed to exercise it: it carries
           ;; `:frame-state-after`, whose `:rf.db/runtime` partition is
-          ;; `:rf/redacted` under every off-box profile. `:include-fx-args?`
+          ;; `:rf/redacted` under every off-box profile. `:rf.egress/include-fx-args?`
           ;; would be inert on a cascade with `:effects []`, which is what a
           ;; plain login is — a liveness control has to bite on the record
           ;; it is given.
           wide  (rf/project-egress raw {:rf.egress/profile   :rf.egress/off-box-tool
-                                        :include-runtime-db? true})]
+                                        :rf.egress/include-runtime-db? true})]
       (is (some? wide) "the door accepts the axis rather than throwing")
-      (doseq [k [:include-fx-args? :include-runtime-db? :include-event-args?]]
+      (doseq [k [:rf.egress/include-fx-args? :rf.egress/include-runtime-db? :rf.egress/include-event-args?]]
         (is (some? (rf/project-egress raw {:rf.egress/profile :rf.egress/off-box-tool
                                            k                  true}))
             (str k " is door vocabulary")))
@@ -1090,7 +1090,7 @@
     (is (nil? (try (rf/project-egress
                      {:some "tree"}
                      {:rf.egress/profile :rf.egress/off-box-observability
-                      :include-fx-args?  true})
+                      :rf.egress/include-fx-args?  true})
                    nil
                    (catch #?(:clj clojure.lang.ExceptionInfo
                              :cljs ExceptionInfo) e e)))
@@ -1141,14 +1141,14 @@
       (is (= :rf/redacted
              (get-in (rf/project-egress
                        raw {:rf.egress/profile          :rf.egress/local-raw
-                            :rf.size/include-sensitive? false})
+                            :rf.egress/include-sensitive? false})
                      [:db-after :auth :password]))
           "an EXPLICIT false still overlays the floor and wins — overriding
            is what the caller's own key is for"))))
 
 (defn- large-everywhere-record!
   "ONE cascade that populates all THREE record surfaces the shared
-  `:rf.size/include-large?` axis governs:
+  `:rf.egress/include-large?` axis governs:
 
     - `:db-after [:blob :payload]`  — a frame-declared `:large` app-db path,
       reached by the TREE-WALKER path (`project-payload-slot` →
@@ -1199,11 +1199,11 @@
 (deftest local-raw-large-axis-reaches-every-whole-output-slot
   (testing "rf2-kuky.92 (merged-PR audit of #9522) — the RESOLVED profile, not
             the caller's raw opts map, is what every epoch-side reader of a
-            SHARED `:rf.size/*` axis must see.
+            SHARED `:rf.egress/*` axis must see.
 
             `project-egress` resolves the named profile into `elision-opts`,
             but its `:rf/epoch-record` arm forwards the ORIGINAL opts, and the
-            whole-output helpers read `:rf.size/include-large?` off them by key
+            whole-output helpers read `:rf.egress/include-large?` off them by key
             presence. So under `:rf.egress/local-raw` — the ONE profile whose
             floor opts large back IN — the tree-walker path honoured the floor
             while the two whole-output subscription slots did not, and the same
@@ -1231,10 +1231,10 @@
            ALL THREE surfaces with no explicit key from the caller. This is the
            arm the #9522 audit measured failing on two of the three.")
       (is (all-raw? (projected {:rf.egress/profile      :rf.egress/local-raw
-                                :rf.size/include-large? true}))
+                                :rf.egress/include-large? true}))
           "EXPLICIT TRUE — agreeing with the floor changes nothing")
       (is (all-elided? (projected {:rf.egress/profile      :rf.egress/local-raw
-                                   :rf.size/include-large? false}))
+                                   :rf.egress/include-large? false}))
           "EXPLICIT FALSE stays authoritative — an explicit key still overlays
            the floor and WINS, on all three surfaces. This is the arm a fix
            that merely forced the floor present-and-true would break.")
@@ -1243,7 +1243,7 @@
            the assertions above cannot pass by the elision having stopped
            happening at all")
       (is (all-raw? (projected {:rf.egress/profile      :rf.egress/off-box-tool
-                                :rf.size/include-large? true}))
+                                :rf.egress/include-large? true}))
           "and an explicit TRUE lifts all three under a fail-closed profile —
            the override wins in both directions")
 
@@ -1253,7 +1253,7 @@
                        raw {:rf.egress/profile :rf.egress/local-raw})
                      [:frame-state-after :rf.db/runtime]))
           "GUARD — resolving the SHARED axes must not lift the epoch-only
-           ones: `:include-runtime-db?` is a different keyspace with its own
+           ones: `:rf.egress/include-runtime-db?` is a different keyspace with its own
            fail-closed default, and `local-raw` is a statement about app-db
            sensitivity and token budget, not about the runtime partition")
 

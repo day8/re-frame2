@@ -1541,7 +1541,7 @@ dispositions and riders are inline.
    Spec 016 and now load-bearing as EP-0010 causal replay material. Digests
    are an **optional, versioned, always-recomputable projection** for
    size-constrained surfaces (wire budgets, dedupe tables — the existing
-   `:rf.size/include-digests?` flag is the precedent, and the MB-scale wire
+   `:rf.egress/include-digests?` flag is the precedent, and the MB-scale wire
    investigation is the live consumer). A digest is never an independent
    identity fact, never required for correctness, and never the authoritative
    stored key in v1 (Runtime-Subsystems derived rule 2: one authoritative home

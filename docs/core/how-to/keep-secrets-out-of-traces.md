@@ -239,7 +239,7 @@ Three durable owners, no overlap. When you have a secret, this is the table to w
 
 !!! warning "The size threshold *warns*; it does not elide"
 
-    It is tempting to think the large axis has a safety net the sensitive axis lacks — that an *oversized* value is auto-elided at egress even at a path you never classified `:large`. **It is not.** When the walker meets a large string at an undeclared path it emits the `:rf.warning/large-value-unschema'd` advisory — a *nudge* to go classify the path — governed by `:rf.size/threshold-bytes` (default 16384, overridable via `(rf/configure! {:elision {:rf.size/threshold-bytes N}})`), and then **forwards the value raw**. The threshold is a warning signal, not a cap. To actually keep an oversized value out of a trace you must declare the path `:large`; to keep a *secret* out you must declare it `:sensitive`. Nothing auto-protects a value you never classified — classification is strictly opt-in by path, on both axes.
+    It is tempting to think the large axis has a safety net the sensitive axis lacks — that an *oversized* value is auto-elided at egress even at a path you never classified `:large`. **It is not.** When the walker meets a large string at an undeclared path it emits the `:rf.warning/large-value-unschema'd` advisory — a *nudge* to go classify the path — governed by `:rf.egress/threshold-bytes` (default 16384, overridable via `(rf/configure! {:elision {:rf.egress/threshold-bytes N}})`), and then **forwards the value raw**. The threshold is a warning signal, not a cap. To actually keep an oversized value out of a trace you must declare the path `:large`; to keep a *secret* out you must declare it `:sensitive`. Nothing auto-protects a value you never classified — classification is strictly opt-in by path, on both axes.
 
 ## Wire an off-box shipper
 
@@ -288,7 +288,7 @@ The table above is the working set; each profile names how far data travels and 
 
 ??? note "Going deeper"
 
-    Beneath the profiles sit advanced `:rf.size/*` override flags — `:rf.size/include-sensitive?`, `:rf.size/include-large?`, `:rf.size/include-digests?`, `:rf.size/threshold-bytes`. A profile resolves to a *floor* and an explicit flag overlays it. You rarely reach for them; the profile is the public choice.
+    Beneath the profiles sit advanced `:rf.egress/*` override flags — `:rf.egress/include-sensitive?`, `:rf.egress/include-large?`, `:rf.egress/include-digests?`, `:rf.egress/threshold-bytes`. A profile resolves to a *floor* and an explicit flag overlays it. You rarely reach for them; the profile is the public choice.
 
 ### Two things to verify before the first record ships
 

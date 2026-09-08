@@ -5,7 +5,7 @@
 
   EP-0015 defines the named-egress model: an off-box surface chooses
   *which boundary is this?* — a named `:rf.egress/*` profile — not *which
-  combination of `:rf.size/*` booleans did I remember?*. The framework
+  combination of `:rf.egress/*` booleans did I remember?*. The framework
   owns the authoritative resolution in `re-frame.projection/project-egress`
   (`implementation/core`), but that namespace transitively requires the
   framework runtime graph (`re-frame.elision` → `re-frame.frame` →
@@ -20,7 +20,7 @@
 
   This ns therefore carries the profile NAME SET and the posture→profile
   mapping — and NOT a resolution table. rf2-kuky.88 deleted the pure-data
-  mirror of the framework's `:rf.size/*` floor: a server that names a
+  mirror of the framework's `:rf.egress/*` floor: a server that names a
   profile has no reason to resolve it, and the mirror was a second place
   the §10 default-behaviour table could drift. The mcp-conformance
   wire-vocab gate still pins this NAME SET equal to
@@ -29,7 +29,7 @@
 
   ## The six profiles (EP-0015 §10, CLOSED enum)
 
-  The authoritative `:rf.size/*` floor each one resolves to lives in the
+  The authoritative `:rf.egress/*` floor each one resolves to lives in the
   framework (`re-frame.projection`'s §10 default-behaviour table) and is
   applied by `re-frame.core/project-egress` at the app-side door. The one
   distinction a server needs to know when choosing a name:
@@ -82,7 +82,7 @@
   `tools.elision/posture->profile`); it lives here once so the two
   cannot drift. A caller NAMES the returned profile in the opts it hands
   `re-frame.core/project-egress`; the app-side door resolves it to the
-  `:rf.size/*` floor (rf2-kuky.88 — the server never resolves it itself)."
+  `:rf.egress/*` floor (rf2-kuky.88 — the server never resolves it itself)."
   [sensitive-reads-allowed?]
   (if sensitive-reads-allowed?
     :rf.egress/local-raw

@@ -125,7 +125,7 @@ Procedure:
 
 ## "What effects fired?"
 
-Walk the epoch's `:effects` projection — it carries **one entry per dispatched fx** (Spec-Schemas §`:rf/epoch-record`), each with `:fx-id`, `:args`, and `:outcome` (`:ok` / `:error` / `:skipped-on-platform`), so per-event fx attribution needs no re-fold of the raw trace. Off-box, each row's `:args` egresses as `:rf/redacted` by default (`:include-fx-args?` opt-in); reach for the raw `:trace-events` slot only when you need richer per-fx detail than `:fx-id` / `:outcome`.
+Walk the epoch's `:effects` projection — it carries **one entry per dispatched fx** (Spec-Schemas §`:rf/epoch-record`), each with `:fx-id`, `:args`, and `:outcome` (`:ok` / `:error` / `:skipped-on-platform`), so per-event fx attribution needs no re-fold of the raw trace. Off-box, each row's `:args` egresses as `:rf/redacted` by default (`:rf.egress/include-fx-args?` opt-in); reach for the raw `:trace-events` slot only when you need richer per-fx detail than `:fx-id` / `:outcome`.
 
 For cascaded dispatches: follow `:dispatch-id` / `:parent-dispatch-id` (Spec 009 §Dispatch correlation) into child epochs. `eval-cljs {form: "(re-frame2-pair.runtime/cascade-of <dispatch-id>)"}` returns the tree.
 

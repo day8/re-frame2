@@ -135,7 +135,7 @@
 ;; whole-db read has no `:path` (the value IS the walked root), so the
 ;; root-keyed schema declarations match directly. Raw egress is only
 ;; ever reachable by passing the egress fn an explicit opt
-;; (`{:rf.size/include-sensitive? true}` / `{:rf.size/include-large? true}`); the
+;; (`{:rf.egress/include-sensitive? true}` / `{:rf.egress/include-large? true}`); the
 ;; palette command surfaces NO opt-in arg, so the command default is
 ;; always the redacted/elided projection — never the raw db.
 ;;

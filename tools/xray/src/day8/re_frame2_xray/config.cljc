@@ -586,7 +586,7 @@
 ;; feeds the trace rings the L2 event list + Trace panel read), and the
 ;; profile decides whether a `:sensitive?`-tagged event survives that
 ;; feed. The "is a `:sensitive?` event visible?" decision derives from
-;; the profile's `:rf.size/include-sensitive?` resolution
+;; the profile's `:rf.egress/include-sensitive?` resolution
 ;; via the framework projection table (`rf.projection/profile-size-opts`), the
 ;; SAME table `project-egress` consumes — one source of truth, no
 ;; re-implemented redaction policy.
@@ -637,7 +637,7 @@
          verbatim opt-in. Read by the trace collector via
          `include-sensitive?` / `suppress-sensitive?` — the whole-event
          `:sensitive?` redact/pass decision derives from this profile's
-         `:rf.size/include-sensitive?` resolution via the framework
+         `:rf.egress/include-sensitive?` resolution via the framework
          projection table, the same table `project-egress` consumes (one
          source of truth). Per EP-0015, on-box visibility is the
          per-(tool,frame) frame-owned model."}
@@ -715,12 +715,12 @@
 
 (defn- profile-includes-sensitive?
   "True iff `profile` resolves (via the framework projection table) to a
-  `:rf.size/include-sensitive? true` floor — i.e. it is a
+  `:rf.egress/include-sensitive? true` floor — i.e. it is a
   sensitive-revealing boundary. `:rf.egress/local-raw` is the only
   Xray-relevant profile that does. An unknown / nil profile is fail-closed
   (does NOT reveal)."
   [profile]
-  (boolean (:rf.size/include-sensitive? (rf.projection/profile-size-opts profile))))
+  (boolean (:rf.egress/include-sensitive? (rf.projection/profile-size-opts profile))))
 
 (defn set-egress-profile!
   "Replace Xray's local-render `:rf.egress/*` profile (EP-0015).
@@ -781,7 +781,7 @@
 
 (defn include-sensitive?
   "True iff Xray's current local-render profile reveals sensitive values
-  (i.e. resolves to `:rf.size/include-sensitive? true`). The trace
+  (i.e. resolves to `:rf.egress/include-sensitive? true`). The trace
   collector consults this (via `suppress-sensitive?`) to decide whether a
   `:sensitive?` event is shown or redacted. Fail-closed by default."
   []

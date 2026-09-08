@@ -169,7 +169,7 @@ The framework projects, but needs to know *which trust boundary* a record is abo
 | `:rf.egress/ssr-hydration` | the projection applied **after** the SSR allowlist — defence-in-depth, never a parallel SSR mechanism. |
 | `:rf.egress/public-error` | client-safe server error projection; never includes internal raw values. |
 
-The boolean `:rf.size/*` flags (`:rf.size/include-sensitive?`, `:rf.size/include-large?`, `:rf.size/include-digests?`) remain beneath the profiles as an **advanced override layer** — reach for them only to override one axis of a profile, not as the everyday choice. Spell them qualified: the egress opts maps are **closed**, so an unqualified `include-*?` key is an `:rf.error/bad-egress-opts` throw, never a silently-ignored policy.
+The boolean `:rf.egress/*` flags (`:rf.egress/include-sensitive?`, `:rf.egress/include-large?`, `:rf.egress/include-digests?`) remain beneath the profiles as an **advanced override layer** — reach for them only to override one axis of a profile, not as the everyday choice. Spell them qualified: the egress opts maps are **closed**, so an unqualified `include-*?` key is an `:rf.error/bad-egress-opts` throw, never a silently-ignored policy.
 
 ### The two projection primitives
 
@@ -184,7 +184,7 @@ Real egress surfaces emit **records**, not bare values. The public, record-level
 
 Beneath it, **`re-frame.elision/elide-wire-value`** is the single low-level walker for *tree-shaped values* — it substitutes sentinels at the slots the frame's classification says to redact or elide. It is a **framework-internal mechanism, not a door**: there is no `rf/elide-wire-value` façade export and no public-API manifest row (spec/API.md §Size-elision wire-boundary walker). Custom forwarders, loggers and direct-value egress all go through `rf/project-egress` with a named `:rf.egress/*` profile — never reimplement the walk, and never reach past the door for it.
 
-The walker's `opts` map is **closed** — `:frame` / `:path` / `:query-v` / `:as-of-epoch` plus the four `:rf.size/*` overrides. A `:rf.egress/profile` names a *boundary* and belongs to `project-egress`, which resolves it to those same `:rf.size/*` flags before delegating here; pass one to the walker (or an unqualified `include-*?`) and you get `:rf.error/bad-egress-opts` naming the key rather than a policy that quietly did not apply.
+The walker's `opts` map is **closed** — `:frame` / `:path` / `:query-v` / `:as-of-epoch` plus the four `:rf.egress/*` overrides. A `:rf.egress/profile` names a *boundary* and belongs to `project-egress`, which resolves it to those same `:rf.egress/*` flags before delegating here; pass one to the walker (or an unqualified `include-*?`) and you get `:rf.error/bad-egress-opts` naming the key rather than a policy that quietly did not apply.
 
 ## Direct reads must project, with the frame known
 
@@ -232,7 +232,7 @@ Projection substitutes one of three framework-reserved sentinel forms (your app 
                           :handle [:rf.elision/at [:reports :2026 :rows]]}}   ; EDN re-fetch form
   ```
 
-  An optional `:hint` rides alongside, and a `:digest` appears **only** under `:rf.size/include-digests?`. Match on `:rf.size/large-elided` — a sink or forwarder that matches `:rf/large` never fires, because core emits that spelling nowhere. `:rf/large {:bytes N :head "…"}` is a **display form** a tool MAY render *from* this marker; `:head` is a rendering affordance, never a slot core produces.
+  An optional `:hint` rides alongside, and a `:digest` appears **only** under `:rf.egress/include-digests?`. Match on `:rf.size/large-elided` — a sink or forwarder that matches `:rf/large` never fires, because core emits that spelling nowhere. `:rf/large {:bytes N :head "…"}` is a **display form** a tool MAY render *from* this marker; `:head` is a rendering affordance, never a slot core produces.
 - **`:rf/redacted` — sensitive + large composed.** Sensitive wins on content visibility (no `:head` ever). **Off-box the composed form MUST NOT carry `:bytes`** — size is content information about a secret, and the CLJS reference suppresses it. A trusted-local profile MAY attach `:rf/redacted {:bytes N}` as a diagnostic, so a reader must never *depend* on `:bytes` being present.
 
 The rendering rule is uniform and load-bearing: a **large marker is drillable** — click-to-expand, subject to a per-tool size confirmation, re-fetching through the marker's own `:handle` (`[:rf.elision/at <path>]`, extended to `[:rf.elision/at <path> :as-of-epoch <epoch>]` when the walk was epoch-scoped) — but **`:rf/redacted` MUST NOT be expandable, ever** — a "show original" affordance against `:rf/redacted` is the exact leak the contract exists to prevent.

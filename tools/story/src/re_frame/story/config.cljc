@@ -38,7 +38,7 @@
             ;; `:rf.egress/*` profile resolved through the framework's
             ;; centralized projection table. `re-frame.projection` is the
             ;; pure-CLJC home of the six ruled profiles + their
-            ;; `:rf.size/*` resolution; requiring it directly (rather than
+            ;; `:rf.egress/*` resolution; requiring it directly (rather than
             ;; the whole `re-frame.core` facade) keeps this config ns
             ;; JVM-runnable for the test corpus and pins the egress
             ;; vocabulary to the ONE canonical source.
@@ -392,7 +392,7 @@
 ;; Every value-bearing slot it projects onto a dev surface ships under the
 ;; profile resolved for the SPECIFIC frame the event / recording targets.
 ;; The "is this `:sensitive?` event visible?" decision is not a hand-held
-;; boolean: it derives from the profile's `:rf.size/include-sensitive?`
+;; boolean: it derives from the profile's `:rf.egress/include-sensitive?`
 ;; resolution via the framework's projection table
 ;; (`rf.projection/profile-size-opts`), the same table `project-egress`
 ;; consumes — one source of truth, no re-implemented redaction policy.
@@ -464,7 +464,7 @@
          recording targets, so the whole-event `:sensitive?` redact/pass
          decision is FRAME-SCOPED: revealing one frame never reveals
          another. The decision derives from the resolved profile's
-         `:rf.size/include-sensitive?` floor via the framework projection
+         `:rf.egress/include-sensitive?` floor via the framework projection
          table, the same table `project-egress` consumes (one source of
          truth)."}
   frame-egress-profiles
@@ -559,12 +559,12 @@
 
 (defn- profile-includes-sensitive?
   "True iff `profile` resolves (via the framework projection table) to a
-  `:rf.size/include-sensitive? true` floor — i.e. it is a
+  `:rf.egress/include-sensitive? true` floor — i.e. it is a
   sensitive-revealing boundary. `:rf.egress/local-raw` is the only Story-
   relevant profile that does. An unknown / nil profile is fail-closed
   (does NOT reveal)."
   [profile]
-  (boolean (:rf.size/include-sensitive? (rf.projection/profile-size-opts profile))))
+  (boolean (:rf.egress/include-sensitive? (rf.projection/profile-size-opts profile))))
 
 (defn resolve-egress-profile
   "Resolve the effective `:rf.egress/*` profile for `frame-id` (EP-0015
@@ -672,7 +672,7 @@
 
 (defn include-sensitive?
   "True iff the profile resolved for `frame-id` reveals sensitive values
-  (i.e. resolves to `:rf.size/include-sensitive? true`). Every Story trace
+  (i.e. resolves to `:rf.egress/include-sensitive? true`). Every Story trace
   listener consults this (via `suppress-sensitive?`) — passing the frame the
   event / recording targets — to decide whether a `:sensitive?` event is
   shown or redacted. Frame-scoped (EP-0015 issue 7): revealing one frame

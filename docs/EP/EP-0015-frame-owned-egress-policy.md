@@ -751,6 +751,21 @@ The low-level walker already needs boolean opts:
    :rf.size/include-digests? false})
 ```
 
+> **Spelling update 2026-09-09 (rf2-kuky.93, ruling rf2-kuky.9 option A).** The
+> boolean flags shown above and in the §"design smells" listing earlier in this
+> document originally read `:rf.size/include-sensitive?` /
+> `:rf.size/include-large?` / `:rf.size/include-digests?`, and the epoch-only
+> opts named in the §15 spelling update read `:include-fx-args?` /
+> `:include-runtime-db?` / `:include-event-args?`. All seven opts keys — those
+> six plus `:rf.size/threshold-bytes` — now live under **one** namespace,
+> `:rf.egress/*`, so the closed twelve-key opts map `rf/project-egress` accepts
+> is describable by a single namespace and a single Malli schema. `:rf.size/*`
+> keeps the wire MARKER (`:rf.size/large-elided`) and nothing else; the handle
+> is still `:rf.elision/at`. The bodies above are left in their original
+> spelling as the record of the ruling that led here;
+> [`spec/015-Data-Classification.md`](../../spec/015-Data-Classification.md) and
+> [`spec/API.md`](../../spec/API.md) carry the live spelling.
+
 Those flags should remain the advanced override layer. Human-facing APIs should
 prefer named egress profiles:
 

@@ -118,7 +118,7 @@
   The derived-tree projection runs through the SINGLE public boundary
   `re-frame.core/project-egress` — the `:rf.observe/derived-tree` record kind,
   naming the off-box `:rf.egress/profile` rather than a hand-resolved
-  `:rf.size/*` floor. `project-egress` resolves the profile to the egress
+  `:rf.egress/*` floor. `project-egress` resolves the profile to the egress
   floor and PATH-walks the tree against the SAME per-frame classification
   registry the `:app-db` path walker reads (frame- /
   EP-0025-commit-plane-effect- / flow-sourced declarations, unioned at
@@ -138,7 +138,7 @@
 ;;
 ;; story-mcp is an off-box MCP/AI tool wire — the same boundary class as
 ;; re-frame2-pair-mcp. Per EP-0015 §10 the egress posture names a
-;; `:rf.egress/*` profile, resolved to its `:rf.size/*` floor by the
+;; `:rf.egress/*` profile, resolved to its `:rf.egress/*` floor by the
 ;; cross-MCP `re-frame.mcp-base.egress` mirror (pinned byte-identical to
 ;; the framework `re-frame.projection` table by the mcp-conformance
 ;; wire-vocab gate). The boolean `include?` each tool computes
@@ -150,7 +150,7 @@
 ;; (sensitive AND large pass through). The mapping lives in mcp-base so
 ;; story-mcp and re-frame2-pair-mcp cannot drift; this server calls it
 ;; only AFTER its own operator + per-call permission checks. The server
-;; expresses "which boundary is this", never a hand-rolled `:rf.size/*`
+;; expresses "which boundary is this", never a hand-rolled `:rf.egress/*`
 ;; combination.
 ;; ---------------------------------------------------------------------------
 
@@ -166,7 +166,7 @@
 
   rf2-kuky.88 — this server NAMES the profile and the framework door
   resolves it. The former `posture->elision-opts` helper (which resolved
-  the profile to its `:rf.size/*` floor through a pure-data mirror of the
+  the profile to its `:rf.egress/*` floor through a pure-data mirror of the
   framework table) is gone along with the mirror: story-mcp is in-process,
   so `project-egress` is directly reachable and there was never a reason
   for this server to hold a second copy of the §10 table. This is the same
@@ -325,7 +325,7 @@
     ;; `variant-id`'s classification registry (sensitive first — it wins — then
     ;; large over survivors). A value AT a classified path redacts; a re-keyed
     ;; copy ships raw (EP-0025 fail-open). Naming the PROFILE (not the
-    ;; `:rf.size/*` floor) keeps the egress vocabulary in the framework
+    ;; `:rf.egress/*` floor) keeps the egress vocabulary in the framework
     ;; boundary, not hand-rolled here.
     (rf/project-egress
       {:kind      :rf.observe/derived-tree

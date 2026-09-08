@@ -309,7 +309,7 @@
   ;;
   ;; Gate ON + `:include-sensitive true` does NOT bypass the epoch
   ;; projection. The settle form STILL wraps the runtime call in
-  ;; `project-egress`, threading `{:rf.size/include-sensitive? true}` as the
+  ;; `project-egress`, threading `{:rf.egress/include-sensitive? true}` as the
   ;; egress opt (app-db sensitive axis ONLY). The inner runtime fn is still
   ;; `dispatch-and-settle!` (no mailbox wrapper — synchronous). The
   ;; default-gate projection is pinned by
@@ -337,11 +337,11 @@
                          "include-sensitive STILL projects — never a raw bypass (rf2-m9duxl)")
                      (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
                          "rf2-nmjcll — the :epoch projects under the off-box-tool boundary even on the sensitive opt-in path")
-                     (is (str/includes? form ":rf.size/include-sensitive? true")
+                     (is (str/includes? form ":rf.egress/include-sensitive? true")
                          "the app-db sensitive axis is threaded INTO the projection (over the off-box-tool floor)")
-                     (is (not (str/includes? form ":include-fx-args?"))
+                     (is (not (str/includes? form ":rf.egress/include-fx-args?"))
                          "fx-args axis is NOT lifted by include-sensitive (orthogonal)")
-                     (is (not (str/includes? form ":include-runtime-db?"))
+                     (is (not (str/includes? form ":rf.egress/include-runtime-db?"))
                          "runtime-db axis is NOT lifted by include-sensitive (orthogonal)"))
                    (let [edn (read-result-text r)]
                      (is (= :settle (:mode edn)) "mode is :settle")
@@ -407,7 +407,7 @@
   ;; Gate ON (--allow-sensitive-reads) AND explicit
   ;; `:include-sensitive true` does NOT bypass the epoch projection. The
   ;; trace form STILL wraps the runtime call in `project-egress`,
-  ;; threading `{:rf.size/include-sensitive? true}` (app-db sensitive axis ONLY).
+  ;; threading `{:rf.egress/include-sensitive? true}` (app-db sensitive axis ONLY).
   ;; fx-args / runtime-db / large slots stay fail-closed.
   (async done
     (let [captured (atom nil)]
@@ -424,11 +424,11 @@
                          "include-sensitive STILL projects — never a raw bypass (rf2-m9duxl)")
                      (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
                          "rf2-nmjcll — the :epoch projects under the off-box-tool boundary even on the sensitive opt-in path")
-                     (is (str/includes? form ":rf.size/include-sensitive? true")
+                     (is (str/includes? form ":rf.egress/include-sensitive? true")
                          "the app-db sensitive axis is threaded INTO the projection (over the off-box-tool floor)")
-                     (is (not (str/includes? form ":include-fx-args?"))
+                     (is (not (str/includes? form ":rf.egress/include-fx-args?"))
                          "fx-args axis is NOT lifted by include-sensitive (orthogonal)")
-                     (is (not (str/includes? form ":include-runtime-db?"))
+                     (is (not (str/includes? form ":rf.egress/include-runtime-db?"))
                          "runtime-db axis is NOT lifted by include-sensitive (orthogonal)"))
                    (raw-state/set-allow-raw-state! false)
                    (done)))))))
@@ -439,7 +439,7 @@
   ;; coercion. Over the JSON-MCP wire the value can arrive as the STRING
   ;; "false", which is TRUTHY in CLJS — a bare `boolean` would coerce a
   ;; caller's explicit decline to TRUE under --allow-sensitive-reads,
-  ;; threading `:rf.size/include-sensitive? true` into project-egress and
+  ;; threading `:rf.egress/include-sensitive? true` into project-egress and
   ;; lifting the app-db sensitive axis the operator just declined. The
   ;; fix: "false" stays false ⇒ the projection runs (epoch still routes
   ;; through project-egress) but WITHOUT the sensitive opt — sensitive
@@ -460,7 +460,7 @@
                          "the epoch STILL routes through project-egress (never a raw bypass)")
                      (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
                          "the off-box-tool boundary is named")
-                     (is (not (str/includes? form ":rf.size/include-sensitive? true"))
+                     (is (not (str/includes? form ":rf.egress/include-sensitive? true"))
                          "string \"false\" stays FALSE — the sensitive axis is NOT lifted (rf2-66ippe: no raw boolean fail-open)"))
                    (raw-state/set-allow-raw-state! false)
                    (done)))))))
@@ -480,7 +480,7 @@
                                            :include-sensitive "true"})))
           (.then (fn [_]
                    (let [form @captured]
-                     (is (str/includes? form ":rf.size/include-sensitive? true")
+                     (is (str/includes? form ":rf.egress/include-sensitive? true")
                          "string \"true\" lifts the app-db sensitive axis (accept-shape parity)"))
                    (raw-state/set-allow-raw-state! false)
                    (done)))))))
@@ -1213,7 +1213,7 @@
 
 (deftest await-render-trace-include-sensitive-routes-through-projection
   ;; Gate ON + :include-sensitive true on the await-render :trace path does
-  ;; NOT bypass the projection — it threads `{:rf.size/include-sensitive? true}`
+  ;; NOT bypass the projection — it threads `{:rf.egress/include-sensitive? true}`
   ;; INTO project-egress (app-db sensitive axis only), exactly like the
   ;; non-await path. fx-args / runtime-db stay fail-closed.
   (async done
@@ -1234,11 +1234,11 @@
                    (let [form @wrap-form*]
                      (is (str/includes? form "project-egress")
                          "include-sensitive STILL projects — never a raw bypass on the await path")
-                     (is (str/includes? form ":rf.size/include-sensitive? true")
+                     (is (str/includes? form ":rf.egress/include-sensitive? true")
                          "the app-db sensitive axis is threaded INTO the projection")
-                     (is (not (str/includes? form ":include-fx-args?"))
+                     (is (not (str/includes? form ":rf.egress/include-fx-args?"))
                          "fx-args axis is NOT lifted by include-sensitive (orthogonal)")
-                     (is (not (str/includes? form ":include-runtime-db?"))
+                     (is (not (str/includes? form ":rf.egress/include-runtime-db?"))
                          "runtime-db axis is NOT lifted by include-sensitive (orthogonal)"))
                    (raw-state/set-allow-raw-state! false)
                    (done)))))))

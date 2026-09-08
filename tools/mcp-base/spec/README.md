@@ -34,7 +34,7 @@ per-namespace contract doc; the table below indexes them:
 |---|---|---|
 | `vocab` | `:rf.mcp/*` + `:rf.size/*` marker keys + envelope slots + JSON-RPC error codes. | [`vocab.md`](vocab.md) |
 | `sensitive` | spec/009 §Privacy fail-closed default-suppress filter (`sensitive-event?`, `strip-sensitive`, per-frame `scrub-snapshot`) + malformed-stamp counter. | [`sensitive.md`](sensitive.md) |
-| `egress` | Cross-MCP `:rf.egress/*` profile vocabulary + pure-data `profile-size-opts` resolver — the framework-runtime-free mirror of the closed six-member egress enum and its `:rf.size/*` floor (EP-0015 §10). | [`egress.md`](egress.md) |
+| `egress` | Cross-MCP `:rf.egress/*` profile vocabulary + pure-data `profile-size-opts` resolver — the framework-runtime-free mirror of the closed six-member egress enum and its `:rf.egress/*` floor (EP-0015 §10). | [`egress.md`](egress.md) |
 | `elision` | Wire-boundary `:rf.size/large-elided` marker counter (`count-elided-markers`). | [`elision.md`](elision.md) |
 | `args` | Argument coercion helpers (`parse-boolean`, `parse-positive-int`, `fresh-keyword`, `safe-keyword`, `parse-mode`, …). | [`args.md`](args.md) |
 | `diff-encode` | Path-keyed structural diff for epoch `:db-after` slots, projected into path-headed cluster sections, plus encoder/decoder Malli gates. | [`diff-encode.md`](diff-encode.md) |

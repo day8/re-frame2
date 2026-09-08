@@ -461,7 +461,7 @@
 
   Named boundary (rf2-kuky.88): `:rf.egress/local-redacted`. A tap
   consumer is IN-PROCESS, so this is the on-box redacted boundary rather
-  than an off-box one, and its `:rf.size/*` floor — sensitive redact,
+  than an off-box one, and its `:rf.egress/*` floor — sensitive redact,
   large elide, no digests — is exactly the all-false floor the bare
   no-profile walk resolved to before, so the projection is
   output-identical. The gate-ON arm still short-circuits rather than
@@ -1715,7 +1715,7 @@
 
   Raw only on opt-in: when the gate is ON the operator deliberately
   asked for raw reads (the cascade-summary's equivalent of the
-  `:include-event-args? true` trusted-local opt), so the verbatim
+  `:rf.egress/include-event-args? true` trusted-local opt), so the verbatim
   trigger-event rides through.
 
   `sensitive?` is the epoch's `:rf.epoch/sensitive?` rollup — retained in
@@ -3120,12 +3120,12 @@
 
    - Gate OFF (`:allow-raw-state? false`, the published-build default the
      MCP server signals via `configure-raw-state!`): the value is walked
-     with `:rf.size/include-sensitive? false` — declared-sensitive slots
+     with `:rf.egress/include-sensitive? false` — declared-sensitive slots
      land as `:rf/redacted`, declared-large slots as
      `:rf.size/large-elided`. A hostile per-call opt-in cannot ship raw
      when the operator did not pass `--allow-sensitive-reads`.
    - Gate ON (`:allow-raw-state? true`): `elide-opts` carries the caller's
-     per-call posture. `:rf.size/include-sensitive? true` (the operator's explicit
+     per-call posture. `:rf.egress/include-sensitive? true` (the operator's explicit
      opt-in) passes declared-sensitive slots through verbatim; absent /
      false still elides. `elide-opts` `nil` ⇒ gate-OFF-equivalent
      fail-closed defaults so a bare REPL caller is never less safe than
@@ -3137,7 +3137,7 @@
    falls to `:rf.egress/off-box-observability` — the all-false floor the
    no-profile walk resolved to before, so both paths are
    output-identical. It is deliberately NOT `:rf.egress/off-box-tool`
-   here: that profile turns `:rf.size/include-digests?` ON, which would
+   here: that profile turns `:rf.egress/include-digests?` ON, which would
    change what a bare REPL caller gets. The MCP path still reaches
    off-box-tool, because that is the profile it names.
 
@@ -3147,12 +3147,12 @@
   (let [gate-on? (:allow-raw-state? @raw-state-config)
         ;; Fail-closed: when the gate is OFF, force include-sensitive? false
         ;; regardless of what the caller threaded — the launch flag wins.
-        ;; An explicit `:rf.size/*` key OVERLAYS the profile floor
+        ;; An explicit `:rf.egress/*` key OVERLAYS the profile floor
         ;; (EP-0015 §10), so this override beats the named boundary.
         opts     (cond-> (merge {:frame             frame-id
                                  :rf.egress/profile :rf.egress/off-box-observability}
                                 elide-opts)
-                   (not gate-on?) (assoc :rf.size/include-sensitive? false))]
+                   (not gate-on?) (assoc :rf.egress/include-sensitive? false))]
     (rf/project-egress v opts)))
 
 (defn- sample-one-signal

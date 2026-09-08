@@ -48,7 +48,7 @@
   (let [edn (elision/egress-opts-edn false)
         parsed (cljs.reader/read-string edn)]
     (is (= {:rf.egress/profile :rf.egress/off-box-tool} parsed)
-        "bare off-box-tool profile, no :rf.size/* overlay")))
+        "bare off-box-tool profile, no :rf.egress/* overlay")))
 
 (deftest egress-opts-edn-include-large-true-overlays-the-inclusion
   ;; `:include-large?` true ⇒ the EP-0015 §10 explicit override rides ON
@@ -60,7 +60,7 @@
         parsed (cljs.reader/read-string edn)]
     (is (= :rf.egress/off-box-tool (:rf.egress/profile parsed))
         "the boundary is still the off-box tool wire")
-    (is (true? (:rf.size/include-large? parsed))
+    (is (true? (:rf.egress/include-large? parsed))
         ":elision false overlays include-large? true")))
 
 (deftest egress-opts-edn-names-local-raw-under-the-sensitive-opt-in
@@ -71,7 +71,7 @@
     (is (= :rf.egress/local-raw (:rf.egress/profile parsed))))
   (let [parsed (cljs.reader/read-string (elision/egress-opts-edn true true))]
     (is (= :rf.egress/local-raw (:rf.egress/profile parsed)))
-    (is (true? (:rf.size/include-large? parsed)))))
+    (is (true? (:rf.egress/include-large? parsed)))))
 
 (deftest egress-opts-edn-round-trips
   ;; The EDN we ship over nREPL must be readable on the other side.
@@ -345,7 +345,7 @@
 
   The four-arity form takes `include-sensitive?` and lets it select the
   named `:rf.egress/*` BOUNDARY (rf2-kuky.88), rather than threading a
-  `:rf.size/include-sensitive?` boolean."
+  `:rf.egress/include-sensitive?` boolean."
   ([path frame elision?] (build-get-path-form path frame elision? false))
   ([path frame elision? include-sensitive?]
    (let [path-edn      (pr-str path)
@@ -600,8 +600,8 @@
 
 (deftest cross-mcp-vocabulary-rf-egress-profile
   ;; rf2-kuky.88 — what rides the wire is the PROFILE NAME, not the
-  ;; resolved `:rf.size/*` booleans. `:rf.egress/profile` is the key the
-  ;; framework door reads, and `:rf.size/include-large?` is the ONE
+  ;; resolved `:rf.egress/*` booleans. `:rf.egress/profile` is the key the
+  ;; framework door reads, and `:rf.egress/include-large?` is the ONE
   ;; boolean this renderer still emits, as the EP-0015 §10 explicit
   ;; override. Assert against the parsed form so map-key-order doesn't
   ;; matter. Helper params are walker-aligned: `include-large? false` =
@@ -610,13 +610,13 @@
         parsed-elide-off (cljs.reader/read-string (elision/egress-opts-edn true))]
     (is (= :rf.egress/off-box-tool (:rf.egress/profile parsed-elide-on)))
     (is (= :rf.egress/off-box-tool (:rf.egress/profile parsed-elide-off)))
-    (is (not (contains? parsed-elide-on :rf.size/include-large?))
+    (is (not (contains? parsed-elide-on :rf.egress/include-large?))
         "elision ON leaves the profile floor alone — no overlay at all")
-    (is (true? (:rf.size/include-large? parsed-elide-off))
+    (is (true? (:rf.egress/include-large? parsed-elide-off))
         "elision OFF overlays the large inclusion over the floor")
-    (is (not (contains? parsed-elide-on :rf.size/include-sensitive?))
+    (is (not (contains? parsed-elide-on :rf.egress/include-sensitive?))
         "the sensitive axis is the profile's to decide, never hand-rolled here")
-    (is (not (contains? parsed-elide-off :rf.size/include-sensitive?)))))
+    (is (not (contains? parsed-elide-off :rf.egress/include-sensitive?)))))
 
 ;; ---------------------------------------------------------------------------
 ;; `:include-sensitive?` selects the BOUNDARY `egress-opts-edn` names.
@@ -625,7 +625,7 @@
 ;; `get-path` direct-read surfaces MUST honour the sensitive opt-in.
 ;; EP-0015 §10 frames the two-arity form as named-profile adoption: the
 ;; `include-sensitive?` posture NAMES a `:rf.egress/*` profile
-;; (`off-box-tool` default / `local-raw` opt-in) whose `:rf.size/*` floor
+;; (`off-box-tool` default / `local-raw` opt-in) whose `:rf.egress/*` floor
 ;; the FRAMEWORK resolves app-side; the `include-large?` arg composes on
 ;; top as the §10 explicit override. rf2-kuky.88 deleted the server-side
 ;; resolution, so what is pinned here is the NAME and the overlay — the
@@ -667,4 +667,4 @@
 ;; `egress-opts-edn-names-a-profile-the-framework-door-accepts` test above
 ;; is the LOCAL integration test that this server's `egress-opts-edn` threads
 ;; that mapping (via the gate-produced boolean) through to the correct
-;; `:rf.size/*` floor + `:elision` overlay.
+;; `:rf.egress/*` floor + `:elision` overlay.

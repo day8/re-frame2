@@ -88,7 +88,7 @@
       ;; The deliberate opt-out: include-sensitive? true gets an identity walk
       ;; against the no-frame policy (the single control point).
       (let [out (rf/project-egress {:auth {:token sentinel}}
-                  {:rf.size/include-sensitive? true})]
+                  {:rf.egress/include-sensitive? true})]
         (is (= sentinel (get-in out [:auth :token]))
             "explicit include-sensitive? true is the deliberate frameless opt-out")))))
 
