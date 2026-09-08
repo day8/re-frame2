@@ -3604,8 +3604,7 @@
     ;; :rf.warning/* OPERATION through three syntactic seams, all scanned here:
     ;;   (trace/emit! <op-type> :rf.epoch/OP ...)   — the success emits
     ;;                                                 (snapshotted / outcome
-    ;;                                                 / restored / db-replaced
-    ;;                                                 / the redact-fn warning)
+    ;;                                                 / restored / db-replaced)
     ;;   {:outcome :fail :op :rf.epoch/OP ...}       — the precondition-failure
     ;;                                                 results, emitted by
     ;;                                                 `emit-precondition-failure!`
