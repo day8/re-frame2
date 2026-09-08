@@ -48,6 +48,10 @@
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
+            ;; The core's late-bind hook INVENTORY, read once at load by guard
+            ;; G2 below (rf2-kuky.92) to refuse a core too old to dispatch this
+            ;; artefact's records. Data only — no behaviour, no cycle.
+            [re-frame.late-bind.directory :as rf.late-bind.directory]
             [re-frame.trace :as rf.trace]))
 
 ;; ---- ONE GRAMMAR FOR THE EPOCH RING (rf2-kuky.55, ruled A) -----------------
@@ -754,6 +758,72 @@
   ([record] (rf.epoch.tool-pair/projected-record record))
   ([record opts] (rf.epoch.tool-pair/projected-record record opts)))
 
+(defn ^:no-doc project-record
+  "The per-kind projector `re-frame.projection/project-egress` dispatches a
+  `:kind :rf/epoch-record` record to (rf2-kuky.92). Published under the
+  late-bind hook `:epoch/project-record`; NOT a public name and never
+  called directly — `rf/project-egress` is the one door.
+
+  `opts` is `project-egress`'s own closed vocabulary, already graded, with
+  `:frame` already resolved by the door's three-step rule. See
+  `re-frame.epoch.tool-pair/project-record` for what that implies about the
+  epoch-only axes (they are not door vocabulary and stay fail-closed on
+  this path)."
+  [record opts]
+  (rf.epoch.tool-pair/project-record record opts))
+
+;; ---- GUARD G2: version-skew refusal, at LOAD (rf2-kuky.92) ----------------
+;;
+;; THE VECTOR. `late-bind/set-fns!` is a plain `swap! assoc` — it validates
+;; no key at runtime, and the directory is enforced only by a drift TEST. So
+;; a NEW epoch artefact loaded against an OLD core would register
+;; `:epoch/project-record` against a door that has never heard of it, in
+;; SILENCE. That core's `project-egress` does not carry `:rf/epoch-record`
+;; in its `record-kinds`, so it reads every stamped record as a KINDLESS
+;; VALUE and bare-walks it from `:path []` — a frame's `[:auth :token]`
+;; declaration cannot match `[:db-after :auth :token]`, and declared-
+;; sensitive app-db values ship RAW. G1 lives in the new core and cannot
+;; reach backwards to an old one; this is the half that can.
+;;
+;; THE CHECK is the core's OWN inventory of hook keys, which is the thing
+;; that actually moves between versions — asserted at load, before a single
+;; record can be projected, so the artefact refuses to load against a core
+;; whose door cannot dispatch its records rather than degrading quietly.
+;;
+;; WHY A PLAIN `ex-info` AND NOT `rf.error/throw-error!`: the canonical
+;; builder stamps an `:rf.error/*` category, and every emitted category owes
+;; a Spec 009 §Error event catalogue row with a ruled observability channel
+;; (pinned by `error-catalogue-channel-conformance-test`'s source scan).
+;; This is a LOAD-TIME classpath-compatibility refusal, not a runtime
+;; observability category: it fires while the namespace is still loading, so
+;; no error-emit listener can exist to receive it and neither channel
+;; describes it. It carries its discriminator under `:rf.epoch/load-refusal`
+;; instead, and claims no catalogue row it would not honour.
+(defn ^:no-doc assert-core-dispatches-epoch-records!
+  "Refuse to finish loading against a core whose late-bind directory does
+  not roster `:epoch/project-record`. `hook-key-set` is the core's own
+  inventory (`re-frame.late-bind.directory/hook-keys`), passed in so the
+  skew can be exercised by a unit test without a second core on the
+  classpath. Returns nil when the core is compatible; throws otherwise."
+  [hook-key-set]
+  (when-not (contains? hook-key-set :epoch/project-record)
+    (throw (ex-info
+             (str "day8/re-frame2-epoch requires a re-frame core whose "
+                  "late-bind directory rosters :epoch/project-record — the "
+                  "hook rf/project-egress dispatches a :kind :rf/epoch-record "
+                  "record through. This core does not roster it, so it would "
+                  "read every epoch record as a kindless VALUE and walk it "
+                  "from :path [], shipping declared-sensitive :db-* values "
+                  "RAW. Upgrade day8/re-frame2 to match the epoch artefact.")
+             {:rf.epoch/load-refusal :rf.epoch/core-version-skew
+              :where                 're-frame.epoch
+              :recovery              :no-recovery
+              :hook                  :epoch/project-record
+              :rostered-hook-count   (count hook-key-set)})))
+  nil)
+
+(assert-core-dispatches-epoch-records! (rf.late-bind.directory/hook-keys))
+
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
 ;; The router calls `settle!` after each dequeued event, and trace emission
@@ -825,4 +895,11 @@
    :epoch/clear-epoch-listeners!     clear-epoch-listeners!
 
    ;; ---- off-box egress projection ---------------------------------
-   :epoch/projected-record    projected-record})
+   ;; TWO doors during the rf2-kuky.92 / rf2-bv1p strangler. The arm below
+   ;; is the one `rf/project-egress` dispatches a `:kind :rf/epoch-record`
+   ;; record to; `:epoch/projected-record` is the standalone door
+   ;; `rf/projected-record` still wraps and retires under rf2-bv1p. Both
+   ;; project through the SAME engine (`tool-pair/project-record-slots`),
+   ;; so they cannot drift apart while they coexist.
+   :epoch/projected-record    projected-record
+   :epoch/project-record      project-record})
