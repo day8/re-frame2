@@ -246,6 +246,73 @@
     (is (some? (entry (rf.resources.state/scoped-resource-key
                         [:rf.scope/tenant {:tenant-id "acme"}] :t/notes {}))))))
 
+(deftest two-explicit-scope-subs-keep-distinct-cache-entries
+  ;; rf2-kuky.81 — THE CACHE-WITNESS PATTERN at the suite level. Two live
+  ;; subscriptions over ONE resource with IDENTICAL params, separated only by
+  ;; an explicit `:scope` override on each query, each read their OWN loaded
+  ;; value at the same time.
+  ;;
+  ;; This is the POSITIVE counterpart of `wrong-scope-override-reads-its-own-
+  ;; empty-entry` above. That test pins the fail-closed half — an override
+  ;; addressing an EMPTY key — and is satisfied by a runtime that resolves the
+  ;; override to nothing at all. This one pins the half a collapse would
+  ;; break: two overrides addressing two POPULATED keys, neither borrowing the
+  ;; other's data. Reading two entries DIRECTLY (as
+  ;; `resources_scoped_owner_lifecycle_cljs_test.cljc`'s
+  ;; `acquire-two-scopes-are-independent-owners` does) does not reach this
+  ;; property either — the seam is the sub's own key resolution.
+  ;;
+  ;; The BROWSER witness for the same property already exists and stays:
+  ;; `testbeds/tenant_switcher/core.cljs` (the cache-witness panel) with step 3
+  ;; of its `spec.cjs`, where two explicit queries render two tenants' mottos
+  ;; side by side. This is the focused suite-level regression BESIDE it — it
+  ;; runs in the resources JVM lane and the CLJS node-test lane on every PR,
+  ;; where the testbed's dedicated browser job is path-gated and can be skipped.
+  (ensure-feed! "acme"   1 [:app :acme 1]   {:motto "acme-only"})
+  (ensure-feed! "globex" 1 [:app :globex 1] {:motto "globex-only"})
+  ;; A THIRD tenant is the ambient identity, so NEITHER override coincides with
+  ;; what the `{:from-db :t/tenant}` spec policy resolves to: a read that fell
+  ;; back to the policy would address initech's un-ensured key and go idle, and
+  ;; a read that collapsed both queries onto one key would hand back the same
+  ;; motto twice. Both faults are visible in the assertions below.
+  (rf/dispatch-sync [:t/login "initech"])
+  (let [q-acme    {:resource :t/feed :params {:page 1}
+                   :scope [:rf.scope/tenant {:tenant-id "acme"}]}
+        q-globex  {:resource :t/feed :params {:page 1}
+                   :scope [:rf.scope/tenant {:tenant-id "globex"}]}
+        st-acme   (rf/subscribe [:rf/resource q-acme])
+        st-globex (rf/subscribe [:rf/resource q-globex])
+        d-acme    (rf/subscribe [:rf.resource/data q-acme])
+        d-globex  (rf/subscribe [:rf.resource/data q-globex])
+        db        (rf/app-db-value :rf/default)]
+    (testing "the two overrides resolve DIFFERENT scoped keys — one resource,
+              one params map, so the explicit scope is the only thing that
+              separates them"
+      (is (not= (rf.resources.subs/resolve-scoped-key q-acme   db)
+                (rf.resources.subs/resolve-scoped-key q-globex db))
+          "identical resource + params, two distinct keys")
+      (is (= #{(tenant-key "acme" 1) (tenant-key "globex" 1)} (set (keys (entries))))
+          "both entries are live in the cache at once"))
+    (testing "both subs are live SIMULTANEOUSLY and each reads its own loaded
+              value — the explicit `:scope` override partitions the cache at
+              the READ, so neither sub can ever observe the other's data"
+      (is (= :loaded (:status @st-acme)))
+      (is (= :loaded (:status @st-globex)))
+      (is (= {:motto "acme-only"}   @d-acme))
+      (is (= {:motto "globex-only"} @d-globex))
+      ;; re-deref both, interleaved: neither read displaces the other's value
+      (is (= {:motto "acme-only"}   (:data @st-acme)))
+      (is (= {:motto "globex-only"} (:data @st-globex)))
+      (is (not= @d-acme @d-globex)
+          "two distinct values — not one entry answering both queries"))
+    (testing "the control: the SAME resource + params with NO override falls
+              back to the `{:from-db :t/tenant}` spec policy and reads
+              initech's un-ensured key — proof the two loaded reads above came
+              from the OVERRIDES and not from the ambient policy scope"
+      (let [st-policy (rf/subscribe [:rf/resource {:resource :t/feed :params {:page 1}}])]
+        (is (= :idle (:status @st-policy)))
+        (is (nil? (:data @st-policy)))))))
+
 (deftest nil-resolving-sub-scope-fails-closed-loudly
   ;; A {:from-db} sub whose resolver yields nil (no logged-in viewer) raises
   ;; the sub-side fail-closed diagnostic — never a silent :idle / global /
