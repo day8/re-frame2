@@ -429,17 +429,17 @@
             :realworld/session} (rf2-j538f7.29)"
     ;; the feed is the private, session-scoped read (unchanged).
     (is (= {:from-db :realworld/session}
-           (:scope (rf/resource-meta :realworld/feed)))
+           (:scope (:rf/resource (rf/handler-meta {:source :store :kind :resource :id :realworld/feed}))))
         "the feed resource's scope is the session resolver reference")
     ;; every optional-auth read is now VIEWER-scoped, not global — 'public' is an
     ;; access policy, not a cache-identity proof.
     (doseq [rid [:realworld/articles :realworld/article :realworld/comments
                  :realworld/profile :realworld/author-articles :realworld/favorited-articles]]
-      (is (= {:from-db :realworld/viewer} (:scope (rf/resource-meta rid)))
+      (is (= {:from-db :realworld/viewer} (:scope (:rf/resource (rf/handler-meta {:source :store :kind :resource :id rid}))))
           (str rid " is viewer-scoped (viewer-relative payload)")))
     ;; only the tags sidebar (bare list of strings, no viewer-relative field) is
     ;; the explicit auditable global claim.
-    (is (= :rf.scope/global (:scope (rf/resource-meta :realworld/tags)))
+    (is (= :rf.scope/global (:scope (:rf/resource (rf/handler-meta {:source :store :kind :resource :id :realworld/tags}))))
         "the popular-tags read alone is the truly-invariant global claim")))
 
 (deftest viewer-scope-resolver-distinguishes-anon-authed-and-unresolved

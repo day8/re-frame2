@@ -36,7 +36,7 @@ Scope in this slice is HTTP-only:
   - `metadata` (middle slot): the registration-metadata map. It carries the fail-closed `:scope` policy, `:params-schema`, `:doc`, and so on. A non-map `metadata` raises `:rf.error/resource-bad-spec`.
   - `request-fn` (third slot): returns the [managed-HTTP args map](re-frame.http.md).
   - Validates the reconstructed spec (`:scope` first, then `:params-schema`), then writes a `:resource`-kind registrar entry.
-  - The introspection spec stored for `resource-meta` reconstructs `:request` onto the metadata map.
+  - The introspection spec stored under `:rf/resource` reconstructs `:request` onto the metadata map.
 
 #### The resource spec
 
@@ -74,7 +74,7 @@ These three (`:params-schema`, `:scope`, request fn) are the registration gate. 
 **Optional keys**:
 
 - `:doc`
-- `:data-schema` — an optional static declaration of the decoded-data shape, surfaced to tooling (the resource's `:schema` fact) and `resource-meta`. It does not validate at runtime (runtime shape-validation rides the request's `:decode`) and is not enforced by the gate.
+- `:data-schema` — an optional static declaration of the decoded-data shape, surfaced to tooling (the resource's `:schema` fact) and the `:rf/resource` registration projection. It does not validate at runtime (runtime shape-validation rides the request's `:decode`) and is not enforced by the gate.
 - `:transport` — initial scope: `:rf.http/managed`.
 - `:stale-after-ms`, `:gc-after-ms`
 - `:poll-interval-ms` — the active-owner poll interval. See [Polling](#polling).
@@ -137,7 +137,7 @@ A mutation is the causal-WRITE counterpart of a resource: a named write to remot
   - `request-fn` (third slot): the [managed-HTTP write](re-frame.http.md).
   - Validates the reconstructed spec and writes a `:mutation`-kind registrar entry.
   - An app that omits the resources artefact sees the wrapper throw `:rf.error/resources-artefact-missing`.
-  - The introspection spec stored for `mutation-meta` reconstructs `:request` onto the metadata map.
+  - The introspection spec stored under `:rf/mutation` reconstructs `:request` onto the metadata map.
 
 ```clojure
 (rf/reg-mutation :article/save
@@ -274,33 +274,20 @@ A resource (or payload, or route) references a named resolver as `{:from-db <sco
        :fx [[:dispatch [:rf.resource/clear-scope {:scope old :cause :logout}]]]})))
 ```
 
-### `scope-resolver-meta`
+### Reading the resolver registry
 
-- **Kind**: function (post-v1 lib; `re-frame.resources` façade only — not on `re-frame.core`)
-- **Signature**:
-  ```clojure
-  (re-frame.resources/scope-resolver-meta scope-id) → spec-map or nil
-  ```
-- **Description**: The registered resolver's canonical spec map (`:inputs`, `:resolve`, `:whole-db?`, `:doc`) for `scope-id`, or nil if none is registered. The introspection counterpart of `resource-meta` / `mutation-meta`. `:whole-db?` is DERIVED, not authored: true iff some declared input targets the root path (`{:inputs {:db [:db []]}}`).
+There is no `scope-resolver-meta` / `scope-resolver-ids` accessor (rf2-kuky.31). The `:resource-scope` registrar kind is read the way every kind is — the generic registrar query plus the documented `:rf/resource-scope` inner-key projection:
 
 ```clojure
-(re-frame.resources/scope-resolver-meta :realworld/session)
+(keys (rf/registrations {:source :store :kind :resource-scope}))
+;; => (:realworld/session)
+
+(:rf/resource-scope (rf/handler-meta {:source :store :kind :resource-scope
+                                      :id     :realworld/session}))
 ;; => {:inputs {:username [:db [:auth :user :username]]} :resolve #fn :whole-db? false :doc nil}
 ```
 
-### `scope-resolver-ids`
-
-- **Kind**: function (post-v1 lib; `re-frame.resources` façade only — not on `re-frame.core`)
-- **Signature**:
-  ```clojure
-  (re-frame.resources/scope-resolver-ids) → [scope-id …]
-  ```
-- **Description**: A vector of every registered resource-scope resolver id (the static resolver registry).
-
-```clojure
-(re-frame.resources/scope-resolver-ids)
-;; => [:realworld/session]
-```
+The projected map is the resolver's canonical spec (`:inputs`, `:resolve`, `:whole-db?`, `:doc`), or nil if none is registered. `:whole-db?` is DERIVED, not authored: true iff some declared input targets the root path (`{:inputs {:db [:db []]}}`).
 
 ## Revalidation is a frame property
 
@@ -397,7 +384,7 @@ A view reads the merged list and dispatches the causal `[:rf.resource/load-more 
 
 These direct functions are the tool/test projection lane, not an app-read API:
 
-- `resource-meta` / `mutation-meta` project the **registration** (the registered spec), and `rf/registrations` enumerates the registry.
+- The generic registrar query plus an inner-key projection reads the **registration** (the registered spec), and `rf/registrations` enumerates the registry. There is no `resource-meta` / `mutation-meta` accessor (rf2-kuky.31).
 - `resource-state` / `mutation-state` project **runtime state** (one live entry, one live instance) as a one-shot, non-reactive snapshot at an explicit frame; the **whole** live table is the reserved runtime-db path read off `rf/frame-state-value` ([§Enumerating the whole live table](#enumerating-the-whole-live-table)).
 
 There is no bundled read returning both the registry and the live table: `resources` and `mutations` were deleted by rf2-kuky.85, and the three reads below are the replacement.
@@ -406,18 +393,15 @@ They serve Xray, unit tests, and SSR serialization — contexts with no reactive
 
 `:frame` is an explicit, app-registered frame id ([EP-0002](../EP/EP-0002-frame-target-resolution.md)). There is no ambient `:rf/default` fallback; a frameless call with no resolvable context fails closed.
 
-### `resource-meta`
+### Reading a registered resource's spec
 
-- **Kind**: function (post-v1 lib)
-- **Signature**:
-  ```clojure
-  (resource-meta resource-id) → spec-map or nil
-  ```
-- **Description**: The registered resource's spec (`:params-schema`, `:data-schema`, `:request`, `:scope`, `:transport`, `:stale-after-ms`, `:gc-after-ms`, `:poll-interval-ms`, `:tags`, `:doc`, source coords).
+- **Kind**: the generic registrar query plus the `:rf/resource` inner-key projection — there is no `resource-meta` accessor (rf2-kuky.31), and this read needs no artefact.
+- **Returns**: the registered resource's spec (`:params-schema`, `:data-schema`, `:request`, `:scope`, `:transport`, `:stale-after-ms`, `:gc-after-ms`, `:poll-interval-ms`, `:tags`, `:doc`, source coords), or nil.
 
 ```clojure
 ;; tool/test lane: read a registered resource's spec back
-(rf/resource-meta :article/by-slug)
+(:rf/resource (rf/handler-meta {:source :store :kind :resource
+                                :id     :article/by-slug}))
 ;; => {:scope :rf.scope/global :params-schema [...] :request #fn ... :doc "…"}
 ```
 
@@ -442,31 +426,23 @@ They serve Xray, unit tests, and SSR serialization — contexts with no reactive
 ;; => entry map, or nil when no entry exists
 ```
 
-### `resource-ids`
+### Enumerating registered resource ids
 
-- **Kind**: function (post-v1 lib; `re-frame.resources` façade only — not on `re-frame.core`)
-- **Signature**:
-  ```clojure
-  (re-frame.resources/resource-ids) → [resource-id …]
-  ```
-- **Description**: A vector of every registered resource id — the same set `(rf/registrations {:source :store :kind :resource})` enumerates.
+There is no `resource-ids` accessor (rf2-kuky.31) — it is `keys` over the generic registry read:
 
 ```clojure
-(re-frame.resources/resource-ids)
-;; => [:article/by-slug :feed/timeline]
+(keys (rf/registrations {:source :store :kind :resource}))
+;; => (:article/by-slug :feed/timeline)
 ```
 
-### `mutation-meta`
+### Reading a registered mutation's spec
 
-- **Kind**: function (post-v1 lib)
-- **Signature**:
-  ```clojure
-  (mutation-meta mutation-id) → spec-map or nil
-  ```
-- **Description**: The registered mutation's spec map (`:request`, `:params-schema`, `:invalidates`, `:patches`, `:populates`, `:removes`, `:optimistic`, `:optimistic-tags`, `:on-conflict`, `:scope`, `:invalidate-timing`, `:transport`, `:doc`, source coords), or nil.
+- **Kind**: the generic registrar query plus the `:rf/mutation` inner-key projection — there is no `mutation-meta` accessor (rf2-kuky.31).
+- **Returns**: the registered mutation's spec map (`:request`, `:params-schema`, `:invalidates`, `:patches`, `:populates`, `:removes`, `:optimistic`, `:optimistic-tags`, `:on-conflict`, `:scope`, `:invalidate-timing`, `:transport`, `:doc`, source coords), or nil.
 
 ```clojure
-(rf/mutation-meta :article/save)
+(:rf/mutation (rf/handler-meta {:source :store :kind :mutation
+                                :id     :article/save}))
 ;; => {:request #fn ... :params-schema :app/article :invalidates #fn ... :scope :rf.scope/global …}
 ```
 
@@ -488,18 +464,13 @@ They serve Xray, unit tests, and SSR serialization — contexts with no reactive
 ;; => {:status … :result … :error …}, or nil
 ```
 
-### `mutation-ids`
+### Enumerating registered mutation ids
 
-- **Kind**: function (post-v1 lib; `re-frame.resources` façade only — not on `re-frame.core`)
-- **Signature**:
-  ```clojure
-  (re-frame.resources/mutation-ids) → [mutation-id …]
-  ```
-- **Description**: A vector of every registered mutation id — the same set `(rf/registrations {:source :store :kind :mutation})` enumerates.
+There is no `mutation-ids` accessor (rf2-kuky.31) — it is `keys` over the generic registry read:
 
 ```clojure
-(re-frame.resources/mutation-ids)
-;; => [:article/save]
+(keys (rf/registrations {:source :store :kind :mutation}))
+;; => (:article/save)
 ```
 
 ### Enumerating the whole live table

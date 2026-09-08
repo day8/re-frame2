@@ -92,8 +92,12 @@
 ;; rf2-kuky.80: no public `clear-resource` re-export here — the registrar inverse
 ;; is the one kind-keyed `(rf/clear :resource id)`. The registry fn below stays as
 ;; the late-bind hook target.
-(def resource-meta   rf.resources.registry/resource-meta)
-(def resource-ids    rf.resources.registry/resource-ids)
+;; rf2-kuky.31: no `resource-meta` / `resource-ids` re-exports here. The
+;; registrar grammar every tool already speaks IS the introspection surface:
+;;   (keys (rf/registrations {:source :store :kind :resource}))
+;;   (:rf/resource (rf/handler-meta {:source :store :kind :resource :id id}))
+;; `rf.resources.registry/resource-meta` survives as the artefact's own
+;; shorthand for that projection; it is not a public name.
 
 ;; Derivation/process algebra views of
 ;; registered resources (`resource-algebra-view`, static) and of a frame's
@@ -120,8 +124,10 @@
 ;; rf2-kuky.80: no public `clear-mutation` re-export here — the registrar inverse
 ;; is the one kind-keyed `(rf/clear :mutation id)`. The registry fn below stays as
 ;; the late-bind hook target.
-(def mutation-meta   rf.resources.mutation-registry/mutation-meta)
-(def mutation-ids    rf.resources.mutation-registry/mutation-ids)
+;; rf2-kuky.31: no `mutation-meta` / `mutation-ids` re-exports here — the
+;; generic registrar read plus the `:rf/mutation` inner-key projection:
+;;   (keys (rf/registrations {:source :store :kind :mutation}))
+;;   (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id id}))
 
 ;; Named resource-scope resolvers (Spec 016 §Named resource-scope resolvers).
 ;; `reg-resource-scope`
@@ -140,8 +146,9 @@
 ;; is the one kind-keyed `(rf/clear :resource-scope id)`. The registry fn below stays as
 ;; the late-bind hook target.
 (def resolve-resource-scope rf.resources.scope-registry/resolve-resource-scope)
-(def scope-resolver-meta    rf.resources.scope-registry/scope-resolver-meta)
-(def scope-resolver-ids     rf.resources.scope-registry/scope-resolver-ids)
+;; rf2-kuky.31: no `scope-resolver-meta` / `scope-resolver-ids` re-exports —
+;;   (keys (rf/registrations {:source :store :kind :resource-scope}))
+;;   (:rf/resource-scope (rf/handler-meta {:source :store :kind :resource-scope :id id}))
 
 (defn resource-state
   "Return a resource instance's durable runtime ENTRY for an explicit
@@ -662,15 +669,16 @@
 (rf.late-bind/set-fns!
   {:resources/reg-resource   reg-resource
    :resources/clear-resource rf.resources.registry/clear-resource
-   :resources/resource-meta  resource-meta
    :resources/resource-state resource-state
    ;; Mutation registration + introspection, published through the same
    ;; late-bind table so `re-frame.core`'s `reg-mutation` / `clear-mutation`
-   ;; / `mutation-meta` / `mutation-state` wrappers reach the
-   ;; producing impl without a static :require.
+   ;; / `mutation-state` wrappers reach the producing impl without a
+   ;; static :require. There are no `:resources/resource-meta` /
+   ;; `:resources/mutation-meta` hooks (rf2-kuky.31): the registered spec is
+   ;; read through the generic `rf/handler-meta` plus the `:rf/resource` /
+   ;; `:rf/mutation` inner-key projection, which needs no artefact at all.
    :resources/reg-mutation   reg-mutation
    :resources/clear-mutation rf.resources.mutation-registry/clear-mutation
-   :resources/mutation-meta  mutation-meta
    :resources/mutation-state mutation-state
    ;; Named resource-scope resolvers, published through the same late-bind
    ;; table so

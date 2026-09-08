@@ -1426,23 +1426,23 @@ Resources are an optional capability (cached server-state reads plus mutations) 
 - **Signature**: `(resolve-resource-scope db scope-id)`
 - Resolver helper: resolve the named resource-scope resolver against `db`. Full contract in [re-frame.resources.md](re-frame.resources.md).
 
-#### `resource-meta`
-
-- **Kind**: function
-- **Signature**: `(resource-meta resource-id) → spec-map or nil`
-- Tool/test lane: project the registered resource's spec (`:params-schema`, `:request`, `:scope`, `:stale-after-ms`, `:tags`, source coords). Full contract in [re-frame.resources.md](re-frame.resources.md).
-
 #### `resource-state`
 
 - **Kind**: function
 - **Signature**: `(resource-state {:resource … :scope … :params … :frame …}) → entry or nil`
 - Tool/test lane: a resource instance's durable runtime entry at an explicit frame (resolves the scoped key as a subscription would). Full contract in [re-frame.resources.md](re-frame.resources.md).
 
-#### `mutation-meta`
+#### Reading a registered resource's or mutation's spec
 
-- **Kind**: function
-- **Signature**: `(mutation-meta mutation-id) → spec-map or nil`
-- Tool/test lane: the registered mutation's spec (`:request`, `:params-schema`, `:invalidates`, `:patches`, `:populates`, `:scope`, source coords). Full contract in [re-frame.resources.md](re-frame.resources.md).
+There is no `resource-meta` / `mutation-meta` export (rf2-kuky.31). A registration's spec is the generic
+registrar query plus the documented inner-key projection, which needs no artefact:
+
+```clojure
+(:rf/resource (rf/handler-meta {:source :store :kind :resource :id :article/by-slug}))
+(:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id :article/save}))
+```
+
+Full contract in [re-frame.resources.md](re-frame.resources.md).
 
 #### `mutation-state`
 

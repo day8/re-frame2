@@ -976,16 +976,15 @@
   ;; that omits the artefact sees a clean
   ;; `:rf.error/resources-artefact-missing`. Registration (`reg-resource`)
   ;; + registration-lifecycle (`clear-resource`) + introspection
-  ;; (`resource-meta` / `resource-state` / `resources`). The producing
+  ;; (`resource-state`; the registered SPEC has no accessor — rf2-kuky.31
+  ;; retired `resource-meta` for the generic `rf/handler-meta` query plus the
+  ;; documented `:rf/resource` inner-key projection). The producing
   ;; `re-frame.resources` namespace is not yet introspected by the
   ;; generator (its runtime surface lands with the later slices); these
   ;; façade rows govern the public wrappers that ship now.
   ["re-frame.core" "reg-resource"]        {:tier :advanced :owner "016" :status "v1 (optional capability)"
                                           :action :keep
                                           :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. Resource registration is the everyday half of the Spec 016 surface."}
-  ["re-frame.core" "resource-meta"]       {:tier :advanced :owner "016" :status "v1 (optional capability)"
-                                          :action :keep
-                                          :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. A registrar read that accompanies reg-resource."}
   ["re-frame.core" "resource-state"]      {:tier :advanced :owner "016" :status "v1 (optional capability)"
                                           :action :keep
                                           :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. A live-state read that accompanies reg-resource."}
@@ -995,13 +994,11 @@
   ;; reg-resource (delegate through the late-bind table; clean
   ;; :rf.error/resources-artefact-missing when the artefact is absent).
   ;; Registration (`reg-mutation`) + registration-lifecycle (`clear-mutation`)
-  ;; + introspection (`mutation-meta` / `mutation-state`).
+  ;; + introspection (`mutation-state`; the registered SPEC is the generic
+  ;; query plus the `:rf/mutation` projection — rf2-kuky.31).
   ["re-frame.core" "reg-mutation"]        {:tier :advanced :owner "016" :status "v1 (optional capability)"
                                           :action :keep
                                           :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. Mutations are the causal-write counterpart of the resource registration surface (Spec 016, EP-0003 Mutations) and share its wrapper posture exactly."}
-  ["re-frame.core" "mutation-meta"]       {:tier :advanced :owner "016" :status "v1 (optional capability)"
-                                          :action :keep
-                                          :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. A registrar read that accompanies reg-mutation."}
   ["re-frame.core" "mutation-state"]      {:tier :advanced :owner "016" :status "v1 (optional capability)"
                                           :action :keep
                                           :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. A live-state read that accompanies reg-mutation."}
@@ -1669,13 +1666,12 @@
   ;; =========================================================================
   ["re-frame.routing" "match-url"]              {:tier :advanced :owner "012" :status "v1"}
   ["re-frame.routing" "route-url"]              {:tier :advanced :owner "012" :status "v1"}
-  ;; Static-registry introspection accessors (rf2-9x8q1c) — the
-  ;; `<thing>-ids`/`<thing>-meta` enumerate pair every sibling registry
-  ;; carries (`resource-ids`/`resource-meta`, machines `machines`/
-  ;; `machine-meta`). Tooling tier like the sibling `machine-meta` +
-  ;; `route-algebra-view`. Owned-ns surface only (no re-frame.core export).
-  ["re-frame.routing" "route-ids"]              {:tier :tooling :owner "012" :status "v1"}
-  ["re-frame.routing" "route-meta"]             {:tier :tooling :owner "012" :status "v1"}
+  ;; rf2-kuky.31 retired the `route-ids` / `route-meta` static-registry
+  ;; accessors (rf2-9x8q1c) along with every sibling `<kind>-ids` /
+  ;; `<kind>-meta` pair. Routing introspection is the generic registrar
+  ;; grammar — `(keys (rf/registrations {:source :store :kind :route}))` and
+  ;; `(rf/handler-meta {:source :store :kind :route :id id})` — so there is
+  ;; no row here to carry.
   ;; rf2-aerrz5: the two shipped frame-level `:url-strategy` maps —
   ;; `history-url-strategy` (default, path-form) + `hash-url-strategy`
   ;; (`#`-prefixed). Declared on the URL-owning frame's `make-frame` config so
@@ -1763,10 +1759,11 @@
   ;; rows and `doc_api_check` gave `docs/api/re-frame.resources.md` no coverage
   ;; at all. The vars themselves are not new and nothing about them was ever
   ;; unintrospectable: `day8/re-frame2-resources` was already on the
-  ;; generator's classpath. Note the `route-ids` / `route-meta` comment in the
-  ;; routing block ABOVE, which cites `resource-ids`/`resource-meta` as the
-  ;; sibling enumerate pair — written against rows that did not exist. That is
-  ;; the trap this omission set: the manifest reads as an existence authority.
+  ;; generator's classpath. (The routing block ABOVE once cited
+  ;; `resource-ids`/`resource-meta` as the sibling enumerate pair — written
+  ;; against rows that did not exist. That is the trap this omission set: the
+  ;; manifest reads as an existence authority. rf2-kuky.31 has since retired
+  ;; the whole family, so neither side of that citation survives.)
   ;;
   ;; TIERING RULE APPLIED HERE, stated so the next reader is not guessing.
   ;;   (a) Where a `re-frame.core` facade row already exists, the home-ns row
@@ -1777,10 +1774,15 @@
   ;;       facade door and something else through its home door. All fifteen
   ;;       are `:advanced :owner "016" :status "v1 (optional capability)"` on
   ;;       the facade, so they are that here.
-  ;;   (b) The registry-enumerate accessors with NO facade export are
-  ;;       `:tooling`, per the explicit `route-ids` / `route-meta` precedent
-  ;;       (and the sibling `machines` / `machine-meta`, `flows-snapshot` /
-  ;;       `flow-meta-at`).
+  ;;   (b) rf2-kuky.31 retired every per-kind `<kind>-ids` / `<kind>-meta`
+  ;;       accessor here — enumeration is
+  ;;       `(keys (rf/registrations {:source :store :kind k}))` and a
+  ;;       registered spec is the documented inner-key projection off
+  ;;       `rf/handler-meta` (`:rf/resource`, `:rf/mutation`,
+  ;;       `:rf/resource-scope`). `resource-meta` / `mutation-meta` survive
+  ;;       ARTEFACT-INTERNALLY in `re-frame.resources.registry` /
+  ;;       `re-frame.resources.mutation-registry`, which the generator does
+  ;;       not introspect, so they carry no row.
   ;;   (c) The two algebra views are `:tooling` with no facade export —
   ;;       `#?(:clj ...)`-gated JVM aliases of the bundle-isolated
   ;;       `re-frame.resources.tooling` sibling, so a CLJS app that loads
@@ -1790,11 +1792,9 @@
   ;; =========================================================================
   ;; (a) Facade-mirrored — resources.
   ["re-frame.resources" "reg-resource"]         {:tier :advanced :owner "016" :status "v1 (optional capability)"}
-  ["re-frame.resources" "resource-meta"]        {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ["re-frame.resources" "resource-state"]       {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ;; (a) Facade-mirrored — mutations (Spec 016 §Mutations).
   ["re-frame.resources" "reg-mutation"]         {:tier :advanced :owner "016" :status "v1 (optional capability)"}
-  ["re-frame.resources" "mutation-meta"]        {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ["re-frame.resources" "mutation-state"]       {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ;; (a) Facade-mirrored — named resource-scope resolvers (Spec 016 §Named
   ;; resource-scope resolvers). `resolve-resource-scope` is PURE over the
@@ -1803,11 +1803,6 @@
   ;; `:rf.resource/scope-resolved` trace.
   ["re-frame.resources" "reg-resource-scope"]   {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ["re-frame.resources" "resolve-resource-scope"] {:tier :advanced :owner "016" :status "v1 (optional capability)"}
-  ;; (b) Registry-enumerate accessors, owned-ns surface only.
-  ["re-frame.resources" "resource-ids"]         {:tier :tooling :owner "016" :status "v1 (optional capability)"}
-  ["re-frame.resources" "mutation-ids"]         {:tier :tooling :owner "016" :status "v1 (optional capability)"}
-  ["re-frame.resources" "scope-resolver-ids"]   {:tier :tooling :owner "016" :status "v1 (optional capability)"}
-  ["re-frame.resources" "scope-resolver-meta"]  {:tier :tooling :owner "016" :status "v1 (optional capability)"}
   ;; (c) Algebra views — a resource is the canonical PROCESS member of the
   ;; algebra (Derivations §Process). Static registry view + live per-frame
   ;; cache-entry view.

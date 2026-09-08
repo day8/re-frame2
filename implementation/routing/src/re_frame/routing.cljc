@@ -82,10 +82,10 @@
 (def malformed-url?             rf.routing.registry/malformed-url?)
 (def reset-counters!            rf.routing.registry/reset-counters!)
 
-;; Static-registry introspection. These are owned-namespace operations and
-;; are not re-exported from `re-frame.core`.
-(def route-ids                  rf.routing.registry/route-ids)
-(def route-meta                 rf.routing.registry/route-meta)
+;; rf2-kuky.31: no `route-ids` / `route-meta` re-exports here — static-registry
+;; introspection is the generic registrar grammar,
+;; `(keys (rf/registrations {:source :store :kind :route}))` and
+;; `(rf/handler-meta {:source :store :kind :route :id id})`.
 
 ;; EP-0037 R0 — the shared RouteAddress extraction law
 ;; (`re-frame.routing.address`) and the one resolved-target / route-plan seam

@@ -672,23 +672,26 @@
   resource-id)
 
 ;; ---- registry-side introspection -----------------------------------------
+;; ARTEFACT-INTERNAL (rf2-kuky.31). `resource-meta` has no `re-frame.resources`
+;; or `re-frame.core` re-export: it is the artefact's own shorthand for the
+;; one documented projection, which outside callers spell in full —
+;;   (:rf/resource (rf/handler-meta {:source :store :kind :resource :id id}))
+;; — and there is no `resource-ids` at all, that being
+;;   (keys (rf/registrations {:source :store :kind :resource})).
+;; It stays public in THIS namespace because the artefact's events / subs /
+;; ssr / egress siblings read their own spec slot through it.
 
 (defn resource-meta
   "Return the registered resource's spec map (`:params-schema`,
   `:data-schema`, `:request`, `:scope`, `:transport`, `:stale-after-ms`,
   `:gc-after-ms`, `:poll-interval-ms`, `:tags`, `:doc`, source coords) for
-  `resource-id`, or nil if no resource is registered under that id. Per Spec
+  `resource-id`, or nil if no resource is registered under that id.
+
+  Artefact-internal — the `:rf/resource` inner-key projection off the
+  generic registrar lookup, which is the public spelling. Per Spec
   016 §Introspection."
   [resource-id]
   (:rf/resource (rf.registrar/lookup resource-kind resource-id)))
-
-(defn resource-ids
-  "Return a vector of every registered resource id. The registry-side
-  half of `resources` (the runtime-side per-frame instance table lives in
-  the runtime). Per Spec 016 §Xray and AI tooling (the static
-  resource registry)."
-  []
-  (vec (rf.registrar/ids resource-kind)))
 
 (defn require-resource-spec!
   "Look the resource spec up by `resource-id`, throwing

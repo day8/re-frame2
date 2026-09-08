@@ -152,7 +152,7 @@
             `:rf.error/resource-scope-unresolved-reference`, never a silent
             global read"
     ;; no logged-in user — the resolver's :inputs are absent against `{}`
-    (let [spec (rf/resource-meta :t/feed)]
+    (let [spec (:rf/resource (rf/handler-meta {:source :store :kind :resource :id :t/feed}))]
       (is (thrown-with-msg?
             #?(:clj Throwable :cljs js/Error) #"resource-scope-unresolved-reference"
             (rf.resources.registry/resolve-scope-for-event

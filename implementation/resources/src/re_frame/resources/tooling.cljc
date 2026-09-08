@@ -26,7 +26,7 @@
   `re-frame.resources.registry`) NOR the resource events / mutation
   write-path (`re-frame.resources.events`).
   The STATIC view reads the `:resource` registry through the existing
-  `resource-meta` / `resource-ids` introspection seams; the LIVE view reads
+  `rf.registrar/lookup` / `rf.registrar/ids` registry seams; the LIVE view reads
   the per-frame `:rf.runtime/resources` entries + `:rf.runtime/work-ledger`
   records through the existing `rf.frame/frame-runtime-db-value` read seam (the
   same seam the SSR drain read uses).
@@ -205,7 +205,8 @@
   reference rather than an inline function, the static graph reports the
   RESOLVER ID and its DECLARED INPUTS even while the params stay generic —
   because the resolver's inputs are declared, not executed. Read READ-ONLY
-  through `rf.resources.scope-registry/scope-resolver-meta` (the resolver inputs as
+  through the `:resource-scope` registrar entry's `:rf/resource-scope`
+  projection (the resolver inputs as
   `[:db <rf-path>]` descriptors). Returns the `:scope-resolver` map, or nil
   when the scope is not a `{:from-db …}` reference (or the resolver is not
   registered — a registration-time forward reference; the static graph then
@@ -214,7 +215,9 @@
   (let [scope (:scope spec)]
     (when (rf.resources.scope-registry/from-db-reference? scope)
       (let [scope-id (:from-db scope)
-            rmeta    (rf.resources.scope-registry/scope-resolver-meta scope-id)]
+            rmeta    (:rf/resource-scope
+                       (rf.registrar/lookup
+                         rf.resources.scope-registry/scope-kind scope-id))]
         (cond-> {:id scope-id}
           (some? rmeta)
           ;; the resolver's declared inputs are static facts — each stored
@@ -280,7 +283,7 @@
   nodes, [Spec-Schemas §`:rf/derivation-node`]).
 
   Pure data over the `:resource` registry — read READ-ONLY through the
-  existing `resource-meta` / `resource-ids` introspection seams, never
+  existing `rf.registrar/lookup` / `rf.registrar/ids` registry seams, never
   touching the registrar write-path (`reg-resource` / `clear-resource`) or
   the resource events / mutation write-path. The algebra-view companion to
   `resources`: where `resources` returns `{:resource-ids […] :entries {…}}`,
@@ -346,7 +349,7 @@
          (cond-> acc
            (some? spec) (assoc resource-id (static-node-for resource-id spec slot)))))
      {}
-     (rf.resources.registry/resource-ids)))
+     (rf.registrar/ids rf.resources.registry/resource-kind)))
   ([resource-id]
    (let [slot (rf.registrar/lookup rf.resources.registry/resource-kind resource-id)
          spec (:rf/resource slot)]

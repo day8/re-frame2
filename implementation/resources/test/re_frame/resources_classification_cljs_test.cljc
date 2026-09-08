@@ -295,7 +295,7 @@
           proj (rf.resources.ssr/project-resources-runtime-db rdb)
           m    (only-projection-metadata rdb)]
       (is (= :redact (rf.resources.classification/whole-entry-disposition
-                       (rf/resource-meta :secret/thing)))
+                       (:rf/resource (rf/handler-meta {:source :store :kind :resource :id :secret/thing}))))
           "premise: the coarse claim still classifies :redact")
       (is (empty? (get-in proj [rf.resources.state/resources-key :entries]))
           (str "the row does not ride: " (pr-str proj)))
@@ -315,7 +315,7 @@
           proj (rf.resources.ssr/project-resources-runtime-db rdb)
           m    (only-projection-metadata rdb)]
       (is (= :omit (rf.resources.classification/whole-entry-disposition
-                     (rf/resource-meta :big/thing)))
+                     (:rf/resource (rf/handler-meta {:source :store :kind :resource :id :big/thing}))))
           "premise: the coarse claim still classifies :omit")
       (is (empty? (get-in proj [rf.resources.state/resources-key :entries]))
           "the row does not ride, so the large payload cannot")
@@ -362,7 +362,7 @@
                       :data {:pan "4111-1111-1111-1111" :name "Alice"}})
           [_ we] (only-wire-entry (ssr-project :rcfg/owner-data (runtime-db-with {k e})))]
       (is (= :serialize (rf.resources.classification/whole-entry-disposition
-                          (rf/resource-meta :profile/card)))
+                          (:rf/resource (rf/handler-meta {:source :store :kind :resource :id :profile/card}))))
           "no coarse claim → :serialize (the per-slot mark is the fine-grained surface)")
       (is (= rf.privacy/redacted-sentinel (get-in we [:data :pan]))
           "the owner-declared :pan slot is redacted on the serialized entry")
@@ -403,7 +403,7 @@
           rdb (runtime-db-with {k e})
           wk  (ssr-projected-key :rcfg/owner-params rdb)]
       (is (= :serialize (rf.resources.classification/whole-entry-disposition
-                          (rf/resource-meta :report/by-account)))
+                          (:rf/resource (rf/handler-meta {:source :store :kind :resource :id :report/by-account}))))
           "no coarse claim → :serialize (the per-slot params mark is the surface)")
       (is (= :report/by-account (nth wk 1)) "resource-id preserved (position 1)")
       (is (= rf.privacy/redacted-sentinel (get-in wk [2 :account-id]))
@@ -462,7 +462,7 @@
           [_ we] (only-wire-entry (ssr-project :rcfg/infinite (runtime-db-with {k e})))
           pages  (:data we)]
       (is (= :serialize (rf.resources.classification/whole-entry-disposition
-                          (rf/resource-meta :feed/timeline)))
+                          (:rf/resource (rf/handler-meta {:source :store :kind :resource :id :feed/timeline}))))
           "no coarse claim → :serialize")
       (is (vector? pages) "the page-vector shape is preserved on the wire")
       (is (= 2 (count pages)) "every accumulated page rides")

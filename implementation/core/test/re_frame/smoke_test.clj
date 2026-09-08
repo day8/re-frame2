@@ -950,6 +950,33 @@
         (is (nil? (ns-resolve 're-frame.machines 'machine-meta))
             "re-frame.machines/machine-meta must not be re-introduced")))))
 
+(deftest retired-per-kind-registry-aliases-are-absent
+  ;; rf2-kuky.31. Every per-kind `<kind>-ids` / `<kind>-meta` accessor is a
+  ;; second encoding of the one registrar grammar every tool already speaks:
+  ;;   (keys (rf/registrations {:source :store :kind k}))
+  ;;   (rf/handler-meta {:source :store :kind k :id id})
+  ;; plus, for the kinds that nest their spec, the documented inner-key
+  ;; projection (`:rf/resource`, `:rf/mutation`, `:rf/resource-scope`,
+  ;; `:rf/machine`). This deftest is the pin that stops one growing back.
+  (require 're-frame.resources)
+  (testing "re-frame.routing publishes no route-ids / route-meta"
+    (doseq [sym '[route-ids route-meta]]
+      (is (nil? (ns-resolve 're-frame.routing sym))
+          (str "re-frame.routing/" sym " must not be re-introduced"))))
+  (testing "re-frame.resources publishes no per-kind ids / meta accessors"
+    (doseq [sym '[resource-ids resource-meta mutation-ids mutation-meta
+                  scope-resolver-ids scope-resolver-meta]]
+      (is (nil? (ns-resolve 're-frame.resources sym))
+          (str "re-frame.resources/" sym " must not be re-introduced"))))
+  (testing "re-frame.core publishes no resource-meta / mutation-meta"
+    (doseq [sym '[resource-meta mutation-meta]]
+      (is (nil? (ns-resolve 're-frame.core sym))
+          (str "re-frame.core/" sym " must not be re-introduced"))))
+  (testing "resource-meta / mutation-meta survive ARTEFACT-INTERNALLY, so the
+            resources runtime keeps its own shorthand for the projection"
+    (is (some? (ns-resolve 're-frame.resources.registry 'resource-meta)))
+    (is (some? (ns-resolve 're-frame.resources.mutation-registry 'mutation-meta)))))
+
 ;; ssr-with-fx-override and ssr-end-to-end moved to the ssr artefact's
 ;; ssr_end_to_end_test.clj (rf2-zqar3 cohort split — co-located with the
 ;; rest of the SSR request-lifecycle coverage).

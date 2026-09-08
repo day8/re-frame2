@@ -1637,11 +1637,10 @@
 ;; through the late-bind table and throws `:rf.error/resources-artefact-missing`
 ;; when the artefact is absent. Per Spec 016 §Public API.
 
-(def ^{:doc "Return the registered resource's spec map (`:params-schema`,
-  `:data-schema`, `:request`, `:scope`, `:transport`, `:stale-after-ms`,
-  `:gc-after-ms`, `:tags`, `:doc`), or `nil`. Per Spec 016 §Introspection.
-  Implementation ships in `day8/re-frame2-resources`."}
-  resource-meta   rf.core-resources/resource-meta)
+;; rf2-kuky.31: no `resource-meta` export. A resource's registered spec is
+;; the generic registrar read plus the documented `:rf/resource` inner-key
+;; projection, which needs no artefact and no per-kind alias:
+;;   (:rf/resource (rf/handler-meta {:source :store :kind :resource :id id}))
 
 (def ^{:doc "Return a resource instance's runtime state for an
   explicit-frame target `{:resource :scope :params :frame}`. Per EP-0002
@@ -1653,11 +1652,8 @@
 ;; `reg-mutation` is a macro (above, for source-coord capture) + a CLJS
 ;; fn-alias; the non-registration surface is plain re-exports below.
 
-(def ^{:doc "Return the registered mutation's spec map (`:request`,
-  `:params-schema`, `:invalidates`, `:patches`, `:populates`, `:scope`,
-  `:invalidate-timing`, `:transport`, `:doc`), or `nil`. Per EP-0003
-  §Mutations. Implementation ships in `day8/re-frame2-resources`."}
-  mutation-meta   rf.core-resources/mutation-meta)
+;; rf2-kuky.31: no `mutation-meta` export either —
+;;   (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id id}))
 
 (def ^{:doc "Return a mutation INSTANCE's durable runtime row (`{:status
   :result :error …}`) for an explicit-frame target `{:instance :frame}`, or
