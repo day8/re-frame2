@@ -99,6 +99,59 @@
         (is (= :use-a-recognised-egress-opts-key (:recovery d))
             "a plain misspelling gets the generic recovery")))))
 
+(deftest the-retired-rf-size-opts-spellings-are-refused
+  (testing "rf2-kuky.93 — the opts vocabulary moved to `:rf.egress/*`, so the
+            whole closed map is describable by ONE namespace. The retired
+            `:rf.size/*` spellings are the OLD names of LIVE axes, which is
+            what makes them worth pinning: a caller left on one must throw
+            rather than quietly lose the opt-in it believes it passed. That
+            throw IS the fail-open guard for the rename — after it,
+            `:rf.size/*` reserves the wire MARKER (`:rf.size/large-elided`)
+            and nothing else."
+    (doseq [k [:rf.size/include-sensitive? :rf.size/include-large?
+               :rf.size/include-digests?   :rf.size/threshold-bytes]]
+      (let [d (bad-opts-ex-data #(rf.elision/elide-wire-value {:a 1} {k true}))]
+        (is (some? d) (str "the retired " k " is refused by the walker"))
+        (is (= [k] (:unknown-keys d)) (str k " is NAMED in the ex-data")))
+      (let [d (bad-opts-ex-data
+                #(rf.projection/project-egress
+                   {:a 1}
+                   {:rf.egress/profile :rf.egress/off-box-tool k true}))]
+        (is (some? d) (str "the retired " k " is refused at project-egress"))
+        (is (= [k] (:unknown-keys d)) (str k " is named at that door too")))))
+  (testing "rf2-kuky.93 — the three epoch-only axes were bare before this
+            rename (different keyspaces, so `:rf.size/*` would have been
+            absurd). One namespace covers them now, so the bare spellings
+            retire alongside the `:rf.size/*` ones."
+    (doseq [k [:include-fx-args? :include-runtime-db? :include-event-args?]]
+      (let [d (bad-opts-ex-data
+                #(rf.projection/project-egress
+                   {:a 1}
+                   {:rf.egress/profile :rf.egress/off-box-tool k true}))]
+        (is (some? d) (str "the retired bare " k " is refused"))
+        (is (= [k] (:unknown-keys d)) (str k " is named")))))
+  (testing "CONTROL — every LIVE spelling is accepted at the door it belongs
+            to. Without this, a guard that had simply narrowed to nothing
+            would satisfy every assertion above."
+    (doseq [k [:rf.egress/include-sensitive? :rf.egress/include-large?
+               :rf.egress/include-digests?   :rf.egress/threshold-bytes]]
+      (is (nil? (bad-opts-ex-data
+                  #(rf.elision/elide-wire-value {:a 1} {k nil})))
+          (str k " is live walker vocabulary")))
+    (doseq [k [:rf.egress/include-fx-args? :rf.egress/include-runtime-db?
+               :rf.egress/include-event-args?]]
+      (is (nil? (bad-opts-ex-data
+                  #(rf.projection/project-egress
+                     {:a 1}
+                     {:rf.egress/profile :rf.egress/off-box-tool k true})))
+          (str k " is live project-egress vocabulary"))))
+  (testing "rf2-kuky.93 — and the MARKER did not move. It shares no key with
+            the opts map, so a prefix-level substitution over `:rf.size/`
+            would have destroyed the one `:rf.size/*` member that has to
+            survive."
+    (is (rf.elision/marker? {:rf.size/large-elided {:path [] :bytes 1}})
+        ":rf.size/large-elided is still the wire marker")))
+
 (deftest walker-rejects-an-arbitrary-unknown-key
   (testing "rf2-kuky.6 — the guard is a CLOSED-SET test, not a denylist of
             the two spellings that bit us."
