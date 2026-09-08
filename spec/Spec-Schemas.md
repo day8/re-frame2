@@ -4342,6 +4342,17 @@ Returned by `(frame-meta frame-id)`. The `:preset` field, when present, records 
    [:sink :keyword]                                                        ;; user/library-owned sink id, e.g. :my-app.sinks/datadog
    [:rf.egress/profile {:optional true} EgressProfile]])                   ;; the closed six-member egress-profile enum
 
+;; ONE grammar, TWO scopes. `FrameObservability` is also the shape
+;; `(rf/configure! {:observability …})` takes as the PROCESS DEFAULT
+;; ([015 §The process default](015-Data-Classification.md#the-process-default)),
+;; validated by the same validator at CALL time — which is why a malformed
+;; process default raises `:rf.error/bad-frame-classification` (with
+;; `:where 'rf/configure!`) rather than a category of its own. Two spellings
+;; differ by SCOPE, not by grammar: `{:errors []}` on a FRAME declares the
+;; stream and names no sink, so it is that frame's OPT-OUT from the default
+;; (declaration is read by key PRESENCE, not truthiness); an explicit `nil` in
+;; the `configure!` map CLEARS the default, which only the process-wide scope
+;; has anything to mean.
 (def FrameObservability
   [:map
    [:handled-events {:optional true} [:vector FrameSinkEntry]]
