@@ -169,25 +169,26 @@ The snapshot lives at `[:rf.runtime/machines :snapshots :session]` in the frame'
 
 ## Inspection and queries
 
-### `re-frame.machines/machines`
+There is **no per-kind query accessor** on this namespace — neither `machines`
+nor `machine-meta` (both retired, rf2-kuky.31). A machine is an `:event`
+registration carrying `:rf/machine? true`, so both questions are answered by
+the one `{id meta}` registrar grammar every tool already speaks.
 
-- **Kind**: function (owned by `re-frame.machines` — not a `re-frame.core` facade export)
-- **Signature**:
-  ```clojure
-  (re-frame.machines/machines) → vector of machine-ids
-  ```
-- **Description**: Returns the vector of registered machine-ids. A derived view over `(registrations :event)` filtered by `:rf/machine? true`.
-- **Example**:
+- **Enumerating registered machines**: filter the generic registrar read on the
+  `:rf/machine?` discriminator.
   ```clojure
   ;; Every registered machine-id (the registry, not a frame's live snapshots).
-  (rf.machines/machines)                              ;; → [:session :auth.login/flow …]
-  (contains? (set (rf.machines/machines)) :session)
+  (keys (into {} (filter (fn [[_ m]] (:rf/machine? m)))
+              (rf/registrations {:source :store :kind :event})))
+  ;; → (:session :auth.login/flow …)
   ```
-- **Reading ONE machine's spec**: there is no `machine-meta` accessor (retired,
-  rf2-kuky.31). A machine is an `:event` registration carrying `:rf/machine? true`,
-  and its registered spec — transition table, `:doc`, `:schemas`, per-element
-  source-coords — reads back through the generic registrar query plus the
-  documented `:rf/machine` inner-key projection:
+  This enumerates registered TYPES. A spawned actor carries no per-instance
+  registrar entry, so live instances are read from the runtime-db snapshots map
+  instead — see [005 §Querying machines](../../spec/005-StateMachines.md#querying-machines).
+- **Reading ONE machine's spec**: its registered spec — transition table,
+  `:doc`, `:schemas`, per-element source-coords — reads back through the same
+  generic registrar query plus the documented `:rf/machine` inner-key
+  projection:
   ```clojure
   ;; The registered spec back out — table, doc, schemas, source-coords.
   (:rf/machine (rf/handler-meta {:source :store :kind :event :id :session}))

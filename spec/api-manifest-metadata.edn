@@ -1622,7 +1622,11 @@
   ;; impls + validators + timer reset are public-for-technical-reasons only
   ;; → `implementation` (rf2-oekz6s; was internal-public).
   ;; =========================================================================
-  ["re-frame.machines" "machines"]              {:tier :tooling :owner "005" :status "v1"}
+  ;; rf2-kuky.31: `machines` is RETIRED — the last of the ten per-kind
+  ;; `<kind>-ids` / `<kind>-meta` aliases. It was a `filter` over
+  ;; `(registrations :event)` on `:rf/machine?`; enumerating machines is now
+  ;; that same filter written over the generic registrar query, so no
+  ;; per-kind alias row is carried here.
   ;; rf2-kuky.31: `machine-meta` is RETIRED. It was a one-line delegate to
   ;; `lifecycle-fx.resolver/spec-from-registry`; a single machine's spec is now
   ;; read through the generic registrar query plus the documented `:rf/machine`

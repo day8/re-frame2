@@ -11,7 +11,7 @@
 
   ## What this projects
 
-  The browse-all list enumerates `(rf.machines/machines)` and renders one row
+  The browse-all list enumerates the registered machine-ids and renders one row
   per registered machine. Each row
   carries enough data for the L4-left list AND the L4-right header to
   render without recomputing: machine-id, state-count, live-instance

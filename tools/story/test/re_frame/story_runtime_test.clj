@@ -822,7 +822,11 @@
 
 (deftest lifecycle-machine-registered
   (testing "the lifecycle machine is registered after install-canonical-vocabulary!"
-    (is (some (set [rf.story.loaders/lifecycle-machine-id]) (rf.machines/machines)))))
+    ;; Enumerated through the generic registrar read filtered on
+    ;; `:rf/machine?` — there is no per-kind `machines` accessor (rf2-kuky.31).
+    (is (some (set [rf.story.loaders/lifecycle-machine-id])
+              (keys (into {} (filter (fn [[_ m]] (:rf/machine? m)))
+                          (rf/registrations {:source :store :kind :event})))))))
 
 (deftest lifecycle-transitions-pre-mount-to-ready
   (testing "the lifecycle progresses through every documented state"

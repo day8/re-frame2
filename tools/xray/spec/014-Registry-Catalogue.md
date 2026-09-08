@@ -700,7 +700,7 @@ runtime-db surfaces.
 ## Machine inspector
 
 Spec: [`003-Machine-Inspector.md`](./003-Machine-Inspector.md). Reads
-`(rf.machines/machines)`, the live `:rf/machine` snapshots, and the
+the `:rf/machine?`-filtered `:event` registrations, the live `:rf/machine` snapshots, and the
 trace-buffer's `:rf.machine/transition` slice. Read-only at v1.
 (rf2-nugvv removed the panel's Share affordance; source-coord jumps
 remain deferred.)
@@ -709,7 +709,7 @@ remain deferred.)
 
 | Sub | Returns |
 |---|---|
-| `:rf.xray/registered-machines` | Vector of machine-ids from `(rf.machines/machines)`. Wrapped in `try` so future API changes collapse to `[]` rather than throwing. Test override via `:registered-machines-override`. |
+| `:rf.xray/registered-machines` | Vector of machine-ids — `(rf/registrations {:source :store :kind :event})` filtered on `:rf/machine?`. Wrapped in `try` so future API changes collapse to `[]` rather than throwing. Test override via `:registered-machines-override`. |
 | `:rf.xray/machine-snapshots` | `{machine-id <snapshot>}` map from the target-frame's `:rf/machines` slot. |
 | `:rf.xray/machine-snapshots-override` | Test override hook. |
 | `:rf.xray/selected-machine-id` | Machine-id or `nil` (composite defaults to first row). |

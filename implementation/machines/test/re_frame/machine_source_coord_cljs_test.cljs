@@ -38,6 +38,12 @@
 (defn- machine-spec [machine-id]
   (:rf/machine (rf/handler-meta {:source :store :kind :event :id machine-id})))
 
+;; Every registered machine-id — the same generic read filtered on the
+;; `:rf/machine?` discriminator. No per-kind `machines` accessor (rf2-kuky.31).
+(defn- machine-ids []
+  (keys (into {} (filter (fn [[_ m]] (:rf/machine? m)))
+              (rf/registrations {:source :store :kind :event}))))
+
 (defn- element-coords [machine-id slot id]
   (get-in (machine-spec machine-id) [slot id :source-coords]))
 
@@ -329,8 +335,8 @@
   the legacy reg-machine defn"
     (rf.machines/reg-machine* :rf2-8bp3/plain
                      {:initial :a :states {:a {}}})
-    (is (some? (some #{:rf2-8bp3/plain} (rf.machines/machines)))
-        "(rf.machines/machines) lists the plain-fn registered machine")
+    (is (some? (some #{:rf2-8bp3/plain} (machine-ids)))
+        "the :rf/machine? filter lists the plain-fn registered machine")
     (is (= {:initial :a :states {:a {}}}
            (machine-spec :rf2-8bp3/plain))
         "spec round-trips verbatim")))

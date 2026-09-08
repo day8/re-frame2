@@ -165,32 +165,22 @@
 
 ;; ---- query API (Spec 005 §Querying machines) -----------------------------
 ;;
-;; ONE thin lookup fn over the existing event registry — a derived view,
-;; not a new registry kind. `(rf.machines/machines)` filters event handlers
-;; whose registration metadata carries `:rf/machine? true`.
+;; There is NO per-kind query alias on this namespace. A machine is an
+;; `:event` registration carrying `:rf/machine? true`, so both questions
+;; tooling asks are answered by the one `{id meta}` registrar grammar every
+;; tool already speaks (rf2-kuky.31 — the `<kind>-ids` / `<kind>-meta` family
+;; is retired in favour of that grammar):
 ;;
-;; A single machine's registered SPEC is read through the generic registrar
-;; query rather than a per-kind alias (rf2-kuky.31 — the `<kind>-meta` family
-;; is retired in favour of the one `{id meta}` grammar every tool already
-;; uses):
+;;   ;; every registered machine-id
+;;   (keys (into {} (filter (fn [[_ m]] (:rf/machine? m)))
+;;               (rf/registrations {:source :store :kind :event})))
 ;;
+;;   ;; ONE machine's registered SPEC — nil unless that registration
+;;   ;; carries `:rf/machine? true`
 ;;   (:rf/machine (rf/handler-meta {:source :store :kind :event :id id}))
 ;;
-;; which is nil unless that `:event` registration carries `:rf/machine? true`.
-;; That inner-key projection is the DOCUMENTED contract (Spec 005 §Querying
-;; machines, spec/API.md §Public registrar query API), not a helper.
-;;
-;; This query fn lives on the public artefact surface (not a level
-;; below) since it is how Spec 005 §Querying machines is reached.
-
-(defn machines
-  "Return a sequence of machine-ids — every event handler whose
-  registration metadata carries `:rf/machine? true`. Per Spec 005
-  §Querying machines."
-  []
-  (->> (rf.registrar/registrations :event)
-       (keep (fn [[id m]] (when (:rf/machine? m) id)))
-       (vec)))
+;; Both inner-key projections are DOCUMENTED contracts (Spec 005 §Querying
+;; machines, spec/API.md §Public registrar query API), not helpers.
 
 ;; ---- derivation/process algebra views -------------------------------------
 ;;

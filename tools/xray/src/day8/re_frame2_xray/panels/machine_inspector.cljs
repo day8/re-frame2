@@ -579,7 +579,7 @@
 ;; ---- empty state (no machines registered at all) -----------------------
 
 (defn- empty-state
-  "Rendered when `(rf.machines/machines)` returns nothing — either the host
+  "Rendered when no `:rf/machine?` registration is found — either the host
   app has not yet called `reg-machine`, or `day8/re-frame2-machines`
   is not on the classpath."
   []
@@ -665,13 +665,12 @@
 
 (defn- registered-machines-value
   "Registered-machine vector — the machine-ids of the HOST app (every `:event`
-  registration whose metadata carries `:rf/machine? true`, the same derivation
-  `re-frame.machines/machines` runs).
+  registration whose metadata carries `:rf/machine? true`, the derivation
+  Spec 005 §Querying machines documents).
 
-  Derived from `(rf/registrations {:source :store :kind :event})` (the
-  SOURCE-STORE read, which never consults a bound image generation), NOT
-  `(machines/machines)`: the framework's `machines`
-  reads `registrar/registrations :event`, which is generation-scoped. This fn
+  Derived from `(rf/registrations {:source :store :kind :event})` — the
+  SOURCE-STORE read, which never consults a bound image generation — NOT from
+  the generation-scoped `registrar/registrations :event`. This fn
   runs inside the `:rf.xray/registered-machines` sub COMPUTATION, and Xray seats
   in its OWN image-loaded `:rf/xray` frame, so a generation-scoped read would
   resolve through Xray's OWN image (no host machines) and the inspector would
@@ -746,7 +745,8 @@
   ;; rendering — `snapshot-drill-in` hard-wires that posture and this
   ;; install no longer registers the sub/event/slot trio.
 
-  ;; Registered-machine vector (reads `(rf.machines/machines)`). The test-only
+  ;; Registered-machine vector (the `:rf/machine?` filter over the generic
+  ;; source-store read). The test-only
   ;; override seam (`:rf.xray/set-registered-machines-override-for-test`
   ;; + the `*-override` read) lives behind `install-test-overrides!`
   ;; (rf2-e8330v) — production registration carries no `-for-test` ids.

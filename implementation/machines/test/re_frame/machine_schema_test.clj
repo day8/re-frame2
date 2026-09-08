@@ -33,7 +33,6 @@
   Tests use Malli schemas (the framework default validator)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines :as rf.machines]
             [re-frame.registrar :as rf.registrar]
             ;; The schemas artefact ships the registered-validator hot
             ;; path the `:where :machine-data` boundary routes through;
@@ -261,12 +260,14 @@
                           [:rf.runtime/machines :snapshots :rf.machine-schema/spawned]))
             "rejected spawn: snapshot is not in app-db")
         ;; Atomic reject: a schema-rejected spawn registers NOTHING —
-        ;; no event handler, no `(rf.machines/machines)` entry — the install gate
+        ;; no event handler, no `:rf/machine?` registry entry — the install gate
         ;; and registration are in lockstep.
         (is (nil? (rf.registrar/lookup :event :rf.machine-schema/spawned))
             "rejected spawn: NO event handler is registered (rf2-f3kp7)")
-        (is (not (contains? (set (rf.machines/machines)) :rf.machine-schema/spawned))
-            "rejected spawn: the actor does NOT appear in (rf.machines/machines) (rf2-f3kp7)")))))
+        (is (not (contains? (set (keys (into {} (filter (fn [[_ m]] (:rf/machine? m)))
+                                             (rf/registrations {:source :store :kind :event}))))
+                            :rf.machine-schema/spawned))
+            "rejected spawn: the actor does NOT appear under the :rf/machine? filter (rf2-f3kp7)")))))
 
 ;; ---- (5) no schema → no validation (control) ------------------------------
 

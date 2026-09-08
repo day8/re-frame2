@@ -16,8 +16,8 @@
 
   Per spec/003-Machine-Inspector.md the panel's minimum surface is:
 
-    1. **Machine picker** — a dropdown over `(rf.machines/machines)` (Spec 005
-       §Querying machines). Switching the selection re-binds the chart
+    1. **Machine picker** — a dropdown over the registered machine-ids
+       (Spec 005 §Querying machines). Switching the selection re-binds the chart
        + transition-history ribbon to the new machine. Each picker
        option shows machine-id + current-state.
 
@@ -57,9 +57,9 @@
   The composite sub `:rf.xray/machine-inspector-data` feeds three
   sources into `project-data`:
 
-    1. **`machines`** — vector of registered machine-ids
-       (`(rf.machines/machines)`). Empty when the machines artefact is not on
-       the classpath (Spec 005 §Querying machines: returns `[]`).
+    1. **`machines`** — vector of registered machine-ids (the `:rf/machine?`
+       filter over the generic registrar read). Empty when the machines
+       artefact is not on the classpath (Spec 005 §Querying machines).
 
     2. **`snapshots`** — `{machine-id snapshot-or-nil}` map; each
        value is the result of `(rf/machine-meta-via-sub machine-id)`
@@ -381,8 +381,8 @@
 
   Inputs:
 
-    `machines`     — vector / seq of registered machine-ids
-                     (`(rf.machines/machines)`). nil-safe.
+    `machines`     — vector / seq of registered machine-ids (the
+                     `:rf/machine?` filter over the generic read). nil-safe.
     `snapshots`    — `{machine-id snapshot-or-nil}`. nil-safe.
     `trace-buffer` — Xray's trace ring buffer. nil-safe.
     `selected-id`  — the user's picker focus (keyword) or nil. nil

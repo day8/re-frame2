@@ -16,7 +16,7 @@
     - `:rf.xray/set-machine-definitions-override-for-test`
 
   These exist precisely for gallery / test fixtures — the production
-  path reads through `(rf.machines/machines)` + the `:rf/machine` registrar projection +
+  path reads through the `:rf/machine?` filter + the `:rf/machine` registrar projection +
   the runtime-db's `[:rf.runtime/machines :snapshots]` subtree. Variant
   `:setup` dispatch the override events to seed each slot.
 

@@ -69,7 +69,6 @@
             ;; preload is dev-only).
             [re-frame.subs.tooling :as rf.subs.tooling]
             [re-frame.schemas :as rf.schemas]
-            [re-frame.machines :as rf.machines]
             ;; `flush-render!` (the SYNCHRONOUS render-commit contract fn,
             ;; Spec 006 §`flush-render!`) lives in
             ;; re-frame.substrate.adapter, not re-frame.core. It resolves
@@ -1139,15 +1138,25 @@
 ;; Machines (Spec 005)
 ;; ---------------------------------------------------------------------------
 
+(defn- registered-machine-ids
+  "Every registered machine-id — the `:rf/machine?` filter over the generic
+   registrar read (Spec 005 §Querying machines). There is no per-kind
+   `machines` accessor on `re-frame.machines` (retired, rf2-kuky.31); this
+   filter IS the documented contract."
+  []
+  (keys (into {} (filter (fn [[_ m]] (:rf/machine? m)))
+               (rf/registrations {:source :store :kind :event}))))
+
 (defn machines-list
-  "(rf.machines/machines) — all registered machine ids, SORTED.
+  "All registered machine ids, SORTED — the `:rf/machine?` filter over
+   `(rf/registrations {:source :store :kind :event})`.
 
    The sort is the contract, not a courtesy: `registrar-list` sorts, the
    MCP `list-handlers` tool documents one stable id vector across every
    kind, and machines are the one kind whose ids arrive in registration
    order. Sorting here keeps the two branches of that tool agreeing."
   []
-  (-> (rf.machines/machines) sort vec))
+  (-> (registered-machine-ids) sort vec))
 
 (defn machine-describe
   "The registered spec map for one machine — the `:rf/machine` projection of
@@ -3745,7 +3754,7 @@
     ;; `rf/app-db-value` — rf2-t3lftq API-shrink #3 retired the dedicated
     ;; `rf/runtime-db-value` reader), so the per-frame
     ;; slice returns {:ids [...] :state {machine-id snapshot}}.
-    :machines   (let [ids (vec (rf.machines/machines))
+    :machines   (let [ids (vec (registered-machine-ids))
                       state (or (get-in (:rf.db/runtime (rf/frame-state-value frame-id))
                                         [:rf.runtime/machines :snapshots])
                                 {})]
@@ -4005,7 +4014,8 @@
                       process-wide registrar counts) in a multi-frame
                       ambiguous session or against an operating frame that
                       carries no sealed image generation.
-     :machines        the registered machine ids (`rf.machines/machines`).
+     :machines        the registered machine ids (the `:rf/machine?` filter
+                      over `(rf/registrations {:source :store :kind :event})`).
 
    Compact + summarized by design (respect the wire cap): counts + the
    high-value id vectors + per-frame top-keys, NOT the full app-db. The
@@ -4036,4 +4046,4 @@
                                   (map (fn [fid] [fid (pure/top-keys (rf/app-db-value fid))]))
                                   app-fids)
        :registry            registry
-       :machines            (rf.machines/machines)})))
+       :machines            (registered-machine-ids)})))

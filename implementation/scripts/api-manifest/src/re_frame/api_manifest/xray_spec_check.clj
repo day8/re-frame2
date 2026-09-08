@@ -37,7 +37,7 @@
 
   WHAT SHAPE (3) STILL DOES NOT COVER, stated so the next reader does not
   over-read this gate a second time. Only the bare `rf` alias is anchored,
-  so a call written under a sub-namespace alias — `(rf.machines/machines)`
+  so a call written under a sub-namespace alias — `(rf.machines/machine-transition)`
   on the same table, `(rf.subs.tooling/...`, `(rf.http/...` — is outside
   this check, the same latitude `doc-api-check` records for its own
   surfaces. Resolution is by BARE VAR NAME against every manifest row, not
