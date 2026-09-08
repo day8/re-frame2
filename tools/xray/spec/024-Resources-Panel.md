@@ -276,9 +276,10 @@ stacked sections:
 4. **Route / resource graph** — per route declaring `:resources`: the
    route id + path, its declared resources, the **blocking vs
    non-blocking** split (blocking = **SSR wait point**), keep-previous
-   flags, and any `:after` dependency waterfall. Resolvers
-   (`:params` / `:scope` fns) are recorded as declared without being
-   invoked. The graph is **live, not just static** (rf2-m5u3gt): it joins
+   flags, and any `:after` dependency waterfall. An entry's `:params` /
+   `:when` fns are recorded as declared without being invoked, and its
+   `:scope` — a declared override (a concrete value or a `{:from-db <id>}`
+   reference; never a function, rf2-kuky.83) — is read verbatim. The graph is **live, not just static** (rf2-m5u3gt): it joins
    the static route plan against the live instance rows, work ledger, and
    routing slice — each resource node carries a `:live` freshness rollup
    (`:fresh` / `:stale` / `:loading` / `:idle` / `:none`, plus the active

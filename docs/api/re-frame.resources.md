@@ -97,7 +97,7 @@ Anything else — an app-namespaced keyword, a literal tuple / map / string, a f
 
 There is no `[:rf.scope/global]` fallthrough.
 
-- Event resolution precedence: payload `:scope` → route resolver → spec policy. A `{:from-db <id>}` reference that resolves `nil` at an event/route site raises `:rf.error/resource-scope-unresolved-reference`.
+- Event resolution precedence: payload `:scope` → route-entry `:scope` override → spec policy. A route entry's `:scope` is a concrete value or a `{:from-db <id>}` reference — never a function; any other present value is a planning error rather than a silent inherit. A `{:from-db <id>}` reference that resolves `nil` at an event/route site raises `:rf.error/resource-scope-unresolved-reference`.
 - Subscription resolution: payload `:scope` (an override) → spec policy → loud `:rf.error/resource-sub-unresolved-scope` when a `{:from-db …}` reference yields nil (never a silent global read or `:idle`).
 - **Registration is the DEFAULT; a use-site `:scope` is an OVERRIDE.** Declare the scope once on the resource; a route entry, subscription payload or event payload that omits `:scope` inherits it. Supply one at a use site only when that site genuinely reads under a *different* principal (an admin reading tenant X). Repeating the registration's own policy at every use site is noise, not safety.
 

@@ -720,10 +720,10 @@
 ;; Scope is the cache's tenant / user / permission / locale / impersonation
 ;; / SSR leak boundary, and a resolved scope can carry PII. A boundary that
 ;; critical MUST fail closed: it never silently defaults to \"shared\".
-;; Resolution differs between EVENTS (which may run a (route, ctx) resolver
-;; and have an event context) and SUBSCRIPTIONS (pure — no routing match,
-;; no event context). There is NO `[:rf.scope/global]` fallthrough on
-;; either path.
+;; Resolution differs between EVENTS (which see a route-entry `:scope`
+;; override threaded in by the route slice, and have an event context) and
+;; SUBSCRIPTIONS (pure — no routing match, no event context). There is NO
+;; `[:rf.scope/global]` fallthrough on either path.
 
 (defn- canonical-scope!
   "Route a CONCRETE resolved scope through the single shared concrete-scope
@@ -769,8 +769,8 @@
   fallthrough:
 
     1. `:scope` supplied on the event payload;
-    2. (route-resource `:scope` resolver — supplied by the route slice,
-       not this runtime slice; threaded in as `route-scope`);
+    2. (route-entry `:scope` override — supplied by the route slice, not
+       this runtime slice; threaded in as `route-scope`);
     3. the resource-spec `:scope` policy — an explicit `:rf.scope/global`
        claim or a `{:from-db …}` named-resolver reference (the only two
        shapes registration admits).
@@ -795,10 +795,10 @@
       (rf.resources.scope-registry/from-db-reference? payload-scope)
       (canonical-scope! resource-id (resolve-ref payload-scope) where)
       (some? payload-scope) (canonical-scope! resource-id payload-scope where)
-      ;; 2. route-resource resolver result (threaded in by the route slice).
-      ;; The route slice already resolves a {:from-db …} route-resource
-      ;; `:scope` to a concrete value before threading it here, so route-scope
-      ;; is concrete; resolve defensively if a reference still arrives.
+      ;; 2. route-entry `:scope` override (threaded in by the route slice).
+      ;; The route slice already resolves a {:from-db …} route-entry `:scope`
+      ;; to a concrete value before threading it here, so route-scope is
+      ;; concrete; resolve defensively if a reference still arrives.
       (rf.resources.scope-registry/from-db-reference? route-scope)
       (canonical-scope! resource-id (resolve-ref route-scope) where)
       (some? route-scope)   (canonical-scope! resource-id route-scope where)
@@ -854,8 +854,9 @@
 
 (defn resolve-scope-for-sub
   "Resolve the cache scope for a resource SUBSCRIPTION, fail-closed (Spec
-  016 §Subscription-side scope resolution). A sub is PURE — it cannot run a
-  `(route, ctx)` resolver. Resolution order:
+  016 §Subscription-side scope resolution). A sub is PURE — it never sees the
+  route tier at all (no routing match, no route-entry planning). Resolution
+  order:
 
     1. `:scope` supplied on the subscription payload;
     2. the resource spec's `:scope` policy — an explicit `:rf.scope/global`

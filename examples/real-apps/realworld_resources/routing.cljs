@@ -21,15 +21,18 @@
    `examples/capabilities/ssr/resources_ssr/`. See ../../../docs/ssr/concepts.md.)
 
    The session-scoped personalised feed is a declarative route resource too — no
-   special-casing. The home route declares it with
-   `:scope {:from-db :realworld/session}`, a named resolver reference (see
-   scope.cljs) the runtime resolves against the navigation handler's app-db at
-   route entry. So the route owns the feed under its nav-token and releases it on
+   special-casing. The route entry carries NO `:scope` and INHERITS the one the
+   `:realworld/feed` registration declares — `{:from-db :realworld/session}`, a
+   named resolver reference (see scope.cljs) the runtime resolves against the
+   navigation handler's app-db at route entry. A route entry's `:scope` is an
+   OVERRIDE (a concrete value, or a `{:from-db …}` reference), never a required
+   repetition. So the route owns the feed under its nav-token and releases it on
    leave, exactly like the public reads. The feed is ADMITTED by route data — its
    `:when` reads the `?feed=following` query arm — so a logged-out visitor on the
    bare home page never asks for it. On the following-feed arm a nil session is a
-   whole-plan planning error, by design: a route `:scope` that is present and
-   resolves nil is never a silent omission (see `home-resources`).
+   whole-plan planning error, by design: a `{:from-db …}` reference that resolves
+   nil at a scope-requiring site is never a silent global read (see
+   `home-resources`).
 
    One wiring note: loading both `re-frame.resources` and `re-frame.routing` is
    what gets the `:resources` route-metadata key accepted, since resources

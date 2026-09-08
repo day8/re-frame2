@@ -86,7 +86,8 @@
   §Canonicalization rule) and applying the sub-side scope-resolution
   precedence (Spec 016 §Subscription-side scope resolution).
 
-  PURE: a sub cannot run a `(route, ctx)` resolver. Resolves scope from the
+  PURE: a sub never sees the route tier (no routing match, no route-entry
+  planning). Resolves scope from the
   payload `:scope` override or the spec policy (`:rf.scope/global` or a
   `{:from-db <id>}` named-resolver reference — both sub-resolvable) and raises
   `:rf.error/resource-sub-unresolved-scope` when the reference yields nil. Throws
