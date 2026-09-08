@@ -1,6 +1,6 @@
 # Production observability
 
-The **normal** way an app ships event + error records to Datadog / Sentry / Honeycomb / a custom pipeline is **declarative, frame-owned**: declare a sink under a frame's `:observability` policy, register its fn with `rf/register-observability-sink!`, and let the runtime route one **already-projected** record per event/error to it. This EP-0015 egress path composes the owning frame's classification (`:sensitive` / `:large`) with the entry's `:rf.egress/profile`, so your sink never sees raw sensitive values and never re-walks for privacy / size. It is the **only** production door — the corpus-wide `register-listener!` `:events` / `:errors` streams were retired, per [`spec/API.md` §Observation listeners](https://github.com/day8/re-frame2/blob/main/spec/API.md#observation-listeners). Declare the same entry grammar with `(rf/configure! {:observability …})` for a cross-frame seat, and add `:rf.egress/profile :rf.egress/local-raw` when you want the untouched substrate record.
+The **normal** way an app ships event + error records to Datadog / Sentry / Honeycomb / a custom pipeline is **declarative, frame-owned**: declare a sink under a frame's `:observability` policy, register its fn with `rf/register-observability-sink!`, and let the runtime route one **already-projected** record per event/error to it. This EP-0015 egress path composes the owning frame's classification (`:sensitive` / `:large`) with the entry's `:rf.egress/profile`, so your sink never sees raw sensitive values and never re-walks for privacy / size. It is the **only** production door — the corpus-wide `register-listener!` `:events` / `:errors` streams were retired, per [`spec/API.md` §Observation listeners](https://github.com/day8/re-frame2/blob/main/spec/API.md#observation-listeners). Declare the same entry grammar with `(rf/configure! {:observability …})` for a cross-frame seat, and add `:rf.egress/profile :rf.egress/local-raw` when you want a *wider* projection — sensitive and large values kept rather than redacted and elided.
 
 ```clojure
 ;; The normal path: frame :observability + a registered sink fn.
@@ -60,20 +60,24 @@ Fires once per event the runtime processes — NOT per sub, NOT per fx, NOT per 
 (rf/unregister-observability-sink! :datadog/events)
 ```
 
-A sink receives the record **already projected** under the governing classification and the entry's egress profile. The raw substrate shape shown below is what a `:rf.egress/local-raw` entry hands you; under the off-box default the dispatch result is spelled `:status` rather than `:outcome` and the `:event` args slot is dropped.
+A sink receives the record **already projected** under the governing classification and the entry's egress profile. This is the shape it gets, on **every** profile:
 
-**Raw substrate record shape (tight — Spec 009 §Event-emit listener; this is what `:rf.egress/local-raw` delivers):**
+**Sink record shape (`:rf.observe/handled-event`):**
 
 ```clojure
-{:event      [:cart/checkout {:items [...]}]      ;; the dispatched event vector (elided)
- :event-id   :cart/checkout                        ;; (first event)
- :frame      :rf/default                           ;; resolved frame-id
- :time       1715600000000                         ;; emit timestamp (host clock, ms since epoch)
- :outcome    :ok                                   ;; :ok | :error | :rolled-back | :flow-error | :rejected
- :elapsed-ms 12}                                   ;; queue → settle, integer
+{:kind        :rf.observe/handled-event            ;; always present; branch on it
+ :frame       :rf/default                          ;; resolved frame-id
+ :event-id    :cart/checkout
+ :status      :ok                                  ;; :ok | :error | :rolled-back | :flow-error | :rejected
+ :elapsed-ms  12                                   ;; queue → settle, integer
+ :effects     [:fx :dispatch]                      ;; the effect keys the cascade walked (when any)
+ :correlation {:work-id … :dispatch-id …}          ;; when the cascade carried one
+ :event       [:cart/checkout {:items [...]}]}     ;; ONLY under a sensitive-opted profile; see below
 ```
 
-`:outcome` covers **every** cascade-failure path, not just the interceptor-chain exception, so a dispatch that aborted is never mis-reported as a clean `:ok` (per `re-frame.event-emit` ns docstring §Record shape and Spec 009 §Event-emit listener):
+> **A profile chooses projection OPTIONS, not a different record.** `:rf.egress/profile` never selects which record constructor runs — the runtime always builds the `:rf.observe/handled-event` above and then projects it. So `:rf.egress/local-raw` does **not** hand you the substrate envelope: it is the trusted-local option set (`:rf.size/include-sensitive? true`, `:rf.size/include-large? true`), and its one visible effect on this record is that the `:event` args slot is **kept** — still projected, never raw — where the off-box default omits it entirely. The dispatch result is spelled **`:status`** on every profile, and there is **no `:time` slot on a handled-event record at all**. Destructuring `outcome` or `time` in a sink fn binds `nil`.
+
+`:status` covers **every** cascade-failure path, not just the interceptor-chain exception, so a dispatch that aborted is never mis-reported as a clean `:ok`:
 
 - `:ok` — clean settle (db committed, flows ran, `:fx` walked).
 - `:error` — the interceptor chain (handler or interceptor) threw.
@@ -85,20 +89,40 @@ A sink receives the record **already projected** under the governing classificat
 
 What decides which side a check falls on is **what the check is for, not who declared the schema it reads** (Spec 000 C-000.35): an ordinary registration diagnostic elides, while a check the framework relies on to keep a promise of its own holds in every build. So the boundary check is not the only schema check that survives — a declared route's `:params` / `:query` shape, a recordable coeffect's `:schema`, the reserved `:rf.server/*` effects' checks on their own arguments and Managed HTTP's `:decode` all run in a release build too ([`../fundamentals/schemas.md`](../fundamentals/schemas.md#what-survives-is-settled-by-what-the-check-is-for-not-by-who-declared-it) is the full matrix). The recordable coeffect is the one to read carefully: that `:schema` is declared on the programmer's own `reg-cofx` and survives regardless, because the framework applies it where the value folds into the durable record. What is exclusive is narrower, and is the thing a shipper actually wires an alert to: those others throw or reject on their own paths, and a throw reports `:error` like any other, so `:rejected` is the only value in this vocabulary that names a surviving schema check as such.
 
-No trace-bus keys (no `:dispatch-id`, `:parent-dispatch-id`, `:rf.trace/trigger-handler`, source coords) — those ride the dev-only trace surface. Verified: `re-frame.event-emit/dispatch-on-event!`; record shape per the ns docstring §Record shape.
+No trace-bus keys (no `:dispatch-id`, `:parent-dispatch-id`, `:rf.trace/trigger-handler`, source coords) — those ride the dev-only trace surface.
 
-**Privacy is path-based, applied at egress — the record always fans out.** Every surviving record's `:event` vector is walked by `elide-wire-value` with off-box defaults (large → `:rf.size/large-elided`; classified sensitive paths → `:rf/redacted`) *before* listeners run. Sensitivity is owner-classified by *path* (the registration's `:sensitive` paths for transient event args; the durable app-db `:sensitive` classification effect a handler returns alongside `:db`), **fail-open** — an unclassified path ships raw. **No** whole-record privacy drop at the handler boundary: `dispatch-on-event!` never suppresses a record for sensitivity — it redacts the payload per `[:rf.runtime/elision :sensitive-declarations]` (runtime-db) and ships the rest. (Handler-meta `:sensitive?` is **not** consulted — removed from the runtime, see `event_emit.cljc` docstring.) The only whole-record drop gate is `:rf.trace/no-emit?` on handler-meta — a **documented opt-out for tool authors**, not a privacy knob. It exists so a tool that dispatches its own events (a recorder, an inspector, the pair MCP) does not narrate its own bookkeeping onto the wire it is watching; Xray, Story and the pair use it, and so may you. Its frame-scoped sibling is `:rf.trace/frame-no-emit?` in the frame config. Never reach for either to hide sensitive data: sensitivity is path-classified and redacted at egress, and a `no-emit?` handler drops the record for *everyone*, auditors included. (Spec 009 §Trace-emission opt-out is the contract; the observability guide's Advanced section is the worked recipe.)
+??? info "The substrate record underneath (IMPLEMENTATION TIER — not what your sink receives)"
+
+    The sink route lowers onto the always-on `re-frame.event-emit` substrate, whose own
+    record is a different shape. You will meet it reading framework source or a
+    framework-internal capture bracket; it has **no public registration verb** and
+    **no egress profile reaches it**.
+
+    ```clojure
+    ;; re-frame.event-emit/dispatch-on-event! — implementation tier
+    {:event      [:cart/checkout {:items [...]}]
+     :event-id   :cart/checkout
+     :frame      :rf/default
+     :time       1715600000000                       ;; emit timestamp, ms since epoch
+     :outcome    :ok                                 ;; the substrate's spelling of :status
+     :elapsed-ms 12}
+    ```
+
+    `:outcome`/`:time` live **only** here. The projected `:rf.observe/handled-event`
+    above is the record every sink sees, on every profile.
+
+**Privacy is path-based, applied at egress — the record always fans out.** Every surviving record's `:event` vector is walked by `elide-wire-value` with off-box defaults (large → `:rf.size/large-elided`; classified sensitive paths → `:rf/redacted`) *before* any consumer runs — and the sink route then projects that record again under the governing frame's classification and the entry's profile. Sensitivity is owner-classified by *path* (the registration's `:sensitive` paths for transient event args; the durable app-db `:sensitive` classification effect a handler returns alongside `:db`), **fail-open** — an unclassified path ships raw. **No** whole-record privacy drop at the handler boundary: `dispatch-on-event!` never suppresses a record for sensitivity — it redacts the payload per `[:rf.runtime/elision :sensitive-declarations]` (runtime-db) and ships the rest. (Handler-meta `:sensitive?` is **not** consulted — removed from the runtime, see `event_emit.cljc` docstring.) The only whole-record drop gate is `:rf.trace/no-emit?` on handler-meta — a **documented opt-out for tool authors**, not a privacy knob. It exists so a tool that dispatches its own events (a recorder, an inspector, the pair MCP) does not narrate its own bookkeeping onto the wire it is watching; Xray, Story and the pair use it, and so may you. Its frame-scoped sibling is `:rf.trace/frame-no-emit?` in the frame config. Never reach for either to hide sensitive data: sensitivity is path-classified and redacted at egress, and a `no-emit?` handler drops the record for *everyone*, auditors included. (Spec 009 §Trace-emission opt-out is the contract; the observability guide's Advanced section is the worked recipe.)
 
 ## `:errors` — one record per runtime error
 
 Fires once per catalogued production-reachable `:rf.error/*` event the runtime emits through the error-emit substrate. This is the single error-observability surface; per-sink exceptions are isolated (one bad sink cannot affect siblings or the cascade).
 
 ```clojure
-;; :rf.egress/local-raw asks for the substrate shape below; omit the profile
-;; for the projected :rf.observe/error record.
+;; Omit :rf.egress/profile for the off-box default. It is the PROJECTION that
+;; changes with the profile, never the record kind — a sink always receives a
+;; :rf.observe/error record.
 (rf/configure!
-  {:observability {:errors [{:sink :sentry/errors
-                            :rf.egress/profile :rf.egress/local-raw}]}})
+  {:observability {:errors [{:sink :sentry/errors}]}})
 
 (rf/register-observability-sink! :sentry/errors
   (fn [error-record]
@@ -110,21 +134,24 @@ Fires once per catalogued production-reachable `:rf.error/*` event the runtime e
 (rf/unregister-observability-sink! :sentry/errors)
 ```
 
-The raw payload is an **error-keyed union** of several record shapes — the per-event error record below, the frame-teardown report (§The first promoted category), and the EP-0008-promoted **non-event SSR records** (§The promoted-SSR records). **Always branch on `(:error record)` — never assume `:event` / `:event-id` / `:exception` are present.** Only the per-event records carry those slots; the teardown report and the SSR records do not (a teardown report carries `:hook-failures`; the SSR records carry `:frame` + category-specific slots, some with no `:event` at all). A sink fn that destructures `:event-id` / `:exception` off every record will NPE on a non-event record.
+The payload is an **error-keyed union** of several record shapes — the per-event error record below, the frame-teardown report (§The first promoted category), and the EP-0008-promoted **non-event SSR records** (§The promoted-SSR records). **Always branch on `(:error record)` — never assume `:event` / `:event-id` / `:exception` are present.** Only the per-event records carry those slots; the teardown report and the SSR records do not (a teardown report carries `:hook-failures`; the SSR records carry `:frame` + category-specific slots, some with no `:event` at all). A sink fn that destructures `:event-id` / `:exception` off every record will NPE on a non-event record.
 
-**Raw per-event error record (tight — Spec 009 §Error-emit listener; `:rf.egress/local-raw`):**
+**Sink record shape (`:rf.observe/error`) — per-event arm:**
 
 ```clojure
-{:error      :rf.error/handler-exception           ;; the error keyword
- :event      [:cart/checkout {...}]                ;; the dispatched event vector (elided)
+{:kind       :rf.observe/error                     ;; always present; branch on it
+ :error      :rf.error/handler-exception           ;; the error keyword — the discriminator
+ :event      [:cart/checkout {...}]                ;; tree slot: walked under frame policy
  :event-id   :cart/checkout
  :frame      :rf/default
- :time       1715600000000                         ;; ms since epoch
- :exception  #error{...}                           ;; the thrown exception object
+ :time       1715600000000                         ;; ms since epoch — summary slot, always present
+ :exception  #error{...}                           ;; dropped ONLY under :rf.egress/public-error
  :elapsed-ms 8}                                    ;; queue → throw, integer
 ```
 
-Verified: `re-frame.error-emit/dispatch-on-error!`; record shape per the ns docstring §Record shape.
+Unlike the handled-event record this one **does** carry `:time`, and it carries `:error` rather than `:status`. `:failing-id`, `:flow-id`, `:where` and `:source-coord` ride the top level as summary slots when the producer supplied them; every other attribution slot (`:reason` among them) is lifted onto a `:tags` tree the projector walks — so read `(get-in record [:tags :reason])`, not `(:reason record)`.
+
+The `:rf.egress/profile` on the entry chooses **how much of the tree survives**, never which record you get: the default `:rf.egress/off-box-observability` redacts classified-sensitive paths and elides large ones, `:rf.egress/local-raw` keeps both, and `:rf.egress/public-error` additionally drops the top-level `:exception`. `:kind`, `:error` and the summary ids are there on all three.
 
 ### Recovery is framework-owned — there is no app-steering policy
 
@@ -169,7 +196,7 @@ The production-reachable **SSR error categories** ride this same always-on axis 
 - **`:rf.error/hydration-frame-id-mismatch`** — the `:rf/hydrate` handler's direct-`dispatch-sync` guard: a payload `:rf/frame-id` present-and-different from the frame being hydrated into fails **closed** (app-db + runtime-db left unchanged, no compatibility-check fxs) and emits this record (slots: `:where`, `:frame`, `:failing-id` `:rf/hydrate`, `:target-frame`, `:payload-frame-id`, `:reason`). Non-projecting.
 - **`:rf.error/ssr-ring-response-status-invalid`** — the Ring materialiser met a non-integer response `:status` and rewrote it **closed** to 500 (slots: `:where`, `:status-type` — the offending value's *class name*, never the value itself — `:reason`, `:recovery`). **Frameless: `:frame` is always `nil`**, because the materialiser is a pure map→map fn with no frame in scope — honestly always nil rather than sometimes-populated. Non-projecting: it fires at materialisation time, after the status is already resolved, so a projection could only fight the 500 it is reporting.
 
-**These are NON-EVENT records — none carries `:event` / `:event-id`, and some carry `:frame nil` (the frameless hydration-parse path; `:rf.error/ssr-ring-response-status-invalid` always).** A listener that assumes the per-event shape NPEs; branch on `(:error record)` and read each category's own slots. The recoverable-degradation members (`:rf.error/ssr-head-resolution-failed`, `:rf.error/ssr-ring-error-view-failed`) and the post-commit members (`:rf.error/ssr-streaming-writer-failed`, `:rf.error/sanitised-on-projection`) are **non-projecting**, as is the materialisation-time `:rf.error/ssr-ring-response-status-invalid` — their riding the always-on axis changes what off-box shippers see, never the wire outcome. (Keep these distinct from the `:rf.ssr/*` *compatibility* diagnostics — version/digest/hydration mismatch — which stay trace-channel and do NOT ride this axis. See [`ssr-authoring.md`](ssr-authoring.md).)
+**These are NON-EVENT records — none carries `:event` / `:event-id`, and some carry `:frame nil` (the frameless hydration-parse path; `:rf.error/ssr-ring-response-status-invalid` always).** A sink that assumes the per-event shape NPEs; branch on `(:error record)` and read each category's own slots. The recoverable-degradation members (`:rf.error/ssr-head-resolution-failed`, `:rf.error/ssr-ring-error-view-failed`) and the post-commit members (`:rf.error/ssr-streaming-writer-failed`, `:rf.error/sanitised-on-projection`) are **non-projecting**, as is the materialisation-time `:rf.error/ssr-ring-response-status-invalid` — their riding the always-on axis changes what off-box shippers see, never the wire outcome. (Keep these distinct from the `:rf.ssr/*` *compatibility* diagnostics — version/digest/hydration mismatch — which stay trace-channel and do NOT ride this axis. See [`ssr-authoring.md`](ssr-authoring.md).)
 
 ## Triple-gate registration pattern
 
@@ -210,24 +237,25 @@ Full rationale: [`docs/core/observability.md`](https://github.com/day8/re-frame2
 
 ## Generic shipper recipe (Datadog / Sentry / Honeycomb)
 
-The record shapes are tight enough to ship verbatim — every observability vendor's wire format is a strict subset of "event-id + timestamp + tags + payload". The pattern:
+The record shapes are tight enough to ship verbatim — every observability vendor's wire format is a strict subset of "event-id + timestamp + tags + duration". The pattern, on the off-box default:
 
 ```clojure
 (rf/configure!
-  {:observability {:handled-events [{:sink :observability/events
-                                     :rf.egress/profile :rf.egress/local-raw}]}})
+  {:observability {:handled-events [{:sink :observability/events}]}})
 
 (rf/register-observability-sink! :observability/events
-  (fn [{:keys [event-id event time outcome elapsed-ms frame]}]
+  (fn [{:keys [event-id status elapsed-ms frame effects]}]
     (forward!
       {:name      (str event-id)
-       :timestamp time
-       :tags      {:outcome outcome :frame frame}
+       :timestamp (js/Date.now)            ;; a handled-event record carries NO :time slot
+       :tags      {:status status :frame frame}
        :duration  elapsed-ms
-       :payload   event})))                  ;; already elided — large→marker, sensitive→:rf/redacted
+       :effects   effects})))
 ```
 
-`:payload` (the `:event` slot) has **already** been passed through `rf/elide-wire-value` with off-box defaults (`:rf.size/include-large? false`, `:rf.size/include-sensitive? false`) by the time your sink runs. Do not re-walk unless you want to **widen** the policy (e.g. `:rf.size/include-digests? true` for a debug pipeline). See [`privacy-and-elision.md`](privacy-and-elision.md) for the elision composition rules.
+**Destructure `:status`, not `:outcome`, and stamp your own timestamp.** Those two slots are where a hand-written sink goes wrong: `:outcome` and `:time` belong to the implementation-tier substrate record, not to the `:rf.observe/handled-event` your sink receives — bind them here and you forward `nil` under both keys, and `(name nil)` throws.
+
+Want the event args as a payload too? Add `:rf.egress/profile :rf.egress/local-raw` to the entry and read the `:event` slot, which the off-box default omits entirely. **Understand what you are asking for:** `local-raw` is the trusted-local option set, so classified-sensitive paths arrive **in the clear** and large values arrive **whole** — it is the profile that stops eliding, not one that hands you a different record. Use it for an on-box pipeline, not for a hosted back-end. On the off-box default the surviving slots are structural metadata only, and there is nothing left to re-walk. See [`privacy-and-elision.md`](privacy-and-elision.md) for the elision composition rules.
 
 Worked vendor recipes (Datadog tags, Sentry breadcrumbs, Honeycomb spans): [`docs/core/how-to/report-errors-in-production.md`](https://github.com/day8/re-frame2/blob/main/docs/core/how-to/report-errors-in-production.md).
 
@@ -235,17 +263,17 @@ Worked vendor recipes (Datadog tags, Sentry breadcrumbs, Honeycomb spans): [`doc
 
 - **Sinks block the drain step.** Bodies run synchronously after each event settles. Ship work to a background channel (`requestIdleCallback`, queueing fetch, `setTimeout 0`) if it can't fit inside the per-event wall-clock budget.
 - **Don't re-run elision unless widening.** The record already has off-box defaults applied. A sink that re-walks with defaults is a no-op; one that flips `:rf.size/include-large?` / `:rf.size/include-sensitive?` to `true` exposes data you'd otherwise hide.
-- **Sensitivity redacts the payload, it does NOT drop the record.** There is no handler-level "drop the whole record" privacy gate — every event record fans out, and classified sensitive paths (the registration's `:sensitive` event-arg paths; the durable app-db `:sensitive` classification effect's slices) in its `:event` payload arrive as `:rf/redacted` (per `elide-wire-value` egress). You always get the event-id, frame, outcome, and timing — a built-in audit trail of sensitive events without their secret values. The only whole-record drop (`:rf.trace/no-emit?`, and its frame-scoped sibling `:rf.trace/frame-no-emit?`) is a documented tool-author opt-out — it exists so a tool that dispatches its own events stays quiet on the wire it watches — and it is emphatically **not** a privacy control: it drops the record for every consumer, not just the untrusted one.
+- **Sensitivity redacts the payload, it does NOT drop the record.** There is no handler-level "drop the whole record" privacy gate — every event record fans out, and classified sensitive paths (the registration's `:sensitive` event-arg paths; the durable app-db `:sensitive` classification effect's slices) in its `:event` payload arrive as `:rf/redacted` (per `elide-wire-value` egress). You always get the event-id, frame, `:status`, and timing — a built-in audit trail of sensitive events without their secret values. The only whole-record drop (`:rf.trace/no-emit?`, and its frame-scoped sibling `:rf.trace/frame-no-emit?`) is a documented tool-author opt-out — it exists so a tool that dispatches its own events stays quiet on the wire it watches — and it is emphatically **not** a privacy control: it drops the record for every consumer, not just the untrusted one.
 - **Sink exceptions are swallowed.** The cascade catches; sibling sinks still run. You will NOT see a thrown sink error in the console; log inside the sink body if you want visibility.
 - **Don't use the `:trace` stream for production observability.** `register-listener! :trace` dies under `:advanced` + `goog.DEBUG=false`, and `:trace` / `:epoch` are the only members its vocabulary has. The `:observability` sink is the prod-survivable channel.
-- **There is no corpus-wide listener any more.** The always-on listener streams were retired from the public facade; the surviving production surfaces are enumerated in [`spec/009-Instrumentation.md` §What IS available in production](https://github.com/day8/re-frame2/blob/main/spec/009-Instrumentation.md#what-is-available-in-production). A cross-frame seat is `(rf/configure! {:observability …})`; a raw record is `:rf.egress/local-raw` on the entry.
+- **There is no corpus-wide listener any more.** The always-on listener streams were retired from the public facade; the surviving production surfaces are enumerated in [`spec/009-Instrumentation.md` §What IS available in production](https://github.com/day8/re-frame2/blob/main/spec/009-Instrumentation.md#what-is-available-in-production). A cross-frame seat is `(rf/configure! {:observability …})`; a wider projection — sensitive and large kept — is `:rf.egress/local-raw` on the entry, which is still a projected `:rf.observe/*` record and not the substrate envelope.
 
 ## Cross-references
 
 - Guide concept: [`docs/core/observability.md`](https://github.com/day8/re-frame2/blob/main/docs/core/observability.md) — narrative walkthrough of the one-wire substrate and what survives elision. Worked vendor recipes: [`docs/core/how-to/report-errors-in-production.md`](https://github.com/day8/re-frame2/blob/main/docs/core/how-to/report-errors-in-production.md).
 - Spec normative: [`spec/009-Instrumentation.md §What IS available in production`](https://github.com/day8/re-frame2/blob/main/spec/009-Instrumentation.md) — substrate contracts.
-- Privacy composition: [`privacy-and-elision.md`](privacy-and-elision.md) — owner-classified sensitive paths (the durable app-db `:sensitive` classification effect / registration `:sensitive`) are redacted to `:rf/redacted` by `elide-wire-value`; payload already walked at listener entry. No whole-record drop.
+- Privacy composition: [`privacy-and-elision.md`](privacy-and-elision.md) — owner-classified sensitive paths (the durable app-db `:sensitive` classification effect / registration `:sensitive`) are redacted to `:rf/redacted` by `elide-wire-value`; payload already walked before your sink sees it. No whole-record drop.
 
 ---
 
-*Derived from `re-frame.event-emit` and `re-frame.error-emit` @ main. Verified surfaces: the `:events` stream / `dispatch-on-event!` (`event_emit.cljc`), the `:errors` stream / `dispatch-on-error!` / `dispatch-frame-teardown-report!` (`error_emit.cljc`); registration is via the stream-parameterized `register-listener!` / `unregister-listener!` verb; record shapes and the `:outcome` enum per each ns docstring §Record shape.*
+*Derived from `re-frame.observability`, `re-frame.projection`, `re-frame.event-emit` and `re-frame.error-emit` @ main. Verified surfaces: the projected sink records (`route-handled-event!` / `route-error!` / `route-error-record!` in `observability.cljc`, projected by `project-egress` in `projection.cljc`); registration is `register-observability-sink!` against a frame's `:observability` policy or the `(rf/configure! {:observability …})` process default. The implementation-tier substrates underneath are `dispatch-on-event!` (`event_emit.cljc`) and `dispatch-on-error!` / `dispatch-frame-teardown-report!` (`error_emit.cljc`); their `:outcome` enum is per each ns docstring §Record shape.*

@@ -178,7 +178,7 @@ The elision mechanism itself — what disappears from a production build, and th
 
 1. Release build sets `{:closure-defines {goog.DEBUG false}}` (most templates already do).
 2. Your own dev-only registrations sit behind `^boolean re-frame.interop/debug-enabled?`, outermost.
-3. Production observability is wired on an always-on surface — a frame `:observability` sink, or the corpus-wide `:events` / `:errors` listener streams.
+3. Production observability is wired on an always-on surface — a frame `:observability` sink, or the same entry grammar declared once with `(rf/configure! {:observability …})`.
 4. Handlers receiving untrusted payloads carry a `:schema` and are registered `:boundary? true`.
 5. A JVM/SSR tier ships with `-Dre-frame.debug=false`.
 6. No Xray preload or pair-server artefact on the release classpath.

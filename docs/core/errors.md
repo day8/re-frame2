@@ -186,8 +186,8 @@ Four of those defaults shape how your app degrades, so they're worth knowing by 
 !!! note "No app-policy error hook"
 
     There is no `reg-event-error-handler` — on purpose, and this section just argued
-    why. Observation lives on a [listener](glossary.md#listener) on the error channel
-    — the `:errors` stream covered at the end of this page. Coming from a v1 app that
+    why. Observation lives on the frame's own `:observability` `:errors`
+    sink — covered at the end of this page. Coming from a v1 app that
     installed an error hook, the [migration guide](25-from-re-frame-v1.md) maps the
     translation.
 
@@ -240,11 +240,10 @@ Four of those defaults shape how your app degrades, so they're worth knowing by 
     rejected, so nothing installed, and the next dispatch will be rejected the same
     way. Register the path as nilable, or seed it before the first write. The console
     lines are the framework's fallback for an error *nothing routed*: they appear only
-    while nothing owns the record, so attaching an `:errors` listener — in a dev build,
-    for any reason — takes ownership and they stop, and so does wiring the frame's own
-    `[:observability :errors]` sink policy, which owns just that frame's records rather
-    than the whole page. A deliberate dev listener that wants
-    to ignore rollbacks keys on `:rollback? true`. None of this reaches production,
+    while nothing owns the record, so wiring an `[:observability :errors]` sink — on the
+    frame, or once for the process with `(rf/configure! {:observability …})` — takes
+    ownership and they stop. A sink that wants to ignore rollbacks keys on
+    `:rollback? true`. None of this reaches production,
     because the check itself does not.
 
     **One arm of this category does survive a production build, and it is the one you
@@ -257,8 +256,8 @@ Four of those defaults shape how your app degrades, so they're worth knowing by 
     same recovery as any other `:where :event` failure — the handler is **skipped** and
     the bad payload never reaches app-db. The **report** survives with it, on both
     always-on axes: one `:rf.error/schema-validation-failure` record tagged
-    `:source :boundary` on the `:errors` stream, and `:outcome :rejected` on that
-    dispatch's `:events` record. So this is the one member of the category you *can*
+    `:source :boundary` on the `:errors` sink route, and `:status :rejected` on that
+    dispatch's `:handled-events` record. So this is the one member of the category you *can*
     alert on from a release build.
 
     What the production record omits is the payload — no event vector, no offending
