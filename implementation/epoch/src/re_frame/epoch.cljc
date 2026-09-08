@@ -48,10 +48,11 @@
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
-            ;; The core's late-bind hook INVENTORY, read once at load by guard
-            ;; G2 below (rf2-kuky.92) to refuse a core too old to dispatch this
-            ;; artefact's records. Data only — no behaviour, no cycle.
-            [re-frame.late-bind.directory :as rf.late-bind.directory]
+            ;; The core's record-kind door, asked once at load by guard G2
+            ;; below (rf2-kuky.92) whether it dispatches `:rf/epoch-record`.
+            ;; Already on this artefact's transitive require graph through
+            ;; `re-frame.epoch.tool-pair`, so the edge adds no bundle weight.
+            [re-frame.projection :as rf.projection]
             [re-frame.trace :as rf.trace]))
 
 ;; ---- ONE GRAMMAR FOR THE EPOCH RING (rf2-kuky.55, ruled A) -----------------
@@ -785,10 +786,24 @@
 ;; sensitive app-db values ship RAW. G1 lives in the new core and cannot
 ;; reach backwards to an old one; this is the half that can.
 ;;
-;; THE CHECK is the core's OWN inventory of hook keys, which is the thing
-;; that actually moves between versions — asserted at load, before a single
-;; record can be projected, so the artefact refuses to load against a core
-;; whose door cannot dispatch its records rather than degrading quietly.
+;; THE CHECK asks the core's DOOR whether it dispatches `:rf/epoch-record`
+;; — asserted at load, before a single record can be projected, so the
+;; artefact refuses to load against a core whose door cannot dispatch its
+;; records rather than degrading quietly.
+;;
+;; WHY THE DOOR AND NOT THE LATE-BIND DIRECTORY, which rosters the same
+;; fact and which this guard read first: the directory is a DOCUMENTATION
+;; corpus that production builds must dead-code-eliminate, pinned by
+;; `check-elision.cjs`'s `re-frame.late-bind.directory/hooks (:description
+;; corpus, DCE when unrequired)` sentinel. Requiring it from HERE — the
+;; first `src/` namespace anywhere to do so — dragged its whole hook-key
+;; and description corpus into every bundle carrying this artefact, which
+;; broke that sentinel and nine others whose strings the corpus quotes, and
+;; displaced a shared keyword constant out of the module a bundle-isolation
+;; positive control reads. It is also the weaker question: the directory
+;; DESCRIBES the door, where `recognises-record-kind?` IS the door's own
+;; answer, and `re-frame.projection` is already on this artefact's
+;; transitive require graph, so asking it costs nothing.
 ;;
 ;; WHY A PLAIN `ex-info` AND NOT `rf.error/throw-error!`: the canonical
 ;; builder stamps an `:rf.error/*` category, and every emitted category owes
@@ -800,29 +815,29 @@
 ;; describes it. It carries its discriminator under `:rf.epoch/load-refusal`
 ;; instead, and claims no catalogue row it would not honour.
 (defn ^:no-doc assert-core-dispatches-epoch-records!
-  "Refuse to finish loading against a core whose late-bind directory does
-  not roster `:epoch/project-record`. `hook-key-set` is the core's own
-  inventory (`re-frame.late-bind.directory/hook-keys`), passed in so the
-  skew can be exercised by a unit test without a second core on the
-  classpath. Returns nil when the core is compatible; throws otherwise."
-  [hook-key-set]
-  (when-not (contains? hook-key-set :epoch/project-record)
+  "Refuse to finish loading against a core whose `rf/project-egress` does
+  not dispatch `:rf/epoch-record`. `recognised?` is that core's own answer
+  (`re-frame.projection/recognises-record-kind?`), passed in so the skew can
+  be exercised by a unit test without a second core on the classpath.
+  Returns nil when the core is compatible; throws otherwise."
+  [recognised?]
+  (when-not recognised?
     (throw (ex-info
              (str "day8/re-frame2-epoch requires a re-frame core whose "
-                  "late-bind directory rosters :epoch/project-record — the "
-                  "hook rf/project-egress dispatches a :kind :rf/epoch-record "
-                  "record through. This core does not roster it, so it would "
-                  "read every epoch record as a kindless VALUE and walk it "
-                  "from :path [], shipping declared-sensitive :db-* values "
-                  "RAW. Upgrade day8/re-frame2 to match the epoch artefact.")
+                  "rf/project-egress dispatches :kind :rf/epoch-record. This "
+                  "core does not recognise that record kind, so it would read "
+                  "every epoch record as a kindless VALUE and walk it from "
+                  ":path [], shipping declared-sensitive :db-* values RAW. "
+                  "Upgrade day8/re-frame2 to match the epoch artefact.")
              {:rf.epoch/load-refusal :rf.epoch/core-version-skew
               :where                 're-frame.epoch
               :recovery              :no-recovery
-              :hook                  :epoch/project-record
-              :rostered-hook-count   (count hook-key-set)})))
+              :kind                  :rf/epoch-record
+              :hook                  :epoch/project-record})))
   nil)
 
-(assert-core-dispatches-epoch-records! (rf.late-bind.directory/hook-keys))
+(assert-core-dispatches-epoch-records!
+  (rf.projection/recognises-record-kind? :rf/epoch-record))
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;

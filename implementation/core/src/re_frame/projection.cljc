@@ -554,6 +554,32 @@
   [x]
   (and (map? x) (contains? record-kinds (:kind x))))
 
+(defn ^:no-doc recognises-record-kind?
+  "Does THIS core's `project-egress` dispatch `kind` as a record kind?
+
+  The one CROSS-ARTEFACT capability probe on this door (rf2-kuky.92 guard
+  G2). An optional artefact that OWNS a record kind — `day8/re-frame2-epoch`
+  and `:rf/epoch-record` — publishes its per-kind projector through
+  late-bind against whatever core it finds on the classpath, and
+  `late-bind/set-fns!` validates no key at runtime. So a NEW artefact can
+  register against an OLD core in silence, and that core's door would read
+  every one of its records as a kindless VALUE and bare-walk it from
+  `:path []`, shipping declared-sensitive slots RAW. This lets the artefact
+  ask, at load, whether the core it is being loaded against dispatches its
+  kind at all, and refuse to load otherwise.
+
+  Asks the DOOR rather than a proxy for it. The late-bind DIRECTORY rosters
+  the same fact, but it is a documentation corpus that production builds
+  must DCE (pinned by `check-elision.cjs`'s
+  `re-frame.late-bind.directory/hooks` sentinel), so no `src/` namespace may
+  require it — and the roster is a description of the door, where this is
+  the door's own answer.
+
+  `^:no-doc`: not public API, and not a substitute for `project-egress` —
+  it answers a compatibility question, never a projection one."
+  [kind]
+  (contains? record-kinds kind))
+
 (defn- project-record-by-kind
   "Dispatch a recognised record to its per-kind projector. An unknown /
   kindless record is treated as a tree-shaped VALUE and walked whole — the
