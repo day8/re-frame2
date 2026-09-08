@@ -315,7 +315,7 @@ The article page is simpler, because `:blocking? true` guarantees the read has a
 
 !!! warning "Gotcha — the params must match exactly (this one bites everyone once)"
 
-    A subscription is keyed by `{:resource … :params …}`, and a resource with `{:slug "hello"}` is a *different cache entry* from one with `{:slug "world"}` — that's identity working as designed. But it means if the route ensures under `{:slug slug}` and your view subscribes with `{:slug (str slug)}` or forgets a params key, the sub resolves a *different* entry — one nobody ever ensured — and reads `:idle` **forever**: a permanent skeleton with no error in the console. Subscribe with the exact same params the route ensured. (On a dev build the framework helps: for a non-global, caller-supplied scope it emits a `:rf.warning/resource-sub-scope-mismatch` trace when a sub lands on an un-owned key while a sibling key *is* active — your tip that the two scopes drifted apart.)
+    A subscription is keyed by `{:resource … :params …}`, and a resource with `{:slug "hello"}` is a *different cache entry* from one with `{:slug "world"}` — that's identity working as designed. But it means if the route ensures under `{:slug slug}` and your view subscribes with `{:slug (str slug)}` or forgets a params key, the sub resolves a *different* entry — one nobody ever ensured — and reads `:idle` **forever**: a permanent skeleton with no error in the console. Subscribe with the exact same params the route ensured. (Scope cannot drift the same way: it is declared once at registration and inherited by route and sub alike — params are the half you still hand-assemble at each site.)
 
 ## Step 5 — refresh on demand
 

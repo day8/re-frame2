@@ -87,9 +87,9 @@
   precedence (Spec 016 §Subscription-side scope resolution).
 
   PURE: a sub cannot run a `(route, ctx)` resolver. Resolves scope from the
-  payload `:scope` or a sub-resolvable spec policy (`:rf.scope/global` /
-  `{:from-db <id>}` named-resolver reference / pure-data / fn-of-nothing)
-  and raises `:rf.error/resource-sub-unresolved-scope` otherwise. Throws
+  payload `:scope` override or the spec policy (`:rf.scope/global` or a
+  `{:from-db <id>}` named-resolver reference — both sub-resolvable) and raises
+  `:rf.error/resource-sub-unresolved-scope` when the reference yields nil. Throws
   `:rf.error/resource-not-registered` when no resource is registered under
   `:resource`.
 

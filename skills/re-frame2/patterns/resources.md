@@ -91,10 +91,10 @@ Sibling subs project single facts: `:rf.resource/data`, `:rf.resource/status`, `
 > **The leak boundary other libraries do not have.** TanStack Query / RTK Query / SWR put the viewer id *inside the query key* (`['dashboard', userId, tenantId]`), but that segment is a **convention** — hand-assembled at every call site, so a forgotten `tenantId` in one of forty keys is a *silent* shared-cache leak (a missing line throws nothing), with logout left to `queryClient.clear()` (drops everyone). re-frame2 makes the **resolved scope part of the key's *type*, not a concatenated segment**: the runtime computes it into `[scope resource-id params]` structurally, it is **required** at registration, **fails closed** (unresolvable scope is a loud error, never a silent shared read), and logout is a **causal scoped clear** (`:rf.resource/clear-scope`) that touches one principal's entries and leaves global intact. The shift is *trust* → *structure*. Depth: `SKILL-REDIRECT.md` → *EP — Resources (016)* §Scope resolution.
 
 - `:rf.scope/global` — an explicit, auditable **claim**: "the same params produce the same data for every user, tenant, locale, impersonation state." Xray enumerates every global resource as the security-review list. **"Readable anonymously" is NOT this claim.** *Public access is not cache-identity proof.* An endpoint can allow logged-out reads and still return bytes that vary with the *optional* authenticated viewer (a `favorited` / `following` / "your rating" flag folded into an otherwise-public payload). That read is **viewer-scoped, not global** — declare `{:from-db <viewer-resolver>}`, and let the resolver distinguish signed-in (`[:rf.scope/viewer {:username …}]`) from confirmed-anonymous (`[:rf.scope/viewer :anonymous]`) from *unresolved* (nil / fail-closed, e.g. a saved token present but the user not restored yet — a read fired then is authenticated, so it must not be labelled shareable-anonymous).
-- a **resolver** (`(fn [route ctx] …)` at a route `:resources` entry — the one site with a populated planning context, §Route-driven loading; or a pure-data / fn-of-nothing for a sub-resolvable scope) — derives a concrete scope that materializes as visible EDN in the key, e.g. `[:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]`.
-- a **named resolver reference** `{:from-db <resolver-id>}` — the reusable form (below) for db-derived viewer identity.
-- `:rf.scope/from-caller` — every ensure / refetch / sub must supply `:scope` on the payload.
-- **no `:scope`** — a loud `:rf.error/resource-missing-scope-policy` at registration. "I forgot this read is user-scoped" is unrepresentable.
+- a **named resolver reference** `{:from-db <resolver-id>}` — the db-derived viewer identity form (below). It derives a concrete scope that materializes as visible EDN in the key, e.g. `[:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]`, and its `:inputs` are declared so tooling reads the derivation without running it.
+- **anything else, `no :scope` included** — a loud `:rf.error/resource-missing-scope-policy` at registration. Those two shapes are the whole vocabulary: an app keyword, a literal tuple / map / string and a fn are all refused. "I forgot this read is user-scoped" is unrepresentable.
+
+A scope known only at the call site is **modelled, not declared**: reference a db slot the caller writes first, or pass a concrete `:scope` **override** on every ensure and every subscription. A `:scope` at a use site is always an override — the registration's policy is INHERITED by route entries and subscriptions alike, so never repeat it.
 
 #### Named scope resolvers — `reg-resource-scope`
 
@@ -160,8 +160,14 @@ A resource/mutation request fn describes **the domain request** — method, url,
                  token (assoc-in [:request :headers "Authorization"]
                                  (str "Token " token)))))})
 
+(rf/reg-resource-scope :app/session             ;; the viewer identity, declared once
+  {:inputs {:user-id [:db [:auth :user :id]]}}
+  (fn [{:keys [user-id]} _ctx]
+    (when user-id [:rf.scope/session {:user-id user-id}])))
+
 (rf/reg-resource :current-user                  ;; no per-resource auth opt-in needed
-  {:scope   :rf.scope/from-caller}
+  {:scope         {:from-db :app/session}       ;; viewer-scoped — inherited by every use site
+   :params-schema [:map]}
   (fn [_params _ctx]
     {:request {:method :get :url "/api/user"} :decode :app/user}))
 ```

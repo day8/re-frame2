@@ -1678,17 +1678,10 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
    [:value       {:optional true} :any]   ;; present when the spec was not a map
    [:reason      :string]])
 
-(def ResourceScopeRequiredFromCallerTags
-  ;; a :rf.scope/from-caller resource event reached with no payload :scope
-  ;; and no route resolver — a loud use-time error, not a silent global read.
-  [:map
-   [:category    :keyword]
-   [:resource-id :keyword]
-   [:reason      :string]])
-
 (def ResourceSubUnresolvedScopeTags
-  ;; a passive resource subscription could not resolve a scope (no payload
-  ;; :scope, spec policy not sub-resolvable) — never a silent global / :idle.
+  ;; a passive resource subscription could not resolve a scope: its
+  ;; {:from-db <id>} policy (or payload reference) resolved nil against the
+  ;; frame app-db — never a silent global / :idle.
   [:map
    [:category    :keyword]
    [:resource-id :keyword]
@@ -3287,9 +3280,10 @@ The EP-0016 action-wave **public input forms** — named scope resolvers (D3), p
 ```clojure
 (def ScopePolicy
   ;; A scope value as it appears in a descriptor / exact target / route
-  ;; resource entry :scope. NOT the resource-registration :scope POLICY enum
-  ;; (:rf.scope/global | resolver | :rf.scope/from-caller, per [016 §Scope
-  ;; resolution]) — this is the per-target / per-descriptor scope slot.
+  ;; resource entry :scope. NOT the resource-registration :scope POLICY enum,
+  ;; which is EXACTLY :rf.scope/global | {:from-db <id>} (per [016 §Every
+  ;; resource declares a scope policy]) — this is the per-target /
+  ;; per-descriptor scope slot, which is wider.
   [:or
    [:= :rf.scope/same]                  ;; the mutation's resolved execution scope (DEFAULT when omitted)
    [:= :rf.scope/global]

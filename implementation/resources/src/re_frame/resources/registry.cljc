@@ -730,9 +730,9 @@
   in favour of the canonical bare `:rf.scope/global` (rf2-bwwk6l), then
   canonicalize. Per
   Spec 016 §Resource identity / §Scope resolution. Used by both event and
-  sub scope resolution, so a misspelled reserved `:rf.scope/*` in a payload /
-  route-resolver / fn-of-nothing / pure-data policy is caught at the concrete
-  boundary, not silently accepted as a literal scope."
+  sub scope resolution, so a misspelled reserved `:rf.scope/*` in a payload,
+  a route-resolver result, or a resolved `{:from-db …}` scope is caught at the
+  concrete boundary, not silently accepted as a literal scope."
   [resource-id scope where]
   (rf.resources.state/canonicalize-scope scope where resource-id))
 

@@ -66,7 +66,7 @@ Scope in this slice is HTTP-only:
 | Key | Notes |
 |---|---|
 | `:params-schema` | Validates and canonicalizes params (the resource's identity). |
-| `:scope` | The scope **policy**: `:rf.scope/global`, a resolver, or `:rf.scope/from-caller`. Fail-closed: omitting the policy raises a loud `:rf.error/resource-missing-scope-policy`. There is no implicit default; a user-scoped read must say so. |
+| `:scope` | The scope **policy**: EXACTLY `:rf.scope/global` or `{:from-db <resource-scope-id>}`. Fail-closed: any other value — including none — raises a loud `:rf.error/resource-missing-scope-policy`. There is no implicit default; a user-scoped read must say so. |
 | request fn (3rd positional arg) | For `:transport :rf.http/managed`, returns a [managed-HTTP args map](re-frame.http.md). It MUST NOT supply `:request-id` / `:on-success` / `:on-failure` — the runtime supplies those from the scoped key + generation. Supplying one raises `:rf.error/resource-reserved-request-key`. |
 
 These three (`:params-schema`, `:scope`, request fn) are the registration gate. A `reg-resource` missing any of them throws. `:data-schema` is not part of the gate: it is an optional static declaration of the data's shape (surfaced to tooling), not a runtime validator, so the gate does not enforce it. Runtime shape-validation of a response rides the request's `:decode`.
@@ -86,18 +86,19 @@ These three (`:params-schema`, `:scope`, request fn) are the registration gate. 
 
 #### Scope policy
 
-`:scope` is required and declares a policy from a closed set:
+`:scope` is required and is EXACTLY one of two shapes:
 
 | Policy | Meaning |
 |---|---|
 | `:rf.scope/global` | The resource is explicitly global: the same params produce the same data for every user/tenant/permission/locale/impersonation state. This is an auditable claim, not a convenience default. |
-| `<resolver>` | Derive the scope. A route-resource resolver is `(fn [route ctx] …)`; a sub-resolvable resolver is a pure data value or a fn-of-nothing. A reusable named resolver is registered with [`reg-resource-scope`](#reg-resource-scope) and referenced as `{:from-db <scope-id>}`. |
-| `:rf.scope/from-caller` | The use site must supply the scope: every ensure / refetch / state call passes `:scope` (or a route resolver does). Reaching the resource without one raises `:rf.error/resource-scope-required-from-caller`. |
+| `{:from-db <resource-scope-id>}` | Derive the scope from app-db at use time via the named resolver registered with [`reg-resource-scope`](#reg-resource-scope). The resolver's `:inputs` are declared, so tooling reads the derivation without running it. |
+
+Anything else — an app-namespaced keyword, a literal tuple / map / string, a fn, a `:rf.scope/*` typo, or no `:scope` at all — is a registration error. A scope known only at the call site is modelled as `{:from-db …}` over a slot the caller writes first, or by passing a concrete `:scope` **override** at each use site.
 
 There is no `[:rf.scope/global]` fallthrough.
 
-- Event resolution precedence: payload `:scope` → route resolver → spec resolver. A `{:from-db <id>}` reference that resolves `nil` at an event/route site raises `:rf.error/resource-scope-unresolved-reference`.
-- Subscription resolution: payload `:scope` → sub-resolvable spec policy → loud `:rf.error/resource-sub-unresolved-scope` (never a silent global read or `:idle`).
+- Event resolution precedence: payload `:scope` → route resolver → spec policy. A `{:from-db <id>}` reference that resolves `nil` at an event/route site raises `:rf.error/resource-scope-unresolved-reference`.
+- Subscription resolution: payload `:scope` (an override) → spec policy → loud `:rf.error/resource-sub-unresolved-scope` when a `{:from-db …}` reference yields nil (never a silent global read or `:idle`).
 - **Registration is the DEFAULT; a use-site `:scope` is an OVERRIDE.** Declare the scope once on the resource; a route entry, subscription payload or event payload that omits `:scope` inherits it. Supply one at a use site only when that site genuinely reads under a *different* principal (an admin reading tenant X). Repeating the registration's own policy at every use site is noise, not safety.
 
 See [Guide ch.27 §Scope](../resources/concepts.md).
@@ -178,7 +179,7 @@ A mutation is the causal-WRITE counterpart of a resource: a named write to remot
 
 > **`:retry` is NOT a `reg-mutation` spec key.** Write retries are opt-in. They ride the [managed-HTTP args](re-frame.http.md) your `:request` fn returns — put `:retry {…}` in *that* map. The runtime passes the `:request` args through to the transport unchanged. It does not read or enforce a spec-level `:retry`, so there is no `reg-mutation`-level retry to arm. Reads inherit the same discipline — see [Managed HTTP reference §Retry](../async/http.md#retry-transport-retry-as-data). Re-issuing a non-idempotent write because a reply was merely slow is the double-write bug, so retry stays explicit and per-request.
 
-> **Mutation `:scope` is not fail-closed.** A resource read's `:scope` is required and fails closed. A mutation's `:scope` is optional: it resolves payload `:scope` → spec `:scope` → `:rf.scope/global`. The scope decides which cache scope the success-time invalidate / patch / populate targets, so it MUST match the scope of the resources the write changes. A write against user/tenant/locale-scoped entries that omits `:scope` invalidates the `[:rf.scope/global]` cache instead. It silently misses the scoped entries — stale reads, no error. Pass `:scope` on `[:rf.mutation/execute …]` when the principal is known only at the call site. The `:rf.scope/from-caller` *policy* is a resource-read concept, not a mutation one.
+> **Mutation `:scope` is not fail-closed.** A resource read's `:scope` is required and fails closed. A mutation's `:scope` is optional: it resolves payload `:scope` → spec `:scope` → `:rf.scope/global`. The scope decides which cache scope the success-time invalidate / patch / populate targets, so it MUST match the scope of the resources the write changes. A write against user/tenant/locale-scoped entries that omits `:scope` invalidates the `[:rf.scope/global]` cache instead. It silently misses the scoped entries — stale reads, no error. Pass `:scope` on `[:rf.mutation/execute …]` when the principal is known only at the call site.
 
 **Optimistic keys** (see [EP-0019](../EP/EP-0019-optimistic-mutation-rollback.md) and [Invalidate after a mutation](../resources/how-to/invalidate-after-a-mutation.md) / [model § mutations](../resources/concepts.md#writes-invalidate-by-tag--causally)):
 
@@ -565,7 +566,7 @@ Resource events take a **map payload**, not a positional argument vector. The re
 
 - An unregistered `:resource` raises `:rf.error/resource-not-registered`.
 - Params that fail `:params-schema` raise `:rf.error/resource-invalid-params`.
-- Scope resolution is fail-closed (`:rf.error/resource-scope-required-from-caller` / `:rf.error/resource-scope-unresolved-reference` — see [Scope policy](#scope-policy)).
+- Scope resolution is fail-closed (`:rf.error/resource-scope-unresolved-reference` / `:rf.error/resource-sub-unresolved-scope` — see [Scope policy](#scope-policy)).
 
 #### `[:rf.resource/ensure {…}]`
 
