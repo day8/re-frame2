@@ -59,6 +59,14 @@
 #   anyone having to remember to extend a deny-list — the same reasoning as
 #   the sibling lib/check-mayor-commit-boundary.sh.
 #
+#   `.beads/PRIME.md` is on that list for the same reason as README.md: it is
+#   hand-written prose, not a database export. It overrides `bd prime`'s
+#   SessionStart output, so it is edited like any other doc and reviewed in
+#   the PR that changes it. The allow-list being ENUMERATED is what made the
+#   entry necessary — the file would otherwise fall to the `.beads/*` arm and
+#   be refused from every worker worktree, reddening the CI arm on every PR
+#   that touched it.
+#
 # This file is a pure shell library (no `set -e`, no global state mutation)
 # so scripts/git-hooks/test-pre-commit.sh can drive it with synthetic stdin
 # and assert against stdout / stderr / exit.
@@ -85,6 +93,7 @@ rf2_beads_is_permitted_path() {
     .beads/README.md)   return 0 ;;
     .beads/config.yaml) return 0 ;;
     .beads/.gitignore)  return 0 ;;
+    .beads/PRIME.md)    return 0 ;;
     .beads/hooks/*)     return 0 ;;
     .beads/*)           return 1 ;;
     *)                  return 0 ;;
@@ -221,7 +230,8 @@ check_beads_boundary() {
   printf '  code, spec, docs and tests — never the tracker database.\n' >&2
   printf '\n' >&2
   printf '  Human-authored beads config IS permitted here:\n' >&2
-  printf '    .beads/README.md  .beads/config.yaml  .beads/.gitignore  .beads/hooks/**\n' >&2
+  printf '    .beads/README.md  .beads/config.yaml  .beads/.gitignore\n' >&2
+  printf '    .beads/PRIME.md   .beads/hooks/**\n' >&2
   printf '\n' >&2
   printf '  Merge-side rule: never resolve a .beads conflict with --theirs/--ours.\n' >&2
   printf '  See CLAUDE.md > Beads durability.\n' >&2
