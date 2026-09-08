@@ -72,7 +72,7 @@ Concretely:
 - App-db schema paths are `get-in`/`assoc-in` paths **into app-db** (`[:user]`, `[:cart :items]`, `[]` for the whole app-db partition). They are never `:rf.runtime/*` paths.
 - A user-registered app schema whose path's **first segment** reaches into runtime-db (a `:rf.runtime/*` keyword, the `:rf.db/runtime` container root, or the `:rf/runtime` root) is a **category error**, not a warnable misuse, and is **hard-rejected at registration** with `:rf.error/app-schema-runtime-path` (per [Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys) and [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)). `reg-app-schema` validates only app-db (`(get-in app-db path)`), so a runtime path either detonates every dev commit (a normal `[:map …]` schema over the `nil` app-db slot) or silently installs a validator the author falsely believes guards runtime-db — there is no behaviour to soft-land, and no legitimate caller. `reg-app-schemas` rejects the whole batch atomically before any entry lands; the migration agent flags it. The runtime-db partition is **framework-owned**, so there is no public schema surface to redirect the user to: the honest remedy is to **drop the runtime path** (the `:reason` says exactly that, and does NOT name a non-public, framework-owned API).
 - The framework registers a separate **runtime-db** validator (`:rf/runtime-db`, per [Spec-Schemas §`:rf/runtime-db`](Spec-Schemas.md#rfruntime-db)) over the runtime-db partition at boot. That is a **framework-owned, internal** validator, NOT an application-owned app schema and NOT a public `rf/*` registration surface — user code never registers it (there is no `rf/reg-runtime-schema` export; the name appears only as internal boot vocabulary). Runtime-db is validated as a partition by the framework-owned internal validator, never via `reg-app-schema` — there is no public app-schema surface over runtime-db.
-- Because app-db now holds nothing but app data, `(re-frame.schemas/app-schemas)` describes a **pure application contract** an AI agent can read without framework noise — the AI-legibility payoff of the partition (per [Principles.md](Principles.md)).
+- Because app-db now holds nothing but app data, `(re-frame.schemas/app-schemas {:frame f})` describes a **pure application contract** an AI agent can read without framework noise — the AI-legibility payoff of the partition (per [Principles.md](Principles.md)).
 - The whole-`app-db` root schema `(rf/reg-app-schema [] …)` validates the whole **app-db partition** — never frame-state, never runtime-db.
 
 The validation timing, candidate-rejection, and per-step recovery rules below apply unchanged; they operate over the app-db partition.
@@ -478,7 +478,7 @@ Every frame exposes a stable digest of its registered schema set. Like the other
 ```clojure
 (require '[re-frame.schemas :as schemas])
 
-(schemas/app-schemas-digest)                              ;; → "sha256:abc1234567890def" for the active frame
+(schemas/app-schemas-digest {:frame :rf/default})         ;; → "sha256:abc1234567890def" for that frame
 (schemas/app-schemas-digest {:frame :production})         ;; → "sha256:..." for the named frame
 ```
 

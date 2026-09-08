@@ -23,7 +23,7 @@ Every CP below begins with the same mechanics; rather than restate them in each,
 
 1. **Choose a namespaced id.** Lowercase, kebab-case. The id-prefix matches the feature (per [Conventions §Feature-modularity prefix convention](Conventions.md#feature-modularity-prefix-convention)).
 2. **Verify the id is unused.** Query the registry via the public registrar query API for the relevant kind (e.g., `(rf/registrations {:source :store :kind :event})`, `(rf/registrations {:source :store :kind :sub})`, `(rf/registrations {:source :store :kind :fx})`, `(rf/registrations {:source :store :kind :view})`, `(rf/registrations {:source :store :kind :route})`).
-3. **Consult registered schemas** (`(rf/app-schemas {:frame f})`, `(rf/app-schema-meta {:frame f :path <path>})`) so the new artefact aligns with shapes already in use.
+3. **Consult registered schemas** (`(re-frame.schemas/app-schemas {:frame f})`, `(re-frame.schemas/app-schema-meta {:frame f :path <path>})`) so the new artefact aligns with shapes already in use. The schema readers live on the `re-frame.schemas` namespace, not the `re-frame.core` façade, and `:frame` is required on each.
 
 ## Catalogue
 
@@ -622,7 +622,7 @@ For projections, compose against `:rf/machine` by declaring it under `:inputs`:
    - `(rf/registrations {:source :store :kind :event})` — none should start with your prefix.
    - `(rf/registrations {:source :store :kind :sub})` — likewise.
    - `(rf/registrations {:source :store :kind :view})` — likewise.
-   - `(rf/app-schemas)` — your `app-db` paths must be free.
+   - `(re-frame.schemas/app-schemas {:frame f})` — your `app-db` paths must be free.
 3. **Identify the feature's `app-db` shape.** Pick a single root key matching the prefix: `:cart`, `:auth`, etc. All feature state lives under that key. No exceptions.
 4. **Identify external dependencies.** Other features (e.g., `:auth` reads `:user`), registered fx (e.g., `:http`, `:localstorage`), schemas the feature consumes.
 
@@ -644,7 +644,7 @@ A feature ships these artefacts as a coherent bundle:
 **What the schema row buys — and what it does not.** `reg-app-schema` is
 required because the registration is genuinely wanted: it documents the slice's
 shape, it catches your own mistakes the moment you make them, and it is what
-tools and agents read back through `(rf/app-schemas)`. But registering a schema
+tools and agents read back through `(re-frame.schemas/app-schemas {:frame f})`. But registering a schema
 and checking one are two different acts. A production build performs the
 registration and elides the check ([010 §Production
 builds](010-Schemas.md#production-builds)), so a candidate that violates

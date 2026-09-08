@@ -3313,7 +3313,7 @@ carrying, top to bottom:
    `schema check` is the inline click-to-source link;
    click dispatches `:rf.xray/open-in-editor` against the
    schema's resolved source-coord. Coord resolution varies by
-   `:where`: `:app-db` reads `(rf/app-schema-meta {:frame f :path path})`
+   `:where`: `:app-db` reads `(re-frame.schemas/app-schema-meta {:frame f :path path})`
    (per rf2-mg6ya); other `:where` values read
    `(rf/handler-meta {:source :store :kind :schema :id failing-id})`. Missing coord →
    the link degrades to plain inline text inside the sentence
@@ -3394,7 +3394,7 @@ mute below) handles the downstream-step opacity overlay.
 **Inline link → coord resolution.** The `schema check` link
 resolves to the schema's source-coord, NOT the handler's:
 
-- `:app-db` → `(rf/app-schema-meta {:frame f :path path})` (the
+- `:app-db` → `(re-frame.schemas/app-schema-meta {:frame f :path path})` (the
   `:schemas/app-schema-meta` late-bind hook per rf2-mg6ya; the frame is
   the violation row's own, never an ambient resolution — that would
   resolve Xray's own frame)

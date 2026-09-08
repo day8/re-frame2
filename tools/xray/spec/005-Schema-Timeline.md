@@ -80,8 +80,8 @@ Schemas panel is active, it fills the canvas instead):
 :schema/checkout   ·············●··········●··········●·········●
 ```
 
-- **One row per registered schema** (from `(rf/app-schemas {:frame
-  frame-id})`).
+- **One row per registered schema** (from `(re-frame.schemas/app-schemas
+  {:frame frame-id})`).
 - **A dot at the timestamp** where the validation failed.
 - **Colour encodes recovery**:
 
@@ -235,7 +235,7 @@ the **in-window** violation set, comparing the current recompute to
 the prior recompute's cache. Consequences:
 
 - Schema **registration** alone (a row appearing because a new
-  schema was registered via `(rf/app-schemas {:frame frame-id})` but
+  schema was registered via `(re-frame.schemas/app-schemas {:frame frame-id})` but
   carrying no violations) does NOT fire the cue — registration
   doesn't move the row out of the empty bucket.
 - Selecting a violation, changing the schema-filter, or any other
