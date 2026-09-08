@@ -215,6 +215,8 @@ The point is that a call site reads as **one language** beside the keywords it m
 
 A **bare** leaf alias (`:as routing`, `:as machines`, `:as schemas`) is **reserved for application namespaces**. An app's own `myapp.routing` takes `routing` and never has to be disambiguated against the framework's — which is the second thing the rule buys, and the reason the framework yields the bare form rather than claiming it.
 
+**What this dialect binds — scope.** The rule binds **repository Clojure source**: every git-tracked `.clj` / `.cljs` / `.cljc`, which is exactly the surface `scripts/check_require_alias_dialect.py` ratchets. Documentation and examples are free to establish an **application-local** alias — a sample is a sketch of somebody's app, and an app aliases what it likes — but a sample's own calls MUST then follow the alias that sample binds, because a page that binds one alias and calls another is teaching a form that does not compile. An alias a sample happens to spell is an **example, not an additional public API name**: the public names are the namespace and the var, and [API.md](API.md) and the manifest carry those. So when a reference contradicts the require form standing beside it, correct that reference while you are in the page — but consistency of that kind is a per-page property, and it does **not** oblige a repository-wide alias migration.
+
 ### The public `rf/image` source keys
 
 `rf/image` is a plain function ([API.md](API.md)) that accepts a **source map** and returns an inert image **value**. The public source map accepts **exactly three** top-level keys ([EP-0026](../docs/EP/EP-0026-image-api-simplification.md) §Image Keys); the normalized value carries the owner-qualified `:rf.image/*` slots above. The source keys are the authoring surface; the `:rf.image/*` namespace names the normalized internal form.
@@ -1353,8 +1355,8 @@ Process-level state mutation outside the registrar — installing or tearing dow
 - `clear-sub-cache!`
 
 ```clojure
-(rf.substrate.adapter/install-adapter! reagent-adapter/adapter)   ;; bang — installs runtime
-(rf.schemas/set-schema-fns! {:validate my-validator-fn})          ;; bang — swaps a global
+(rf.substrate.adapter/install-adapter! rf.adapter.reagent/adapter) ;; bang — installs runtime
+(rf.schemas/set-schema-fns! {:validate my-validator-fn})           ;; bang — swaps a global
 ```
 
 ### 4. Dispatch and subscribe — **no bang**
@@ -1443,7 +1445,7 @@ The opts-map sub-keys mix two shapes: cross-surface policy slots use a namespace
 
 For substitution points where the consumer hands the framework a **specific implementation** (a function or component) that the framework will hold a strong reference to and call from arbitrary sites. The bang earns its keep because the surface mutates an implementation-defined process-level slot (per [§Naming](#naming-when-does-a-surface-carry-) bucket 3).
 
-- `(rf.substrate.adapter/install-adapter! reagent-adapter/adapter)` — install the reactive-substrate adapter (apps call `(rf/init! reagent-adapter/adapter)`; this is the owning-ns primitive beneath it)
+- `(rf.substrate.adapter/install-adapter! rf.adapter.reagent/adapter)` — install the reactive-substrate adapter (apps call `(rf/init! rf.adapter.reagent/adapter)`; this is the owning-ns primitive beneath it)
 - `(rf.schemas/set-schema-fns! {:validate malli.core/validate :explain malli.core/explain})` — swap the schema validator and explainer (on `re-frame.schemas`, not the `re-frame.core` front porch)
 
 These are NOT folded under `configure` because keyword-keyed addressing loses the type information that the consumer needs to pass an actual fn/component reference: `configure` is for *data*, `set-!` is for *impls*.
