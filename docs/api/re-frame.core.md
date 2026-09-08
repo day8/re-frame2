@@ -1174,7 +1174,7 @@ The registrar holds every registered handler — events, subs, fx, cofx, flows, 
   - `{:source :store …}` reads the process-global registrar and never consults a bound image generation, so it answers the same whatever frame's sub build the call sits inside — this is what a tool inspecting a host application wants. `:store` is the only accepted `:source` value.
   - `{:frame f …}` returns only the ids that frame's image carries, resolved through the frame's own sealed image generation (EP-0023). `f` is a frame-id keyword or a live frame value; one that does not resolve to a live frame carrying a generation raises `:rf.error/frame-no-generation`.
   - Naming BOTH `:source` and `:frame`, naming NEITHER, passing a `:source` other than `:store`, or passing a non-map argument (most often a leftover positional call) all raise `:rf.error/registrar-query-needs-source`. There is no default source: "the default" is precisely the ambiguity this grammar removes.
-  - `:kind :flow` and `:kind :frame` are reserved-EMPTY registrar slots and raise `:rf.error/registrar-kind-not-queryable` naming the real door (`re-frame.flows/flows-snapshot` / `flow-meta-at`; `frame-ids` / `frame-meta`) rather than returning a misleadingly authoritative `{}`.
+  - `:kind :flow` and `:kind :frame` are reserved-EMPTY registrar slots and raise `:rf.error/registrar-kind-not-queryable` naming the real door (`re-frame.flows/flows` / `flow-meta` / `flows-snapshot`; `frame-ids` / `frame-meta`) rather than returning a misleadingly authoritative `{}`.
   - Filtering is `filter` over the returned map — there is no predicate arity.
 - **Example**:
   ```clojure
@@ -1195,7 +1195,7 @@ The registrar holds every registered handler — events, subs, fx, cofx, flows, 
   - Registrar kinds: `:event`, `:sub`, `:fx`, `:cofx`, `:interceptor`, `:view`, `:frame`, `:route`, `:head`, `:error-projector`, `:flow`, `:resource`.
   - The two machine kinds `:machine-guard` / `:machine-action` take a 2-vector id: `(handler-meta {:source :store :kind :machine-guard :id [machine-id guard-id]})`. They are derived on demand from the machine's registration spec (a dev-only source; not frame-targetable, so `:frame` returns `nil` for them).
   - The same source grammar and the same errors as `registrations` apply (`:rf.error/registrar-query-needs-source`, `:rf.error/frame-no-generation`, `:rf.error/registrar-kind-not-queryable`).
-  - App-db schemas are **not** a registrar kind — look them up via `(app-schema-meta-at path)` in [re-frame.schemas.md](re-frame.schemas.md).
+  - App-db schemas are **not** a registrar kind — look them up via `(app-schema-meta {:frame f :path p})` in [re-frame.schemas.md](re-frame.schemas.md).
 - **Example**:
   ```clojure
   (rf/handler-meta {:source :store :kind :sub :id :counter/value})
@@ -1319,7 +1319,7 @@ A flow is derived state: declared inputs (frame-state paths), a pure `:derive`, 
 
 ### Schemas → [re-frame.schemas.md](re-frame.schemas.md)
 
-Malli schemas attached to `app-db` paths; validated on writes in dev, elided in production. The introspection surface (`app-schemas`, `app-schema-at`, …) and validator-extension seams live in the schemas doc. (Always-on validation of an untrusted event payload is the `:boundary? true` registration flag, rowed above under [`reg-event`](#reg-event).)
+Malli schemas attached to `app-db` paths; validated on writes in dev, elided in production. The introspection surface (`app-schemas`, `app-schema-meta`, …) and validator-extension seams live in the schemas doc. (Always-on validation of an untrusted event payload is the `:boundary? true` registration flag, rowed above under [`reg-event`](#reg-event).)
 
 #### `reg-app-schema`
 

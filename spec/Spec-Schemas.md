@@ -45,7 +45,7 @@ All spec-internal schemas:
 
 - Are **open maps** by default (`:closed false`, equivalent to Malli's default behaviour). Unknown keys are tolerated; producers may add new keys additively.
 - Are namespaced under `:rf/...` to avoid colliding with user schemas.
-- Are registered at runtime via `reg-app-schema` for inspectability via `(app-schema-at [:rf/...])`.
+- Are registered at runtime via `reg-app-schema` for inspectability via `(app-schema-meta {:frame f :path [:rf/...]})`.
 - Use the lightest schema that captures the shape — preferring `[:map ...]` over more specific Malli grammars.
 
 ### Traceability metadata

@@ -279,24 +279,25 @@ There's one wrinkle in where these live. The *registration* macros you've used s
 ```clojure
 (require '[re-frame.schemas :as schemas])
 
-(schemas/app-schema-at [:auth])
-;; → AuthSlice — the registered schema value at that path
-
-(schemas/app-schema-meta-at [:auth])
+(schemas/app-schema-meta {:frame :rf/default :path [:auth]})
 ;; → {:path [:auth] :schema AuthSlice :frame :rf/default :ns ... :line ... :file ...}
 ;;    the full registration metadata — what a "click back to code" jump uses
 
-(schemas/app-schemas)
-;; → {[:auth] AuthSlice, [:articles] RequestSlice, ...} for the active frame
+(:schema (schemas/app-schema-meta {:frame :rf/default :path [:auth]}))
+;; → AuthSlice — the registered schema value at that path
 
 (schemas/app-schemas {:frame :production})
-;; → the {path → schema} map for a named frame
+;; → {[:auth] {:path [:auth] :schema AuthSlice ...}, ...} — one frame's whole
+;;    registration map, keyed by path
 
-(schemas/app-schemas-digest)
-;; → "sha256:abc1234567890def" — a stable hash of this frame's whole schema set
+(update-vals (schemas/app-schemas {:frame :production}) :schema)
+;; → {[:auth] AuthSlice, [:articles] RequestSlice, ...} — the schema values alone
+
+(schemas/app-schemas-digest {:frame :production})
+;; → "sha256:abc1234567890def" — a stable hash of that frame's whole schema set
 ```
 
-Each reader takes an optional `{:frame frame-id}` (or a bare frame-id), defaulting to the active frame; outside any frame scope it raises `:rf.error/no-frame-context`. Event/sub/fx schemas come back through the registrar query API instead — `(rf/handler-meta {:source :store :kind :event :id :auth/login})` returns `{:schema [:cat ...] :doc ... :ns ...}`.
+Every reader takes ONE map, and `:frame` is **required** on it — a frame-id keyword or a frame value. There is no ambient default: a schema read is a question ABOUT a named frame rather than an operation inside one, so a frameless or non-map call raises `:rf.error/no-frame-context`. Event/sub/fx schemas come back through the registrar query API instead — `(rf/handler-meta {:source :store :kind :event :id :auth/login})` returns `{:schema [:cat ...] :doc ... :ns ...}`.
 
 The digest is the quiet workhorse. It's a single deterministic hash of a frame's whole `{path → schema}` set — same input, same hash, on any runtime — which makes it a cheap fingerprint for "are these two builds describing the same shapes?" The headline use is catching a deploy mismatch: when a server-rendered page [hydrates](../../ssr/glossary.md#hydration) in the browser, it carries the server's digest, and the client compares it against its own. If they differ (`:rf.ssr/schema-digest-mismatch`), the server bundle and the client bundle have drifted out of sync — exactly the deploy bug that's otherwise invisible until something renders wrong. The same readers serve other consumers too: AI agents read these surfaces to learn what shape to write *before* they dispatch, generators (Malli's `mg/generate`) turn a schema into test data, and pair-tools warn you when the running app's schema set has shifted under a REPL you're attached to.
 

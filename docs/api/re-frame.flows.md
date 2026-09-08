@@ -120,7 +120,7 @@ read. Outputs stay `app-db`-only.
 
 Flows are single-store: the `:flow` registrar kind is reserved-but-empty (`reg-flow` does not write it). The same id can register against multiple frames with divergent definitions.
 
-For per-frame discovery, read the encapsulated runtime registry through its public accessors: `re-frame.flows/flows-snapshot` (returns the `{frame-id {flow-id flow-map}}` shape) or the frame-scoped `re-frame.flows/flow-meta-at`. Do not reach for the private registry atom (in `re-frame.flows.registry`); it is an implementation detail behind the snapshot contract. The per-frame runtime registry is the source of truth for evaluation.
+For per-frame discovery, read the encapsulated runtime registry through its public accessors: `re-frame.flows/flows-snapshot` (returns the whole `{frame-id {flow-id flow-map}}` shape), the frame-scoped `re-frame.flows/flows` (one frame's `{flow-id flow-map}`), or `re-frame.flows/flow-meta` (one flow). Do not reach for the private registry atom (in `re-frame.flows.registry`); it is an implementation detail behind the snapshot contract. The per-frame runtime registry is the source of truth for evaluation.
 
 #### Frame-destroy teardown
 
@@ -171,7 +171,7 @@ Three consequences worth knowing:
 
 ## Introspection and tooling
 
-Read-only views over the per-frame flow registry. They never touch the registration write-path. Tools (Xray, re-frame2-pair) and conformance fixtures consume them. None of the three has a `re-frame.core` facade export.
+Read-only views over the per-frame flow registry. They never touch the registration write-path. Tools (Xray, re-frame2-pair) and conformance fixtures consume them. None has a `re-frame.core` facade export.
 
 ### `flows-snapshot`
 
@@ -187,24 +187,39 @@ Read-only views over the per-frame flow registry. They never touch the registrat
   (keys (get (flows/flows-snapshot) :app))   ;; => (:cart/subtotal :nav/on-checkout?)
   ```
 
-### `flow-meta-at`
+### `flows`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (flow-meta-at flow-id)
-  (flow-meta-at flow-id opts)
+  (flows {:frame f}) → {flow-id flow-map}
   ```
-- **Description**: Return the registration metadata map for `flow-id` in a frame, or `nil`. This is the canonical per-frame flow introspection surface.
+- **Description**: Return every flow registered in one frame, or `{}` when that frame holds none.
+
+  - `:frame` is **required** and names a frame target (a frame-id keyword or a frame value), the same targets `rf/registrations` accepts. A frameless or non-map call raises `:rf.error/no-frame-context`.
+  - The whole-registry read is `flows-snapshot`; this is its per-frame slice.
+- **Example**:
+  ```clojure
+  ;; Which flows does the :app frame carry?
+  (keys (flows/flows {:frame :app}))   ;; => (:cart/subtotal :nav/on-checkout?)
+  ```
+
+### `flow-meta`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (flow-meta {:frame f :id flow-id}) → flow-map or nil
+  ```
+- **Description**: Return the registration metadata map for one flow in a frame, or `nil`. This is the canonical per-frame flow introspection surface.
 
   - Returns the full flow-map stamped at `reg-flow`: its source-coords `:ns` / `:line` / `:file`, `:inputs`, `:derive`, `:output-path`, and any output-classification keys.
   - Frame-divergent by construction: the same `flow-id` registered against two frames returns each frame's own definition.
-  - The zero-`opts` arity resolves the frame from the carried-invariant scope (raising `:rf.error/no-frame-context` under no scope).
-  - `opts` is a map whose `:frame` names the frame target (a keyword id or frame value). The keyword sugar `(flow-meta-at flow-id frame-id)` is accepted.
+  - Both keys are **required**. There is no ambient default and no trailing frame-target sugar — a live frame value is itself a map, so a type-sniffing positional argument could never be read locally. A frameless or non-map call raises `:rf.error/no-frame-context`.
 - **Example**:
   ```clojure
   ;; The :app frame's own definition of :cart/subtotal.
-  (flows/flow-meta-at :cart/subtotal {:frame :app})
+  (flows/flow-meta {:frame :app :id :cart/subtotal})
   ```
 
 ### `flow-algebra-view`

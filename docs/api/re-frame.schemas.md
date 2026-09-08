@@ -30,9 +30,9 @@ The registration macros live in `re-frame.core` and route through the schemas ar
   (reg-app-schema path metadata schema)
   ```
 - **Description**: Attach a Malli schema to an `app-db` path.
-  - **Development-build assertion, not a production guarantee.** A production build still performs this registration — `app-schema-at` and `app-schemas` keep answering — but the candidate validator is elided, so nothing checks the schema. A candidate that violates it installs silently: no rejection, no rollback, no trace. Your app-db schemas do not run in production builds. Keep the invariant that must hold in production in the handler, and set [`:boundary? true`](re-frame.core.md#reg-event) on the registration where untrusted input must be validated in production too.
+  - **Development-build assertion, not a production guarantee.** A production build still performs this registration — `app-schemas` and `app-schema-meta` keep answering — but the candidate validator is elided, so nothing checks the schema. A candidate that violates it installs silently: no rejection, no rollback, no trace. Your app-db schemas do not run in production builds. Keep the invariant that must hold in production in the handler, and set [`:boundary? true`](re-frame.core.md#reg-event) on the registration where untrusted input must be validated in production too.
   - The schema is the **positional value slot** (rf2-qm7k83 Part A), uniform with the rest of the `reg-*` family. The optional middle metadata map carries the frame target under `:frame` (a frame-id keyword or a frame value), plus `:doc` and open `:my/*` keys.
-  - The **path is the registration id**. App-db schemas are path-keyed and live in the schemas artefact's per-frame side-table; they are NOT a registrar kind. `(app-schema-at [:user])` looks up by the same path vector.
+  - The **path is the registration id**. App-db schemas are path-keyed and live in the schemas artefact's per-frame side-table; they are NOT a registrar kind. `(app-schema-meta {:frame f :path [:user]})` looks up by the same path vector.
   - `path` is a sequential `get-in` path of concrete segments, normalized to canonical vector form. `[]` registers a whole-`app-db` root schema. Returns the normalized path.
   - Raises:
     - `:rf.error/app-schema-bad-metadata` — the middle metadata arg in the 3-slot form is not a map.
@@ -74,62 +74,55 @@ See [re-frame.core.md](re-frame.core.md) for the `reg-*` return-value convention
 
 ## Introspection
 
-The introspection surfaces live in `re-frame.schemas` and are *not* re-exported from `re-frame.core`. Every `opts-or-frame-id` argument below accepts an opts map (`{:frame target}`), a bare frame-id keyword, or a frame value (normalized to its frame id). A malformed argument raises `:rf.error/app-schemas-bad-arg`. Omitting the frame outside any frame scope raises `:rf.error/no-frame-context`.
+The introspection surfaces live in `re-frame.schemas` and are *not* re-exported from `re-frame.core`.
+
+**One frame spelling.** Every read below takes a single opts **map** whose `:frame` is **required** and names a frame target — a frame-id keyword or a frame value (normalized to its frame id), the same targets `rf/registrations` accepts. There is no ambient default and no bare-frame-id or trailing-frame-target sugar: a live frame value is itself a map, so a type-sniffing positional argument could never be read locally. A frameless or non-map call raises `:rf.error/no-frame-context` with a message naming the `{:frame f}` spelling; a `:frame` that resolves to a non-keyword target raises `:rf.error/app-schemas-bad-arg`.
+
+Reading a frame that holds no schemas answers `{}` / `nil` / the empty-set digest rather than raising — the frame need not be live.
 
 ### `app-schemas`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (app-schemas)
-  (app-schemas opts-or-frame-id)
+  (app-schemas {:frame f}) → {path registration-metadata}
   ```
-- **Description**: Return every registered schema-at-path for the frame as `{path schema}`.
+- **Description**: Return a frame's whole `{path → registration-metadata}` map, or `{}`.
+  - This is the same `{id → meta}` shape [`rf/registrations`](re-frame.core.md#registrations) answers for registrar kinds.
+  - Each value is the meta stamped at `reg-app-schema`: `:path`, `:schema`, `:frame`, source-coords (`:ns` / `:line` / `:file`), and the rest of `:rf/registration-metadata`.
+  - Project `:schema` when only the schema values are wanted.
 - **Example**:
   ```clojure
-  ;; every registered schema-at-path for the default frame
-  (schemas/app-schemas)
-  ;; => {[:user] [:map [:id :uuid]]}
-
-  ;; scope the walk to one frame
+  ;; every registration in the default frame
   (schemas/app-schemas {:frame :rf/default})
+  ;; => {[:user] {:path [:user] :schema [:map [:id :uuid]]
+  ;;              :frame :rf/default :ns "my.app.schema" :line 12 :file "..."}}
+
+  ;; just the schema values
+  (update-vals (schemas/app-schemas {:frame :rf/default}) :schema)
+  ;; => {[:user] [:map [:id :uuid]]}
   ```
 
-### `app-schema-at`
+### `app-schema-meta`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (app-schema-at path)
-  (app-schema-at path opts-or-frame-id)
+  (app-schema-meta {:frame f :path p}) → registration-metadata or nil
   ```
-- **Description**: Return the schema registered at an exact path, or `nil`.
-- **Example**:
-  ```clojure
-  (schemas/app-schema-at [:user])
-  ;; => [:map [:id :uuid]]
-
-  ;; frame-scoped lookup; nil when nothing is registered at the path
-  (schemas/app-schema-at [:articles] {:frame :tenant/a})
-  ```
-
-### `app-schema-meta-at`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (app-schema-meta-at path)
-  (app-schema-meta-at path opts-or-frame-id)
-  ```
-- **Description**: Return the full registration-metadata map for a path, or `nil` when nothing is registered.
+- **Description**: Return one path's registration-metadata map in a frame, or `nil` when nothing is registered there.
   - Contains `:path`, `:schema`, `:frame`, source-coords (`:ns` / `:line` / `:file`), and the rest of `:rf/registration-metadata`.
-  - Use `app-schema-at` when only the schema value is needed.
+  - The registered schema alone is `(:schema ...)`.
+  - Both keys are required.
 - **Example**:
   ```clojure
   ;; the registration anchor — schema value plus source coords for click-back
-  (schemas/app-schema-meta-at [:user])
+  (schemas/app-schema-meta {:frame :rf/default :path [:user]})
   ;; => {:path [:user] :schema [:map [:id :uuid]]
   ;;     :frame :rf/default :ns "my.app.schema" :line 12 :file "..."}
+
+  ;; the schema value alone
+  (:schema (schemas/app-schema-meta {:frame :tenant/a :path [:articles]}))
   ```
 
 ### `app-schemas-digest`
@@ -137,31 +130,18 @@ The introspection surfaces live in `re-frame.schemas` and are *not* re-exported 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (app-schemas-digest) → string
-  (app-schemas-digest opts-or-frame-id) → string
+  (app-schemas-digest {:frame f}) → string
   ```
 - **Description**: Return a single hash over the frame's whole schema surface.
   - Canonical wire form: `"sha256:"` followed by the first 16 lowercase hex chars.
   - Byte-deterministic across runtimes. The empty schema set produces a stable digest.
+  - Computed over the `{path → schema}` projection of `app-schemas`, so its bytes do not depend on the registration metadata riding alongside.
   - SSR hydration compatibility checks use it. So do tools that want to know whether the schema corpus changed, without diffing schema-by-schema.
 - **Example**:
   ```clojure
   ;; one stable hash over the whole frame's schema surface
-  (schemas/app-schemas-digest)
-
   (schemas/app-schemas-digest {:frame :rf/default})
   ```
-
-### `frame-schema-entries`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (frame-schema-entries frame-id) → {path schema-meta}
-  ```
-- **Description**: Return the full `{path schema-meta}` map for a frame, or `{}`.
-  - The lower-level cross-artefact read seam. `re-frame.elision`, `re-frame.epoch`, and the `validate-app-schema!` loop consume it.
-  - `app-schemas` projects each entry down to `{path schema}`; this returns the whole per-path metadata map (`:schema`, `:path`, `:frame`, source-coords).
 
 ## Validation entry points
 

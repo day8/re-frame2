@@ -437,7 +437,7 @@ For each capability included in Part 1, the implementor makes the per-capability
 
 #### Sch3. Introspection API
 
-- **Why it matters.** `(app-schemas)`, `(app-schema-at path)`, plus per-registration `(handler-meta kind id)` returning `:schema`.
+- **Why it matters.** `(app-schemas {:frame f})`, `(app-schema-meta {:frame f :path p})`, plus per-registration `(handler-meta kind id)` returning `:schema`.
 - **Options by host.** Falls out of **F1** + **Sch1**.
 - **Reference-impl picks.** CLJS exposes the schema-introspection accessors on the owning `re-frame.schemas` namespace, not the `re-frame.core` façade — only the `reg-app-schema` / `reg-app-schemas` registration macros are on the façade (per [010 §Schemas as a tooling and agent surface](010-Schemas.md#schemas-as-a-tooling-and-agent-surface)). `handler-meta` is a `re-frame.core` registrar-query surface and is unaffected.
 - **Trade-offs.** Tooling and AI agents read this — make sure the schema is data, not opaque host objects.

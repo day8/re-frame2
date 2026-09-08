@@ -8,7 +8,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. The :action and :justification columns are the facade-audit axes (spec/Conventions.md §Facade policy fields 4 and 3) — also curated, and present on :facade? true rows ONLY, which is why most rows carry neither. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 481,
+ :var-count 480,
  :tier-vocab
  [:front-porch
   :advanced
@@ -164,7 +164,8 @@
   {:namespace "re-frame.epoch", :var "settle!", :tier :implementation, :kind :fn, :owner "Tool-Pair", :status "v1 (dev-only)", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.epoch", :var "unregister-epoch-listener!", :tier :implementation, :kind :fn, :owner "Tool-Pair", :status "v1 (dev-only; hook target for :epoch/unregister-epoch-listener!; the public door is rf/unregister-listener! :epoch)", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.flows", :var "flow-algebra-view", :tier :tooling, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.flows", :var "flow-meta-at", :tier :tooling, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.flows", :var "flow-meta", :tier :tooling, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.flows", :var "flows", :tier :tooling, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.flows", :var "flows-snapshot", :tier :tooling, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.flows", :var "reg-flow", :tier :implementation, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.flows", :var "reset-flows!", :tier :implementation, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
@@ -265,8 +266,7 @@
   {:namespace "re-frame.routing", :var "scroll-positions-cap", :tier :implementation, :kind :var, :owner "012", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.routing", :var "url-owner-frame-id", :tier :implementation, :kind :fn, :owner "012", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.routing", :var "with-base-path", :tier :advanced, :kind :fn, :owner "012", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.schemas", :var "app-schema-at", :tier :tooling, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.schemas", :var "app-schema-meta-at", :tier :tooling, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.schemas", :var "app-schema-meta", :tier :tooling, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "app-schemas", :tier :tooling, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "app-schemas-digest", :tier :tooling, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "clear-edn-print-cache!", :tier :implementation, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
@@ -278,7 +278,6 @@
   {:namespace "re-frame.schemas", :var "explain-with-registered-fn", :tier :implementation, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "extract-large-paths-from-schema", :tier :implementation, :kind :fn, :owner "015", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "extract-sensitive-paths-from-schema", :tier :implementation, :kind :fn, :owner "015", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.schemas", :var "frame-schema-entries", :tier :implementation, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "on-frame-destroyed!", :tier :implementation, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "redact-validation-tags", :tier :implementation, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "reg-app-schema", :tier :implementation, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}

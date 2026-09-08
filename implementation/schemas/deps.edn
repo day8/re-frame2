@@ -1,5 +1,5 @@
 ;; Per Spec 010 §Schemas, the schema-attachment surface
-;; (`reg-app-schema`, `app-schema-at`, `app-schemas`, the
+;; (`reg-app-schema`, `app-schemas`, `app-schema-meta`, the
 ;; validation hot-path entry points) ships as a separate Maven
 ;; artefact so apps that don't use schemas don't drag Malli (and
 ;; the schemas namespace itself) onto the classpath.
