@@ -63,6 +63,7 @@
   that nothing mounts."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.core :as core]
@@ -85,11 +86,11 @@
   "Attach an always-on `:errors` listener collecting records into an atom."
   []
   (let [seen (atom [])]
-    (rf/register-listener! :errors capture-id (fn [record] (swap! seen conj record)))
+    (rf.error-emit/register-error-listener! capture-id (fn [record] (swap! seen conj record)))
     seen))
 
 (defn- frame-destroyed-records [seen]
-  (rf/unregister-listener! :errors capture-id)
+  (rf.error-emit/unregister-error-listener! capture-id)
   (filterv #(= :rf.error/frame-destroyed (:error %)) @seen))
 
 (defn- dispatch-target-frame! [frame-id]

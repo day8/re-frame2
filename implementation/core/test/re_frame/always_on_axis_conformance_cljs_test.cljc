@@ -416,7 +416,7 @@
             categories are added: each new always-on category is driven
             through the axis the moment it joins the set."
     (let [seen (atom #{})]
-      (rf/register-listener! :errors
+      (rf.error-emit/register-error-listener!
         :conformance/recorder
         (fn [record] (swap! seen conj (:error record))))
       (doseq [cat always-on-categories]
@@ -442,7 +442,7 @@
     (doseq [cat always-on-categories]
       (rf.error-emit/clear-error-listeners!)
       (let [seen (atom [])]
-        (rf/register-listener! :errors
+        (rf.error-emit/register-error-listener!
           :conformance/recorder
           (fn [record] (swap! seen conj record)))
         (drive-category! cat)
@@ -462,7 +462,7 @@
             a no-op on an empty `:hook-failures` (no flood) yet fans the
             bounded record out when failures are present."
     (let [seen (atom [])]
-      (rf/register-listener! :errors
+      (rf.error-emit/register-error-listener!
         :conformance/recorder
         (fn [record] (swap! seen conj record)))
       ;; Empty failures → no record (the no-flood contract).

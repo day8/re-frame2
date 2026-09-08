@@ -75,6 +75,7 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.privacy.url :as rf.privacy.url]
             [re-frame.ssr :as rf.ssr]
@@ -104,7 +105,7 @@
   bus). Returns the atom collecting every record it receives."
   [id]
   (let [seen (atom [])]
-    (rf/register-listener! :errors id (fn [record] (swap! seen conj record)))
+    (rf.error-emit/register-error-listener! id (fn [record] (swap! seen conj record)))
     seen))
 
 (defn- reject!
@@ -117,7 +118,7 @@
         seen (capture-always-on! id)]
     (rf/reg-event ::attempt (fn [_ [_ a]] {:fx [[:rf.server/safe-redirect a]]}))
     (rf/dispatch-sync [::attempt args] {:frame f})
-    (rf/unregister-listener! :errors id)
+    (rf.error-emit/unregister-error-listener! id)
     {:frame    f
      :records  @seen
      :response (rf.ssr/flush-response! f)}))

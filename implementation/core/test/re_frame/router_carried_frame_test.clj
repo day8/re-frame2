@@ -52,6 +52,7 @@
   before-enqueue rejection, since the emit site sits at envelope-build time."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.registrar :as rf.registrar]
@@ -94,7 +95,7 @@
   `:error` rather than the trace stream's `:operation`."
   [listener-id]
   (let [a (atom [])]
-    (rf/register-listener! :errors listener-id (fn [rec] (swap! a conj rec)))
+    (rf.error-emit/register-error-listener! listener-id (fn [rec] (swap! a conj rec)))
     a))
 
 (defn- errors-of
@@ -118,7 +119,7 @@
           (is (= :dispatch (:operation (ex-data ex)))
               ":operation tags the dispatch surface")))
       (rf/unregister-listener! :trace ::bare)
-      (rf/unregister-listener! :errors ::bare-errors)
+      (rf.error-emit/unregister-error-listener! ::bare-errors)
       ;; ALWAYS-ON axis (rf2-d2841): the count reads the corpus-wide error-emit
       ;; registry, which survives production elision, so "exactly one fired"
       ;; is a claim about the production wire and not about the dev ring.
@@ -260,7 +261,7 @@
         ;; recover-but-emit (rf2-2hvga): no throw, but a
         ;; :rf.error/frame-destroyed always-on error.
         (rf/dispatch-sync [:app/noop] {:frame :rf/default}))
-      (rf/unregister-listener! :errors ::bad-explicit-errors)
+      (rf.error-emit/unregister-error-listener! ::bad-explicit-errors)
       ;; ALWAYS-ON axis (rf2-d2841): `:rf.error/frame-destroyed` is in the
       ;; promoted set that fans to the corpus-wide error-emit registry, so
       ;; BOTH assertions — the positive AND the "not the other category"

@@ -28,6 +28,7 @@
       sub-input-fn-exception / sub-input-fn-bad-return)"
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.interop :as rf.interop]
             [re-frame.subs :as rf.subs]
             [re-frame.frame :as rf.frame]
@@ -83,10 +84,10 @@
   [error-kw]
   (let [recs (atom [])
         k    (keyword "rf2-d2841" (str (name error-kw) "-rec-" (gensym)))]
-    (rf/register-listener! :errors k
+    (rf.error-emit/register-error-listener! k
                            (fn [r] (when (= error-kw (:error r))
                                      (swap! recs conj r))))
-    [recs #(rf/unregister-listener! :errors k)]))
+    [recs #(rf.error-emit/unregister-error-listener! k)]))
 
 (use-fixtures :each reset-runtime)
 

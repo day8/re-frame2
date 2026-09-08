@@ -51,6 +51,7 @@
   assertion, and it is harder to see."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.interop :as rf.interop]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
@@ -99,9 +100,9 @@
   fanned. Not gated on `rf.interop/debug-enabled?`."
   [body-fn]
   (let [seen (atom [])]
-    (rf/register-listener! :errors ::err (fn [rec] (swap! seen conj rec)))
+    (rf.error-emit/register-error-listener! ::err (fn [rec] (swap! seen conj rec)))
     (try (body-fn)
-         (finally (rf/unregister-listener! :errors ::err)))
+         (finally (rf.error-emit/unregister-error-listener! ::err)))
     @seen))
 
 ;; ---- cascade-wide stamping ------------------------------------------------

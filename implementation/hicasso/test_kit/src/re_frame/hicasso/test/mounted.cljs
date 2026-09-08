@@ -187,6 +187,7 @@
             [clojure.walk :as walk]
             [cljs.test :as t]
             [re-frame.core :as rf]
+            [re-frame.event-emit :as rf.event-emit]
             [re-frame.error :as rf.error]
             [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
             [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
@@ -1439,13 +1440,13 @@
   (let [!log (atom [])
         listener-id (keyword "re-frame.hicasso.test.mounted"
                              (str "shadow-" (swap! !shadow-seq inc)))]
-    (rf/register-listener! :events listener-id
+    (rf.event-emit/register-event-listener! listener-id
                            (fn [record]
                              (swap! !log conj [(:frame record) (:event record)])))
     {:key   listener-id
      :drain (fn [] (let [entries @!log] (reset! !log []) entries))}))
 
-(defn- close-log! [log] (rf/unregister-listener! :events (:key log)))
+(defn- close-log! [log] (rf.event-emit/unregister-event-listener! (:key log)))
 
 (defn- for-frame
   "The events one frame dispatched, in order, out of a drained buffer."

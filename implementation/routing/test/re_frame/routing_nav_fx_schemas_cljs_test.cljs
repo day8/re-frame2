@@ -104,7 +104,7 @@
   cannot tell an always-on rejection from a dev-only one."
   []
   (let [seen (atom [])]
-    (rf/register-listener! :errors :scroll-always-on/recorder
+    (rf.error-emit/register-error-listener! :scroll-always-on/recorder
                            (fn [record] (swap! seen conj record)))
     seen))
 

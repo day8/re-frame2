@@ -115,16 +115,16 @@
 
 (defn- collect-errors!
   "Register an ALWAYS-ON error listener under `id` via
-  `(rf/register-listener! :errors id f)`, returning the atom that accumulates the
+  `(rf.error-emit/register-error-listener! id f)`, returning the atom that accumulates the
   tight error-records (the production-survivable observability surface —
   Spec 009 §What IS available in production §Error-emit listener). Tests
-  must (rf/unregister-listener! :errors id) to detach (the fixture also
+  must (rf.error-emit/unregister-error-listener! id) to detach (the fixture also
   clears the registry). Distinct from `collect-traces!`: that listens on
   the dev-only trace surface (DCE'd in prod); this listens on the
   always-on axis."
   [id]
   (let [acc (atom [])]
-    (rf/register-listener! :errors id (fn [record] (swap! acc conj record)))
+    (rf.error-emit/register-error-listener! id (fn [record] (swap! acc conj record)))
     acc))
 
 ;; ---- 1. Source-order ordering across mixed effect types -------------------
@@ -319,7 +319,7 @@
                 [:fx-test/after {:reason :sibling}]]}))
       (rf/dispatch-sync [:fx-test/with-bad-fx])
       (rf/unregister-listener! :trace  ::fx-exc)
-      (rf/unregister-listener! :errors ::fx-exc-errors)
+      (rf.error-emit/unregister-error-listener! ::fx-exc-errors)
       ;; Sibling fx ran — recovery is :isolated.
       (is (= [{:reason :sibling}] @fired)
           "the :fx after the throwing entry still fires (Spec 002 rule 4)")
@@ -382,7 +382,7 @@
                 [:fx-test/sibling           {:k 2}]]}))
       (rf/dispatch-sync [:fx-test/missing])
       (rf/unregister-listener! :trace  ::no-such)
-      (rf/unregister-listener! :errors ::no-such-errors)
+      (rf.error-emit/unregister-error-listener! ::no-such-errors)
       ;; Sibling still fires — the unknown fx-id did not halt the walk.
       (is (= [{:k 2}] @fired)
           "the next :fx entry still fires after an unknown fx-id")
@@ -987,7 +987,7 @@
       (is (nil? (rf/dispatch-sync [:fx-test/entry-non-keyword-head]))
           "dispatch returns normally — no uncaught host exception")
       (rf/unregister-listener! :trace  ::fx-entry-non-kw)
-      (rf/unregister-listener! :errors ::fx-entry-non-kw-errors)
+      (rf.error-emit/unregister-error-listener! ::fx-entry-non-kw-errors)
       (is (= [{:k 1} {:k 2}] @fired)
           "both well-shaped siblings fired in order; the bad-head entry was skipped")
       (is (= true (:seeded? (rf/app-db-value :rf/default)))
@@ -1401,7 +1401,7 @@
         [:fx-test.nrpj1/issue-redirect]
         {:fx-overrides {:fx-test.nrpj1/my-fx :dispatch}})
       (rf/unregister-listener! :trace  ::redirect-to-reserved)
-      (rf/unregister-listener! :errors ::redirect-to-reserved-errors)
+      (rf.error-emit/unregister-error-listener! ::redirect-to-reserved-errors)
       (is (= 1 @original-fired)
           "the original :fx-test.nrpj1/my-fx ran — the redirect to the un-registered :dispatch fell through")
       ;; PRODUCTION-VISIBLE WITNESS (rf2-d2841). `:rf.error/override-fallthrough`
@@ -1443,7 +1443,7 @@
           [:fx-test.3az1vn/issue]
           {:fx-overrides {:fx-test.3az1vn/target bad-value}})
         (rf/unregister-listener! :trace  ::malformed-override)
-        (rf/unregister-listener! :errors ::malformed-override-errors)
+        (rf.error-emit/unregister-error-listener! ::malformed-override-errors)
         (is (= 1 @original-fired)
             (str "the original fx ran (recovery :replaced-with-default) for "
                  (pr-str bad-value)))
@@ -1486,7 +1486,7 @@
           [:fx-test.3az1vn/noop-issue]
           {:fx-overrides {:fx-test.3az1vn/noop-target noop-value}})
         (rf/unregister-listener! :trace  ::noop-override)
-        (rf/unregister-listener! :errors ::noop-override-errors)
+        (rf.error-emit/unregister-error-listener! ::noop-override-errors)
         (is (= 1 @original-fired)
             (str "the original fx ran for the noop placeholder " (pr-str noop-value)))
         ;; PRODUCTION-VISIBLE WITNESS (rf2-d2841). A NEGATIVE, so it has to be
@@ -1544,7 +1544,7 @@
         [:fx-test.snsup5/install-flow]
         {:fx-overrides {:rf.fx/reg-flow (fn [_ _] (swap! stub-fired inc))}})
       (rf/unregister-listener! :trace  ::reject-reg-flow)
-      (rf/unregister-listener! :errors ::reject-reg-flow-errors)
+      (rf.error-emit/unregister-error-listener! ::reject-reg-flow-errors)
       (is (= 0 @stub-fired)
           "the fn-value override stub MUST NOT fire — the reject pre-empts it")
       (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :fx-test.snsup5/a-flow)
@@ -1586,7 +1586,7 @@
         [:fx-test.snsup5/install-flow-2]
         {:fx-overrides {:rf.fx/reg-flow :fx-test.snsup5/redir-target}})
       (rf/unregister-listener! :trace  ::reject-redirect)
-      (rf/unregister-listener! :errors ::reject-redirect-errors)
+      (rf.error-emit/unregister-error-listener! ::reject-redirect-errors)
       (is (= 0 @redir-ran)
           "the keyword-redirect target MUST NOT fire — the reject pre-empts it")
       (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :fx-test.snsup5/b-flow)
@@ -1619,7 +1619,7 @@
       (rf/dispatch-sync
         [:fx-test.uh5ic5/install-flow]
         {:fx-overrides {:rf.fx/reg-flow (fn [_ _] :should-not-fire)}})
-      (rf/unregister-listener! :errors ::reject-always-on)
+      (rf.error-emit/unregister-error-listener! ::reject-always-on)
       (let [records (filter #(= :rf.error/reserved-fx-override (:error %)) @errors)]
         (is (= 1 (count records))
             "exactly ONE always-on record reached register-error-listener!")
@@ -1646,7 +1646,7 @@
       (rf/dispatch-sync
         [:fx-test.uh5ic5/install-flow-2]
         {:fx-overrides {:rf.fx/reg-flow :fx-test.uh5ic5/redir-target}})
-      (rf/unregister-listener! :errors ::reject-always-on-redir)
+      (rf.error-emit/unregister-error-listener! ::reject-always-on-redir)
       (let [records (filter #(= :rf.error/reserved-fx-override (:error %)) @errors)]
         (is (= 1 (count records))
             "one always-on record for the keyword-redirect reject form too")
@@ -1671,7 +1671,7 @@
         [:fx-test.snsup5/emits-dispatch]
         {:fx-overrides {:dispatch (fn [_ ev] (reset! captured ev))}})
       (rf/unregister-listener! :trace  ::overridable-no-reject)
-      (rf/unregister-listener! :errors ::overridable-no-reject-errors)
+      (rf.error-emit/unregister-error-listener! ::overridable-no-reject-errors)
       (is (= [:fx-test.snsup5/target] @captured)
           "the :dispatch fn-value override fired (OVERRIDABLE tier — unchanged)")
       (is (= 0 @target-ran)
@@ -1709,7 +1709,7 @@
                      :rf/default
                      [:some/event])]
       (rf/unregister-listener! :trace  ::prod-strip)
-      (rf/unregister-listener! :errors ::prod-strip-errors)
+      (rf.error-emit/unregister-error-listener! ::prod-strip-errors)
       (is (= #{:dispatch :my-app/http} (set (keys stripped)))
           "every reject-tier key is stripped; OVERRIDABLE + user keys survive")
       ;; PRODUCTION-VISIBLE WITNESS (rf2-d2841). "LOUDLY" is the deftest's
@@ -1770,7 +1770,7 @@
           [:fx-test.x76af2-27/install-flow]
           {:fx-overrides {:rf.fx/reg-flow noop-value}})
         (rf/unregister-listener! :trace  ::reject-noop-trace)
-        (rf/unregister-listener! :errors ::reject-noop-errors)
+        (rf.error-emit/unregister-error-listener! ::reject-noop-errors)
         ;; The ALWAYS-ON leg is the load-bearing one and stays posture-
         ;; independent: rf2-x76af2.27's actual symptom was a spurious record
         ;; sprayed onto the production error channel PER DISPATCHED EVENT, so
@@ -1801,7 +1801,7 @@
                      :rf/default
                      [:some/event])]
       (rf/unregister-listener! :trace  ::reject-noop-strip)
-      (rf/unregister-listener! :errors ::reject-noop-strip-errors)
+      (rf.error-emit/unregister-error-listener! ::reject-noop-strip-errors)
       (is (= {:rf.fx/reg-flow nil :rf.fx/clear-flow false :my-app/http stub}
              stripped)
           "the nil/false reject-tier placeholders fall through untouched; only the real override is stripped")
@@ -1847,7 +1847,7 @@
         [:fx-test.snsup5/parent-cascades]
         {:fx-overrides {:rf.fx/reg-flow (fn [_ _] (swap! child-stub inc))}})
       (rf/unregister-listener! :trace  ::cascade-exclude)
-      (rf/unregister-listener! :errors ::cascade-exclude-errors)
+      (rf.error-emit/unregister-error-listener! ::cascade-exclude-errors)
       (is (= 0 @child-stub)
           "the reject-tier override did not fire in the child cascade either")
       (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :fx-test.snsup5/child-flow)
@@ -1957,7 +1957,7 @@
   [fx-id]
   (let [errors (collect-errors! ::reject-reason)]
     (rf.fx/strip-rejected-overrides {fx-id (fn [_ _] :stub)} :rf/default [:some/event])
-    (rf/unregister-listener! :errors ::reject-reason)
+    (rf.error-emit/unregister-error-listener! ::reject-reason)
     (->> @errors
          (filter #(= :rf.error/reserved-fx-override (:error %)))
          first
@@ -1974,7 +1974,7 @@
     (let [errors (collect-errors! ::reject-reason-lift)]
       (rf.fx/strip-rejected-overrides {:rf.machine/spawn (fn [_ _] :stub)}
                                    :rf/default [:some/event])
-      (rf/unregister-listener! :errors ::reject-reason-lift)
+      (rf.error-emit/unregister-error-listener! ::reject-reason-lift)
       (let [r (first (filter #(= :rf.error/reserved-fx-override (:error %)) @errors))]
         (is (some? r) "the reject reached the always-on error listener")
         (is (= :rf.machine/spawn (:failing-id r))

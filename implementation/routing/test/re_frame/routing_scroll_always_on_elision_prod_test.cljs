@@ -85,7 +85,7 @@
 
 (defn- record-always-on-errors! []
   (let [seen (atom [])]
-    (rf/register-listener! :errors :prod.scroll/recorder
+    (rf.error-emit/register-error-listener! :prod.scroll/recorder
                            (fn [record] (swap! seen conj record)))
     seen))
 

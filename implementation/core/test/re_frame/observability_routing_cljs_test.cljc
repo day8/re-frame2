@@ -287,7 +287,7 @@
             record carries — with :source-coord alongside it"
     (let [seen   (atom [])
           corpus (atom [])]
-      (rf/register-listener! :errors :test/corpus
+      (rf.error-emit/register-error-listener! :test/corpus
                              (fn [record] (swap! corpus conj record)))
       (rf/register-observability-sink! :test.sinks/attribution
                                        (fn [record] (swap! seen conj record)))
@@ -350,7 +350,7 @@
             `emit-error-both!`), so it is its own regression."
     (let [seen   (atom [])
           corpus (atom [])]
-      (rf/register-listener! :errors :test/corpus-cofx
+      (rf.error-emit/register-error-listener! :test/corpus-cofx
                              (fn [record] (swap! corpus conj record)))
       (rf/register-observability-sink! :test.sinks/cofx-attribution
                                        (fn [record] (swap! seen conj record)))

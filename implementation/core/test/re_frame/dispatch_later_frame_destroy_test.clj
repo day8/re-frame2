@@ -119,7 +119,7 @@
             the target handler never runs (rf2-uxz52g)"
     (let [target-ran (atom 0)
           errors     (atom [])]
-      (rf/register-listener! :errors ::recorder (fn [record] (swap! errors conj record)))
+      (rf.error-emit/register-error-listener! ::recorder (fn [record] (swap! errors conj record)))
       (rf/make-frame {:id test-frame :doc "rf2-uxz52g behavioural frame"})
       (rf/reg-event :rf2-uxz52g/target
         ;; Records into an EXTERNAL atom (not frame-db) so a would-be dead
@@ -138,7 +138,7 @@
       ;; would have fired by now.
       (Thread/sleep 300)
 
-      (rf/unregister-listener! :errors ::recorder)
+      (rf.error-emit/unregister-error-listener! ::recorder)
 
       (is (zero? @target-ran)
           "the deferred target handler never ran — the timer was cancelled on

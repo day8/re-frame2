@@ -66,6 +66,7 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [malli.core :as m]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.ssr :as rf.ssr]
@@ -109,7 +110,7 @@
   (let [f    (server-frame)
         id   (keyword "rf2-dtpfv" (str "cap-" (name (gensym "g"))))
         seen (atom [])]
-    (rf/register-listener! :errors id (fn [r] (swap! seen conj r)))
+    (rf.error-emit/register-error-listener! id (fn [r] (swap! seen conj r)))
     (rf/reg-event ::attempt (fn [_ [_ fx]] {:fx [fx sibling-fx]}))
     (try
       (rf/dispatch-sync [::attempt fx-vec] {:frame f})
@@ -121,7 +122,7 @@
          :response (rf.ssr/get-response f)
          :records  @seen})
       (finally
-        (rf/unregister-listener! :errors id)))))
+        (rf.error-emit/unregister-error-listener! id)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The shared acceptance corpus — ONE literal, driven through BOTH halves

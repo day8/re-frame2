@@ -98,7 +98,7 @@
             `register-error-listener!` (the axis is not debug-gated)."
     (with-redefs [rf.interop/debug-enabled? false]
       (let [seen (atom [])]
-        (rf/register-listener! :errors :test/recorder
+        (rf.error-emit/register-error-listener! :test/recorder
                                      (fn [r] (swap! seen conj r)))
         (rf/make-frame {:id :gate/teardown})
         ;; Install a throwing cleanup hook for the duration of the destroy.
@@ -121,7 +121,7 @@
             fans the always-on `:rf.error/write-after-destroy` record out."
     (with-redefs [rf.interop/debug-enabled? false]
       (let [seen (atom [])]
-        (rf/register-listener! :errors :test/recorder
+        (rf.error-emit/register-error-listener! :test/recorder
                                      (fn [r] (swap! seen conj r)))
         (rf.substrate.adapter/replace-container! nil {:dropped :write})
         (let [reports (records-of seen :rf.error/write-after-destroy)]
@@ -143,7 +143,7 @@
             elides here)."
     (with-redefs [rf.interop/debug-enabled? false]
       (let [seen (atom [])]
-        (rf/register-listener! :errors :test/recorder
+        (rf.error-emit/register-error-listener! :test/recorder
                                      (fn [r] (swap! seen conj r)))
         (rf/reg-event :gate/blow-up (fn [{:keys [db]} _] {:db (throw (ex-info "boom" {}))}))
         (rf/make-frame {:id :gate/ondestroy :on-destroy [:gate/blow-up]})
@@ -168,7 +168,7 @@
       (let [traces  (atom [])
             reports (atom [])]
         (rf/register-listener! :trace ::trace-rec (fn [ev] (swap! traces conj ev)))
-        (rf/register-listener! :errors :test/err-rec
+        (rf.error-emit/register-error-listener! :test/err-rec
                                      (fn [r] (swap! reports conj r)))
         (rf/make-frame {:id :gate/divergence})
         (let [orig (rf.late-bind/get-fn :ssr/on-frame-destroyed)]
@@ -205,7 +205,7 @@
             sink-seen     (atom [])]
         (rf/register-observability-sink! :test.sinks/sentry
                                     (fn [r] (swap! sink-seen conj r)))
-        (rf/register-listener! :errors :test/listener
+        (rf.error-emit/register-error-listener! :test/listener
                                      (fn [r] (swap! listener-seen conj r)))
         ;; index-free decl matches the runtime [:hook-failures 0 :exception-data
         ;; :token] (the vector index is ridden index-free by the wire-walker).

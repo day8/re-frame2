@@ -21,6 +21,7 @@
   survives."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.event-emit :as rf.event-emit]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]))
 
@@ -38,7 +39,7 @@
             so production-monitoring integrations (Datadog, Honeycomb,
             ...) still observe every dispatched event."
     (let [seen (atom [])]
-      (rf/register-listener! :events
+      (rf.event-emit/register-event-listener!
         :prod/recorder
         (fn [record] (swap! seen conj record)))
       (rf/reg-event :prod/inc
@@ -62,7 +63,7 @@
             success/failure discriminator so monitoring pipelines can
             distinguish the two without needing the trace surface."
     (let [seen (atom [])]
-      (rf/register-listener! :events
+      (rf.event-emit/register-event-listener!
         :prod/recorder
         (fn [record] (swap! seen conj record)))
       (rf/reg-event :prod/throw
@@ -80,11 +81,11 @@
             mode contract from `re-frame.event-emit-cljs-test`; pinned here
             so the prod-build behaviour is locked too."
     (let [seen (atom [])]
-      (rf/register-listener! :events
+      (rf.event-emit/register-event-listener!
         :prod/throws
         (fn [_record]
           (throw (ex-info "listener went boom" {}))))
-      (rf/register-listener! :events
+      (rf.event-emit/register-event-listener!
         :prod/sibling
         (fn [record] (swap! seen conj record)))
       (rf/reg-event :prod/quiet (fn [{:keys [db]} _] {:db db}))
@@ -104,7 +105,7 @@
   (testing "Every handler delivers records to listeners under prod —
             handler-meta `:sensitive?` no longer drops records."
     (let [seen (atom [])]
-      (rf/register-listener! :events
+      (rf.event-emit/register-event-listener!
         :prod/recorder
         (fn [record] (swap! seen conj record)))
       (rf/reg-event :prod/normal

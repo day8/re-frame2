@@ -12,6 +12,7 @@
   re-frame-10x v2's flow panel."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.elision :as rf.elision]
             [re-frame.frame :as rf.frame]
             [re-frame.privacy :as rf.privacy]
@@ -503,7 +504,7 @@
             `error-emit/dispatch-on-error!`, mirroring the handler-
             exception path."
     (let [seen (atom [])]
-      (rf/register-listener! :errors
+      (rf.error-emit/register-error-listener!
         :test/flow-eval-recorder
         (fn [record] (swap! seen conj record)))
       (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 1}}))
@@ -579,7 +580,7 @@
             :recovery + the :rf.flow/failed-id attribution in :extra, with a
             human message bearing the greppability token (rf2-cjr635)"
     (let [seen (atom [])]
-      (rf/register-listener! :errors
+      (rf.error-emit/register-error-listener!
         :test/flow-eval-shape-recorder
         (fn [record] (swap! seen conj record)))
       (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 1}}))
@@ -626,7 +627,7 @@
             `error-emit/dispatch-on-error!`, mirroring the
             handler-exception / flow-eval-exception paths."
     (let [seen (atom [])]
-      (rf/register-listener! :errors
+      (rf.error-emit/register-error-listener!
         :test/fx-reg-flow-cycle-recorder
         (fn [record] (swap! seen conj record)))
       ;; Register flow :a that depends on :b's path.
@@ -658,7 +659,7 @@
             are unaffected by the substrate addition."
     (let [trace-saw    (atom nil)
           listener-saw (atom nil)]
-      (rf/register-listener! :errors
+      (rf.error-emit/register-error-listener!
         :test/recorder
         (fn [record] (reset! listener-saw record)))
       (rf.trace.tooling/register-listener!
@@ -954,7 +955,7 @@
     ;; out — ops monitors still see the failure record even though :fx
     ;; was skipped.
     (let [seen (atom [])]
-      (rf/register-listener! :errors
+      (rf.error-emit/register-error-listener!
         :test/fx-skip-recorder
         (fn [record] (swap! seen conj record)))
       (rf/reg-event :run-with-throwing-flow

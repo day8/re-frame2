@@ -75,7 +75,7 @@
   is the production off-box shipper stand-in (Sentry / Datadog)."
   []
   (let [seen (atom [])]
-    (rf/register-listener! :errors
+    (rf.error-emit/register-error-listener!
       ::acceptance-recorder
       (fn [record] (swap! seen conj (:error record))))
     seen))
@@ -87,7 +87,7 @@
   atom."
   []
   (let [seen (atom [])]
-    (rf/register-listener! :errors
+    (rf.error-emit/register-error-listener!
       ::record-recorder
       (fn [record] (swap! seen conj record)))
     seen))
@@ -181,7 +181,7 @@
             a frameless record carries no server frame, so the SSR
             projection listener no-ops on it (no status moved)."
     (let [seen-records (atom [])]
-      (rf/register-listener! :errors
+      (rf.error-emit/register-error-listener!
         ::acceptance-recorder
         (fn [record] (swap! seen-records conj record)))
       (with-redefs [rf.interop/debug-enabled? false]

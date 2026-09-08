@@ -37,6 +37,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.walk :as walk]
             [re-frame.core :as rf]
+            [re-frame.event-emit :as rf.event-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.schemas.storage :as rf.schemas.storage]
@@ -116,7 +117,7 @@
             and the always-on event-emit outcome is :rolled-back"
     (seed-int-schema!)
     (let [records (atom [])]
-      (rf/register-listener! :events ::outcome-probe
+      (rf.event-emit/register-event-listener! ::outcome-probe
         (fn [record] (swap! records conj record)))
       (with-trace-recorder! [traces]
         (rf/dispatch-sync [:n/break])
@@ -137,7 +138,7 @@
             (is (true? (get-in (first violations) [:tags :rollback?]))
                 ":rollback? true stays the public transaction-REJECTED
                  vocabulary"))))
-      (rf/unregister-listener! :events ::outcome-probe)
+      (rf.event-emit/unregister-event-listener! ::outcome-probe)
       (let [break-rec (first (filter #(= :n/break (:event-id %)) @records))]
         (is (= :rolled-back (:outcome break-rec))
             "the always-on event-emit outcome is :rolled-back")))))
@@ -200,7 +201,7 @@
         (rf.late-bind/set-fn! :schemas/validate-app-schema!
                            (fn [_db _event-id _frame _continue?]
                              (throw (ex-info "validator machinery exploded" {}))))
-        (rf/register-listener! :events ::throw-probe
+        (rf.event-emit/register-event-listener! ::throw-probe
           (fn [record] (swap! records conj record)))
         (with-trace-recorder! [traces]
           (rf/dispatch-sync [:n/ok])
@@ -220,7 +221,7 @@
                             :rf.event/frame-state-changed} (:operation %))
                         @traces)
               "no change traces on the fail-closed reject"))
-        (rf/unregister-listener! :events ::throw-probe)
+        (rf.event-emit/unregister-event-listener! ::throw-probe)
         (let [rec (first (filter #(= :n/ok (:event-id %)) @records))]
           (is (= :rolled-back (:outcome rec))
               "outcome :rolled-back — the reject reaches off-box shippers"))

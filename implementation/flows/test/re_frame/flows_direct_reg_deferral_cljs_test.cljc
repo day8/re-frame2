@@ -60,6 +60,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.error-emit :as rf.error-emit]
    [re-frame.flows :as rf.flows]
    [re-frame.test-support :as rf.test-support]
    [re-frame.trace.tooling :as rf.trace.tooling]
@@ -253,7 +254,7 @@
     ;; boot code has no such event to be responsible for.
     (let [derives (atom [])
           errors  (atom [])]
-      (rf/register-listener! :errors ::effect-reg-error-recorder
+      (rf.error-emit/register-error-listener! ::effect-reg-error-recorder
                              (fn [record] (swap! errors conj record)))
       ;; The `:derive` is written the way a real one is: a pure function of an
       ;; input it expects to be there. It is spelled with an explicit refusal

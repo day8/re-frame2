@@ -144,6 +144,8 @@
             [clojure.string :as str]
             [re-frame.conformance :as rf.conformance]
             [re-frame.core :as rf]
+            [re-frame.event-emit :as rf.event-emit]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.events :as rf.events]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
@@ -519,7 +521,7 @@
   projector's trace-event envelope."
   []
   (let [records (atom [])]
-    (rf/register-listener! :errors always-on-error-listener-id
+    (rf.error-emit/register-error-listener! always-on-error-listener-id
                            (fn [record]
                              (swap! records conj (error-record->trace-event record))))
     records))
@@ -531,13 +533,13 @@
   bus's `:rf.event/run-start` trace."
   []
   (let [records (atom [])]
-    (rf/register-listener! :events always-on-event-listener-id
+    (rf.event-emit/register-event-listener! always-on-event-listener-id
                            (fn [record] (swap! records conj record)))
     records))
 
 (defn- clear-always-on-listeners! []
-  (rf/unregister-listener! :errors always-on-error-listener-id)
-  (rf/unregister-listener! :events always-on-event-listener-id))
+  (rf.error-emit/unregister-error-listener! always-on-error-listener-id)
+  (rf.event-emit/unregister-event-listener! always-on-event-listener-id))
 
 ;; ---- matchers ------------------------------------------------------------
 

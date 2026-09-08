@@ -36,6 +36,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.interop :as rf.interop]
             [re-frame.schemas :as rf.schemas]
             [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
@@ -57,11 +58,11 @@
   leak the listener into the next deftest and silently invert its counts."
   [body-fn]
   (let [errors (atom [])]
-    (rf/register-listener! :errors ::rec (fn [r] (swap! errors conj r)))
+    (rf.error-emit/register-error-listener! ::rec (fn [r] (swap! errors conj r)))
     (try
       (body-fn)
       (finally
-        (rf/unregister-listener! :errors ::rec)))
+        (rf.error-emit/unregister-error-listener! ::rec)))
     @errors))
 
 (defn- rejection-records [records]

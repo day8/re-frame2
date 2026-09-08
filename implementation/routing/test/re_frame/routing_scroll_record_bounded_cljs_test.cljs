@@ -69,7 +69,7 @@
   return the atom collecting its records."
   []
   (let [seen (atom [])]
-    (rf/register-listener! :errors :bounded.scroll/recorder
+    (rf.error-emit/register-error-listener! :bounded.scroll/recorder
                            (fn [record] (swap! seen conj record)))
     seen))
 

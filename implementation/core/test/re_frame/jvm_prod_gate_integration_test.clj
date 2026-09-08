@@ -79,6 +79,8 @@
   closed there; adding a witness would be ceremony."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.event-emit :as rf.event-emit]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.interop :as rf.interop]
             [re-frame.router :as rf.router]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -145,7 +147,7 @@
             fallback for) the dev trace surface."
     (with-redefs [rf.interop/debug-enabled? false]
       (let [seen (atom [])]
-        (rf/register-listener! :events
+        (rf.event-emit/register-event-listener!
           :prod-gate/event-rec
           (fn [record] (swap! seen conj record)))
         (rf/reg-event :prod-gate/observable
@@ -190,7 +192,7 @@
             posture — error observability is not a dev-only concern."
     (with-redefs [rf.interop/debug-enabled? false]
       (let [listener-saw (atom nil)]
-        (rf/register-listener! :errors
+        (rf.error-emit/register-error-listener!
           :prod-gate/err-rec
           (fn [record] (reset! listener-saw record)))
         (rf/reg-event :prod-gate/throws

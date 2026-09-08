@@ -93,7 +93,7 @@
           listener-seen (atom [])]
       (rf/register-observability-sink! :test.sinks/sentry
                                   (fn [record] (swap! sink-seen conj record)))
-      (rf/register-listener! :errors :test/listener
+      (rf.error-emit/register-error-listener! :test/listener
                                    (fn [record] (swap! listener-seen conj record)))
       (rf/make-frame {:id :obs/teardown :observability
                       {:errors [{:sink :test.sinks/sentry
@@ -137,7 +137,7 @@
           secret        "S3CR3T-rf2-ntv9i9-DO-NOT-LEAK-TO-SINK"]
       (rf/register-observability-sink! :test.sinks/sentry
                                   (fn [record] (swap! sink-seen conj record)))
-      (rf/register-listener! :errors :test/listener
+      (rf.error-emit/register-error-listener! :test/listener
                                    (fn [record] (swap! listener-seen conj record)))
       ;; Classify the index-free tags path [:hook-failures :exception-data
       ;; :token] sensitive. The wire-walker matches it against the runtime
@@ -214,7 +214,7 @@
           listener-seen (atom [])]
       (rf/register-observability-sink! :test.sinks/unused
                                   (fn [record] (swap! sink-seen conj record)))
-      (rf/register-listener! :errors :test/listener
+      (rf.error-emit/register-error-listener! :test/listener
                                    (fn [record] (swap! listener-seen conj record)))
       (rf/make-frame {:id :obs/nopolicy})
       (rf.error-emit/dispatch-frame-teardown-report!
@@ -236,7 +236,7 @@
       ;; A sink exists, but no frame owns the frameless record.
       (rf/register-observability-sink! :test.sinks/sentry
                                   (fn [record] (swap! sink-seen conj record)))
-      (rf/register-listener! :errors :test/listener
+      (rf.error-emit/register-error-listener! :test/listener
                                    (fn [record] (swap! listener-seen conj record)))
       (rf.error-emit/dispatch-error-record!
         {:error      :rf.error/malformed-hydration-payload
@@ -261,7 +261,7 @@
           listener-seen (atom [])]
       (rf/register-observability-sink! :test.sinks/sentry
                                   (fn [record] (swap! sink-seen conj record)))
-      (rf/register-listener! :errors :test/listener
+      (rf.error-emit/register-error-listener! :test/listener
                                    (fn [record] (swap! listener-seen conj record)))
       (rf.error-emit/dispatch-error-record!
         {:error :rf.error/frame-teardown-failed
@@ -288,7 +288,7 @@
                                   (fn [_record] (throw (ex-info "sink bug" {}))))
       (rf/register-observability-sink! :test.sinks/good
                                   (fn [record] (swap! good-seen conj record)))
-      (rf/register-listener! :errors :test/listener
+      (rf.error-emit/register-error-listener! :test/listener
                                    (fn [record] (swap! listener-seen conj record)))
       (rf/make-frame {:id :obs/sib :observability
                       {:errors [{:sink :test.sinks/boom

@@ -323,7 +323,7 @@
           pipe-out (PipedOutputStream. pipe-in)
           _        (.close pipe-in) ;; pre-broken pipe — every write throws
           seen     (atom [])]
-      (rf/register-listener! :errors
+      (rf.error-emit/register-error-listener!
         ::hhutya-writer-recorder
         (fn [record] (swap! seen conj record)))
       (with-redefs [rf.interop/debug-enabled? false]

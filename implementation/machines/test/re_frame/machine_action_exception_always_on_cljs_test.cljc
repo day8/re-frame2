@@ -48,11 +48,11 @@
   axis). Always unregisters in a `finally`."
   [thunk]
   (let [seen (atom [])]
-    (rf/register-listener! :errors ::recorder (fn [r] (swap! seen conj r)))
+    (rf.error-emit/register-error-listener! ::recorder (fn [r] (swap! seen conj r)))
     (try
       (thunk)
       (filterv #(= :rf.error/machine-action-exception (:error %)) @seen)
-      (finally (rf/unregister-listener! :errors ::recorder)))))
+      (finally (rf.error-emit/unregister-error-listener! ::recorder)))))
 
 (defn- dev-traces-of
   "Capture the dev-trace stream for `op` while `thunk` runs (axis 2 — DCE'd in
@@ -186,6 +186,6 @@
             fan-out reaches the listener via the
             :error-emit/dispatch-error-record late-bind hook — the same hook
             the fail-closed spawn reject uses"
-    (is (some? (rf/register-listener! :errors ::probe (fn [_] nil)))
+    (is (some? (rf.error-emit/register-error-listener! ::probe (fn [_] nil)))
         "the :errors listener registration surface is live")
-    (rf/unregister-listener! :errors ::probe)))
+    (rf.error-emit/unregister-error-listener! ::probe)))

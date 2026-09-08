@@ -64,9 +64,17 @@
             ;; annotates through the substrate wrappers (spine / views),
             ;; so this ns is deliberately absent from CLJS bundles.
             #?@(:clj [[re-frame.views.jvm-source-coord-annotation :as rf.views.jvm-source-coord-annotation]])
-            [re-frame.event-emit :as rf.event-emit]
+            ;; rf2-kuky.69: `:events` / `:errors` LEFT the public
+            ;; `register-listener!` vocabulary, so no symbol from these two
+            ;; registries is referenced here any more. The event-emit
+            ;; require STAYS as a side-effect-only require: `re-frame.core`
+            ;; is its ONLY static requirer (the router reaches
+            ;; `dispatch-on-event!` through the
+            ;; `:event-emit/dispatch-on-event` late-bind hook), so dropping
+            ;; it would leave that hook unpublished at boot. `error-emit`
+            ;; needs no require here — `router.cljc` requires it statically.
+            [re-frame.event-emit]
             [re-frame.error :as rf.error]
-            [re-frame.error-emit :as rf.error-emit]
             [re-frame.elision :as rf.elision]
             [re-frame.projection :as rf.projection]
             ;; EP-0025: the imperative `add-marks` / `set-marks` API and ALL
@@ -2228,7 +2236,7 @@
 
 ;; ---- stream-parameterized observation listener verb ----------------------
 ;;
-;; One listener verb across the four pure listener streams — the
+;; One listener verb across the two raw DEV observation streams — the
 ;; differentiator is DATA (which stream), so it rides in a leading
 ;; required `stream` keyword rather than spawning one register/unregister
 ;; pair per channel. The closed stream vocabulary:
@@ -2236,26 +2244,29 @@
 ;;   :trace   — dev-only trace-event listener (re-frame.trace; production
 ;;              CLJS bundles DCE the registration site under a `goog.DEBUG`
 ;;              gate). The `:event` vector and all slots ride in dev only.
-;;   :events  — always-on event-emit listener (re-frame.event-emit);
-;;              survives `:advanced` + `goog.DEBUG=false`. Receives a tight
-;;              per-event record fanned across EVERY frame, `:event` elided
-;;              through the wire-walker but otherwise unprojected. NOT the
-;;              normal off-box egress path — that is the frame-owned
-;;              `:observability` sink. For an intentionally cross-frame hook.
-;;   :errors  — always-on error-emit listener (re-frame.error-emit);
-;;              survives `:advanced` + `goog.DEBUG=false`. Receives a tight
-;;              error-record per `:rf.error/*` event; `:event` wire-elided,
-;;              but `:exception` rides RAW (the documented exception to the
-;;              always-on 'structured data only' rule). NOT projected under
-;;              any frame's egress policy — the frame-owned `:observability
-;;              :errors` sink is the normal off-box error path.
 ;;   :epoch   — epoch-record listener, late-bound through the
 ;;              optional `day8/re-frame2-epoch` artefact; degrades to nil
 ;;              when the artefact is absent.
 ;;
-;; `register-observability-sink!` is a DISTINCT verb, NOT a `:sink` stream
-;; (frame-policy sink-id, ALREADY-PROJECTED record, `make-frame`
-;; `:observability` coupling) — see below.
+;; BOTH members are raw and DCE'd, so the vocabulary now carries its own
+;; tier: `register-listener!` means "raw dev stream", full stop.
+;;
+;; PRODUCTION observation is a DIFFERENT verb, not a stream here
+;; (rf2-kuky.69, ruling on rf2-kuky.22 — ONE production observation door).
+;; It is `register-observability-sink!` against a frame's `:observability`
+;; policy, or the `(rf/configure! {:observability …})` PROCESS DEFAULT for
+;; declare-once-per-process and for records with no resolvable frame. Sinks
+;; consume ALREADY-PROJECTED records under the frame's classification and the
+;; entry's egress profile; the raw substrate record is reachable through an
+;; explicit `{:sink … :rf.egress/profile :rf.egress/local-raw}` entry rather
+;; than through an ambient corpus-wide fan-out. The `:events` / `:errors`
+;; streams that used to sit here were a SECOND, fail-open production door —
+;; unprojected, raw `:exception`, no frame policy, fanned across every frame
+;; — beside the door the spec calls normal; independent corpus observation
+;; regardless of a frame's policy is WITHDRAWN as a public primitive.
+;; `re-frame.event-emit` / `re-frame.error-emit` survive as `^:no-doc`
+;; IMPLEMENTATION registries (the substrate's own fan-out) for the
+;; framework's synchronous-window capture sites and for tests.
 ;;
 ;; Unknown stream throws `:rf.error/unknown-listener-stream` (closed
 ;; vocabulary; pre-alpha — no bare 2-arity `:trace` default, no compat
@@ -2271,7 +2282,7 @@
 
 (def ^:private listener-streams
   "Closed vocabulary for `register-listener!` / `unregister-listener!`."
-  #{:trace :events :errors :epoch})
+  #{:trace :epoch})
 
 (defn- unknown-listener-stream! [verb stream]
   ;; rf2-cl48e2: route through the canonical thrown-error builder
@@ -2291,34 +2302,35 @@
     (str verb ": unknown listener stream " (pr-str stream)
          " — must be one of " (pr-str listener-streams)
          ". The listener-stream vocabulary is closed (no bare :trace "
-         "default, no compatibility aliases); pass one of the four pure "
-         "observation streams.")
+         "default, no compatibility aliases); pass one of the two raw dev "
+         "observation streams. Production observation is a DIFFERENT verb: "
+         "rf/register-observability-sink! against a frame's :observability "
+         "policy, or the (rf/configure! {:observability …}) process default.")
     {:recovery :fix-registration
      :extra    {:stream stream
                 :valid  listener-streams}}))
 
 (defn register-listener!
   "Register an observation listener `f` under `id` on `stream` — one verb
-  across the four pure listener streams (`:trace` / `:events` / `:errors`
-  / `:epoch`). Re-registering the same `id` on the same stream replaces.
-  Returns `id` (or nil on the `:epoch` stream when the
-  `day8/re-frame2-epoch` artefact is absent).
+  across the two raw DEV observation streams (`:trace` / `:epoch`).
+  Re-registering the same `id` on the same stream replaces. Returns `id`
+  (or nil on the `:epoch` stream when the `day8/re-frame2-epoch` artefact
+  is absent).
 
   - `:trace`  — dev-only trace-event listener (production CLJS bundles DCE
                 the registration site when it is `goog.DEBUG`-gated).
-  - `:events` — always-on event-emit listener; ADVANCED corpus-wide
-                integration hook fanned across EVERY frame (NOT the normal
-                off-box egress path — that is the frame-owned
-                `:observability` sink). Survives `:advanced` +
-                `goog.DEBUG=false`.
-  - `:errors` — always-on error-emit listener; the record is fanned across
-                EVERY frame, NOT projected under any frame's egress policy
-                (`:event` wire-elided, `:exception` rides RAW). The
-                frame-owned `:observability :errors` sink is the normal
-                off-box error path.
   - `:epoch`  — epoch-record listener (Spec 009
                 §`register-epoch-listener!`); no-op returning nil when the
                 epoch artefact is absent.
+
+  Both members are raw and DCE'd: this verb means \"raw dev stream\".
+  PRODUCTION observation is a different verb —
+  [[register-observability-sink!]] against a frame's `:observability`
+  policy, or the `(rf/configure! {:observability …})` process default for
+  declare-once-per-process and for records with no resolvable frame. For a
+  raw cross-frame record, declare an explicit
+  `{:sink … :rf.egress/profile :rf.egress/local-raw}` entry on that
+  default.
 
   An unknown `stream` throws `:rf.error/unknown-listener-stream` (closed
   vocabulary — no bare trace default, no compatibility aliases). Per
@@ -2327,22 +2339,18 @@
   [stream id f]
   (case stream
     :trace  (rf.trace.tooling/register-listener! id f)
-    :events (rf.event-emit/register-event-listener! id f)
-    :errors (rf.error-emit/register-error-listener! id f)
     :epoch  (rf.core-epoch/register-epoch-listener! id f)
     (unknown-listener-stream! 'rf/register-listener! stream)))
 
 (defn unregister-listener!
   "Drop the listener registered under `id` on `stream` (`:trace` /
-  `:events` / `:errors` / `:epoch`). Returns nil. No-op on the `:epoch`
-  stream when the `day8/re-frame2-epoch` artefact is absent. An unknown
-  `stream` throws `:rf.error/unknown-listener-stream`. Per Spec 009
-  §Observation listeners."
+  `:epoch`). Returns nil. No-op on the `:epoch` stream when the
+  `day8/re-frame2-epoch` artefact is absent. An unknown `stream` throws
+  `:rf.error/unknown-listener-stream`. Per Spec 009 §Observation
+  listeners."
   [stream id]
   (case stream
     :trace  (rf.trace.tooling/unregister-listener! id)
-    :events (rf.event-emit/unregister-event-listener! id)
-    :errors (rf.error-emit/unregister-error-listener! id)
     :epoch  (rf.core-epoch/unregister-epoch-listener! id)
     (unknown-listener-stream! 'rf/unregister-listener! stream)))
 
@@ -2431,10 +2439,12 @@
 ;; event and one error record per `:rf.error/*` site through `project-egress`
 ;; (under the frame's classification + the sink's egress profile) to the
 ;; declared sinks. Sinks consume ALREADY-PROJECTED records — no sink-local
-;; redaction. The advanced corpus-wide event/error listeners (reachable via
-;; `register-listener!` with the `:events` / `:errors` stream) remain for
-;; advanced cross-frame integration; this sink is the normal Datadog/Sentry
-;; surface.
+;; redaction. This sink is the ONLY production observation door (rf2-kuky.69):
+;; per-frame through the frame's `:observability` policy, or once per process
+;; through `(rf/configure! {:observability …})`, which is also where records
+;; with no resolvable frame land. A cross-frame integration declares the
+;; process default; a raw record is an explicit
+;; `:rf.egress/local-raw` profile on that entry, not an ambient fan-out.
 
 (def ^{:doc "Register an observability sink FN `f` under the keyword
   `sink-id` — the user/library-owned id a frame's `:observability`

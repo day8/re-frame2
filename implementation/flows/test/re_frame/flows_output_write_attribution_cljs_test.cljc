@@ -28,6 +28,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.error-emit :as rf.error-emit]
    [re-frame.trace.tooling :as rf.trace.tooling]
    [re-frame.test-support :as rf.test-support]
    #?(:clj  [re-frame.substrate.plain-atom :as substrate]
@@ -56,7 +57,7 @@
   `goog.DEBUG=false`, where the trace surface above is compile-time elided —
   so asserting it is what stops production attribution silently staying wrong."
   [sink]
-  (rf/register-listener! :errors ::error-recorder
+  (rf.error-emit/register-error-listener! ::error-recorder
                          (fn [record] (swap! sink conj record))))
 
 (defn- by-op [events op]

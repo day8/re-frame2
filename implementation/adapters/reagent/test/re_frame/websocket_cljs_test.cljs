@@ -23,6 +23,7 @@
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.event-emit :as rf.event-emit]
             [re-frame.fx :as rf.fx]
             [re-frame.subs :as rf.subs]
             [re-frame.late-bind :as rf.late-bind]
@@ -1739,7 +1740,7 @@
         (let [traces (atom [])
               events (atom [])]
           (rf/register-listener! :trace  ::cred-traces (fn [r] (swap! traces conj r)))
-          (rf/register-listener! :events ::cred-events (fn [r] (swap! events conj r)))
+          (rf.event-emit/register-event-listener! ::cred-events (fn [r] (swap! events conj r)))
           (try
             ;; Initial connect authenticates via the closure-resolved bearer.
             (rf/dispatch-sync [:ws/connection
@@ -1790,7 +1791,7 @@
                   "no raw-token field anywhere on the exercised surface"))
             (finally
               (rf/unregister-listener! :trace  ::cred-traces)
-              (rf/unregister-listener! :events ::cred-events))))))))
+              (rf.event-emit/unregister-event-listener! ::cred-events))))))))
 
 ;; ============================================================================
 ;; DEFTESTS — one per fixture so the :each fixture (which resets mock state

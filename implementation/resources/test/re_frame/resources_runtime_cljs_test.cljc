@@ -34,6 +34,7 @@
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [clojure.string :as str]
    [re-frame.core :as rf]
+   [re-frame.error-emit :as rf.error-emit]
    [re-frame.fx :as rf.fx]
    [re-frame.frame :as rf.frame]
    [re-frame.identity :as rf.identity]
@@ -150,9 +151,9 @@
   [body-fn]
   (let [seen (atom [])
         k    ::error-record-recorder]
-    (rf/register-listener! :errors k (fn [rec] (swap! seen conj rec)))
+    (rf.error-emit/register-error-listener! k (fn [rec] (swap! seen conj rec)))
     (try (body-fn)
-         (finally (rf/unregister-listener! :errors k)))
+         (finally (rf.error-emit/unregister-error-listener! k)))
     @seen))
 
 ;; ===========================================================================

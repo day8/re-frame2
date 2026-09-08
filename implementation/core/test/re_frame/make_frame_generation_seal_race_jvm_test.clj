@@ -53,6 +53,7 @@
   a mark that the very next `reg-*` would have made anyway."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.flows :as rf.flows]
             [re-frame.frame :as rf.frame]
             [re-frame.live-frame :as rf.live-frame]
@@ -125,7 +126,7 @@
           release (CountDownLatch. 1)
           runs    (atom 0)
           errors  (atom [])]
-      (rf/register-listener! :errors ::recorder
+      (rf.error-emit/register-error-listener! ::recorder
                              (fn [record] (swap! errors conj record)))
       (let [a (binding [rf.frame/*upsert-decide-probe*
                         (window-probe :seal-race/a reached release)]
@@ -158,7 +159,7 @@
         ;; dispatch is a no-op reported as `:rf.error/no-such-handler` — for a
         ;; handler `rf.registrar/lookup` is holding at this very moment.
         (rf/dispatch-sync [:seal-race/late] {:frame :seal-race/a})
-        (rf/unregister-listener! :errors ::recorder)
+        (rf.error-emit/unregister-error-listener! ::recorder)
 
         (is (empty? (filter #(= :rf.error/no-such-handler (:error %)) @errors))
             (str "the frame resolved :seal-race/late through a generation "

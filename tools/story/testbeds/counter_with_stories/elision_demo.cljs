@@ -76,6 +76,7 @@
   (:require [reagent.core :as r]
             [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.event-emit :as rf.event-emit]
             [re-frame.schemas]
             [re-frame.schemas.malli])
   (:require-macros [re-frame.core :refer [reg-view with-frame]]))
@@ -207,7 +208,7 @@
 ;;   (when (and (= "production" (:env config))
 ;;              (not ^boolean re-frame.interop/debug-enabled?)
 ;;              (:api-key config))
-;;     (rf/register-listener! :events
+;;     (rf.event-emit/register-event-listener!
 ;;       :my-app/datadog
 ;;       (fn [record] (ship-to-datadog record))))
 ;;
@@ -240,13 +241,13 @@
   `[:rf.runtime/elision :declarations]` registry is already live before any
   wire consumer asks for it."
   []
-  (rf/register-listener! :events listener-id log-record!))
+  (rf.event-emit/register-event-listener! listener-id log-record!))
 
 (defn uninstall-listener!
   "Drop the demo console listener. Used by tests to keep the suite
   from logging into the test runner's stdout."
   []
-  (rf/unregister-listener! :events listener-id))
+  (rf.event-emit/unregister-event-listener! listener-id))
 
 ;; ============================================================================
 ;; APP-DB ELISION INSPECTOR  (the frame-driven branch surface)

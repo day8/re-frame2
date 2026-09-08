@@ -61,7 +61,7 @@
   the production off-box shipper stand-in. Returns the seen-categories atom."
   []
   (let [seen (atom [])]
-    (rf/register-listener! :errors ::draintime-error-view-recorder
+    (rf.error-emit/register-error-listener! ::draintime-error-view-recorder
       (fn [record] (swap! seen conj (:error record))))
     seen))
 

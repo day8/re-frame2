@@ -57,6 +57,7 @@
   the gate they certified the fn-form path by never looking at it."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.interop :as rf.interop]
             [re-frame.source-coords :as rf.source-coords]
             [re-frame.frame :as rf.frame]
@@ -108,11 +109,11 @@
   (let [traces (atom [])
         errors (atom [])]
     (rf/register-listener! :trace  ::rec (fn [ev]  (swap! traces conj ev)))
-    (rf/register-listener! :errors ::err (fn [rec] (swap! errors conj rec)))
+    (rf.error-emit/register-error-listener! ::err (fn [rec] (swap! errors conj rec)))
     (try (body-fn)
          (finally
            (rf/unregister-listener! :trace  ::rec)
-           (rf/unregister-listener! :errors ::err)))
+           (rf.error-emit/unregister-error-listener! ::err)))
     {:traces @traces :errors @errors}))
 
 (defn- error-of

@@ -99,6 +99,7 @@
             [re-frame.bench.hicasso.ssr.entry :as rf.bench.hicasso.ssr.entry]
             [re-frame.bench.hicasso.ssr.fixtures :as rf.bench.hicasso.ssr.fixtures]
             [re-frame.core :as rf]
+            [re-frame.event-emit :as rf.event-emit]
             [re-frame.test-support :as rf.test-support]))
 
 (def ^:private frame-id ::ssr-spike)
@@ -522,7 +523,7 @@
   (js/Promise.
     (fn [resolve]
       (let [log (atom [])]
-        (rf/register-listener! :events ::x4
+        (rf.event-emit/register-event-listener! ::x4
                                (fn [record]
                                  (when (= frame-id (:frame record))
                                    (swap! log conj (:event record)))))
@@ -530,7 +531,7 @@
           (rf.bench.hicasso.arm1.dogfood-script/interaction-steps handle)
           (fn []
             (let [result {:intents @log :dom (rf.bench.hicasso.lane/canonical (:container handle))}]
-              (rf/unregister-listener! :events ::x4)
+              (rf.event-emit/unregister-event-listener! ::x4)
               (rf.bench.hicasso.arm1.mount/release! handle)
               (resolve result))))))))
 

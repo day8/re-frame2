@@ -46,6 +46,8 @@
   boundary arm is unreachable in dev (per Spec 010 L145)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.event-emit :as rf.event-emit]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.late-bind :as rf.late-bind]
             ;; Per rf2-t0hq the CLJS default validator routes through the
             ;; late-bind hook `:schemas/malli-validate`, published at load
@@ -158,13 +160,13 @@
       (fn [_ _] {}))
     (let [errors (atom [])
           events (atom [])]
-      (rf/register-listener! :errors ::rec (fn [r] (swap! errors conj r)))
-      (rf/register-listener! :events ::rec (fn [r] (swap! events conj r)))
+      (rf.error-emit/register-error-listener! ::rec (fn [r] (swap! errors conj r)))
+      (rf.event-emit/register-event-listener! ::rec (fn [r] (swap! events conj r)))
       (try
         (rf/dispatch-sync [:api/strict "not-an-int"])
         (finally
-          (rf/unregister-listener! :errors ::rec)
-          (rf/unregister-listener! :events ::rec)))
+          (rf.error-emit/unregister-error-listener! ::rec)
+          (rf.event-emit/unregister-event-listener! ::rec)))
       (let [rec (first (filter #(= :rf.error/schema-validation-failure (:error %))
                                @errors))
             evt (first (filter #(= :api/strict (:event-id %)) @events))]

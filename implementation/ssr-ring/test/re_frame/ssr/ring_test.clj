@@ -3253,7 +3253,7 @@
   every fanned record; returns the seen-categories atom."
   []
   (let [seen (atom [])]
-    (rf/register-listener! :errors
+    (rf.error-emit/register-error-listener!
       ::hhutya-wire-recorder
       (fn [record] (swap! seen conj (:error record))))
     seen))

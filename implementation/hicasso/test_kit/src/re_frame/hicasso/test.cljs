@@ -224,6 +224,7 @@
   (:refer-clojure :exclude [find])
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.event-emit :as rf.event-emit]
             [re-frame.error :as rf.error]
             [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
             [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
@@ -634,13 +635,13 @@
   (let [log (atom [])
         k   (keyword "re-frame.hicasso.test"
                      (str "intent-capture-" (swap! !capture-seq inc)))]
-    (rf/register-listener! :events k
+    (rf.event-emit/register-event-listener! k
                            (fn [record]
                              (when (= frame-kw (:frame record))
                                (swap! log conj (:event record)))))
     (try
       (let [v (f)] {:value v :intents @log})
-      (finally (rf/unregister-listener! :events k)))))
+      (finally (rf.event-emit/unregister-event-listener! k)))))
 
 ;; ---------------------------------------------------------------------------
 ;; L1 — one handler position, fired with a stated event

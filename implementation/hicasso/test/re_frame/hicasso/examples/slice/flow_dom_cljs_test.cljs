@@ -69,6 +69,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
+            [re-frame.event-emit :as rf.event-emit]
             [re-frame.hicasso.examples.slice.db :as rf.hicasso.examples.slice.db]
             [re-frame.hicasso.examples.slice.events :as rf.hicasso.examples.slice.events]
             [re-frame.hicasso.examples.slice.routes :as rf.hicasso.examples.slice.routes]
@@ -463,7 +464,7 @@
             ;; public stream — so the script is what the PAGE dispatched
             ;; and holds no hook into the rendering under test.
             log (atom [])]
-        (rf/register-listener! :events ::script
+        (rf.event-emit/register-event-listener! ::script
                                (fn [record]
                                  (when (= (:frame m) (:frame record))
                                    (swap! log conj (:event record)))))
@@ -488,7 +489,7 @@
                                   :body       "The model is the only place the text lives."
                                   :published? true}}]]
                        @log))))
-            (.finally (fn [] (rf/unregister-listener! :events ::script)))
+            (.finally (fn [] (rf.event-emit/unregister-event-listener! ::script)))
             (finish-after m done))))))
 
 ;; ---------------------------------------------------------------------------
