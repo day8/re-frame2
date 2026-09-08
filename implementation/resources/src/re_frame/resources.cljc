@@ -70,16 +70,14 @@
             ;; published on BOTH runtimes whenever resources is loaded — the
             ;; epoch tool-pair consults it on every off-box record projection.
             [re-frame.resources.trace-egress :as rf.resources.trace-egress]
-            [re-frame.resources.work-ledger :as rf.resources.work-ledger]
-            ;; JVM-only require of the resources tooling sibling that backs the
-            ;; `resource-algebra-view`
-            ;; / `resource-cache-algebra-view` aliases at the foot of this ns.
-            ;; CLJS deliberately OMITS this require so a CLJS app that loads the
-            ;; resources artefact but never attaches a tool DCEs the tooling
-            ;; body wholesale — the facade never reaches it. JVM has no bundle
-            ;; to protect; the alias gives JVM tools / conformance fixtures the
-            ;; ergonomic `re-frame.resources/<name>` shape.
-            #?@(:clj [[re-frame.resources.tooling :as rf.resources.tooling]])))
+            ;; No require of `re-frame.resources.tooling` on EITHER runtime
+            ;; (rf2-kuky.86). The JVM-only require existed solely to back the
+            ;; `resource-algebra-view` / `resource-cache-algebra-view` facade
+            ;; aliases; those are retired, so the facade now reaches the
+            ;; bundle-isolated tooling sibling on neither runtime. JVM tools
+            ;; and conformance fixtures name `re-frame.resources.tooling/<name>`
+            ;; directly, as CLJS consumers already did.
+            [re-frame.resources.work-ledger :as rf.resources.work-ledger]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -99,22 +97,15 @@
 ;; `rf.resources.registry/resource-meta` survives as the artefact's own
 ;; shorthand for that projection; it is not a public name.
 
-;; Derivation/process algebra views of
-;; registered resources (`resource-algebra-view`, static) and of a frame's
-;; live cache entries (`resource-cache-algebra-view`, live). A resource is the
-;; canonical PROCESS member of the algebra (Derivations §Process). The static
-;; view is JVM-runnable (the resource registry is partition-agnostic metadata),
-;; so JVM convenience aliases let tools / conformance fixtures reach it as
-;; `re-frame.resources/<name>` without naming the sibling. The bodies live in
-;; `re-frame.resources.tooling` so a CLJS app that loads the resources artefact
-;; but attaches no tool DCEs them (the CLJS facade never `:require`s the tooling
-;; sibling — the require above is `#?@(:clj ...)`-gated). CLJS consumers (Xray +
-;; conformance) call `re-frame.resources.tooling/<name>` directly. No
-;; `re-frame.core` facade export.
-#?(:clj
-   (do
-     (def resource-algebra-view       rf.resources.tooling/resource-algebra-view)
-     (def resource-cache-algebra-view rf.resources.tooling/resource-cache-algebra-view)))
+;; rf2-kuky.86: no `resource-algebra-view` / `resource-cache-algebra-view`
+;; facade aliases. The derivation/process algebra views of registered
+;; resources (static) and of a frame's live cache entries (live) — a resource
+;; being the canonical PROCESS member of the algebra (Derivations §Process) —
+;; ship NO public accessor (Derivations §Resources expose process nodes). The
+;; bodies stay in the bundle-isolated `re-frame.resources.tooling`, which every
+;; consumer requires directly: Xray and the conformance fixtures statically,
+;; `re-frame.derivation.graph` through `requiring-resolve` on the JVM. No
+;; `re-frame.core` facade export either.
 
 ;; Mutations (Spec 016 §Mutations). `reg-mutation` registers a causal-write
 ;; mutation; `:rf.mutation/execute` runs it over the SAME managed-HTTP

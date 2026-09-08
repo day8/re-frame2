@@ -23,10 +23,12 @@
   opaque `:derive` request token, source coords, and the live entry view.
 
   Slice-4 ships NO public accessor (EP-0014 issue-1 disposition): the views
-  live in the bundle-isolated `re-frame.resources.tooling` sibling, reached
-  on JVM through the `re-frame.resources/resource-algebra-view` convenience
-  alias, and consumed by Xray + the conformance fixtures. There is no
-  `re-frame.core/resource-algebra-view` public facade export."
+  live in the bundle-isolated `re-frame.resources.tooling` sibling and are
+  consumed by Xray + the conformance fixtures, which name that sibling
+  directly. There is no `re-frame.core/resource-algebra-view` public facade
+  export and — since rf2-kuky.86 — no `re-frame.resources` JVM convenience
+  alias either; `re-frame.derivation.graph` reaches the views by
+  `requiring-resolve`."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -432,9 +434,17 @@
       (is (contains? view :b/y)))))
 
 #?(:clj
-   (deftest jvm-alias-mirrors-the-tooling-fn
-     (testing "the JVM re-frame.resources/resource-algebra-view alias is the tooling fn"
-       (rf/reg-resource :article/by-slug (article-spec) article-spec-request)
-       (is (= (rf.resources.tooling/resource-algebra-view)
-              (re-frame.resources/resource-algebra-view))
-           "the JVM convenience alias projects identically to the tooling sibling"))))
+   (deftest facade-publishes-no-algebra-view-alias
+     ;; rf2-kuky.86 — the absence pin that replaced the JVM presence pin. Both
+     ;; views ship NO public accessor (Derivations §Resources expose process
+     ;; nodes): the `defn`s stay in `re-frame.resources.tooling` and the facade
+     ;; re-exports neither, so `re-frame.derivation.graph` reaches them by
+     ;; `requiring-resolve` and CLJS tools by a direct `:require`.
+     (testing "`re-frame.resources` re-exports neither resource algebra view"
+       (is (nil? (ns-resolve 're-frame.resources 'resource-algebra-view))
+           "resource-algebra-view is not a public name on the resources facade")
+       (is (nil? (ns-resolve 're-frame.resources 'resource-cache-algebra-view))
+           "resource-cache-algebra-view is not a public name on the resources facade"))
+     (testing "the tooling sibling still publishes both"
+       (is (some? (ns-resolve 're-frame.resources.tooling 'resource-algebra-view)))
+       (is (some? (ns-resolve 're-frame.resources.tooling 'resource-cache-algebra-view))))))

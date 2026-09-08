@@ -18,10 +18,11 @@
   and the source coordinates.
 
   Slice-3 ships NO public accessor (EP-0014 issue-1 disposition): the view
-  lives in the bundle-isolated `re-frame.flows.tooling` sibling, reached on
-  JVM through the `re-frame.flows/flow-algebra-view` convenience alias, and
-  consumed by Xray + the conformance fixtures. There is no
-  `re-frame.core/flow-algebra-view` public facade export."
+  lives in the bundle-isolated `re-frame.flows.tooling` sibling and is
+  consumed by Xray + the conformance fixtures, which name that sibling
+  directly. There is no `re-frame.core/flow-algebra-view` public facade export
+  and — since rf2-kuky.86 — no `re-frame.flows` JVM convenience alias either;
+  `re-frame.derivation.graph` reaches the view by `requiring-resolve`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.flows :as rf.flows]
@@ -62,12 +63,17 @@
   (testing "(flow-algebra-view frame-id) returns {} for a frame with no flows"
     (is (= {} (rf.flows.tooling/flow-algebra-view :rf/default)))))
 
-(deftest jvm-alias-mirrors-the-tooling-fn
-  (testing "the JVM `re-frame.flows/flow-algebra-view` alias is the tooling fn"
-    (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* (or w 0) (or h 0))))
-    (is (= (rf.flows.tooling/flow-algebra-view)
-           (rf.flows/flow-algebra-view))
-        "the JVM convenience alias projects identically to the tooling sibling")))
+(deftest facade-publishes-no-algebra-view-alias
+  ;; rf2-kuky.86 — the absence pin that replaced the JVM presence pin. The view
+  ;; ships NO public accessor (Derivations §Flows expose algebra views): the
+  ;; `defn` stays in `re-frame.flows.tooling` and the facade re-exports it on
+  ;; neither runtime, so `re-frame.derivation.graph` reaches it by
+  ;; `requiring-resolve` and CLJS tools by a direct `:require`.
+  (testing "`re-frame.flows` re-exports no flow algebra view"
+    (is (nil? (ns-resolve 're-frame.flows 'flow-algebra-view))
+        "flow-algebra-view is not a public name on the flows facade"))
+  (testing "the tooling sibling still publishes it"
+    (is (some? (ns-resolve 're-frame.flows.tooling 'flow-algebra-view)))))
 
 ;; ---- a registered flow exposes its algebra view --------------------------
 

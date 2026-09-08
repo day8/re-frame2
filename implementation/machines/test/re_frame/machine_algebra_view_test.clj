@@ -24,10 +24,13 @@
   and the live spawned-actor projection.
 
   There is NO public accessor: the views live in the bundle-isolated
-  `re-frame.machines.tooling` sibling, reached on JVM through the
-  `re-frame.machines/machine-*` convenience aliases, and consumed by Xray +
-  the conformance fixtures. There is no `re-frame.core/machine-algebra-view`
-  public facade export."
+  `re-frame.machines.tooling` sibling and are consumed by Xray + the
+  conformance fixtures, which name that sibling directly. There is no
+  `re-frame.core/machine-algebra-view` public facade export and — since
+  rf2-kuky.86 — no `re-frame.machines` JVM convenience alias for the two
+  ALGEBRA VIEWS either; `re-frame.derivation.graph` reaches them by
+  `requiring-resolve`. The selector recognizer / extractor
+  (`machine-selector?`, `machine-selector-targets`) keep theirs."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines :as rf.machines]
@@ -91,15 +94,19 @@
         (rf.test-support/restore-registrar! snap)))))
 
 (deftest jvm-alias-mirrors-the-tooling-fn
-  (testing "the JVM `re-frame.machines/machine-*` aliases are the tooling fns"
-    (rf/reg-machine :upload/main upload-machine)
-    (is (= (rf.machines.tooling/machine-algebra-view)
-           (rf.machines/machine-algebra-view))
-        "machine-algebra-view alias projects identically to the tooling sibling")
+  ;; rf2-kuky.86 — the two ALGEBRA VIEW aliases are gone; the selector
+  ;; recognizer keeps its JVM alias, so this pin now carries both halves.
+  (testing "`re-frame.machines` re-exports neither machine algebra view"
+    (is (nil? (ns-resolve 're-frame.machines 'machine-algebra-view))
+        "machine-algebra-view is not a public name on the machines facade")
+    (is (nil? (ns-resolve 're-frame.machines 'machine-instance-algebra-view))
+        "machine-instance-algebra-view is not a public name on the machines facade"))
+  (testing "the tooling sibling still publishes both algebra views"
+    (is (some? (ns-resolve 're-frame.machines.tooling 'machine-algebra-view)))
+    (is (some? (ns-resolve 're-frame.machines.tooling 'machine-instance-algebra-view))))
+  (testing "the JVM `machine-selector?` alias is the tooling fn"
     (is (= rf.machines.tooling/machine-selector? rf.machines/machine-selector?)
-        "machine-selector? alias is the tooling fn")
-    (is (= rf.machines.tooling/machine-instance-algebra-view rf.machines/machine-instance-algebra-view)
-        "machine-instance-algebra-view alias is the tooling fn")))
+        "machine-selector? alias is the tooling fn")))
 
 ;; ---- a registered machine exposes its process node -----------------------
 

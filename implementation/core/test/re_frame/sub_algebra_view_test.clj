@@ -18,10 +18,10 @@
   edges) is the CLJS counterpart, pinned in the reagent runtime suite.
 
   Slice-2 ships NO public accessor (EP-0014 issue-1 disposition): the view
-  lives in the bundle-isolated `re-frame.subs.tooling` sibling, reached on
-  JVM through the `re-frame.subs/sub-algebra-view` convenience alias, and
-  consumed by Xray + the conformance fixtures. There is no
-  `re-frame.core/sub-algebra-view` public facade export.
+  lives in the bundle-isolated `re-frame.subs.tooling` sibling and is consumed
+  by Xray + the conformance fixtures, which name that sibling directly. There
+  is no `re-frame.core/sub-algebra-view` public facade export and — since
+  rf2-kuky.86 — no `re-frame.subs` JVM convenience alias either.
 
   ## Posture split (rf2-d2841)
 
@@ -87,12 +87,25 @@
     (is (= {} (rf.subs.tooling/sub-algebra-view)))
     (is (map? (rf.subs.tooling/sub-algebra-view)))))
 
-(deftest jvm-alias-mirrors-the-tooling-fn
-  (testing "the JVM `re-frame.subs/sub-algebra-view` alias is the tooling fn"
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    (is (= (rf.subs.tooling/sub-algebra-view)
-           (rf.subs/sub-algebra-view))
-        "the JVM convenience alias projects identically to the tooling sibling")))
+(deftest facade-publishes-no-algebra-view-alias
+  ;; rf2-kuky.86 — the absence pin that replaced the JVM presence pin. The
+  ;; views ship NO public accessor (Derivations §Subscriptions expose algebra
+  ;; views): the `defn`s stay in `re-frame.subs.tooling` and `re-frame.subs`
+  ;; re-exports neither, so production CLJS bundles DCE the bodies and every
+  ;; consumer names the sibling directly.
+  (testing "`re-frame.subs` re-exports neither sub algebra view"
+    (is (nil? (ns-resolve 're-frame.subs 'sub-algebra-view))
+        "sub-algebra-view is not a public name on the subs facade")
+    (is (nil? (ns-resolve 're-frame.subs 'sub-cache-algebra-view))
+        "sub-cache-algebra-view is not a public name on the subs facade"))
+  (testing "the sibling's other JVM aliases are untouched"
+    (is (some? (ns-resolve 're-frame.subs 'sub-topology))
+        "sub-topology keeps its JVM alias")
+    (is (some? (ns-resolve 're-frame.subs 'sub-cache-snapshot))
+        "sub-cache-snapshot keeps its JVM alias"))
+  (testing "the tooling sibling still publishes both algebra views"
+    (is (some? (ns-resolve 're-frame.subs.tooling 'sub-algebra-view)))
+    (is (some? (ns-resolve 're-frame.subs.tooling 'sub-cache-algebra-view)))))
 
 ;; ---- reg-sub :db (layer-1) -----------------------------------------------
 

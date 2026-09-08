@@ -1672,17 +1672,19 @@
   ;; rf2-ma0wvq — spawned-actor ownership resolver, published as the
   ;; `:machines/owning-actor-id` late-bind hook the http artefact consults.
   ["re-frame.machines" "owning-actor-id"]       {:tier :implementation :owner "005" :status "v1"}
-  ;; EP-0014 slice-6 (rf2-2axssk): the derivation/process algebra views of
-  ;; registered machines, their live instances / spawned actors, and the
-  ;; machine-selector recognizer. JVM convenience aliases; the bodies live in
-  ;; the bundle-isolated `re-frame.machines.tooling` sibling (the CLJS facade
-  ;; never `:require`s it — the require is `#?@(:clj ...)`-gated — so prod CLJS
-  ;; bundles DCE them). `:tooling`, no `re-frame.core` facade export (EP-0014
-  ;; issue-1 disposition). Owner 005 = machines host spec (the flow=013 /
-  ;; routing=012 host-namespace precedent). Mirror of `flow-algebra-view`
-  ;; (slice-3) / `sub-algebra-view` (slice-2).
-  ["re-frame.machines" "machine-algebra-view"]          {:tier :tooling :owner "005" :status "v1"}
-  ["re-frame.machines" "machine-instance-algebra-view"] {:tier :tooling :owner "005" :status "v1"}
+  ;; EP-0014 slice-6 (rf2-2axssk): the machine-selector recognizer. JVM
+  ;; convenience alias; the body lives in the bundle-isolated
+  ;; `re-frame.machines.tooling` sibling (the CLJS facade never `:require`s it
+  ;; — the require is `#?@(:clj ...)`-gated — so prod CLJS bundles DCE it).
+  ;; `:tooling`, no `re-frame.core` facade export (EP-0014 issue-1
+  ;; disposition). Owner 005 = machines host spec (the flow=013 / routing=012
+  ;; host-namespace precedent).
+  ;;
+  ;; rf2-kuky.86: the two algebra views (`machine-algebra-view`,
+  ;; `machine-instance-algebra-view`) carried rows here until their JVM facade
+  ;; aliases were deleted. They are NOT retired — the `defn`s stay public in
+  ;; `re-frame.machines.tooling`, which the generator does not introspect, so
+  ;; they now carry no row for the same reason `sub-algebra-view` never did.
   ["re-frame.machines" "machine-selector?"]             {:tier :tooling :owner "005" :status "v1"}
   ;; rf2-4qmiij — machine-selector edge extractor: the SET of machine ids a
   ;; selector sub reads, so a graph tool draws the `:selector` edge to the
@@ -1762,22 +1764,15 @@
   ["re-frame.routing" "routing-state-classification"] {:tier :implementation :owner "012" :status "v1"}
   ["re-frame.routing" "reset-nav-counters!"]    {:tier :implementation :owner "012" :status "v1"}
   ["re-frame.routing" "reset-url-claims!"]      {:tier :implementation :owner "012" :status "v1"}
-  ;; EP-0014 slice-5 (rf2-eiiifu): the derivation/process algebra view of
-  ;; registered routes (`route-algebra-view`, static) and a frame's live
-  ;; route slice (`route-slice-algebra-view`, live). JVM-only convenience
-  ;; aliases of `re-frame.routing.tooling/route-algebra-view` /
-  ;; `route-slice-algebra-view` (the bodies live in the bundle-isolated
-  ;; tooling sibling; the CLJS facade never `:require`s it — the require is
-  ;; `#?@(:clj ...)`-gated — so prod CLJS bundles DCE it). `:tooling`, no
-  ;; `re-frame.core` facade export (EP-0014 issue-1 disposition). Owner
-  ;; "012" to match the host `re-frame.routing` spec section (the sibling
-  ;; routing rows above), mirroring how `re-frame.flows/flow-algebra-view`
-  ;; (slice-3) carries owner "013" for its host `re-frame.flows`. Mirror of
-  ;; `sub-algebra-view` (slice-2) — which carries no manifest row only
-  ;; because its host `re-frame.subs` is not a generator-introspected
-  ;; namespace, whereas `re-frame.routing` is.
-  ["re-frame.routing" "route-algebra-view"]       {:tier :tooling :owner "012" :status "v1"}
-  ["re-frame.routing" "route-slice-algebra-view"] {:tier :tooling :owner "012" :status "v1"}
+  ;; EP-0014 slice-5 (rf2-eiiifu) / rf2-kuky.86: the derivation/process algebra
+  ;; view of registered routes (`route-algebra-view`, static) and a frame's
+  ;; live route slice (`route-slice-algebra-view`, live) carried `:tooling`
+  ;; rows here while `re-frame.routing` published JVM-only convenience aliases
+  ;; of them. Those aliases are deleted, so the rows are gone. The views are
+  ;; NOT retired — the `defn`s stay public in the bundle-isolated
+  ;; `re-frame.routing.tooling`, which the generator does not introspect, so
+  ;; they now carry no row for exactly the reason `sub-algebra-view` never did:
+  ;; the host namespace is not generator-introspected.
 
   ;; =========================================================================
   ;; re-frame.resources — optional artefact (day8/re-frame2-resources), §016.
@@ -1812,12 +1807,14 @@
   ;;       ARTEFACT-INTERNALLY in `re-frame.resources.registry` /
   ;;       `re-frame.resources.mutation-registry`, which the generator does
   ;;       not introspect, so they carry no row.
-  ;;   (c) The two algebra views are `:tooling` with no facade export —
-  ;;       `#?(:clj ...)`-gated JVM aliases of the bundle-isolated
-  ;;       `re-frame.resources.tooling` sibling, so a CLJS app that loads
-  ;;       resources but attaches no tool DCEs the bodies. Exact mirror of
-  ;;       `flow-algebra-view` / `route-algebra-view` / `machine-algebra-view`
-  ;;       (EP-0014 issue-1 disposition).
+  ;;   (c) The two algebra views carry NO row (rf2-kuky.86). They were
+  ;;       `:tooling` while `re-frame.resources` published `#?(:clj ...)`-gated
+  ;;       JVM aliases of the bundle-isolated `re-frame.resources.tooling`
+  ;;       sibling; those aliases are deleted, so the only public names are
+  ;;       the sibling's own `defn`s and the generator does not introspect
+  ;;       that namespace. Exact mirror of `flow-algebra-view` /
+  ;;       `route-algebra-view` / `machine-algebra-view`, all demoted the
+  ;;       same way by the same bead (EP-0014 issue-1 disposition).
   ;; =========================================================================
   ;; (a) Facade-mirrored — resources.
   ["re-frame.resources" "reg-resource"]         {:tier :advanced :owner "016" :status "v1 (optional capability)"}
@@ -1833,10 +1830,12 @@
   ["re-frame.resources" "reg-resource-scope"]   {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ["re-frame.resources" "resolve-resource-scope"] {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ;; (c) Algebra views — a resource is the canonical PROCESS member of the
-  ;; algebra (Derivations §Process). Static registry view + live per-frame
-  ;; cache-entry view.
-  ["re-frame.resources" "resource-algebra-view"]       {:tier :tooling :owner "016" :status "v1 (optional capability)"}
-  ["re-frame.resources" "resource-cache-algebra-view"] {:tier :tooling :owner "016" :status "v1 (optional capability)"}
+  ;; algebra (Derivations §Process). rf2-kuky.86: the static registry view and
+  ;; the live per-frame cache-entry view carried `:tooling` rows here while
+  ;; `re-frame.resources` published JVM aliases of them. Those aliases are
+  ;; deleted, so the rows are gone; the `defn`s stay public in the
+  ;; bundle-isolated `re-frame.resources.tooling`, which the generator does not
+  ;; introspect.
 
   ;; =========================================================================
   ;; re-frame.flows — optional artefact (day8/re-frame2-flows), §013.
@@ -1856,16 +1855,14 @@
   ;; rollback seam, NOT an egress boundary), so it stays off the public
   ;; manifest. Off-box reads ride the elided trace path, not a dedicated
   ;; accessor.
-  ;; EP-0014 slice-3 (rf2-s8w3nw): the derivation/process algebra view of
-  ;; registered flows. JVM-only convenience alias of
-  ;; `re-frame.flows.tooling/flow-algebra-view` (the body lives in the
-  ;; bundle-isolated tooling sibling; the CLJS facade never `:require`s it,
-  ;; so prod CLJS bundles DCE it). `:tooling`, no `re-frame.core` facade
-  ;; export (EP-0014 issue-1 disposition). Mirror of `sub-algebra-view`
-  ;; (slice-2) — which carries no manifest row only because its host
-  ;; `re-frame.subs` is not a generator-introspected namespace, whereas
-  ;; `re-frame.flows` is.
-  ["re-frame.flows" "flow-algebra-view"]     {:tier :tooling :owner "013" :status "v1"}
+  ;; EP-0014 slice-3 (rf2-s8w3nw) / rf2-kuky.86: the derivation/process algebra
+  ;; view of registered flows carried a `:tooling` row here while
+  ;; `re-frame.flows` published a JVM-only convenience alias of
+  ;; `re-frame.flows.tooling/flow-algebra-view`. That alias is deleted, so the
+  ;; row is gone. The view is NOT retired — the `defn` stays public in the
+  ;; bundle-isolated tooling sibling, which the generator does not introspect,
+  ;; so it now carries no row for exactly the reason `sub-algebra-view` never
+  ;; did.
   ["re-frame.flows" "run-flows-on-db"]       {:tier :implementation :owner "013" :status "v1"}
   ["re-frame.flows" "reset-flows!"]          {:tier :implementation :owner "013" :status "v1"}
   ["re-frame.flows" "reset-last-inputs!"]    {:tier :implementation :owner "013" :status "v1"}

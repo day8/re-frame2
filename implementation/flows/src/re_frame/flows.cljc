@@ -18,10 +18,12 @@
             [re-frame.flows.topo :as rf.flows.topo]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
-            [re-frame.trace :as rf.trace]
-            ;; Keep tooling unreachable from the CLJS facade so Closure can
-            ;; remove it when no tool requires the sibling namespace.
-            #?@(:clj [[re-frame.flows.tooling :as rf.flows.tooling]])))
+            ;; No require of `re-frame.flows.tooling` on EITHER runtime
+            ;; (rf2-kuky.86). The JVM-only require existed solely to back the
+            ;; `flow-algebra-view` facade alias; that is retired, so tooling is
+            ;; now unreachable from this facade on both runtimes and Closure
+            ;; removes it whenever no tool requires the sibling directly.
+            [re-frame.trace :as rf.trace]))
 
 (def ^:no-doc stale-incarnation
   "Internal return marker: the exact frame owner vanished during a flow pass."
@@ -54,10 +56,11 @@
 (def reset-flows!       rf.flows.registry/reset-flows!)
 (def reset-last-inputs! rf.flows.registry/reset-last-inputs!)
 
-;; JVM tools get a convenience alias. CLJS tools require the bundle-isolated
-;; sibling directly.
-#?(:clj
-   (def flow-algebra-view rf.flows.tooling/flow-algebra-view))
+;; rf2-kuky.86: no `flow-algebra-view` facade alias. The flow algebra view
+;; ships NO public accessor (Derivations §Flows expose algebra views) — every
+;; tool requires the bundle-isolated `re-frame.flows.tooling` directly, and
+;; `re-frame.derivation.graph` reaches it through `requiring-resolve` on the
+;; JVM.
 
 ;; ---- partition-qualified input resolution -------------------------------
 ;;
