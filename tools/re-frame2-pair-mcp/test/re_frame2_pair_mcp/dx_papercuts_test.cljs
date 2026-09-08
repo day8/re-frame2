@@ -23,6 +23,7 @@
   (:require [cljs.test :refer-macros [deftest is async]]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.args :as args]
+            [re-frame2-pair-mcp.tools.elision :as elision]
             [re-frame2-pair-mcp.tools.get-path :as get-path]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.snapshot-pipeline :as pipeline]
@@ -139,8 +140,15 @@
   ;; isn't plain-EDN-readable — assert on the emitted source instead.
   (let [snapshot-call (ef/rt-call 'snapshot :rf/default)
         paths         [[:cart :total] [:user :id]]
+        ;; rf2-kuky.88 — the builder takes the RENDERED egress opts, so
+        ;; feed it the real renderer rather than a bare `"{}"`. A literal
+        ;; empty map still type-checks and still folds, but it names no
+        ;; boundary, so every assertion below would pass over a form that
+        ;; had lost the profile entirely — the defect this deftest exists
+        ;; to catch.
+        egress-opts   (elision/egress-opts-edn false)
         form          (get-path/batch-paths-form
-                        snapshot-call paths true ":rf/default" "{}")]
+                        snapshot-call paths ":rf/default" egress-opts)]
     (is (string? form))
     (is (re-find #"^\(let " form) "batch form opens a let block")
     ;; The embedded paths literal rides verbatim in the reduce seed.
@@ -150,7 +158,15 @@
     (is (re-find #":elided-count" form))
     ;; The batch form projects each read through the door; the
     ;; per-iteration path `p` is the marker handle.
-    (is (re-find #"project-egress raw-v" form))))
+    (is (re-find #"project-egress raw-v" form))
+    ;; And it NAMES the boundary. The door fires unconditionally now, so
+    ;; "did the walk run?" is no longer the question a caller can get
+    ;; wrong — "which boundary is this?" is, and that answer has to reach
+    ;; the rendered form or the app-side door has nothing to resolve.
+    (is (re-find #":rf\.egress/profile :rf\.egress/off-box-tool" form)
+        "the rendered batch form carries the named off-box boundary")
+    (is (not (re-find #"elide-wire-value" form))
+        "and never the retired walker export")))
 
 (deftest get-path-rejects-path-and-paths-together
   ;; Mutual exclusion: supplying both is a structured usage error, not a
