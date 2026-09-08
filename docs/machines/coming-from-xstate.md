@@ -68,7 +68,7 @@ onto the data-first forms below.
 | `invoke` `onError` | `:spawn`'s `:on-error` transition |
 | multiple invokes / fan-out | `:spawn-all` |
 | `raise` | `:fx [[:raise [:tick]]]` |
-| `sendTo` | `:fx [[:dispatch [other-id [:their/event]]]]` or `[:rf.machine/dispatch-to-system [system-id [:their/event]]]` |
+| `sendTo` | `:fx [[:dispatch [other-id [:their/event]]]]` — the id you hold IS the address |
 | `output` | `:output-key` on a final state |
 | `internalEvents` | `:internal-events #{…}` |
 | TypeScript types / v6 `schemas` | `:schemas {:data … :output …}` |

@@ -88,7 +88,7 @@ Errors / warnings are cross-cutting (§7): the stage column still labels the ste
 | FLOW | computed · cleared · failed · skipped |
 | SUB | created · recalculated · ran-unchanged · cache-hit · disposed |
 | VIEW | mounted · re-rendered · skipped · unmounted |
-| MACHINE | created · transition · action-ran · guard-evaluated · after · spawned · spawn-cancelled · timer-scheduled · timer-fired · timer-stale · timer-cancelled · timer-skipped-on-server · done · finished · event-received · system-id-bound · system-id-released · destroyed (a `:spawn` wall-clock guard fires as `timer-fired` on the `:spawn`-bearing state's `:after` — the retired `spawn-timed-out` op, per Spec-009 / rf2-3y3y) |
+| MACHINE | created · transition · action-ran · guard-evaluated · after · spawned · spawn-cancelled · timer-scheduled · timer-fired · timer-stale · timer-cancelled · timer-skipped-on-server · done · finished · event-received · destroyed (a `:spawn` wall-clock guard fires as `timer-fired` on the `:spawn`-bearing state's `:after` — the retired `spawn-timed-out` op, per Spec-009 / rf2-3y3y) |
 | ROUTING | activated · deactivated · cleared · fragment-changed · navigation-blocked (no-match surfaces as the `WARNING :rf.warning/no-not-found-route` row, not a positive ROUTING op; a URL change is the dispatched event `:rf.event/dispatched [:rf.route/handle-url-change …]`, an EVENT row) |
 | RESOURCE | registered · owner-attached · cache-hit · deduped · fetch-started · work-started · abort-requested · work-completed · succeeded · failed · refresh-failed · invalidated · refetch-decision · revalidate-scan · route-plan · owner-released · stale-scheduled · stale-fired · gc-scheduled · gc-fired · gc-skipped · poll-scheduled · poll-fired · removed · stale-suppressed · hydrated · hydrate-refetch · restored (the `:rf.resource/*` trace family, Spec 016 §Xray and AI tooling + [`024`](./024-Resources-Panel.md) §The `:rf.resource/*` trace family; the per-op semantic class + label live in `panels/resources_helpers.cljc`. The `:warning`-level `hydrate-clock-skew` / `restore-clock-skew` rows surface as `WARNING`, not a positive RESOURCE op — severity is cross-cutting §7. `:rf.resource/ensure` / `refetch` / `window-focused` are dispatched EVENT ids, surfacing as `:rf.event/dispatched` EVENT rows, not RESOURCE ops) |
 | EPOCH | snapshotted · restored · db-replaced · replay-conflict · reset |
@@ -259,7 +259,6 @@ Every Spec-009 trace operation → its row. The **Stage** column is the Epoch pi
 | `:rf.machine/action-ran` | EVENT HANDLER | MACHINE | action-ran | action-id | dur? |
 | `:rf.machine.lifecycle/created` | EVENT HANDLER | MACHINE | created | machine-id | — |
 | `:rf.machine.lifecycle/spawned` | EFFECT HANDLERS | MACHINE | spawned (registrar-substrate — actor snapshot installed; partner of the fx-substrate `:rf.machine.spawn/spawned` below) | machine-id · spawned-id | — (↗ child) |
-| `:rf.machine/system-id-bound` · `system-id-released` | EVENT HANDLER | MACHINE | system-id-bound/released | system-id | — |
 | `:rf.machine/snapshot-updated` | EVENT HANDLER | MACHINE | snapshot-updated | (or fold into DB) | — |
 | `:rf.fx/handled` (per fx-id) | EFFECT HANDLERS | FX | `<fx-id>` | fx-id → arg · queued/landed | dur? |
 | `:rf.fx/do-fx` | EFFECT HANDLERS | FX | (fx batch; usually elided to per-fx rows) | — | — |

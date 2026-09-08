@@ -1723,8 +1723,8 @@ the last 5s; grey otherwise).
 Switching the active frame via the ribbon (Layer 1) re-binds the
 picker to that frame's machines. Machines spawned via
 `:rf.machine/spawn` (dynamic actors) appear in the picker with their
-gensym'd id; named addressing via `:system-id` is surfaced as a
-parenthetical (e.g. `:gensym-42 (:auth/main)`).
+allocated id; a spawn that declared `:fixed-actor-id` appears under that
+explicit address.
 
 ## Transition history ribbon
 
@@ -1760,7 +1760,6 @@ Per Spec 005 and Spec 009:
 | `:rf.machine.spawn-all/*` traces | Render `:spawn-all` join state (started, all-completed, some-completed, any-failed). |
 | `:rf.machine.spawn/spawned` (fx-substrate) · `:rf.machine.lifecycle/spawned` (registrar-substrate) / `:rf.machine/destroyed` · `:rf.machine.lifecycle/destroyed` | Render spawn/destroy lifecycle in the parent's chart. The spawn axes are symmetric, so the inspector keys "actor appeared" on either. The destroy channels are **disjoint** — `:rf.machine.lifecycle/destroyed` carries only frame-exit reaping (`:parent-frame-destroyed`), `:rf.machine/destroyed` every other teardown — so the inspector reads **both** for "actor disappeared" and uses the channel itself to attribute cause (per [009 §the channel/reason matrix](../../../spec/009-Instrumentation.md#op-type-vocabulary) and [§Two-axis machine observation](../../../spec/009-Instrumentation.md#two-axis-machine-observation--registrar-substrate-vs-fx-substrate)). |
 | `:rf.machine/done` | Mark `:final?`-state entry, before the auto-destroy. |
-| `:rf.machine/system-id-bound` / `-released` | Surface `:system-id` reverse-index activity in a sidebar. |
 | `:rf.machine.history/restored` / `:rf.machine.history/recorded` | Render the history restore / record banner + the per-`:entry`-step `:source` chip — see [§History restore rendering](#history-restore-rendering-rf2-mle6e5) below. |
 | Source-coord stamping | Every clickable element jumps to source. |
 
@@ -2276,7 +2275,7 @@ section, add a sub-row for each `:rf.machine/transition` showing the
 
 **Bug class:** "Why is this instance still alive? Who's referencing it?"
 A spawned actor should have been destroyed but wasn't. Could be:
-`:system-id` reference held it alive; parent didn't fully exit
+parent didn't fully exit
 (hierarchical sticking); manual `:rf.machine/destroy` was never
 dispatched; OR the destroy WAS dispatched but the snapshot's old state
 references it.

@@ -12,9 +12,9 @@ Read a machine's snapshot with the ordinary `subscribe`, naming its framework su
 Surfaces split two ways:
 
 - **`re-frame.core` facade exports** (reach as `rf/…`): the `reg-machine` / `defmachine` registration macros.
-- **Owned by `re-frame.machines`** (reach as `rf.machines/<name>`, not `rf/<name>` — `rf.machines` is the canonical alias for a framework subsystem namespace, per [Conventions §Require-alias dialect](../../spec/Conventions.md#require-alias-dialect--a-framework-subsystem-namespace-is-aliased-rf); the bare `machines` is reserved for an app's own namespaces): the plain-fn registration / engine / query helpers (`reg-machine*`, `make-machine-handler`, `machine-transition`, `machines`, `machine-by-system-id`) and the implementation-tier runtime helpers. This namespace is the `day8/re-frame2-machines` optional artefact.
+- **Owned by `re-frame.machines`** (reach as `rf.machines/<name>`, not `rf/<name>` — `rf.machines` is the canonical alias for a framework subsystem namespace, per [Conventions §Require-alias dialect](../../spec/Conventions.md#require-alias-dialect--a-framework-subsystem-namespace-is-aliased-rf); the bare `machines` is reserved for an app's own namespaces): the plain-fn registration / engine / query helpers (`reg-machine*`, `make-machine-handler`, `machine-transition`, `machines`) and the implementation-tier runtime helpers. This namespace is the `day8/re-frame2-machines` optional artefact.
 
-The canonical action-side cross-machine messaging surface is the reserved `[:rf.machine/dispatch-to-system [system-id event]]` fx tuple.
+Cross-machine messaging is plain `[:dispatch [<actor-id> <event>]]` — a machine IS an event handler, so its id is its address.
 
 For the full treatment — the underlying model, the recognition kit, and the rationale behind the capability subset — see the [machines concept guide](../machines/concepts.md).
 
@@ -198,25 +198,6 @@ The snapshot lives at `[:rf.runtime/machines :snapshots :session]` in the frame'
   The projection is `nil` unless that `:event` registration is a machine. See
   [API.md §Public registrar query API](../../spec/API.md#public-registrar-query-api).
 
-### `re-frame.machines/machine-by-system-id`
-
-- **Kind**: function (owned by `re-frame.machines` — not a `re-frame.core` facade export)
-- **Signature**:
-  ```clojure
-  (re-frame.machines/machine-by-system-id system-id)
-  (re-frame.machines/machine-by-system-id system-id {:frame target})
-  ```
-- **Description**: Reverse-lookup: given a `system-id`, returns the spawned-machine id bound to it, or `nil`.
-    - The single-arity resolves the frame from the ambient scope. Under no scope it raises `:rf.error/no-frame-context`.
-    - The opts form `(machine-by-system-id system-id {:frame target})` names a frame explicitly. The trailing `{:frame …}` opts map is the same public frame-targeting shape `subscribe` takes.
-    - The 2-arity is shape-discriminated on the second arg. An opts map is the public form; a bare frame target is the *internal* frame-last plumbing.
-- **Example**:
-  ```clojure
-  ;; Resolve a :system-id-bound actor, then address it directly.
-  (when-let [actor (rf.machines/machine-by-system-id :notifier)]
-    (rf/dispatch [actor [:notify "hello"]]))
-  ```
-
 ## Keyword surfaces
 
 The framework-registered subscription vectors and reserved effect tuples that address machines by keyword. These are unioned into every resolved image generation, since a `:select-ns` image cannot reach them by namespace. An image-loaded frame therefore resolves them the same way a default frame does.
@@ -258,8 +239,7 @@ The framework-registered subscription vectors and reserved effect tuples that ad
 - **Description**: Spawn a dynamic actor instance. Emitted from any event handler's `:fx` (including machine actions and the declarative `:spawn` desugar). `spawn-spec` carries exactly one of `:machine-id` (the registered machine type to instantiate) or `:definition` (an inline spec map), plus optional keys:
     - `:data` — overrides the type's initial `:data`.
     - `:id-prefix` — actor ids are the deterministic `<prefix>#<n>` from a per-type counter. The prefix defaults to `:machine-id`. Ids are never gensym'd.
-    - `:fixed-actor-id` — an explicit actor address; skips allocation.
-    - `:system-id` — binds the actor in the frame's `[:rf.runtime/machines :system-ids]` reverse index. A collision emits `:rf.error/system-id-collision` and rebinds last-write-wins.
+    - `:fixed-actor-id` — an explicit actor address; skips allocation. Use it when the spawner must hold the child's address: choose a fresh keyword, store it in ordinary `:data`, and pass it here.
     - `:start` — a single event vector dispatched to the new actor as `[<spawned-id> <start>]`. When absent, the runtime dispatches the synthetic `[<spawned-id> [:rf.machine.spawn/spawned]]`.
     - Declarative `:spawn` state nodes accept the same keys plus `:on-done` / `:on-error` / `:timeout` / `:on-timeout`. On the declarative path, the framework binds the child's allocated id into the parent's `:data` at `[:rf/spawned <invoke-id>]`.
     - Fails closed when `:machine-id` names an unregistered type and no `:definition` is supplied (`:rf.error/machine-spawn-unregistered-type`). Backed by [`spawn-fx`](#re-framemachinesspawn-fx).
@@ -268,16 +248,15 @@ The framework-registered subscription vectors and reserved effect tuples that ad
   (rf/reg-event :session/start-logger
     (fn [_ _]
       {:fx [[:rf.machine/spawn
-             {:machine-id :machines/log-shipper
-              :id-prefix  :logger          ;; actor id allocates as :logger#1, :logger#2, …
-              :data       {:buffer []}
-              :system-id  :logger          ;; name the actor by role
-              :start      [:logger/connect]}]]}))
+             {:machine-id     :machines/log-shipper
+              :fixed-actor-id :logger      ;; a well-known address the app holds
+              :data           {:buffer []}
+              :start          [:logger/connect]}]]}))
 
-  ;; Address the actor by role — no id threading needed.
+  ;; Address the actor by the id you chose.
   (rf/reg-event :session/flush-logs
     (fn [_ _]
-      {:fx [[:rf.machine/dispatch-to-system [:logger [:logger/flush]]]]}))
+      {:fx [[:dispatch [:logger [:logger/flush]]]]}))
   ```
 
 ### `[:rf.machine/destroy actor-id]`
@@ -288,14 +267,14 @@ The framework-registered subscription vectors and reserved effect tuples that ad
   [:rf.machine/destroy actor-id]
   ```
 - **Description**: Tear down an actor. Symmetric counterpart to `:rf.machine/spawn`; backed by [`destroy-machine-fx`](#re-framemachinesdestroy-machine-fx).
-    - Runs the actor's `:exit` cascade and cancels its armed `:after` timers. Dissociates `[:rf.runtime/machines :snapshots <actor-id>]` (in runtime-db) and releases its `:system-id` binding. Unregisters its event handler when one is registered.
+    - Runs the actor's `:exit` cascade and cancels its armed `:after` timers. Dissociates `[:rf.runtime/machines :snapshots <actor-id>]` (in runtime-db). Unregisters its event handler when one is registered.
     - A spawned actor has no per-instance registration — its liveness is its snapshot's presence.
     - Silent-idempotent: destroying an already-destroyed actor is a no-op.
 - **Example**:
   ```clojure
   (rf/reg-event :session/stop-logger
     (fn [_ _]
-      {:fx [[:rf.machine/destroy (rf.machines/machine-by-system-id :logger)]]}))
+      {:fx [[:rf.machine/destroy :logger]]}))
   ```
 
 **Final states and `:on-done`.** Completion is finality: a child reports back by entering a `:final?` leaf, whatever spawn form its parent used, and dispatches nothing to its parent. Leaf states marked `:final?` auto-destroy the machine on entry. The parent (if any) receives `:on-done` with the child's `:data` slot, and the completion event then flows into the parent's ordinary macrostep, so the parent can also **advance** on it (`:always`, or an explicit `:on {:rf.machine.spawn/done …}`). So a spawn-shaped sub-process completes, the parent receives the result through `:on-done`, and the framework destroys the child. No manual `:rf.machine/destroy` is needed.
@@ -308,23 +287,6 @@ The framework-registered subscription vectors and reserved effect tuples that ad
 | `:on-done` (spawn-spec key) | `(fn [{:keys [data result]}] new-data)` on the parent's `:spawn` map, or on a `:spawn-all` child spec. Fires when the spawned child enters a non-error `:final?` state — applied at the parent's handler boundary on its next macrostep, not inside the child's teardown cascade. `result` is the child's `:data` slot named by the final state's `:output-key` (or `nil`). |
 
 See [Final states](../machines/concepts.md#final-states) in [The table](../machines/concepts.md).
-
-### `[:rf.machine/dispatch-to-system [system-id event]]`
-
-- **Kind**: effect (reserved fx-id)
-- **Signature**:
-  ```clojure
-  [:rf.machine/dispatch-to-system [system-id event]]
-  ```
-- **Description**: The action-side way one machine addresses its spawned child actor by *role* (`:logger`, `:websocket`, `:retry-coordinator`) instead of by allocated id.
-    - Resolves `system-id` through the emitting frame's `[:rf.runtime/machines :system-ids]` reverse index (in runtime-db) and dispatches `event` to the bound actor. A no-op when the `system-id` is unbound.
-    - This is the canonical action-side surface. A machine action can't read app-db, so the fx form is how an action messages a named actor.
-    - Args ride as a single 2-element pair (the fx contract is a `[fx-id args]` pair).
-    - Backed by [`dispatch-to-system-fx`](#re-framemachinesdispatch-to-system-fx). Retained for XState v6 actor-system parity (systemId addressing); zero in-repo consumers as of 2026-07-10.
-- **Example**:
-  ```clojure
-  {:fx [[:rf.machine/dispatch-to-system [:logger [:logger/flush]]]]}
-  ```
 
 ### `[:rf.machine/update-snapshot patch]`
 
@@ -355,19 +317,9 @@ See [Final states](../machines/concepts.md#final-states) in [The table](../machi
 
 ## Cross-machine messaging
 
-When a child actor spawns declaratively under a parent, the framework binds the child's allocated id into the parent's `:data` at `[:rf/spawned <invoke-id>]`. Naming by `:system-id` lets the parent address the child by *role* without threading the id around. The action-side surface is the [`[:rf.machine/dispatch-to-system [system-id event]]`](#rfmachinedispatch-to-system-system-id-event) fx tuple (above) — a parked named-addressing escape retained for XState v6 actor-system parity, with zero in-repo consumers. The everyday cross-machine send is plain dispatch to the id you hold (a machine IS an event handler). The fx handler below backs that tuple.
+There is one send: `[:dispatch [<actor-id> <event>]]`. A machine IS an event handler, so the id you hold is the address you send to — there is no separate name registry.
 
-### `re-frame.machines/dispatch-to-system-fx`
-
-- **Kind**: function (owned by `re-frame.machines`, implementation tier — the fx handler for `:rf.machine/dispatch-to-system`)
-- **Signature**:
-  ```clojure
-  (re-frame.machines/dispatch-to-system-fx fx-ctx [system-id event])
-  ```
-- **Description**: The fx handler behind `:rf.machine/dispatch-to-system`.
-    - Resolves `system-id` through the emitting frame's `[:rf.runtime/machines :system-ids]` reverse index and dispatches `event` to the bound actor. A no-op when the `system-id` is unbound.
-    - The cascade-envelope frame is the fx-context `:frame`. A nil stamp is an invariant failure (`:rf.error/no-frame-context`), never a synthesised `:rf/default`.
-    - App code emits the `[:rf.machine/dispatch-to-system [system-id event]]` fx rather than calling this fn.
+When a child spawns declaratively under a parent, the framework binds the child's allocated id into the parent's `:data` at `[:rf/spawned <invoke-id>]`, so the parent reads the address off its own snapshot. A hand-emitted spawn has no declarative invoke-id, so the spawner picks a fresh keyword address, passes it as `:fixed-actor-id`, and stores it in ordinary `:data`.
 
 ## Machine-tooling exports (JVM)
 

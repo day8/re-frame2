@@ -193,7 +193,7 @@ The multi-frame public model is **`image -> frame -> event stream`**: an **image
 
 ## Deeper material
 
-Frame presets in detail, machine-instance teardown contract, the React-context chain through Reagent / UIx, `dispatch-to-system`: `SKILL-REDIRECT.md` → **EP — Frames (002)**, **EP — State machines (005)**.
+Frame presets in detail, machine-instance teardown contract, the React-context chain through Reagent / UIx: `SKILL-REDIRECT.md` → **EP — Frames (002)**, **EP — State machines (005)**.
 
 ---
 

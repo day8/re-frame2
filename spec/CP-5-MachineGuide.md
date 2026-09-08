@@ -93,7 +93,7 @@ The grammar this foundation interprets (per [005 §Capability matrix](005-StateM
 
 The snapshot location is fixed at `[:rf.runtime/machines :snapshots <id>]` in runtime-db — no `:path` key in the spec.
 
-Hierarchical compound states, eventless `:always`, delayed `:after`, declarative `:spawn`, state tags (`:fsm/tags`), parallel regions (`:fsm/parallel-regions`), spawn-and-join (`:actor/spawn-and-join`), and `:system-id` named-machine addressing are all claimed in the v1 capability list — see the matrix for the full set and per-capability fixture coverage.
+Hierarchical compound states, eventless `:always`, delayed `:after`, declarative `:spawn`, state tags (`:fsm/tags`), parallel regions (`:fsm/parallel-regions`), and spawn-and-join (`:actor/spawn-and-join`) are all claimed in the v1 capability list — see the matrix for the full set and per-capability fixture coverage.
 
 ## Substitutes for skipped features
 

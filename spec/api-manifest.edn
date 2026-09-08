@@ -213,10 +213,8 @@
   {:namespace "re-frame.machines", :var "after-cancel-fx", :tier :implementation, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "after-schedule-fx", :tier :implementation, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "destroy-machine-fx", :tier :implementation, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.machines", :var "dispatch-to-system-fx", :tier :advanced, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "install-machine-runtime!", :tier :implementation, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "machine-algebra-view", :tier :tooling, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.machines", :var "machine-by-system-id", :tier :advanced, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "machine-instance-algebra-view", :tier :tooling, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "machine-selector-targets", :tier :tooling, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "machine-selector?", :tier :tooling, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}

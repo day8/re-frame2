@@ -1269,7 +1269,7 @@ These surfaces are re-exported on the `re-frame.core` facade so a single import 
 
 ### Machines → [re-frame.machines.md](re-frame.machines.md)
 
-A state machine is registered with one call and *is* an event handler; the transition table is data. Keyword surfaces (`[:rf/machine machine-id]` sub, `[:rf.machine/spawn …]` / `[:rf.machine/destroy …]` / `[:rf.machine/dispatch-to-system …]` / `[:raise …]` fx) live in the machines doc.
+A state machine is registered with one call and *is* an event handler; the transition table is data. Keyword surfaces (`[:rf/machine machine-id]` sub, `[:rf.machine/spawn …]` / `[:rf.machine/destroy …]` / `[:raise …]` fx) live in the machines doc.
 
 #### `reg-machine`
 

@@ -90,7 +90,7 @@ The hydration payload is the canonical example: v1 ships with a small required s
    [:cat :keyword [:* :any]]])   ;; [<event-id> & args] — id-first, at least the id
 ```
 
-The wire shape of every dispatched event: a vector whose first element is the event-id keyword. The canonical best-practice payload shapes (`[<id>]` / `[<id> <scalar>]` / `[<id> {<k> <v>}]`) are a convention, not a schema constraint — variadic `[<id> a b c]` is accepted (per [Conventions §Canonical event-vector shape](Conventions.md#canonical-event-vector-shape-best-practice)). Referenced by `:rf/dispatch-envelope`'s `:event` slot, the `:fx` `[:dispatch …]` args, and `:rf.fx/dispatch-to-system-args`.
+The wire shape of every dispatched event: a vector whose first element is the event-id keyword. The canonical best-practice payload shapes (`[<id>]` / `[<id> <scalar>]` / `[<id> {<k> <v>}]`) are a convention, not a schema constraint — variadic `[<id> a b c]` is accepted (per [Conventions §Canonical event-vector shape](Conventions.md#canonical-event-vector-shape-best-practice)). Referenced by `:rf/dispatch-envelope`'s `:event` slot and the `:fx` `[:dispatch …]` args.
 
 ### `:rf/dispatch-envelope`
 
@@ -835,7 +835,7 @@ The `:op-type` vocabulary is **open** — implementations and tools may add new 
 | `:op-type` | Used for | Spec |
 |---|---|---|
 | `:rf.frame` | Frame-lifecycle family — `:rf.frame/created`, `:rf.frame/re-registered`, `:rf.frame/destroyed`, `:rf.frame/drain-interrupted`. Lifecycle events, not error-shaped. `:tags` carries `:frame <id>` (plus per-operation extras, e.g. `:dropped-count` on `:rf.frame/drain-interrupted`). Per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning) | 002 |
-| `:machine` | Machine-substrate family — state-machine activity (`:rf.machine/transition`, `:rf.machine.microstep/transition`, `:rf.machine/done`, `:rf.machine/event-received`, `:rf.machine/snapshot-updated`, `:rf.machine.spawn/spawned`, `:rf.machine/destroyed`, `:rf.machine/system-id-bound`, `:rf.machine/system-id-released`, every `:rf.machine.timer/*` operation, every `:rf.machine.spawn-all/*` operation, `:rf.machine.spawn/cancelled-on-join-resolution`). `:rf.machine/destroyed` carries `:reason` — one of `:rf.machine/finished` / `:explicit` — the complete non-frame-exit vocabulary (parent-cascade teardowns stamp `:explicit`; the frame-exit cause `:parent-frame-destroyed` rides exclusively on the `:rf.machine.lifecycle/destroyed` family below; per the [009 §channel/reason matrix](009-Instrumentation.md#op-type-vocabulary)). Per [005 §Trace events](005-StateMachines.md#trace-events) | 005 |
+| `:machine` | Machine-substrate family — state-machine activity (`:rf.machine/transition`, `:rf.machine.microstep/transition`, `:rf.machine/done`, `:rf.machine/event-received`, `:rf.machine/snapshot-updated`, `:rf.machine.spawn/spawned`, `:rf.machine/destroyed`, every `:rf.machine.timer/*` operation, every `:rf.machine.spawn-all/*` operation, `:rf.machine.spawn/cancelled-on-join-resolution`). `:rf.machine/destroyed` carries `:reason` — one of `:rf.machine/finished` / `:explicit` — the complete non-frame-exit vocabulary (parent-cascade teardowns stamp `:explicit`; the frame-exit cause `:parent-frame-destroyed` rides exclusively on the `:rf.machine.lifecycle/destroyed` family below; per the [009 §channel/reason matrix](009-Instrumentation.md#op-type-vocabulary)). Per [005 §Trace events](005-StateMachines.md#trace-events) | 005 |
 | `:rf.machine.lifecycle/created` | Machine instance lifecycle — `created` half. Uniform create-emit shape used by lifecycle observers; `:tags {:frame <id> :machine-id <id>}` | 005 / 009 |
 | `:rf.machine.lifecycle/destroyed` | Machine instance lifecycle — `destroyed` half. `:tags {:frame <id> :actor-id <live-instance-id> :last-state <state> :reason :parent-frame-destroyed}`. `:reason` is always `:parent-frame-destroyed` — the frame-exit cascade is this channel's sole trigger, one emit per active machine snapshot; every non-frame-exit teardown signals on the fx-substrate `:rf.machine/destroyed` row above instead (per the [009 §channel/reason matrix](009-Instrumentation.md#op-type-vocabulary)). `:actor-id` is the reaped actor's live INSTANCE address (`:machine-id` is reserved for the registered TYPE, carried by the `created` half above) | 005 / 009 |
 | `:rf.registry` | Registrar-mutation family — `:rf.registry/handler-registered`, `:rf.registry/handler-cleared`, `:rf.registry/handler-replaced` (handler hot-reload paths). Spans every kind in the registry model (`:event`, `:sub`, `:fx`, `:cofx`, `:view`, `:machine`, `:flow`, …) | 001 / 009 |
@@ -1603,15 +1603,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
    [:delay-source  {:optional true} :any]
    [:rf.sub/id     {:optional true} :any]   ;; present when :delay-source = :sub
    [:rf.sub/query-v {:optional true} [:vector :any]]]) ;; full subscription vector, same gate
-
-(def SystemIdCollisionTags
-  [:map
-   [:category         :keyword]
-   [:frame            :keyword]
-   [:system-id        :any]
-   [:existing-machine :keyword]
-   [:rebound-to       :keyword]
-   [:reason           :string]])
 
 ;; --- runtime: routing errors (per [012](012-Routing.md)) ---
 
@@ -2678,8 +2669,7 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
    [:start      {:optional true} [:vector :any]]                            ;; event vector dispatched to the newborn after spawn
    [:fixed-actor-id {:optional true} :keyword]                             ;; explicit actor-address input instead of gensym (per-state singleton actor)
    [:timeout    {:optional true} [:or pos-int? :string]]                    ;; EP-0029 A4 SPAWN-LEVEL deadline bounding the CHILD's whole lifetime — same duration grammar as the state-level `:timeout` (positive-integer literal-ms OR ISO-8601 duration STRING; the XState `"5s"` / `"10ms"` shorthand is REJECTED). REQUIRES a sibling `:on-timeout`. Desugars onto the spawn-bearing state's `:after`, anchored to that state's entry; child completion cancels it. This is the EP-0029 reintroduction of a spawn-level timeout — DISTINCT from the pre-EP `:timeout-ms` slot, which stays REMOVED (see the note below). Per [005 §`:timeout` / `:on-timeout`](005-StateMachines.md#timeout--on-timeout-state--spawn).
-   [:on-timeout {:optional true} [:or Transition [:vector Transition]]]      ;; EP-0029 A4 — the parent transition taken when the spawn-level `:timeout` deadline elapses; same `:on`-shaped grammar as `:on-error`. REQUIRES a sibling `:timeout`. Per [005 §`:timeout` / `:on-timeout`](005-StateMachines.md#timeout--on-timeout-state--spawn).
-   [:system-id  {:optional true} :keyword]])                                ;; per [005 §Named addressing via :system-id]; binds [:rf.runtime/machines :system-ids <sid>] in the spawning frame
+   [:on-timeout {:optional true} [:or Transition [:vector Transition]]]])    ;; EP-0029 A4 — the parent transition taken when the spawn-level `:timeout` deadline elapses; same `:on`-shaped grammar as `:on-error`. REQUIRES a sibling `:timeout`. Per [005 §`:timeout` / `:on-timeout`](005-StateMachines.md#timeout--on-timeout-state--spawn).
 ;; EP-0029 A4 reintroduces a spawn-level `:timeout` / `:on-timeout` (above) that
 ;; lowers onto the spawn-bearing state's `:after`, anchored to entry so it bounds
 ;; the child's whole lifetime. The pre-EP `:timeout-ms` slot is a DIFFERENT
@@ -2714,8 +2704,7 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
    [:id-prefix   {:optional true} :keyword]
    [:on-done     {:optional true} fn?]                                      ;; (fn [{:keys [data result]}] new-data) — folds the PARENT's :data at this child's finality, before the join fold
    [:start       {:optional true} [:vector :any]]
-   [:fixed-actor-id {:optional true} :keyword]                              ;; explicit actor-address input (per-child singleton)
-   [:system-id   {:optional true} :keyword]])                               ;; NOTE: no :on-error — failure control flow under a join is :on-any-failed
+   [:fixed-actor-id {:optional true} :keyword]])                            ;; explicit actor-address input (per-child singleton). NOTE: no :on-error — failure control flow under a join is :on-any-failed
 
 (def InvokeAllSpec
   [:map
@@ -2932,19 +2921,18 @@ A frame owns two durable partitions held as one physical frame-state container (
 
 ```clojure
 (def Machines
-  ;; The machine runtime's five sub-containers — :snapshots is the per-machine
-  ;; snapshot map, :system-ids is the system-id reverse index, :spawned is
+  ;; The machine runtime's four sub-containers — :snapshots is the per-machine
+  ;; snapshot map, :spawned is
   ;; the declarative-spawn/spawn-all registry, :spawn-counter is the
   ;; hand-emitted-spawn fallback counter (the parallel slot
   ;; the declarative path tracks inside the parent's snapshot), and
   ;; :spawn-order is the durable oldest→newest creation order over the
   ;; frame's LIVE spawned actors — the sole authority for reverse-creation
-  ;; disposal on frame destroy. All five are allocated lazily — absent until
+  ;; disposal on frame destroy. All four are allocated lazily — absent until
   ;; the first write — so a frame that uses no machines carries no machine
   ;; sub-keys at all.
   [:map
    [:snapshots     {:optional true} [:map-of :keyword :rf/machine-snapshot]]
-   [:system-ids    {:optional true} [:map-of :any :keyword]]                     ;; <system-id> → <gensym'd-machine-id>
    [:spawned       {:optional true} [:map-of :keyword                            ;; parent-machine-id
                                              [:map-of [:vector :keyword]         ;; invoke-id (absolute prefix-path)
                                                       [:or :keyword              ;; :spawn leaf — gensym'd spawned-id
@@ -3081,7 +3069,7 @@ A frame owns two durable partitions held as one physical frame-state container (
 
 **Four subsystems, four sub-containers** (paths are relative to runtime-db; in a frame-state projection they sit under `:rf.db/runtime`):
 
-- **`:rf.runtime/machines`** — owned by [005-StateMachines.md](005-StateMachines.md). Each machine's snapshot lives at `[:rf.runtime/machines :snapshots <machine-id>]`; the system-id reverse index lives at `[:rf.runtime/machines :system-ids]`; the declarative-spawn / spawn-all registry lives at `[:rf.runtime/machines :spawned]`; the hand-emitted-spawn fallback counter lives at `[:rf.runtime/machines :spawn-counter]` (declarative `:spawn`'s counter is snapshot-internal, not here); the durable oldest-to-newest creation order over the frame's live spawned actors lives at `[:rf.runtime/machines :spawn-order]` — the sole authority for reverse-creation disposal on frame destroy, since the per-id-prefix `#<n>` suffix cannot order actors of different machine types and is absent on a `:fixed-actor-id`. The runtime composes the `:snapshots` schema additively from registered machines' declared `:data` shapes.
+- **`:rf.runtime/machines`** — owned by [005-StateMachines.md](005-StateMachines.md). Each machine's snapshot lives at `[:rf.runtime/machines :snapshots <machine-id>]`; the declarative-spawn / spawn-all registry lives at `[:rf.runtime/machines :spawned]`; the hand-emitted-spawn fallback counter lives at `[:rf.runtime/machines :spawn-counter]` (declarative `:spawn`'s counter is snapshot-internal, not here); the durable oldest-to-newest creation order over the frame's live spawned actors lives at `[:rf.runtime/machines :spawn-order]` — the sole authority for reverse-creation disposal on frame destroy, since the per-id-prefix `#<n>` suffix cannot order actors of different machine types and is absent on a `:fixed-actor-id`. The runtime composes the `:snapshots` schema additively from registered machines' declared `:data` shapes.
 - **`:rf.runtime/routing`** — owned by [012-Routing.md](012-Routing.md). The live route slice (`{:route-id :params :query :transition :error :fragment :nav-token}`) lives at `[:rf.runtime/routing :current]`; the pending-navigation slot at `[:rf.runtime/routing :pending-navigation]`. The monotonic nav-token / pending-nav **counters** are **NOT** here — they are host-side transient caches held outside the frame value so an epoch restore cannot rewind + recycle a token ([012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression)). The route `:resources` blocking slot (`{<nav-token> {<key-id> <scoped-resource-key>}}`, the blocking route resources keeping the transition `:loading` per nav-token — keyed on the CEDN-1 byte `key-id` the resource cache is keyed on, so two `=`-equal but byte-distinct identities are two wait points, with **no** promised order) lives at `[:rf.runtime/routing :resource-blocking]` — a cross-feature sibling written by the [Resources artefact](016-Resources.md) (Spec 016 §Route integration) via the late-bound `:routing/on-route-entry` plan and pruned by that artefact's readiness projection as each requirement settles. Routing has **no** settle handler and consults **no** blocking predicate: per [012 §Route readiness is a resource projection](012-Routing.md#route-readiness-is-a-resource-projection) it seeds `:transition` / `:error` at commit and the Resources artefact reconciles them thereafter. The slot is absent in a routing-only app (the keys are only written when a route declares blocking `:resources`). Its sibling `[:rf.runtime/routing :resource-plan]` (`{<nav-token> {<key-id> <scoped-resource-key>}}`, the **full** set of scoped resource identities the plan for that nav-token owns — blocking and non-blocking alike, byte-keyed and unordered exactly as the blocking slot is) is written by the same plan and read on the *next* full activation to compute the kept/added/removed plan diff for attach-before-release owner handoff (EP-0037 R2, [016 §Effective parent-chain resource plans](016-Resources.md#effective-parent-chain-resource-plans)); a superseded nav-token's slot is cleared when its route owner is released, exactly like the blocking slot. The saved scroll-position LRU is **not** here — it is a host-side transient cache ([012 §Scroll restoration](012-Routing.md#scroll-restoration)).
 - **`:rf.runtime/elision`** — owned by [009-Instrumentation.md](009-Instrumentation.md). The size-elision declaration registry lives at `[:rf.runtime/elision :declarations]`; the privacy sibling at `[:rf.runtime/elision :sensitive-declarations]`. The declarations are sourced (EP-0025) from the **four commit-plane data-classification effects** (durable app-db, `:source :effect`), **subsystem projection-relative declarations** (`reg-machine` / `reg-resource` / `reg-mutation` / `reg-route`, lowered per instance), and **flow outputs** (`:source :flow`) — the sources union at egress lookup. They are **not** sourced from a frame `:sensitive {:app-db …}` annotation, an imperative `add-marks` / `set-marks` API, or app-db schema slot props (all removed by EP-0025: schemas describe shape, not durable app-db egress policy). The declaration *records* are runtime bookkeeping and live in runtime-db.
 - **`:rf.runtime/ssr`** — owned by [011-SSR.md](011-SSR.md). Server-supplied hydration metadata lives at `[:rf.runtime/ssr :hydration]` (`:server-hash` consumed by `verify-hydration!`, `:version` consumed by `:rf.ssr/check-version`).
@@ -4158,7 +4146,6 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
    [:id-prefix     {:optional true} :keyword]                               ;; defaults to :machine-id; base for the gensym'd actor id
    [:data          {:optional true} :map]                                   ;; initial data; overrides definition default
    [:start         {:optional true} [:vector :any]]                         ;; event vector dispatched to the new actor immediately after spawn
-   [:system-id     {:optional true} :keyword]                               ;; per [005 §Named addressing via :system-id]; binds [:rf.runtime/machines :system-ids <sid>] in the spawning frame
    ;; Runtime-stamped on declarative-:spawn spawns (per ; not user-supplied).
    ;; The pair addresses the runtime-owned spawn registry slot at
    ;; [:rf.runtime/machines :spawned <parent-id> <invoke-id>]; absent on imperative from-action
@@ -4261,7 +4248,6 @@ These are registered under spec ids:
 | `:rf.fx.nav/capture-scroll-args` | `:rf.nav/capture-scroll` |
 | `:rf.fx/spawn-args` | `:rf.machine/spawn` (the canonical actor-lifecycle fx-id; emitted from any event handler's `:fx` and from machine actions; per [005](005-StateMachines.md)) |
 | `:rf.fx/destroy-machine-args` | `:rf.machine/destroy` (the canonical actor-destroy fx-id; per [005](005-StateMachines.md) and — accepts either a bare actor-id keyword or a `{:rf/parent-id :rf/invoke-id}` map) |
-| `:rf.fx/dispatch-to-system-args` | `:rf.machine/dispatch-to-system` (the action→named-actor messaging fx-id; args are the 2-element pair `[<system-id> <event-vector>]` — a `[:tuple :keyword [:ref :rf/event]]` (per [§`:rf/event`](#rfevent-the-event-vector)); per [005 §Cross-machine messaging by name](005-StateMachines.md#cross-machine-messaging-by-name)) |
 | `:rf.fx.server/set-status-args` | `:rf.server/set-status` (per [011 §HTTP response contract](011-SSR.md#http-response-contract)) |
 | `:rf.fx.server/set-header-args` | `:rf.server/set-header` |
 | `:rf.fx.server/append-header-args` | `:rf.server/append-header` |

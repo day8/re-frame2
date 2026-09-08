@@ -208,7 +208,7 @@ The six-state machine above leaves three things implicit that a real migration h
 
 This is the end-to-end recipe.
 
-#### 1. A singleton — addressed by its registered id, NOT `:spawn` / `:system-id`
+#### 1. A singleton — addressed by its registered id, NOT `:spawn`
 
 The boot machine is a **top-level singleton**: there is exactly one of it per app, and you address it by the id you registered it under (`:app/boot`).
 
@@ -224,7 +224,7 @@ The boot machine is a **top-level singleton**: there is exactly one of it per ap
 (rf/dispatch [:app/boot [:auth.session/expired]]) ;; any later event
 ```
 
-This is **not** `spawn` and **not** `:system-id`. Those two surfaces (per [005 §Declarative `:spawn`](005-StateMachines.md#declarative-spawn) and [005 §Named addressing via `:system-id`](005-StateMachines.md#named-addressing-via-system-id)) exist for **dynamic / child actors** — instances created at runtime (one per row, one per request, one per worker), addressed by a runtime-allocated gensym id or a role-name bound in the per-frame `[:rf.runtime/machines :system-ids]` reverse index (in runtime-db). A boot machine is none of those: there is one, it is known at registration time, and its name is the address. Reach for `:spawn` / `:system-id` only when boot itself spawns child actors (e.g. a per-phase `:http/get`, as the `:configuring` state above does).
+This is **not** `spawn`. That surface (per [005 §Declarative `:spawn`](005-StateMachines.md#declarative-spawn)) exists for **dynamic / child actors** — instances created at runtime (one per row, one per request, one per worker), addressed by a runtime-allocated gensym id or by an explicit `:fixed-actor-id` the spawner chose. A boot machine is none of those: there is one, it is known at registration time, and its name is the address. Reach for `:spawn` only when boot itself spawns child actors (e.g. a per-phase `:http/get`, as the `:configuring` state above does).
 
 #### 2. The eager kick from `:initial-events` — using the correct marker
 

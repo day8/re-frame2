@@ -182,7 +182,7 @@ Present the categorisation and the proposed rewrite; confirm with the author; ap
 **Decision shape** (per hit site):
 
 1. **`:spawn` recording no id user-side, no test dependency**: no rewrite — the spec is now correct-by-default under the runtime-owned registry. Note it in the report.
-2. **Test asserts a stale snapshot / leak after exit**: the assertion is now wrong (the actor is correctly destroyed). The author decides whether the test should assert the new correct teardown or whether the spec genuinely wanted the actor to survive (rare — usually means a `:system-id` named machine, not a transient spawn).
+2. **Test asserts a stale snapshot / leak after exit**: the assertion is now wrong (the actor is correctly destroyed). The author decides whether the test should assert the new correct teardown or whether the spec genuinely wanted the actor to survive (rare — usually means a singleton machine, not a transient spawn).
 3. **`:exit` body reads `(:pending data)` to address the child**: still works (user `:data` is user territory) — leave as-is, but confirm the author still wants the id recorded in `:data` for their own bookkeeping rather than relying on the runtime slot.
 
 Present the categorisation per site; confirm with the author; only then apply. Full rationale: [`MIGRATION.md` §M-34](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-34-spawn-id-tracking-moved-from-data-pending-to-runtime-owned-rfruntimemachines-spawned-).
