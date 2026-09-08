@@ -216,7 +216,19 @@
 
 (defn- mount-page
   [view]
-  (fn [container _props _n] (rf.hicasso/mount! container {:frame frame-id} (page view))))
+  ;; The root door is `client-root` + `render!`, and the FRAME is spelled in
+  ;; the TREE. `-main` has already made `frame-id` with `rf/make-frame`, so
+  ;; every arm root SCOPEs it (`frame-provider`) rather than ENSUREing it —
+  ;; the k roots of one batch are k roots sharing the one frame. The handle
+  ;; is allocated here rather than answered by the door, because `render!`
+  ;; answers nil; `client-root` is an inert atom, so what sits inside the
+  ;; timed window is what `mount!` used to allocate inside it too.
+  (fn [container _props _n]
+    (let [handle (rf.hicasso/client-root)]
+      (rf.hicasso/render! handle
+                          [rf.hicasso/frame-provider {:frame frame-id} (page view)]
+                          container)
+      handle)))
 
 (defn- unmount-page [handle] (rf.hicasso/unmount! handle))
 

@@ -930,9 +930,12 @@
   "Mount the ledger into `container` on `frame-id`, and answer a promise
   of the mounted handle.
 
-  It goes through `rf.hicasso/mount!` — the application's own root door — with the
-  application's own view and the `initial-events` `ledger.app` publishes,
-  parameterised by the size the application itself defaults to. Nothing
+  It goes through `rf.hicasso/client-root` + `rf.hicasso/render!` — the
+  application's own root door — with the application's own view and the
+  `initial-events` `ledger.app` publishes, parameterised by the size the
+  application itself defaults to. The FRAME is spelled in the TREE, on
+  `rf.hicasso/frame-root`, which ENSUREs it: nothing made it beforehand,
+  so this head is what creates it and runs those `initial-events`. Nothing
   here reaches under `re-frame.hicasso.impl.*`, nothing rebuilds a view,
   and no scroll is simulated by dispatching an application event: every
   reading starts at a real `scroll` on a node the vendor rendered.
@@ -952,10 +955,13 @@
   DONE HERE. Both are process-wide and belong to whoever owns the
   process; [[-main]] owns the bench page and does both."
   [container frame-id]
-  (let [handle (rf.hicasso/mount! container
-                         {:frame          frame-id
-                          :initial-events (rf.hicasso.examples.ledger.app/initial-events total)}
-                         [rf.hicasso.examples.ledger.views/ledger {}])
+  (let [handle (rf.hicasso/client-root)
+        _      (rf.hicasso/render! handle
+                                   [rf.hicasso/frame-root
+                                    {:id             frame-id
+                                     :initial-events (rf.hicasso.examples.ledger.app/initial-events total)}
+                                    [rf.hicasso.examples.ledger.views/ledger {}]]
+                                   container)
         geom   {:row-height      rf.hicasso.examples.ledger.views/row-height
                 :viewport-height rf.hicasso.examples.ledger.views/viewport-height
                 :overscan        rf.hicasso.examples.ledger.views/overscan
