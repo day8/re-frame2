@@ -1146,6 +1146,122 @@
           "an EXPLICIT false still overlays the floor and wins — overriding
            is what the caller's own key is for"))))
 
+(defn- large-everywhere-record!
+  "ONE cascade that populates all THREE record surfaces the shared
+  `:rf.size/include-large?` axis governs:
+
+    - `:db-after [:blob :payload]`  — a frame-declared `:large` app-db path,
+      reached by the TREE-WALKER path (`project-payload-slot` →
+      `project-egress` → `elide-wire-value`);
+    - the `:sub-runs` row's `:value`, and
+    - its `:rf.sub/run` trace-tag twin's `:rf.sub/value` — both reached by the
+      WHOLE-OUTPUT path (`elide-whole-output-large-slots`), which reads the
+      axis off the epoch opts directly rather than through the walker.
+
+  One record carrying all three is what makes the matrix below a statement
+  about POLICY RESOLUTION rather than about any one seam: a profile floor that
+  reaches only some of them is exactly the defect."
+  []
+  (fresh-frame!)
+  (rf/reg-sub :egress/big {:large? true} (fn [_ _] (big-string payload-size)))
+  (rf/reg-event :egress/upload-and-read
+    (fn [{:keys [db]} [_ payload]]
+      (rf/subscribe-once [:egress/big] {:frame frame-id})
+      {:db (assoc-in db [:blob :payload] payload)}))
+  (rf/dispatch-sync [:egress/upload-and-read (big-string payload-size)]
+                    {:frame frame-id})
+  (last-record))
+
+(defn- large-surfaces
+  "The three whole-record slots the shared large axis governs, keyed by the
+  seam that projects each. Read as a SET of three answers that must agree."
+  [record]
+  {:db-after  (get-in record [:db-after :blob :payload])
+   :sub-run   (->> (:sub-runs record)
+                   (filter #(= :egress/big (:sub-id %)))
+                   first
+                   :value)
+   :trace-tag (->> (:trace-events record)
+                   (filter #(= :rf.sub/run (:operation %)))
+                   (filter #(= :egress/big (get-in % [:tags :rf.sub/id])))
+                   first
+                   :tags
+                   :rf.sub/value)})
+
+(defn- all-raw?
+  [surfaces]
+  (every? #(and (string? %) (= payload-size (count %))) (vals surfaces)))
+
+(defn- all-elided?
+  [surfaces]
+  (every? rf.elision/marker? (vals surfaces)))
+
+(deftest local-raw-large-axis-reaches-every-whole-output-slot
+  (testing "rf2-kuky.92 (merged-PR audit of #9522) — the RESOLVED profile, not
+            the caller's raw opts map, is what every epoch-side reader of a
+            SHARED `:rf.size/*` axis must see.
+
+            `project-egress` resolves the named profile into `elision-opts`,
+            but its `:rf/epoch-record` arm forwards the ORIGINAL opts, and the
+            whole-output helpers read `:rf.size/include-large?` off them by key
+            presence. So under `:rf.egress/local-raw` — the ONE profile whose
+            floor opts large back IN — the tree-walker path honoured the floor
+            while the two whole-output subscription slots did not, and the same
+            25,000-character value survived in `:db-after` and became a size
+            marker in the `:sub-runs` row and its `:rf.sub/run` trace twin.
+
+            The old and new doors produced EQUAL outputs in all six cases, so
+            door-vs-door comparison could not see this; only a matrix over the
+            three surfaces can. Asserted as a MATRIX rather than per slot: the
+            claim is that the three agree, which is what a policy resolved once
+            at the record boundary buys."
+    (let [raw        (large-everywhere-record!)
+          projected  (fn [opts] (large-surfaces (rf/project-egress raw opts)))
+          raw-slots  (large-surfaces raw)]
+      ;; ---- fixture control: all three surfaces are actually populated ------
+      (is (= 3 (count raw-slots)) "fixture: three surfaces under test")
+      (is (all-raw? raw-slots)
+          "fixture control — the RAW ring record carries the full payload in
+           ALL THREE slots, so a green matrix below cannot come from an absent
+           `:sub-runs` row or an absent trace twin")
+
+      ;; ---- the shared large axis, four ways -------------------------------
+      (is (all-raw? (projected {:rf.egress/profile :rf.egress/local-raw}))
+          "OMITTED OVERRIDE — `local-raw`'s own floor opts large back in for
+           ALL THREE surfaces with no explicit key from the caller. This is the
+           arm the #9522 audit measured failing on two of the three.")
+      (is (all-raw? (projected {:rf.egress/profile      :rf.egress/local-raw
+                                :rf.size/include-large? true}))
+          "EXPLICIT TRUE — agreeing with the floor changes nothing")
+      (is (all-elided? (projected {:rf.egress/profile      :rf.egress/local-raw
+                                   :rf.size/include-large? false}))
+          "EXPLICIT FALSE stays authoritative — an explicit key still overlays
+           the floor and WINS, on all three surfaces. This is the arm a fix
+           that merely forced the floor present-and-true would break.")
+      (is (all-elided? (projected {:rf.egress/profile :rf.egress/off-box-tool}))
+          "OFF-BOX CONTROL — a fail-closed profile still elides all three, so
+           the assertions above cannot pass by the elision having stopped
+           happening at all")
+      (is (all-raw? (projected {:rf.egress/profile      :rf.egress/off-box-tool
+                                :rf.size/include-large? true}))
+          "and an explicit TRUE lifts all three under a fail-closed profile —
+           the override wins in both directions")
+
+      ;; ---- the epoch-only axes stay INDEPENDENT ---------------------------
+      (is (= :rf/redacted
+             (get-in (rf/project-egress
+                       raw {:rf.egress/profile :rf.egress/local-raw})
+                     [:frame-state-after :rf.db/runtime]))
+          "GUARD — resolving the SHARED axes must not lift the epoch-only
+           ones: `:include-runtime-db?` is a different keyspace with its own
+           fail-closed default, and `local-raw` is a statement about app-db
+           sensitivity and token budget, not about the runtime partition")
+
+      ;; ---- the source record is untouched ---------------------------------
+      (is (all-raw? (large-surfaces raw))
+          "the RAW ring record is unchanged by any projection above — egress
+           projects a copy; the on-box ring keeps the exact value"))))
+
 ;; ---- guards G1 and G2 ------------------------------------------------------
 
 (deftest guard-g1-absent-projector-yields-no-payload-at-all

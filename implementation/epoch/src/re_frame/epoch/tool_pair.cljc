@@ -1406,13 +1406,15 @@
   slot-by-slot, so an offset applied to each slot walk would be wrong.
 
   Read as a SELECTION, never as a floor (rf2-kuky.92): `select-keys` keeps
-  only the keys the caller ACTUALLY supplied, so a key the caller omitted
-  stays omitted and the profile's own floor stands. The previous form
-  spelled two of them `(boolean …)`, which forced them PRESENT AND FALSE
-  on every call and so overrode the floor — invisible under the five
-  fail-closed profiles, whose floor is false anyway, but it silently
-  defeated `:rf.egress/local-raw`, the one profile whose floor opts
-  sensitive and large back IN."
+  only the keys PRESENT on the opts it is handed, and it is handed opts the
+  record boundary has already floor-resolved (`resolve-shared-size-axes`), so
+  the three shared axes arrive carrying the profile's own answer. Re-resolving
+  them downstream is therefore idempotent — `project-egress` merges the same
+  floor under the same values. The previous form spelled two of them
+  `(boolean …)`, which forced them PRESENT AND FALSE on every call and so
+  overrode the floor — invisible under the five fail-closed profiles, whose
+  floor is false anyway, but it silently defeated `:rf.egress/local-raw`, the
+  one profile whose floor opts sensitive and large back IN."
   [:rf.size/include-sensitive?
    :rf.size/include-large?
    :rf.size/include-digests?
@@ -1429,10 +1431,12 @@
 
   The resolved profile is the FLOOR and the caller's explicit `:rf.size/*`
   booleans OVERLAY it (the override wins — see
-  `re-frame.projection/resolve-elision-opts`). Only the keys the caller
-  supplied are overlaid (`walker-overlay-keys`). ONE spelling for the two
-  shared axes: these were read here in the bare form, so the `:rf.size/*`
-  spelling every other door takes was silently dropped (rf2-kuky.6).
+  `re-frame.projection/resolve-elision-opts`). That composition happens ONCE,
+  at the record boundary (`resolve-shared-size-axes`); what reaches here is
+  its answer, and re-resolving it downstream is idempotent. ONE spelling for
+  the two shared axes: these were read here in the bare form, so the
+  `:rf.size/*` spelling every other door takes was silently dropped
+  (rf2-kuky.6).
 
   The frame is threaded rather than re-read from the record, so an
   explicit `:frame` override resolved at the door reaches the walk
@@ -1448,6 +1452,59 @@
   (assoc (select-keys opts walker-overlay-keys)
          :rf.egress/profile (resolve-egress-profile (:rf.egress/profile opts))
          :frame             frame-id))
+
+(def ^:private shared-size-axis-keys
+  "The `:rf.size/*` booleans a NAMED PROFILE resolves — the axes this door
+  shares with every other egress door, as opposed to the three epoch-only
+  opt-ins (`:include-fx-args?` / `:include-runtime-db?` /
+  `:include-event-args?`), which no profile speaks to and which stay
+  fail-closed until their own key says otherwise.
+
+  Named here so `resolve-shared-size-axes` is true to its name by
+  construction: a key outside this set cannot be floor-filled by a profile
+  however the projection layer's table changes."
+  [:rf.size/include-sensitive?
+   :rf.size/include-large?
+   :rf.size/include-digests?])
+
+(defn- resolve-shared-size-axes
+  "Resolve the SHARED `:rf.size/*` axes ONCE, at the record boundary: the
+  named profile's opt-set is the FLOOR, and only the keys the caller ACTUALLY
+  supplied overlay it (an explicit `false` therefore stays authoritative).
+  Returns `opts` with those three keys present and answered; every other key —
+  `:rf.egress/profile` included, since `egress-opts` still needs it — rides
+  through untouched.
+
+  WHY IT IS NEEDED HERE RATHER THAN LEFT TO THE WALKER (rf2-kuky.92, the
+  merged-PR audit of #9522). `project-egress` resolves the profile into the
+  elision-opts it hands its OWN arms, but its `:rf/epoch-record` arm forwards
+  the caller's ORIGINAL opts — correctly, because the epoch-only axes must
+  survive the trip and the walker's map is closed against them. So an epoch
+  record's slots divide into two populations:
+
+    - the TREE-SHAPED slots re-enter `project-egress` through `egress-opts`
+      and get the floor applied on the way back in;
+    - the WHOLE-OUTPUT slots — the `:sub-runs` row and its `:rf.sub/run`
+      trace twin, plus the four off-box `omit-*` seams — never re-enter it.
+      They read their axis off this opts map BY KEY PRESENCE.
+
+  Reading a floor-resolved axis by key presence on an UNRESOLVED map answers
+  `nil`, which is indistinguishable from an explicit `false`. Under the five
+  fail-closed profiles that is the right answer by accident; under
+  `:rf.egress/local-raw` — the ONE profile whose floor opts sensitive and
+  large back IN — it silently defeated the floor, so the same 25,000-character
+  value survived in `:db-after` and became a size marker in the two
+  subscription slots. Resolving once, here, is what makes the two populations
+  answer the same question the same way.
+
+  Resolving EARLY is also why this is idempotent: the tree-walker path
+  re-resolves the same floor under the same profile, so the second resolution
+  is a no-op rather than a second, differing policy."
+  [opts]
+  (let [floor (select-keys (rf.projection/profile-size-opts
+                             (resolve-egress-profile (:rf.egress/profile opts)))
+                           shared-size-axis-keys)]
+    (merge opts floor (select-keys opts shared-size-axis-keys))))
 
 (defn- project-payload-slot
   "Project one payload slot through `project-egress` under the egress
@@ -2163,36 +2220,48 @@
   resolved. Record bookkeeping slots (`:kind`, `:epoch-id`, `:frame`,
   `:committed-at`, `:event-id`, `:outcome`, `:halt-reason`,
   `:schema-digest`, the two `:rf.epoch/*` rollups) and every absent slot
-  pass through untouched; the raw ring is never mutated."
+  pass through untouched; the raw ring is never mutated.
+
+  THE SHARED SIZE AXES ARE RESOLVED HERE, ONCE, before any slot is projected
+  (`resolve-shared-size-axes`, rf2-kuky.92). Every slot below therefore reads
+  the SAME answer to \"does the named profile opt sensitive / large back in?\",
+  whether it reaches that answer through the tree-walker (which re-resolves
+  the same floor, idempotently) or reads it off this map by key presence. The
+  three epoch-only axes are deliberately NOT touched: no profile speaks to
+  them, and `:rf.egress/local-raw` is a statement about app-db sensitivity and
+  token budget, not about effect args or the runtime-db partition."
   [record frame-id opts]
-  (cond-> record
-    ;; Whole-frame slots project app-db and redact runtime-db
-    ;; unless the corresponding trusted-local opts lift them.
-    (contains? record :frame-state-before)
-    (update :frame-state-before project-frame-state-slot frame-id opts)
+  ;; ONE resolution of the shared size axes for the whole record — see the
+  ;; docstring above and `resolve-shared-size-axes`.
+  (let [opts (resolve-shared-size-axes opts)]
+    (cond-> record
+      ;; Whole-frame slots project app-db and redact runtime-db
+      ;; unless the corresponding trusted-local opts lift them.
+      (contains? record :frame-state-before)
+      (update :frame-state-before project-frame-state-slot frame-id opts)
 
-    (contains? record :frame-state-after)
-    (update :frame-state-after project-frame-state-slot frame-id opts)
+      (contains? record :frame-state-after)
+      (update :frame-state-after project-frame-state-slot frame-id opts)
 
-    (contains? record :db-before)
-    (update :db-before project-payload-slot frame-id opts)
+      (contains? record :db-before)
+      (update :db-before project-payload-slot frame-id opts)
 
-    (contains? record :db-after)
-    (update :db-after project-payload-slot frame-id opts)
+      (contains? record :db-after)
+      (update :db-after project-payload-slot frame-id opts)
 
-    ;; Trigger args are not app-db-rooted and fail closed.
-    (contains? record :trigger-event)
-    (update :trigger-event elide-trigger-event-slot opts)
+      ;; Trigger args are not app-db-rooted and fail closed.
+      (contains? record :trigger-event)
+      (update :trigger-event elide-trigger-event-slot opts)
 
-    (contains? record :trace-events)
-    (update :trace-events elide-trace-events-slot frame-id opts)
+      (contains? record :trace-events)
+      (update :trace-events elide-trace-events-slot frame-id opts)
 
-    (contains? record :sub-runs)
-    (update :sub-runs elide-sub-runs-slot opts)
+      (contains? record :sub-runs)
+      (update :sub-runs elide-sub-runs-slot opts)
 
-    ;; Effect args are not app-db-rooted and fail closed.
-    (contains? record :effects)
-    (update :effects elide-effects-slot opts)))
+      ;; Effect args are not app-db-rooted and fail closed.
+      (contains? record :effects)
+      (update :effects elide-effects-slot opts))))
 
 (defn project-record
   "The PER-KIND projector `re-frame.projection/project-egress` dispatches a
