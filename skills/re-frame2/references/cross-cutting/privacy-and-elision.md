@@ -182,7 +182,7 @@ Real egress surfaces emit **records**, not bare values. The public, record-level
   {:rf.egress/profile :rf.egress/off-box-observability})
 ```
 
-Beneath it, **`re-frame.elision/elide-wire-value`** is the single low-level walker for *tree-shaped values* — it substitutes sentinels at the slots the frame's classification says to redact or elide. It is a **framework-internal mechanism, not a door**: there is no `rf/elide-wire-value` façade export (rf2-kuky.9 ruling A). Custom forwarders, loggers and direct-value egress all go through `rf/project-egress` with a named `:rf.egress/*` profile — never reimplement the walk, and never reach past the door for it.
+Beneath it, **`re-frame.elision/elide-wire-value`** is the single low-level walker for *tree-shaped values* — it substitutes sentinels at the slots the frame's classification says to redact or elide. It is a **framework-internal mechanism, not a door**: there is no `rf/elide-wire-value` façade export and no public-API manifest row (spec/API.md §Size-elision wire-boundary walker). Custom forwarders, loggers and direct-value egress all go through `rf/project-egress` with a named `:rf.egress/*` profile — never reimplement the walk, and never reach past the door for it.
 
 The walker's `opts` map is **closed** — `:frame` / `:path` / `:query-v` / `:as-of-epoch` plus the four `:rf.size/*` overrides. A `:rf.egress/profile` names a *boundary* and belongs to `project-egress`, which resolves it to those same `:rf.size/*` flags before delegating here; pass one to the walker (or an unqualified `include-*?`) and you get `:rf.error/bad-egress-opts` naming the key rather than a policy that quietly did not apply.
 
