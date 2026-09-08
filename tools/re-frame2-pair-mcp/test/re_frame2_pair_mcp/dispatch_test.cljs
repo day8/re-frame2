@@ -309,7 +309,7 @@
   ;;
   ;; Gate ON + `:include-sensitive true` does NOT bypass the epoch
   ;; projection. The settle form STILL wraps the runtime call in
-  ;; `projected-record`, threading `{:rf.size/include-sensitive? true}` as the
+  ;; `project-egress`, threading `{:rf.size/include-sensitive? true}` as the
   ;; egress opt (app-db sensitive axis ONLY). The inner runtime fn is still
   ;; `dispatch-and-settle!` (no mailbox wrapper — synchronous). The
   ;; default-gate projection is pinned by
@@ -333,7 +333,7 @@
                          ":settle routes to the synchronous dispatch-and-settle!")
                      (is (not (str/includes? form "__rf2pair_await__"))
                          "NO mailbox wrapper — dispatch-and-settle! is synchronous")
-                     (is (str/includes? form "projected-record")
+                     (is (str/includes? form "project-egress")
                          "include-sensitive STILL projects — never a raw bypass (rf2-m9duxl)")
                      (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
                          "rf2-nmjcll — the :epoch projects under the off-box-tool boundary even on the sensitive opt-in path")
@@ -357,7 +357,7 @@
 ;; trace-events) plus, for settle, `:render-events`. With the
 ;; `--allow-sensitive-reads` gate OFF (the published default) the emitted
 ;; form MUST route the result's epoch slots through
-;; `re-frame.core/projected-record` APP-SIDE before crossing the wire —
+;; `re-frame.core/project-egress` APP-SIDE before crossing the wire —
 ;; mirroring the pull-mode trace-window / watch-epochs egress. The default
 ;; sync / queued consequence shapes carry no raw app-db, so they stay
 ;; un-wrapped.
@@ -365,7 +365,7 @@
 
 (deftest settle-projects-epoch-by-default-when-gate-off
   ;; Gate OFF (default) ⇒ the settle form wraps the runtime call so the
-  ;; result's `:epoch` is projected via `projected-record` and
+  ;; result's `:epoch` is projected via `project-egress` and
   ;; `:render-events` is re-derived from the projected (elided) epoch's
   ;; trace-events. The runtime fn is still invoked (substring intact).
   (async done
@@ -379,7 +379,7 @@
                    (let [form @captured]
                      (is (str/includes? form "dispatch-and-settle!")
                          "the runtime settle fn is still the inner call")
-                     (is (str/includes? form "re-frame.core/projected-record")
+                     (is (str/includes? form "re-frame.core/project-egress")
                          "gate OFF ⇒ :epoch routes through the framework's off-box projection")
                      (is (str/includes? form ":render-events")
                          "the settle form re-derives :render-events from the projected epoch"))
@@ -399,14 +399,14 @@
                    (let [form @captured]
                      (is (str/includes? form "dispatch-and-collect")
                          "the runtime trace fn is still the inner call")
-                     (is (str/includes? form "re-frame.core/projected-record")
-                         "gate OFF ⇒ :epoch routes through projected-record before egress"))
+                     (is (str/includes? form "re-frame.core/project-egress")
+                         "gate OFF ⇒ :epoch routes through project-egress before egress"))
                    (done)))))))
 
 (deftest trace-include-sensitive-routes-through-projection-when-gate-on
   ;; Gate ON (--allow-sensitive-reads) AND explicit
   ;; `:include-sensitive true` does NOT bypass the epoch projection. The
-  ;; trace form STILL wraps the runtime call in `projected-record`,
+  ;; trace form STILL wraps the runtime call in `project-egress`,
   ;; threading `{:rf.size/include-sensitive? true}` (app-db sensitive axis ONLY).
   ;; fx-args / runtime-db / large slots stay fail-closed.
   (async done
@@ -420,7 +420,7 @@
           (.then (fn [_]
                    (let [form @captured]
                      (is (str/includes? form "dispatch-and-collect"))
-                     (is (str/includes? form "projected-record")
+                     (is (str/includes? form "project-egress")
                          "include-sensitive STILL projects — never a raw bypass (rf2-m9duxl)")
                      (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
                          "rf2-nmjcll — the :epoch projects under the off-box-tool boundary even on the sensitive opt-in path")
@@ -439,10 +439,10 @@
   ;; coercion. Over the JSON-MCP wire the value can arrive as the STRING
   ;; "false", which is TRUTHY in CLJS — a bare `boolean` would coerce a
   ;; caller's explicit decline to TRUE under --allow-sensitive-reads,
-  ;; threading `:rf.size/include-sensitive? true` into projected-record and
+  ;; threading `:rf.size/include-sensitive? true` into project-egress and
   ;; lifting the app-db sensitive axis the operator just declined. The
   ;; fix: "false" stays false ⇒ the projection runs (epoch still routes
-  ;; through projected-record) but WITHOUT the sensitive opt — sensitive
+  ;; through project-egress) but WITHOUT the sensitive opt — sensitive
   ;; app-db leaves stay :rf/redacted.
   (async done
     (let [captured (atom nil)]
@@ -456,8 +456,8 @@
           (.then (fn [_]
                    (let [form @captured]
                      (is (str/includes? form "dispatch-and-collect"))
-                     (is (str/includes? form "projected-record")
-                         "the epoch STILL routes through projected-record (never a raw bypass)")
+                     (is (str/includes? form "project-egress")
+                         "the epoch STILL routes through project-egress (never a raw bypass)")
                      (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
                          "the off-box-tool boundary is named")
                      (is (not (str/includes? form ":rf.size/include-sensitive? true"))
@@ -500,7 +500,7 @@
           (.then (fn [_]
                    (let [form @captured]
                      (is (str/includes? form "dispatch-consequence!"))
-                     (is (not (str/includes? form "projected-record"))
+                     (is (not (str/includes? form "project-egress"))
                          "sync consequence carries no raw app-db — no projection wrap"))
                    (done)))))))
 
@@ -1171,7 +1171,7 @@
 ;; (the RAW :epoch); the render-settle Promise wraps the runtime call, and
 ;; that wrap previously emitted the BARE runtime call — so the raw epoch
 ;; shipped off-box un-projected (the leak). The fix routes the await-render
-;; result through `projected-record` (egress/project-dispatch-result-src)
+;; result through `project-egress` (egress/project-dispatch-result-src)
 ;; INSIDE the settle form, the same redaction the non-await path applies.
 ;; ---------------------------------------------------------------------------
 
@@ -1200,8 +1200,8 @@
                      (is (string? form))
                      (is (str/includes? form "dispatch-and-collect")
                          "await-render :trace still routes to the raw-epoch dispatch-and-collect")
-                     (is (str/includes? form "re-frame.core/projected-record")
-                         "gate OFF ⇒ the await-render :epoch routes through projected-record (rf2-6klf02)")
+                     (is (str/includes? form "re-frame.core/project-egress")
+                         "gate OFF ⇒ the await-render :epoch routes through project-egress (rf2-6klf02)")
                      (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
                          "the await-render epoch projects under the off-box-tool boundary")
                      (is (str/includes? form "re-frame.interop/after-render")
@@ -1214,7 +1214,7 @@
 (deftest await-render-trace-include-sensitive-routes-through-projection
   ;; Gate ON + :include-sensitive true on the await-render :trace path does
   ;; NOT bypass the projection — it threads `{:rf.size/include-sensitive? true}`
-  ;; INTO projected-record (app-db sensitive axis only), exactly like the
+  ;; INTO project-egress (app-db sensitive axis only), exactly like the
   ;; non-await path. fx-args / runtime-db stay fail-closed.
   (async done
     (let [wrap-form*  (atom nil)
@@ -1232,7 +1232,7 @@
                                            :include-sensitive true})))
           (.then (fn [_]
                    (let [form @wrap-form*]
-                     (is (str/includes? form "projected-record")
+                     (is (str/includes? form "project-egress")
                          "include-sensitive STILL projects — never a raw bypass on the await path")
                      (is (str/includes? form ":rf.size/include-sensitive? true")
                          "the app-db sensitive axis is threaded INTO the projection")
@@ -1246,7 +1246,7 @@
 (deftest await-render-plain-does-not-project
   ;; The control: a plain :await-render (no :trace) routes to
   ;; dispatch-consequence!, which carries no raw app-db — so its wrap form
-  ;; must NOT wrap the call in projected-record (the projection is for the
+  ;; must NOT wrap the call in project-egress (the projection is for the
   ;; epoch-bearing :trace path only).
   (async done
     (let [wrap-form*  (atom nil)
@@ -1263,7 +1263,7 @@
                    (let [form @wrap-form*]
                      (is (str/includes? form "dispatch-consequence!")
                          "plain await-render forces the sync consequence surface")
-                     (is (not (str/includes? form "projected-record"))
+                     (is (not (str/includes? form "project-egress"))
                          "the consequence carries no raw app-db — no projection wrap"))
                    (done)))))))
 

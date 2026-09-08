@@ -15,7 +15,7 @@
   (`re-frame.resources.scope-registry/project-scope-resolved-egress`), published
   as the late-bound `:resources/project-scope-resolved-egress` hook the epoch
   tool-pair consults from `omit-off-box-resource-scope-values`. This test proves
-  the WIRING fires end-to-end: with resources loaded, `projected-record` redacts
+  the WIRING fires end-to-end: with resources loaded, `project-egress` redacts
   the resolver values for the off-box default, and the trusted-local
   `:rf.size/include-sensitive?` opt-in lifts the redaction (the `local-raw` boundary).
 
@@ -72,7 +72,8 @@
                :resolved-nil? false}})
 
 (defn- record-with [trace-events]
-  {:epoch-id            1
+  {:kind                :rf/epoch-record
+   :epoch-id            1
    :frame               :test/rs
    :committed-at        0
    :event-id            :login
@@ -86,14 +87,14 @@
    :effects             []})
 
 (deftest off-box-projection-redacts-sensitive-resolver-values
-  (testing "rf2-84l82t — projected-record redacts a db-reading (:inherit)
+  (testing "rf2-84l82t — project-egress redacts a db-reading (:inherit)
             resolver's :input-values + :scope for the off-box default; the
             structural attribution slots survive and no raw secret egresses"
     (let [record    (record-with
                        [(scope-resolved-event :rs/session
                                               {:username secret}
                                               [:rf.scope/session {:username secret}])])
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           row       (first (:trace-events projected))]
       (is (= :rf/redacted (get-in row [:tags :input-values]))
           "the raw db reads are redacted off-box")
@@ -115,7 +116,7 @@
                        [(scope-resolved-event :rs/public-locale
                                               {:locale "en"}
                                               [:rf.scope/locale {:locale "en"}])])
-          projected (rf.epoch/projected-record record)
+          projected (rf/project-egress record)
           row       (first (:trace-events projected))]
       (is (= :rf/redacted (get-in row [:tags :input-values]))
           "the resolved input-values are redacted (no declassify hatch)")

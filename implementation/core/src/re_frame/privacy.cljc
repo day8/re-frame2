@@ -252,7 +252,7 @@
       an internal redaction interceptor for the classified overlapping paths;
       this user-installed interceptor extends (does not replace) the stashed
       `:rf/redacted-event` with its own paths.
-    - With epoch off-box projection (`rf/projected-record`) — independent.
+    - With epoch off-box projection (`rf/project-egress`) — independent.
       That projection runs at the egress boundary over the assembled
       record; this interceptor runs per handler invocation on the trace
       surface inside the cascade, so the record carries already-scrubbed

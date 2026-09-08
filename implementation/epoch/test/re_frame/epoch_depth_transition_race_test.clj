@@ -156,7 +156,7 @@
 
       (is (= [] (rf/epoch-history :test/main))
           "the parked append did not escape the transition")
-      (is (= [] (mapv rf/projected-record (rf/epoch-history :test/main)))
+      (is (= [] (mapv rf/project-egress (rf/epoch-history :test/main)))
           "and it is not reachable through the off-box projection either")
       (is (nil? (rf.epoch.state/last-settled-epoch-id :test/main))
           "no back-fill anchor survives naming a record the ring does not hold")

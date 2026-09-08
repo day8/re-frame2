@@ -257,12 +257,12 @@ Now send the production records off-box — to Datadog, Sentry, wherever you wat
    :initial-events [[:auth/init]]})         ;; classifies [:auth :token]
 
 (rf/register-observability-sink! :my-app.sinks/datadog
-  (fn [projected-record]
+  (fn [record]
     ;; Already projected. No sink-local redaction.
-    (datadog/send projected-record {:service "checkout-spa" :env "prod"})))
+    (datadog/send record {:service "checkout-spa" :env "prod"})))
 
 (rf/register-observability-sink! :my-app.sinks/sentry
-  (fn [projected-record] (sentry/capture projected-record)))
+  (fn [record] (sentry/capture record)))
 ```
 
 The shape to internalise: **you declare; the framework projects; the sink consumes already-safe records.** The sink never scrubs anything itself — by the time a record reaches it, every classified slot is already a sentinel. If you ever catch yourself writing a scrub inside a sink function, a declaration is missing *upstream*; fix the owner, not the sink.

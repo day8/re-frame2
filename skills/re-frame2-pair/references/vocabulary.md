@@ -87,7 +87,8 @@ across the day8 MCP family). With it OFF, every **structured read tool**
 `dispatch-dry-run`, and the signal recorders `record` / `read-recording` / `watch-until`
 — applies wire-boundary elision server-side: declared-sensitive slots → `:rf/redacted`,
 declared-large → `:rf.size/large-elided`. The epoch-egressing tools additionally route
-each record through `projected-record` / `project-egress`, so a sensitive slot inside
+each record through `project-egress` — the one record-level egress door, which
+recognises an epoch record by its stamped `:kind` — so a sensitive slot inside
 `:db-before` / `:db-after` redacts and a whole epoch the runtime stamped `:rf.epoch/sensitive?`
 drops entirely. Net: structured reads are safe to fire by default.
 

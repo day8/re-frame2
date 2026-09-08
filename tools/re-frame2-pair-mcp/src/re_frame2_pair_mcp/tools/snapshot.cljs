@@ -98,11 +98,17 @@
         egress-opts-form  (elision/egress-opts-edn (not elision?) incl?)
         ;; The `:epochs` slice ships whole `:rf/epoch-record`s
         ;; (each carrying `:db-before` / `:db-after` app-db snapshots),
-        ;; NOT bare app-db slices, so it MUST route through
-        ;; `re-frame.core/projected-record` — the framework's single
-        ;; normative off-box-egress emission site for epoch records — NOT
-        ;; the per-slot `project-egress` door that handles `:app-db` /
-        ;; `:sub-cache`. Without the projection the client-side sensitive
+        ;; NOT bare app-db slices, so it MUST cross
+        ;; `re-frame.core/project-egress` — the framework's single
+        ;; normative record-level egress door — as a WHOLE RECORD, on the
+        ;; strength of its stamped `:kind :rf/epoch-record`, which routes
+        ;; it to the epoch projector that knows all four payload slots.
+        ;; That is the same door the `:app-db` / `:sub-cache` slices use,
+        ;; but a DIFFERENT arm of it: those cross as bare tree-shaped
+        ;; VALUES with an explicit `:path`. Handing an epoch record to the
+        ;; bare-value arm would be the leak, which is why
+        ;; `epoch_egress/project-page-src` guards the `:kind` stamp before
+        ;; it calls the door. Without the projection the client-side sensitive
         ;; scrub only DROPS whole epochs stamped `:rf.epoch/sensitive? true`;
         ;; it never redacts a schema-declared-sensitive SLOT (e.g.
         ;; `[:auth :token]`) sitting inside a NON-sensitive epoch's
@@ -111,7 +117,7 @@
         ;; whenever the slice expanded to `:full`. The `:epochs` slice
         ;; ALWAYS projects — same posture trace-window / watch-epochs use.
         ;; `incl?` (the sensitive opt-in) does NOT bypass the projection:
-        ;; it threads `{:rf.size/include-sensitive? true}` INTO `projected-record`
+        ;; it threads `{:rf.size/include-sensitive? true}` INTO `project-egress`
         ;; (app-db sensitive axis only), so the orthogonal fx-args /
         ;; runtime-db / large axes stay fail-closed. An epoch record
         ;; never crosses the wire as a raw
@@ -138,8 +144,9 @@
         ;; Source fragment that applies the active per-slot transforms to
         ;; one frame's slice map `fmap`. The slice arm routes `:app-db` /
         ;; `:sub-cache` through `re-frame.core/project-egress` under the
-        ;; NAMED profile; `project-epochs?` maps the `:epochs` vector
-        ;; through `projected-record`; `redact-runtime-db?` substitutes
+        ;; NAMED profile as bare values; `project-epochs?` maps the
+        ;; `:epochs` vector through the SAME door as whole stamped
+        ;; records; `redact-runtime-db?` substitutes
         ;; the `:machines` runtime-db slice with the `:rf/redacted`
         ;; sentinel. Emitted as a threaded `let` so a frame can carry all
         ;; transforms. A gate-ON `:elision false` read stays on

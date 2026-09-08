@@ -11,7 +11,7 @@
        teaching sites nevertheless passed one to the walker, where it was
        silently dropped: the call READ as though it had named the off-box
        boundary while the walk ran under the default policy.
-    2. The epoch `projected-record` boundary read the two shared inclusion
+    2. The epoch `project-egress` boundary read the two shared inclusion
        axes ONLY in their unqualified spelling, so a caller passing
        `:rf.size/include-sensitive? true` — the spelling the walker,
        `project-egress`, `:rf/project-egress-opts` and Conventions
@@ -199,13 +199,27 @@
                     :rf.egress/profile :rf.egress/off-box-tool}))))))
 
 (deftest walker-and-projection-sets-agree
-  (testing "rf2-kuky.6 — `project-egress`'s set is DERIVED from the walker's
-            (plus `:rf.egress/profile`), so the two doors cannot drift into
-            disagreeing about the vocabulary."
-    (is (= (conj rf.elision/walker-opt-keys :rf.egress/profile)
-           rf.projection/project-egress-opt-keys))
+  (testing "rf2-kuky.6 — `project-egress`'s set is DERIVED from the walker's,
+            so the two cannot drift into disagreeing about the vocabulary
+            they SHARE. It adds exactly two things and nothing else: the one
+            key this layer owns (`:rf.egress/profile`) and, since rf2-bv1p
+            retired the standalone `projected-record` door, the three
+            epoch-only axes that door used to own."
+    (is (= (into (conj rf.elision/walker-opt-keys :rf.egress/profile)
+                 rf.projection/epoch-only-opt-keys)
+           rf.projection/project-egress-opt-keys)
+        "the derivation is exact — a fourth addition would fail here rather
+         than widen the door quietly")
+    (is (= #{:include-fx-args? :include-runtime-db? :include-event-args?}
+           rf.projection/epoch-only-opt-keys)
+        "and the three are named, so this test moves when rf2-kuky.93
+         renames them rather than passing whatever it finds")
     (is (not (contains? rf.elision/walker-opt-keys :rf.egress/profile))
-        "and the walker's own set excludes it")))
+        "the walker's own set excludes the profile")
+    (is (empty? (filter rf.elision/walker-opt-keys
+                        rf.projection/epoch-only-opt-keys))
+        "and it excludes all three epoch-only axes — they are STRIPPED at
+         the door and must never reach the walker's closed map")))
 
 (deftest all-six-profiles-still-resolve
   (testing "rf2-kuky.6 — the closed opts map must not have narrowed the

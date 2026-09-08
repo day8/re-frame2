@@ -353,12 +353,13 @@ When the v1 observer assembled a per-cascade summary (an audit-log entry per dra
   (fn epoch-shipper [epoch-record]
     (when-not (:rf.epoch/sensitive? epoch-record)                  ;; honour epoch-level rollup
       ;; Project at the egress boundary FIRST — the listener holds the RAW record.
-      ;; projected-record is the single off-box projection (frame/profile redaction,
-      ;; raw :db-before / :db-after stripped). It elides
+      ;; project-egress is the single off-box projection door (frame/profile
+      ;; redaction, raw :db-before / :db-after stripped); it recognises an epoch
+      ;; record by its stamped :kind. It elides
       ;; DECLARED sensitive/large paths but does NOT bound an undeclared oversize slot,
       ;; so cap-or-elide's :budget-bytes backstop below is what actually bounds the
       ;; already-projected payload against the destination budget.
-      (let [projected               (rf/projected-record epoch-record)
+      (let [projected               (rf/project-egress epoch-record)
             [bounded dropped over?] (cap-or-elide projected
                                                   {:budget-bytes 65536
                                                    :frame        (:frame epoch-record)})]
@@ -384,8 +385,8 @@ When the v1 observer assembled a per-cascade summary (an audit-log entry per dra
 Two epoch-specific notes:
 
 - **`(:rf.epoch/sensitive? epoch-record)`** is the framework-computed rollup over the schema-declared sensitive leaves of `:db-before` / `:db-after` / `:trigger-event` / `:trace-events` (per [Security.md §Sensitive rollup at the record level](../../spec/Security.md#epoch-privacy-posture--raw-in-process-records-vs-projected-egress)). The shipper MUST default-drop sensitive epochs; the rollup is exactly the signal to gate on.
-- **Every off-box epoch forwarder MUST project at the egress boundary.** The listener receives the **raw** record, so a forwarder that ships `epoch-record` straight off-box leaks whatever the raw record holds. Route it through `(rf/projected-record record)` first (or `(mapv rf/projected-record (rf/epoch-history frame-id))` for the whole ring) — the single off-box egress projection: it applies the frame/profile classification and strips the raw `:db-before` / `:db-after`. Do **not** assume the record was scrubbed at storage; it was not.
-- **A further scrub is composition at the forwarder, not a config hook.** There is no `:redact-fn` configure key (retired 2026-09-08, rf2-kuky.7). Where the payload carries sensitive material the schema-driven projection can't reach, write `(-> record rf/projected-record my-scrub)` at the sink; where the schema already classifies those slots, `projected-record` alone suffices. Nothing you compose there can mutate stored records: the in-process ring buffer and every `register-epoch-listener!` listener still deliver the **raw** record (epoch records are causal replay material — mutating them at rest would corrupt `restore-epoch!` fidelity).
+- **Every off-box epoch forwarder MUST project at the egress boundary.** The listener receives the **raw** record, so a forwarder that ships `epoch-record` straight off-box leaks whatever the raw record holds. Route it through `(rf/project-egress record)` first (or `(mapv rf/project-egress (rf/epoch-history frame-id))` for the whole ring) — the single off-box egress projection door, which recognises an epoch record by its stamped `:kind`: it applies the frame/profile classification and strips the raw `:db-before` / `:db-after`. Do **not** assume the record was scrubbed at storage; it was not.
+- **A further scrub is composition at the forwarder, not a config hook.** There is no `:redact-fn` configure key (retired 2026-09-08, rf2-kuky.7). Where the payload carries sensitive material the schema-driven projection can't reach, write `(-> record rf/project-egress my-scrub)` at the sink; where the schema already classifies those slots, `project-egress` alone suffices. Nothing you compose there can mutate stored records: the in-process ring buffer and every `register-epoch-listener!` listener still deliver the **raw** record (epoch records are causal replay material — mutating them at rest would corrupt `restore-epoch!` fidelity).
 
 ### Shape C — per-frame `:interceptors` for behaviour-modifying interceptors
 

@@ -255,7 +255,7 @@
       (is (= 1 (:n (app-db-of :rf/default)))
           "WITNESS: the dispatch ran — nothing reached the ring for the
            projection to read")
-      (is (= [] (mapv rf.epoch/projected-record
+      (is (= [] (mapv rf/project-egress
                       (rf.epoch/epoch-history :rf/default)))
           "empty whole-ring projection under the disabled gate"))))
 
@@ -276,15 +276,16 @@
       (is (empty? (rf.epoch/epoch-history :rf/default))
           "no record assembled — rollup never reached"))))
 
-(deftest projected-record-pure-transform-survives-disabled-gate
-  (testing "Per rf2-vq5o0: projected-record is a pure data transform
+(deftest project-egress-pure-transform-survives-disabled-gate
+  (testing "Per rf2-vq5o0: project-egress is a pure data transform
             — it does NOT consult interop/debug-enabled?. A consumer
             that already holds a record (replayed in a JVM test
             fixture, or surfaced from a recorded session) can still
             project it. The gate elides record ASSEMBLY, not record
             PROJECTION."
     (let [synthetic-record
-          {:epoch-id      42
+          {:kind          :rf/epoch-record
+           :epoch-id      42
            :frame         :test/main
            :committed-at  0
            :event-id      :synthetic
@@ -298,7 +299,7 @@
            :renders       []
            :effects       []}]
       (with-redefs [rf.interop/debug-enabled? false]
-        (let [projected (rf.epoch/projected-record synthetic-record)]
+        (let [projected (rf/project-egress synthetic-record)]
           (is (some? projected)
               "projection runs even under the disabled gate")
           (is (= 42 (:epoch-id projected))

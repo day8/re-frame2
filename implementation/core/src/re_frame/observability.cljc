@@ -60,7 +60,7 @@
     3. Delivers the PROJECTED record to the resolved sink fn.
 
   The sink sees a record that has ALREADY had sensitive paths redacted and
-  large paths elided. A sink author writes `(fn [projected-record] ...)` —
+  large paths elided. A sink author writes `(fn [record] ...)` —
   no sink-local redaction (EP-0015 §9).
 
   ## Fail closed on an unresolved frame (EP-0002 / Spec 015 §Direct reads)
@@ -119,7 +119,7 @@
 
   The framework does not ship Datadog / Sentry clients (EP-0015 Non-Goals);
   registering the concrete sink fn is an app / integration-library concern.
-  A sink author writes `(fn [projected-record] (datadog/send projected-record))`
+  A sink author writes `(fn [record] (datadog/send record))`
   — NO sink-local redaction (the record is already projected, EP-0015 §9)."
   [sink-id f]
   (swap! sinks assoc sink-id f)

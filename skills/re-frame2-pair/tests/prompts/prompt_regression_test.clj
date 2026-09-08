@@ -248,7 +248,8 @@
 ;;     NOT to raw `eval-cljs` (which is default-ON and returns its value
 ;;     un-walked, regardless of --allow-sensitive-reads).
 ;;   - Epoch egress (trace-window / watch-epochs) is REDACTED/ELIDED by
-;;     default via projected-record /
+;;     default via project-egress (the ONE record-level egress door since
+;;     rf2-bv1p retired the standalone `projected-record` spelling) /
 ;;     elide-wire-value — not shipped raw.
 ;; These assertions fail if the docs drift to the over-broad "sensitive
 ;; data does not cross the LLM boundary by default" claim or the "epoch
@@ -280,10 +281,12 @@
 
 (deftest vocabulary-epoch-egress-matches-impl
   (testing "vocabulary.md reflects projected/elided epoch egress (rf2-6wvh5 / rf2-vr2hn)"
-    (is (str/includes? @vocabulary-md "projected-record")
-        (str "vocabulary.md no longer mentions projected-record — the epoch "
+    (is (str/includes? @vocabulary-md "project-egress")
+        (str "vocabulary.md no longer mentions project-egress — the epoch "
              "egress description may be stale (pre-rf2-6wvh5 'not dropped' "
-             "claim)."))
+             "claim). The needle was `projected-record` until rf2-bv1p "
+             "retired that standalone door in favour of the one "
+             "`project-egress` boundary."))
     (is (str/includes? @vocabulary-md ":rf.epoch/sensitive?")
         "vocabulary.md must name the :rf.epoch/sensitive? epoch rollup stamp.")
     (is (str/includes? @vocabulary-md "raw-eval carve-out")

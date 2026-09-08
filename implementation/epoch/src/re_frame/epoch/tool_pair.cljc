@@ -1,7 +1,7 @@
 (ns re-frame.epoch.tool-pair
   "Tool boundary surfaces: preconditions, restore, state injection, and
   off-box projection helpers behind `restore-epoch!`, `replace-frame-state!`
-  and `projected-record`.
+  and the `:rf/epoch-record` arm of `rf/project-egress`.
 
   Responsibilities:
 
@@ -21,10 +21,13 @@
       container replace + `:rf.epoch/restored` emit once preconditions
       have passed.
 
-    * **Projected egress** — `projected-record` routes every
+    * **Projected egress** — `project-record` routes every
       payload-bearing slot through the privacy projection for off-box
-      egress (Xray-MCP `watch-epochs`, story / pair recorders). A caller
-      that egresses the whole ring maps it over `epoch-history`. That is:
+      egress (Xray-MCP `watch-epochs`, story / pair recorders). It is the
+      per-kind projector `rf/project-egress` dispatches a stamped
+      `:kind :rf/epoch-record` to, never a door of its own. A caller
+      that egresses the whole ring maps the DOOR over `epoch-history`.
+      That is:
       the canonical `:frame-state-before` /
       `:frame-state-after` slots (app-db partition elided, runtime-db
        partition default-redacted), the derived
@@ -34,7 +37,7 @@
       `:effects` rows' payload-bearing `:args` (fail-closed to `:rf/redacted`
        off-box). The value-free `:renders` metadata, the
       `:effects` rows' `:fx-id` / `:outcome` / `:error-trace`, and the
-      record-level bookkeeping pass through unchanged. `projected-record`'s
+      record-level bookkeeping pass through unchanged. `project-record`'s
       own docstring is the authoritative per-slot contract.
 
   The orchestrators live in the `re-frame.epoch` facade and wire
@@ -1357,46 +1360,21 @@
 ;; ---- projected egress -----------------------------------------------------
 ;;
 ;; Raw records are replay material and remain in-process. Every off-box consumer
-;; uses `projected-record`: app-db-rooted trees go through the named egress
-;; profile, runtime-db and unclassifiable transient payloads fail closed, and the
-;; optional advanced override runs last on the projected copy. The facade
-;; docstring is the public per-slot contract.
+;; reaches this engine through `rf/project-egress`: app-db-rooted trees go
+;; through the named egress profile, runtime-db and unclassifiable transient
+;; payloads fail closed, and the optional advanced override runs last on the
+;; projected copy. The door's docstring is the public per-slot contract.
 
 (def ^:private default-egress-profile
   "The default named export boundary for epoch off-box egress.
 
   An MCP or AI tool selects the
-  `:rf.egress/off-box-tool` boundary instead via `projected-record`'s
+  `:rf.egress/off-box-tool` boundary instead via `project-egress`'s
   `:rf.egress/profile` opt — that profile keeps the same redact/elide
   defaults but turns on `:rf.size/include-digests?`, so a large owner-local
   slot egresses as a marker carrying the structural indicators / counters a
   tool needs to reason about shape without seeing content."
   :rf.egress/off-box-observability)
-
-(def projected-record-opt-keys
-  "The CLOSED key set the epoch `projected-record` boundary accepts
-  (rf2-kuky.6).
-
-  The two SHARED axes are spelled `:rf.size/*` — the same vocabulary the
-  walker, `project-egress`, `:rf/project-egress-opts` and Conventions
-  §`:rf.size/*` use. They were read here in the BARE spelling, so a caller
-  passing `:rf.size/include-sensitive? true` — the spelling every other
-  door takes — was silently dropped and the record egressed under the
-  fail-closed floor. That was invisible in both directions: the bare
-  spelling worked here and nowhere else, which is why pair-MCP's eval
-  builder chose it.
-
-  The three EPOCH-LOCAL knobs stay BARE. They are not app-db axes at all —
-  fx args, the runtime-db partition and event args are different keyspaces
-  (the [API.md §`projected-record`] orthogonality discriminator) — and
-  whether they graduate to a qualified spelling is rf2-kuky.93's call, with
-  the rest of the sweep."
-  #{:rf.egress/profile
-    :rf.size/include-sensitive?
-    :rf.size/include-large?
-    :include-fx-args?
-    :include-runtime-db?
-    :include-event-args?})
 
 (defn- resolve-egress-profile
   "Resolve the named `:rf.egress/profile` an epoch egress call walks under.
@@ -1416,7 +1394,7 @@
     (when-not (contains? rf.projection/profiles profile)
       ;; Share the projection layer's closed-enum error builder so wording and
       ;; the machine-readable token cannot drift.
-      (throw (rf.projection/unknown-egress-profile-ex 'epoch/projected-record profile)))
+      (throw (rf.projection/unknown-egress-profile-ex 'rf/project-egress profile)))
     profile))
 
 (def ^:private walker-overlay-keys
@@ -1580,7 +1558,7 @@
 ;; registration-owned transient payload; an UNSCHEMATIZED body (no Malli
 ;; `:decode` schema) is whole-sensitive and OMITTED off-box. The on-box ring
 ;; keeps the raw body (the local operator sees their own process); the
-;; off-box egress (`projected-record`) omits it.
+;; off-box egress (`rf/project-egress`) omits it.
 ;;
 ;; The body's shape cannot be proven from the trace event alone — the
 ;; request's `:decode` is request-private and never on the trace event — so
@@ -1628,7 +1606,7 @@
   The five PRODUCTION-REAL operation rows (`:rf.http/replied`,
   `:rf.http/accept-failure`, `:rf.http/http-4xx`, `:rf.http/http-5xx`,
   `:rf.http/decode-failure`) are bound UNCONDITIONALLY — NOT behind
-  `interop/debug-enabled?`. `projected-record` is a PURE off-box projection
+  `interop/debug-enabled?`. `project-record` is a PURE off-box projection
   transform callable even when the debug gate is false (a JVM SSR process
   started with `RE_FRAME_DEBUG=false`, or an already-held / synthetic record —
   the gate elides record ASSEMBLY, not record PROJECTION). Its contract is
@@ -2216,28 +2194,6 @@
     (contains? record :effects)
     (update :effects elide-effects-slot opts)))
 
-(defn projected-record
-  "Internal projection engine for off-box epoch egress. The public contract
-  lives on `re-frame.epoch/projected-record`.
-
-  Each present payload slot is delegated to its own helper under the selected
-  frame/profile. Record bookkeeping and absent slots remain unchanged. The
-  raw ring is never touched. Non-map input returns nil.
-
-  The whole ring is ordinary composition:
-  `(mapv #(projected-record % opts) (epoch-history frame-id))`.
-
-  `opts` is a CLOSED map (`projected-record-opt-keys`): an unrecognised
-  key — the two shared axes' retired UNQUALIFIED spellings included —
-  throws `:rf.error/bad-egress-opts` naming it. Graded BEFORE the non-map
-  short-circuit so a malformed opts map is malformed against any input
-  (rf2-kuky.6)."
-  ([record] (projected-record record nil))
-  ([record opts]
-   (rf.elision/assert-egress-opts! 'rf/projected-record projected-record-opt-keys opts)
-   (when (map? record)
-     (project-record-slots record (:frame record) opts))))
-
 (defn project-record
   "The PER-KIND projector `re-frame.projection/project-egress` dispatches a
   `:kind :rf/epoch-record` record to, late-bound as `:epoch/project-record`
@@ -2256,18 +2212,20 @@
      the key is present and from the record only when it is not; the
      record's own slot never wins back over an explicit override.
 
-  2. THE EPOCH-ONLY AXES ARE NOT DOOR VOCABULARY, so on this path
+  2. THE EPOCH-ONLY AXES RIDE THE DOOR'S OWN VOCABULARY (rf2-bv1p).
      `:include-fx-args?` / `:include-runtime-db?` / `:include-event-args?`
-     are absent and stay FAIL-CLOSED — effect args redacted, the
-     runtime-db partition redacted, trigger/trace event args reduced to
-     their event ids. That is deliberate and it is what keeps
+     are members of `project-egress-opt-keys`, so a trusted-local caller
+     reaches them HERE and nowhere else — the standalone
+     `projected-record` door that used to own them is retired. Omitted,
+     they stay FAIL-CLOSED: effect args redacted, the runtime-db
+     partition redacted, trigger/trace event args reduced to their event
+     ids. That is what keeps
      `{:rf.egress/profile :rf.egress/off-box-tool
        :rf.size/include-sensitive? true}` meaning what it means: the two
      shared app-db axes lift, the three different-keyspace axes do not
-     (it is NOT `:rf.egress/local-raw`). A caller that needs one of the
-     three reaches them through `re-frame.epoch/projected-record`.
+     (it is NOT `:rf.egress/local-raw`).
 
-  Non-map input returns nil, matching `projected-record`."
+  Non-map input returns nil."
   [record opts]
   (when (map? record)
     (project-record-slots record

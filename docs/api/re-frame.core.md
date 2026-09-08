@@ -965,12 +965,16 @@ which a tool requires directly.
 - **Kind**: function
 - **Signature**:
   ```clojure
+  (project-egress record-or-value)
   (project-egress record-or-value opts)
   ```
-- **Description**: The public, record-level boundary primitive — **the required step before any off-box sink**. It dispatches on a record's `:kind` (`:rf.observe/handled-event` / `:rf.observe/error`) to a per-kind projector, and falls back to walking a kindless input as a tree-shaped value. Each tree-shaped slot is delegated to the internal `re-frame.elision/elide-wire-value` walker against the frame's classification.
-  - `opts` carries `:rf.egress/profile` (the closed six-member enum), `:frame`, `:path`, and advanced `:rf.size/*` overrides.
-  - Frame ownership resolves by key **presence**, in three steps: an explicit `:frame` key in `opts` wins (`nil` included); else a recognised `:rf.observe/*` record's own `:frame` slot (`nil` included); else the carried scope. A record is recognised by its `:kind`, so a bare value carrying a `:frame` key is a value and seeds nothing.
+- **Description**: The public, record-level boundary primitive — **the required step before any off-box sink**, and **the only one**: there is no second record-level egress door. It dispatches on a record's `:kind` to a per-kind projector that is never itself public (the door names the *boundary*; `:kind` names the *record kind*), and falls back to walking a kindless input as a tree-shaped value. Each tree-shaped slot is delegated to the internal `re-frame.elision/elide-wire-value` walker against the frame's classification.
+  - Recognised kinds: `:rf.observe/handled-event`, `:rf.observe/error`, `:rf.observe/derived-tree`, and `:rf/epoch-record`. The epoch projector is late-bound into the optional `day8/re-frame2-epoch` artefact; with the artefact absent the call throws `:rf.error/epoch-artefact-missing` naming the kind rather than bare-walking the record (a bare walk would ship its app-db slots raw).
+  - `opts` is a **closed** twelve-key map: `:rf.egress/profile` (the closed six-member enum), `:frame`, `:path`, `:query-v`, `:as-of-epoch`, the four `:rf.size/*` overrides, and the three **epoch-only** axes `:include-fx-args?` / `:include-runtime-db?` / `:include-event-args?`. An unrecognised key throws `:rf.error/bad-egress-opts` naming it.
+  - The three epoch-only axes are trusted-local opt-ins over keyspaces only an `:rf/epoch-record` has — effect `:args`, the `:rf.db/runtime` frame-state partition, and trigger / trace event args. Each defaults false and lifts **only** its own boundary: `:rf.size/include-sensitive? true` never implies any of them. On any other kind they are accepted and inert.
+  - Frame ownership resolves by key **presence**, in three steps: an explicit `:frame` key in `opts` wins (`nil` included); else a recognised record's own `:frame` slot (`nil` included — every recognised kind is frame-bearing); else the carried scope. A record is recognised by its `:kind`, so a bare value carrying a `:frame` key is a value and seeds nothing.
   - An unknown profile throws `:rf.error/unknown-egress-profile`.
+  - Projecting a whole epoch ring is ordinary composition — `(mapv #(rf/project-egress % opts) (rf/epoch-history frame-id))`. The ring and its listeners always deliver the **raw** record, so projection never affects `restore-epoch!` fidelity. See [re-frame.epoch.md](re-frame.epoch.md).
   - **Fail-closed**: a tree slot projects only when the frame is known — an explicit `:frame nil` included — and there is no `:rf/default` synthesis.
   - Full model: [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md).
 - **Example**:
@@ -1006,8 +1010,8 @@ which a tool requires directly.
                        :rf.egress/profile :rf.egress/off-box-observability}]}})
 
   (rf/register-observability-sink! :my-app.sinks/datadog
-    (fn [projected-record]            ;; already projected — no sink-local redaction
-      (datadog/send projected-record)))
+    (fn [record]                      ;; already projected — no sink-local redaction
+      (datadog/send record)))
   ```
 
 ### `unregister-observability-sink!`
@@ -1128,16 +1132,6 @@ Epoch-settled listeners are the `:epoch` stream of the stream-parameterized list
 
   (rf/unregister-listener! :epoch :my-app/epoch-watch)
   ```
-
-### `projected-record`
-
-- **Kind**: function (dev-only)
-- **Signature**:
-  ```clojure
-  (projected-record record)
-  (projected-record record opts)
-  ```
-- **Description**: Project an `:rf/epoch-record` for off-box egress. It routes the record through the egress projection, so an epoch record can be shipped off-box safely. The ring and listeners always deliver the raw record, so projection never affects `restore-epoch!` fidelity. Projecting a whole ring is ordinary composition — `(mapv #(rf/projected-record % opts) (rf/epoch-history frame-id))`. See [re-frame.epoch.md](re-frame.epoch.md).
 
 ## Registrar queries
 

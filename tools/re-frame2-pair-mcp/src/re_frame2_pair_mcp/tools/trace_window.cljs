@@ -73,13 +73,17 @@
         ;; `:trace-events`) app-db snapshots, any of which can hold a
         ;; declared-sensitive / declared-large slot. Each egressed record
         ;; routes through
-        ;; `re-frame.core/projected-record` — the framework's SINGLE
-        ;; normative off-box-egress emission site (Security.md §Epoch
-        ;; privacy posture; core.cljc names the hand-walk an anti-pattern
-        ;; "one missed `mapv projected-record` away from a leak").
+        ;; `re-frame.core/project-egress` — the framework's SINGLE
+        ;; normative record-level egress door (Security.md §Epoch
+        ;; privacy posture; core.cljc names the per-slot hand-walk an
+        ;; anti-pattern, "one missed `mapv project-egress` away from a
+        ;; leak"). The record reaches the epoch projector by its stamped
+        ;; `:kind :rf/epoch-record`, so `epoch_egress/project-page-src`
+        ;; refuses an UNSTAMPED record rather than let the door bare-walk
+        ;; it (GUARD G3).
         ;; `incl?` (gate-ON + explicit `:include-sensitive
         ;; true`) does NOT bypass projection. It is threaded as the
-        ;; `{:rf.size/include-sensitive? true}` egress opt INTO `projected-record`,
+        ;; `{:rf.size/include-sensitive? true}` egress opt INTO `project-egress`,
         ;; lifting ONLY the app-db sensitive axis; fx-args / runtime-db /
         ;; large slots stay fail-closed. Every egressed page is ALWAYS
         ;; projected.
@@ -116,7 +120,7 @@
             ;; The egress slice (`page`) is the ONLY vector
             ;; that crosses the wire, so projection happens HERE, after
             ;; the cursor `:limit` cap, before the records ship. Each
-            ;; record ALWAYS routes through `re-frame.core/projected-record`
+            ;; record ALWAYS routes through `re-frame.core/project-egress`
             ;; (which reads `:frame` off the record itself and elides all
             ;; four payload slots). `incl?` threads
             ;; `{:rf.size/include-sensitive? true}` INTO the projection (app-db
@@ -138,7 +142,7 @@
                                         "                (<= (or (:committed-at %) 0) " until-ms "))"
                                         " sliced)"))
                       ;; `:page` is the egress slice, projected
-                      ;; for off-box egress via `projected-record` (each
+                      ;; for off-box egress via `project-egress` (each
                       ;; record's `:db-before` / `:db-after` /
                       ;; `:trigger-event` / `:trace-events` slots elide
                       ;; server-side). `:epoch-id` is a bookkeeping slot

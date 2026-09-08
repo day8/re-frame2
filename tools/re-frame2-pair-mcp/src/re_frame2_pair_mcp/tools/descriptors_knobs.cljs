@@ -73,8 +73,9 @@
   surfaces where a declared-`:large?` slot or a declared-`:sensitive?` leaf
   would otherwise ride off-box verbatim. Default `true`. (The pull-mode
   epoch tools — `trace-window`, `watch-epochs`, and `dispatch`'s
-  `:trace` / `:settle` modes — egress whole records via `projected-record`,
-  not this per-slot walker, so they have no `:elision` knob; their
+  `:trace` / `:settle` modes — egress whole records via the epoch arm of
+  `project-egress`, not this per-slot walker, so they have no `:elision`
+  knob; their
   `:include-sensitive` arg governs the app-db sensitive axis of that
   projection instead.)
 

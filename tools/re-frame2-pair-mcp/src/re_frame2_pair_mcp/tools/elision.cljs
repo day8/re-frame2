@@ -36,10 +36,13 @@
     cache source, so both MUST redact alike off-box.
 
   The pull-mode epoch tools (`trace-window` / `watch-epochs`) egress
-  whole `:rf/epoch-record`s, not bare app-db slices — they route
-  through `re-frame.core/projected-record` (the framework's single
-  normative off-box-egress emission site for epoch records; see
-  `re-frame2-pair-mcp.tools.epoch-egress`), NOT this per-slot walker.
+  whole `:rf/epoch-record`s, not bare app-db slices — they hand the
+  WHOLE RECORD to `re-frame.core/project-egress` (the framework's
+  single record-level egress door), which routes it by its stamped
+  `:kind` to the epoch projector; see
+  `re-frame2-pair-mcp.tools.epoch-egress`. Same door, different arm:
+  this per-slot walker crosses it as a bare tree-shaped VALUE with an
+  explicit `:path`, and an epoch record must never take that arm.
 
   ## `:elision` MCP arg
 

@@ -108,7 +108,7 @@
 
   Paths 1 + 2 route the result's epoch slots through the framework's
   off-box projection (`epoch_egress/project-dispatch-result-src` →
-  `re-frame.core/projected-record`) APP-SIDE before the result crosses
+  `re-frame.core/project-egress`) APP-SIDE before the result crosses
   the wire, gated on `raw-state-allowed?` + the `:include-sensitive`
   two-key opt-in — sensitive leaves land as
   `:rf/redacted`, large slots elide, the cascade stays structurally
@@ -259,7 +259,7 @@
   `dispatch-and-collect`, which returns the RAW assembled `:epoch`
   (`:db-before` / `:db-after` / `:trigger-event` / `:trace-events`). On
   that path the result MUST route through the framework's off-box
-  projection (`re-frame.core/projected-record` via
+  projection (`re-frame.core/project-egress` via
   `egress/project-dispatch-result-src`) APP-SIDE before it crosses the
   wire — exactly as the NON-await `:trace` / `:settle` path does
   (`dispatch-tool` below). Without it the await-render epoch shipped raw,
@@ -396,7 +396,7 @@
         ;; `:trace-events`; `:settle` also `:render-events`). Unlike the
         ;; default sync / queued consequence shapes — which carry no raw
         ;; app-db — these MUST route through the framework's off-box
-        ;; projection (`re-frame.core/projected-record`) before crossing
+        ;; projection (`re-frame.core/project-egress`) before crossing
         ;; the nREPL/MCP wire, exactly as the pull-mode `trace-window` /
         ;; `watch-epochs` surfaces do. The `--allow-sensitive-reads` boot
         ;; gate (`raw-state-allowed?`, positive sense — true only when the
@@ -404,7 +404,7 @@
         ;; `:include-sensitive true` is honoured.
         ;; `incl?` (gate-ON + `:include-sensitive true`) does NOT bypass
         ;; the epoch projection: the `:trace` / `:settle` epoch ALWAYS
-        ;; routes through `projected-record`, and `incl?` threads
+        ;; routes through `project-egress`, and `incl?` threads
         ;; `{:rf.size/include-sensitive? true}` INTO it (app-db sensitive axis
         ;; only). The orthogonal fx-args / runtime-db / large axes stay
         ;; fail-closed regardless of `:include-sensitive`
@@ -416,7 +416,7 @@
         ;; STRING `"false"`, which is truthy in CLJS — a bare `boolean`
         ;; would coerce a caller's explicit `include-sensitive "false"`
         ;; to TRUE under `--allow-sensitive-reads`, threading
-        ;; `{:rf.size/include-sensitive? true}` into `projected-record` and
+        ;; `{:rf.size/include-sensitive? true}` into `project-egress` and
         ;; lifting the app-db sensitive axis the operator just declined.
         ;; `parse-bool-arg` reads `"false"`/`"no"`/`"0"` as false (and
         ;; defaults absent/unrecognised to the table's `false`), so the
@@ -541,7 +541,7 @@
           ;; resolved mode is epoch-bearing (`:trace` under await-render
           ;; selects `dispatch-and-collect`, which returns the RAW
           ;; `:epoch`), the settle form projects the result through
-          ;; `projected-record` APP-SIDE before egress — the SAME off-box
+          ;; `project-egress` APP-SIDE before egress — the SAME off-box
           ;; redaction the non-await `:trace` / `:settle` path applies
           ;; (rf2-6klf02). The consequence shapes (`:sync` / `:queued`)
           ;; carry no raw app-db, so they ride unwrapped.
