@@ -280,7 +280,7 @@ _As-of 2026-07-04._
 | Property | Score | Notes |
 |---|---|---|
 | P1 Regularity | ✓ | **One axis vocabulary** (`:sensitive` / `:large`) over `:rf/path` vectors, in three lowering shapes (commit-plane effects / registration metadata / subsystem projection-relative declarations). One projection primitive (`project-egress` over `elide-wire-value`); one clear-mirrors-set rule per axis. |
-| P2 Named things | ✓ | The four commit-plane effects, the `:rf.egress/*` profile enum, the `:rf.observe/*` record kinds, the `:rf.size/*` walker flags, and the sentinels (`:rf/redacted`, `:rf.size/large-elided`) are all reserved, named values. |
+| P2 Named things | ✓ | The four commit-plane effects, the `:rf.egress/*` profile enum, the `:rf.observe/*` record kinds, the `:rf.egress/*` walker flags, and the sentinels (`:rf/redacted`, `:rf.size/large-elided`) are all reserved, named values. |
 | P3 Data before magic | ✓ | Classification is declared data (effect payloads / registration metadata / subsystem declarations) recorded in the per-frame elision registry at `[:rf.runtime/elision …]`; projection is a pure record-level transform. No imperative `add-marks` / `set-marks` API. |
 | P4 Public query surfaces | ✓ | The elision registry is runtime-db data (reverts with the frame); `project-egress` and the `:rf.egress/*` profile enum are the enumerable egress surface; every profile is exercised by a real consumer surface. |
 | P5 Schemas | ✓ | `:rf/elision-marker` (the `:rf.size/large-elided` shape) and `:rf/project-egress-opts` are registered in [Spec-Schemas](Spec-Schemas.md#rfelision-marker); the `:sensitive` / `:large` axis is `:rf/path` vectors (the shared path algebra, EP-0012). |

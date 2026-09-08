@@ -67,7 +67,7 @@
   ambient frame's marks. STAMPING (never OMITTING) `:frame` is the point: an
   absent `:frame` key is exactly the ambient-borrow path this seam abolishes
   (rf2-cra0nq, mirroring the off-box derivation-graph fix rf2-udkj69).
-  (Under `:rf.egress/local-raw`'s explicit `:rf.size/include-sensitive? true`
+  (Under `:rf.egress/local-raw`'s explicit `:rf.egress/include-sensitive? true`
   opt-out the walker ships the value raw even under an unresolvable frame —
   the operator has explicitly asked for it; the opt-out branch precedes the
   fail-closed redact.)
@@ -136,12 +136,12 @@
     liveness probe to run (the walker validates liveness itself). The fn
     stays private as ordinary namespace hygiene, not as a privacy
     load-bearer (rf2-kuky.5).
-  - **`:rf.size/include-large? true`** — the on-box 'keep large' override
+  - **`:rf.egress/include-large? true`** — the on-box 'keep large' override
     (EP-0015 §10: `local-redacted` *suppresses sensitive display*; the
     local operator IS entitled to large values — Xray's own size-bounding
     is a display ergonomics concern, not a privacy one). Composition: the
     profile floor (`include-large? false`) is overlaid by this explicit
-    `:rf.size/*` boolean (the override WINS — `re-frame.projection`
+    `:rf.egress/*` boolean (the override WINS — `re-frame.projection`
     §resolve-elision-opts). Under `:rf.egress/local-raw` the floor already
     includes large; the explicit overlay is a harmless no-op there.
 
@@ -149,7 +149,7 @@
   ([frame-id] (local-render-opts frame-id false))
   ([frame-id raw?]
    {:rf.egress/profile      (local-render-profile raw?)
-    :rf.size/include-large? true
+    :rf.egress/include-large? true
     :frame                  frame-id}))
 
 ;; ---------------------------------------------------------------------------

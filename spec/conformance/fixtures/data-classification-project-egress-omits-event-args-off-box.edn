@@ -13,7 +13,7 @@
 ;; (`:obs/main`) is registered via `:fixture/frames` so the projector
 ;; resolves its classification (here empty — the omission is profile-driven,
 ;; not classification-driven). The off-box-observability profile floors
-;; `:rf.size/include-sensitive? false`, and the handled-event projector drops
+;; `:rf.egress/include-sensitive? false`, and the handled-event projector drops
 ;; the `:event` key whenever sensitive content is not explicitly opted in.
 ;;
 ;; Mirrors the unit-level `re-frame.projection-cljs-test/handled-event-off-box-

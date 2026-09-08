@@ -331,7 +331,7 @@
                          "gate OFF names the off-box tool boundary even when caller passed :include-sensitive true")
                      (is (not (str/includes? form ":rf.egress/local-raw"))
                          "the dropped opt-in never reaches the trusted-local boundary")
-                     (is (not (str/includes? form ":rf.size/include-large? true"))
+                     (is (not (str/includes? form ":rf.egress/include-large? true"))
                          "gate OFF emits markers (no large pass-through overlay)"))
                    ;; the envelope echoes the effective elision state
                    (let [edn (read-result-text r)]
@@ -381,7 +381,7 @@
                          "bare :elision false MUST still project the db slot — no sensitive bypass")
                      (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
                          "the boundary stays off-box-tool, so the sensitive db slot redacts")
-                     (is (str/includes? form ":rf.size/include-large? true")
+                     (is (str/includes? form ":rf.egress/include-large? true")
                          ":elision false overlays include-large? true — large content passes"))
                    (let [edn (read-result-text r)]
                      (is (false? (:elision edn)) "the echo reports the caller's large-slot intent"))

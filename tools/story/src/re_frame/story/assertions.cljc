@@ -412,7 +412,7 @@
   Named boundary (rf2-kuky.88): `:rf.egress/local-redacted`. Story is
   ON-BOX — an assertion record is read by the local runner and the local
   Story MCP surface, not shipped to a hosted sink — and that profile's
-  `:rf.size/*` floor (sensitive redact, large elide, no digests) is
+  `:rf.egress/*` floor (sensitive redact, large elide, no digests) is
   EXACTLY the floor the bare no-profile walk resolved to before, so the
   projection is byte-identical. Naming it replaces a hand-rolled default
   with the boundary the ruling asks every egress site to state.

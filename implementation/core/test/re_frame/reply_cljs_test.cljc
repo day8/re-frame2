@@ -554,7 +554,7 @@
                  :rf.frame/id  :app/main
                  :completed-at 1781078400456
                  :correlation  {:request-id [:article/by-id 42]}}
-          summary (rf.reply/trace-summary reply {:rf.size/include-sensitive? true})]
+          summary (rf.reply/trace-summary reply {:rf.egress/include-sensitive? true})]
       (is (= :ok (:status summary)))
       (is (= [:rf.work/http :article/by-id 42 1] (:work/id summary)))
       (is (= :http (:work/kind summary)))

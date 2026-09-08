@@ -82,7 +82,7 @@
         ;; `epoch_egress/project-page-src` checks first (GUARD G3).
         ;; `incl?` (gate-ON + explicit `:include-sensitive
         ;; true`) does NOT bypass projection. It is threaded as the
-        ;; `{:rf.size/include-sensitive? true}` egress opt INTO `project-egress`,
+        ;; `{:rf.egress/include-sensitive? true}` egress opt INTO `project-egress`,
         ;; lifting ONLY the app-db sensitive axis; the orthogonal fx-args /
         ;; runtime-db / large axes stay fail-closed (Security.md §Off-box
         ;; egress). Every egressed page is ALWAYS projected.
@@ -133,7 +133,7 @@
             ;; server-side (never egressed); the capped `:page` is the
             ;; egress slice, ALWAYS projected via `project-egress` for
             ;; off-box egress. `incl?` threads
-            ;; `{:rf.size/include-sensitive? true}` INTO the projection (app-db
+            ;; `{:rf.egress/include-sensitive? true}` INTO the projection (app-db
             ;; sensitive axis only), it does NOT disable projection.
             page-src       (str "(vec (take " limit " matches))")
             poll-src (ef/emit

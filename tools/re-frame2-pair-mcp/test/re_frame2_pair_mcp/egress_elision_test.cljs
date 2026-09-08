@@ -36,9 +36,9 @@
   published-build default), the epoch eval forms map the egress page
   through `re-frame.core/project-egress`, and the list-subscriptions
   eval form wraps each sub `:value` through `re-frame.core/project-egress`
-  with `:rf.size/include-sensitive? false`; with the gate ON and
+  with `:rf.egress/include-sensitive? false`; with the gate ON and
   `:include-sensitive true`, the records ship raw (no projection) and the
-  sub-value walker threads `:rf.size/include-sensitive? true`.
+  sub-value walker threads `:rf.egress/include-sensitive? true`.
 
   Plus an end-to-end shape check via the stub harness: an
   already-redacted record (what the live projection would produce)
@@ -181,9 +181,9 @@
                        (done)))))))))
 
 (deftest trace-window-gate-on-include-sensitive-routes-through-projection
-  (testing "gate ON + include-sensitive true: STILL projected, threading :rf.size/include-sensitive? true under off-box-tool (rf2-m9duxl, rf2-nmjcll)"
+  (testing "gate ON + include-sensitive true: STILL projected, threading :rf.egress/include-sensitive? true under off-box-tool (rf2-m9duxl, rf2-nmjcll)"
     ;; `:include-sensitive true` is NOT a raw bypass. It routes THROUGH
-    ;; `project-egress` as the `:rf.size/include-sensitive? true` egress opt
+    ;; `project-egress` as the `:rf.egress/include-sensitive? true` egress opt
     ;; (app-db sensitive axis only), composed OVER the off-box-tool profile
     ;; floor. fx-args / runtime-db / large slots stay fail-closed because
     ;; we do NOT pass their opts.
@@ -198,13 +198,13 @@
                            "include-sensitive STILL routes through project-egress — never a raw bypass")
                        (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
                            "rf2-nmjcll — the off-box-tool boundary is named even on the sensitive opt-in path")
-                       (is (str/includes? form ":rf.size/include-sensitive? true")
+                       (is (str/includes? form ":rf.egress/include-sensitive? true")
                            "the app-db sensitive axis is threaded INTO the projection (composed over the off-box-tool floor)")
-                       (is (not (str/includes? form ":include-fx-args?"))
+                       (is (not (str/includes? form ":rf.egress/include-fx-args?"))
                            "fx-args axis is NOT lifted by include-sensitive (orthogonal)")
-                       (is (not (str/includes? form ":include-runtime-db?"))
+                       (is (not (str/includes? form ":rf.egress/include-runtime-db?"))
                            "runtime-db axis is NOT lifted by include-sensitive (orthogonal)")
-                       (is (not (str/includes? form ":rf.size/include-large?"))
+                       (is (not (str/includes? form ":rf.egress/include-large?"))
                            "large axis is NOT lifted by include-sensitive (orthogonal)")
                        (done)))))))))
 
@@ -244,7 +244,7 @@
                        (done)))))))))
 
 (deftest watch-epochs-gate-on-include-sensitive-routes-through-projection
-  (testing "gate ON + include-sensitive true: STILL projected, threading :rf.size/include-sensitive? true under off-box-tool (rf2-m9duxl, rf2-nmjcll)"
+  (testing "gate ON + include-sensitive true: STILL projected, threading :rf.egress/include-sensitive? true under off-box-tool (rf2-m9duxl, rf2-nmjcll)"
     (async done
       (raw-state/set-allow-raw-state! true)
       (let [forms (atom [])]
@@ -256,13 +256,13 @@
                            "include-sensitive STILL routes through project-egress — never a raw bypass")
                        (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
                            "rf2-nmjcll — the off-box-tool boundary is named even on the sensitive opt-in path")
-                       (is (str/includes? form ":rf.size/include-sensitive? true")
+                       (is (str/includes? form ":rf.egress/include-sensitive? true")
                            "the app-db sensitive axis is threaded INTO the projection (composed over the off-box-tool floor)")
-                       (is (not (str/includes? form ":include-fx-args?"))
+                       (is (not (str/includes? form ":rf.egress/include-fx-args?"))
                            "fx-args axis is NOT lifted by include-sensitive (orthogonal)")
-                       (is (not (str/includes? form ":include-runtime-db?"))
+                       (is (not (str/includes? form ":rf.egress/include-runtime-db?"))
                            "runtime-db axis is NOT lifted by include-sensitive (orthogonal)")
-                       (is (not (str/includes? form ":rf.size/include-large?"))
+                       (is (not (str/includes? form ":rf.egress/include-large?"))
                            "large axis is NOT lifted by include-sensitive (orthogonal)")
                        (done)))))))))
 
@@ -370,7 +370,7 @@
                            "bare :elision false MUST still project — no sensitive bypass")
                        (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
                            "the boundary stays off-box-tool, so sensitive sub values redact")
-                       (is (str/includes? form ":rf.size/include-large? true")
+                       (is (str/includes? form ":rf.egress/include-large? true")
                            ":elision false overlays include-large? true — large content passes")
                        (done)))))))))
 
@@ -474,7 +474,7 @@
                        (done)))))))))
 
 (deftest snapshot-epochs-gate-on-include-sensitive-routes-through-projection
-  (testing "gate ON + include-sensitive true: :epochs STILL projected, threading :rf.size/include-sensitive? true under off-box-tool (rf2-m9duxl, rf2-nmjcll)"
+  (testing "gate ON + include-sensitive true: :epochs STILL projected, threading :rf.egress/include-sensitive? true under off-box-tool (rf2-m9duxl, rf2-nmjcll)"
     (async done
       (raw-state/set-allow-raw-state! true)
       (let [forms (atom [])]
@@ -489,11 +489,11 @@
                            "include-sensitive STILL routes the :epochs slice through project-egress")
                        (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
                            "rf2-nmjcll — the off-box-tool boundary is named even on the sensitive opt-in path")
-                       (is (str/includes? form ":rf.size/include-sensitive? true")
+                       (is (str/includes? form ":rf.egress/include-sensitive? true")
                            "the app-db sensitive axis is threaded INTO the projection (composed over the off-box-tool floor)")
-                       (is (not (str/includes? form ":include-fx-args?"))
+                       (is (not (str/includes? form ":rf.egress/include-fx-args?"))
                            "fx-args axis is NOT lifted by include-sensitive (orthogonal)")
-                       (is (not (str/includes? form ":include-runtime-db?"))
+                       (is (not (str/includes? form ":rf.egress/include-runtime-db?"))
                            "runtime-db axis is NOT lifted by include-sensitive (orthogonal)")
                        (done)))))))))
 
@@ -543,7 +543,7 @@
                            "rf2-nmjcll — :epochs still projects under the off-box-tool boundary with elision off")
                        (is (str/includes? form "re-frame.core/project-egress")
                            "bare :elision false MUST still project :app-db/:sub-cache — no sensitive bypass")
-                       (is (str/includes? form ":rf.size/include-large? true")
+                       (is (str/includes? form ":rf.egress/include-large? true")
                            ":elision false overlays include-large? true — large content passes")
                        (done)))))))))
 
@@ -661,7 +661,7 @@
 ;; agent). Per Tool-Pair.md §Named-egress profile adoption (EP-0015 §10) the
 ;; epoch egress MUST name `:rf.egress/off-box-tool`, NOT lean on the
 ;; epoch projector's `:rf.egress/off-box-observability` default (same
-;; redact/elide floor, but OMITS the structural `:rf.size/include-digests?`
+;; redact/elide floor, but OMITS the structural `:rf.egress/include-digests?`
 ;; indicators a tool needs to reason about an elided slot's shape). The
 ;; profile lives in `egress-opts-edn`, so every epoch egress caller that
 ;; threads through it (trace-window / watch-epochs / snapshot :epochs /
@@ -687,23 +687,23 @@
       ;; opt-in, and none of the orthogonal raw axes.
       (is (= {:rf.egress/profile :rf.egress/off-box-tool} opts)
           "default path = bare off-box-tool profile, no legacy :include-* overrides")
-      (is (not (contains? opts :rf.size/include-sensitive?))
+      (is (not (contains? opts :rf.egress/include-sensitive?))
           "the default path never opts the app-db sensitive axis back in"))))
 
 (deftest egress-opts-include-sensitive-composes-over-off-box-tool
-  (testing "rf2-nmjcll — the sensitive opt-in path STILL names off-box-tool, with :rf.size/include-sensitive? true on top"
+  (testing "rf2-nmjcll — the sensitive opt-in path STILL names off-box-tool, with :rf.egress/include-sensitive? true on top"
     (let [opts (parse-opts true)]
       (is (= :rf.egress/off-box-tool (:rf.egress/profile opts))
           "the trusted-local sensitive opt-in is STILL the off-box-tool boundary (it is never the observability default)")
-      (is (true? (:rf.size/include-sensitive? opts))
+      (is (true? (:rf.egress/include-sensitive? opts))
           "the app-db sensitive axis is threaded as the legacy override ON TOP of the off-box-tool floor")
       ;; ONLY the app-db sensitive axis is lifted — the orthogonal axes stay
       ;; at the profile floor (fail-closed).
-      (is (not (contains? opts :rf.size/include-large?))
+      (is (not (contains? opts :rf.egress/include-large?))
           "include-sensitive never lifts the large axis (orthogonal — stays at the off-box-tool floor)")
-      (is (not (contains? opts :include-fx-args?))
+      (is (not (contains? opts :rf.egress/include-fx-args?))
           "include-sensitive never lifts fx-args (orthogonal)")
-      (is (not (contains? opts :include-runtime-db?))
+      (is (not (contains? opts :rf.egress/include-runtime-db?))
           "include-sensitive never lifts the runtime-db partition (orthogonal)"))))
 
 (deftest off-box-tool-is-the-name-both-epoch-paths-choose
@@ -740,5 +740,5 @@
           "the bare 1-arity reference (which could not name the profile) is gone")
       (is (str/includes? sensitive-src ":rf.egress/profile :rf.egress/off-box-tool")
           "sensitive page projection ALSO names off-box-tool")
-      (is (str/includes? sensitive-src ":rf.size/include-sensitive? true")
+      (is (str/includes? sensitive-src ":rf.egress/include-sensitive? true")
           "sensitive path threads the app-db sensitive axis over the off-box-tool floor"))))

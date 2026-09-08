@@ -466,7 +466,7 @@
   REPL / `restore-epoch!`). We thread that tag onto the row as `:large?` so
   the off-box `rf/project-egress` boundary can substitute the
   `:rf.size/large-elided` marker for `:value` / `:prev-value` under the
-  `:rf.size/include-large? false` default. Threaded `cond->` (absent, not false,
+  `:rf.egress/include-large? false` default. Threaded `cond->` (absent, not false,
   when the sub's output is not large) — parity with the trace tag's
   presence semantics."
   [event]

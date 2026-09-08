@@ -126,7 +126,7 @@ Observability payloads can be unboundedly large — a `:db/state-loaded` event c
 
 Every listener body that walks a payload bounded by user input or by app-db size MUST apply a size cap. Two mechanisms cooperate, and the migration must not conflate them:
 
-- The **wire-elision walker** elides *declared* paths — schema/effect-declared `:sensitive` → `:rf/redacted`, declared `:large` → a `:rf.size/large-elided` marker. Its `:rf.size/threshold-bytes` is **advisory only**: for an *undeclared* large string over the threshold the walker emits the dev-only `:rf.warning/large-value-unschema'd` nudge and **returns the value unchanged** (per [009 §Size elision in traces](../../spec/009-Instrumentation.md#size-elision-in-traces): *"The walker does not auto-elide unschema'd values"*). It never bounds an undeclared value.
+- The **wire-elision walker** elides *declared* paths — schema/effect-declared `:sensitive` → `:rf/redacted`, declared `:large` → a `:rf.size/large-elided` marker. Its `:rf.egress/threshold-bytes` is **advisory only**: for an *undeclared* large string over the threshold the walker emits the dev-only `:rf.warning/large-value-unschema'd` nudge and **returns the value unchanged** (per [009 §Size elision in traces](../../spec/009-Instrumentation.md#size-elision-in-traces): *"The walker does not auto-elide unschema'd values"*). It never bounds an undeclared value.
 - A **genuine per-payload byte budget** — the hard cap. Because an undeclared oversize value survives the walk, the helper measures the serialised size of the elided result and, when it still exceeds the destination budget, drops the payload to a compact over-budget marker rather than letting it ride off-box. The cap is **per-payload bytes**, applied after sensitive redaction:
 
 ```clojure
@@ -145,9 +145,9 @@ Every listener body that walks a payload bounded by user input or by app-db size
   [v {:keys [budget-bytes frame]
       :or   {budget-bytes 16384
              frame        :rf/default}}]
-  (let [opts    {:rf.size/threshold-bytes    budget-bytes   ;; advisory nudge for undeclared-large
-                 :rf.size/include-sensitive? false
-                 :rf.size/include-large?     false
+  (let [opts    {:rf.egress/threshold-bytes    budget-bytes   ;; advisory nudge for undeclared-large
+                 :rf.egress/include-sensitive? false
+                 :rf.egress/include-large?     false
                  :frame                      frame}
         elided  (re-frame.elision/elide-wire-value v opts)
         ;; Count :rf.size/large-elided markers and :rf/redacted sentinels in elided
@@ -287,9 +287,9 @@ This is the v2-canonical target for the **majority** of "observer (off-box egres
    that keeps an oversize undeclared value off the wire."
   [v {:keys [budget-bytes frame] :or {budget-bytes 32768 frame :rf/default}}]
   (let [floor-redacted (redact-sensitive-floor v)
-        opts           {:rf.size/threshold-bytes    budget-bytes
-                        :rf.size/include-sensitive? false
-                        :rf.size/include-large?     false
+        opts           {:rf.egress/threshold-bytes    budget-bytes
+                        :rf.egress/include-sensitive? false
+                        :rf.egress/include-large?     false
                         :frame                      frame}
         elided         (re-frame.elision/elide-wire-value floor-redacted opts)
         dropped        (->> (tree-seq coll? seq elided)
@@ -403,6 +403,6 @@ When the agent applies this rule:
 - The migration report lists every observability site found, classified per §1 (observer-off-box / observer-local / behaviour-modifying / misclassified-handler-body) with file/line.
 - Each rewrite shows: the v1 site, the production-survivability classification (must-survive vs dev-only), the v2 target shape (0 / A / B / C), the framework defaults composed (sensitive guard, walker defaults — or the frame-sink projection for Shape 0), the floor-checklist drops applied, the dropped-count signal added.
 - The "schema-annotation follow-ons" section lists every sensitive-key + schema-slot pair the agent found, with a per-slot proposal of `{:sensitive? true}` and the rationale (which observability site walked it).
-- The "size-cap configuration" section lists each listener's chosen `:budget-bytes` backstop and the rationale (Sentry budget, log-file size, dashboard payload limit) — operator confirmation per listener. (The walker's `:rf.size/threshold-bytes` advisory is separate: it only nudges undeclared-large paths toward a `:large` declaration and does not bound the payload.)
+- The "size-cap configuration" section lists each listener's chosen `:budget-bytes` backstop and the rationale (Sentry budget, log-file size, dashboard payload limit) — operator confirmation per listener. (The walker's `:rf.egress/threshold-bytes` advisory is separate: it only nudges undeclared-large paths toward a `:large` declaration and does not bound the payload.)
 - Any hit the agent could not classify ("the body does too much / does both observer and behaviour-modifying work") is listed as an escalation, with the recommended path (split the body, port halves to different surfaces).
 - The "framework defaults" section reminds the operator that the production-survivable observability surfaces are the frame `:observability` sinks (`register-observability-sink!` — the default) and the corpus-wide always-on event-emit / error-emit listeners beneath them (per [009 §What IS available in production](../../spec/009-Instrumentation.md#what-is-available-in-production) and the entry-point hierarchy in [009 §Use case × surface routing](../../spec/009-Instrumentation.md#use-case--surface-routing)). Observability sites that need a production-survivable path go through those surfaces, not through `register-listener!` / `register-epoch-listener!` (which elide on `:advanced + goog.DEBUG=false`). (There is **no** app-steering `:on-error` recovery policy — that earlier draft surface was removed; recovery is framework-owned. See [M-13](README.md#m-13-reg-event-error-handler-is-dropped--error-policy-is-per-frame-on-error).)

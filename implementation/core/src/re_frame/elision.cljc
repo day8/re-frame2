@@ -51,30 +51,49 @@
 ;; runtime auto-detect threshold for the `:rf.warning/large-value-unschema'd`
 ;; advisory is configurable. Precedence (normative, API.md L507):
 ;;
-;;   explicit `:rf.size/threshold-bytes` opt  >  `(rf/configure! {:elision …})`  >  default
+;;   explicit `:rf.egress/threshold-bytes` opt  >  `(rf/configure! {:elision …})`  >  default
 ;;
 ;; A threshold of 0 disables runtime auto-detect entirely (only
 ;; frame-declared `:large` entries elide); the unschema'd-large warning
 ;; never fires.
-;; The default mirrors the documented `{:rf.size/threshold-bytes 16384}`.
+;; The default mirrors the documented `{:rf.egress/threshold-bytes 16384}`.
 
 (def ^:private default-threshold-bytes 16384)
 
 (defonce ^:private config
   ;; Map shape so future :elision configure-keys land additively, matching
   ;; `re-frame.subs.cache/config`.
-  (atom {:rf.size/threshold-bytes default-threshold-bytes}))
+  (atom {:rf.egress/threshold-bytes default-threshold-bytes}))
 
 (defn configure!
   "Update the elision configuration. Supports
-  `{:rf.size/threshold-bytes N}` — a non-negative integer runtime
+  `{:rf.egress/threshold-bytes N}` — a non-negative integer runtime
   auto-detect size threshold for the `:rf.warning/large-value-unschema'd`
   advisory (0 disables runtime auto-detect; only frame-declared `:large`
   entries elide). Per API.md §Configure keys (`:elision`) and Spec 009
-  §Size elision in traces. Routed from `re-frame.core/configure!`."
+  §Size elision in traces. Routed from `re-frame.core/configure!`.
+
+  ONE KEY, NOT TWO (rf2-kuky.93). This process-level knob and the per-call
+  egress opt are the SAME keyword read out of two maps — the precedence
+  ladder at the top of this namespace is `explicit opt > this config >
+  default`, and `configured-threshold-bytes` below reads
+  `:rf.egress/threshold-bytes` from `@config` exactly as `elide-against-frame`
+  reads it from `opts`. So it renamed with the rest of the vocabulary rather
+  than being left behind under `:rf.size/*`; API.md §Opts-key naming rule
+  names this key as its worked example of a sub-key that earns a namespace
+  precisely BECAUSE it is one contract with more than one reader.
+
+  Unlike the egress opts maps, this one is NOT closed — `select-keys` drops
+  an unrecognised key silently, so a caller left on the retired
+  `:rf.size/threshold-bytes` gets the DEFAULT rather than a throw. That is
+  fail-CLOSED in the only direction that matters here: every value a caller
+  would have configured and lost (a raised threshold, or `0` to disable
+  auto-detect) elides LESS than the 16384 default, so losing it can only
+  elide MORE. Closing this map is a separate question about `configure!`
+  generally, not about this rename."
   [opts]
   (when (map? opts)
-    (swap! config merge (select-keys opts [:rf.size/threshold-bytes])))
+    (swap! config merge (select-keys opts [:rf.egress/threshold-bytes])))
   nil)
 
 (defn current-config
@@ -92,7 +111,7 @@
   "The configured runtime size threshold, falling back to the documented
   default when no `configure` call has set it."
   []
-  (let [v (:rf.size/threshold-bytes @config)]
+  (let [v (:rf.egress/threshold-bytes @config)]
     (if (some? v) v default-threshold-bytes)))
 
 (defonce ^:private warned-unschema'd
@@ -568,7 +587,7 @@
   Spec-Schemas §`:rf/elision-marker` types as the `pr-str` BYTE count and
   009 §Size elision makes a MUST (\"lets an agent decide fetch-anyway vs
   skip\") — and it is READ as a threshold, against
-  `:rf.size/threshold-bytes`, to decide whether a string leaf at an undeclared
+  `:rf.egress/threshold-bytes`, to decide whether a string leaf at an undeclared
   path fires `:rf.warning/large-value-unschema'd`.
 
   Until rf2-2rtt6.135 the `:cljs` arm was `(count (pr-str v))` — UTF-16 CODE
@@ -668,7 +687,7 @@
     {:hint             hint
      :reason           source
      :as-of-epoch      (:as-of-epoch ctx)
-     :include-digests? (:rf.size/include-digests? ctx)}))
+     :include-digests? (:rf.egress/include-digests? ctx)}))
 
 (defn- warn-large-unschema'd!
   [frame-id path bytes]
@@ -966,8 +985,8 @@
         sensitive-tbl (:sensitive ctx)
         shadow-set    (:large-shadows-s ctx)
         decl-prefixes (:decl-prefixes ctx)
-        include-lg?   (:rf.size/include-large? ctx)
-        include-s?    (:rf.size/include-sensitive? ctx)
+        include-lg?   (:rf.egress/include-large? ctx)
+        include-s?    (:rf.egress/include-sensitive? ctx)
         threshold     (:threshold-bytes ctx)
         frame-id      (:frame-id ctx)]
     {:decide
@@ -1052,7 +1071,7 @@
   [v opts frame-id]
   (let [reg       (registry-of frame-id)
         ;; Precedence (API.md L507): explicit opt > configured > default.
-        threshold (let [opt (:rf.size/threshold-bytes opts)]
+        threshold (let [opt (:rf.egress/threshold-bytes opts)]
                     (if (some? opt) opt (configured-threshold-bytes)))
         large     (or (:declarations reg) {})
         sensitive (or (:sensitive-declarations reg) {})
@@ -1070,11 +1089,11 @@
                    ;; prunes to {} immediately and the walker is identity.
                    :decl-prefixes      (decl-prefix-set {:large large :sensitive sensitive})
                    ;; One vocabulary all the way down (rf2-kuky.6): the walk
-                   ;; context carries the SAME `:rf.size/*` spelling the opts
+                   ;; context carries the SAME `:rf.egress/*` spelling the opts
                    ;; map does, so no reader has to learn a second one.
-                   :rf.size/include-large?     (true? (:rf.size/include-large? opts))
-                   :rf.size/include-sensitive? (true? (:rf.size/include-sensitive? opts))
-                   :rf.size/include-digests?   (true? (:rf.size/include-digests? opts))
+                   :rf.egress/include-large?     (true? (:rf.egress/include-large? opts))
+                   :rf.egress/include-sensitive? (true? (:rf.egress/include-sensitive? opts))
+                   :rf.egress/include-digests?   (true? (:rf.egress/include-digests? opts))
                    :threshold-bytes    threshold
                    :as-of-epoch        (:as-of-epoch opts)}
         seed-path (vec (:path opts))]
@@ -1102,18 +1121,21 @@
 
   `:rf.egress/profile` is deliberately ABSENT: profiles are a
   `re-frame.projection` concern (`project-egress` resolves one to a
-  `:rf.size/*` opt-set and passes THAT down here). The two shared
+  `:rf.egress/*` opt-set and passes THAT down here). The two shared
   inclusion axes' UNQUALIFIED spellings are absent for the same
-  reason — `:rf.size/*` is the one vocabulary (the `:rf.egress/*`
-  rename is rf2-kuky.93's, and this set moves with it)."
+  reason — `:rf.egress/*` is the one vocabulary. So are their retired
+  `:rf.size/*` spellings (rf2-kuky.93 moved the whole opts vocabulary
+  under one namespace); `:rf.size/*` now reserves the wire MARKER
+  `:rf.size/large-elided` and nothing else, so a marker and a policy
+  are no longer spelled alike."
   #{:frame
     :path
     :query-v
     :as-of-epoch
-    :rf.size/include-sensitive?
-    :rf.size/include-large?
-    :rf.size/include-digests?
-    :rf.size/threshold-bytes})
+    :rf.egress/include-sensitive?
+    :rf.egress/include-large?
+    :rf.egress/include-digests?
+    :rf.egress/threshold-bytes})
 
 (defn bad-egress-opts-ex
   "Build the `:rf.error/bad-egress-opts` `ex-info` for a CLOSED egress-opts
@@ -1138,7 +1160,7 @@
            "are " (pr-str accepted) "."
            (when profile?
              (str " :rf.egress/profile names a BOUNDARY and is resolved by "
-                  "rf/project-egress, which passes the resolved :rf.size/* "
+                  "rf/project-egress, which passes the resolved :rf.egress/* "
                   "opt-set down to the walker — pass the profile there.")))
       {:recovery (if profile?
                    :pass-the-profile-to-project-egress
@@ -1171,15 +1193,15 @@
        :path                       [...]        ;; absolute app-db offset of `v`
        :query-v                    [...]        ;; route-sub re-seeding
        :as-of-epoch                <epoch-id>
-       :rf.size/include-sensitive? <bool>
-       :rf.size/include-large?     <bool>
-       :rf.size/include-digests?   <bool>
-       :rf.size/threshold-bytes    <int>}
+       :rf.egress/include-sensitive? <bool>
+       :rf.egress/include-large?     <bool>
+       :rf.egress/include-digests?   <bool>
+       :rf.egress/threshold-bytes    <int>}
 
   Any other key throws `:rf.error/bad-egress-opts` naming the offending
   keys. `:rf.egress/profile` is NOT one of them: a profile names a
   BOUNDARY and is resolved by `rf/project-egress`, which passes the
-  resolved `:rf.size/*` opt-set down here. Passing one to the walker used
+  resolved `:rf.egress/*` opt-set down here. Passing one to the walker used
   to be a silent no-op — the call read as though it had named a boundary
   while the walk ran under the default policy — and so did the two
   shared axes' unqualified spellings. Closing the map
@@ -1225,7 +1247,7 @@
   carried, the per-frame elision registry is unreachable, so a permissive
   identity walk would ship every value verbatim under NO policy. Rather than
   borrow another frame's classification, the whole value is conservatively redacted
-  to the `:rf/redacted` sentinel. `:rf.size/include-sensitive? true` is the
+  to the `:rf/redacted` sentinel. `:rf.egress/include-sensitive? true` is the
   deliberate opt-out: a caller that has explicitly waived sensitive
   redaction gets the value walked with an empty policy (the identity
   transform), so an inspector that genuinely wants the raw, policy-free
@@ -1278,7 +1300,7 @@
        ;; redaction ⇒ identity walk against an empty (no-frame) policy. The
        ;; walker is the identity transform when no declarations are
        ;; reachable.
-       (true? (:rf.size/include-sensitive? opts))
+       (true? (:rf.egress/include-sensitive? opts))
        (elide-against-frame v opts ::no-frame)
 
        ;; Frameless / unresolvable-frame egress, no opt-out ⇒ fail closed:

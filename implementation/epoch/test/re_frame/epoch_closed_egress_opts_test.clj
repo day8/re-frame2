@@ -5,12 +5,13 @@
   ## The defect this pins
 
   The retired `projected-record` door read the two SHARED inclusion axes
-  only in their UNQUALIFIED spelling. Every other egress door — the walker,
-  `project-egress`, the `:rf/project-egress-opts` schema, Conventions
-  §`:rf.size/*` — spells them `:rf.size/*`. So a caller who had learnt the
-  vocabulary from any of those and passed `:rf.size/include-sensitive? true`
-  there had it SILENTLY DROPPED, and the record egressed under the
-  fail-closed floor while the call read as an opt-in.
+  only in their UNQUALIFIED spelling, while every other egress door — the
+  walker, `project-egress`, the `:rf/project-egress-opts` schema, Conventions
+  — spelled them QUALIFIED. So a caller who had learnt the vocabulary from any
+  of those and passed the qualified key there had it SILENTLY DROPPED, and the
+  record egressed under the fail-closed floor while the call read as an
+  opt-in. (The qualified spelling was `:rf.size/*` then and is `:rf.egress/*`
+  since rf2-kuky.93; the defect is about the SPLIT, not about either name.)
 
   That is a fail-closed direction (over-redaction, not a leak), which is
   precisely why it survived: nothing looked wrong at the sink. Its mirror
@@ -26,15 +27,18 @@
   `project-egress-opt-keys` rather than letting the retirement delete a
   capability, so this suite is what proves they arrived and are graded.
 
-  ## What is deliberately NOT renamed
+  ## The three epoch-local knobs are qualified now (rf2-kuky.93)
 
-  The three EPOCH-LOCAL knobs (`:include-fx-args?`, `:include-runtime-db?`,
-  `:include-event-args?`) stay BARE. They are not app-db axes at all — fx
-  args, the runtime-db partition and event args are different keyspaces —
-  and whether they graduate to a qualified spelling belongs to the
-  `:rf.size/*` → `:rf.egress/*` sweep (rf2-kuky.93), not here.
-  `epoch-local-knobs-stay-bare` below pins that so a later sweep has to
-  change a test on purpose."
+  `:rf.egress/include-fx-args?` / `:rf.egress/include-runtime-db?` /
+  `:rf.egress/include-event-args?` were spelled BARE until rf2-kuky.93. They
+  are not app-db axes at all — fx args, the runtime-db partition and event
+  args are different keyspaces — so `:rf.size/*` would have been absurd on
+  them, and bare was the only honest spelling while the vocabulary was named
+  for the AXIS. Stage 4 of the rf2-kuky.9 option-A ruling settled it by naming
+  the vocabulary for the BOUNDARY instead: `:rf.egress/*` is true of all six
+  axes, so the closed twelve-key map takes ONE namespace and one Malli schema.
+  `epoch-local-knobs-are-qualified` below is the test the earlier revision
+  asked a later sweep to change on purpose."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.core :as rf]
             [re-frame.epoch]
@@ -80,7 +84,7 @@
         (is (= [k] (:unknown-keys d)) (str k " is NAMED in ex-data"))
         (is (= 'rf/project-egress (:where d))
             ":where names the door the caller called")
-        (is (contains? (set (:accepted d)) :rf.size/include-sensitive?)
+        (is (contains? (set (:accepted d)) :rf.egress/include-sensitive?)
             "and the accepted set teaches the spelling that works")))))
 
 (deftest project-egress-rejects-an-arbitrary-unknown-key
@@ -94,7 +98,7 @@
             door REFUSED these four and the one door ACCEPTS them. A test
             that still expected a refusal would go green only for as long
             as the vocabulary stayed too narrow."
-    (doseq [k [:frame :path :rf.size/include-digests? :rf.size/threshold-bytes]]
+    (doseq [k [:frame :path :rf.egress/include-digests? :rf.egress/threshold-bytes]]
       (is (nil? (bad-opts-ex-data
                   #(rf/project-egress a-record {k nil})))
           (str k " IS project-egress vocabulary")))))
@@ -113,20 +117,29 @@
     (is (nil? (bad-opts-ex-data #(rf/project-egress a-record nil))))
     (is (nil? (bad-opts-ex-data #(rf/project-egress a-record {}))))))
 
-(deftest epoch-local-knobs-stay-bare
-  (testing "rf2-kuky.6 — the three epoch-local knobs are DELIBERATELY
-            unqualified: different keyspaces, not app-db axes. Their
-            qualified forms are therefore NOT accepted here; a later
-            `:rf.egress/*` sweep must change this test on purpose rather
-            than find it already passing."
-    (doseq [k [:include-fx-args? :include-runtime-db? :include-event-args?]]
+(deftest epoch-local-knobs-are-qualified
+  (testing "rf2-kuky.93 — the three epoch-local knobs are `:rf.egress/*` like
+            every other axis on this door. They are still a different
+            KEYSPACE from the app-db axes; what changed is that the namespace
+            names the BOUNDARY rather than the axis, so one namespace is true
+            of all six and the closed map takes one Malli schema."
+    (doseq [k [:rf.egress/include-fx-args? :rf.egress/include-runtime-db?
+               :rf.egress/include-event-args?]]
       (is (contains? rf.projection/project-egress-opt-keys k)
-          (str k " stays bare"))
-      (is (some? (bad-opts-ex-data
-                   #(rf/project-egress
-                      a-record
-                      {(keyword "rf.size" (name k)) true})))
-          (str "a qualified :rf.size/" (name k) " is NOT silently accepted")))))
+          (str k " is door vocabulary"))
+      (is (nil? (bad-opts-ex-data #(rf/project-egress a-record {k true})))
+          (str k " passes the door's guard"))))
+  (testing "rf2-kuky.93 — and BOTH retired spellings are refused rather than
+            aliased. The BARE one is the pre-rename spelling of these three;
+            the `:rf.size/*` one is what a reader who generalised from the
+            app-db axes would have guessed. Neither is silently dropped, so a
+            stale caller throws instead of losing its opt-in."
+    (doseq [k [:rf.egress/include-fx-args? :rf.egress/include-runtime-db?
+               :rf.egress/include-event-args?]]
+      (doseq [retired [(keyword (name k)) (keyword "rf.size" (name k))]]
+        (is (some? (bad-opts-ex-data
+                     #(rf/project-egress a-record {retired true})))
+            (str "the retired " retired " is NOT silently accepted"))))))
 
 (deftest the-guard-runs-before-the-input-is-inspected
   (testing "rf2-kuky.6 — a malformed opts map is malformed against ANY
@@ -146,5 +159,5 @@
     (is (= :rf/redacted (rf/project-egress nil))
         "nil is a value too, and redacts rather than returning nil")
     (is (= "not-a-record"
-           (rf/project-egress "not-a-record" {:rf.size/include-sensitive? true}))
+           (rf/project-egress "not-a-record" {:rf.egress/include-sensitive? true}))
         "the explicit opt-out is the one deliberate way to ship it raw")))

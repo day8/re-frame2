@@ -9,7 +9,7 @@ door — it has no `re-frame.core` re-export and no public-API manifest row
 (rf2-kuky.90 removed both).
 
 WHY A GATE AND NOT JUST A DELETION. The walker reads no `:rf.egress/profile`. A
-tool that reaches it directly therefore has to hand-assemble the `:rf.size/*`
+tool that reaches it directly therefore has to hand-assemble the `:rf.egress/*`
 floor a named boundary already carries — and gets NO error if it assembles a
 weaker one, because an all-false floor is a legitimate walker argument. That is
 the fail-open shape stage 1 (rf2-kuky.88) migrated every tool off. Deleting the
@@ -191,7 +191,7 @@ def run_scan(paths: list[Path], verbose: bool = False) -> int:
         "Project through the one facade door with a NAMED boundary instead:\n\n"
         "    (rf/project-egress v {:rf.egress/profile :rf.egress/off-box-tool\n"
         "                          :frame frame-id})\n\n"
-        "The profile resolves to the `:rf.size/*` floor the walker then applies, so\n"
+        "The profile resolves to the `:rf.egress/*` floor the walker then applies, so\n"
         "the boundary is stated once and cannot be under-assembled by hand.\n"
         "Naming the walker in prose or a docstring is fine -- only a CALL fires.\n"
     )

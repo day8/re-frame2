@@ -87,7 +87,7 @@ Two arities:
 The opt-in arg every MCP tool surfacing trace-like data MUST accept. The semantics are fixed — accept the arg, default it to `false`, feed it to `strip-sensitive` (and any analogous walker that recurses through snapshot slices) — and the **wire-key spelling is now uniform** across every server:
 
 - Both servers ship the unqualified `:include-sensitive` wire key (no trailing `?`).
-- The walker option key inside the framework (`vocab/include-sensitive-opt`) is the namespaced `:rf.size/include-sensitive?` — internal, not a wire-key, so the predicate `?` is retained.
+- The walker option key inside the framework (`vocab/include-sensitive-opt`) is the namespaced `:rf.egress/include-sensitive?` — internal, not a wire-key, so the predicate `?` is retained.
 
 The cross-server wire-key is a fixed literal-spelling pin: every server accepts `:include-sensitive` (the per-server tool catalogue documents the same literal).
 

@@ -68,7 +68,7 @@
   value under an unrecognised tag egresses raw at any depth, and a slot nobody
   has enumerated yet cannot leak the way `:blocking` / `:identities` did.
 
-  The redaction is the off-box DEFAULT; the trusted-local `:rf.size/include-sensitive?`
+  The redaction is the off-box DEFAULT; the trusted-local `:rf.egress/include-sensitive?`
   opt-in lifts it at the epoch consumer (the `local-raw` boundary — the same
   switch the app-db / HTTP-body / scope-resolved redactions honour).
 
@@ -856,7 +856,7 @@
 
   The coarse `:sensitive?` claim governs OFF-BOX egress, not in-process
   delivery: the app's own `:reply-to` handler is entitled to the decoded body,
-  and the trusted-local `:rf.size/include-sensitive?` opt-in must still show it. A
+  and the trusted-local `:rf.egress/include-sensitive?` opt-in must still show it. A
   source-side redaction would take both away.
 
   A reply naming an UNREGISTERED owner rides unchanged here and needs no
@@ -1105,7 +1105,7 @@
   The read reply has no such source-side redaction, and MUST NOT: the coarse
   `:sensitive?` claim governs OFF-BOX egress, not in-process delivery — the
   app's own continuation handler is entitled to the decoded body, and the
-  trusted-local `:rf.size/include-sensitive?` opt-in must still show it. So the read
+  trusted-local `:rf.egress/include-sensitive?` opt-in must still show it. So the read
   half belongs exactly here, at the egress projector.
 
   ## …AND the owner's DECLARED paths, when it makes no coarse claim (rf2-ko5lm)
@@ -1547,7 +1547,7 @@
   leak. Idempotent (an opaque token re-projects to itself); a non-map `tags`
   rides unchanged. Pure. The on-box listener path never calls this — the raw
   evidence stays for dev tooling; this is the OFF-BOX egress projector consulted
-  by the epoch tool-pair (the trusted-local `:rf.size/include-sensitive?` opt-in lifts
+  by the epoch tool-pair (the trusted-local `:rf.egress/include-sensitive?` opt-in lifts
   it)."
   [tags frame-id]
   (if-not (map? tags)
@@ -1608,7 +1608,7 @@
   covered without anyone widening a roster.
 
   Idempotent (an opaque token re-projects to itself); a non-map `tags` rides
-  unchanged. Pure. Off-box only — the trusted-local `:rf.size/include-sensitive?` opt-in
+  unchanged. Pure. Off-box only — the trusted-local `:rf.egress/include-sensitive?` opt-in
   lifts it at the epoch consumer, and the on-box listener keeps the raw evidence."
   [tags frame-id]
   (if-not (map? tags)

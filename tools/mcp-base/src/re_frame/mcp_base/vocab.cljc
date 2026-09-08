@@ -22,12 +22,21 @@
                 Owned by the MCP servers; not part of the framework
                 runtime vocabulary.
 
-  `:rf.size/*` — size-elision markers (large-elided, threshold, opts).
-                 Owned jointly with the framework's
-                 `rf/project-egress` walker (Conventions §Reserved
-                 namespaces; Spec 009 §Size elision in traces). The
-                 walker emits the marker; MCP servers re-emit it on
+  `:rf.size/*` — the size-elision MARKER, and since rf2-kuky.93 nothing
+                 else: `:rf.size/large-elided`. Owned jointly with the
+                 framework's `rf/project-egress` walker (Conventions
+                 §Reserved namespaces; Spec 009 §Size elision in traces).
+                 The walker emits the marker; MCP servers re-emit it on
                  the wire.
+
+  `:rf.egress/*` — the framework's egress-opts vocabulary: the named
+                 boundary `:rf.egress/profile` and the seven per-call
+                 policy keys a server relays INTO the framework
+                 (`include-sensitive?` / `include-large?` /
+                 `include-digests?` / `threshold-bytes` and the three
+                 `:rf/epoch-record`-only axes). These are the keys the
+                 `-opt` defs below carry; they travel INWARD, never onto
+                 the wire — a wire arg drops the `?` and the namespace.
 
   Unqualified envelope slots — `:dropped-sensitive` /
   `:elided-large` — are scalar suppression counters that ride the
@@ -149,7 +158,7 @@
   :rf.mcp/source-uri)
 
 ;; ---------------------------------------------------------------------------
-;; :rf.size/* — size-elision markers
+;; :rf.size/* — the size-elision marker (and :rf/redacted, :rf.elision/at)
 ;; ---------------------------------------------------------------------------
 
 (def large-elided-key
@@ -185,12 +194,17 @@
   by path. Reserved per Conventions §Reserved namespaces."
   :rf.elision/at)
 
+;; ---------------------------------------------------------------------------
+;; :rf.egress/* — the framework egress-opts keys a server relays inward
+;; (rf2-kuky.93: one namespace for the whole closed opts map). NOT wire keys.
+;; ---------------------------------------------------------------------------
+
 (def include-large-opt
   "The framework `rf/project-egress` walker opt that controls
   whether large leaves emit the marker (`false` ⇒ emit marker;
   `true` ⇒ pass through). MCP servers surface this as the high-level
   `:elision` boolean MCP arg; the underlying knob is this."
-  :rf.size/include-large?)
+  :rf.egress/include-large?)
 
 (def include-sensitive-opt
   "The framework opt that controls whether sensitive payloads emit
@@ -198,22 +212,22 @@
   `:include-sensitive` wire-arg (story-mcp and re-frame2-pair-mcp
   alike). Per the Anthropic tool-input-schema regex
   `^[a-zA-Z0-9_.-]{1,64}$`, wire-keys MUST omit the trailing `?`.
-  The walker option keyword (this one, `:rf.size/include-sensitive?`)
+  The walker option keyword (this one, `:rf.egress/include-sensitive?`)
   is a NAMESPACED framework key — internal, not a wire-key — so it
   retains the predicate `?`. The predicate FUNCTION name
   `include-sensitive?` (see `re-frame.mcp-base.sensitive`) likewise
   retains `?` — the idiom belongs on predicates."
-  :rf.size/include-sensitive?)
+  :rf.egress/include-sensitive?)
 
 (def include-digests-opt
   "Framework opt: whether elided values include a content digest. Per
   Spec 009 §Size elision in traces."
-  :rf.size/include-digests?)
+  :rf.egress/include-digests?)
 
 (def threshold-bytes-opt
   "Framework opt: byte threshold above which an auto-detected leaf is
   elided. Per Spec 009 §Size elision in traces."
-  :rf.size/threshold-bytes)
+  :rf.egress/threshold-bytes)
 
 ;; ---------------------------------------------------------------------------
 ;; Envelope indicator-field slots (Conventions §Cross-MCP indicator-field

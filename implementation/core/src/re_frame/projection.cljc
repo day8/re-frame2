@@ -30,10 +30,10 @@
 
   The normal public choice at a boundary is *\"which boundary is this?\"* —
   a named egress profile under `:rf.egress/profile` — not *\"which
-  combination of booleans did I remember?\"* The boolean `:rf.size/*` flags
+  combination of booleans did I remember?\"* The boolean `:rf.egress/*` flags
   (`elide-wire-value`'s opt layer) remain the ADVANCED override beneath the
-  profiles. A profile resolves to a `:rf.size/*` opt-set; an explicit
-  `:rf.size/*` opt the caller also passes COMPOSES on top (the explicit
+  profiles. A profile resolves to a `:rf.egress/*` opt-set; an explicit
+  `:rf.egress/*` opt the caller also passes COMPOSES on top (the explicit
   override WINS — `profile-opts` is the floor, the caller's opts the
   overlay).
 
@@ -54,7 +54,7 @@
   the frame is KNOWN (the explicit `:frame` opt, the FRAME-BEARING record's
   own top-level `:frame` slot — seeded into opts when opts omits one, the
   explicit opt winning — or the carried-invariant scope). With no frame and
-  no `:rf.size/include-sensitive? true` opt-out, the underlying
+  no `:rf.egress/include-sensitive? true` opt-out, the underlying
   `elide-wire-value` redacts the whole value to `:rf/redacted` rather than
   borrow another frame's policy — `project-egress` inherits that fail-closed
   posture, it does NOT synthesise `:rf/default`.
@@ -82,7 +82,7 @@
 ;; ---------------------------------------------------------------------------
 ;; The six ruled `:rf.egress/*` profiles (EP-0015 §10, issue 3).
 ;;
-;; Each profile resolves to a `:rf.size/*` opt-set — the boolean override
+;; Each profile resolves to a `:rf.egress/*` opt-set — the boolean override
 ;; layer `elide-wire-value` already consumes. The set is a CLOSED enum;
 ;; additions require a recorded ruling (Spec 015 §The graduation gate).
 ;; ---------------------------------------------------------------------------
@@ -121,68 +121,70 @@
                 :valid   profiles}}))
 
 (def ^:private profile->size-opts
-  "Resolve each profile to its default `:rf.size/*` opt-set (the §10
+  "Resolve each profile to its default `:rf.egress/*` opt-set (the §10
   default-behaviour table). All six off-box / on-box-redacted boundaries
   fail closed (`include-sensitive?`/`include-large?` both false, no
   digests); `:rf.egress/local-raw` is the single trusted-local boundary
   that opts sensitive AND large back in.
 
-  `:rf.egress/off-box-tool` additionally turns on `:rf.size/include-digests?`
+  `:rf.egress/off-box-tool` additionally turns on `:rf.egress/include-digests?`
   so the marker carries the structural indicators / counters a tool needs
   to reason about shape without seeing content (the §10 \"include
   structural indicators\" clause)."
   {:rf.egress/off-box-observability
-   {:rf.size/include-sensitive? false
-    :rf.size/include-large?     false
-    :rf.size/include-digests?   false}
+   {:rf.egress/include-sensitive? false
+    :rf.egress/include-large?     false
+    :rf.egress/include-digests?   false}
 
    :rf.egress/off-box-tool
-   {:rf.size/include-sensitive? false
-    :rf.size/include-large?     false
-    :rf.size/include-digests?   true}
+   {:rf.egress/include-sensitive? false
+    :rf.egress/include-large?     false
+    :rf.egress/include-digests?   true}
 
    :rf.egress/local-redacted
-   {:rf.size/include-sensitive? false
-    :rf.size/include-large?     false
-    :rf.size/include-digests?   false}
+   {:rf.egress/include-sensitive? false
+    :rf.egress/include-large?     false
+    :rf.egress/include-digests?   false}
 
    :rf.egress/local-raw
-   {:rf.size/include-sensitive? true
-    :rf.size/include-large?     true
-    :rf.size/include-digests?   false}
+   {:rf.egress/include-sensitive? true
+    :rf.egress/include-large?     true
+    :rf.egress/include-digests?   false}
 
    :rf.egress/ssr-hydration
-   {:rf.size/include-sensitive? false
-    :rf.size/include-large?     false
-    :rf.size/include-digests?   false}
+   {:rf.egress/include-sensitive? false
+    :rf.egress/include-large?     false
+    :rf.egress/include-digests?   false}
 
    :rf.egress/public-error
-   {:rf.size/include-sensitive? false
-    :rf.size/include-large?     false
-    :rf.size/include-digests?   false}})
+   {:rf.egress/include-sensitive? false
+    :rf.egress/include-large?     false
+    :rf.egress/include-digests?   false}})
 
 (defn profile-size-opts
-  "Return the `:rf.size/*` opt-set a profile resolves to, or `nil` for an
+  "Return the `:rf.egress/*` opt-set a profile resolves to, or `nil` for an
   unknown / absent profile. Public so a tool can introspect the resolution
   (Xray's egress-profile panel) without re-deriving the table."
   [profile]
   (get profile->size-opts profile))
 
 ;; ---------------------------------------------------------------------------
-;; Opts resolution — profile floor + explicit `:rf.size/*` overlay.
+;; Opts resolution — profile floor + explicit `:rf.egress/*` overlay.
 ;;
-;; A profile resolves to a `:rf.size/*` opt-set; an explicit `:rf.size/*`
+;; A profile resolves to a `:rf.egress/*` opt-set; an explicit `:rf.egress/*`
 ;; key the caller ALSO passes composes ON TOP (the override wins). The
-;; non-size opts (`:frame`, `:path`, `:rf.size/threshold-bytes`,
+;; non-size opts (`:frame`, `:path`, `:rf.egress/threshold-bytes`,
 ;; `:as-of-epoch`) flow through to `elide-wire-value` untouched.
 ;; ---------------------------------------------------------------------------
 
 (def epoch-only-opt-keys
   "The three per-axis overrides that govern keyspaces only an
   `:rf/epoch-record` HAS — effect `:args`, the `:rf.db/runtime` frame-state
-  partition, and trigger / trace event args. They are NOT app-db axes, which
-  is why they are spelled bare rather than `:rf.size/*` (rf2-kuky.93 decides
-  the qualified spelling for all six axes at once).
+  partition, and trigger / trace event args. They are NOT app-db axes — which
+  is why they were spelled BARE until rf2-kuky.93 gave all six axes one
+  namespace. Being a different keyspace is a reason not to say `size`; it was
+  never a reason to say nothing, and a door whose opts map needed two
+  namespaces plus a bare tier could not be described by one schema.
 
   They live on the DOOR because rf2-bv1p retired `projected-record`, the
   standalone epoch door that used to own them. A door that retires must not
@@ -192,9 +194,9 @@
   They are STRIPPED before `resolve-elision-opts` (see `project-egress`):
   the walker's map is closed and knows nothing about effects or event args,
   so forwarding one would throw from the wrong layer."
-  #{:include-fx-args?
-    :include-runtime-db?
-    :include-event-args?})
+  #{:rf.egress/include-fx-args?
+    :rf.egress/include-runtime-db?
+    :rf.egress/include-event-args?})
 
 (def project-egress-opt-keys
   "The CLOSED key set `project-egress` accepts (rf2-kuky.6): the walker's
@@ -209,23 +211,23 @@
         epoch-only-opt-keys))
 
 (def ^:private size-override-keys
-  "The `:rf.size/*` boolean keys a profile resolves but a caller may
-  explicitly override (the override wins). `:rf.size/threshold-bytes` is
+  "The `:rf.egress/*` boolean keys a profile resolves but a caller may
+  explicitly override (the override wins). `:rf.egress/threshold-bytes` is
   NOT here — it is a pass-through tuning knob, not a profile-resolved
   boolean."
-  [:rf.size/include-sensitive?
-   :rf.size/include-large?
-   :rf.size/include-digests?])
+  [:rf.egress/include-sensitive?
+   :rf.egress/include-large?
+   :rf.egress/include-digests?])
 
 (defn resolve-elision-opts
   "Resolve an egress `opts` map to the `elide-wire-value` opts a
   tree-shaped slot is walked under.
 
-  Composition (EP-0015 §10): the profile's `:rf.size/*` opt-set is the
-  FLOOR; any `:rf.size/*` boolean the caller passes explicitly OVERLAYS it
+  Composition (EP-0015 §10): the profile's `:rf.egress/*` opt-set is the
+  FLOOR; any `:rf.egress/*` boolean the caller passes explicitly OVERLAYS it
   (the override wins). When no profile is given the opts pass through as-is
   (the advanced raw-flags path). `:frame` / `:path` /
-  `:rf.size/threshold-bytes` / `:as-of-epoch` are preserved verbatim.
+  `:rf.egress/threshold-bytes` / `:as-of-epoch` are preserved verbatim.
 
   An UNKNOWN `:rf.egress/profile` value throws — the enum is closed
   (Spec 015 §The graduation gate), so a typo is a loud error, never a
@@ -241,7 +243,7 @@
 
       (contains? profile->size-opts profile)
       (let [floor    (profile->size-opts profile)
-            ;; Caller's explicit `:rf.size/*` booleans overlay the floor.
+            ;; Caller's explicit `:rf.egress/*` booleans overlay the floor.
             explicit (select-keys opts size-override-keys)]
         (-> (dissoc opts :rf.egress/profile)
             (merge floor)
@@ -319,7 +321,7 @@
 ;; `:event` ARGS slot entirely. It carries only summary fields — frame,
 ;; event id, status, elapsed, effect keys, work/correlation ids. Tools may
 ;; opt into a richer PROJECTED payload (never raw): a `:rf.egress/local-raw`
-;; or any profile that opts `:rf.size/include-sensitive? true` keeps the
+;; or any profile that opts `:rf.egress/include-sensitive? true` keeps the
 ;; `:event` slot, projected through the walker.
 ;;
 ;; "Summary-only" slots (`:event-id`, `:status`, `:elapsed-ms`, `:effects`,
@@ -334,7 +336,7 @@
   when the resolved walk explicitly opts sensitive content back in
   (trusted-local) — the off-box default fails closed and omits it."
   [elision-opts]
-  (true? (:rf.size/include-sensitive? elision-opts)))
+  (true? (:rf.egress/include-sensitive? elision-opts)))
 
 (defn- project-handled-event
   [record elision-opts]
@@ -449,7 +451,7 @@
 ;;      + no explicit raw opt-in                -> FAIL CLOSED (:rf/redacted).
 ;;   4. explicit trusted-local raw opt-in
 ;;      (:rf.egress/local-raw /
-;;       :rf.size/include-sensitive? true)      -> raw.
+;;       :rf.egress/include-sensitive? true)      -> raw.
 ;;
 ;; Case 3 is the rf2-vl0jur reconciliation: an earlier carve-out shipped the
 ;; WHOLE derived tree RAW when the frame was unresolvable / not live, on the
@@ -498,7 +500,7 @@
        silent-leak risk, not a hygiene case. (Earlier this shipped the raw tree;
        rf2-vl0jur reconciled it with Spec 015 §Direct reads.)
     4. explicit trusted-local raw opt-in (`:rf.egress/local-raw` /
-       `:rf.size/include-sensitive? true`) -> the tree passes through verbatim
+       `:rf.egress/include-sensitive? true`) -> the tree passes through verbatim
        (the deliberate operator raw read; this is the ONE way to ship a
        frameless tree raw).
 
@@ -511,7 +513,7 @@
   (let [tree      (:tree record)
         ;; Delegate the WHOLE decision to `elide-wire-value`: it applies the
         ;; live-frame path walk (cases 1 + 2), fails closed on no live frame
-        ;; (case 3), and honours the `:rf.size/include-sensitive? true` opt-out
+        ;; (case 3), and honours the `:rf.egress/include-sensitive? true` opt-out
         ;; (case 4 — an identity walk against the no-frame policy). `:path` is
         ;; dropped (a derived tree is walked whole / per named slot, not at an
         ;; app-db offset) and `:frame` set to the seeded owning frame.
@@ -694,7 +696,7 @@
   fail-closed posture every direct-read / app-db egress uses (rf2-vl0jur; the
   fail-open is about a re-keyed VALUE under a known frame, not an unresolvable
   frame). Under `:rf.egress/local-raw` (or explicit
-  `:rf.size/include-sensitive? true`) the tree passes through verbatim — the one
+  `:rf.egress/include-sensitive? true`) the tree passes through verbatim — the one
   deliberate way to ship a frameless tree raw.
 
   `opts` is a CLOSED map (`project-egress-opt-keys` — the walker's closed
@@ -704,14 +706,14 @@
        :frame             <frame-id>            ;; whose classification applies (override; else the record's own :frame)
        :path              [...]                 ;; offset for a bare-value walk
        :query-v           [...]                 ;; route-sub re-seeding (pass-through)
-       :rf.size/include-sensitive? <bool>       ;; explicit override (wins)
-       :rf.size/include-large?     <bool>
-       :rf.size/include-digests?   <bool>
-       :rf.size/threshold-bytes    <int>        ;; pass-through tuning
+       :rf.egress/include-sensitive? <bool>       ;; explicit override (wins)
+       :rf.egress/include-large?     <bool>
+       :rf.egress/include-digests?   <bool>
+       :rf.egress/threshold-bytes    <int>        ;; pass-through tuning
        :as-of-epoch                <epoch-id>   ;; pass-through
-       :include-fx-args?           <bool>       ;; :rf/epoch-record only — effect :args
-       :include-runtime-db?        <bool>       ;; :rf/epoch-record only — the :rf.db/runtime partition
-       :include-event-args?        <bool>}      ;; :rf/epoch-record only — trigger / trace event args
+       :rf.egress/include-fx-args?           <bool>       ;; :rf/epoch-record only — effect :args
+       :rf.egress/include-runtime-db?        <bool>       ;; :rf/epoch-record only — the :rf.db/runtime partition
+       :rf.egress/include-event-args?        <bool>}      ;; :rf/epoch-record only — trigger / trace event args
 
   The last three are TRUSTED-LOCAL opt-ins over keyspaces only an
   `:rf/epoch-record` has, so they are meaningful on that kind alone; on
@@ -719,8 +721,8 @@
   inert, because the tree being walked has no such slots. All three
   default false — omitted, each stays fail-closed.
 
-  Composition (EP-0015 §10): the profile's `:rf.size/*` opt-set is the
-  floor; any `:rf.size/*` boolean the caller passes explicitly overlays it
+  Composition (EP-0015 §10): the profile's `:rf.egress/*` opt-set is the
+  floor; any `:rf.egress/*` boolean the caller passes explicitly overlays it
   (the override wins). An unknown `:rf.egress/profile` throws
   `:rf.error/unknown-egress-profile` — the enum is closed. An unrecognised
   OPTS KEY throws `:rf.error/bad-egress-opts` naming it — the vocabulary is
@@ -754,7 +756,7 @@
   Fail-closed (EP-0002 / Spec 015 §Direct reads): a tree-shaped slot is
   projected only when the frame is KNOWN. With no frame from ANY of the
   three steps — including an explicit `nil` at step 1 or 2 — and no
-  `:rf.size/include-sensitive? true` opt-out, the delegated walker redacts
+  `:rf.egress/include-sensitive? true` opt-out, the delegated walker redacts
   the whole value to `:rf/redacted` rather than borrow another frame's
   policy. `project-egress` does NOT synthesise `:rf/default`.
 

@@ -1371,7 +1371,7 @@
   An MCP or AI tool selects the
   `:rf.egress/off-box-tool` boundary instead via `project-egress`'s
   `:rf.egress/profile` opt — that profile keeps the same redact/elide
-  defaults but turns on `:rf.size/include-digests?`, so a large owner-local
+  defaults but turns on `:rf.egress/include-digests?`, so a large owner-local
   slot egresses as a marker carrying the structural indicators / counters a
   tool needs to reason about shape without seeing content."
   :rf.egress/off-box-observability)
@@ -1415,10 +1415,10 @@
   overrode the floor — invisible under the five fail-closed profiles, whose
   floor is false anyway, but it silently defeated `:rf.egress/local-raw`, the
   one profile whose floor opts sensitive and large back IN."
-  [:rf.size/include-sensitive?
-   :rf.size/include-large?
-   :rf.size/include-digests?
-   :rf.size/threshold-bytes
+  [:rf.egress/include-sensitive?
+   :rf.egress/include-large?
+   :rf.egress/include-digests?
+   :rf.egress/threshold-bytes
    :query-v
    :as-of-epoch])
 
@@ -1429,13 +1429,13 @@
   consumers pass `:rf.egress/off-box-tool` to receive the structural marker
   indicators / counters the tool profile enables.
 
-  The resolved profile is the FLOOR and the caller's explicit `:rf.size/*`
+  The resolved profile is the FLOOR and the caller's explicit `:rf.egress/*`
   booleans OVERLAY it (the override wins — see
   `re-frame.projection/resolve-elision-opts`). That composition happens ONCE,
   at the record boundary (`resolve-shared-size-axes`); what reaches here is
   its answer, and re-resolving it downstream is idempotent. ONE spelling for
   the two shared axes: these were read here in the bare form, so the
-  `:rf.size/*` spelling every other door takes was silently dropped
+  `:rf.egress/*` spelling every other door takes was silently dropped
   (rf2-kuky.6).
 
   The frame is threaded rather than re-read from the record, so an
@@ -1443,8 +1443,8 @@
   (rf2-kuky.92). Stamping it is what makes the frame's declared sensitive /
   large paths — keyed by absolute app-db path — match the projected value.
 
-  The epoch-only axes (`:include-fx-args?` / `:include-runtime-db?` /
-  `:include-event-args?`) are NEVER forwarded: the walker map is CLOSED
+  The epoch-only axes (`:rf.egress/include-fx-args?` / `:rf.egress/include-runtime-db?` /
+  `:rf.egress/include-event-args?`) are NEVER forwarded: the walker map is CLOSED
   (rf2-kuky.6), so an epoch-only key reaching it throws
   `:rf.error/bad-egress-opts` on a path that used to work. They are read
   by the epoch-side helpers that own them and nowhere else."
@@ -1454,21 +1454,21 @@
          :frame             frame-id))
 
 (def ^:private shared-size-axis-keys
-  "The `:rf.size/*` booleans a NAMED PROFILE resolves — the axes this door
+  "The `:rf.egress/*` booleans a NAMED PROFILE resolves — the axes this door
   shares with every other egress door, as opposed to the three epoch-only
-  opt-ins (`:include-fx-args?` / `:include-runtime-db?` /
-  `:include-event-args?`), which no profile speaks to and which stay
+  opt-ins (`:rf.egress/include-fx-args?` / `:rf.egress/include-runtime-db?` /
+  `:rf.egress/include-event-args?`), which no profile speaks to and which stay
   fail-closed until their own key says otherwise.
 
   Named here so `resolve-shared-size-axes` is true to its name by
   construction: a key outside this set cannot be floor-filled by a profile
   however the projection layer's table changes."
-  [:rf.size/include-sensitive?
-   :rf.size/include-large?
-   :rf.size/include-digests?])
+  [:rf.egress/include-sensitive?
+   :rf.egress/include-large?
+   :rf.egress/include-digests?])
 
 (defn- resolve-shared-size-axes
-  "Resolve the SHARED `:rf.size/*` axes ONCE, at the record boundary: the
+  "Resolve the SHARED `:rf.egress/*` axes ONCE, at the record boundary: the
   named profile's opt-set is the FLOOR, and only the keys the caller ACTUALLY
   supplied overlay it (an explicit `false` therefore stays authoritative).
   Returns `opts` with those three keys present and answered; every other key —
@@ -1510,7 +1510,7 @@
   "Project one payload slot through `project-egress` under the egress
   profile selected by `opts` (default `:rf.egress/off-box-observability`),
   rooted at the named frame.
-  Off-box defaults (`:rf.size/include-sensitive? false`, `:rf.size/include-large? false`)
+  Off-box defaults (`:rf.egress/include-sensitive? false`, `:rf.egress/include-large? false`)
   hold unless `opts` opts back in. The epoch record is not a
   `:rf.observe/*` record kind, so the slot VALUE is projected as a kindless
   tree (the direct-read path → `elide-wire-value` against the frame's
@@ -1530,8 +1530,8 @@
     - `:rf.db/app` — the application state. Projected through the
       frame/profile `project-egress` walk (sensitive paths → `:rf/redacted`,
       large paths → markers), the SAME projection the `:db-before` /
-      `:db-after` app-db projections receive. `opts` `:rf.size/include-sensitive?` /
-      `:rf.size/include-large?` opt the app-db partition's privacy / size posture
+      `:db-after` app-db projections receive. `opts` `:rf.egress/include-sensitive?` /
+      `:rf.egress/include-large?` opt the app-db partition's privacy / size posture
       back in.
 
     - `:rf.db/runtime` — the framework runtime-db. Redacted by default off-box;
@@ -1539,22 +1539,22 @@
       `:rf/redacted` sentinel rather than walked, so machine snapshots /
       route slice / SSR metadata do not egress to AI / log channels by
       default. The runtime-db partition boundary is ORTHOGONAL to the
-      app-db `:rf.size/include-sensitive?` / `:rf.size/include-large?` opt-ins — those do
+      app-db `:rf.egress/include-sensitive?` / `:rf.egress/include-large?` opt-ins — those do
       NOT lift it. A trusted-local caller that
       genuinely needs runtime-db diagnostics opts in explicitly with
-      `:include-runtime-db? true`; the runtime-db value is then projected
+      `:rf.egress/include-runtime-db? true`; the runtime-db value is then projected
       through the same frame/profile walk (its own per-slot sensitive /
       large declarations still apply) rather than redacted whole.
 
   Nil-preserving (a halted-destroy record may carry a nil frame-state slot;
   the projection MUST NOT fabricate a value)."
-  [frame-state frame-id {:keys [include-runtime-db?] :as opts}]
+  [frame-state frame-id {:rf.egress/keys [include-runtime-db?] :as opts}]
   (when (some? frame-state)
     (cond-> frame-state
       (contains? frame-state :rf.db/app)
       (update :rf.db/app rf.projection/project-egress (egress-opts frame-id opts))
       ;; Default-redact runtime-db off-box. The
-      ;; trusted-local `:include-runtime-db? true` opt-in lifts the
+      ;; trusted-local `:rf.egress/include-runtime-db? true` opt-in lifts the
       ;; partition redaction; the value still rides the value walk so its
       ;; own sensitive / large declarations apply.
       (and (contains? frame-state :rf.db/runtime) (not include-runtime-db?))
@@ -1641,7 +1641,7 @@
 ;; candidate body-slot paths are present.
 ;;
 ;; The omission is the off-box DEFAULT and is lifted only by an explicit
-;; trusted-local `:rf.size/include-sensitive?` opt-in (consistent with the
+;; trusted-local `:rf.egress/include-sensitive?` opt-in (consistent with the
 ;; runtime-db / event-args opt-back-in), matching the `local-raw` boundary.
 
 (def ^:private http-body-slots
@@ -1708,9 +1708,9 @@
   no stamp (every non-HTTP event) pass through untouched.
 
   The omission is the off-box default; an explicit trusted-local
-  `:rf.size/include-sensitive?` opt-in lifts it (the `local-raw` boundary).
+  `:rf.egress/include-sensitive?` opt-in lifts it (the `local-raw` boundary).
   Idempotent and nil-preserving."
-  [trace-events {:rf.size/keys [include-sensitive?]}]
+  [trace-events {:rf.egress/keys [include-sensitive?]}]
   (if (or include-sensitive? (not (sequential? trace-events)))
     trace-events
     (mapv (fn [trace-event]
@@ -1761,12 +1761,12 @@
   the raw event).
 
   The redaction is the off-box default; the trusted-local
-  `:include-event-args? true` opt-in lifts it (the same opt that lifts the
+  `:rf.egress/include-event-args? true` opt-in lifts it (the same opt that lifts the
   `:trigger-event` redaction — one event-args keyspace, one switch).
-  Orthogonal to the app-db `:rf.size/include-sensitive?` / `:rf.size/include-large?`
+  Orthogonal to the app-db `:rf.egress/include-sensitive?` / `:rf.egress/include-large?`
   opt-ins. Idempotent (a `[<id> :rf/redacted …]` re-redacts to the same
   sentinels) and nil/non-sequential-preserving."
-  [trace-events {:keys [include-event-args?]}]
+  [trace-events {:rf.egress/keys [include-event-args?]}]
   (if (or include-event-args? (not (sequential? trace-events)))
     trace-events
     (mapv (fn [trace-event]
@@ -1800,13 +1800,13 @@
   propagation model) — preserving the structural `:resource-id` / `:inputs`
   (declared NAMES) / `:kind` / `:resolved-nil?`.
 
-  The redaction is the off-box default; the trusted-local `:rf.size/include-sensitive?`
+  The redaction is the off-box default; the trusted-local `:rf.egress/include-sensitive?`
   opt-in lifts it (the `local-raw` boundary — the same switch the app-db /
   HTTP-body redactions honour). No-op when no resources artefact is loaded (the
   hook is nil — an app with no resources emits no scope-resolved rows anyway).
   Idempotent (`:rf/redacted` re-redacts to itself) and nil/non-sequential-
   preserving."
-  [trace-events {:rf.size/keys [include-sensitive?]}]
+  [trace-events {:rf.egress/keys [include-sensitive?]}]
   (if (or include-sensitive? (not (sequential? trace-events)))
     trace-events
     (if-let [project-scope-resolved-tags
@@ -1865,13 +1865,13 @@
   `:rf.frame/id` tag, when present, takes precedence so a cross-frame row
   classifies against its own owner).
 
-  The redaction is the off-box default; the trusted-local `:rf.size/include-sensitive?`
+  The redaction is the off-box default; the trusted-local `:rf.egress/include-sensitive?`
   opt-in lifts it (the `local-raw` boundary — the same switch the app-db /
   HTTP-body / scope-resolved redactions honour). No-op when no resources
   artefact is loaded (the hook is nil — an app with no resources emits no
   resource/mutation rows anyway). Idempotent (an opaque token re-projects to
   itself) and nil/non-sequential-preserving."
-  [trace-events frame-id {:rf.size/keys [include-sensitive?]}]
+  [trace-events frame-id {:rf.egress/keys [include-sensitive?]}]
   (if (or include-sensitive? (not (sequential? trace-events)))
     trace-events
     (if-let [project-resource-trace-tags
@@ -1917,9 +1917,9 @@
   `:rf.fx/handled` at the emit end.
 
   Same posture as its sibling in every other respect: off-box default, lifted by
-  the trusted-local `:rf.size/include-sensitive?`, no-op when no resources artefact is
+  the trusted-local `:rf.egress/include-sensitive?`, no-op when no resources artefact is
   loaded, idempotent, nil/non-sequential-preserving."
-  [trace-events frame-id {:rf.size/keys [include-sensitive?]}]
+  [trace-events frame-id {:rf.egress/keys [include-sensitive?]}]
   (if (or include-sensitive? (not (sequential? trace-events)))
     trace-events
     (if-let [project-fx-arg-tags
@@ -1963,7 +1963,7 @@
   `[:rf.sub/value]`), so the two projections agree on `:bytes` / `:type` /
   `:reason` while each still names the slot it replaced.
 
-  `opts` `:rf.size/include-large? true` is the trusted-local opt-in: it keeps the raw
+  `opts` `:rf.egress/include-large? true` is the trusted-local opt-in: it keeps the raw
   value in both slots. The `:large?` flag is stripped either way.
 
   Idempotent: a slot already carrying a marker is left untouched (rebuilding a
@@ -1982,7 +1982,7 @@
   `elision/->marker` WITHOUT `include-digests?`, so a whole-output marker
   carries no `:digest` under ANY egress profile — including
   `:rf.egress/off-box-tool`, where a PATH-declared marker does get one."
-  [slot-map {:rf.size/keys [include-large?]} value-key prev-value-key]
+  [slot-map {:rf.egress/keys [include-large?]} value-key prev-value-key]
   (let [mark-slot-value
         (fn [slot-key]
           (fn [slot-value]
@@ -2044,7 +2044,7 @@
   frame/profile `project-egress` walk over the
   whole vector to handle the other payload-bearing tag values
   (`:rf.cofx/value`, etc.) with their own per-tag paths. `opts`
-  `:rf.size/include-sensitive?` / `:rf.size/include-large?` / `:include-event-args?` opt
+  `:rf.egress/include-sensitive?` / `:rf.egress/include-large?` / `:rf.egress/include-event-args?` opt
   the per-call posture back in. Idempotent (a
   second pass walks already-redacted scalars). Nil-preserving."
   [trace-events frame-id opts]
@@ -2094,7 +2094,7 @@
   (`elide-large-sub-trace-values`), so the two egress projections of the
   same value cannot drift (rf2-irwsq). See that rule for the marker
   substitution, the spent-flag strip, idempotence, and the
-  `:rf.size/include-large?` opt-in.
+  `:rf.egress/include-large?` opt-in.
 
   Per-PATH large declarations (a sub with `:large [<path>]` marks but no
   whole-output `:large?` stamp) are already substituted INTO the value
@@ -2130,15 +2130,15 @@
   `:fx-id`, `:outcome`, and `:error-trace` are value-free metadata and pass
   through unchanged.
 
-  `opts` `:include-fx-args? true` is the trusted-local opt-in; it
-  keeps the raw `:args`. It is ORTHOGONAL to the app-db `:rf.size/include-sensitive?`
-  / `:rf.size/include-large?` opt-ins (fx args are a different keyspace, not app-db
+  `opts` `:rf.egress/include-fx-args? true` is the trusted-local opt-in; it
+  keeps the raw `:args`. It is ORTHOGONAL to the app-db `:rf.egress/include-sensitive?`
+  / `:rf.egress/include-large?` opt-ins (fx args are a different keyspace, not app-db
   values), so those do NOT lift it.
 
   Idempotent: a row whose `:args` was already replaced with `:rf/redacted`
   re-redacts to the same sentinel. A row carrying no `:args` key passes
   through (no slot to fabricate)."
-  [effect-row {:keys [include-fx-args?]}]
+  [effect-row {:rf.egress/keys [include-fx-args?]}]
   (if (or include-fx-args? (not (contains? effect-row :args)))
     effect-row
     (assoc effect-row :args :rf/redacted)))
@@ -2186,16 +2186,16 @@
   schema admits (Spec-Schemas §`:rf/epoch-record` — consumers MUST tolerate
   `:rf/redacted` at `:trigger-event`).
 
-  `opts` `:include-event-args? true` is the trusted-local opt-in that keeps
+  `opts` `:rf.egress/include-event-args? true` is the trusted-local opt-in that keeps
   raw args. It is orthogonal to
-  the app-db `:rf.size/include-sensitive?` / `:rf.size/include-large?` opt-ins (event args
+  the app-db `:rf.egress/include-sensitive?` / `:rf.egress/include-large?` opt-ins (event args
   are a different keyspace, not app-db values), so those do NOT lift it,
   matching the `:effects` `:args` / runtime-db boundaries.
 
   Idempotent: a second pass over an already-projected `[<id> :rf/redacted
   …]` re-redacts the (already-`:rf/redacted`) tail to the same sentinels.
   Nil-preserving (a halted record may carry no `:trigger-event`)."
-  [trigger-event {:keys [include-event-args?]}]
+  [trigger-event {:rf.egress/keys [include-event-args?]}]
   (cond
     (or include-event-args? (nil? trigger-event)) trigger-event
     ;; The canonical shape is a non-empty event vector `[<id> <arg> …]`.
@@ -2282,7 +2282,7 @@
      record's own slot never wins back over an explicit override.
 
   2. THE EPOCH-ONLY AXES RIDE THE DOOR'S OWN VOCABULARY (rf2-bv1p).
-     `:include-fx-args?` / `:include-runtime-db?` / `:include-event-args?`
+     `:rf.egress/include-fx-args?` / `:rf.egress/include-runtime-db?` / `:rf.egress/include-event-args?`
      are members of `project-egress-opt-keys`, so a trusted-local caller
      reaches them HERE and nowhere else — the standalone
      `projected-record` door that used to own them is retired. Omitted,
@@ -2290,7 +2290,7 @@
      partition redacted, trigger/trace event args reduced to their event
      ids. That is what keeps
      `{:rf.egress/profile :rf.egress/off-box-tool
-       :rf.size/include-sensitive? true}` meaning what it means: the two
+       :rf.egress/include-sensitive? true}` meaning what it means: the two
      shared app-db axes lift, the three different-keyspace axes do not
      (it is NOT `:rf.egress/local-raw`).
 

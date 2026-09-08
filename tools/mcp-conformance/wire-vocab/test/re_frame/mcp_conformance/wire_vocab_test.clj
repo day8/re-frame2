@@ -663,7 +663,7 @@
   (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.elision :reload)
   (rf.elision/clear-warning-cache!)
-  (rf.elision/configure! {:rf.size/threshold-bytes 16384})
+  (rf.elision/configure! {:rf.egress/threshold-bytes 16384})
   (rf.frame/ensure-default-frame!)
   (binding [rf.frame/*current-frame* :rf/default]
     ;; EP-0025: classify the `:large` paths via the commit-plane effect path —

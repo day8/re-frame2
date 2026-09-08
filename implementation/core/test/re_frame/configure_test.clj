@@ -105,7 +105,7 @@
          ;; Restore defaults so we do not leak tweaks into other suites —
          ;; one composite config map (rf2-dzxixe single-map entry point).
          (rf/configure! {:trace-buffer {:events-retained 50}
-                         :elision      {:rf.size/threshold-bytes 16384}}))))
+                         :elision      {:rf.egress/threshold-bytes 16384}}))))
 
 (use-fixtures :each reset-runtime)
 
@@ -124,9 +124,9 @@
       (is (<= (count (rf/trace-buffer :rf/default)) 7)
           ":trace-buffer {:events-retained 7} caps retained events at 7")))
   (testing ":elision is wired (rf2-le2qu)"
-    (rf/configure! {:elision {:rf.size/threshold-bytes 4096}})
-    (is (= 4096 (:rf.size/threshold-bytes (rf.elision/current-config)))
-        ":elision {:rf.size/threshold-bytes N} reaches the elision config")))
+    (rf/configure! {:elision {:rf.egress/threshold-bytes 4096}})
+    (is (= 4096 (:rf.egress/threshold-bytes (rf.elision/current-config)))
+        ":elision {:rf.egress/threshold-bytes N} reaches the elision config")))
 
 ;; ---------------------------------------------------------------------------
 ;; rf2-kuky.76 — `current-config`, the read twin of `configure!`.
@@ -139,8 +139,8 @@
 
 (deftest current-config-round-trips-what-configure-wrote
   (testing ":elision — PRODUCTION state, so this arm is always-on (rf2-d2841)"
-    (rf/configure! {:elision {:rf.size/threshold-bytes 8192}})
-    (is (= 8192 (get-in (rf/current-config) [:elision :rf.size/threshold-bytes]))
+    (rf/configure! {:elision {:rf.egress/threshold-bytes 8192}})
+    (is (= 8192 (get-in (rf/current-config) [:elision :rf.egress/threshold-bytes]))
         "the value configure! wrote reads back under the SAME key path"))
 
   (testing ":epoch-history — via the optional epoch artefact's late-bind hook"
@@ -165,11 +165,11 @@
 
   (testing "one call, one read — the whole composite round trips at once"
     (rf/configure! {:epoch-history {:depth 17}
-                    :elision       {:rf.size/threshold-bytes 4096}})
+                    :elision       {:rf.egress/threshold-bytes 4096}})
     (try
       (let [cfg (rf/current-config)]
         (is (= 17 (get-in cfg [:epoch-history :depth])))
-        (is (= 4096 (get-in cfg [:elision :rf.size/threshold-bytes]))))
+        (is (= 4096 (get-in cfg [:elision :rf.egress/threshold-bytes]))))
       (finally
         (rf/configure! {:epoch-history {:depth 50}})))))
 
@@ -248,11 +248,11 @@
             the keys the runtime READS — its vocabulary is closed, so a
             pass-through key has no live value to report"
     (rf/configure! {:myapp/thing  {:a 1}
-                    :elision      {:rf.size/threshold-bytes 2048}})
+                    :elision      {:rf.egress/threshold-bytes 2048}})
     (let [cfg (rf/current-config)]
       (is (not (contains? cfg :myapp/thing))
           "the extension key is not reflected back")
-      (is (= 2048 (get-in cfg [:elision :rf.size/threshold-bytes]))
+      (is (= 2048 (get-in cfg [:elision :rf.egress/threshold-bytes]))
           "control: the same call's KNOWN key did land, so the write happened"))))
 
 (deftest trace-buffer-rejected-opts-warn-not-silent
@@ -478,7 +478,7 @@
           ":epoch-history is a known key — no warning")
       (is (empty? (unknown-configure-key-warnings {:epoch-history {:depth 7}
                                                    :trace-buffer  {:events-retained 9}
-                                                   :elision       {:rf.size/threshold-bytes 2048}}))
+                                                   :elision       {:rf.egress/threshold-bytes 2048}}))
           "the full known vocabulary emits nothing")))
   (testing "an unknown key does not perturb the known-key state"
     ;; Set known keys to non-default values, then attempt unknown keys,
@@ -513,10 +513,10 @@
             builds per rf2-kuky.2, which changes nothing about what is
             applied)"
     (rf/configure! {:trace-buffer {:events-retained 6}
-                    :elision      {:rf.size/threshold-bytes 2048}
+                    :elision      {:rf.egress/threshold-bytes 2048}
                     :no-such-key  {:foo 1}
                     :strict-subs  true})
-    (is (= 2048 (:rf.size/threshold-bytes (rf.elision/current-config)))
+    (is (= 2048 (:rf.egress/threshold-bytes (rf.elision/current-config)))
         ":elision applied from the composite map")
     (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
     (dotimes [_ 20] (rf/dispatch-sync [:ping]))
@@ -655,9 +655,9 @@
             guard did not turn configure! into a throw-everything stub."
     (let [elided-configure! (eval-with-assertions-elided
                               (configure!-source-form) 'configure!)]
-      (is (nil? (elided-configure! {:elision {:rf.size/threshold-bytes 4096}}))
+      (is (nil? (elided-configure! {:elision {:rf.egress/threshold-bytes 4096}}))
           "a valid map returns nil as documented")
-      (is (= 4096 (:rf.size/threshold-bytes (rf.elision/current-config)))
+      (is (= 4096 (:rf.egress/threshold-bytes (rf.elision/current-config)))
           "and the known subsystem really was configured")
       (is (nil? (elided-configure! {:no-such-key 1}))
           "an unknown top-level key remains an applies-nothing, nil-returning

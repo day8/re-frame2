@@ -69,7 +69,7 @@ narrowest one first.
 | `elision` | `snapshot`, `get-path` | `true` | Keep on. Pass `false` only when you have explicit override permission and need the raw bytes of a `:large?` slot. |
 | `limit` + `cursor` | `trace-window`, `watch-epochs` | 50 / nil | Paginated epoch streams. First call returns up-to-`limit` records and a `:next-cursor`; pass that back to consume the next page. A stale cursor (id aged out of the ring) surfaces as `:reason :rf.mcp/cursor-stale` — drop it and restart. |
 | `cache` | `snapshot`, `get-path`, `trace-window`, `watch-epochs`, `discover-app` | `false` | Repeated reads of the same (tool, args) within a session. On a hit the payload is replaced with `{:rf.mcp/cache-hit {:hash ... :unchanged-since <ms> :tool ... :hint ...}}` — you already have the byte-identical prior payload locally. 8-slot LRU, scoped to one MCP-server process. |
-| `include-sensitive` | epoch-carrying tools | `false` | Per-call privacy override (the MCP wire arg, **no `?`** — distinct from the walker option `:rf.size/include-sensitive?`, which keeps the `?`). Off by default; honoured only when the server was launched with `--allow-sensitive-reads`. Turn on for a debug session inspecting `:sensitive? true` cascades. |
+| `include-sensitive` | epoch-carrying tools | `false` | Per-call privacy override (the MCP wire arg, **no `?`** — distinct from the walker option `:rf.egress/include-sensitive?`, which keeps the `?`). Off by default; honoured only when the server was launched with `--allow-sensitive-reads`. Turn on for a debug session inspecting `:sensitive? true` cascades. |
 
 ### Quick decision tree
 

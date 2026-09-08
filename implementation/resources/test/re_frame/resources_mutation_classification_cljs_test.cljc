@@ -210,11 +210,11 @@
       (testing "the off-box egress walk over the instance REDACTS :password"
         ;; The walker's opts map is CLOSED (rf2-kuky.6): a `:rf.egress/profile`
         ;; names a BOUNDARY and belongs to `project-egress`, which resolves it
-        ;; to the `:rf.size/*` opt-set below before delegating here. Spelt
+        ;; to the `:rf.egress/*` opt-set below before delegating here. Spelt
         ;; directly, this IS what `:rf.egress/off-box-tool` resolves to.
         (let [proj (rf.elision/elide-wire-value inst {:frame :rf/default
                                               :path [:rf.runtime/mutations k-id]
-                                              :rf.size/include-digests? true})]
+                                              :rf.egress/include-digests? true})]
           (is (= rf.privacy/redacted-sentinel (get-in proj [:params :password]))
               "the instance :password is redacted at egress")
           (is (= "w" (get-in proj [:params :slug])) "the non-sensitive :slug rides verbatim")
@@ -240,7 +240,7 @@
               redacts the owner-declared param (the gap: the dispatched-event
               trace is projected by the CORE event chokepoint, which knew only
               the event REGISTRATION's static classification — nothing, for
-              :rf.mutation/execute — so the trusted-local :include-event-args?
+              :rf.mutation/execute — so the trusted-local :rf.egress/include-event-args?
               opt-in path rode the raw payload)"
       (let [vs (->> @traces
                     (keep #(get-in % [:tags :rf.event/v]))

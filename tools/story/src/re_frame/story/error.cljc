@@ -112,7 +112,7 @@
   (spec/002 §Error projection §Privacy).
 
   Named boundary (rf2-kuky.88): `:rf.egress/local-redacted` — Story is
-  on-box, and that profile's `:rf.size/*` floor is exactly the all-false
+  on-box, and that profile's `:rf.egress/*` floor is exactly the all-false
   floor the bare no-profile walk resolved to before, so the projection is
   byte-identical. The door is reached through its HOME namespace
   (`re-frame.projection`) rather than the `re-frame.core` facade, for the

@@ -326,7 +326,7 @@
     ambient scope;
   - **fail-closed** — `elide-wire-value` redacts the whole value to the
     `:rf/redacted` sentinel when no frame is reachable (frameless egress
-    under no `:rf.size/include-sensitive?` opt-out); a sensitive-declared
+    under no `:rf.egress/include-sensitive?` opt-out); a sensitive-declared
     value is replaced by the sentinel; a large-declared value by the
     `:rf.size/large-elided` marker.
 
@@ -360,7 +360,7 @@
   `frame-id` is the frame whose elision policy governs egress (the observed
   app's frame — typically the graph's `:frame` for a live graph). `opts`
   (optional) ride through to `elide-wire-value` (e.g.
-  `:rf.size/threshold-bytes`); the `:frame` opt is set from `frame-id` and
+  `:rf.egress/threshold-bytes`); the `:frame` opt is set from `frame-id` and
   overrides any caller-supplied one (egress redacts under the OBSERVED
   frame's policy, never a borrowed one).
 

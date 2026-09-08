@@ -12,7 +12,7 @@
 ;; the projection with `*current-frame*` bound to nil, so the call site is
 ;; genuinely frameless (the off-box posture a tool reading outside any frame
 ;; scope sees). The off-box-observability profile floors
-;; `:rf.size/include-sensitive? false`, so absent a frame to declassify
+;; `:rf.egress/include-sensitive? false`, so absent a frame to declassify
 ;; against, the whole tree fails closed.
 ;;
 ;; Mirrors the unit-level `re-frame.projection-cljs-test/fails-closed-with-no-

@@ -101,7 +101,7 @@
   (the common case) — NARROW: NO generic sub-output propagation.
 
   `sub-id` is the sub's query-id (the head of `:rf.sub/id` / the query-vector);
-  `opts` is the `elide-wire-value` opt-map (`:frame` + any `:rf.size/*`
+  `opts` is the `elide-wire-value` opt-map (`:frame` + any `:rf.egress/*`
   overrides). The route seed path is OVERLAID onto `opts` as `:path` so the
   walk's candidate declaration-coordinate set starts at the slice's storage
   position and the registry's re-rooted absolute route paths match exactly

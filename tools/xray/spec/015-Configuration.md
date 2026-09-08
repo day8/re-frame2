@@ -399,12 +399,12 @@ relevant pair is:
 | Value | Meaning |
 |---|---|
 | `:rf.egress/local-redacted` | Default (fail-closed). Xray's trace collector MUST drop events whose top-level `:sensitive?` field is `true` before any buffer push, and MUST bump the suppressed-events counter (see [§App-db slots](#app-db-slots) below) so the shell's bottom rail can surface a `[● REDACTED N]` indicator. |
-| `:rf.egress/local-raw` | The trusted-local operator opt-in. The collector receives every event unchanged; `:sensitive? true` events flow through to every consumer. Includes large values too (the profile's `:rf.size/include-large?`). |
+| `:rf.egress/local-raw` | The trusted-local operator opt-in. The collector receives every event unchanged; `:sensitive? true` events flow through to every consumer. Includes large values too (the profile's `:rf.egress/include-large?`). |
 | `nil` | Resets to the default (`:rf.egress/local-redacted`). |
 | unknown | `configure!` rejects with `:rf.error/unknown-egress-profile` (the enum is closed). |
 
 The "is a `:sensitive?` event suppressed?" decision derives from the
-profile's `:rf.size/include-sensitive?` resolution via the framework
+profile's `:rf.egress/include-sensitive?` resolution via the framework
 projection table (`projection/profile-size-opts`), the SAME table
 `project-egress` consumes — one source of truth, no re-implemented
 redaction policy. The profile MUST be read at the head of the collector

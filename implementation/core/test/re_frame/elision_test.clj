@@ -78,7 +78,7 @@
   (require 're-frame.schemas :reload)
   ;; `config` is a `defonce` (survives `:reload`); restore the documented
   ;; default so a configure tweak in one test does not leak into the next.
-  (rf.elision/configure! {:rf.size/threshold-bytes 16384})
+  (rf.elision/configure! {:rf.egress/threshold-bytes 16384})
   ;; EP-0002 (rf2-5q7um6 + rf2-gjq3ow): reg-app-schema + the zero-arity
   ;; populate-*-from-schemas! / declarations / sensitive-declarations
   ;; readers are context-required frame-local — an ambient call under no
@@ -124,7 +124,7 @@
   (is (rf.elision/marker? (:big (rf.elision/elide-wire-value {:big "blob"}))))
   (is (= "blob"
          (:big (rf.elision/elide-wire-value {:big "blob"}
-                                    {:rf.size/include-large? true})))))
+                                    {:rf.egress/include-large? true})))))
 
 (deftest unschema'd-large-value-warns-but-does-not-elide
   (let [big    (apply str (repeat 3000 "ABCDEFGH"))
@@ -172,7 +172,7 @@
 ;; `:rf.warning/large-value-unschema'd` advisory is configurable, with
 ;; normative precedence:
 ;;
-;;   explicit `:rf.size/threshold-bytes` opt  >  `(rf/configure! {:elision …})`  >  16384
+;;   explicit `:rf.egress/threshold-bytes` opt  >  `(rf/configure! {:elision …})`  >  16384
 ;;
 ;; A threshold of 0 disables runtime auto-detect (only declared / schema
 ;; entries elide; the unschema'd-large warning never fires).
@@ -192,7 +192,7 @@
     ;; + 2 quote bytes = 16002), so no warning.
     ;; ALWAYS-ON: the documented default is readable straight off the config,
     ;; with no channel involved.
-    (is (= 16384 (:rf.size/threshold-bytes (rf.elision/current-config)))
+    (is (= 16384 (:rf.egress/threshold-bytes (rf.elision/current-config)))
         "the documented 16384-byte default is the live configured threshold")
     ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
     ;; The auto-detect WARNING is the threshold's only observable, and under
@@ -208,7 +208,7 @@
     (rf/unregister-listener! :trace :elision-test/default-thresh)))
 
 (deftest configured-threshold-takes-effect
-  ;; rf2-le2qu — the IMPL gap: `(rf/configure! {:elision {:rf.size/threshold-bytes N}})`
+  ;; rf2-le2qu — the IMPL gap: `(rf/configure! {:elision {:rf.egress/threshold-bytes N}})`
   ;; must lower (or raise) the runtime auto-detect threshold. A 100-byte
   ;; threshold makes a small string trip the warning that the 16384 default
   ;; would have ignored.
@@ -219,9 +219,9 @@
     ;; advisory, never the walk's output).
     (is (= {:a {:s small}} (rf.elision/elide-wire-value {:a {:s small}}))
         "under the default the 300-byte string rides verbatim")
-    (rf/configure! {:elision {:rf.size/threshold-bytes 100}})
-    (is (= 100 (:rf.size/threshold-bytes (rf.elision/current-config)))
-        "(configure! {:elision {:rf.size/threshold-bytes 100}}) moved the live threshold")
+    (rf/configure! {:elision {:rf.egress/threshold-bytes 100}})
+    (is (= 100 (:rf.egress/threshold-bytes (rf.elision/current-config)))
+        "(configure! {:elision {:rf.egress/threshold-bytes 100}}) moved the live threshold")
     (is (= {:b {:s small}} (rf.elision/elide-wire-value {:b {:s small}}))
         "and the now-over-threshold string STILL rides verbatim — the knob
          governs the advisory, not the walk")
@@ -229,39 +229,39 @@
     ;; The warning is the threshold's only observable.
     (when rf.interop/debug-enabled?
       (is (= 1 (count-unschema'd-warnings traces))
-          "after (configure :elision {:rf.size/threshold-bytes 100}) the 300-byte string warns"))
+          "after (configure :elision {:rf.egress/threshold-bytes 100}) the 300-byte string warns"))
     (rf/unregister-listener! :trace :elision-test/configured)))
 
 (deftest configure-threshold-reaches-elision-config
   ;; The configure case stores the value where elision reads it — direct
   ;; assertion against the elision config, mirroring the :sub-cache shape
   ;; of configure-test.
-  (rf/configure! {:elision {:rf.size/threshold-bytes 4096}})
-  (is (= 4096 (:rf.size/threshold-bytes (rf.elision/current-config)))
-      "(configure :elision {:rf.size/threshold-bytes N}) reaches the elision config"))
+  (rf/configure! {:elision {:rf.egress/threshold-bytes 4096}})
+  (is (= 4096 (:rf.egress/threshold-bytes (rf.elision/current-config)))
+      "(configure :elision {:rf.egress/threshold-bytes N}) reaches the elision config"))
 
 (deftest explicit-opt-wins-over-configured
-  ;; Precedence: an explicit `:rf.size/threshold-bytes` on the call wins
+  ;; Precedence: an explicit `:rf.egress/threshold-bytes` on the call wins
   ;; over the configured value. Configure a tiny threshold (would warn),
   ;; then pass a large explicit opt on the call (must NOT warn).
   (let [s      (apply str (repeat 300 "z"))          ; ~302 bytes
         traces (collect-traces! :elision-test/opt-wins)]
-    (rf/configure! {:elision {:rf.size/threshold-bytes 50}})
+    (rf/configure! {:elision {:rf.egress/threshold-bytes 50}})
     ;; ALWAYS-ON: whichever threshold wins, an unschema'd value is returned
     ;; verbatim — the precedence rule governs the advisory, never the walk.
-    (is (= {:a {:s s}} (rf.elision/elide-wire-value {:a {:s s}} {:rf.size/threshold-bytes 100000}))
+    (is (= {:a {:s s}} (rf.elision/elide-wire-value {:a {:s s}} {:rf.egress/threshold-bytes 100000}))
         "a per-call threshold opt does not change the walk's output")
     ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
     ;; BOTH halves go inside: the `= 0` would pass over the gate's empty
     ;; stream without the explicit opt having overridden anything.
     (when rf.interop/debug-enabled?
       (is (= 0 (count-unschema'd-warnings traces))
-          "explicit :rf.size/threshold-bytes opt (100000) overrides configured (50) — no warning")
+          "explicit :rf.egress/threshold-bytes opt (100000) overrides configured (50) — no warning")
       ;; And conversely an explicit small opt wins over a large configured value.
-      (rf/configure! {:elision {:rf.size/threshold-bytes 1000000}})
-      (rf.elision/elide-wire-value {:b {:s s}} {:rf.size/threshold-bytes 100})
+      (rf/configure! {:elision {:rf.egress/threshold-bytes 1000000}})
+      (rf.elision/elide-wire-value {:b {:s s}} {:rf.egress/threshold-bytes 100})
       (is (= 1 (count-unschema'd-warnings traces))
-          "explicit :rf.size/threshold-bytes opt (100) overrides configured (1000000) — warns"))
+          "explicit :rf.egress/threshold-bytes opt (100) overrides configured (1000000) — warns"))
     (rf/unregister-listener! :trace :elision-test/opt-wins)))
 
 (deftest threshold-zero-disables-runtime-auto-detect
@@ -270,11 +270,11 @@
   ;; unschema'd string never trips the warning.
   (let [big    (apply str (repeat 5000 "ABCDEFGH")) ; ~40002 bytes — well over default
         traces (collect-traces! :elision-test/zero)]
-    (rf/configure! {:elision {:rf.size/threshold-bytes 0}})
+    (rf/configure! {:elision {:rf.egress/threshold-bytes 0}})
     ;; ALWAYS-ON: 0 reaches the live config, and the 40KB unschema'd value
     ;; still rides verbatim (auto-detect never elided it in the first place —
     ;; `unschema'd-large-value-warns-but-does-not-elide`).
-    (is (= 0 (:rf.size/threshold-bytes (rf.elision/current-config)))
+    (is (= 0 (:rf.egress/threshold-bytes (rf.elision/current-config)))
         "threshold 0 reaches the live elision config")
     (is (= {:a {:big big}} (rf.elision/elide-wire-value {:a {:big big}}))
         "the 40KB unschema'd value rides verbatim under threshold 0")
@@ -286,8 +286,8 @@
       (is (= 0 (count-unschema'd-warnings traces))
           "threshold 0 disables runtime auto-detect — no warning even for a 40KB string")
       ;; Sanity: a per-call explicit 0 also disables, overriding a configured non-zero.
-      (rf/configure! {:elision {:rf.size/threshold-bytes 100}})
-      (rf.elision/elide-wire-value {:b {:big big}} {:rf.size/threshold-bytes 0})
+      (rf/configure! {:elision {:rf.egress/threshold-bytes 100}})
+      (rf.elision/elide-wire-value {:b {:big big}} {:rf.egress/threshold-bytes 0})
       (is (= 0 (count-unschema'd-warnings traces))
           "explicit threshold-bytes 0 opt disables runtime auto-detect for that call"))
     (rf/unregister-listener! :trace :elision-test/zero)))
@@ -297,7 +297,7 @@
   ;; unschema'd values — frame-declared `:large` `:app-db` paths still elide
   ;; to a marker regardless of threshold (including threshold 0).
   (install-class! [] [[:doc]])
-  (rf/configure! {:elision {:rf.size/threshold-bytes 0}})
+  (rf/configure! {:elision {:rf.egress/threshold-bytes 0}})
   (let [out (rf.elision/elide-wire-value {:doc "x"})]
     (is (rf.elision/marker? (:doc out))
         "frame-declared :large paths elide independent of the runtime threshold")))
@@ -311,7 +311,7 @@
     (is (= "shh"
            (get-in (rf.elision/elide-wire-value
                      {:auth {:password "shh"}}
-                     {:rf.size/include-sensitive? true})
+                     {:rf.egress/include-sensitive? true})
                    [:auth :password])))))
 
 (deftest frame-sensitive-position-precise-redacts
@@ -340,7 +340,7 @@
 (deftest marker-options
   (install-class! [] [[:b]])
   (let [out    (rf.elision/elide-wire-value {:b "X"}
-                                    {:rf.size/include-digests? true
+                                    {:rf.egress/include-digests? true
                                      :as-of-epoch 42})
         marker (get-in out [:b :rf.size/large-elided])]
     (is (= [:rf.elision/at [:b] :as-of-epoch 42] (:handle marker)))
@@ -391,7 +391,7 @@
   (install-class! [] [[:doc :body]])
   (let [input  {:doc {:body (apply str (repeat 2000 "X"))}}
         once   (rf.elision/elide-wire-value input)
-        opened (rf.elision/elide-wire-value once {:rf.size/include-large? true})]
+        opened (rf.elision/elide-wire-value once {:rf.egress/include-large? true})]
     (is (rf.elision/marker? (get-in once [:doc :body])))
     (is (= once opened)
         ":include-large? true descends into the marker map but the
@@ -424,7 +424,7 @@
           input  {:a {:b secret :c "public"}}
           ;; The off-box-tool floor: digests ON, sensitive redaction in force
           ;; (NOT opted out). This is the exact opts that triggered the leak.
-          out    (rf.elision/elide-wire-value input {:rf.size/include-digests? true})]
+          out    (rf.elision/elide-wire-value input {:rf.egress/include-digests? true})]
       ;; The sensitive descendant is REDACTED in place …
       (is (= :rf/redacted (get-in out [:a :b]))
           "the :sensitive descendant under the :large subtree is redacted")
@@ -453,7 +453,7 @@
     (install-class! [[:b]] [[]])
     (let [secret "ROOT-LEVEL-SECRET"
           out    (rf.elision/elide-wire-value {:b secret :other "ok"}
-                                      {:rf.size/include-digests? true})]
+                                      {:rf.egress/include-digests? true})]
       (is (= :rf/redacted (get out :b))
           "the sensitive descendant under the whole-value large mark is redacted")
       (is (not (rf.elision/marker? out))
@@ -469,7 +469,7 @@
             guard"
     (install-class! [[:other :token]] [[:a]])
     (let [out (rf.elision/elide-wire-value {:a {:b "x" :c "y"}}
-                                   {:rf.size/include-digests? true})]
+                                   {:rf.egress/include-digests? true})]
       (is (rf.elision/marker? (get out :a))
           "a large subtree with no sensitive descendant still emits its marker"))))
 
@@ -614,12 +614,12 @@
           "Non-sensitive sub-cache entries pass through unchanged")
       (is (= 1 (get-in out [[:auth/token] :ref-count]))
           ":ref-count metadata is untouched"))
-    ;; Opt-in: `:rf.size/include-sensitive? true` passes the raw value
+    ;; Opt-in: `:rf.egress/include-sensitive? true` passes the raw value
     ;; through — the same escape hatch get-path / snapshot expose at the
     ;; MCP layer.
     (let [out (rf.elision/elide-wire-value sub-cache
                                    {:frame frame-id
-                                    :rf.size/include-sensitive? true})]
+                                    :rf.egress/include-sensitive? true})]
       (is (= "shh-secret" (get-in out [[:auth/token] :value :token]))
           "include-sensitive? true ⇒ sensitive sub-cache slots pass through verbatim"))))
 
@@ -665,7 +665,7 @@
 ;; `:rf/default` floor. With no carried frame the per-frame elision registry
 ;; is unreachable, so the whole value is conservatively redacted to
 ;; `:rf/redacted` rather than shipped verbatim under no policy (which would
-;; be the silent leak the contract abolishes). `:rf.size/include-sensitive?
+;; be the silent leak the contract abolishes). `:rf.egress/include-sensitive?
 ;; true` is the deliberate opt-out — the caller waived sensitive redaction,
 ;; so the value rides through (identity walk against an empty policy).
 ;; ---------------------------------------------------------------------------
@@ -690,13 +690,13 @@
         "explicit :frame override resolves a known frame ⇒ its policy applies")))
 
 (deftest frameless-egress-include-sensitive-opt-out
-  ;; `:rf.size/include-sensitive? true` is the deliberate opt-out: a caller
+  ;; `:rf.egress/include-sensitive? true` is the deliberate opt-out: a caller
   ;; that has waived sensitive redaction gets the value verbatim even with
   ;; no carried frame (identity walk against an empty policy).
   (binding [rf.frame/*current-frame* nil]
     (is (= {:a 1 :b [2 3]}
            (rf.elision/elide-wire-value {:a 1 :b [2 3]}
-                                {:rf.size/include-sensitive? true}))
+                                {:rf.egress/include-sensitive? true}))
         "include-sensitive? true ⇒ frameless value rides verbatim (opt-out)")))
 
 ;; ---------------------------------------------------------------------------
@@ -757,7 +757,7 @@
         "the would-be-public value redacts whole under an unresolvable frame")))
 
 (deftest unresolvable-frame-include-sensitive-opt-out-still-identity
-  ;; The deliberate opt-out is unchanged: `:rf.size/include-sensitive? true`
+  ;; The deliberate opt-out is unchanged: `:rf.egress/include-sensitive? true`
   ;; against an unresolvable frame walks the value under an empty (no-frame)
   ;; policy — the caller explicitly waived redaction, so the value rides
   ;; through. This keeps the escape hatch symmetric with the frameless case.
@@ -765,7 +765,7 @@
     (is (= {:a 1 :b [2 3]}
            (rf.elision/elide-wire-value {:a 1 :b [2 3]}
                                 {:frame :elision-test/never-registered
-                                 :rf.size/include-sensitive? true}))
+                                 :rf.egress/include-sensitive? true}))
         "include-sensitive? true ⇒ unresolvable-frame value rides verbatim (opt-out)")))
 
 (deftest stale-carried-scope-frame-fails-closed
@@ -830,7 +830,7 @@
   (is (= {:a 1 :b [2 3]}
          (rf.elision/elide-wire-value {:a 1 :b [2 3]}
                               {:frame nil
-                               :rf.size/include-sensitive? true}))
+                               :rf.egress/include-sensitive? true}))
       "include-sensitive? true ⇒ explicit-nil frame still identity-walks"))
 
 (deftest explicit-nil-frame-cannot-be-made-live-by-registering-a-nil-id
@@ -893,10 +893,10 @@
     (is (= :rf/redacted (get-in out [:items 1 :token]))
         "every vector element redacts, not just index 0"))
   ;; Opt-in escape hatch still passes the raw value (the get-path /
-  ;; snapshot `:rf.size/include-sensitive? true` path).
+  ;; snapshot `:rf.egress/include-sensitive? true` path).
   (is (= "SECRET"
          (get-in (rf.elision/elide-wire-value {:items [{:token "SECRET"}]}
-                                      {:rf.size/include-sensitive? true})
+                                      {:rf.egress/include-sensitive? true})
                  [:items 0 :token]))
       "include-sensitive? true ⇒ collection-nested sensitive passes raw"))
 

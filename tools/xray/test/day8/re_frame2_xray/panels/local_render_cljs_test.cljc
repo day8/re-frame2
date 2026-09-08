@@ -184,7 +184,7 @@
                map (the `:frame` stamp itself is pinned in §7)"
        (is (= :rf.egress/local-redacted
               (:rf.egress/profile (local-render-opts* secure-frame))))
-       (is (true? (:rf.size/include-large? (local-render-opts* secure-frame)))
+       (is (true? (:rf.egress/include-large? (local-render-opts* secure-frame)))
            "the keep-large overlay is always present"))))
 
 ;; ---------------------------------------------------------------------------

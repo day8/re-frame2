@@ -776,7 +776,7 @@ jobs:
       # `re-frame.elision/elide-wire-value` still RESOLVES (the framework's own
       # emit-time chokepoints call it), so nothing stops a tool reaching past
       # the door again — and the failure is silent, because the walker reads no
-      # `:rf.egress/profile` and an under-assembled `:rf.size/*` floor is a
+      # `:rf.egress/profile` and an under-assembled `:rf.egress/*` floor is a
       # perfectly legitimate argument to it. This scan refuses a CALL from
       # `tools/*/src` + `skills/*/preload` only; prose and docstrings naming the
       # mechanism never fire, and the tool TEST trees are deliberately unscanned

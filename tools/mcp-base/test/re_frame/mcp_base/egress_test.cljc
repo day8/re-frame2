@@ -16,7 +16,7 @@
   `:include-sensitive`) stays an INTEGRATION test in each consumer; only
   the pure posture→profile mapping is owned here.
 
-  rf2-kuky.88 dropped the end-to-end posture→profile→`:rf.size/*` floor
+  rf2-kuky.88 dropped the end-to-end posture→profile→`:rf.egress/*` floor
   test along with the pure-data mirror it read. mcp-base no longer
   resolves a profile — every tool-side egress NAMES one and
   `re-frame.core/project-egress` resolves it app-side — so the floors are

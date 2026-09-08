@@ -133,7 +133,7 @@
                    (args/parse-bool-arg raw-args :include-sensitive)
                    false)
         ;; `egress-opts-edn` takes walker-aligned `include-large?` — MCP
-        ;; `elision` true = emit markers = `:rf.size/include-large?` false.
+        ;; `elision` true = emit markers = `:rf.egress/include-large?` false.
         ;; Fail-CLOSED: the door is ALWAYS called (rf2-kuky.88) and the
         ;; NAMED profile decides the floor. A bare `:elision false` stays
         ;; on `:rf.egress/off-box-tool` with a large-inclusion overlay, so

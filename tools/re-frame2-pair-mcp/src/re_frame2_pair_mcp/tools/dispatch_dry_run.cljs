@@ -154,7 +154,7 @@
   `project-egress` path walk CANNOT prove them safe. This is the same leak
   class as an epoch record's `:effects[*].args`, which the epoch arm of
   `project-egress` already fails closed off-box (`elide-effect-row`,
-  `:include-fx-args? false`). Consistency wins: off-box egress FAILS
+  `:rf.egress/include-fx-args? false`). Consistency wins: off-box egress FAILS
   CLOSED here too — `:args` is replaced with the `:rf/redacted` sentinel
   for EVERY recorded fx by default.
 
@@ -275,7 +275,7 @@
                         false)
         ;; `egress-opts-edn` takes the walker-aligned `include-large?`
         ;; polarity directly. MCP `elision` true = emit markers =
-        ;; `:rf.size/include-large?` false; hence `(not elision?)`.
+        ;; `:rf.egress/include-large?` false; hence `(not elision?)`.
         ;; Fail-CLOSED: the app-db-rooted `:db-state-after-simulation`
         ;; slot ALWAYS routes through the door (rf2-kuky.88) and the NAMED
         ;; profile decides the floor. A bare `:elision false` stays on

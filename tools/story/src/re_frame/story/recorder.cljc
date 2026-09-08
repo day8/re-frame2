@@ -73,7 +73,7 @@
   (the fail-closed default) redacts; `:rf.egress/local-raw` (the
   trusted-local opt-in) passes — resolved through the framework's
   centralized projection table (`rf.story.config/suppress-sensitive?` →
-  `project-egress`'s `:rf.size/include-sensitive?` floor), NOT a
+  `project-egress`'s `:rf.egress/include-sensitive?` floor), NOT a
   process-global boolean. EP-0015 defines this named-boundary,
   frame-owned model.
 

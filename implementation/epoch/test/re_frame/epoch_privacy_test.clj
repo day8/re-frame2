@@ -10,7 +10,7 @@
        single normative projection emission site for off-box egress.
        Routes :db-before / :db-after / :trigger-event / :trace-events
        through elide-wire-value with off-box defaults
-       (:rf.size/include-sensitive? false, :rf.size/include-large? false).
+       (:rf.egress/include-sensitive? false, :rf.egress/include-large? false).
 
     3. Listener fan-out delivers RAW records by default — silent
        projection would break Xray's diff visualiser and on-box
@@ -347,7 +347,7 @@
             exact value (Xray diff / restore-epoch! need it), but the
             off-box `project-egress` egress
             boundary MUST substitute a `:rf.size/large-elided` marker for
-            those value slots under the `:rf.size/include-large? false` default —
+            those value slots under the `:rf.egress/include-large? false` default —
             otherwise a bulky derived value escapes the projection
             contract (the pre-fix leak). The non-value row metadata
             (`:sub-id`, `:query-v`, `:value-changed?`, `:cascade?`) is
@@ -445,9 +445,9 @@
                                (tags-of (rf/project-egress
                                           (last (rf.epoch/epoch-history :test/main))))))
             "the whole-ring composition elides the trace-tag twin too")
-        (let [lifted (tags-of (rf/project-egress raw {:rf.size/include-large? true}))]
+        (let [lifted (tags-of (rf/project-egress raw {:rf.egress/include-large? true}))]
           (is (= 50000 (count (:rf.sub/value lifted)))
-              "NEGATIVE CONTROL — :rf.size/include-large? true returns the raw value to
+              "NEGATIVE CONTROL — :rf.egress/include-large? true returns the raw value to
                the tag, so the default elision is classification-driven"))))))
 
 (deftest project-egress-bookkeeping-passes-through
@@ -500,7 +500,7 @@
 ;; safe. Off-box egress FAILS CLOSED: project-egress redacts each row's :args
 ;; to :rf/redacted for EVERY outcome, preserving :fx-id / :outcome /
 ;; :error-trace. NEGATIVE CONTROL: the RAW ring record keeps the exact args
-;; (asserted distinct from the projected sentinel), and :include-fx-args? true
+;; (asserted distinct from the projected sentinel), and :rf.egress/include-fx-args? true
 ;; lifts the redaction.
 
 (defn- effect-row [record fx-id]
@@ -509,7 +509,7 @@
 (deftest project-egress-elides-fx-args-success-row
   (testing "an :ok fx row's :args are payload-bearing and fail closed off-box;
             the raw ring keeps them (negative control); :fx-id / :outcome are
-            preserved; :include-fx-args? true lifts the redaction"
+            preserved; :rf.egress/include-fx-args? true lifts the redaction"
     (rf/make-frame {:id :test/main})
     (let [secret {:password "topsecret" :token "abc123"}]
       (rf/reg-fx :fxp/login (fn [_ _] nil))
@@ -520,7 +520,7 @@
       (let [raw       (last-record :test/main)
             raw-row   (effect-row raw :fxp/login)
             proj-row  (effect-row (rf/project-egress raw) :fxp/login)
-            wide-row  (effect-row (rf/project-egress raw {:include-fx-args? true})
+            wide-row  (effect-row (rf/project-egress raw {:rf.egress/include-fx-args? true})
                                   :fxp/login)]
         ;; Negative control: the raw ring record carries the EXACT secret args.
         (is (= secret (:args raw-row))
@@ -535,7 +535,7 @@
         (is (= :ok (:outcome proj-row)))
         ;; Trusted-local opt-in lifts the redaction.
         (is (= secret (:args wide-row))
-            ":include-fx-args? true keeps the raw args for trusted-local")))))
+            ":rf.egress/include-fx-args? true keeps the raw args for trusted-local")))))
 
 (deftest project-egress-elides-fx-args-skipped-on-platform-row
   (testing "a :skipped-on-platform fx row's :args fail closed off-box (the
@@ -707,11 +707,11 @@
           "the marked secret is absent from the projected trigger-event"))))
 
 (deftest project-egress-trigger-event-trusted-local-opt-in
-  (testing "rf2-nm611o: the trusted-local :include-event-args? true opt-in
+  (testing "rf2-nm611o: the trusted-local :rf.egress/include-event-args? true opt-in
             keeps the RAW event args off-box (a developer's own Xray panel
             inspecting their own running app). It is ORTHOGONAL to the
-            app-db :rf.size/include-sensitive? / :rf.size/include-large? opt-ins — those do
-            NOT lift it; only :include-event-args? does."
+            app-db :rf.egress/include-sensitive? / :rf.egress/include-large? opt-ins — those do
+            NOT lift it; only :rf.egress/include-event-args? does."
     (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
     (rf/reg-event :login
@@ -720,16 +720,16 @@
 
     (let [raw (last-record :test/main)]
       (is (= [:login "topsecret"]
-             (:trigger-event (rf/project-egress raw {:include-event-args? true})))
-          ":include-event-args? true keeps the raw event args off-box")
+             (:trigger-event (rf/project-egress raw {:rf.egress/include-event-args? true})))
+          ":rf.egress/include-event-args? true keeps the raw event args off-box")
       ;; Orthogonality: the app-db sensitive/large opt-ins do NOT lift the
       ;; event-args redaction (event args are a different keyspace).
       (is (= [:login :rf/redacted]
-             (:trigger-event (rf/project-egress raw {:rf.size/include-sensitive? true})))
-          ":rf.size/include-sensitive? does NOT lift the trigger-event-args redaction")
+             (:trigger-event (rf/project-egress raw {:rf.egress/include-sensitive? true})))
+          ":rf.egress/include-sensitive? does NOT lift the trigger-event-args redaction")
       (is (= [:login :rf/redacted]
-             (:trigger-event (rf/project-egress raw {:rf.size/include-large? true})))
-          ":rf.size/include-large? does NOT lift the trigger-event-args redaction"))))
+             (:trigger-event (rf/project-egress raw {:rf.egress/include-large? true})))
+          ":rf.egress/include-large? does NOT lift the trigger-event-args redaction"))))
 
 (deftest project-egress-trigger-event-redaction-idempotent
   (testing "rf2-nm611o: re-projecting an already-projected record leaves

@@ -690,8 +690,8 @@ the picker / focus selects). The contract — the shared seam
   a first-class muted chip (the R8 redaction type). A shoulder-surfer,
   screen-share, or recorded debugging session never sees the secret.
 - **The local operator MAY see large values.** `:rf.egress/local-redacted`'s
-  floor (`:rf.size/include-large? false`) is overlaid with an explicit
-  `:rf.size/include-large? true` (the override wins —
+  floor (`:rf.egress/include-large? false`) is overlaid with an explicit
+  `:rf.egress/include-large? true` (the override wins —
   [`re-frame.projection` composition](../../../spec/015-Data-Classification.md#projection-profiles--the-rfegress-enum-provisional)).
   On-box size bounding is a *display ergonomics* concern owned by the
   edn-inspector, **not** an egress-redaction concern — the operator is
@@ -713,7 +713,7 @@ the picker / focus selects). The contract — the shared seam
   that borrowed frame's (possibly empty) policy — the exact ambient-borrow
   leak this seam abolishes (rf2-cra0nq, mirroring the off-box
   derivation-graph fix rf2-udkj69). Under the `:rf.egress/local-raw` opt-in
-  (explicit `:rf.size/include-sensitive? true`) the walker ships the value
+  (explicit `:rf.egress/include-sensitive? true`) the walker ships the value
   raw even under an unresolvable frame — the operator has deliberately
   waived redaction.
 

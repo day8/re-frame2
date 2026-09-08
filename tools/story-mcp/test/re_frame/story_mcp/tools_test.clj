@@ -2519,8 +2519,8 @@
 ;; Per spec/Tool-Pair.md §Direct-read privacy posture, every
 ;; pair-shaped tool that surfaces a live `:app-db` slice MUST route the
 ;; value through `re-frame.elision/elide-wire-value` before egress, with
-;; off-box defaults (`:rf.size/include-sensitive?` and
-;; `:rf.size/include-large?` both default false). The cross-MCP
+;; off-box defaults (`:rf.egress/include-sensitive?` and
+;; `:rf.egress/include-large?` both default false). The cross-MCP
 ;; `:include-sensitive` arg is the documented escape hatch.
 ;;
 ;; These tests pin the contract at the story-mcp surface: a sensitive
@@ -2771,8 +2771,8 @@
                         frame-db vid true)
               walked   (rf.elision/elide-wire-value frame-db
                                             {:frame                      vid
-                                             :rf.size/include-sensitive? true
-                                             :rf.size/include-large?     true})]
+                                             :rf.egress/include-sensitive? true
+                                             :rf.egress/include-large?     true})]
           (is (identical? frame-db bypass)
               "include? true returns the SAME object — no walker rebuild")
           (is (= walked bypass)

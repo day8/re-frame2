@@ -13,9 +13,9 @@
        boundary while the walk ran under the default policy.
     2. The epoch `project-egress` boundary read the two shared inclusion
        axes ONLY in their unqualified spelling, so a caller passing
-       `:rf.size/include-sensitive? true` — the spelling the walker,
+       `:rf.egress/include-sensitive? true` — the spelling the walker,
        `project-egress`, `:rf/project-egress-opts` and Conventions
-       §`:rf.size/*` all use — was silently dropped there.
+       §`:rf.egress/*` all use — was silently dropped there.
 
   Neither direction errored. Both read exactly like a policy that had been
   applied. The fix is that the opts maps are CLOSED and an unrecognised key
@@ -65,7 +65,7 @@
 (deftest walker-rejects-a-profile
   (testing "rf2-kuky.6 — `:rf.egress/profile` is NOT a walker opt. It names a
             BOUNDARY and is resolved by `project-egress`, which passes the
-            resolved `:rf.size/*` opt-set down. Passing one to the walker was
+            resolved `:rf.egress/*` opt-set down. Passing one to the walker was
             the original silent no-op; it now throws and the message says
             where the profile belongs."
     (let [d (bad-opts-ex-data
@@ -81,7 +81,7 @@
           "the profile case carries its own recovery disposition")
       (is (= 're-frame.elision/elide-wire-value (:where d))
           ":where names the door the caller actually called")
-      (is (contains? (set (:accepted d)) :rf.size/include-sensitive?)
+      (is (contains? (set (:accepted d)) :rf.egress/include-sensitive?)
           "ex-data enumerates the ACCEPTED set so the caller needs no docs")
       (is (not (contains? (set (:accepted d)) :rf.egress/profile))
           "and the accepted set does not include the key just rejected"))))
@@ -263,10 +263,11 @@
            rf.projection/project-egress-opt-keys)
         "the derivation is exact — a fourth addition would fail here rather
          than widen the door quietly")
-    (is (= #{:include-fx-args? :include-runtime-db? :include-event-args?}
+    (is (= #{:rf.egress/include-fx-args? :rf.egress/include-runtime-db?
+             :rf.egress/include-event-args?}
            rf.projection/epoch-only-opt-keys)
-        "and the three are named, so this test moves when rf2-kuky.93
-         renames them rather than passing whatever it finds")
+        "and the three are named, so rf2-kuky.93's rename had to move this
+         test on purpose rather than find it already passing")
     (is (not (contains? rf.elision/walker-opt-keys :rf.egress/profile))
         "the walker's own set excludes the profile")
     (is (empty? (filter rf.elision/walker-opt-keys

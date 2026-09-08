@@ -5,7 +5,7 @@
 
     - each profile's default redaction / elision behaviour on a record
       carrying sensitive + large + tree slots;
-    - profile + explicit `:rf.size/*` override COMPOSES (override wins);
+    - profile + explicit `:rf.egress/*` override COMPOSES (override wins);
     - sensitive-wins (a both-marked path redacts, never large-elides);
     - `:rf.egress/public-error` never includes raw internal values;
     - delegation to `elide-wire-value` for tree slots (the walker, not a
@@ -79,25 +79,25 @@
       "the six ruled profiles are the closed enum (EP-0015 issue 3)"))
 
 (deftest profile-resolves-to-size-opts
-  (testing "each profile resolves to its §10 default :rf.size/* opt-set"
+  (testing "each profile resolves to its §10 default :rf.egress/* opt-set"
     ;; off-box / on-box-redacted boundaries fail closed.
     (doseq [p [:rf.egress/off-box-observability
                :rf.egress/local-redacted
                :rf.egress/ssr-hydration
                :rf.egress/public-error]]
       (let [o (rf.projection/profile-size-opts p)]
-        (is (false? (:rf.size/include-sensitive? o)) (str p " redacts sensitive"))
-        (is (false? (:rf.size/include-large? o))     (str p " elides large"))))
+        (is (false? (:rf.egress/include-sensitive? o)) (str p " redacts sensitive"))
+        (is (false? (:rf.egress/include-large? o))     (str p " elides large"))))
     ;; off-box-tool turns digests ON (structural indicators).
     (let [o (rf.projection/profile-size-opts :rf.egress/off-box-tool)]
-      (is (false? (:rf.size/include-sensitive? o)))
-      (is (false? (:rf.size/include-large? o)))
-      (is (true?  (:rf.size/include-digests? o))
+      (is (false? (:rf.egress/include-sensitive? o)))
+      (is (false? (:rf.egress/include-large? o)))
+      (is (true?  (:rf.egress/include-digests? o))
           "off-box-tool includes structural indicators (§10)"))
     ;; local-raw opts sensitive + large back in.
     (let [o (rf.projection/profile-size-opts :rf.egress/local-raw)]
-      (is (true? (:rf.size/include-sensitive? o)) "local-raw includes sensitive")
-      (is (true? (:rf.size/include-large? o))     "local-raw includes large"))
+      (is (true? (:rf.egress/include-sensitive? o)) "local-raw includes sensitive")
+      (is (true? (:rf.egress/include-large? o))     "local-raw includes large"))
     ;; Unknown / absent → nil.
     (is (nil? (rf.projection/profile-size-opts :rf.egress/bogus)))
     (is (nil? (rf.projection/profile-size-opts nil)))))
@@ -135,18 +135,18 @@
       (is (= 3 (get-in out [:public :count]))))))
 
 ;; ---------------------------------------------------------------------------
-;; Profile + explicit :rf.size/* override composes — override wins.
+;; Profile + explicit :rf.egress/* override composes — override wins.
 ;; ---------------------------------------------------------------------------
 
 (deftest profile-plus-override-composes
-  (testing "an explicit :rf.size/* boolean overlays the profile floor (override wins)"
+  (testing "an explicit :rf.egress/* boolean overlays the profile floor (override wins)"
     (mk-frame! :proj/compose)
     ;; off-box-observability floors include-sensitive? false, but the
     ;; caller explicitly opts it back in — the override wins.
     (let [out (rf/project-egress (sample-value)
                 {:frame :proj/compose
                  :rf.egress/profile :rf.egress/off-box-observability
-                 :rf.size/include-sensitive? true})]
+                 :rf.egress/include-sensitive? true})]
       (is (= "super-secret-token" (get-in out [:auth :token]))
           "explicit include-sensitive? true overrides the off-box floor")
       ;; The non-overridden axis stays at the floor: large still elides.
@@ -156,25 +156,25 @@
     (let [out (rf/project-egress (sample-value)
                 {:frame :proj/compose
                  :rf.egress/profile :rf.egress/local-raw
-                 :rf.size/include-large? false})]
+                 :rf.egress/include-large? false})]
       (is (= "super-secret-token" (get-in out [:auth :token]))
           "local-raw sensitive floor survives (not overridden)")
       (is (large-marker? (get-in out [:docs :blob]))
           "explicit include-large? false overrides the local-raw floor"))))
 
 (deftest resolve-elision-opts-overlay-order
-  (testing "resolve-elision-opts: explicit :rf.size/* beats profile floor; pass-throughs kept"
+  (testing "resolve-elision-opts: explicit :rf.egress/* beats profile floor; pass-throughs kept"
     (let [o (rf.projection/resolve-elision-opts
               {:rf.egress/profile :rf.egress/off-box-observability
-               :rf.size/include-large? true
+               :rf.egress/include-large? true
                :frame :x
                :path [:a]
-               :rf.size/threshold-bytes 99})]
-      (is (true?  (:rf.size/include-large? o)) "override wins over the false floor")
-      (is (false? (:rf.size/include-sensitive? o)) "un-overridden axis at floor")
+               :rf.egress/threshold-bytes 99})]
+      (is (true?  (:rf.egress/include-large? o)) "override wins over the false floor")
+      (is (false? (:rf.egress/include-sensitive? o)) "un-overridden axis at floor")
       (is (= :x (:frame o)) ":frame passes through")
       (is (= [:a] (:path o)) ":path passes through")
-      (is (= 99 (:rf.size/threshold-bytes o)) ":threshold-bytes passes through")
+      (is (= 99 (:rf.egress/threshold-bytes o)) ":threshold-bytes passes through")
       (is (not (contains? o :rf.egress/profile)) "the profile key is consumed"))))
 
 ;; ---------------------------------------------------------------------------
@@ -447,7 +447,7 @@
       ;; The deliberate opt-out (include-sensitive? true) gets an identity
       ;; walk against the no-frame policy.
       (let [out (rf/project-egress {:auth {:token "tok"}}
-                  {:rf.size/include-sensitive? true})]
+                  {:rf.egress/include-sensitive? true})]
         (is (= {:auth {:token "tok"}} out)
             "explicit include-sensitive? true is the deliberate frameless opt-out"))
       ;; rf2-vkblw4: the record-frame seed adds NOTHING when neither the record
@@ -561,12 +561,12 @@
                (pr-str out))))))
 
 (deftest no-profile-is-the-advanced-raw-flags-path
-  (testing "with no profile, :rf.size/* flags pass through to the walker verbatim"
+  (testing "with no profile, :rf.egress/* flags pass through to the walker verbatim"
     (mk-frame! :proj/noprof)
     (let [out (rf/project-egress (sample-value)
                 {:frame :proj/noprof
-                 :rf.size/include-sensitive? false
-                 :rf.size/include-large? false})]
+                 :rf.egress/include-sensitive? false
+                 :rf.egress/include-large? false})]
       (is (redacted? (get-in out [:auth :token])))
       (is (large-marker? (get-in out [:docs :blob]))))))
 
@@ -784,11 +784,11 @@
 (deftest derived-tree-no-live-frame-local-raw-opt-out-still-raw
   (testing "case 4 — the explicit trusted-local raw opt-out still ships a
             FRAMELESS derived tree raw: :rf.egress/local-raw (and the bare
-            :rf.size/include-sensitive? true override) is the ONE deliberate way
+            :rf.egress/include-sensitive? true override) is the ONE deliberate way
             to cross a frameless tree raw, preserving the EP-0025 opt-in"
     (binding [rf.frame/*current-frame* nil]
       (let [tree (derived-tree-with-token "super-secret-token")]
-        ;; local-raw profile (resolves :rf.size/include-sensitive? true).
+        ;; local-raw profile (resolves :rf.egress/include-sensitive? true).
         (let [out (rf/project-egress
                     {:kind  :rf.observe/derived-tree
                      :frame nil
@@ -798,13 +798,13 @@
               "local-raw ships the frameless tree verbatim (the operator raw read)")
           (is (= "super-secret-token" (get-in out [1 1 :value]))
               "the token rides raw under the explicit opt-out"))
-        ;; The advanced raw-flags path: a bare :rf.size/include-sensitive? true
+        ;; The advanced raw-flags path: a bare :rf.egress/include-sensitive? true
         ;; with NO profile is the same deliberate opt-out.
         (let [out (rf/project-egress
                     {:kind  :rf.observe/derived-tree
                      :frame nil
                      :tree  tree}
-                    {:rf.size/include-sensitive? true})]
+                    {:rf.egress/include-sensitive? true})]
           (is (= tree out)
               "an explicit include-sensitive? true also ships the frameless tree raw"))))))
 

@@ -229,7 +229,7 @@
   "`{:rf.size/large-elided {...}}` body — the size-elision marker.
 
   Normative shape per spec/Spec-Schemas.md §`:rf/elision-marker`.
-  `:digest` is optional (only when `:rf.size/include-digests? true`
+  `:digest` is optional (only when `:rf.egress/include-digests? true`
   per spec/API.md `rf/elide-wire-value`)."
   [:map
    [:path    [:vector :any]]

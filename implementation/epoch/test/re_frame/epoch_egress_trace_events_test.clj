@@ -470,22 +470,22 @@
            already redacted on-box, non-sensitive structure preserved)"))))
 
 (deftest off-box-include-sensitive-lifts-omission
-  (testing "rf2-t55hxg.6 — a trusted-local :rf.size/include-sensitive? opt-in lifts
+  (testing "rf2-t55hxg.6 — a trusted-local :rf.egress/include-sensitive? opt-in lifts
             the off-box omission (the local-raw boundary): the unschematized
             body rides for the trusted operator who opted sensitive back in"
     (rf/make-frame {:id :test/http})
     (let [body      {:token http-body-secret :user-id 42}
           record    (http-record :test/http :rf.http/replied :value body :omit)
-          projected (rf/project-egress record {:rf.size/include-sensitive? true})
+          projected (rf/project-egress record {:rf.egress/include-sensitive? true})
           ev        (first (:trace-events projected))]
       (is (= body (get-in ev [:tags :value]))
-          "with :rf.size/include-sensitive? true the body is NOT omitted (lifted)"))))
+          "with :rf.egress/include-sensitive? true the body is NOT omitted (lifted)"))))
 
 (deftest local-raw-profile-lifts-omission-without-an-explicit-key
   (testing "rf2-kuky.92 — the docstring above, and every other `omit-off-box-*`
             seam's, names `the local-raw boundary` as what lifts the omission.
             Until this test, NOTHING asserted that: every arm reached the lift
-            through the EXPLICIT `:rf.size/include-sensitive? true` key, and
+            through the EXPLICIT `:rf.egress/include-sensitive? true` key, and
             the PROFILE that resolves to it was never exercised on this seam.
 
             It did not work. These seams read the axis off the epoch opts by
@@ -498,7 +498,7 @@
             repair the whole-output `:large?` slots needed — one defect, two
             axes.
 
-            The `:rf.size/include-large?` sibling of this claim is pinned as a
+            The `:rf.egress/include-large?` sibling of this claim is pinned as a
             three-surface matrix in
             `re-frame.epoch-egress-redaction-cljs-test`; this arm is the
             sensitive half, on the seam whose docstrings assert it."
@@ -512,10 +512,10 @@
            assertion below cannot pass by the omission having stopped")
       (is (= body (value {:rf.egress/profile :rf.egress/local-raw}))
           "the local-raw PROFILE lifts the omission with NO explicit
-           :rf.size/include-sensitive? key from the caller — the profile is the
+           :rf.egress/include-sensitive? key from the caller — the profile is the
            floor, exactly as it already was for the app-db tree walk")
       (is (= :rf/redacted (value {:rf.egress/profile          :rf.egress/local-raw
-                                  :rf.size/include-sensitive? false}))
+                                  :rf.egress/include-sensitive? false}))
           "and an EXPLICIT false still overlays that floor and WINS")
       (is (= body (get-in (first (:trace-events record)) [:tags :value]))
           "the source record is untouched by any of the projections above"))))
@@ -553,7 +553,7 @@
 ;; and the `:rf.http/retry-attempt` trace whose intermediate failure body
 ;; nests at `[:failure :body]`. The emit site always stamps `:omit` for these
 ;; (the raw body is unschematized) so the off-box projector omits the slot,
-;; lifted only by the trusted-local `:rf.size/include-sensitive?` opt-in. On-box stays
+;; lifted only by the trusted-local `:rf.egress/include-sensitive?` opt-in. On-box stays
 ;; raw.
 ;; ---------------------------------------------------------------------------
 
@@ -628,15 +628,15 @@
           "no token re-leaks via the nested retry-attempt failure body"))))
 
 (deftest off-box-include-sensitive-lifts-raw-error-body-omission
-  (testing "rf2-t55hxg.10 — a trusted-local :rf.size/include-sensitive? opt-in lifts
+  (testing "rf2-t55hxg.10 — a trusted-local :rf.egress/include-sensitive? opt-in lifts
             the off-box omission of a raw error body (the local-raw boundary)"
     (rf/make-frame {:id :test/http})
     (let [body      (str "raw error " http-body-secret)
           record    (http-record :test/http :rf.http/http-5xx :body body :omit)
-          projected (rf/project-egress record {:rf.size/include-sensitive? true})
+          projected (rf/project-egress record {:rf.egress/include-sensitive? true})
           ev        (first (:trace-events projected))]
       (is (= body (get-in ev [:tags :body]))
-          "with :rf.size/include-sensitive? true the raw error body is NOT omitted"))))
+          "with :rf.egress/include-sensitive? true the raw error body is NOT omitted"))))
 
 (deftest on-box-raw-error-body-preserved-on-ring
   (testing "rf2-t55hxg.10 — the ON-BOX ring record is NOT projected: the raw

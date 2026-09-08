@@ -106,7 +106,7 @@ The fix is to **encode host values into portable EDN at the boundary** before th
 
 ### Identity vs digest
 
-The **canonical EDN value *is* the identity** everywhere — storage, work ledger, traces, replay records. A **digest** is an *optional, versioned, always-recomputable projection* for size-constrained surfaces (wire budgets, dedupe tables; the `:rf.size/include-digests?` flag is the precedent). A digest is **never** an independent identity fact, never required for correctness, and never the authoritative stored key. If you see a digest, treat it as a derived view of the real identity, not the identity itself.
+The **canonical EDN value *is* the identity** everywhere — storage, work ledger, traces, replay records. A **digest** is an *optional, versioned, always-recomputable projection* for size-constrained surfaces (wire budgets, dedupe tables; the `:rf.egress/include-digests?` flag is the precedent). A digest is **never** an independent identity fact, never required for correctness, and never the authoritative stored key. If you see a digest, treat it as a derived view of the real identity, not the identity itself.
 
 ## Scoped resource keys (the shape resources use)
 

@@ -139,7 +139,7 @@
   resolve so a fixture's `:fixture/eval-form-must-contain` slot can
   pin the SHAPE of the form sent over nREPL — used by the raw-state
   fixtures to verify the gate forces
-  `:rf.size/include-sensitive? false` server-side (the walker-option
+  `:rf.egress/include-sensitive? false` server-side (the walker-option
   namespaced keyword, NOT the wire-key — the wire-key is the
   unqualified `:include-sensitive`).
 
@@ -839,7 +839,7 @@
    ;; `:db-state-after-simulation` slot: large content passes
    ;; (`include-large? true`) but a declared-sensitive db slot redacts.
    {:fixture/id    :dispatch-dry-run/gate-on-bare-elision-false-still-walks
-    :fixture/doc   "dispatch-dry-run ON + :elision false (no sensitive opt-in) ⇒ form STILL runs :db-state-after-simulation through project-egress under :rf.egress/off-box-tool with a :rf.size/include-large? true overlay (rf2-t55hxg.13)."
+    :fixture/doc   "dispatch-dry-run ON + :elision false (no sensitive opt-in) ⇒ form STILL runs :db-state-after-simulation through project-egress under :rf.egress/off-box-tool with a :rf.egress/include-large? true overlay (rf2-t55hxg.13)."
     :fixture/tool  "dispatch-dry-run"
     :fixture/allow-raw-state? true
     :fixture/args  {:event "[:cart/checkout]" :elision false}
@@ -852,7 +852,7 @@
     :fixture/eval-form-must-contain
     ["re-frame.core/project-egress"
      ":rf.egress/profile :rf.egress/off-box-tool"
-     ":rf.size/include-large? true"]
+     ":rf.egress/include-large? true"]
     :fixture/expect
     {:isError? false
      :edn-submap {:ok? true :elision false}}}
@@ -1495,7 +1495,7 @@
    ;; `:elision true` on every snapshot / get-path call,
    ;; regardless of the per-call arg. The gate-ON path defers to the
    ;; caller's args. The wire-key carries no trailing `?`; the namespaced
-   ;; walker-option keyword `:rf.size/include-sensitive?` retains it
+   ;; walker-option keyword `:rf.egress/include-sensitive?` retains it
    ;; (internal framework key, not on the wire).
    {:fixture/id    :raw-state/snapshot-gated-default-forces-redact
     :fixture/doc   "Gate OFF + caller passes :include-sensitive true ⇒ the dropped opt-in leaves the form on the :rf.egress/off-box-tool boundary with no large overlay."
@@ -1510,7 +1510,7 @@
     [":rf.egress/profile :rf.egress/off-box-tool"]
     :fixture/eval-form-must-not-contain
     [":rf.egress/local-raw"
-     ":rf.size/include-large? true"]
+     ":rf.egress/include-large? true"]
     :fixture/expect
     {:isError? false}}
 
@@ -1558,7 +1558,7 @@
     :fixture/eval-form-must-contain
     ["re-frame.core/project-egress"
      ":rf.egress/profile :rf.egress/off-box-tool"
-     ":rf.size/include-large? true"]
+     ":rf.egress/include-large? true"]
     :fixture/expect
     {:isError? false}}
 
@@ -1596,7 +1596,7 @@
     [":rf.egress/profile :rf.egress/off-box-tool"]
     :fixture/eval-form-must-not-contain
     [":rf.egress/local-raw"
-     ":rf.size/include-large? true"]
+     ":rf.egress/include-large? true"]
     :fixture/expect
     {:isError? false}}
 

@@ -635,7 +635,7 @@
   wire slots redact to the `:rf/redacted` sentinel rather than ship under no
   policy (`elide-wire-value` enforces the live-frame gate; the carried stamp
   is policy-bearing only when it resolves). All other `opts` (size-threshold
-  overrides, `:rf.size/include-sensitive?`) forward unchanged, and must
+  overrides, `:rf.egress/include-sensitive?`) forward unchanged, and must
   therefore be members of the walker's CLOSED egress vocabulary
   (`re-frame.elision/walker-opt-keys`) — anything else throws
   `:rf.error/bad-egress-opts` there. The one exception is
@@ -650,7 +650,7 @@
   wholesale to the framework `:rf/redacted` sentinel and the schema-policy
   walk is BYPASSED for those slots. Because the sentinel is substituted
   directly (not walked), forced redaction CANNOT be bypassed by an
-  `:rf.size/include-sensitive?` inspection opt. A family translates its
+  `:rf.egress/include-sensitive?` inspection opt. A family translates its
   per-call sensitivity policy into this option instead of re-spelling the
   wire-slot set (`wire-slots` lives ONLY here)."
   ([reply] (trace-summary reply nil))
