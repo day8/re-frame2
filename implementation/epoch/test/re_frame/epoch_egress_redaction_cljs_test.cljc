@@ -80,10 +80,10 @@
             [re-frame.epoch :as rf.epoch]
             [re-frame.frame :as rf.frame]
             ;; rf2-kuky.92 §8 — the one-door arms bind the
-            ;; `:epoch/project-record` hook (guard G1) and read the core's own
-            ;; hook inventory (guard G2).
+            ;; `:epoch/project-record` hook (guard G1) and ask the core's own
+            ;; door whether it dispatches the kind (guard G2).
             [re-frame.late-bind :as rf.late-bind]
-            [re-frame.late-bind.directory :as rf.late-bind.directory]
+            [re-frame.projection :as rf.projection]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
@@ -1108,31 +1108,38 @@
                the throw above is the door's dispatch and not a broken
                fixture"))))))
 
-(deftest guard-g2-refuses-a-core-that-does-not-roster-the-hook
+(deftest guard-g2-refuses-a-core-whose-door-does-not-dispatch-the-kind
   (testing "GUARD G2: `late-bind/set-fns!` validates no key at runtime, so a
             NEW epoch artefact would register `:epoch/project-record` against
             an OLD core in silence — and that core's door would read every
             stamped record as a kindless value and bare-walk it. The artefact
-            therefore asserts the core's OWN hook inventory at load and
-            refuses to finish loading otherwise."
+            therefore asks the core's OWN door at load whether it dispatches
+            `:rf/epoch-record`, and refuses to finish loading otherwise.
+
+            It asks the DOOR rather than the late-bind directory that rosters
+            the same fact: the directory is a documentation corpus production
+            builds must DCE, so no `src/` namespace may require it."
+    (is (true? (rf.projection/recognises-record-kind? :rf/epoch-record))
+        "the live core's door dispatches the kind, so the control below is
+         not vacuous")
+    (is (false? (rf.projection/recognises-record-kind? :rf/not-a-record-kind))
+        "NEGATIVE CONTROL — the probe discriminates; it is not a constant
+         `true` that would pass whatever core it was asked")
     (is (nil? (rf.epoch/assert-core-dispatches-epoch-records!
-                (rf.late-bind.directory/hook-keys)))
-        "CONTROL — against the live core's roster the assertion passes, which
-         is also the assertion this namespace already ran at load")
-    (is (contains? (rf.late-bind.directory/hook-keys) :epoch/project-record)
-        "and that roster really does carry the key, so the control is not
-         vacuous")
-    (let [thrown (try (rf.epoch/assert-core-dispatches-epoch-records!
-                        (disj (rf.late-bind.directory/hook-keys)
-                              :epoch/project-record))
+                (rf.projection/recognises-record-kind? :rf/epoch-record)))
+        "CONTROL — against the live core the assertion passes, which is also
+         the assertion this namespace already ran at load")
+    (let [thrown (try (rf.epoch/assert-core-dispatches-epoch-records! false)
                       nil
                       (catch #?(:clj clojure.lang.ExceptionInfo
                                 :cljs ExceptionInfo) e e))
           data   (ex-data thrown)]
-      (is (some? thrown) "a roster missing the key throws")
+      (is (some? thrown) "a core that does not dispatch the kind throws")
       (is (= :rf.epoch/core-version-skew (:rf.epoch/load-refusal data))
           "with a stable discriminator naming the skew")
+      (is (= :rf/epoch-record (:kind data))
+          "naming the kind the core failed to dispatch")
       (is (= :epoch/project-record (:hook data))
-          "and naming the hook the core failed to roster")
-      (is (str/includes? (ex-message thrown) ":epoch/project-record")
+          "and the hook whose registration would have been silent")
+      (is (str/includes? (ex-message thrown) ":rf/epoch-record")
           "the human message names it too"))))
