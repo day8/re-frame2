@@ -74,7 +74,7 @@
         "the server half without rf/init!: rf.hicasso.server/render reaches rf/make-frame and throws; no :document is returned")
     (is (= :rf.error/no-adapter-installed
            (rf-error-id #(rf/make-frame {:id :app/main :platform :client})))
-        "the client half without rf/init!: its first rf/make-frame throws the same error, so rf.ssr/hydrate! / rf.hicasso/hydrate! never run")
+        "the client half without rf/init!: its first rf/make-frame throws the same error, so rf.ssr/hydrate! / rf.hicasso/render! never run")
     (is (nil? (rf/current-adapter))
         "the failed calls did not install anything either — render never auto-installs"))
 

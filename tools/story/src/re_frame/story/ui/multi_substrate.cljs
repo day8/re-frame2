@@ -80,7 +80,7 @@
   `re-frame.adapter.context/frame-context` — the single React context
   every React-shaped adapter reads. A Hicasso boundary spliced into that
   Reagent tree resolves the VARIANT's frame from it, with no second root,
-  no second state owner and no props ABI. (`h/mount!` is likewise the
+  no second state owner and no props ABI. (`h/render!` is likewise the
   wrong door: it makes a root, and the canvas is already inside one.)
 
   Hicasso stories hand-author `:argtypes`. Auto-derivation reads the

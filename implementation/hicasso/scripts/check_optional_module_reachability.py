@@ -371,7 +371,7 @@ MODULES = [
         # package's, so naming any of it here would forbid core its own
         # machinery.  The one edge to guard is therefore the door, and the
         # live risk is the ordinary convenience: a single `:require` in
-        # `hicasso.cljc` — to re-export `substrate/adapter` beside `h/mount!`,
+        # `hicasso.cljc` — to re-export `substrate/adapter` beside `h/render!`,
         # say — would put the whole React-hook spine into the bundle of every
         # application that ever aliased `h`, including the ones that install
         # somebody else's adapter.

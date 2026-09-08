@@ -441,19 +441,21 @@
 ;; trade, and the SEMANTICS are pinned to the shared ones by test rather
 ;; than by a shared call.
 
-(defonce ^:private active-roots
-  "React Roots this package currently keeps mounted, `root` → its handle.
-  MEMBERSHIP IS THE SINGLE LIVENESS FACT (the rf2-k5r9t rule): no flag in
-  the handle may disagree with it, which is what lets `drain-active-roots!`
-  and a handle's own `unmount!` both reach the host unmount exactly once
-  per root, whichever gets there first.
-
-  One cell for the package rather than one per adapter, because a Hicasso
-  root is created by Hicasso's own door whatever adapter is installed —
-  `h/render!` never routes through the substrate contract's `render` slot.
-  `re-frame.hicasso.substrate/adapter` chains the drain onto its
-  `dispose-adapter!`, so `rf/destroy-adapter!` releases them."
-  (atom {}))
+;; React Roots this package currently keeps mounted, `root` -> its handle.
+;; MEMBERSHIP IS THE SINGLE LIVENESS FACT (the rf2-k5r9t rule): no flag in
+;; the handle may disagree with it, which is what lets `drain-active-roots!`
+;; and a handle's own `unmount!` both reach the host unmount exactly once
+;; per root, whichever gets there first.
+;;
+;; One cell for the package rather than one per adapter, because a Hicasso
+;; root is created by Hicasso's own door whatever adapter is installed —
+;; `h/render!` never routes through the substrate contract's `render` slot.
+;; `re-frame.hicasso.substrate/adapter` chains the drain onto its
+;; `dispose-adapter!`, so `rf/destroy-adapter!` releases them.
+;;
+;; A comment rather than a docstring because CLJS `defonce` takes no
+;; docstring — it is `(defonce name expr)` and nothing else.
+(defonce ^:private active-roots (atom {}))
 
 (defn- track-active-root!
   "Register `handle`'s Root and return the idempotent release thunk that

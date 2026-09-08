@@ -46,7 +46,7 @@
   §5  the entry's allowlist is the entry's. A host asking for a key the
       table does not name is refused; control, the keys it does name pass.
   §6  (DOM) hydration. The client boots the way `core.cljs` boots — the
-      payload through `ssr/hydrate!`, the DOM through `h/hydrate!` with the
+      payload through `ssr/hydrate!`, the DOM through an adopting `h/render!` with the
       example's own `identifier-prefix` — and adopts the server's bytes
       with NO `:rf.ssr/hydration-mismatch`. Its control is §7.
   §7  (DOM) **the price of a server-only value**, measured rather than
@@ -426,7 +426,7 @@
 (defn- hydrate-row!
   "Boot the client the way `hicasso.login.core/run` boots it on a
   server-rendered page — the payload through `ssr/hydrate!`, then the DOM
-  through `h/hydrate!` with the example's own `identifier-prefix` — over
+  through an adopting `h/render!` with the example's own `identifier-prefix` — over
   `html`, and answer a promise of `{:seen :adopted-html}`.
 
   The client frame is a FRESH one seeded exactly as the browser seeds it:

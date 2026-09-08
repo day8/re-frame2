@@ -215,7 +215,7 @@
                    • **React-element root — HICASSO.** A Hicasso root hands
                      React an element rather than a hashable data tree, so
                      likewise NO `:render-tree-fn`: call `ssr/hydrate!` without
-                     one, then hydrate the root through `h/hydrate!`, which
+                     one, then hydrate the root through `h/render!`'s `{:hydrate? true}`, which
                      verifies by the same React-native adoption.
 
                  React-native adoption reports the divergences React itself

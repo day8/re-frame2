@@ -64,14 +64,14 @@
   second that carried the defect: `:story.hicasso/card`'s cell is still
   in Hicasso's table when the row below it runs (this file's fixture
   clears the registrar and re-registers `::counter`, which is a FIRST
-  registration and invalidates that cell), while the `rf.hicasso/mount!` control
+  registration and invalidates that cell), while the `rf.hicasso/render!` control
   named a frame no other row uses and so mounted against a clean table.
   `impl.collector/acquire-cell!` reused the invalidated cell without
   rebuilding its attachment, so the boundary got the right value from the
   cold probe and no watch to be notified through.
 
   The repair is in the acquire, and the witness that pins it — with the
-  crossing held OUT of the row, under `rf.hicasso/mount!`, where the same
+  crossing held OUT of the row, under `rf.hicasso/render!`, where the same
   deafness reproduces — is
   `re-frame.hicasso.foreign-root-bridge-dom-cljs-test`. That file also
   drives five mounting routes, a UIx `defui` parent among them, and every

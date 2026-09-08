@@ -4,7 +4,7 @@
   ## What this file was written to settle, and what it found instead
 
   The report behind it was that a boundary crossed into from a REAGENT
-  parent *\"paints once and is then deaf to writes\"*, with `h/mount!` as a
+  parent *\"paints once and is then deaf to writes\"*, with `h/render!` as a
   live control, and it asked whether a UIx parent was deaf too — because
   that would make it the outward bridge generally rather than a Reagent
   story.
@@ -20,7 +20,7 @@
 
   **What IS deaf is a boundary that acquires a cell whose reaction was
   dropped**, and that has nothing to do with the crossing: §2 reproduces
-  it under `h/mount!`, where there is no crossing at all. The reported
+  it under `h/render!`, where there is no crossing at all. The reported
   measurement varied two things at once — the mounting route AND the
   frame id — and the second was carrying the defect.
 
@@ -337,7 +337,7 @@
     (if-not (rf.hicasso.impl.mount/browser?)
       (rf.hicasso.roots-frames-support/skip! ":node-test has no DOM")
       (doseq [[label frame mount-fn painted]
-              [["h/mount!"         ::w1 hicasso-root           "ctl"]
+              [["h/render!"        ::w1 hicasso-root           "ctl"]
                ["a Reagent parent" ::w2 reagent-root-as-element "alpha"]]]
         (testing label
           (open-the-window! frame mount-fn)
@@ -384,7 +384,7 @@
 ;; and then lost when its witness went with `native_abi_dom_cljs_test.cljs`.
 ;;
 ;; THE PACKAGE'S OWN DOOR IS THE CONTROL, and it is what makes the zero a
-;; reading: the same manufactured divergence through `h/hydrate!`'s impl DOES
+;; reading: the same manufactured divergence through the hydrating impl DOES
 ;; reach the stream. Without it an empty `@seen` is equally well explained by a
 ;; listener that was never live, and a row that cannot tell those apart passes
 ;; on a runtime with the diagnostic ripped out.
@@ -478,7 +478,7 @@
                     "the same manufactured divergence, seen through the package's
                      door")
                 (is (pos? (count @seen))
-                    "THE CONTROL BITES: through `h/hydrate!`'s impl the SAME
+                    "THE CONTROL BITES: through the hydrating impl the SAME
                      divergence DOES reach the instrumentation stream — so the
                      zero above is the absence of a REPORTER, not of a listener")
                 (doseq [ev @seen]

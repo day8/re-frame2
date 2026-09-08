@@ -25,11 +25,11 @@ Everything below assumes a mounted root, so start here.
             [re-frame.hicasso :as h]
             [my.app.views :as views]))
 
-(defonce !root (atom nil))
+(defonce app-root (h/client-root))
 
 (defn- app-tree
-  "The root tree, written ONCE so the boot and the reload hand `h/frame-root`
-   the SAME options."
+  "The root tree, written ONCE so the boot render and every reload hand
+   `h/frame-root` the SAME options."
   []
   [h/frame-root
    {:id             :app/main
@@ -37,17 +37,15 @@ Everything below assumes a mounted root, so start here.
                      [:rf.route/navigate {:to :route/home}]]}
    [views/app {}]])
 
-(defn ^:dev/after-load reload!
-  "Re-render the mounted root after a hot reload — the WHOLE tree `mount!` was
-   handed, boundary head included."
+(defn ^:dev/after-load mount!
+  "The boot render and the reload hook, in one call — the WHOLE tree,
+   boundary head included."
   []
-  (when-some [root @!root]
-    (h/render! root (app-tree))))
+  (h/render! app-root (app-tree) (js/document.getElementById "app")))
 
 (defn ^:export -main []
   (rf/init! uix-adapter/adapter)
-  (reset! !root
-          (h/mount! (js/document.getElementById "app") {} (app-tree)))
+  (mount!)
   nil)
 ```
 
@@ -64,10 +62,12 @@ state container, and a boot that beats `init!` throws
 [Use UIx or reagent-slim](../how-to/use-uix-or-slim.md) covers the other two
 substrates.
 
-**Keep the handle.** `h/render!`, `h/unmount!` and every teardown path take it,
-and a reload hook that calls `h/mount!` a second time would `createRoot` again —
-replacing the tree and discarding every DOM node, subscription and scrap of
-component state instead of reconciling against them.
+**Allocate the handle with `defonce`.** The FIRST `h/render!` through a handle
+creates the root; every later one updates it, so one call is both the boot and
+the `^:dev/after-load` hook. A reload re-evaluates the namespace, so a plain
+`def` would hand back a FRESH inert handle whose next render `createRoot`s
+again — replacing the tree and discarding every DOM node, subscription and
+scrap of component state instead of reconciling against them.
 
 **Seed in one place, and let it be the tree.** `h/frame-root` **ensures** the
 frame it names: it creates the frame if absent and seeds it with
@@ -79,7 +79,7 @@ make the frame anywhere else.
 
 **`:initial-events` drain before the first paint**, in order, so the first render
 is the seeded one rather than an empty frame filled in a moment later: the ensure
-runs in a layout effect, and `h/mount!` renders inside `flushSync`, so the door
+runs in a layout effect, and `h/render!` renders inside `flushSync`, so the door
 returns with the seeded markup already on the page.
 
 **The reload hands `h/frame-root` the SAME options the boot did**, which is why
@@ -571,18 +571,22 @@ the DOM:
             [re-frame.hicasso :as h]
             [my.app.views :as views]))
 
+(defonce app-root (h/client-root))
+
 (defn ^:export -main []
   (rf/make-frame {:id :app/main})                      ;; 1. frame
   (ssr/hydrate! {:frame :app/main})                    ;; 2. state
-  (h/hydrate! (js/document.getElementById "app")       ;; 3. DOM
-              {:identifier-prefix "main"}
-              [h/frame-provider {:frame :app/main}
-               [views/page {}]])
+  (h/render! app-root                                  ;; 3. DOM
+             [h/frame-provider {:frame :app/main}
+              [views/page {}]]
+             (js/document.getElementById "app")
+             {:hydrate? true :identifier-prefix "main"})
   nil)
 ```
 
-**State comes first, and it is a different door.** `h/hydrate!` adopts DOM and
-nothing else, and its tree SCOPEs rather than ENSUREs — because `frame-root`'s
+**State comes first, and it is a different door.** `{:hydrate? true}` adopts DOM
+and nothing else, and its tree SCOPEs rather than ENSUREs — because
+`frame-root`'s
 ENSURE is commit-owned, so its first render emits no descendant subtree, where an
 adopting root must render the server's element shape on its first pass.
 `h/frame-provider` refuses a frame that is not live, so a boot that never called
@@ -594,8 +598,8 @@ and prefixes it with this option, so a hydrating root given a different prefix �
 or none, where the server had one — resolves every id in the tree differently
 from the bytes it is adopting.
 
-**Adoption finishes after the call returns.** `h/hydrate!` performs no
-`flushSync`, so the DOM on the next line is still the server's. Anything that
+**Adoption finishes after the call returns.** An adopting first render performs
+no `flushSync`, so the DOM on the next line is still the server's. Anything that
 must run after adoption waits for the adoption window to close rather than for a
 flush.
 

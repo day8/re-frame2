@@ -156,65 +156,71 @@ the same shared cores, so a Hicasso boot line reads like a Reagent or UIx one.
 
 ## Roots
 
-Four doors and one handle. Every one is root-scoped: a page may hold as many roots
-as it likes, and no call here reaches a root the caller did not name.
+Three doors and one handle — the grammar every React view adapter publishes
+([Spec 006 §The client
+root](../../spec/006-ReactiveSubstrate.md#the-client-root-adapter-owned-reusable)).
+Every one is root-scoped: a page may hold as many roots as it likes, and no call
+here reaches a root the caller did not name.
 
-### `mount!`
+### `client-root`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (h/mount! container config view)
+  (h/client-root)
   ```
-- **Description**: The root door. Associates a DOM container with one root view
-  and answers the handle the other three take. `config` carries **root options
-  only** — `:identifier-prefix` (React's `identifierPrefix`, a pass-through) — and
-  REFUSES anything else: `:frame` / `:initial-events` raise
-  `:rf.error/hicasso-frame-config-misplaced` naming the head that takes them,
-  every other key `:rf.error/hicasso-unknown-root-option`. The frame is spelled in
-  the tree, on `frame-root` (ENSURE) or `frame-provider` (SCOPE).
+- **Description**: Allocates an inert, opaque handle. No DOM work and no React
+  call at allocation, so it belongs under a `defonce` at namespace load. One
+  handle owns at most one React root at a time; the raw root is reachable through
+  nothing, and liveness is read off the package's active-root set rather than off
+  the handle.
 - **Example**:
   ```clojure
-  (h/mount! (js/document.getElementById "app")
-            {}
-            [h/frame-root {:id :rf/default :initial-events [[:counter/initialise]]}
-             [counter]])
+  (defonce app-root (h/client-root))
   ```
-
-### `hydrate!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (h/hydrate! container config view)
-  ```
-- **Description**: Adopts a container's existing server-rendered DOM rather than
-  replacing it. Same root-options config as `mount!`. It returns *before* adoption
-  finishes, and it must be handed the same `:identifier-prefix` the server render
-  used. **Its tree SCOPEs rather than ENSUREs, and the reason is SHAPE**:
-  `frame-root`'s ENSURE is commit-owned, so its first render emits no descendant
-  subtree, where an adopting root must render the server's element shape on its
-  first pass. `[h/frame-provider {:frame …} …]` renders its children immediately,
-  so the shapes agree. Neither hydration door creates the frame:
-  `re-frame.ssr/hydrate!` dispatches `:rf/hydrate` at a frame that must already
-  exist, so a boot makes the frame first, installs the payload second and adopts
-  the DOM third.
 
 ### `render!`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (h/render! handle view)
+  (h/render! handle view container)
+  (h/render! handle view container opts)
   ```
-- **Description**: Re-renders a mounted root in place, synchronously, and answers
-  its handle — the hot-reload door. React reconciles the new tree against the one
-  on the page. Calling `mount!` again instead would create a second root and
-  discard every node, subscription and scrap of component state. **The view it is
-  handed is a whole root tree, boundary included** — the root door carries no
-  frame, so a re-render that drops the `frame-root` / `frame-provider` head leaves
-  the subtree with no frame in context, and re-rendering with the *other* head is a
-  React type change that remounts everything this door exists to preserve.
+- **Description**: The root door AND the hot-reload door. The FIRST call through a
+  handle creates the React root at `container`; every later call updates that same
+  root inside `flushSync`, so React reconciles against the tree on the page and
+  the DOM, the subscriptions and every scrap of component state survive. Answers
+  nil. `container` and `opts` are read on the first call only. `opts` carries
+  **root options only** — `:hydrate?` and `:identifier-prefix` (React's
+  `identifierPrefix`, a pass-through) — and REFUSES anything else: `:frame` /
+  `:initial-events` raise `:rf.error/hicasso-frame-config-misplaced` naming the
+  head that takes them, every other key `:rf.error/hicasso-unknown-root-option`.
+  The frame is spelled in the tree, on `frame-root` (ENSURE) or `frame-provider`
+  (SCOPE), and **the view is a whole root tree, boundary included** — a later
+  render that drops the head leaves the subtree with no frame in context, and
+  re-rendering with the *other* head is a React type change that remounts
+  everything this door exists to preserve.
+- **`{:hydrate? true}`**: makes the FIRST call adopt `container`'s existing
+  server-rendered DOM rather than replacing it — `hydrateRoot`, this root's own
+  adoption window, and in debug builds its own recoverable-error reporter. It
+  returns *before* adoption finishes, and it must be handed the same
+  `:identifier-prefix` the server render used. A MODE rather than a verb: a later
+  call through a live handle ignores it rather than hydrating twice. **Its tree
+  SCOPEs rather than ENSUREs, and the reason is SHAPE**: `frame-root`'s ENSURE is
+  commit-owned, so its first render emits no descendant subtree, where an adopting
+  root must render the server's element shape on its first pass.
+  `[h/frame-provider {:frame …} …]` renders its children immediately, so the
+  shapes agree. Neither hydration step creates the frame: `re-frame.ssr/hydrate!`
+  dispatches `:rf/hydrate` at a frame that must already exist, so a boot makes the
+  frame first, installs the payload second and adopts the DOM third.
+- **Example**:
+  ```clojure
+  (h/render! app-root
+             [h/frame-root {:id :rf/default :initial-events [[:counter/initialise]]}
+              [counter]]
+             (js/document.getElementById "app"))
+  ```
 
 ### `unmount!`
 
@@ -223,9 +229,12 @@ as it likes, and no call here reaches a root the caller did not name.
   ```clojure
   (h/unmount! handle)
   ```
-- **Description**: Takes this root down — `mount!`'s inverse, and idempotent. Leaves
-  sibling roots' subscriptions and frames exactly where they were, and leaves the
-  container in the document, which React empties but does not remove.
+- **Description**: Takes this root down and returns the handle to inert; a later
+  `render!` through it mounts afresh. Idempotent. Leaves sibling roots'
+  subscriptions and frames exactly where they were, and leaves the container in
+  the document, which React empties but does not remove. Because the root sits in
+  the package's active set, `rf/destroy-adapter!` releases a still-live handle's
+  root exactly once and this door then finds nothing left to do.
 
 ## Markup
 

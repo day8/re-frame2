@@ -66,9 +66,8 @@ for one carries none of it.
 ;; the frame doors are core's: (rf/current-frame-id) and (rf/capture-frame)
 
 ;; roots
-(h/mount!   container config view)
-(h/hydrate! container config view)
-(h/render!  handle view)
+(h/client-root)
+(h/render!  handle view container opts?)
 (h/unmount! handle)
 
 ;; frame boundaries — written IN the tree
@@ -117,21 +116,27 @@ dispatches, which is why the render discipline admits them; see
 
 ### Roots
 
-Four doors, one handle, and every one of them root-scoped: a page may hold as
+Three doors, one handle, and every one of them root-scoped: a page may hold as
 many roots as it likes, and no call here reaches a root the caller did not name.
+It is the grammar every React view adapter publishes ([Spec 006 §The client
+root](../../../spec/006-ReactiveSubstrate.md#the-client-root-adapter-owned-reusable)).
 
 | Name | Signature | What it is |
 | --- | --- | --- |
-| `h/mount!` | `(h/mount! container config view)` | Ensures a frame, associates it with a DOM container and one root view, and answers the handle the other three take. |
-| `h/hydrate!` | `(h/hydrate! container config view)` | Adopts the container's existing server-rendered DOM instead of replacing it. Returns the same handle shape, and returns **before** adoption has finished. |
-| `h/render!` | `(h/render! handle view)` | Re-renders a mounted root in place, synchronously, and answers its handle. It renders into the same root rather than opening a second one, so React reconciles the new tree against the one on the page. The hot-reload door — though on a reload that reconcile still rebuilds the DOM, because a reloaded namespace redefines every view and a changed component type is a remount: [Hot reload](00-installation.md#hot-reload). |
-| `h/unmount!` | `(h/unmount! handle)` | Takes this root down and touches nothing else — no sibling root's state, and not the container, which React empties and leaves in the document. Idempotent. |
+| `h/client-root` | `(h/client-root)` | Allocates an inert, opaque handle. No DOM work and no React call, so it is `defonce`-safe at namespace load. One handle owns at most one root at a time. |
+| `h/render!` | `(h/render! handle view container)` / `(h/render! handle view container opts)` | The root door AND the hot-reload door. The FIRST call through a handle creates the root at `container` — or, with `{:hydrate? true}`, adopts the server-rendered DOM already there; every later call updates that same root inside `flushSync`, so React reconciles the new tree against the one on the page and no second constructor runs. `container` and `opts` are read on the first call only. Answers nil. |
+| `h/unmount!` | `(h/unmount! handle)` | Takes this root down and touches nothing else — no sibling root's state, and not the container, which React empties and leaves in the document. Idempotent, and a later `h/render!` through the handle mounts afresh. |
 
-Both doors' `config` carries **root options only** — one key today:
+`opts` carries **root options only** — two keys, both read on the first call:
 
 | Key | Meaning |
 | --- | --- |
+| `:hydrate?` | Adopt `container`'s existing server-rendered DOM rather than replacing it: `hydrateRoot` in place of `createRoot`, with this root's own adoption window and recoverable-error reporter. A first-call MODE, so a later call through a live handle ignores it rather than hydrating twice, and a hydrating first call returns **before** adoption has finished |
 | `:identifier-prefix` | React's `identifierPrefix`, handed to `createRoot` / `hydrateRoot` untouched. No default, no coercion, no validation. A page with two roots gives them distinct prefixes or watches their `useId` values collide |
+
+Because the root sits in the package's active set, `rf/destroy-adapter!`
+releases a still-live handle's root exactly once, an already-unmounted handle is
+not released again, and a `h/render!` after either release mounts afresh.
 
 **A key the roster does not carry is REFUSED**, not ignored: `:frame` and
 `:initial-events` raise `:rf.error/hicasso-frame-config-misplaced` naming the
@@ -159,7 +164,7 @@ a different frame.
 `frame-root`'s first render emits no subtree, and the frame is made in a
 `useLayoutEffect` — so a render React discards creates nothing and seeds
 nothing. The layout-phase state flip re-renders synchronously before the browser
-paints, and `h/mount!` renders inside `flushSync`, so the door returns with the
+paints, and `h/render!` renders inside `flushSync`, so the door returns with the
 seeded markup on the page.
 
 ### Which verb an adopting root takes
@@ -179,8 +184,10 @@ the payload installed second, the DOM adopted third:
 ```clojure
 (rf/make-frame {:id :app/main})                       ;; 1. frame
 (ssr/hydrate! {:frame :app/main})                     ;; 2. state
-(h/hydrate! node {}                                   ;; 3. DOM
-  [h/frame-provider {:frame :app/main} [views/page {}]])
+(h/render! app-root                                   ;; 3. DOM
+  [h/frame-provider {:frame :app/main} [views/page {}]]
+  node
+  {:hydrate? true})
 ```
 
 A boot that never made the frame is caught rather than silent: the `:rf/hydrate`
@@ -194,9 +201,10 @@ root given a different prefix — or none, where the server had one — resolves
 every id in the tree differently from the bytes it is adopting.
 `server/render` takes the same key.
 
-Adoption is also concurrent. `h/hydrate!` performs no `flushSync`, so the DOM on
-the line after the call is still the server's; a test waits for the adoption
-window to close rather than for a flush.
+Adoption is also concurrent. A hydrating FIRST render performs no `flushSync`,
+so the DOM on the line after the call is still the server's; a test waits for
+the adoption window to close rather than for a flush. Every later render through
+the same handle is an ordinary synchronous update.
 
 [SSR and hydration](18-ssr-and-hydration.md) teaches the whole route.
 
@@ -614,8 +622,8 @@ error rather than a warning. This is what to type instead.
 | What you may have written | What it is today | When, and on whose authority |
 | --- | --- | --- |
 | `hfn`, taught as `h/fn` | `h/event` | Ruled by the project operator on 2026-08-11 and swept through code and guide alike on 2026-08-15. `event` is the word this project already reserves for *turn the invoker's arguments into one event vector, or `nil`*, while `handler` names imperative work whose return is ignored — so `handler` would have been a false friend to anyone arriving from another adapter |
-| `h/root!`, taking the frame keyword positionally | `h/mount!`, over a config map — `(node config view)` | Named by the same 2026-08-11 ruling, but it could not be carried out as a rename: the config map this guide teaches carries `:initial-events`, and the door underneath implemented no such option. It landed on 2026-08-15 as the contract rather than the spelling, which is why it arrived after the sweep that renamed the callback form |
-| `h/hydrate-root!` | `h/hydrate!` | The same ruling. This half was a true rename and landed first, which is why the two doors changed on different days |
+| `h/root!`, taking the frame keyword positionally | `h/mount!`, over a config map — `(node config view)`; then RETIRED, along with `h/hydrate!`, into the one `h/client-root` / `h/render!` / `h/unmount!` grammar (rf2-kuky.59) | Named by the same 2026-08-11 ruling, but it could not be carried out as a rename: the config map this guide teaches carries `:initial-events`, and the door underneath implemented no such option. It landed on 2026-08-15 as the contract rather than the spelling, which is why it arrived after the sweep that renamed the callback form. The second supersession collapsed four spellings of one React-level job into one handle with a first-call mode, so Hicasso spells the root lifecycle the way every other React view adapter does |
+| `h/hydrate-root!` | `h/hydrate!`; then RETIRED into `h/render!`'s `{:hydrate? true}` first-call mode (rf2-kuky.59) | The same ruling. That half was a true rename and landed first, which is why the two doors changed on different days; the second supersession made hydration a MODE rather than a verb, because a root that adopts and a root that creates differ only in which constructor the first render calls |
 | `hm/render!`, on the mounted test kit | `hm/rerender!` | Ruled 2026-08-11, swept 2026-08-15. `render!` would have collided with the product facade's own `h/render!`, and a test that reads `render!` should not have to know which of the two it is looking at |
 | `ht/render`, with a `{:reads …}` fixture | `ht/tree`, with a `{:subs …}` fixture | Applied on 2026-08-11. L2 answers a data tree and never DOM — the kit's own docstring says it is not a renderer — so `render` both misdescribed the door and collided with two others |
 | `:ssr`, on a `defhost` declaration | `:server` | Applied without waiting on the naming sitting, because by then the two spellings had diverged code-against-code inside one shipped artefact, which is a defect rather than an open question of taste. `:ssr` names the technique where `:server` names the side that renders, which is what the two values distinguish. A declaration still carrying `:ssr` now raises `:rf.error/hicasso-bad-host-declaration` |

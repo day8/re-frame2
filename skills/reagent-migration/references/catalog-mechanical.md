@@ -287,33 +287,33 @@ an author-written one. Pass children positionally.
   (rdom/render [app] el))
 
 ;; after
-(defonce ^:private !root (atom nil))
+(defonce ^:private app-root (h/client-root))
 
 (defn- tree []                                                    ; written ONCE — see below
   [h/frame-root {:id ::frame :initial-events [[:app/init]]}
    [app {}]])
 
+(defn ^:dev/after-load mount! []                                  ; boot AND reload
+  (h/render! app-root (tree) el))
+
 (defn ^:export init! []
   (rf/init! reagent-adapter/adapter)                              ; still needed — see below
-  (reset! !root (h/mount! el {} (tree))))
-
-(defn ^:dev/after-load reload! []
-  (h/render! @!root (tree)))
+  (mount!))
 ```
 
 Four things matter, and the first two are the ones a migration gets wrong:
 
 - **The frame is spelled IN THE TREE, exactly as `rf/frame-root` already is.**
-  `h/mount!`'s arity is `(container config hiccup)` and its config carries
-  **root options only** — `:identifier-prefix` (React's own, for a page with two
-  roots) — refusing `:frame` and `:initial-events` by name. `[h/frame-root
+  `h/render!`'s arity is `(handle hiccup container [opts])` and its opts carry
+  **root options only** — `:hydrate?` and `:identifier-prefix` (React's own, for
+  a page with two roots) — refusing `:frame` and `:initial-events` by name. `[h/frame-root
   {:id … }]` is the ENSURE boundary and takes the WHOLE `rf/make-frame` option
   map, `:initial-events` / `:images` / `:fx-overrides` and the rest; it creates
   the frame if absent and reuses a live one without re-seeding.
   `[h/frame-provider {:frame …}]` is its SCOPE-only sibling. So a Reagent tree's
   `[rf/frame-root {:id …}]` wrapper is a RENAME, and the Reagent pair
-  `(rdom/render …)` + `(rf/dispatch-sync [:boot])` collapses into one mount with
-  one boundary.
+  `(rdom/render …)` + `(rf/dispatch-sync [:boot])` collapses into one
+  `h/render!` with one boundary.
 - **`(rf/init! …)` stays** — `make-frame` raises
   `:rf.error/no-adapter-installed` until a reactive adapter is installed, and
   nothing installs one for you: there is no default-adapter registry, so the
@@ -324,30 +324,35 @@ Four things matter, and the first two are the ones a migration gets wrong:
   React-shaped adapter writes the same frame context, so the Reagent subtree
   and the Hicasso one resolve to the *same* frame. Hicasso does ship an
   adapter of its own (`re-frame.hicasso.substrate`), but it is an optional
-  module nothing under Hicasso's own source requires, so `h/mount!` neither
+  module nothing under Hicasso's own source requires, so `h/render!` neither
   installs it nor displaces what the app has. *"Stays" is about a migration in
   progress. If the app ends with no Reagent view at all, the choice reopens and
   the author gets told — MIG-24 §When no Reagent view remains.*
-- **`h/render!` is the hot-reload door, and it takes the WHOLE tree — boundary
-  head included, with the SAME options the mount gave it.** It re-renders the
-  root React already has, so the reloaded view code meets its own DOM. The frame
-  lives in the tree now, so a reload that drops the head renders a root with no
-  frame under it and every bare `h/sub` / `h/dispatch` beneath loses what it
-  resolved against; re-rendering the head is free, because it ENSUREs and finds
-  the frame live. Nor may the reload merely *trim* the head's options: a
-  committed `frame-root` scopes one frame for its lifetime and refuses
-  reconfiguration, so dropping `:initial-events` because they have already run
-  raises `:rf.error/frame-root-reconfigured`. Write the tree once, as a function
-  both doors call, and the question cannot arise. Calling `h/mount!` again would
+- **`h/render!` is the boot door AND the hot-reload door, and it takes the
+  WHOLE tree — boundary head included, with the SAME options every earlier
+  render gave it.** Its FIRST call through a handle creates the root; every
+  later one re-renders the root React already has, so the reloaded view code
+  meets its own DOM. That is why the boot and the `^:dev/after-load` hook above
+  are one function. The frame lives in the tree now, so a reload that drops the
+  head renders a root with no frame under it and every bare `h/sub` /
+  `h/dispatch` beneath loses what it resolved against; re-rendering the head is
+  free, because it ENSUREs and finds the frame live. Nor may the reload merely
+  *trim* the head's options: a committed `frame-root` scopes one frame for its
+  lifetime and refuses reconfiguration, so dropping `:initial-events` because
+  they have already run raises `:rf.error/frame-root-reconfigured`. Write the
+  tree once, as a function that one call takes, and the question cannot arise.
+  Allocate the handle with `defonce` — a fresh handle on reload would
   `createRoot` a second time and replace the tree, discarding every node and
   scrap of component state.
-- **`h/unmount!` is `mount!`'s inverse** and is idempotent. It leaves sibling
-  roots, their frames and the container alone.
+- **`h/unmount!` is `render!`'s inverse** and is idempotent. It leaves sibling
+  roots, their frames and the container alone, and a later `h/render!` through
+  the same handle mounts afresh.
 
 `reagent.dom.server` / `hydrate-root` are the SSR family → MIG-23 (D), whose
 recipe is its own leaf, [`ssr-hydrate.md`](ssr-hydrate.md): the Hicasso pipeline
-ships — `server/render`, then `ssr/hydrate!`, then `h/hydrate!` — so the open
-question is whether to run a Node renderer, not whether a door exists.
+ships — `server/render`, then `ssr/hydrate!`, then `h/render!` with
+`{:hydrate? true}` — so the open question is whether to run a Node renderer,
+not whether a door exists.
 
 ## MIG-24 — ns requires (runs LAST)
 

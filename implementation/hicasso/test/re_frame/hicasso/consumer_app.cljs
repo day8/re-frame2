@@ -60,7 +60,7 @@
   [[re-frame.hicasso/render!]] is that door now, so the hook below is
   three ordinary lines and every one of them is public. It re-renders the
   root React already has, which is what lets the reloaded view code meet
-  its own DOM; a second `h/mount!` would `createRoot` again and replace
+  its own DOM; a fresh handle on reload would `createRoot` again and replace
   the tree, discarding every node and every scrap of component state.
 
   The handle is held in a `defonce` for the reason any hot-reloadable app
