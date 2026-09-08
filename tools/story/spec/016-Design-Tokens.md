@@ -101,7 +101,7 @@ as the visual sibling for systems missing the webfont, then
 ### Webfont delivery
 
 The chrome injects `@font-face` rules via
-`(theme.typography/inject-font-faces!)` at shell mount. Per
+`(typography/inject-font-faces!)` at shell mount. Per
 rf2-2rwdc + the rf2-s1r9a Phase 1 browser-gate trace, the
 auto-injected declarations are **`local()`-only** — no HTTP fetch is
 ever attempted. An OS-installed Plex picks up automatically (Mike's
@@ -723,11 +723,11 @@ The shell composes the six token domains in one pass at
 
 ```clojure
 ;; theme/typography.cljc
-(theme.typography/inject-font-faces!)   ; @font-face → document.head
+(typography/inject-font-faces!)   ; @font-face → document.head
 ;; theme/motion.cljc
-(theme.motion/inject-motion-css!)       ; @keyframes + reduced-motion → document.head
+(motion/inject-motion-css!)       ; @keyframes + reduced-motion → document.head
 ;; theme/depth.cljc
-(theme.depth/inject-grain-css!)         ; ::before grain overlay → document.head
+(depth/inject-grain-css!)         ; ::before grain overlay → document.head
 ```
 
 Three idempotent one-shot injections, each gated on
