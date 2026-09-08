@@ -489,22 +489,21 @@ for lifecycle errors.
     builds; it is the firehose [Xray](glossary.md#xray) drinks from, and it is the
     right tool inside a test. It is *not* how you ship errors off-box.
 
-    The **always-on error channel** promised earlier survives production, and its
-    normal door is the frame's own `:observability` policy: declare
+    The **always-on error channel** promised earlier survives production, and it has
+    exactly one door: the frame's own `:observability` policy. Declare
     `{:observability {:errors [{:sink ::sentry}]}}` on the frame and register the
     sink with `rf/register-observability-sink!`. The record arrives **already
     projected** under that frame's classification — sensitive paths redacted before
-    your code sees them. The advanced door is
-    `(rf/register-listener! :errors ::sentry report!)`: one unprojected fan-out per
-    process across every frame, for independent corpus observation. Nothing arrives
-    redacted there except the event vector, so the trust boundary is yours. The
-    [how-to](how-to/report-errors-in-production.md) walks both, in that order.
+    your code sees them. For a seat across every frame — and for records whose frame
+    does not resolve at all — declare the same entry once with
+    `(rf/configure! {:observability {:errors [{:sink ::sentry}]}})` rather than
+    reaching for a second mechanism. The
+    [how-to](how-to/report-errors-in-production.md) walks it.
 
-    The remaining streams — `:events` (an always-on per-event integration hook) and
-    `:epoch` ([epoch](glossary.md#epoch) records for time-travel tooling) — are
-    [observability](observability.md)'s territory. One closed vocabulary; pass an
-    unknown stream and you get a loud `:rf.error/unknown-listener-stream`, no silent
-    default.
+    The remaining stream — `:epoch` ([epoch](glossary.md#epoch) records for
+    time-travel tooling) — is [observability](observability.md)'s territory. One
+    closed vocabulary of two raw dev streams; pass an unknown stream and you get a
+    loud `:rf.error/unknown-listener-stream`, no silent default.
 
 ## Advanced
 
