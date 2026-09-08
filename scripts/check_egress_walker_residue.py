@@ -33,14 +33,30 @@ WHAT COUNTS AS RESIDUE — CALL POSITION, NOT THE NAME.
 
 Naming the walker in a docstring or comment is fine and often right: four
 `tools/*/src` files describe the framework's internal walk that way, spelled at
-the home namespace. What this gate refuses is a CALL — an open paren immediately
-followed by the symbol, optionally namespace-qualified and optionally behind a
-`#` reader macro:
+the home namespace. What this gate refuses is a CALL — an open paren, then
+READER WHITESPACE ONLY, then the symbol, optionally namespace-qualified and
+optionally behind a `#` reader macro:
 
     (rf/elide-wire-value v opts)              <- retired facade spelling
     (re-frame.core/elide-wire-value v opts)   <- retired fully-qualified spelling
     (rf.elision/elide-wire-value v opts)      <- live, but not from tool source
     #(elide-wire-value % opts)                <- bare, after a :refer
+
+READER WHITESPACE MEANS WHAT THE READER MEANS BY IT — spaces, tabs, commas,
+NEWLINES, and `;` line comments, in any mix. All of these read as the same call
+form, so all of them are residue:
+
+    ( rf.elision/elide-wire-value v opts)     <- a space
+    (                                         <- a newline
+      rf.elision/elide-wire-value v opts)
+    ( ;; project the slot                     <- a comment, then a newline
+      rf.elision/elide-wire-value v opts)
+
+The earlier revision of this gate required the symbol IMMEDIATELY after the
+paren and searched one line at a time, so all three of those passed while the
+tight spelling was refused (rf2-kuky.90, merged-PR audit #9491). A gate whose
+own fixtures all use one spelling cannot see that it only checks one spelling;
+that is why every variant above now has a fixture of its own.
 
 STRING LITERALS ARE SCANNED ON PURPOSE. The pair-MCP servers ship walks as
 RENDERED EVAL FORMS — source text assembled into a string and evaluated in the
@@ -49,9 +65,18 @@ the gate makes no attempt to skip strings, and a `;` comment carrying a
 copy-pasteable call is refused for the same reason: in a shipped tool source
 tree it reads as the recommended shape.
 
-A back-ticked mention inside a paren — ``(`re-frame.elision/elide-wire-value`)``
-— never fires, because the character after the paren is a backtick, not the
-symbol. That shape occurs live in `tools/xray/src` today.
+WHAT STILL DOES NOT FIRE, AND WHY THE WIDENING ABOVE KEEPS IT THAT WAY. A
+back-ticked mention inside a paren — ``(`re-frame.elision/elide-wire-value`)``,
+a shape that occurs live in `tools/xray/src` today — is prose, not a call. A
+backtick is NOT reader whitespace, so it breaks the call head wherever it sits:
+tight against the paren, or behind a space or a newline. Likewise a mention
+inside a skipped `;` comment is consumed WITH that comment — the comment is
+skipped as one unit, up to and including its newline — so naming the walker in
+a comment inside an open form does not read as calling it.
+
+Neither this gate nor its fixtures are a Clojure reader, and completing them was
+never a request for one (audit #9491's own words). Reader-equivalent formatting
+of an ordinary call is the surface; deliberate obfuscation is not.
 """
 
 from __future__ import annotations
@@ -67,11 +92,22 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # tools/<tool>/src/**  and  skills/<skill>/preload/**
 _SURFACE = re.compile(r"^(?:tools/[^/]+/src/|skills/[^/]+/preload/)")
 
-# `(` (optionally behind `#`) then, with no intervening backtick or space, the
+# Reader whitespace between the paren and the callee: spaces, tabs, newlines,
+# commas, and whole `;` comments. A comment is one unit up to and including its
+# newline, so anything NAMED inside it is consumed with it rather than read as
+# the callee. A backtick is absent from this set on purpose — that absence is
+# what keeps the sanctioned prose mentions passing (see the module docstring).
+# The two branches start on disjoint characters, so the `*` cannot backtrack
+# catastrophically.
+_READER_SPACE = r"(?:[\s,]|;[^\n]*\n)*"
+
+# `(` (optionally behind `#`) then reader whitespace, then the
 # optionally-qualified symbol. The trailing guard stops `elide-wire-value-ish`
 # and `elide-wire-values` from matching.
 _CALL = re.compile(
-    r"#?\((?:[A-Za-z0-9_.*+!?<>=$%&|-]+/)?elide-wire-value(?![A-Za-z0-9_.*+!?<>=-])"
+    r"#?\("
+    + _READER_SPACE
+    + r"(?:[A-Za-z0-9_.*+!?<>=$%&|-]+/)?elide-wire-value(?![A-Za-z0-9_.*+!?<>=-])"
 )
 
 _SELF_TEST_FIXTURE_ROOT = REPO_ROOT / "scripts" / "_test_fixtures" / "check_egress_walker_residue"
@@ -90,17 +126,36 @@ def tracked_surface_files() -> list[Path]:
 
 
 def scan_file(path: Path) -> list[tuple[int, str]]:
-    """Return (line-number, line) for every call-position walker reference."""
+    """Return (line-number, diagnostic) for every call-position walker reference.
+
+    Matched over the WHOLE text rather than line by line, because a call head is
+    allowed to span lines. The reported line is always the one the `(` sits on,
+    so the diagnostic still points at the form's start; where the head spans
+    lines, the span is named and the head is shown collapsed onto one line.
+    """
     try:
         text = path.read_text(encoding="utf-8")
     except (UnicodeDecodeError, OSError):
         return []
     if "elide-wire-value" not in text:
         return []
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = text.split("\n")
     findings = []
-    for n, line in enumerate(text.replace("\r\n", "\n").split("\n"), start=1):
-        if _CALL.search(line):
-            findings.append((n, line.strip()))
+    for match in _CALL.finditer(text):
+        start_line = text.count("\n", 0, match.start()) + 1
+        end_line = text.count("\n", 0, match.end()) + 1
+        if start_line == end_line:
+            findings.append((start_line, lines[start_line - 1].strip()))
+        else:
+            findings.append(
+                (
+                    start_line,
+                    f"{lines[start_line - 1].strip()}"
+                    f"   ...   {lines[end_line - 1].strip()}"
+                    f"   [call head spans lines {start_line}-{end_line}]",
+                )
+            )
     return findings
 
 
@@ -144,10 +199,22 @@ def run_scan(paths: list[Path], verbose: bool = False) -> int:
 
 
 def _run_self_tests(verbose: bool = False) -> int:
-    """Prove the gate fires on each live shape and stays green on each sanctioned one."""
+    """Prove the gate fires on each live shape and stays green on each sanctioned one.
+
+    Each case pins the LINE NUMBERS, not just the count. A count alone cannot
+    tell a pattern that found the right five things from one that found four
+    plus a false positive — and this gate has already shipped once with its
+    fixtures and its pattern sharing a blind spot (audit #9491), so the cheap
+    extra discrimination is worth having.
+    """
     cases = [
-        ("residue_calls.cljs", 5),
-        ("sanctioned_mentions.cljs", 0),
+        # the tight-call control: callee hard against the paren
+        ("residue_calls.cljs", (10, 14, 18, 22, 26)),
+        # the same call in reader-equivalent formattings: space, newline,
+        # comment+newline, `#(`+newline, rendered eval string+newline
+        ("residue_calls_formatted.cljs", (18, 23, 28, 33, 41)),
+        # prose that names the mechanism without calling it
+        ("sanctioned_mentions.cljs", ()),
     ]
     failures = 0
     for fixture, expected in cases:
@@ -156,13 +223,16 @@ def _run_self_tests(verbose: bool = False) -> int:
             sys.stderr.write(f"self-test FAIL: fixture {fixture!r} missing at {path}\n")
             failures += 1
             continue
-        got = len(scan_file(path))
+        got = tuple(n for n, _ in scan_file(path))
         if got == expected:
             if verbose:
-                sys.stderr.write(f"self-test PASS: {fixture} (findings={got})\n")
+                sys.stderr.write(
+                    f"self-test PASS: {fixture} (findings={len(got)} at lines {list(got)})\n"
+                )
         else:
             sys.stderr.write(
-                f"self-test FAIL: {fixture} expected findings={expected}, got {got}\n"
+                f"self-test FAIL: {fixture} expected findings at lines {list(expected)}, "
+                f"got {list(got)}\n"
             )
             failures += 1
 
