@@ -8,7 +8,8 @@
     1. canonical params + scope identity (key-order-independent;
        serializable-EDN-only; nil-vs-missing schema-defined);
     2. fail-closed scope policy (no `[:rf.scope/global]` fallthrough;
-       missing scope policy → loud error; from-caller required);
+       an absent or wrong-shaped policy → loud error; a `{:from-db …}`
+       reference resolving nil → loud error);
     3. the compact lifecycle status transition fn (:idle/:loading/
        :fetching/:loaded/:error + :refresh-error) — a pure fn, NOT a
        spawned machine;

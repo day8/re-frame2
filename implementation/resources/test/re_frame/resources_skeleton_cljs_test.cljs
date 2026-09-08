@@ -255,8 +255,9 @@
         "a {:from-db <id>} reference is accepted at registration — the resolver
          id is resolved at USE time, so it need not be registered yet"))
   ;; Every OTHER shape the policy once admitted is now refused at
-  ;; registration (rf2-kuky.81): from-caller, an app-namespaced keyword, a
-  ;; literal data value (tuple / map / string) and a fn resolver.
+  ;; registration (rf2-kuky.81): the scope-required-from-the-use-site
+  ;; keyword, an app-namespaced keyword, a literal data value
+  ;; (tuple / map / string) and a fn resolver.
   (testing "an app-namespaced keyword scope is REFUSED (it is not a policy)"
     (is (thrown-with-msg?
           js/Error #"resource-missing-scope-policy"
