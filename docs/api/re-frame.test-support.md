@@ -212,6 +212,41 @@ For a full-db assertion, compare directly: `(is (= expected-db (rf/app-db-value 
     (is (= 2 (count (:rf.view/rendered @observed)))))
   ```
 
+## Always-on emit-recorder bracket
+
+### `with-emit-recorder!`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (with-emit-recorder! [recs-sym] body+)
+  (with-emit-recorder! [recs-sym opts] body+)
+  ```
+- **Description**: The always-on sibling of [`with-trace-recorder!`](#with-trace-recorder). Brackets `body` with a fresh listener on one of the two always-on substrates, accumulating records into an atom bound to `recs-sym`. Registered before `body` runs, unregistered in a `finally` on the way out, even if `body` throws. Returns the value of `body`'s final form.
+
+  `opts` (optional map literal; keys evaluated at macroexpansion):
+
+  - `:stream` — `:errors` (default; brackets `re-frame.error-emit`, one record per promoted `:rf.error/*`) or `:events` (brackets `re-frame.event-emit`, one record per processed event).
+  - `:pred` — a 1-arg `(fn [record] truthy?)` filter. Default: accept every record.
+  - `:key` — listener key. Default: a freshly-gensym'd keyword unique to the expansion site, so two brackets in one test do not collide.
+
+  **These are the framework's own registries, not an application surface.** `re-frame.event-emit` and `re-frame.error-emit` carry no public registration verb: rf2-kuky.69 retired the `register-listener!` `:events` / `:errors` streams, because an unprojected fan-out no frame's policy governs was a second, fail-open production door beside the projected one. They survive as implementation-tier seams for two consumers — the framework's own synchronous-window capture sites, and tests. An application observes production records through a frame's `:observability` sink, or the `(rf/configure! {:observability …})` process default, both of which deliver a projected record. A test brackets the raw substrate on purpose: it wants the unprojected shape, inside a window it owns.
+
+  Macro requires: the same shape as `with-trace-recorder!` above — JVM refers it through the ordinary `:require`; CLJS test files reach it with `(:require-macros [re-frame.test-support :refer [with-emit-recorder!]])`.
+- **Example**:
+  ```clojure
+  ;; Default stream (:errors) — capture what one dispatch fails with.
+  (ts/with-emit-recorder! [errs]
+    (rf/dispatch-sync [:boom])
+    (is (= [:rf.error/handler-exception] (mapv :error @errs))))
+
+  ;; The event substrate, filtered to one frame.
+  (ts/with-emit-recorder! [seen {:stream :events
+                                 :pred   #(= :app/main (:frame %))}]
+    (rf/dispatch-sync [:tick])
+    (is (= 1 (count @seen))))
+  ```
+
 ## See also
 
 - [re-frame.core.md](re-frame.core.md) — the production primitives that double as testing entry points (`make-frame`, `with-frame`, `dispatch-sync`, `with-fx-overrides`, `app-db-value`, `compute-sub`, `sub-topology`) and the registrar-introspection API (`registrations`, `handler-meta`).

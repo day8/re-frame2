@@ -1349,12 +1349,22 @@
   ;; namespace, which the generator does not introspect.
   ;; No façade rows, no compatibility aliases (pre-alpha).
   ;; Observation listeners (rf2-ikjmkm / decision rf2-dbo0c9 Option C):
-  ;; ONE stream-parameterized verb across the four pure listener streams.
-  ;; The four `register-(event|error)-listener!` facade pairs were REMOVED
-  ;; (pre-alpha — no compat aliases); the always-on event-emit / error-emit
-  ;; registries are reached via the `:events` / `:errors` stream here, and
-  ;; remain addressable via `re-frame.event-emit` / `re-frame.error-emit` +
-  ;; late-bind for internal consumers.
+  ;; ONE stream-parameterized verb, and since rf2-kuky.69 its closed
+  ;; vocabulary is the TWO RAW DEV STREAMS `:trace` / `:epoch`.
+  ;; The per-channel `register-(event|error)-listener!` facade pairs were
+  ;; REMOVED long before (pre-alpha — no compat aliases), and rf2-kuky.69
+  ;; then retired the `:events` / `:errors` STREAMS themselves: they were a
+  ;; second, fail-open production door — unprojected, raw `:exception`, no
+  ;; frame policy, fanned across every frame — beside the projected door
+  ;; Spec 015 calls normal. Independent corpus observation regardless of a
+  ;; frame's policy is WITHDRAWN as a public primitive; production
+  ;; observation is `register-observability-sink!` against a frame's
+  ;; `:observability` policy or the `(rf/configure! {:observability …})`
+  ;; process default (rf2-kuky.67). The always-on event-emit / error-emit
+  ;; registries SURVIVE, addressable via `re-frame.event-emit` /
+  ;; `re-frame.error-emit` + late-bind, for the framework's own
+  ;; synchronous-window capture sites and for tests — implementation tier,
+  ;; no public spelling, so no facade row here.
   ;;
   ;; FACADE vs HOME-NAMESPACE VERB — one public spelling (rf2-kuky.20;
   ;; supersedes the DCE tier rule filed under rf2-rfid2x, which was measured
@@ -1366,9 +1376,10 @@
   ;; framework-internal registration and fixture clears, never a second
   ;; public spelling.
   ;;   :trace  → re-frame.trace.tooling/register-listener!
-  ;;   :events → re-frame.event-emit/register-event-listener!
-  ;;   :errors → re-frame.error-emit/register-error-listener!
   ;;   :epoch  → re-frame.epoch/register-epoch-listener!   (rowed below)
+  ;; (`re-frame.event-emit/register-event-listener!` and
+  ;;  `re-frame.error-emit/register-error-listener!` are still implementation
+  ;;  seams, but they no longer have a facade stream above them at all.)
   ;; The normative rule lives in spec/Tool-Pair.md §"Facade vs home-namespace
   ;; verb — one public spelling". What keeps a tool out of a production build
   ;; is `:devtools/preloads` placement plus a `goog.DEBUG`-gated call site,
@@ -1381,17 +1392,18 @@
   ;; (per spec/API.md §Tier vs Status, which cites `register-listener!` as the
   ;; canonical `:tooling` exemplar); the public-vs-seam split is carried by
   ;; `:facade?`, not by a different tier value. The trace.tooling / event-emit
-  ;; / error-emit home namespaces are internal-plumbing (reached via the facade
-  ;; or late-bind), not enumerated public-artefact surfaces, so they are NOT
-  ;; separately rowed here; `re-frame.epoch` IS an enumerated optional-artefact
+  ;; / error-emit home namespaces are internal-plumbing (reached via the facade,
+  ;; via late-bind, or — for the two always-on registries — directly by the
+  ;; framework's own capture sites and by tests), not enumerated public-artefact
+  ;; surfaces, so they are NOT separately rowed here; `re-frame.epoch` IS an enumerated optional-artefact
   ;; public surface, so its home verb `register-epoch-listener!` is rowed
   ;; (tier :tooling) below.
-  ["re-frame.core" "register-listener!"]    {:tier :tooling :owner "009" :status "v1 (stream-parameterized: :trace dev-only, :events/:errors always-on, :epoch optional artefact; the one public call form — the per-stream home verbs are implementation seams, per Tool-Pair §Facade vs home-namespace verb)"
+  ["re-frame.core" "register-listener!"]    {:tier :tooling :owner "009" :status "v1 (stream-parameterized over the two RAW DEV streams: :trace dev-only, :epoch optional artefact; the one public call form — the per-stream home verbs are implementation seams, per Tool-Pair §Facade vs home-namespace verb)"
                                             :action :keep
-                                            :justification "spec/Tool-Pair.md Facade vs home-namespace verb -- one public spelling: listeners attach through this facade, apps and tools alike, and the per-stream home verbs (re-frame.trace.tooling/register-listener! and siblings) are implementation seams rather than a second public call form. What keeps a tool out of a production build is :devtools/preloads placement plus a goog.DEBUG-gated call site, not which namespace the call names. Moving this row would delete the only public door to the listener registries. 235 in-repo consumer files."}
-  ["re-frame.core" "unregister-listener!"]  {:tier :tooling :owner "009" :status "v1 (stream-parameterized)"
+                                            :justification "spec/Tool-Pair.md Facade vs home-namespace verb -- one public spelling: listeners attach through this facade, apps and tools alike, and the per-stream home verbs (re-frame.trace.tooling/register-listener! and siblings) are implementation seams rather than a second public call form. What keeps a tool out of a production build is :devtools/preloads placement plus a goog.DEBUG-gated call site, not which namespace the call names. Moving this row would delete the only public door to the raw dev listener registries. rf2-kuky.69 narrowed the vocabulary to :trace / :epoch; production observation is register-observability-sink! plus a frame :observability policy or the configure! process default."}
+  ["re-frame.core" "unregister-listener!"]  {:tier :tooling :owner "009" :status "v1 (stream-parameterized over :trace / :epoch)"
                                             :action :keep
-                                            :justification "The removal half of the same one-public-spelling rule, and the Lifecycle-verb law's own named exemplar of the unregister-* verb. 175 in-repo consumer files."}
+                                            :justification "The removal half of the same one-public-spelling rule, and the Lifecycle-verb law's own named exemplar of the unregister-* verb."}
   ;; Tracing (dev-only) — §009.
   ["re-frame.core" "emit-trace-event!"]     {:tier :tooling :owner "009" :status "v1 (dev-only)"
                                             :action :keep
@@ -1470,7 +1482,7 @@
   ;; The façade `register-epoch-listener!` / `unregister-epoch-listener!` pair
   ;; was RETIRED (rf2-9flalp — API-shrink #4): the epoch stream is
   ;; registered through the single stream-parameterized verb,
-  ;; `(rf/register-listener! :epoch id f)`, like :trace / :events / :errors.
+  ;; `(rf/register-listener! :epoch id f)`, like :trace.
   ;; The wrappers remain in re-frame.epoch (rowed below, canonical home).
   ["re-frame.core" "projected-record"]           {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"
                                                  :action :keep
@@ -1514,6 +1526,14 @@
   ["re-frame.test-support" "snapshot-registrar"]        {:tier :testing :owner "008" :status "v1"}
   ["re-frame.test-support" "restore-registrar!"]        {:tier :testing :owner "008" :status "v1"}
   ["re-frame.test-support" "with-trace-recorder!"]      {:tier :testing :owner "008" :status "v1"}
+  ;; rf2-kuky.69: the sibling of the trace bracket over the two ALWAYS-ON
+  ;; substrates. `re-frame.event-emit` / `re-frame.error-emit` are
+  ;; implementation-tier registries with no public facade spelling (the
+  ;; `register-listener!` `:events` / `:errors` streams were retired), and
+  ;; TESTS are one of the two consumers that ruling kept them for. ONE
+  ;; bracket rather than a hand-rolled register/finally/unregister wrapper
+  ;; per file -- the divergence rf2-64iuw measured on the trace side.
+  ["re-frame.test-support" "with-emit-recorder!"]       {:tier :testing :owner "008" :status "v1"}
 
   ;; =========================================================================
   ;; re-frame.test-helpers — view-tree assertion helpers (tier: testing).
