@@ -1,15 +1,12 @@
 (ns re-frame.http-test-support-absent-test
-  "Negative-assertion test for rf2-cdmle + rf2-lwmgw: with
-  `re-frame.http.test-support` ABSENT from the require closure:
-
-   1. the two canonical canned-stub fxs
-      (`:rf.http/managed-canned-success`, `:rf.http/managed-canned-failure`)
-      MUST NOT be registered (rf2-cdmle); AND
-   2. the `:http/with-managed-request-stubs*` late-bind hook MUST NOT
-      publish (rf2-lwmgw — the stub macros consolidated alongside the
-      canned-stub fx registrations, so the require gate now covers both).
-      (The raw install/uninstall pair is no longer a re-frame.core façade
-      export per rf2-ntwwyt and publishes no hook at all.)
+  "Negative-assertion test for rf2-cdmle: with
+  `re-frame.http.test-support` ABSENT from the require closure, the two
+  canonical canned-stub fxs (`:rf.http/managed-canned-success`,
+  `:rf.http/managed-canned-failure`) MUST NOT be registered. The stub
+  family itself (`with-request-stubs` and the raw install/uninstall pair)
+  is not a `re-frame.core` façade export and publishes no late-bind hook
+  at all (rf2-ntwwyt, rf2-kuky.13), so the fx registrations are the whole
+  of what this gate can observe.
 
   This is the JVM/SSR companion to the CLJS production-bundle elision
   sentinels in `scripts/check-elision.cjs`. The CLJS contract pins
@@ -23,9 +20,8 @@
   The assertion is load-order sensitive. Any `:require` of
   `re-frame.http.test-support` in this namespace's REQUIRE form OR
   in any sibling test file run before this one would seed the
-  canned-stub fx registrations into the registrar AND publish the
-  stub-family late-bind hooks — and the assertion here would
-  false-pass / false-fail depending on test order.
+  canned-stub fx registrations into the registrar — and the assertion
+  here would false-pass / false-fail depending on test order.
 
   Two safeguards keep the test hermetic:
 
@@ -39,16 +35,12 @@
       `(fx/reg-fx :rf.http/managed ...)` and `(fx/reg-fx :rf.http/managed-abort ...)`
       forms, but does NOT re-fire any registration in
       `re-frame.http.test-support` — that namespace isn't loaded by
-      this require closure at all. The `:http/with-managed-request-stubs*`
-      late-bind hook gets explicitly nulled via `(late-bind/set-fn! ... nil)`
-      to defeat cross-test pollution (sibling tests that DID load
-      `re-frame.http.test-support` would have published it).
+      this require closure at all.
 
   The methodology counterpart — \"with the test-support require in the
-  closure, the canned stubs ARE registered AND the hooks publish\" —
-  lives in `re-frame.http-test-support-test`."
+  closure, the canned stubs ARE registered\" — lives in
+  `re-frame.http-test-support-test`."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.late-bind :as rf.late-bind]
             [re-frame.registrar :as rf.registrar]))
 
 (deftest canned-stub-fxs-absent-without-test-support-require
@@ -83,22 +75,3 @@
         ":rf.http/managed-canned-success MUST NOT register without re-frame.http.test-support require")
     (is (nil? (rf.registrar/lookup :fx :rf.http/managed-canned-failure))
         ":rf.http/managed-canned-failure MUST NOT register without re-frame.http.test-support require")))
-
-(deftest stub-family-hooks-absent-without-test-support-require
-  (testing "rf2-lwmgw — with re-frame.http.test-support ABSENT from the
-            require closure, the :http/with-managed-request-stubs* late-bind
-            hook MUST NOT publish. Production calls to
-            rf/with-managed-request-stubs* then surface
-            :rf.error/http-artefact-missing through re-frame.core-http's
-            defwrapper, the same shape every other test-support entry point
-            uses."
-    ;; Sibling tests that DID load `re-frame.http.test-support` would
-    ;; have published the hook into the global late-bind table; null it
-    ;; explicitly so this assertion is hermetic against test ordering.
-    ;; (registrar/clear-all! does not touch the late-bind table — it's a
-    ;; separate atom.)
-    (rf.late-bind/set-fn! :http/with-managed-request-stubs*      nil)
-    (rf.registrar/clear-all!)
-    (require 're-frame.http.managed :reload)
-    (is (nil? (rf.late-bind/get-fn :http/with-managed-request-stubs*))
-        ":http/with-managed-request-stubs* MUST NOT publish from re-frame.http.managed (rf2-lwmgw)")))

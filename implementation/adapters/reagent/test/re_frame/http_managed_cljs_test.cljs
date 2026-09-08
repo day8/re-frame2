@@ -4,7 +4,7 @@
 
   The CLJS impl uses Fetch under the hood; this test covers the
   framework-shipped surfaces using the canned-stub fxs and the
-  `with-managed-request-stubs` helper — no real network IO.
+  `with-request-stubs` helper — no real network IO.
 
   Surfaces exercised:
 
@@ -18,7 +18,7 @@
     shape exercised; the live transport runs through them when fetch is
     available, which the JVM smoke and the conformance fixtures cover
     end-to-end)
-  - `with-managed-request-stubs*` — install/run/uninstall
+  - `with-request-stubs` — scope/run/unwind
 
   Per Spec 014 §Implementation status — CLJS is the reference target;
   this smoke locks that the canned-stub fxs and the public test seam
@@ -40,7 +40,7 @@
             ;; `:rf.http/managed-canned-failure`) gate on explicit
             ;; test-support require. This file uses :fx-overrides into
             ;; both fx ids throughout, so we opt in here.
-            [re-frame.http.test-support]
+            [re-frame.http.test-support :as rf.http.test-support]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]))
 
@@ -129,10 +129,10 @@
       ;; Only the initial dispatch fired :ping; no reply re-entered.
       (is (= 1 @seen) "no reply was dispatched when :on-success is nil"))))
 
-;; ---- 5. with-managed-request-stubs* helper --------------------------------
+;; ---- 5. with-request-stubs helper -----------------------------------------
 
-(deftest with-managed-request-stubs-cljs
-  (testing "rf2-rzqan — with-managed-request-stubs* routes [method url] → reply
+(deftest with-request-stubs-cljs
+  (testing "rf2-rzqan — with-request-stubs routes [method url] → reply
             with NO per-call :fx-overrides (the helper installs the
             :rf.http/managed override for the thunk's dynamic extent)"
     (rf/reg-event :articles/list
@@ -142,7 +142,7 @@
           {:fx [[:rf.http/managed
                  {:reply-to [:articles/list msg] :request {:method :get :url "/articles"}
                   :decode  :json}]]})))
-    (rf/with-managed-request-stubs*
+    (rf.http.test-support/with-request-stubs
       {[:get "/articles"] {:reply {:ok [:hello :world]}}}
       (fn []
         ;; NO manual :fx-overrides — the documented auto-routing form.
@@ -154,13 +154,13 @@
 ;; ---- 5a. rf2-rzqan — bare thunk INTERCEPTS, never reaching the real fx ----
 ;;
 ;; CLJS counterpart of the JVM interception regression. The documented
-;; `with-managed-request-stubs*` form must route `:rf.http/managed` through
+;; `with-request-stubs` form must route `:rf.http/managed` through
 ;; the stub by ITSELF; pre-fix the thunk's bare dispatch reached the real
 ;; production Fetch transport. We shadow `:rf.http/managed` with a sentinel
 ;; — reaching it proves the override was absent.
 
-(deftest with-managed-request-stubs-intercepts-without-manual-override-cljs-rf2-rzqan
-  (testing "rf2-rzqan — inside with-managed-request-stubs*, a plain dispatch-sync
+(deftest with-request-stubs-intercepts-without-manual-override-cljs-rf2-rzqan
+  (testing "rf2-rzqan — inside with-request-stubs, a plain dispatch-sync
             (NO per-call :fx-overrides) is intercepted by the stub and the real
             :rf.http/managed fx slot is NEVER invoked"
     (let [real-fx-invoked? (atom false)]
@@ -173,7 +173,7 @@
             {:fx [[:rf.http/managed
                    {:reply-to [:rzqan/load msg] :request {:method :get :url "/rzqan"}
                     :decode  :json}]]})))
-      (rf/with-managed-request-stubs*
+      (rf.http.test-support/with-request-stubs
         {[:get "/rzqan"] {:reply {:ok {:stubbed true}}}}
         (fn []
           (rf/dispatch-sync [:rzqan/load])
@@ -190,7 +190,7 @@
 ;; CLJS counterpart of the JVM sealed-frame regression. `rf/make-frame {}`
 ;; resolves + SEALS an image generation at construction; a dispatch into that
 ;; frame value resolves `(kind, id)` through the frame's OWN sealed generation,
-;; NOT the global registrar. Pre-fix, `with-managed-request-stubs*` minted a
+;; NOT the global registrar. Pre-fix, `with-request-stubs` minted a
 ;; fresh `:rf.test/managed-http-stub-<n>` fx-id and registered it INSIDE the
 ;; scope — AFTER the frame had sealed — so the bound override redirected to an
 ;; fx-id the sealed generation could not resolve, and the bare dispatch reached
@@ -202,7 +202,7 @@
 ;; the sealed-generation resolution path is exercised.
 
 (deftest stubs-intercept-inside-pre-created-sealed-frame-cljs-rf2-bxc8kf
-  (testing "rf2-bxc8kf — inside with-managed-request-stubs*, a dispatch-sync into
+  (testing "rf2-bxc8kf — inside with-request-stubs, a dispatch-sync into
             a PRE-CREATED sealed make-frame {} frame routes through the stub and
             NEVER invokes the real :rf.http/managed transport"
     (let [real-fx-invoked? (atom false)]
@@ -217,7 +217,7 @@
                     :decode  :json}]]})))
       ;; SEAL a generation at construction, THEN enter the stub scope.
       (let [f (rf/make-frame {})]
-        (rf/with-managed-request-stubs*
+        (rf.http.test-support/with-request-stubs
           {[:get "/x"] {:reply {:ok {:stubbed true}}}}
           (fn []
             (rf/dispatch-sync [:bxc8kf/load] {:frame f})
@@ -231,10 +231,10 @@
                    frame (pre-fix: the minted per-scope stub was unresolvable in
                    the sealed generation, so this fired the real Fetch transport)"))))))))
 
-;; ---- 6. with-managed-request-stubs* — failure mapping --------------------
+;; ---- 6. with-request-stubs — failure mapping -----------------------------
 
-(deftest with-managed-request-stubs-failure-cljs
-  (testing "with-managed-request-stubs* synthesises a failure reply when {:reply {:failure ...}}"
+(deftest with-request-stubs-failure-cljs
+  (testing "with-request-stubs synthesises a failure reply when {:reply {:failure ...}}"
     (rf/reg-event :articles/list
       (fn [_ [_ msg reply]]
         (if reply
@@ -242,7 +242,7 @@
           {:fx [[:rf.http/managed
                  {:reply-to [:articles/list msg] :request {:method :get :url "/articles"}
                   :decode  :json}]]})))
-    (rf/with-managed-request-stubs*
+    (rf.http.test-support/with-request-stubs
       {[:get "/articles"] {:reply {:failure {:kind   :rf.http/http-4xx
                                              :status 404}}}}
       (fn []
@@ -255,7 +255,7 @@
 
 ;; ---- 7. unmatched-stub falls through to a transport failure --------------
 
-(deftest with-managed-request-stubs-unmatched-cljs
+(deftest with-request-stubs-unmatched-cljs
   (testing "an unmatched [method url] under stubs synthesises a :rf.http/transport failure"
     (rf/reg-event :unmatched/load
       (fn [_ [_ msg reply]]
@@ -264,7 +264,7 @@
           {:fx [[:rf.http/managed
                  {:reply-to [:unmatched/load msg] :request {:method :get :url "/never"}
                   :decode  :json}]]})))
-    (rf/with-managed-request-stubs*
+    (rf.http.test-support/with-request-stubs
       ;; Configure stubs that do NOT match the request URL.
       {[:get "/articles"] {:reply {:ok []}}}
       (fn []

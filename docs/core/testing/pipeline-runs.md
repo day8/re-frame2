@@ -84,32 +84,34 @@ Now look at that code for the *edges* — a spot where the test can step in and 
 (ns my-app.session-test
   (:require [clojure.test :refer [deftest is]]
             [re-frame.core :as rf]
-            [re-frame.http.test-support]   ;; canned-reply stubs — test-only, never in production requires
+            [re-frame.http.test-support :as http-test-support]   ;; canned-reply stubs — test-only, never in production requires
             [re-frame.test-support :as ts]
             [my-app.session]))             ;; loads the registrations
 
 (deftest login-happy-path
   (rf/with-new-frame [f (rf/make-frame {})]
-    (rf/with-managed-request-stubs
+    (http-test-support/with-request-stubs
       {[:post "/api/users/login"]
        {:reply {:ok {:user {:email "alice@example.com" :token "jwt.abc"}}}}}
-      (rf/dispatch-sync [:session/login {:email    "alice@example.com"
-                                         :password "hunter2"}]
-                        {:rf.cofx {:rf/time-ms 1781078400000}})
-      (let [db (rf/app-db-value f)]
-        (is (= :authed (:session/status db)))
-        (is (= 1781078400000 (:session/attempted-at db)))
-        (is (= "alice@example.com" (get-in db [:session/user :email])))))))
+      (fn []
+        (rf/dispatch-sync [:session/login {:email    "alice@example.com"
+                                           :password "hunter2"}]
+                          {:rf.cofx {:rf/time-ms 1781078400000}})
+        (let [db (rf/app-db-value f)]
+          (is (= :authed (:session/status db)))
+          (is (= 1781078400000 (:session/attempted-at db)))
+          (is (= "alice@example.com" (get-in db [:session/user :email]))))))))
 
 (deftest login-bad-credentials
   (rf/with-new-frame [f (rf/make-frame {})]
-    (rf/with-managed-request-stubs
+    (http-test-support/with-request-stubs
       {[:post "/api/users/login"]
        {:reply {:failure {:kind :rf.http/http-4xx :status 401}}}}
-      (rf/dispatch-sync [:session/login {:email    "alice@example.com"
-                                         :password "wrong"}])
-      (is (= :error            (:session/status (rf/app-db-value f))))
-      (is (= :rf.http/http-4xx (:session/error  (rf/app-db-value f)))))))
+      (fn []
+        (rf/dispatch-sync [:session/login {:email    "alice@example.com"
+                                           :password "wrong"}])
+        (is (= :error            (:session/status (rf/app-db-value f))))
+        (is (= :rf.http/http-4xx (:session/error  (rf/app-db-value f))))))))
 ```
 
 Run it with your project's JVM test runner (`clojure -M:test`). Both tests cover the full chain: request out, reply in, reply handler folds the result. Each runs in about a millisecond. Three pieces carry the recipe, so let's take them one at a time.
@@ -126,17 +128,17 @@ A handler only ever receives the facts it asked for — exactly the ones its `:r
 
 ### Answer the HTTP: canned replies by method + URL
 
-`with-managed-request-stubs` (re-exported on `re-frame.core` from `re-frame.http.test-support`) takes a route map of `[method url]` → reply. For the duration of its body it answers every `:rf.http/managed` description that matches a route. `{:reply {:ok value}}` synthesises the canonical success envelope; `{:reply {:failure {:kind ... :status ...}}}` synthesises the canonical failure. The point: the synthesised reply is the *same* canonical envelope a live request produces, and it rides the *same* dispatch path — so your reply handler can't tell the difference, which is precisely why the test proves something real. The reply lands inside the same `dispatch-sync` drain, so the assertion on the next line sees it.
+`with-request-stubs` (from `re-frame.http.test-support` — not a `re-frame.core` re-export) takes a route map of `[method url]` → reply and a thunk. For the duration of that thunk it answers every `:rf.http/managed` description that matches a route. `{:reply {:ok value}}` synthesises the canonical success envelope; `{:reply {:failure {:kind ... :status ...}}}` synthesises the canonical failure. The point: the synthesised reply is the *same* canonical envelope a live request produces, and it rides the *same* dispatch path — so your reply handler can't tell the difference, which is precisely why the test proves something real. The reply lands inside the same `dispatch-sync` drain, so the assertion on the next line sees it.
 
 Several routes coexist in one table — list each `[method url]` the run fires, success or failure, and each `:rf.http/managed` invocation is matched against its `:request :method` + `:request :url`:
 
 ```clojure
-(rf/with-managed-request-stubs
+(http-test-support/with-request-stubs
   {[:get    "/api/profiles/alice"] {:reply {:ok {:profile {:username "alice"}}}}
    [:post   "/api/articles"]       {:reply {:ok {:article {:slug "hello"}}}}
    [:delete "/api/articles/old"]   {:reply {:failure {:kind :rf.http/http-4xx :status 403}}}}
-  ;; ... dispatch the events whose handlers fire those three requests ...
-  )
+  (fn []
+    ;; ... dispatch the events whose handlers fire those three requests ...))
 ```
 
 A request that matches no route in the table is answered with a *synthesized failure* — kind `:rf.http/transport`, tagged `"no stub matched"` along with the offending method and URL — riding the normal `:on-failure` path. Nothing hangs and nothing silently passes: the miss folds into your failure handler's state, where the next assertion catches it. So the table is also a coverage check: it must name every request the path under test fires.
@@ -188,7 +190,7 @@ The stub table is sugar over a more general edge. A per-dispatch `:fx-overrides`
       (is (= "/api/users/login" (get-in @sent [:request :url]))))))
 ```
 
-This is redirect-not-mock in a single frame. The override receives the **exact args map the handler built** — the same data production would interpret — so you assert on the request without ever performing it. Nothing about the handler was faked; only the answerer changed. The same edge silences a logger, captures your own custom effects, or swaps in `:rf.http/managed-canned-success` by keyword (the framework-shipped success stub — it shares the canned-reply machinery `with-managed-request-stubs` runs under its route table):
+This is redirect-not-mock in a single frame. The override receives the **exact args map the handler built** — the same data production would interpret — so you assert on the request without ever performing it. Nothing about the handler was faked; only the answerer changed. The same edge silences a logger, captures your own custom effects, or swaps in `:rf.http/managed-canned-success` by keyword (the framework-shipped success stub — it shares the canned-reply machinery `with-request-stubs` runs under its route table):
 
 ```clojure
 ;; Redirect to the framework-shipped canned-success stub by keyword.
@@ -226,7 +228,7 @@ The two edges above — redirect HTTP to a stub, make generated facts strict —
   (is (= :authed (:session/status (rf/app-db-value f)))))
 ```
 
-The preset expands to three fixed entries: `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}` (every `:rf.http/managed` is redirected to its canned-success stub, so a test frame can never accidentally reach the network), `:drain-depth 100` (the cap on how many run steps a single dispatch will drain before it bails — set to the framework default here, surfaced explicitly so tooling can read "this is a test frame"), and `:rf.cofx/mint-policy :strict` (the strict-mint behaviour described above). One prerequisite: the canned stubs register only when `re-frame.http.test-support` is in your require block — it already is on this page; without it the preset's redirect target doesn't resolve. Your own keys win over the preset expansion, so you can still pin a different HTTP stub or opt into `:explicit-live` per dispatch. Use the preset when you want the defaults everywhere; reach for the explicit `with-managed-request-stubs` table when a test needs route-by-route control over the replies.
+The preset expands to three fixed entries: `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}` (every `:rf.http/managed` is redirected to its canned-success stub, so a test frame can never accidentally reach the network), `:drain-depth 100` (the cap on how many run steps a single dispatch will drain before it bails — set to the framework default here, surfaced explicitly so tooling can read "this is a test frame"), and `:rf.cofx/mint-policy :strict` (the strict-mint behaviour described above). One prerequisite: the canned stubs register only when `re-frame.http.test-support` is in your require block — it already is on this page; without it the preset's redirect target doesn't resolve. Your own keys win over the preset expansion, so you can still pin a different HTTP stub or opt into `:explicit-live` per dispatch. Use the preset when you want the defaults everywhere; reach for the explicit `with-request-stubs` table when a test needs route-by-route control over the replies.
 
 !!! warning "Gotcha — a runaway drain halts at `:drain-depth`, it doesn't hang"
 
@@ -250,7 +252,7 @@ Sometimes the property under test is not the settled state but *which event the 
       (is (= [[:nav/goto :login]] @dispatched)))))
 ```
 
-One boundary to know before you lean on this: a per-call override rides the run it starts — the `:dispatch` / `:dispatch-later` children of that dispatch inherit it — but it does **not** survive an asynchronous hop. An HTTP reply is a *fresh* dispatch (tagged `:source :http`), so a per-call capture on the request's dispatch never sees the reply run's follow-ups. To capture across the hop, use the lexical boundary: `rf/with-fx-overrides` wraps a body so every dispatch in its dynamic extent — replies included — carries the override. (That's the same boundary `with-managed-request-stubs` uses to install its own routing.)
+One boundary to know before you lean on this: a per-call override rides the run it starts — the `:dispatch` / `:dispatch-later` children of that dispatch inherit it — but it does **not** survive an asynchronous hop. An HTTP reply is a *fresh* dispatch (tagged `:source :http`), so a per-call capture on the request's dispatch never sees the reply run's follow-ups. To capture across the hop, use the lexical boundary: `rf/with-fx-overrides` wraps a body so every dispatch in its dynamic extent — replies included — carries the override. (That's the same boundary `with-request-stubs` uses to install its own routing.)
 
 !!! warning "Gotcha — scope a `:dispatch` override per-call, never per-frame"
 
@@ -375,10 +377,11 @@ The test is unchanged in shape — stub the route, dispatch, assert the settled 
 ```clojure
 (deftest profile-load-co-located
   (rf/with-new-frame [f (rf/make-frame {})]
-    (rf/with-managed-request-stubs
+    (http-test-support/with-request-stubs
       {[:get "/api/profiles/alice"] {:reply {:ok {:bio "hello"}}}}
-      (rf/dispatch-sync [:profile/load {:username "alice"}])
-      (is (= {:bio "hello"} (get-in (rf/app-db-value f) [:profiles "alice"]))))))
+      (fn []
+        (rf/dispatch-sync [:profile/load {:username "alice"}])
+        (is (= {:bio "hello"} (get-in (rf/app-db-value f) [:profiles "alice"])))))))
 ```
 
 !!! note "The silenced failure is observable, not invisible"
@@ -405,4 +408,4 @@ That middle — the handler and its interceptor chain's *logic* — is the progr
 
 !!! note "Where these surfaces live"
 
-    The dispatch opts, frame lifecycle, and drain semantics are covered in [Frames](../frames.md) and [Run to completion](../run-to-completion.md); the reply envelope and canned-reply stubs in [Managed HTTP](../../async/http.md); the fixture helpers (`assert-path-equals`, `poll-until`, `make-reset-runtime-fixture`) in the [test-support API reference](../../api/re-frame.test-support.md). `with-managed-request-stubs` and the `:rf.http/managed-canned-*` stubs ship in `re-frame.http.test-support` and must never appear in a production require.
+    The dispatch opts, frame lifecycle, and drain semantics are covered in [Frames](../frames.md) and [Run to completion](../run-to-completion.md); the reply envelope and canned-reply stubs in [Managed HTTP](../../async/http.md); the fixture helpers (`assert-path-equals`, `poll-until`, `make-reset-runtime-fixture`) in the [test-support API reference](../../api/re-frame.test-support.md). `with-request-stubs` and the `:rf.http/managed-canned-*` stubs ship in `re-frame.http.test-support` and must never appear in a production require.

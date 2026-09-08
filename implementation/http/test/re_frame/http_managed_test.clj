@@ -1131,10 +1131,10 @@
           (is (= 1 @thunk-calls)))
         (finally (stop-server! srv))))))
 
-;; ---- 11. with-managed-request-stubs helper --------------------------------
+;; ---- 11. with-request-stubs helper ----------------------------------------
 
-(deftest with-managed-request-stubs-helper
-  (testing "rf2-rzqan — with-managed-request-stubs routes :method+:url to the
+(deftest with-request-stubs-helper
+  (testing "rf2-rzqan — with-request-stubs routes :method+:url to the
             configured reply with NO per-call :fx-overrides (the documented
             wrapper contract: the helper installs the
             :rf.http/managed → :rf.http/managed-test-stub override for the
@@ -1146,18 +1146,19 @@
           {:fx [[:rf.http/managed
                  {:reply-to [:articles/list msg] :request {:method :get :url "/articles"}
                   :decode  :json}]]})))
-    (rf/with-managed-request-stubs
+    (rf.http.test-support/with-request-stubs
       {[:get "/articles"] {:reply {:ok [:hello :world]}}}
-      ;; NO manual :fx-overrides — this is the documented form. Pre-fix this
-      ;; dispatch ran the real :rf.http/managed transport.
-      (rf/dispatch-sync [:articles/list])
-      (let [db (await-reply! #(some? (:result %)) 2000)]
-        (is (= :ok (get-in db [:result :status])))
-        (is (= [:hello :world] (get-in db [:result :value])))))))
+      (fn []
+        ;; NO manual :fx-overrides — this is the documented form. Pre-fix this
+        ;; dispatch ran the real :rf.http/managed transport.
+        (rf/dispatch-sync [:articles/list])
+        (let [db (await-reply! #(some? (:result %)) 2000)]
+          (is (= :ok (get-in db [:result :status])))
+          (is (= [:hello :world] (get-in db [:result :value]))))))))
 
 ;; ---- 11b. rf2-lddbk — stubs may supply optional response metadata ----------
 
-(deftest with-managed-request-stubs-optional-response-meta
+(deftest with-request-stubs-optional-response-meta
   (testing "rf2-lddbk — a route entry may supply optional response metadata
             beside its success value ({:reply {:ok v :meta {...}}}); it rides
             the canned reply's :meta slot verbatim so header-dependent :after
@@ -1171,22 +1172,23 @@
                  {:reply-to [:meta-stub/load msg]
                   :request  {:method :get :url (:url msg)}
                   :decode   :json}]]})))
-    (rf/with-managed-request-stubs
+    (rf.http.test-support/with-request-stubs
       {[:get "/with-meta"] {:reply {:ok   {:v 1}
                                     :meta {:status  200
                                            :headers {"x-ratelimit-remaining" "37"}}}}
        [:get "/no-meta"]   {:reply {:ok {:v 2}}}}
-      (rf/dispatch-sync [:meta-stub/load {:url "/with-meta"}])
-      (let [db (await-reply! #(some? (:result %)) 2000)]
-        (is (= {:v 1} (get-in db [:result :value])))
-        (is (= 200 (get-in db [:result :meta :status]))
-            "the supplied stub metadata rides [:meta :status]")
-        (is (= "37" (get-in db [:result :meta :headers "x-ratelimit-remaining"]))
-            "supplied stub headers ride [:meta :headers] verbatim"))
-      (rf/dispatch-sync [:meta-stub/load {:url "/no-meta"}])
-      (let [db (await-reply! #(= {:v 2} (get-in % [:result :value])) 2000)]
-        (is (not (contains? (:result db) :meta))
-            "absence stays minimal — the stub fabricates no lifecycle facts")))))
+      (fn []
+        (rf/dispatch-sync [:meta-stub/load {:url "/with-meta"}])
+        (let [db (await-reply! #(some? (:result %)) 2000)]
+          (is (= {:v 1} (get-in db [:result :value])))
+          (is (= 200 (get-in db [:result :meta :status]))
+              "the supplied stub metadata rides [:meta :status]")
+          (is (= "37" (get-in db [:result :meta :headers "x-ratelimit-remaining"]))
+              "supplied stub headers ride [:meta :headers] verbatim"))
+        (rf/dispatch-sync [:meta-stub/load {:url "/no-meta"}])
+        (let [db (await-reply! #(= {:v 2} (get-in % [:result :value])) 2000)]
+          (is (not (contains? (:result db) :meta))
+              "absence stays minimal — the stub fabricates no lifecycle facts"))))))
 
 (deftest canned-success-optional-response-meta
   (testing "rf2-lddbk — the canned-success stub honours an optional :meta on
@@ -1219,7 +1221,7 @@
 ;; ---- 11a. rf2-rzqan — bare wrapper INTERCEPTS, never reaching the real fx ---
 ;;
 ;; The load-bearing regression for rf2-rzqan: the documented
-;; `with-managed-request-stubs` wrapper must route `:rf.http/managed`
+;; `with-request-stubs` wrapper must route `:rf.http/managed`
 ;; through the route-map stub by ITSELF — the body must NOT need a manual
 ;; `:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}`. Pre-fix
 ;; the helper only registered the stub fx but did NOT install the override,
@@ -1233,8 +1235,8 @@
 ;; the stub instead and the sentinel stays untouched while the stubbed
 ;; reply lands.
 
-(deftest with-managed-request-stubs-intercepts-without-manual-override-rf2-rzqan
-  (testing "rf2-rzqan — inside with-managed-request-stubs, a plain dispatch-sync
+(deftest with-request-stubs-intercepts-without-manual-override-rf2-rzqan
+  (testing "rf2-rzqan — inside with-request-stubs, a plain dispatch-sync
             (NO per-call :fx-overrides) is intercepted by the stub and the real
             :rf.http/managed fx slot is NEVER invoked"
     (let [real-fx-invoked? (atom false)]
@@ -1249,21 +1251,22 @@
             {:fx [[:rf.http/managed
                    {:reply-to [:rzqan/load msg] :request {:method :get :url "/rzqan"}
                     :decode  :json}]]})))
-      (rf/with-managed-request-stubs
+      (rf.http.test-support/with-request-stubs
         {[:get "/rzqan"] {:reply {:ok {:stubbed true}}}}
-        ;; Bare wrapper form — the helper alone must route to the stub.
-        (rf/dispatch-sync [:rzqan/load])
-        (let [db (await-reply! #(some? (:result %)) 2000)]
-          (is (= :ok (get-in db [:result :status]))
-              "the stubbed reply landed via the route-map stub")
-          (is (= {:stubbed true} (get-in db [:result :value]))
-              "the configured :ok value rode through the synthesised success reply")
-          (is (false? @real-fx-invoked?)
-              "the real :rf.http/managed fx was NEVER invoked — the helper's
-               installed override intercepted the dispatch (pre-fix: this fired
-               the real transport)"))))))
+        (fn []
+          ;; Bare wrapper form — the helper alone must route to the stub.
+          (rf/dispatch-sync [:rzqan/load])
+          (let [db (await-reply! #(some? (:result %)) 2000)]
+            (is (= :ok (get-in db [:result :status]))
+                "the stubbed reply landed via the route-map stub")
+            (is (= {:stubbed true} (get-in db [:result :value]))
+                "the configured :ok value rode through the synthesised success reply")
+            (is (false? @real-fx-invoked?)
+                "the real :rf.http/managed fx was NEVER invoked — the helper's
+                 installed override intercepted the dispatch (pre-fix: this fired
+                 the real transport)")))))))
 
-(deftest with-managed-request-stubs-per-call-override-still-wins-rf2-rzqan
+(deftest with-request-stubs-per-call-override-still-wins-rf2-rzqan
   (testing "rf2-rzqan — a per-call :fx-overrides inside the wrapper still wins
             over the helper-installed lexical default (precedence preserved:
             per-call > lexical > per-frame)"
@@ -1276,14 +1279,15 @@
           {:fx [[:rf.http/managed
                  {:request {:method :get :url "/rzqan-explicit"}
                   :decode  :json}]]}))
-      (rf/with-managed-request-stubs
+      (rf.http.test-support/with-request-stubs
         {[:get "/rzqan-explicit"] {:reply {:ok {:via :stub}}}}
-        ;; The body deliberately overrides :rf.http/managed itself; this must
-        ;; beat the helper's lexical default and land on the explicit target.
-        (rf/dispatch-sync [:rzqan/load-explicit]
-                          {:fx-overrides {:rf.http/managed :rzqan/explicit-override}})
-        (is (= :explicit @chosen)
-            "the per-call :fx-overrides won over the helper's lexical default")))))
+        (fn []
+          ;; The body deliberately overrides :rf.http/managed itself; this must
+          ;; beat the helper's lexical default and land on the explicit target.
+          (rf/dispatch-sync [:rzqan/load-explicit]
+                            {:fx-overrides {:rf.http/managed :rzqan/explicit-override}})
+          (is (= :explicit @chosen)
+              "the per-call :fx-overrides won over the helper's lexical default"))))))
 
 ;; ---- 11a-azrcs. route-map stub keys off the POST-`:before` request --------
 ;;
@@ -1318,15 +1322,16 @@
           {:fx [[:rf.http/managed
                  {:reply-to [:azrcs/list msg] :request {:method :get :url "/articles"}
                   :decode  :json}]]})))
-    (rf/with-managed-request-stubs
-      ;; Keyed to the FINAL url the `:before` produces — NOT the draft.
+    ;; Keyed to the FINAL url the `:before` produces — NOT the draft.
+    (rf.http.test-support/with-request-stubs
       {[:get "/v2/articles"] {:reply {:ok [:rewritten :ok]}}}
-      (rf/dispatch-sync [:azrcs/list])
-      (let [db (await-reply! #(some? (:result %)) 2000)]
-        (is (= :ok (get-in db [:result :status]))
-            "the stub matched the post-`:before` url")
-        (is (= [:rewritten :ok] (get-in db [:result :value]))
-            "the configured :ok value for the FINAL url rode through")))))
+      (fn []
+        (rf/dispatch-sync [:azrcs/list])
+        (let [db (await-reply! #(some? (:result %)) 2000)]
+          (is (= :ok (get-in db [:result :status]))
+              "the stub matched the post-`:before` url")
+          (is (= [:rewritten :ok] (get-in db [:result :value]))
+              "the configured :ok value for the FINAL url rode through"))))))
 
 (deftest stub-does-not-match-stale-original-url-rf2-azrcs
   (testing "rf2-azrcs (complement) — a route map keyed to the ORIGINAL
@@ -1344,18 +1349,19 @@
           {:fx [[:rf.http/managed
                  {:reply-to [:azrcs/list2 msg] :request {:method :get :url "/articles"}
                   :decode  :json}]]})))
-    (rf/with-managed-request-stubs
-      ;; Keyed to the ORIGINAL draft url — production would issue /v2/articles,
-      ;; so this stub must NOT match (pre-fix it false-matched).
+    ;; Keyed to the ORIGINAL draft url — production would issue /v2/articles,
+    ;; so this stub must NOT match (pre-fix it false-matched).
+    (rf.http.test-support/with-request-stubs
       {[:get "/articles"] {:reply {:ok [:should :not :match]}}}
-      (rf/dispatch-sync [:azrcs/list2])
-      (let [db (await-reply! #(some? (:result %)) 2000)]
-        (is (= :error (get-in db [:result :status]))
-            "the stale original-url key did NOT match the post-`:before` url")
-        (is (= "no stub matched" (get-in db [:result :error :message]))
-            "the no-stub-matched synthetic failure fired (not the stale :ok)")
-        (is (= "/v2/articles" (get-in db [:result :error :url]))
-            "the no-match failure reports the FINAL post-`:before` url")))))
+      (fn []
+        (rf/dispatch-sync [:azrcs/list2])
+        (let [db (await-reply! #(some? (:result %)) 2000)]
+          (is (= :error (get-in db [:result :status]))
+              "the stale original-url key did NOT match the post-`:before` url")
+          (is (= "no stub matched" (get-in db [:result :error :message]))
+              "the no-stub-matched synthetic failure fired (not the stale :ok)")
+          (is (= "/v2/articles" (get-in db [:result :error :url]))
+              "the no-match failure reports the FINAL post-`:before` url"))))))
 
 (deftest stub-url-erasing-before-throws-bad-request-rf2-azrcs
   (testing "rf2-azrcs (complement) — a `:before` that BLANKS the url makes
@@ -1390,7 +1396,7 @@
 
 ;; ---- 11a-vn8qjv. scoped stubs compose under nesting -----------------------
 ;;
-;; rf2-vn8qjv (issue 2) — `with-managed-request-stubs*` must be stack-safe
+;; rf2-vn8qjv (issue 2) — `with-request-stubs` must be stack-safe
 ;; for nested lexical scopes. Pre-fix every scope keyed off ONE global stub
 ;; fx id (`:rf.http/managed-test-stub`): the inner scope's install replaced
 ;; the outer handler and the inner's `finally` CLEARED it, so an outer-scope
@@ -1414,34 +1420,36 @@
         (if reply
           {:db (assoc db :result-b reply)}
           {:fx [[:rf.http/managed {:reply-to [:vn8qjv/load-b msg] :request {:method :get :url "/b"} :decode :json}]]})))
-    (rf/with-managed-request-stubs
+    (rf.http.test-support/with-request-stubs
       {[:get "/a"] {:reply {:ok {:from :outer-a}}}}
-      ;; Inner scope B — distinct route + reply. Its install + teardown must
-      ;; not disturb the outer A scope.
-      (rf/with-managed-request-stubs
-        {[:get "/b"] {:reply {:ok {:from :inner-b}}}}
-        (rf/dispatch-sync [:vn8qjv/load-b])
-        (let [db (await-reply! #(some? (:result-b %)) 2000)]
-          (is (= {:from :inner-b} (get-in db [:result-b :value]))
-              "inner B scope routed to the B stub")))
-      ;; Inner scope has exited. The outer A scope's stub MUST still be live.
-      (rf/dispatch-sync [:vn8qjv/load-a])
-      (let [db (await-reply! #(some? (:result-a %)) 2000)]
-        (is (= :ok (get-in db [:result-a :status]))
-            "outer A scope still synthesised a reply after the inner B exit")
-        (is (= {:from :outer-a} (get-in db [:result-a :value]))
-            "outer A scope still routed to the A stub — not cleared by inner B teardown")))))
+      (fn []
+        ;; Inner scope B — distinct route + reply. Its install + teardown must
+        ;; not disturb the outer A scope.
+        (rf.http.test-support/with-request-stubs
+          {[:get "/b"] {:reply {:ok {:from :inner-b}}}}
+          (fn []
+            (rf/dispatch-sync [:vn8qjv/load-b])
+            (let [db (await-reply! #(some? (:result-b %)) 2000)]
+              (is (= {:from :inner-b} (get-in db [:result-b :value]))
+                  "inner B scope routed to the B stub"))))
+        ;; Inner scope has exited. The outer A scope's stub MUST still be live.
+        (rf/dispatch-sync [:vn8qjv/load-a])
+        (let [db (await-reply! #(some? (:result-a %)) 2000)]
+          (is (= :ok (get-in db [:result-a :status]))
+              "outer A scope still synthesised a reply after the inner B exit")
+          (is (= {:from :outer-a} (get-in db [:result-a :value]))
+              "outer A scope still routed to the A stub — not cleared by inner B teardown"))))))
 
 ;; ---- 11a-bxc8kf. stubs work inside a PRE-CREATED SEALED frame --------------
 ;;
 ;; rf2-bxc8kf — the exact tutorial nesting creates a frame FIRST, then enters
-;; `with-managed-request-stubs`:
+;; `with-request-stubs`:
 ;;   (with-new-frame [f (make-frame {})]
-;;     (with-managed-request-stubs … (dispatch-sync …)))
+;;     (with-request-stubs … (fn [] (dispatch-sync …)))))
 ;; `make-frame {}` resolves + SEALS an image generation at construction, and a
 ;; no-id (direct) frame is deliberately EXCLUDED from `reg-*` auto-reprojection
 ;; (`frame/image-loaded-frame-ids` drops the reserved `:rf.frame/<gensym>` ids).
-;; Pre-fix, `with-managed-request-stubs*` MINTED a fresh `:rf.test/managed-http-
+;; Pre-fix, `with-request-stubs` MINTED a fresh `:rf.test/managed-http-
 ;; stub-<n>` fx-id and registered it INSIDE the scope — AFTER the frame had
 ;; sealed. So the bound `{:rf.http/managed <scope-id>}` override redirected to an
 ;; fx-id the sealed generation could not resolve (`registrar/lookup` routes
@@ -1466,7 +1474,7 @@
     {:timeout-ms 2000 :label "sealed-frame http-managed reply"}))
 
 (deftest stubs-intercept-inside-pre-created-sealed-frame-rf2-bxc8kf
-  (testing "rf2-bxc8kf — a plain dispatch-sync inside with-managed-request-stubs,
+  (testing "rf2-bxc8kf — a plain dispatch-sync inside with-request-stubs,
             in a PRE-CREATED sealed `with-new-frame` frame, routes through the
             configured stub and NEVER invokes the real :rf.http/managed transport"
     (let [real-fx-invoked? (atom false)]
@@ -1483,10 +1491,11 @@
                    {:reply-to [:bxc8kf/load msg] :request {:method :get :url "/x"}
                     :decode  :json}]]})))
       (rf/with-new-frame [f (rf/make-frame {})]
-        (rf/with-managed-request-stubs
+        (rf.http.test-support/with-request-stubs
           {[:get "/x"] {:reply {:ok {:stubbed true}}}}
-          ;; Bare wrapper form — no per-call :fx-overrides.
-          (rf/dispatch-sync [:bxc8kf/load]))
+          (fn []
+            ;; Bare wrapper form — no per-call :fx-overrides.
+            (rf/dispatch-sync [:bxc8kf/load])))
         (let [db (await-frame-reply! f #(some? (:result %)))]
           (is (= :ok (get-in db [:result :status]))
               "the stubbed reply landed via the load-time-registered scope stub")
@@ -1514,19 +1523,21 @@
           {:db (assoc db :result-b reply)}
           {:fx [[:rf.http/managed {:reply-to [:bxc8kf/load-b msg] :request {:method :get :url "/b"} :decode :json}]]})))
     (rf/with-new-frame [f (rf/make-frame {})]
-      (rf/with-managed-request-stubs
+      (rf.http.test-support/with-request-stubs
         {[:get "/a"] {:reply {:ok {:from :outer-a}}}}
-        (rf/with-managed-request-stubs
-          {[:get "/b"] {:reply {:ok {:from :inner-b}}}}
-          (rf/dispatch-sync [:bxc8kf/load-b])
-          (let [db (await-frame-reply! f #(some? (:result-b %)))]
-            (is (= {:from :inner-b} (get-in db [:result-b :value]))
-                "inner B scope routed to the B stub inside the sealed frame")))
-        ;; Inner scope exited — the outer A route map must be live again.
-        (rf/dispatch-sync [:bxc8kf/load-a])
-        (let [db (await-frame-reply! f #(some? (:result-a %)))]
-          (is (= {:from :outer-a} (get-in db [:result-a :value]))
-              "outer A scope route map restored after the inner B scope exit"))))))
+        (fn []
+          (rf.http.test-support/with-request-stubs
+            {[:get "/b"] {:reply {:ok {:from :inner-b}}}}
+            (fn []
+              (rf/dispatch-sync [:bxc8kf/load-b])
+              (let [db (await-frame-reply! f #(some? (:result-b %)))]
+                (is (= {:from :inner-b} (get-in db [:result-b :value]))
+                    "inner B scope routed to the B stub inside the sealed frame"))))
+          ;; Inner scope exited — the outer A route map must be live again.
+          (rf/dispatch-sync [:bxc8kf/load-a])
+          (let [db (await-frame-reply! f #(some? (:result-a %)))]
+            (is (= {:from :outer-a} (get-in db [:result-a :value]))
+                "outer A scope route map restored after the inner B scope exit")))))))
 
 (deftest sealed-frame-per-call-override-still-wins-rf2-bxc8kf
   (testing "rf2-bxc8kf — precedence (per-call > lexical > per-frame) is preserved
@@ -1540,14 +1551,15 @@
           {:fx [[:rf.http/managed
                  {:request {:method :get :url "/explicit"} :decode :json}]]}))
       (rf/with-new-frame [f (rf/make-frame {})]
-        (rf/with-managed-request-stubs
+        (rf.http.test-support/with-request-stubs
           {[:get "/explicit"] {:reply {:ok {:via :stub}}}}
-          ;; The per-call override must beat the wrapper's lexical default.
-          (rf/dispatch-sync [:bxc8kf/load-explicit]
-                            {:fx-overrides {:rf.http/managed :bxc8kf/explicit-override}})
-          (is (= :explicit @chosen)
-              "the per-call :fx-overrides won over the wrapper's lexical default
-               in the sealed frame"))))))
+          (fn []
+            ;; The per-call override must beat the wrapper's lexical default.
+            (rf/dispatch-sync [:bxc8kf/load-explicit]
+                              {:fx-overrides {:rf.http/managed :bxc8kf/explicit-override}})
+            (is (= :explicit @chosen)
+                "the per-call :fx-overrides won over the wrapper's lexical default
+                 in the sealed frame")))))))
 
 ;; ---- 11a-vn8qjv (lower-level). install/uninstall stack + no fx leak --------
 ;;
@@ -1629,17 +1641,6 @@
         ":rf.http/managed-canned-success registered when re-frame.http.test-support is required")
     (is (some? (rf.registrar/lookup :fx :rf.http/managed-canned-failure))
         ":rf.http/managed-canned-failure registered when re-frame.http.test-support is required")))
-
-;; ---- 12. decode reflection metadata ---------------------------------------
-
-(deftest decode-reflection-metadata
-  (testing ":rf.http/decode-schemas declared on the handler is queryable via handler-meta"
-    (rf/reg-event :article/load
-      {:doc                    "Load an article."
-       :rf.http/decode-schemas [::ArticleResponse]}
-      (fn [_ _] {}))
-    (let [m (rf/handler-meta {:source :store :kind :event :id :article/load})]
-      (is (= [::ArticleResponse] (:rf.http/decode-schemas m))))))
 
 ;; ---- actor-in-flight-snapshot shape contract (rf2-kyl7) -------------------
 ;;

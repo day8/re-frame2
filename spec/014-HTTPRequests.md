@@ -27,7 +27,7 @@ The **CLJS reference implementation ships `:rf.http/managed`**, backed by Fetch 
 
 If an implementation ships ONLY a subset (e.g., no JVM transport), it claims the relevant capability rows and the conformance corpus exercises only those.
 
-**Artefact (CLJS reference).** As a per-feature artefact split, the CLJS reference's managed-HTTP surface ships in the separate Maven artefact `day8/re-frame2-http` — `re-frame.http.managed` namespace, the production `:rf.http/managed` / `:rf.http/managed-abort` fxs registered at ns-load time, the in-flight request registry, the Fetch / HttpClient transport adapters, the encode / decode pipeline, the retry-with-backoff machinery, the eight-category `:rf.http/*` failure taxonomy, AND a sibling `re-frame.http.test-support` namespace (test-only) which carries the canned-stub fxs (`:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`) and the `with-managed-request-stubs` family of macros / fns (the single discoverable home for HTTP test surfaces). The core artefact (`day8/re-frame2`) does not carry any of this; apps that don't issue managed-HTTP requests build an `:advanced` bundle clean of every `:rf.http/*` symbol and trace string. See [MIGRATION §M-31](../migration/from-re-frame-v1/README.md#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http) for the deps swap.
+**Artefact (CLJS reference).** As a per-feature artefact split, the CLJS reference's managed-HTTP surface ships in the separate Maven artefact `day8/re-frame2-http` — `re-frame.http.managed` namespace, the production `:rf.http/managed` / `:rf.http/managed-abort` fxs registered at ns-load time, the in-flight request registry, the Fetch / HttpClient transport adapters, the encode / decode pipeline, the retry-with-backoff machinery, the eight-category `:rf.http/*` failure taxonomy, AND a sibling `re-frame.http.test-support` namespace (test-only) which carries the canned-stub fxs (`:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`) and the `with-request-stubs` scoped helper (the single discoverable home for HTTP test surfaces). The core artefact (`day8/re-frame2`) does not carry any of this; apps that don't issue managed-HTTP requests build an `:advanced` bundle clean of every `:rf.http/*` symbol and trace string. See [MIGRATION §M-31](../migration/from-re-frame-v1/README.md#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http) for the deps swap.
 
 ## Role
 
@@ -152,7 +152,7 @@ The `:rf.http/managed` fx accepts a single args map. The reference card below li
 | `:sensitive?` | `false` | Marks the request body / headers / params / decoded value as sensitive for the trace stream. Honours [Spec 009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces). May also be set under `:request`; the top-level slot is sugar. See [§Privacy](#privacy). | — (privacy flag; does not affect classification.) |
 | `:rf.http/max-decoded-keys` | `10000` | Per-request cap on the number of unique JSON object keys the decoder will intern. Second line of defence after `:decode :text` for untrusted-origin payloads. See [§Keyword-interning cap](#keyword-interning-cap). | `:rf.http/decode-failure :reason :too-many-keys` on overflow. |
 
-Stub-mode slots (`:rf.http/canned-success` / `:rf.http/canned-failure` and the `with-managed-request-stubs` family) live in the sibling `re-frame.http.test-support` namespace and are documented in [§Testing](#testing); they are not part of the production args-map surface.
+Stub-mode slots (`:rf.http/canned-success` / `:rf.http/canned-failure` and the `with-request-stubs` helper) live in the sibling `re-frame.http.test-support` namespace and are documented in [§Testing](#testing); they are not part of the production args-map surface.
 
 ## Request envelope
 
@@ -1054,28 +1054,28 @@ The delay rides the framework-native `:dispatch-later` timer — it is **observa
 
 ### Test-support require — the HTTP test surface gate
 
-The canned-stub fxs above AND the `with-managed-request-stubs` family of macros / fns are **test-only**; production / SSR code paths must not be able to reach them. The framework gates registration behind an explicit require:
+The canned-stub fxs above AND the `with-request-stubs` helper are **test-only**; production / SSR code paths must not be able to reach them. The framework gates registration behind an explicit require:
 
 ```clojure
 (ns my-app.tests
   (:require [re-frame.http.managed]        ;; production fx surface
-            [re-frame.http.test-support])) ;; canned-stub fxs + stub macros
+            [re-frame.http.test-support])) ;; canned-stub fxs + stub helpers
 ```
 
-Loading `re-frame.http.test-support` registers `:rf.http/managed-canned-success` and `:rf.http/managed-canned-failure`, defines the stub-routing helpers (`with-managed-request-stubs`, `with-managed-request-stubs*`, `install-managed-request-stubs!`, `uninstall-managed-request-stubs!`), and publishes the `:http/with-managed-request-stubs*` late-bind hook that the `re-frame.core` `with-managed-request-stubs` / `with-managed-request-stubs*` re-exports resolve through. The raw `install-managed-request-stubs!` / `uninstall-managed-request-stubs!` pair is NOT a `re-frame.core` re-export (test-support infrastructure, not app-facing core surface) and publishes no late-bind hook; tests call it directly through `re-frame.http.test-support`. Without the require:
+Loading `re-frame.http.test-support` registers `:rf.http/managed-canned-success` and `:rf.http/managed-canned-failure`, and defines the stub-routing helpers (`with-request-stubs`, `install-managed-request-stubs!`, `uninstall-managed-request-stubs!`). None of the three is a `re-frame.core` re-export (test-support infrastructure, not app-facing core surface) and none publishes a late-bind hook; tests call all three directly through `re-frame.http.test-support`. Without the require:
 
-- on JVM / SSR the canned-stub fx ids are unregistered (classpath absence through the normal artefact require boundary), so any handler that tries `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}` will surface the framework's no-such-fx error; the `rf/with-managed-request-stubs` / `rf/with-managed-request-stubs*` call sites raise `:rf.error/http-artefact-missing` through `re-frame.core-http`'s defwrapper surface (the hook is nil), while direct `re-frame.http.test-support/install-managed-request-stubs!` / `uninstall-managed-request-stubs!` calls raise unresolved-symbol because the namespace was never required;
+- on JVM / SSR the canned-stub fx ids are unregistered (classpath absence through the normal artefact require boundary), so any handler that tries `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}` will surface the framework's no-such-fx error, and every `re-frame.http.test-support/with-request-stubs` / `install-managed-request-stubs!` / `uninstall-managed-request-stubs!` call raises unresolved-symbol because the namespace was never required;
 - on CLJS `:advanced + goog.DEBUG=false` the test-support module is unreferenced from any production module, so the compiler trims it wholesale (the canned-stub fx-id keyword string fragments do not appear in the production bundle — pinned by `scripts/check-elision.cjs`).
 
-The gate is the require boundary: the canned-stub fxs and the stub macros live together in `re-frame.http.test-support`, so their absence is enforced on every host — the JVM has no reachable production-default path to them. One namespace, one require.
+The gate is the require boundary: the canned-stub fxs and the stub helpers live together in `re-frame.http.test-support`, so their absence is enforced on every host — the JVM has no reachable production-default path to them. One namespace, one require.
 
 For test suites that exercise many requests, a higher-level helper ships:
 
 ```clojure
-(rf/with-managed-request-stubs
+(http-test-support/with-request-stubs
   {[:get "/articles/hello"] {:reply {:ok hello-article}}
    [:get "/articles/missing"] {:reply {:failure {:kind :rf.http/http-4xx :status 404}}}}
-  ...)
+  (fn [] ...))
 ```
 
 The helper inspects each `:rf.http/managed` invocation's `:request :method` + `:request :url` and routes through the configured reply.

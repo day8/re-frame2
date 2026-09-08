@@ -61,7 +61,7 @@ shipped seams, but the seams have different shapes at different scopes:
 - **dispatch scope** — the same two keys as per-call opts mask for one pipeline
   run (inheriting to child dispatches; see the base model below);
 - **lexical scope** — `with-fx-overrides` masks fx for a dynamic extent
-  (`with-managed-request-stubs` rides this seam).
+  (`with-request-stubs` rides this seam).
 
 The capability is covered; the *spelling* is not uniform. This EP asks whether
 one `:registrations`-shaped overlay vocabulary should span the scopes, and under

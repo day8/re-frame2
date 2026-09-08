@@ -36,7 +36,7 @@
   `canned-failure-handler` and their `emit-canned-*!` / `run-request-
   chain` / `dispatch-canned-reply!` helpers) are TEST scaffolding — they
   live in `re-frame.http.test-support` alongside the canned-stub fx
-  registrations and the `with-managed-request-stubs*` helper that
+  registrations and the `with-request-stubs` helper that
   composes against them. This production-loaded namespace carries only the
   machine wrapper."
   (:require [re-frame.late-bind :as rf.late-bind]))

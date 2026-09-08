@@ -1343,17 +1343,13 @@
   ;; are RETIRED — a `:url-bound? true` frame installs its strategy listener on
   ;; create and removes it on destroy, automatically. No compatibility shim
   ;; (pre-alpha) — these rows are gone, not aliased.
-  ;; HTTP test-support façade surface (canonical home: re-frame.http.test-support).
-  ;; Only the ergonomic `with-managed-request-stubs` macro + its `*` plumbing
-  ;; stay on the façade; the raw install/uninstall pair is reached through the
-  ;; home namespace `re-frame.http.test-support` (rf2-ntwwyt — test-support
-  ;; infrastructure, not app-facing core surface), so it carries no façade row.
-  ["re-frame.core" "with-managed-request-stubs"]      {:tier :testing :owner "014" :status "v1 (optional capability, dev/test)"
-                                                      :action :keep
-                                                      :justification "The deliberately-kept half of the HTTP test-support surface: rf2-ntwwyt moved the raw install/uninstall pair to re-frame.http.test-support and kept exactly this ergonomic macro on the facade. The split this audit would propose has already been made and ruled."}
-  ["re-frame.core" "with-managed-request-stubs*"]     {:tier :testing :owner "014" :status "v1 (optional capability, dev/test)"
-                                                      :action :keep
-                                                      :justification "The plain-fn plumbing twin of with-managed-request-stubs, kept by the same rf2-ntwwyt ruling so the macro has a programmatic form on the same door."}
+  ;; HTTP test-support surface (canonical home: re-frame.http.test-support).
+  ;; rf2-kuky.13 RETIRED the last two façade rows here: the stub-family macro
+  ;; and its `*` plumbing twin had zero app / tool consumers, so the whole
+  ;; family — `with-request-stubs` (the renamed star fn) plus the raw
+  ;; install/uninstall pair (rf2-ntwwyt) — is now reached only through the home
+  ;; namespace, which the generator does not introspect.
+  ;; No façade rows, no compatibility aliases (pre-alpha).
   ;; Observation listeners (rf2-ikjmkm / decision rf2-dbo0c9 Option C):
   ;; ONE stream-parameterized verb across the four pure listener streams.
   ;; The four `register-(event|error)-listener!` facade pairs were REMOVED

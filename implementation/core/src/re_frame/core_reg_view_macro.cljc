@@ -1,9 +1,9 @@
 (ns re-frame.core-reg-view-macro
   "Helpers for the view-registration and frame-scope lexical macros —
   `reg-view`, `reg-machine`, `with-frame`, `with-new-frame`, `with-fx-
-  overrides`, `with-managed-request-stubs`. Per Spec 002 §What
+  overrides`. Per Spec 002 §What
   `reg-view` injects, Spec 005 §Source-coord stamping, Spec 002
-  §with-frame / §`:fx-overrides`, Spec 014 §Testing.
+  §with-frame / §`:fx-overrides`.
 
   Carved out of `re-frame.core` so the public namespace stays a thin
   facade focused on user-visible Var resolution rather than macro

@@ -153,7 +153,7 @@ For the machine-form wrapper in production, see the auth-flow worked example —
 
 ## Pointers
 
-- Full spec — args map, request envelope, failure categories, reply payload, test stubs (`with-managed-request-stubs`, ships in `re-frame.http.test-support`) → SKILL-REDIRECT.md → *EP — HTTP requests (014)*.
+- Full spec — args map, request envelope, failure categories, reply payload, test stubs (`with-request-stubs`, ships in `re-frame.http.test-support`) → SKILL-REDIRECT.md → *EP — HTTP requests (014)*.
 - Schema-driven decode → SKILL-REDIRECT.md → *EP — Schemas (010)*.
 - Retry-ownership worked example (401-then-refresh) → SKILL-REDIRECT.md → *Pattern — Boot* §Worked example — auth-machine and the retry-ownership boundary.
 - `:spawn` substrate → SKILL-REDIRECT.md → *EP — State machines (005)*.

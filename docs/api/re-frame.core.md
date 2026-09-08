@@ -1379,17 +1379,9 @@ Managed HTTP is an optional capability: one fx-id (`[:rf.http/managed …]`), on
   ```
 - Unregister an HTTP interceptor by id. There is **no** `clear-http-interceptor` name — `:http-interceptor` is one of the kinds the one kind-keyed registrar inverse dispatches (see [`clear`](#clear)). The kind-and-id arity resolves the frame from carried scope; the opts form names it explicitly via a trailing `{:frame target}` map, mirroring `reg-http-interceptor`. The frame-first `(frame id)` spelling is internal plumbing, not a public call. Full contract in [re-frame.http.md](re-frame.http.md).
 
-#### `with-managed-request-stubs`
-
-- **Kind**: macro
-- **Signature**: `(with-managed-request-stubs route-map body+)`
-- Lexical-scope HTTP stubbing. `route-map` is `{[<method> <url>] {:reply {:ok v}}}` (or `{:failure …}`). Inside the body, matching requests bypass the real client and auto-route by method + URL, with no manual `:fx-overrides`. Full contract in [re-frame.http.md](re-frame.http.md).
-
-#### `with-managed-request-stubs*`
-
-- **Kind**: function
-- **Signature**: `(with-managed-request-stubs* route-map body-fn)`
-- The plain-fn surface beneath the macro — for computed route-maps or non-literal bodies. Full contract in [re-frame.http.md](re-frame.http.md).
+HTTP stubbing is **not** on the facade: `with-request-stubs` and the raw
+install/uninstall pair are reached directly through
+`re-frame.http.test-support`. Full contract in [re-frame.http.md](re-frame.http.md).
 
 ### Resources → [re-frame.resources.md](re-frame.resources.md)
 

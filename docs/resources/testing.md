@@ -17,7 +17,7 @@ Two reads exist for tests specifically. In a view you always project through a s
 (ns my-app.resources-test
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.http.test-support]     ;; canned stubs — test-only, never in production requires
+            [re-frame.http.test-support :as http-test-support]     ;; canned stubs — test-only, never in production requires
             [re-frame.test-support :as ts]
             [my-app.resources]))             ;; loading the ns registers the resources
 
@@ -31,18 +31,19 @@ Ensure is the cause; the stub answers; the projection settles — all inside one
 ```clojure
 (deftest article-loads-into-the-cache
   (rf/with-new-frame [f (rf/make-frame {})]
-    (rf/with-managed-request-stubs
+    (http-test-support/with-request-stubs
       {[:get "/api/articles/intro"]
        {:reply {:ok {:article {:slug "intro" :title "Welcome"}}}}}
-      (rf/dispatch-sync [:rf.resource/ensure {:resource :realworld/article
-                                              :params   {:slug "intro"}
-                                              :cause    [:manual :test/setup]}])
-      (let [state (rf/resource-state {:resource :realworld/article
-                                      :params   {:slug "intro"}
-                                      :frame    f})]
-        (is (= :loaded (:status state)))
-        (is (true? (:has-data? state)))
-        (is (= "Welcome" (get-in state [:data :article :title])))))))
+      (fn []
+        (rf/dispatch-sync [:rf.resource/ensure {:resource :realworld/article
+                                                :params   {:slug "intro"}
+                                                :cause    [:manual :test/setup]}])
+        (let [state (rf/resource-state {:resource :realworld/article
+                                        :params   {:slug "intro"}
+                                        :frame    f})]
+          (is (= :loaded (:status state)))
+          (is (true? (:has-data? state)))
+          (is (= "Welcome" (get-in state [:data :article :title]))))))))
 ```
 
 The registration under test is the same shape as [the model](concepts.md#register-a-resource)
@@ -74,26 +75,27 @@ A write's cache consequences are declared (`:invalidates`, `:populates`), so the
 
 ```clojure
 (deftest favorite-invalidates-the-article
-  (rf/with-managed-request-stubs
+  (http-test-support/with-request-stubs
     {[:get  "/api/articles/intro"]          {:reply {:ok {:article {:slug "intro"}}}}
      [:post "/api/articles/intro/favorite"] {:reply {:ok {:article {:slug "intro" :favorited true}}}}}
-    ;; the frame boots with the article already loaded — through the canned reply
-    (rf/with-new-frame [f (rf/make-frame
-                            {:initial-events
-                             [[:rf.resource/ensure {:resource :realworld/article
-                                                    :params   {:slug "intro"}
-                                                    :cause    [:manual :test/setup]}]]})]
-      ;; run the write…
-      (rf/dispatch-sync [:rf.mutation/execute {:mutation :realworld/favorite
-                                               :params   {:slug "intro"}
-                                               :instance [:favorite "intro"]
-                                               :cause    [:manual :test/favorite]}])
-      ;; …and assert both sides: the instance settled, the read went stale.
-      (let [m (rf/mutation-state {:instance [:favorite "intro"] :frame f})]
-        (is (true? (:success? m))))
-      (is (true? (:stale? (rf/resource-state {:resource :realworld/article
-                                              :params   {:slug "intro"}
-                                              :frame    f})))))))
+    (fn []
+      ;; the frame boots with the article already loaded — through the canned reply
+      (rf/with-new-frame [f (rf/make-frame
+                              {:initial-events
+                               [[:rf.resource/ensure {:resource :realworld/article
+                                                      :params   {:slug "intro"}
+                                                      :cause    [:manual :test/setup]}]]})]
+        ;; run the write…
+        (rf/dispatch-sync [:rf.mutation/execute {:mutation :realworld/favorite
+                                                 :params   {:slug "intro"}
+                                                 :instance [:favorite "intro"]
+                                                 :cause    [:manual :test/favorite]}])
+        ;; …and assert both sides: the instance settled, the read went stale.
+        (let [m (rf/mutation-state {:instance [:favorite "intro"] :frame f})]
+          (is (true? (:success? m))))
+        (is (true? (:stale? (rf/resource-state {:resource :realworld/article
+                                                :params   {:slug "intro"}
+                                                :frame    f}))))))))
 ```
 
 !!! warning "Gotcha — a scope mismatch is a silent miss, and a test is where you catch it"
