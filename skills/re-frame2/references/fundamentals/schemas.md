@@ -19,8 +19,8 @@ The `reg-app-schema` / `reg-app-schemas` **registration macros** stay on the `re
 (schemas/app-schemas      {:frame f})              ;; -> {path registration-metadata ...}
 (schemas/app-schema-meta  {:frame f :path path})   ;; -> registration-metadata or nil
 (schemas/app-schemas-digest {:frame f})            ;; -> stable digest string
-;; :frame is REQUIRED on all three (rf2-kuky.84) - no ambient default, no bare
-;; frame-id sugar. The schema value alone is the :schema projection.
+;; :frame is REQUIRED on all three (spec/API.md §Schemas) - no ambient default,
+;; no bare frame-id sugar. The schema value alone is the :schema projection.
 
 (schemas/set-schema-fns! {:validate validate-fn-or-nil   ;; swap in non-Malli validator
                           :explain  explain-fn})
