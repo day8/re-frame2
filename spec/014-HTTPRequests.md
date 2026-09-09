@@ -319,7 +319,7 @@ The 10-second **connect** timeout is configured separately at the shared JDK Htt
 
 ## `:accept` — domain-failure normalisation
 
-**Parked 2026-09-08 (api-review wave 3, rf2-kuky.13):** zero shipped consumers at that date — the corpus's `:accept` slots are never-filled passthroughs. Kept because the written discriminator holds: an `:after` interceptor is not presently equivalent, since `dispatch-reply!` selects the branch destination BEFORE the response-side chain transforms the payload, so an `:after` returning `{:status :error …}` would send an error-shaped payload to the SUCCESS target. **Un-park** (promote to a taught option with a worked example) when a named consumer needs a 2xx domain failure to select the failure PIPELINE rather than a branch inside the success handler. **Delete under a spec change** if no such consumer appears by the alpha tag.
+**Parked 2026-09-08 (api-review wave 3, rf2-kuky.13):** zero shipped consumers at that date — the corpus's `:accept` slots are never-filled passthroughs. Kept because the written discriminator holds: an `:after` interceptor is not presently equivalent, since `dispatch-reply!` selects the branch destination BEFORE the response-side chain transforms the payload, so an `:after` returning `{:status :error …}` would send an error-shaped payload to the SUCCESS target. **Un-park** (promote to a taught option with a worked example) when a named consumer needs a 2xx domain failure to select the failure PIPELINE rather than a branch inside the success handler. **No deadline.** Absence of call sites is evidence against a *convenience*, not against a capability whose discriminator is written down. Until a consumer of that shape appears, `:accept` stays exactly as it is — shipped, specified here, untaught, and secondary to the ordinary request map.
 
 After decoding, the user's `:accept` fn classifies the decoded value:
 
@@ -691,7 +691,7 @@ There is deliberately **no** cross-frame cancellation through this effect. A fra
 
 ### `:abort-signal` (external)
 
-**Parked 2026-09-08 (api-review wave 3, rf2-kuky.13):** zero shipped consumers at that date — the corpus's `:abort-signal` slots are never-filled passthroughs. Kept because the written discriminator holds: a controller shared with non-re-frame operations is FOREIGN lifecycle ownership, which frame- and actor-destroy cancellation cannot express. **Un-park** (promote to a taught option with a worked example) when a named consumer holds a foreign `AbortController` shared with non-re-frame work. **Delete under a spec change** if no such consumer appears by the alpha tag.
+**Parked 2026-09-08 (api-review wave 3, rf2-kuky.13):** zero shipped consumers at that date — the corpus's `:abort-signal` slots are never-filled passthroughs. Kept because the written discriminator holds: a controller shared with non-re-frame operations is FOREIGN lifecycle ownership, which frame- and actor-destroy cancellation cannot express. **Un-park** (promote to a taught option with a worked example) when a named consumer holds a foreign `AbortController` shared with non-re-frame work. **No deadline.** Absence of call sites is evidence against a *convenience*, not against a capability whose discriminator is written down. Until a consumer of that shape appears, `:abort-signal` stays exactly as it is — shipped, specified here, untaught, and secondary to the framework-owned cancellation paths (`:request-id` supersede/managed-abort, frame destroy, actor destroy).
 
 Pass an `AbortController.signal` directly:
 
