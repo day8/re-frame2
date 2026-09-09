@@ -463,10 +463,19 @@
         ;; LIVENESS is the gate (not `:on-done` resolvability): keying off the
         ;; callback would miss the case entirely. The robust gate is: a
         ;; declaratively-spawned child (it carries both `:rf/parent-id` and
-        ;; `:rf/invoke-id`) whose parent is NO LONGER LIVE. `:on-error` routing
-        ;; (the error-leaf control-flow case) is left to its own dispatch path
-        ;; — a stale error leaf with a dead parent simply dispatches into the
-        ;; void, harmlessly.
+        ;; `:rf/invoke-id`) whose parent is NO LONGER LIVE. It gates BOTH
+        ;; carriers — the `:on-done` completion event AND the `:on-error`
+        ;; failure event. `:on-error` used to be carved out of `stale-spawn?`
+        ;; on the reasoning that a stale error leaf "dispatches into the void,
+        ;; harmlessly", and that WAS true only while a destroyed singleton's
+        ;; registrar entry died with it: the dispatch found no handler and fell
+        ;; away. Once the DEFINITION survives teardown (rf2-xjee, below), the
+        ;; same dispatch RESOLVES at the dead parent's address and D5 lazy
+        ;; re-creation synthesises a fresh initial snapshot — so the carve-out
+        ;; made the runtime RESURRECT a destroyed parent to fold a dead child's
+        ;; failure into it. There is no void left to dispatch into, and Spec 005
+        ;; §Async completions §Stale suppression names `:on-error` routing
+        ;; explicitly among the app targets a stale completion MUST NOT run.
         ;;
         ;; rf2-xjee — A DEFINITION-BEARING REGISTRAR ENTRY IS NOT LIVENESS, and
         ;; that is load-bearing here rather than a tidy-up. A destroyed
@@ -482,10 +491,18 @@
         ;; above — resolving the `:spawn` spec is what the DEFINITION is FOR;
         ;; only the liveness question changes. A non-machine entry squatting at
         ;; the parent address still counts, exactly as before.
-        parent-live?  (or (some? parent-snap)
-                          (and (some? parent-reg) (not (:rf/machine? parent-reg))))
-        stale-spawn?  (and parent-id invoke-id (not on-error?)
-                           (not parent-live?))
+        ;;
+        ;; The predicate is SHARED with the action-exception producer
+        ;; (`registration`'s child-action-failure projection), which asks the
+        ;; identical question about the identical address. TWO spellings of
+        ;; "is the parent live?" are what let the on-error resurrection through
+        ;; in the first place — a ruling that enumerated liveness sites by
+        ;; inspection missed one — so both failure routes now read ONE
+        ;; predicate, and `parent-instance-live?` reads exactly the two signals
+        ;; named above.
+        parent-live?  (rf.machines.lifecycle-fx.spawn-error/parent-instance-live?
+                        runtime-db parent-id)
+        stale-spawn?  (and parent-id invoke-id (not parent-live?))
         ;; The carried generation is parsed off THIS finishing actor's id;
         ;; the CURRENT generation is the LIVE counterpart — the generation of
         ;; the actor currently occupying the spawn slot at
@@ -593,9 +610,12 @@
         ;; child's snapshot.
         ;;
         ;; When the parent was destroyed before the child finished
-        ;; (`stale-spawn?` — no live `parent-snap`), the completion is STALE:
+        ;; (`stale-spawn?` — no live parent INSTANCE), the completion is STALE:
         ;; per Managed-Effects §Stale suppression the app target MUST NOT run,
-        ;; so NO carrier is minted at all. The suppression is a positive fact —
+        ;; so NEITHER carrier is minted — not the completion event below, and
+        ;; not the `:on-error` failure event beside it (rf2-xjee; the failure
+        ;; carrier was outside this rule until the surviving definition gave it
+        ;; a live address to re-create). The suppression is a positive fact —
         ;; the canonical `:status :stale` reply was emitted on the done trace
         ;; above, and `runtime-db` rides through untouched.
         ;;
@@ -767,21 +787,33 @@
           ;; no live parent to receive it, and §Stale suppression says the app
           ;; target must not run. A SINGLETON (no parent at all) mints neither
           ;; either — its finality is its own.
-          (cond
-            on-error?
-            (rf.machines.lifecycle-fx.spawn-error/dispatch-spawn-error! frame-id parent-id invoke-id result)
+          ;;
+          ;; rf2-xjee — that "NEITHER" is now enforced ONCE, around the whole
+          ;; choice, rather than on the completion arm alone. The failure arm
+          ;; used to sit OUTSIDE the stale guard (`stale-spawn?` itself carried
+          ;; a `(not on-error?)` conjunct, so an on-error finish could never be
+          ;; classified stale), which is precisely how a dead parent came to be
+          ;; re-created from its initial snapshot to receive its child's
+          ;; failure. Deleting that conjunct is not sufficient on its own while
+          ;; the arm bypasses the guard, and guarding the arm is not sufficient
+          ;; on its own while the classification still calls the finish
+          ;; `:error` rather than `:stale` — both halves are the one fix.
+          (when-not stale-spawn?
+            (cond
+              on-error?
+              (rf.machines.lifecycle-fx.spawn-error/dispatch-spawn-error! frame-id parent-id invoke-id result)
 
-            (and parent-id (not stale-spawn?))
-            (when-let [target-invoke-id (or invoke-id (:invoke-id join-child))]
-              (dispatch-spawn-done!
-                frame-id parent-id target-invoke-id
-                (cond-> {:result       completion-value
-                         :error?       error-leaf?
-                         :completed-at completed-at}
-                  join-child (merge (select-keys join-child
-                                                 [:parent-id :invoke-id :child-id
-                                                  :spawned-id :attempt
-                                                  :work-generation])))))))
+              parent-id
+              (when-let [target-invoke-id (or invoke-id (:invoke-id join-child))]
+                (dispatch-spawn-done!
+                  frame-id parent-id target-invoke-id
+                  (cond-> {:result       completion-value
+                           :error?       error-leaf?
+                           :completed-at completed-at}
+                    join-child (merge (select-keys join-child
+                                                   [:parent-id :invoke-id :child-id
+                                                    :spawned-id :attempt
+                                                    :work-generation]))))))))
         ;; Publish the teardown runtime-db + fx ONLY if the exact owner survived
         ;; the WHOLE tail (rf2-hloj0g). If any post-`emit-destroyed!` callback
         ;; published same-id B, return the inert outcome — the A-derived

@@ -39,7 +39,8 @@
   (:require [re-frame.late-bind :as rf.late-bind]
             [re-frame.machines.lifecycle-fx.resolver :as rf.machines.lifecycle-fx.resolver]
             [re-frame.machines.paths :as rf.machines.paths]
-            [re-frame.machines.transition :as rf.machines.transition]))
+            [re-frame.machines.transition :as rf.machines.transition]
+            [re-frame.registrar :as rf.registrar]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -54,6 +55,43 @@
     (rf.machines.lifecycle-fx.resolver/spec-from-id-or-snapshot
       parent-id
       (get-in db (rf.machines.paths/snapshot-path parent-id)))))
+
+(defn parent-instance-live?
+  "True iff `parent-id` names a parent with a LIVE INSTANCE in `db` — the ONE
+  gate both failure producers consult before delivering into a parent.
+
+  rf2-xjee — A DEFINITION-BEARING REGISTRAR ENTRY IS NOT LIVENESS. A destroyed
+  singleton parent keeps its `reg-machine` DEFINITION (the registration is the
+  load-time PROGRAM; the snapshot was the INSTANCE — Spec 005 §Liveness is
+  derived from runtime-db, D4/D7), so the parent's spec, its `:spawn` map and
+  its `:on-error` all still RESOLVE after the parent is gone. Resolving them is
+  what the definition is FOR; answering \"is there anyone home?\" with it is
+  not. Read that way, framework-owned failure delivery would dispatch the
+  reserved `[:rf.machine.spawn/error …]` carrier at the dead address, D5 lazy
+  re-creation would synthesise a fresh initial snapshot, and the runtime would
+  RESURRECT an actor the app destroyed in order to hand it a dead child's
+  failure — which Spec 005 §Async completions §Stale suppression forbids (the
+  `:on-done` / `:on-error` routing MUST NOT run for a late completion whose
+  spawn correlation no longer names a live actor) and §Destroy is
+  silent-idempotent forbids reading as liveness in the first place.
+
+  The two signals, exactly as `destroy/actor-live?` reads them:
+
+    - a SNAPSHOT at `[:rf.runtime/machines :snapshots <parent-id>]` — the
+      canonical instance signal for singleton and nested-spawn parents alike;
+    - a NON-MACHINE registrar entry squatting at the parent's address, which
+      still counts as somebody home, exactly as before.
+
+  This fences FRAMEWORK-OWNED delivery only. D5 is untouched: an ordinary
+  AUTHORED event dispatched to an address that still carries a definition
+  finds no snapshot and is answered by a fresh instance, exactly as before its
+  first start."
+  [db parent-id]
+  (boolean
+    (when parent-id
+      (or (some? (get-in db (rf.machines.paths/snapshot-path parent-id)))
+          (let [reg (rf.registrar/lookup :event parent-id)]
+            (and (some? reg) (not (:rf/machine? reg))))))))
 
 (defn parent-declares-on-error?
   "True iff the child identified by `parent-id` / `invoke-id` was spawned by a
