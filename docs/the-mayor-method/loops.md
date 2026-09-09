@@ -1535,6 +1535,19 @@ export, which carries descriptions, notes and close reasons, rather than its tit
 asymmetry from the `-`/`+` rule above governs here too: mistaking a record for residue destroys it,
 while mistaking residue for a record costs a branch nobody was using.
 
+**Every defence above finds a record that EXISTS; the case with no record yet is a LIVE worker's
+branch.** A dispatch in flight has not written its branch name into any item, so it returns zero from
+the full export at all statuses — the strongest form prescribed here — and zero is precisely the
+answer that authorises deleting it. Measured here across five pushed worker branches: two were named
+by owner records, one of them by a spike whose own text says *do not delete*, while the other three
+read zero and every one was a live dispatch — including the branch this paragraph was written on. The
+two non-zero answers are the positive control, so the instrument is working correctly and still
+answering a different question than the sweep is asking. **So subtract the live set before reading any
+zero as an orphan**: the branches `git worktree list` reports, and the dispatch ledger rows whose
+worker has not reported. Both are in hand at that moment, and this is *The stranded sweep*'s rule
+asked on branches rather than on items. The criterion does not move — only the reading — but here the
+wrong reading acts against live work rather than costing a search.
+
 **Key destructive operations on identity, never on a name.** Branch names repeat across sessions and
 prefix-match each other. A search for `head:feature-x` also returns the change for `feature-x2`, and
 may rank the sibling *first*, so a loop reading the top row reads one branch's state as another's.
