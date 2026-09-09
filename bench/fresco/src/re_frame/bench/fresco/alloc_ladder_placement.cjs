@@ -34,6 +34,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const archive = require('./data_archive.cjs');
 
 const DATA = path.join(__dirname, 'data');
 const SEGS = ['reagent-subs', 'uix-subs'];
@@ -45,7 +46,7 @@ const med = (a) => {
   return n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2;
 };
 const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
-const load = (p) => JSON.parse(fs.readFileSync(path.join(DATA, p), 'utf8')).alloc;
+const load = (p) => archive.readRecord(path.join(DATA, p)).alloc;
 const n0 = (v) => Math.round(v).toLocaleString('en-US');
 const n1 = (v) => v.toFixed(1);
 

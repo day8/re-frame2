@@ -686,7 +686,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
       .flatMap((d) => fs.readdirSync(path.join(dir, d)).filter((f) => f.endsWith('.json')).map((f) => path.join(dir, d, f)));
     assert.ok(files.length >= 2, 'expected the committed census datasets');
     return files.flatMap((f) => {
-      const data = JSON.parse(fs.readFileSync(f, 'utf8'));
+      const data = archive.readRecord(f);
       return data.rows.map((row) => ({
         f,
         row,
@@ -1011,7 +1011,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
           .filter((f) => f.endsWith('.json'))
           .sort()
           .flatMap((f) => {
-            const data = JSON.parse(fs.readFileSync(path.join(dir, d, f), 'utf8'));
+            const data = archive.readRecord(path.join(dir, d, f));
             return data.rows.map((r) => {
               const per = controlBlocks(r.blocksTask);
               return {
@@ -1211,7 +1211,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
           .filter((f) => f.endsWith('.json'))
           .sort()
           .flatMap((f) => {
-            const data = JSON.parse(fs.readFileSync(path.join(dir, d, f), 'utf8'));
+            const data = archive.readRecord(path.join(dir, d, f));
             return data.rows.map((r) => {
               const per = controlBlocks(r.blocksTask);
               return {
@@ -3410,7 +3410,7 @@ function fixtureRoundsTask(over) {
     if (!fs.existsSync(dir)) return; // datasets are retained, not required to build
     const expected = { 'run1.json': { observed: 466, censored: 74, ctl: 48 }, 'run2.json': { observed: 449, censored: 91, ctl: 56 } };
     for (const [file, want] of Object.entries(expected)) {
-      const data = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'));
+      const data = archive.readRecord(path.join(dir, file));
       const row = data.rows.find((r) => r.rowId === 'keystroke');
       assert.ok(row, `${file} must retain its keystroke row`);
       const r = responsivenessRegime(row);
@@ -4558,7 +4558,7 @@ function fixtureRoundsTask(over) {
       const d = path.join(__dirname, 'data', dir);
       if (!fs.existsSync(d)) return; // datasets are retained, not required to build
       for (const f of fs.readdirSync(d)) {
-        const data = JSON.parse(fs.readFileSync(path.join(d, f), 'utf8'));
+        const data = archive.readRecord(path.join(d, f));
         for (const row of data.rows.filter((r) => BULK_ROWS.includes(r.rowId))) {
           n += 1;
           if (checkStandardFor(row, data).ok) inControl += 1;
@@ -4576,7 +4576,7 @@ function fixtureRoundsTask(over) {
     for (const { dir } of CORPORA) {
       const d = path.join(__dirname, 'data', dir);
       if (!fs.existsSync(d)) return;
-      const datasets = fs.readdirSync(d).map((f) => JSON.parse(fs.readFileSync(path.join(d, f), 'utf8')));
+      const datasets = fs.readdirSync(d).map((f) => archive.readRecord(path.join(d, f)));
       for (const rowId of BULK_ROWS) {
         const rows = datasets.map((data) => ({ data, row: data.rows.find((r) => r.rowId === rowId) })).filter((x) => x.row);
         const pooled = rows.filter(({ row, data }) => reportable(row, data));
@@ -4710,7 +4710,7 @@ function fixtureRoundsTask(over) {
   const corpus = (dir) => {
     const d = path.join(__dirname, 'data', dir);
     if (!fs.existsSync(d)) return null;
-    return fs.readdirSync(d).map((f) => ({ file: path.join(d, f), data: JSON.parse(fs.readFileSync(path.join(d, f), 'utf8')) }));
+    return fs.readdirSync(d).map((f) => ({ file: path.join(d, f), data: archive.readRecord(path.join(d, f)) }));
   };
 
   // --- 1. THE CLASS IS DATA, LIKE THE OTHER ONE -----------------------------
@@ -5029,7 +5029,7 @@ function fixtureRoundsTask(over) {
       if (!fs.existsSync(d)) return null;
       out[dir] = [];
       for (const f of fs.readdirSync(d).sort()) {
-        const data = JSON.parse(fs.readFileSync(path.join(d, f), 'utf8'));
+        const data = archive.readRecord(path.join(d, f));
         for (const row of data.rows.filter((r) => rows.includes(r.rowId))) {
           const v = checkStandardFor(row, data);
           out[dir].push({ run: `${dir}/${f.replace(/\.json$/, '')}`, rowId: row.rowId, median: v.location.measured, scale: v.dispersion.measured });
@@ -5059,7 +5059,7 @@ function fixtureRoundsTask(over) {
     for (const dir of ENSEMBLES) {
       const d = path.join(__dirname, 'data', dir);
       if (!fs.existsSync(d)) return;
-      const whens = fs.readdirSync(d).sort().map((f) => JSON.parse(fs.readFileSync(path.join(d, f), 'utf8')).when);
+      const whens = fs.readdirSync(d).sort().map((f) => archive.readRecord(path.join(d, f)).when);
       assert.ok(whens.every((w) => /^2026-08-07T/.test(w)), `${dir}: every run must be the same day for the claim to be what it says — ${JSON.stringify(whens)}`);
       firsts[dir] = Math.min(...whens.map((w) => Date.parse(w)));
     }
@@ -5277,7 +5277,7 @@ function fixtureRoundsTask(over) {
   const corpus = (dir) => {
     const d = path.join(__dirname, 'data', dir);
     if (!fs.existsSync(d)) return null;
-    return fs.readdirSync(d).map((f) => ({ file: path.join(d, f), data: JSON.parse(fs.readFileSync(path.join(d, f), 'utf8')) }));
+    return fs.readdirSync(d).map((f) => ({ file: path.join(d, f), data: archive.readRecord(path.join(d, f)) }));
   };
 
   /** Every reportable M1 run of an ensemble, as the publication path sees them. */
@@ -5647,7 +5647,7 @@ function fixtureRoundsTask(over) {
   const corpus = (dir) => {
     const d = path.join(__dirname, 'data', dir);
     if (!fs.existsSync(d)) return null;
-    return fs.readdirSync(d).map((f) => ({ file: path.join(d, f), data: JSON.parse(fs.readFileSync(path.join(d, f), 'utf8')) }));
+    return fs.readdirSync(d).map((f) => ({ file: path.join(d, f), data: archive.readRecord(path.join(d, f)) }));
   };
 
   /** One bulk row of one ensemble, as the publication path sees it: interval + widest band. */
@@ -5917,7 +5917,7 @@ function fixtureRoundsTask(over) {
     return fs.readdirSync(d).sort().map((f) => ({
       file: path.join(d, f),
       name: f,
-      data: JSON.parse(fs.readFileSync(path.join(d, f), 'utf8')),
+      data: archive.readRecord(path.join(d, f)),
     }));
   };
 

@@ -55,6 +55,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const seamlib = require('./seam.cjs');
+const archive = require('./data_archive.cjs');
 
 const SEGMENTS = ['reagent-subs', 'uix-subs', 'fresco'];
 const FLOOR = 'floor';
@@ -172,7 +173,7 @@ function statsOf(red) {
 }
 
 function readRun(file) {
-  const j = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const j = archive.readRecord(file);
   const row = j.rows.find((r) => r.rowId === 'bulk300') || j.rows[0];
   // `seamSpread` is computed here, while the raw per-sample arrays are still in
   // hand, and carried in the compact file — those arrays are exactly what the
@@ -504,7 +505,7 @@ function main() {
 
   let runs;
   if (from) {
-    const j = JSON.parse(fs.readFileSync(from, 'utf8'));
+    const j = archive.readRecord(from);
     runs = j.runs.map(inflate);
   } else {
     if (files.length === 0) {

@@ -1191,8 +1191,8 @@ function selfTest() {
   if (archive.present()) {
     const dir = path.join(archive.DATA, 'alloc-0gjqi');
     const rows = [
-      { label: '1', row: JSON.parse(fs.readFileSync(path.join(dir, 'paired-run1.json'), 'utf8')).alloc },
-      { label: '2', row: JSON.parse(fs.readFileSync(path.join(dir, 'paired-run2.json'), 'utf8')).alloc },
+      { label: '1', row: archive.readRecord(path.join(dir, 'paired-run1.json')).alloc },
+      { label: '2', row: archive.readRecord(path.join(dir, 'paired-run2.json')).alloc },
     ];
 
     // Both runs' controls passed at 8.00 B/double with 0 unverified read-backs.
@@ -1650,7 +1650,7 @@ function selfTest() {
     const runPath = path.join(archive.DATA, 'alloc-legorder', 'run1.json');
     assert.ok(fs.existsSync(runPath), `phase 4's run 1 must be committed at ${runPath}`);
     const want = { ...declared.window, ...declared.runs[0] };
-    const load = () => JSON.parse(fs.readFileSync(runPath, 'utf8')).alloc;
+    const load = () => archive.readRecord(runPath).alloc;
 
     const intact = load();
     const realIntact = realisedLabelling(intact, declared.window.rounds);

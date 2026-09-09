@@ -26,6 +26,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const archive = require('./data_archive.cjs');
 
 const DATA = path.join(__dirname, 'data', 'alloc-9jrhi');
 const SEGS = ['reagent-subs', 'uix-subs'];
@@ -34,7 +35,7 @@ const KEY = (seg) => `${seg}|grid/floor`;
 const n0 = (v) => Math.round(v).toLocaleString('en-US');
 const sgn = (v) => (v >= 0 ? '+' : '') + n0(v);
 
-const load = (f) => JSON.parse(fs.readFileSync(path.join(DATA, f), 'utf8')).alloc;
+const load = (f) => archive.readRecord(path.join(DATA, f)).alloc;
 
 // samples[0] is the absolute used-heap level at the window's opening, retained
 // for the first time by rf2-erre5 (PR #8452).

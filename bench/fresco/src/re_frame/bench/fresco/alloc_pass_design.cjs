@@ -72,6 +72,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const assert = require('node:assert');
+const archive = require('./data_archive.cjs');
 const { allocPassFlips } = require('../p0_run.cjs');
 const {
   decompose,
@@ -490,7 +491,7 @@ function designControl() {
   // on the control ones.
   const prior = path.join(__dirname, 'data', 'alloc-fk6pj', 'seeded-run1.json');
   if (fs.existsSync(prior)) {
-    const row = JSON.parse(fs.readFileSync(prior, 'utf8')).alloc;
+    const row = archive.readRecord(prior).alloc;
     const got = admissibleRun(row, { passSeed: picks[0].seed, flips: picks[0].flips });
     assert.strictEqual(got.ok, false, 'phase 2\'s six-round record is not admissible here');
     assert.ok(got.reasons.some((r) => r.startsWith('rounds ')), 'and the round count is one reason');
@@ -528,7 +529,7 @@ if (require.main === module) {
       process.exit(1);
     }
     files.forEach((f, i) => {
-      const row = JSON.parse(fs.readFileSync(f, 'utf8')).alloc;
+      const row = archive.readRecord(f).alloc;
       const pick = picks[i];
       const got = admissibleRun(row, pick ? { passSeed: pick.seed, flips: pick.flips } : {});
       if (!got.ok) worst = 1;
