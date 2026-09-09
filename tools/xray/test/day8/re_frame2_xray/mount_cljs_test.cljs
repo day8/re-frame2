@@ -51,10 +51,12 @@
             [re-frame.frame :as rf.frame]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.keybinding :as keybinding]
             [day8.re-frame2-xray.mount :as mount]
             [day8.re-frame2-xray.registry :as registry]
+            [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.settings.effects :as settings-effects]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
@@ -2719,3 +2721,177 @@
                   "still owned by the layout host")
               (is (= 1 (count @calls)) "CSS-only show — no re-render")
               (is (= 1 (deep-count-by-id body "rf-xray-root"))))))))))
+
+;; =========================================================================
+;; EVIDENCE INTEGRITY — Xray's OWN renders must never appear in the
+;; INSPECTED application frame's epoch `:renders` (rf2-k97c.5; the
+;; already-realised defect is rf2-tqlmq)
+;; =========================================================================
+;;
+;; THE DEFECT. `shell-view` is a `reg-view`, so its `:rf.view/rendered`
+;; trace carries the resolved current-frame. `mount-shell-into!` once
+;; rendered it BARE — the shell's own `[frame-provider {:frame :rf/xray}]`
+;; sat INSIDE its body, around the panels — so `shell-view`'s OWN render
+;; resolved by fall-through to the host page's frame and back-filled into
+;; the INSPECTED app's epoch `:renders` (observed live: `["shell-view" 27]`
+;; in a `:rf/default` boot epoch). A debugger reporting its own activity as
+;; the application's is the worst failure this tool has.
+;;
+;; THE FIX (mount.cljs `mount-shell-into!`) moves the provider OUT one
+;; level, so the mount-site tree is
+;;   [rf/frame-provider {:frame shell/default-frame-id} [shell/shell-view …]]
+;; and `shell-view`'s own render resolves to the trace-disabled `:rf/xray`
+;; frame, where the `:rf.trace/frame-no-emit?` gate suppresses the emit.
+;;
+;; WHAT WAS ALREADY PINNED, AND WHAT WAS NOT. The epoch suite's inv-7
+;; (implementation/epoch/test/re_frame/epoch_attribution_test.clj) pins the
+;; EMIT-SIDE GATE: a render already TAGGED with a trace-disabled frame does
+;; not reach the app's epoch. It hand-builds that tag, so it stays green if
+;; the provider moves back inside the shell body — the tag is exactly what
+;; that regression changes. Nothing pinned the MOUNT SITE. This test does,
+;; and it asserts on the epoch record's CONTENTS.
+;;
+;; HOW IT DRIVES THE REAL MACHINERY. Node-test has no jsdom, so there is no
+;; React commit to observe; the suite's `mk-render-stub` captures the hiccup
+;; `mount-shell-into!` hands to the substrate. This test reads the frame
+;; scope out of THAT REAL TREE (modelling `re-frame.views.provider/
+;; current-frame` tier 2 — closest enclosing frame boundary), then emits the
+;; shell's `:rf.view/rendered` through the REAL `re-frame.trace/emit!` under
+;; the frame the tree resolves to, and reads the app frame's epoch back
+;; through the REAL `rf/epoch-history`. Only the React commit is modelled;
+;; the gate, the back-fill and the epoch projection are the shipping code.
+
+(defn- ei-emit-render!
+  "Emit a `:rf.view/rendered` at React-COMMIT timing — post-settle (empty
+  buffer), tags carrying the render-key and the `:frame` the view resolved
+  to. Mirrors the POST-render emit the `:renders` projection sources from."
+  [frame-id view-id]
+  (rf.trace/emit! :rf.view :rf.view/rendered
+                  {:rf.view/render-key [view-id 0]
+                   :frame              frame-id}))
+
+(defn- ei-epoch-by-id
+  "Re-read the frame's ring (back-fills mutate in place) and pull the record
+  matching `record`'s `:epoch-id`."
+  [frame-id record]
+  (some #(when (= (:epoch-id record) (:epoch-id %)) %)
+        (rf/epoch-history frame-id)))
+
+(defn- ei-rendered-view-ids
+  "The view-ids present in an epoch record's `:renders` projection."
+  [record]
+  (->> (:renders record) (map (comp first :render-key)) set))
+
+(defn- ei-shell-scope
+  "Resolve, from the hiccup tree `mount-shell-into!` handed to the
+  substrate's `render`, the frame `shell-view`'s OWN render trace would
+  carry.
+
+  Models `re-frame.views.provider/current-frame` tier 2: descend the tree
+  tracking the scope each `rf/frame-provider` boundary establishes, and
+  report the scope in force at the `shell/shell-view` head. A nil scope is
+  the rf2-tqlmq fall-through — no enclosing provider, so the shell resolves
+  to whatever frame the HOST PAGE established, i.e. the inspected
+  application's.
+
+  Returns `{:found? bool :scope frame-or-nil}`. `:found?` is the instrument
+  control: a walker that matched nothing would otherwise report a clean nil
+  scope and read as a passing test."
+  [tree]
+  (letfn [(walk [node scope]
+            (when (vector? node)
+              (let [head (first node)]
+                (cond
+                  (identical? head rf/frame-provider)
+                  (let [scope' (:frame (second node))]
+                    (some #(walk % scope') (drop 2 node)))
+
+                  (identical? head shell/shell-view)
+                  {:found? true :scope scope}
+
+                  :else
+                  (some #(walk % scope) (rest node))))))]
+    (or (walk tree nil) {:found? false :scope nil})))
+
+(deftest xray-shell-render-never-lands-in-inspected-app-epoch
+  (testing "rf2-k97c.5 (defect rf2-tqlmq) — mount Xray against an
+            application frame, drive ONE application event, and the app
+            frame's epoch record must carry ZERO renders attributable to
+            Xray's own shell. The mount-site frame-provider wrap is what
+            makes the shell's render resolve to the trace-disabled
+            :rf/xray frame; the frame-no-emit gate then suppresses it."
+    (with-stub-document
+      (fn [_doc]
+        (let [app :test/inspected-app
+              {:keys [render-fn calls]} (mk-render-stub)]
+          ;; The frame-no-emit set is process-sticky (it tracks frame
+          ;; registrations, which the runtime reset does not unwind).
+          (rf.trace/clear-frame-no-emit!)
+          (rf/make-frame {:id app})
+          (rf/reg-event :app/inc (fn [{:keys [db]} _]
+                                   {:db (update db :n (fnil inc 0))}))
+
+          ;; Mount Xray. `open!` runs `ensure-xray-frame!`, registering the
+          ;; shell frame with `:rf.trace/frame-no-emit? true`.
+          (with-redefs [rf.substrate.adapter/render render-fn]
+            (mount/open!))
+
+          (is (= 1 (count @calls))
+              "precondition: the mount rendered exactly once")
+          (is (true? (rf.trace/frame-trace-disabled? shell/default-frame-id))
+              "precondition: ensure-xray-frame! registered the shell frame
+               trace-disabled")
+          (is (false? (boolean (rf.trace/frame-trace-disabled? app)))
+              "precondition: the INSPECTED app frame is NOT trace-disabled —
+               its own renders are still recorded")
+
+          ;; ONE application event on the app frame, producing the epoch
+          ;; whose evidence must stay clean.
+          (rf/dispatch-sync [:app/inc] {:frame app})
+
+          (let [epoch (last (rf/epoch-history app))]
+            (is (some? epoch)
+                "instrument control: the app frame recorded an epoch for its
+                 event — a later empty :renders means suppression, not an
+                 absent epoch")
+            (is (= :app/inc (:event-id epoch))
+                "the epoch under inspection is the application's own event")
+
+            (let [{:keys [found? scope]} (ei-shell-scope (:tree (first @calls)))
+                  ;; nil scope = the rf2-tqlmq fall-through: no enclosing
+                  ;; provider, so the shell renders in the host page's frame.
+                  shell-frame (or scope app)]
+              (is (true? found?)
+                  "instrument control: the walker LOCATED shell-view in the
+                   mount tree — the assertions below mean absence, not a
+                   walker that matched nothing")
+              (is (= shell/default-frame-id scope)
+                  "the mount site wraps shell-view in the shell's own
+                   frame-provider, so its render resolves to the
+                   trace-disabled Xray frame — NOT by fall-through to the
+                   inspected app (rf2-tqlmq)")
+
+              ;; Replay the shell's own render at React-commit timing,
+              ;; through the real trace machinery, under the frame the real
+              ;; mount tree resolves to.
+              (ei-emit-render! shell-frame :shell-view)
+
+              (let [after (ei-epoch-by-id app epoch)]
+                (is (not (contains? (ei-rendered-view-ids after) :shell-view))
+                    "Xray's own shell-view render did NOT land in the
+                     inspected app frame's epoch :renders")
+                (is (empty? (ei-rendered-view-ids after))
+                    "ZERO renders attributable to Xray in the inspected app
+                     frame's epoch record — the observer does not appear on
+                     the observed tape"))
+
+              ;; POSITIVE CONTROL — the same emit path, tagged with the APP
+              ;; frame, DOES back-fill into this very epoch. Without this the
+              ;; zero above could be a dead instrument rather than the gate.
+              (ei-emit-render! app :app/counter-view)
+              (let [after (ei-epoch-by-id app epoch)]
+                (is (contains? (ei-rendered-view-ids after) :app/counter-view)
+                    "control: a genuine APP-frame render DOES back-fill into
+                     the same epoch — so the emptiness above is the
+                     frame-no-emit gate suppressing Xray, not a broken
+                     read")))))))))
