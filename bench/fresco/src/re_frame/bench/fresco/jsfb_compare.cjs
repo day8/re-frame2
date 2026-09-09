@@ -78,6 +78,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const archive = require('./data_archive.cjs');
 
 const AGREEMENT_BAND = 0.15;
 
@@ -148,7 +149,7 @@ function readTheirs(dir) {
     if (!f.endsWith('.json')) continue;
     let j;
     try {
-      j = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+      j = archive.readRecord(path.join(dir, f));
     } catch (e) {
       absent.push(`a result file in ${dir} will not parse: ${f} — ${e.message}`);
       continue;

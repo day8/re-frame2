@@ -93,6 +93,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const archive = require('./data_archive.cjs');
 
 // The rider's band, in BYTES, verbatim from `rf2-rs8q6`'s record: "the count in
 // the 700-800 B band is ZERO [controls], against 112 of 2,322 arm legs". It is
@@ -1310,7 +1311,7 @@ function corpus() {
 }
 
 function load(p) {
-  const data = JSON.parse(fs.readFileSync(p, 'utf8'));
+  const data = archive.readRecord(p);
   return { id: path.relative(DATA, p).replace(/\\/g, '/'), data };
 }
 

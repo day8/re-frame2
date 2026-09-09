@@ -203,6 +203,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const archive = require('./data_archive.cjs');
 
 // The pinned windows and the bound. Exported so a caller can re-score the
 // corpus under a different definition without editing this file — the record
@@ -394,7 +395,7 @@ function scoreCorpus({
     const dir = path.join(dataDir, corpus);
     if (!fs.existsSync(dir)) continue;
     for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort()) {
-      const record = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'));
+      const record = archive.readRecord(path.join(dir, file));
       const v = adjudicate(record, { bound, expected });
       rows.push({
         corpus,
@@ -657,7 +658,7 @@ function main(argv) {
   }
   let bad = 0;
   for (const f of files) {
-    const v = adjudicate(JSON.parse(fs.readFileSync(f, 'utf8')));
+    const v = adjudicate(archive.readRecord(f));
     console.log(format(v, path.basename(f)));
     if (!v.ok) bad++;
   }

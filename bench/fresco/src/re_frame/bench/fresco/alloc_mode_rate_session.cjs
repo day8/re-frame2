@@ -196,7 +196,7 @@ function runsOf(dir) {
   const out = [];
   const skipped = [];
   for (const f of fs.readdirSync(full).filter((x) => x.endsWith('.json')).sort()) {
-    const raw = JSON.parse(fs.readFileSync(path.join(full, f), 'utf8'));
+    const raw = archive.readRecord(path.join(full, f));
     const verdict = admit(raw);
     // EVERY exclusion is named and carries its reason. None is silently
     // dropped and none is counted low — a dataset with no reading is not a
@@ -448,7 +448,7 @@ function selfTest() {
   // THE TWO REFUSED RUNS READ BELOW THE BAR, which is exactly why the old
   // reader counted them low and why nothing but the control catches them.
   ok('corpus: both refused runs would have read LOW, so only the control excludes them', (() => {
-    const raw = (d, f) => JSON.parse(fs.readFileSync(path.join(DATA, d, f), 'utf8'));
+    const raw = (d, f) => archive.readRecord(path.join(DATA, d, f));
     const check = (d, f) => {
       const r = raw(d, f);
       const v = admit(r);

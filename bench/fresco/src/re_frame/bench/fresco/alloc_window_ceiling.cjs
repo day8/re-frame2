@@ -159,7 +159,7 @@ const pc = (v) => v.toFixed(1) + '%';
 // check. A dataset with NO `controlVerdict` at all is refused for the same
 // reason: absence is not a pass.
 const load = (name) => {
-  const a = JSON.parse(fs.readFileSync(path.join(DATA, DIR, name + '.json'), 'utf8')).alloc;
+  const a = archive.readRecord(path.join(DATA, DIR, name + '.json')).alloc;
   const v = a.controlVerdict;
   if (!v || v.ok !== true) {
     throw new Error(

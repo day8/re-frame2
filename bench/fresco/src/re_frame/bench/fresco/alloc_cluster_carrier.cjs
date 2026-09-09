@@ -1627,7 +1627,7 @@ function corpus() {
 }
 
 function load(p) {
-  const data = JSON.parse(fs.readFileSync(p, 'utf8'));
+  const data = archive.readRecord(p);
   return { id: path.relative(DATA, p).replace(/\\/g, '/').replace(/\.json$/, ''), data };
 }
 

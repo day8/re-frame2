@@ -247,11 +247,11 @@
 
 'use strict';
 
-const fs = require('node:fs');
 
 // ONE SEAT FOR THE GATE'S ARITHMETIC (rf2-8a746) — see `clock_run.cjs`, which
 // requires the same module. Two copies would be two adjudicators.
 const checkstd = require('./clock_check_standard.cjs');
+const archive = require('./data_archive.cjs');
 
 const fmt = (x, n = 4) => (Number.isFinite(x) ? x.toFixed(n) : 'n/a');
 const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
@@ -1165,7 +1165,7 @@ function main(argv) {
     return 1;
   }
 
-  const datasets = files.map((f) => ({ file: f, data: JSON.parse(fs.readFileSync(f, 'utf8')) }));
+  const datasets = files.map((f) => ({ file: f, data: archive.readRecord(f) }));
 
   // Row ids in the order the first dataset produced them, so the report reads
   // in run order rather than in whatever order Object.keys happens to give.

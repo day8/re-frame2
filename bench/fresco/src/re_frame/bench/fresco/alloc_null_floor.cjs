@@ -221,7 +221,7 @@ function allRecords() {
       if (!f.endsWith('.json')) continue;
       let doc;
       try {
-        doc = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+        doc = archive.readRecord(path.join(dir, f));
       } catch {
         continue;
       }
@@ -386,7 +386,7 @@ function corpus() {
   const out = [];
   for (const w of WINDOWS) {
     w.runs.forEach((rel, i) => {
-      const doc = JSON.parse(fs.readFileSync(path.join(DATA, rel), 'utf8'));
+      const doc = archive.readRecord(path.join(DATA, rel));
       const a = doc.alloc;
       const recorded = ((doc.box || {}).session || {}).sessionStartedAt || null;
       out.push({
