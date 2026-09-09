@@ -1530,18 +1530,24 @@ reported that nothing proposed two branches whose commits predate that window en
 over the wrong range reads exactly like a zero over the right one. The sibling trap at least leaves a
 wrong row on screen; this leaves nothing at all. **So prefer an instrument that takes the identity as
 INPUT** — most forges accept the head reference as a query parameter, which asks the whole set at once
-rather than a recent window. **But that widens the window rather than removing it.** Such a query still
-returns at most its own result limit, which is a few dozen by default and does not grow because you
-named a head. So pass an explicit limit, and read an empty result as INCONCLUSIVE rather than as proof
-that nothing ever proposed the branch — a matching head is positive evidence, while an empty bounded
-list is the same reassuring zero this paragraph opened by warning about, and reading it as absence is
-what authorises the deletion. One branch name here carried five changes, because worker branch names
-are reused, so a default window is not obviously generous once a name has history. **Exercise it in
-both directions before trusting it**, because a query that silently matches nothing returns the
-reassuring answer to every question. Measured here: the equality query returned the one merged change
-for a branch that had one, and returned NOTHING for a prefix of that same branch name — where the
-search form returned SIX changes for that prefix and ranked the full branch's own first, which is the
-paragraph above reproduced at this tip.
+rather than a recent window. **That filtering happens at the source, BEFORE any paging, which makes it
+a different instrument rather than a wider window.** Its limit therefore caps how many MATCHES come
+back, not how far back it looked: a capped query returns the newest matches rather than none, so it
+cannot turn a branch that was proposed into one that reads as never proposed. An empty answer here is
+a real absence of matches, unlike the zero above, which was an artefact of the range — and a truncated
+answer usually announces itself, reporting a total or a further page beside the rows it hands you.
+**The limit still bounds COMPLETENESS, so pass an explicit one.** An at-limit result may omit older
+changes for a reused branch name — one name here carried five — so enumerate or paginate whenever
+their states or identities matter and not merely their existence. **An empty answer is still not on
+its own a licence to delete**, but for reasons that have nothing to do with paging: it settles that
+THIS query matched nothing, not that you asked the right repository, the right states and the right
+head spelling, nor that your credentials can see every change that exists, nor that nobody else owns
+the branch. Settle those separately, and let the asymmetry above govern — mistaking a record for
+residue destroys it. **Exercise it in both directions before trusting it**, because a query that
+silently matches nothing returns the reassuring answer to every question. Measured here: the
+equality query returned the one merged change for a branch that had one, and returned NOTHING for a
+prefix of that same branch name — where the search form returned SIX changes for that prefix and
+ranked the full branch's own first, which is the paragraph above reproduced at this tip.
 
 Then prune stale remote-tracking refs and clear any stray stashes.
 

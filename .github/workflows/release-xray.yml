@@ -57,10 +57,12 @@
 # of the other nine — so an `xray-v*` tag is only shippable once a
 # framework `v*` tag at the SAME lockstep VERSION has published them.
 # That is the ordinary tools-tier ordering docs/release-process.md
-# §The tools tier states, and `clojure -P` resolving the rewritten graph
-# from Clojars is what enforces it: a coordinate that has not published
-# yet fails the job at classpath resolution, before `clein deploy` can
-# touch Clojars.
+# §The tools tier states. This workflow has NO `clojure -P` step of its
+# own; what enforces the ordering here is the `clojure -M:clein pom` in
+# .github/scripts/preflight-xray-package.sh, which resolves the rewritten
+# graph from Clojars as a side effect of building the pom it then
+# inspects. A coordinate that has not published yet fails there at
+# classpath resolution, before `clein deploy` can touch Clojars.
 #
 # Do not swap this roster for .github/scripts/rewrite-in-repo-coords.sh,
 # which rewrites EVERY declared coordinate without asking whether the
