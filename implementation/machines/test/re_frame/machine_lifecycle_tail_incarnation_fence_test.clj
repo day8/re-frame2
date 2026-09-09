@@ -255,7 +255,19 @@
   installed plain handler squatting at an actor address is precisely the case
   the cleanup step exists for, so it is also the faithful subject for its fence.
   `finalize-machine` takes the child's spec as an argument, so nothing else in
-  this fixture needs the child registered."
+  this fixture needs the child registered.
+
+  rf2-xjee (audit residual) — THE PARENT IS GIVEN A LIVE SNAPSHOT, not merely a
+  `reg-machine` DEFINITION. Framework-owned failure delivery is now gated on
+  the parent having a live INSTANCE (`spawn-error/parent-instance-live?`): a
+  definition alone resolves the `:spawn` map and its `:on-error` but answers
+  nobody home, so a definition-only parent makes the `:on-error` dispatch
+  STALE-suppressed before this fence is ever consulted. That would have broken
+  both tests below in opposite directions — the live-owner control asserts the
+  dispatch DOES fire, and the loss test's mutation tooth depends on the
+  dispatch being one the fence, and only the fence, prevents. Seeding the
+  parent's snapshot restores the subject each fence was written against; the
+  fence assertions themselves are unchanged."
   [frame-a parent-id child-id on-cleared]
   (rf.machines.spawn-order/reset-all!)
   (let [invoke-id [:waiting]]
@@ -263,8 +275,11 @@
     (rf.registrar/register! :event child-id {:fn (fn [db _] db) :rf/provenance :A})
     (rf/make-frame {:id frame-a})
     (rf.frame/swap-runtime-db!
-      frame-a (fn [rt] (assoc-in rt [:rf.runtime/machines :snapshots child-id]
-                                 (erroring-child-snapshot parent-id invoke-id))))
+      frame-a (fn [rt] (-> rt
+                           (assoc-in [:rf.runtime/machines :snapshots child-id]
+                                     (erroring-child-snapshot parent-id invoke-id))
+                           (assoc-in [:rf.runtime/machines :snapshots parent-id]
+                                     {:state :waiting :data {}}))))
     (let [token-a        (rf.frame/frame-incarnation-token frame-a)
           dispatches     (atom [])
           orig-dispatch! (rf.late-bind/get-fn :router/dispatch!)]
