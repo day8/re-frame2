@@ -61,8 +61,14 @@ wrong answer.
   repo root and read it back. `bd recall bd-write-from-wrong-cwd-silently-discarded`
 - **`bd export` silently drops every memory without `--include-memories`.**
   `bd recall bd-export-drops-memories-without-flag`
-- **`bd gc`'s decay phase deletes closed beads**, whose close reasons are normative records
-  here, and reclaims no space anyway. `bd recall bd-gc-decay-silently-deletes-closed-beads`
+- **Routine bead decay is OFF, permanently** — it deletes closed beads, whose close reasons
+  are normative records here, and reclaims no space anyway. The ONLY sanctioned invocation:
+
+  ```
+  bd gc --skip-decay --force      # NEVER pass --older-than; routine decay is OFF (rf2-nj0c)
+  ```
+
+  `bd recall bd-gc-decay-silently-deletes-closed-beads`
 - **A 502 from `gh pr merge` can mean the merge SUCCEEDED and only its response was lost** —
   wait a tick, don't retry. `bd recall 502-on-merge-means-it-may-have-happened`
 
