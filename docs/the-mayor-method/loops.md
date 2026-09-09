@@ -276,6 +276,26 @@ pushing — is on every brief; this is the mayor-side half, for the worker that 
 
 Merge every green change **regardless of author**, including the operator's own.
 
+**GREEN AND MERGEABLE ARE SEPARATE FACTS, and the five clauses only ever measured the
+first.** A fully green rollup can still conflict with the trunk: the clauses read the
+CHANGE's own checks, and not one of them looks at what LANDED while those checks were
+running. So ask the trunk directly before merging — `git merge-tree --write-tree <trunk>
+<head>` writes a tree revision and exits zero when the merge is clean.
+
+**Its failure exit is TWO different verdicts, and the status cannot tell them apart.** A
+real conflict and a head revision your checkout has never heard of both come back
+non-zero. **Read the message, not the code.** *not something we can merge* is the second
+case — the object is simply missing locally, which is routine whenever the change was
+rebased through the host's own update-branch control rather than by a worker's push,
+because no worktree here ever fetched the commit that created. Fetch that head and ask
+again; the same command then answers honestly. Measured here: a change reported
+unmergeable on that message alone, and after its head was fetched the identical command
+returned a tree revision and the change merged cleanly. Reading the first answer as a
+conflict would have dispatched a rebase worker at a change that needed nothing — which is
+the expensive direction, because the worker finds nothing wrong and says so.
+
+Only a genuine conflict warrants that dispatch.
+
 **Prefer server-side head-branch deletion over a client-side delete flag.** A branch still
 checked out in a worktree cannot be deleted locally, and clients typically abandon the *remote*
 deletion along with the local one — so the flag orphans a remote branch on every merge whose
