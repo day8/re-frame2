@@ -969,7 +969,7 @@ These rules are pinned by `parity_cljs_test.cljs` against `react-dom/server` (nu
 
 | class | `true` | `false` | non-boolean value | members |
 |---|---|---|---|---|
-| **presence** | bare name (HTML5 short form) | omitted | bare name when the value is **JS-truthy** (react-dom collapses `{:disabled "yes"}` to `disabled=""`); omitted when it is JS-falsey — see the truthiness note below | `allowfullscreen` `async` `autofocus` `autoplay` `checked` `controls` `default` `defer` `disabled` `disablepictureinpicture` `disableremoteplayback` `formnovalidate` `hidden` `inert` `itemscope` `loop` `multiple` `muted` `nomodule` `novalidate` `open` `playsinline` `readonly` `required` `reversed` `scoped` `seamless` `selected` |
+| **presence** | bare name (HTML5 short form) | omitted | bare name when the value is **JS-truthy** (react-dom collapses `{:disabled "yes"}` to `disabled=""`); omitted when it is JS-falsey — see the truthiness note below | `allowfullscreen` `async` `autofocus` `autoplay` `checked` `controls` `credentialless` `default` `defer` `disabled` `disablepictureinpicture` `disableremoteplayback` `formnovalidate` `hidden` `inert` `itemscope` `loop` `multiple` `muted` `nomodule` `novalidate` `open` `playsinline` `readonly` `required` `reversed` `scoped` `seamless` `selected` |
 | **stringifying** | `="true"` | `="false"` | value verbatim | `aria-*` and `data-*` (prefix rule), `contentEditable` `draggable` `spellCheck` `autoReverse` `externalResourcesRequired` `focusable` `preserveAlpha` `value` |
 | **overloaded** | bare name | omitted | value verbatim | `download` `capture` |
 

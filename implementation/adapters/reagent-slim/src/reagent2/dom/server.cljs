@@ -174,7 +174,11 @@
     ;; before it was added (the `ismap` row in spec/004B is the
     ;; cautionary case: react-dom carries no such name at all).
     "inert" "nomodule" "scoped" "seamless"
-    "disablepictureinpicture" "disableremoteplayback"})
+    "disablepictureinpicture" "disableremoteplayback"
+    ;; rf2-4ale — react-dom 19.3.0 added `credentialless` (credentialless
+    ;; iframes). Re-probed against the installed package before adding it:
+    ;; presence-class, byte-identical in shape to `allowfullscreen`.
+    "credentialless"})
 
 (def ^:private stringifying-attributes
   "STRINGIFYING class: `true` emits `=\"true\"` and `false` emits
